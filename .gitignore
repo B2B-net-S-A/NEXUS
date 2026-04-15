@@ -53,3 +53,8 @@ rad.json
 *.g.xlf
 *.flf
 TestResults.xml
+
+# Local state — never commit
+.local-state/
+*.env.backup
+
