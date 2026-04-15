@@ -1,0 +1,79 @@
+Coolify first-deploy attempt — FAILED
+Project: Nexus ATS / production / nexus
+Started: 2026-04-15 13:59:52 UTC (Coolify timezone)
+Finished: 2026-04-15 14:02:11 UTC
+Duration: ~2 min 19 sec (failed during container start, NOT during build)
+Deployment URL: http://91.99.199.112:8000/project/sodmu9k8j0s5v0ifmjg7dgjc/environment/b5kqv7s2diyg5ahd7ppdqt4t/application/ocgkwcbovpve9wvf9smxl0kx/deployment/mt6sevq4mbtosimljkvkdnkw
+Commit deployed: 129f3e5303ccfa4598aa188da458fae31978a4d0 (main)
+
+WHAT WORKED
+- Git pull via deploy key: OK
+- 23 build ARGs added to backend Dockerfile (env vars marked Buildtime)
+- 69 build ARGs added to frontend Dockerfile across 3 stages (NEXT_PUBLIC_API_URL gets baked in at build time as required)
+- Docker Compose detected; postgres + qdrant images pulled successfully
+- Volumes created: uploads-data, postgres-data, qdrant-data
+- Containers created: postgres, qdrant, backend, frontend
+- qdrant container Started OK
+- postgres container Started + Healthy
+- backend container CREATED but FAILED TO START
+
+ROOT CAUSE — Port collision
+The backend service in docker-compose.yml publishes host port 8000.
+Coolify itself runs on host port 8000 (http://91.99.199.112:8000), so:
+
+  Error response from daemon: failed to set up container networking:
+  driver failed programming external connectivity on endpoint
+  backend-ocgkwcbovpve9wvf9smxl0kx-140008825911:
+  Bind for 0.0.0.0:8000 failed: port is already allocated
+
+  exit status 1
+  Deployment failed: docker compose ... up -d
+
+LAST 50 LINES OF FAILURE LOG
+2026-Apr-15 14:02:04.866444  bfb0a9f61bdf Pull complete
+2026-Apr-15 14:02:04.866444  postgres Pulled
+2026-Apr-15 14:02:04.902718  Volume "ocgkwcbovpve9wvf9smxl0kx_uploads-data" Creating
+2026-Apr-15 14:02:04.912080  Volume "ocgkwcbovpve9wvf9smxl0kx_uploads-data" Created
+2026-Apr-15 14:02:04.912080  Volume "ocgkwcbovpve9wvf9smxl0kx_postgres-data" Creating
+2026-Apr-15 14:02:04.912080  Volume "ocgkwcbovpve9wvf9smxl0kx_postgres-data" Created
+2026-Apr-15 14:02:04.912080  Volume "ocgkwcbovpve9wvf9smxl0kx_qdrant-data" Creating
+2026-Apr-15 14:02:04.921075  Volume "ocgkwcbovpve9wvf9smxl0kx_qdrant-data" Created
+2026-Apr-15 14:02:04.921075  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Creating
+2026-Apr-15 14:02:04.921075  Container qdrant-ocgkwcbovpve9wvf9smxl0kx-140008816005 Creating
+2026-Apr-15 14:02:05.086076  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Created
+2026-Apr-15 14:02:05.096732  Container qdrant-ocgkwcbovpve9wvf9smxl0kx-140008816005 Created
+2026-Apr-15 14:02:05.096732  Container backend-ocgkwcbovpve9wvf9smxl0kx-140008825911 Creating
+2026-Apr-15 14:02:05.130210  Container backend-ocgkwcbovpve9wvf9smxl0kx-140008825911 Created
+2026-Apr-15 14:02:05.138757  Container frontend-ocgkwcbovpve9wvf9smxl0kx-140008836573 Creating
+2026-Apr-15 14:02:05.173353  Container frontend-ocgkwcbovpve9wvf9smxl0kx-140008836573 Created
+2026-Apr-15 14:02:05.197762  Container qdrant-ocgkwcbovpve9wvf9smxl0kx-140008816005 Starting
+2026-Apr-15 14:02:05.197762  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Starting
+2026-Apr-15 14:02:05.404141  Container qdrant-ocgkwcbovpve9wvf9smxl0kx-140008816005 Started
+2026-Apr-15 14:02:05.435244  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Started
+2026-Apr-15 14:02:05.435244  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Waiting
+2026-Apr-15 14:02:10.935922  Container postgres-ocgkwcbovpve9wvf9smxl0kx-140008800486 Healthy
+2026-Apr-15 14:02:10.935922  Container backend-ocgkwcbovpve9wvf9smxl0kx-140008825911 Starting
+2026-Apr-15 14:02:11.139335  Error response from daemon: failed to set up container networking:
+                             driver failed programming external connectivity on endpoint
+                             backend-ocgkwcbovpve9wvf9smxl0kx-140008825911
+                             (245fcb37f5babb921ca9a537cff7e104bbacbb27e31e3b8d32521fb4fd62fa5d):
+                             Bind for 0.0.0.0:8000 failed: port is already allocated
+2026-Apr-15 14:02:11.150130  exit status 1
+2026-Apr-15 14:02:11.194493  ========================================
+2026-Apr-15 14:02:11.207177  Deployment failed
+2026-Apr-15 14:02:11.620625  Gracefully shutting down build container
+
+LIKELY FIX (for orchestrator to consider)
+The compose file likely has explicit `ports: ["8000:8000"]` (and possibly "3000:3000",
+"5432:5432", "6333:6333") which conflicts with Coolify's own port and exposes db/qdrant
+publicly. With Coolify + Traefik, services should NOT publish ports to the host —
+Traefik routes via the internal docker network using the domain bindings we just set
+(api.nexus.dynaminds.pl -> backend:8000, nexus.dynaminds.pl -> frontend:3000).
+
+Suggested compose change: remove `ports:` blocks from backend, frontend, postgres,
+qdrant. Keep only `expose:` (or nothing) — Coolify auto-derives expose from domain
+config. After patching, redeploy.
+
+Note that Coolify can ALSO override the compose at runtime via "Show Deployable
+Compose" (button visible on General page) — but the source-of-truth is the repo's
+docker-compose.yml at /docker-compose.yml.
