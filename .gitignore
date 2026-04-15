@@ -1,0 +1,20 @@
+.next/
+node_modules/
+__pycache__/
+*.pyc
+.env
+venv/
+uploads/
+
+### AL ###
+# Template for AL projects for Dynamics 365 Business Central
+.vscode/
+.alcache/
+.alpackages/
+.snapshots/
+.output/
+*.app
+rad.json
+*.g.xlf
+*.flf
+TestResults.xml

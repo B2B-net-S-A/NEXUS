@@ -1,0 +1,1152 @@
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
+import { Sidebar } from "@/components/Sidebar";
+import { GlobalSearchBar } from "@/components/GlobalSearchBar";
+import { OpenTabs } from "@/components/OpenTabs";
+import { NotificationsDropdown } from "@/components/NotificationsDropdown";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Plus, UserPlus, Briefcase, Building2, CalendarPlus,
+  ChevronRight, X, Loader2, Menu, Sparkles,
+} from "lucide-react";
+import api, { aiWriterApi } from "@/lib/api";
+import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
+import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
+
+// ── Breadcrumb helper ────────────────────────────────────────────────────────
+
+const SEGMENT_LABELS: Record<string, string> = {
+  "": "Dashboard",
+  candidates: "Kandydaci",
+  jobs: "Oferty pracy",
+  clients: "Klienci",
+  contacts: "Kontakty",
+  sales: "Sprzedaż",
+  contracts: "Kontrakty",
+  talents: "Talenty",
+  analytics: "Analityka",
+  reports: "Raporty",
+  calendar: "Kalendarz",
+  settings: "Ustawienia",
+  templates: "Szablony email",
+  admin: "Admin",
+  profile: "Profil",
+};
+
+// Maps entity type -> API endpoint to fetch name
+const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
+  candidates: async (id) => {
+    const r = await api.get(`/api/candidates/${id}`);
+    return `${r.data.name} ${r.data.lastname}`.trim();
+  },
+  jobs: async (id) => {
+    const r = await api.get(`/api/jobs/${id}`);
+    return r.data.title;
+  },
+  clients: async (id) => {
+    const r = await api.get(`/api/clients/${id}`);
+    return r.data.name;
+  },
+};
+
+function isNumeric(s: string) {
+  return /^\d+$/.test(s);
+}
+
+function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
+  const fetcher = ENTITY_NAME_FETCHERS[entityType];
+  const { data: label, isLoading } = useQuery({
+    queryKey: ["breadcrumb", entityType, id],
+    queryFn: () => fetcher(id),
+    enabled: !!fetcher,
+    staleTime: 60_000,
+  });
+
+  if (!fetcher) return <span>{id}</span>;
+  if (isLoading) return <span className="opacity-50">…</span>;
+  return <span>{label ?? id}</span>;
+}
+
+function Breadcrumb() {
+  const pathname = usePathname();
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) {
+    return <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Dashboard</span>;
+  }
+
+  const crumbs: { label: React.ReactNode; href: string }[] = [
+    { label: "Dashboard", href: "/" },
+  ];
+
+  let path = "";
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    path += "/" + seg;
+    const prevSeg = segments[i - 1];
+
+    if (isNumeric(seg) && prevSeg && ENTITY_NAME_FETCHERS[prevSeg]) {
+      // This is an ID segment — show dynamic entity name
+      crumbs.push({
+        label: <DynamicLabel entityType={prevSeg} id={seg} />,
+        href: path,
+      });
+    } else if (!isNumeric(seg)) {
+      const label = SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
+      crumbs.push({ label, href: path });
+    }
+  }
+
+  return (
+    <nav className="flex items-center gap-1 text-sm" aria-label="Breadcrumb">
+      {crumbs.map((c, i) => (
+        <span key={c.href} className="flex items-center gap-1">
+          {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />}
+          {i < crumbs.length - 1 ? (
+            <Link
+              href={c.href}
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            >
+              {c.label}
+            </Link>
+          ) : (
+            <span className="text-gray-900 dark:text-gray-100 font-medium">
+              {c.label}
+            </span>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+function Toast({ message, type, onClose }: { message: string; type: "success" | "error"; onClose: () => void }) {
+  return (
+    <div className={`fixed bottom-6 right-6 z-[200] flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl text-white text-sm font-medium ${type === "success" ? "bg-green-600" : "bg-red-600"}`}>
+      {message}
+      <button onClick={onClose} className="ml-1 opacity-70 hover:opacity-100">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+// ── Generic Modal Shell ────────────────────────────────────────────────────────
+
+function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto">
+      <div className={`bg-white dark:bg-gray-800 rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{title}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FieldGroup({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className="h-10 w-full px-3 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+    />
+  );
+}
+
+function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y bg-white dark:bg-gray-700 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+    />
+  );
+}
+
+function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  return (
+    <select
+      {...props}
+      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+    >
+      {children}
+    </select>
+  );
+}
+
+function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: string }) {
+  return (
+    <button
+      type="submit"
+      disabled={saving}
+      aria-label={label}
+      className="flex items-center gap-2 h-10 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+    >
+      {saving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+      {label}
+    </button>
+  );
+}
+
+function ErrorBanner({ error }: { error: string }) {
+  return <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
+}
+
+// ── Modal: Dodaj / Edytuj kandydata ───────────────────────────────────────────
+
+interface CandidateFormData {
+  name: string;
+  lastname: string;
+  email: string;
+  phone: string;
+  location: string;
+  source: string;
+  linkedin: string;
+  salary_expectation: string;
+  salary_currency: string;
+  availability_date: string;
+  notice_period: string;
+  status: string;
+  tags: string;
+  notes: string;
+}
+
+const EMPTY_CANDIDATE: CandidateFormData = {
+  name: "", lastname: "", email: "", phone: "", location: "",
+  source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
+  availability_date: "", notice_period: "", status: "active", tags: "", notes: "",
+};
+
+function candidateToForm(c: any): CandidateFormData {
+  return {
+    name: c.name ?? "",
+    lastname: c.lastname ?? "",
+    email: c.email ?? "",
+    phone: c.phone ?? "",
+    location: c.location ?? "",
+    source: c.source ?? "manual",
+    linkedin: c.linkedin ?? "",
+    salary_expectation: c.salary_expectation ? String(c.salary_expectation) : "",
+    salary_currency: c.salary_currency ?? "PLN",
+    availability_date: c.availability_date ? c.availability_date.slice(0, 10) : "",
+    notice_period: c.notice_period != null ? String(c.notice_period) : "",
+    status: c.status ?? "active",
+    tags: Array.isArray(c.tags) ? c.tags.join(", ") : (c.tags ?? ""),
+    notes: "",
+  };
+}
+
+function CandidateFormFields({ form, onChange }: { form: CandidateFormData; onChange: (k: keyof CandidateFormData, v: string) => void }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Imię" required>
+          <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Jan" />
+        </FieldGroup>
+        <FieldGroup label="Nazwisko" required>
+          <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
+        </FieldGroup>
+        <FieldGroup label="Email">
+          <Input type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
+        </FieldGroup>
+        <FieldGroup label="Telefon">
+          <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
+        </FieldGroup>
+        <FieldGroup label="Lokalizacja">
+          <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="Warszawa" />
+        </FieldGroup>
+        <FieldGroup label="Źródło">
+          <Select value={form.source} onChange={e => onChange("source", e.target.value)}>
+            <option value="manual">Manualny</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="pracuj">Pracuj.pl</option>
+            <option value="jjit">JustJoin.it</option>
+            <option value="referral">Polecenie</option>
+            <option value="database">Baza ATS</option>
+          </Select>
+        </FieldGroup>
+      </div>
+      <FieldGroup label="LinkedIn URL">
+        <Input value={form.linkedin} onChange={e => onChange("linkedin", e.target.value)} placeholder="https://linkedin.com/in/..." />
+      </FieldGroup>
+      <div className="grid grid-cols-3 gap-3">
+        <FieldGroup label="Oczekiwania finansowe">
+          <Input type="number" value={form.salary_expectation} onChange={e => onChange("salary_expectation", e.target.value)} placeholder="20000" />
+        </FieldGroup>
+        <FieldGroup label="Waluta">
+          <Select value={form.salary_currency} onChange={e => onChange("salary_currency", e.target.value)}>
+            <option value="PLN">PLN</option>
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+          </Select>
+        </FieldGroup>
+        <FieldGroup label="Okres wypowiedzenia (dni)">
+          <Input type="number" value={form.notice_period} onChange={e => onChange("notice_period", e.target.value)} placeholder="30" />
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Dostępność">
+          <Input type="date" value={form.availability_date} onChange={e => onChange("availability_date", e.target.value)} />
+        </FieldGroup>
+        <FieldGroup label="Status">
+          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
+            <option value="active">Aktywny</option>
+            <option value="passive">Pasywny</option>
+            <option value="blacklisted">Zablokowany</option>
+          </Select>
+        </FieldGroup>
+      </div>
+      <FieldGroup label="Tagi (rozdzielone przecinkami)">
+        <Input value={form.tags} onChange={e => onChange("tags", e.target.value)} placeholder="React, TypeScript, Remote..." />
+      </FieldGroup>
+      <FieldGroup label="Notatki">
+        <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
+      </FieldGroup>
+    </>
+  );
+}
+
+export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
+    setSaving(true); setError("");
+    try {
+      const tags = form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+      await api.post("/api/candidates", {
+        name: form.name, lastname: form.lastname,
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        location: form.location || undefined,
+        source: form.source,
+        linkedin: form.linkedin || undefined,
+        salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
+        salary_currency: form.salary_currency,
+        availability_date: form.availability_date || undefined,
+        notice_period: form.notice_period ? Number(form.notice_period) : undefined,
+        status: form.status,
+        tags: tags.length ? tags : undefined,
+      });
+      onSuccess("Kandydat dodany pomyślnie");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Dodaj kandydata" onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {error && <ErrorBanner error={error} />}
+        <CandidateFormFields form={form} onChange={onChange} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Dodaj kandydata" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidate: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
+    setSaving(true); setError("");
+    try {
+      const tags = form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+      await api.patch(`/api/candidates/${candidate.id}`, {
+        name: form.name, lastname: form.lastname,
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        location: form.location || undefined,
+        source: form.source,
+        linkedin: form.linkedin || undefined,
+        salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
+        salary_currency: form.salary_currency,
+        availability_date: form.availability_date || undefined,
+        notice_period: form.notice_period ? Number(form.notice_period) : undefined,
+        status: form.status,
+        tags: tags.length ? tags : undefined,
+      });
+      onSuccess("Kandydat zaktualizowany");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={`Edytuj: ${candidate.name} ${candidate.lastname}`} onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {error && <ErrorBanner error={error} />}
+        <CandidateFormFields form={form} onChange={onChange} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Zapisz zmiany" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Modal: Dodaj / Edytuj ofertę ─────────────────────────────────────────────
+
+interface JobFormData {
+  title: string;
+  client_id: string;
+  recruitment_type: string;
+  status: string;
+  description: string;
+  requirements: string;
+  location: string;
+  remote_policy: string;
+  salary_min: string;
+  salary_max: string;
+  priority: string;
+  deadline: string;
+  recruiter_id: string;
+}
+
+const EMPTY_JOB: JobFormData = {
+  title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
+  description: "", requirements: "", location: "", remote_policy: "hybrid",
+  salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
+};
+
+function jobToForm(j: any): JobFormData {
+  return {
+    title: j.title ?? "",
+    client_id: j.client_id ? String(j.client_id) : "",
+    recruitment_type: j.recruitment_type ?? "body_leasing",
+    status: j.status ?? "draft",
+    description: j.description ?? "",
+    requirements: j.requirements ?? "",
+    location: j.location ?? "",
+    remote_policy: j.remote_policy ?? "hybrid",
+    salary_min: j.salary_min ? String(j.salary_min) : "",
+    salary_max: j.salary_max ? String(j.salary_max) : "",
+    priority: j.priority ?? "medium",
+    deadline: j.deadline ? j.deadline.slice(0, 10) : "",
+    recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
+  };
+}
+
+function JobFormFields({ form, onChange, clients, users }: {
+  form: JobFormData;
+  onChange: (k: keyof JobFormData, v: string) => void;
+  clients: any[];
+  users: any[];
+}) {
+  return (
+    <>
+      <FieldGroup label="Tytuł stanowiska" required>
+        <Input value={form.title} onChange={e => onChange("title", e.target.value)} placeholder="Senior Java Developer" />
+      </FieldGroup>
+      <FieldGroup label="Klient">
+        <Select value={form.client_id} onChange={e => onChange("client_id", e.target.value)}>
+          <option value="">— wybierz klienta —</option>
+          {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </FieldGroup>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Typ rekrutacji">
+          <Select value={form.recruitment_type} onChange={e => onChange("recruitment_type", e.target.value)}>
+            <option value="body_leasing">Body Leasing</option>
+            <option value="sales_project">Sprzedaż</option>
+            <option value="tender">Przetarg</option>
+          </Select>
+        </FieldGroup>
+        <FieldGroup label="Status">
+          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
+            <option value="draft">Draft</option>
+            <option value="published">Opublikowana</option>
+            <option value="closed">Zamknięta</option>
+          </Select>
+        </FieldGroup>
+      </div>
+      <FieldGroup label="Opis">
+        <Textarea value={form.description} onChange={e => onChange("description", e.target.value)} rows={3} placeholder="Opis stanowiska..." />
+      </FieldGroup>
+      <FieldGroup label="Wymagania">
+        <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={3} placeholder="Wymagania techniczne..." />
+      </FieldGroup>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Lokalizacja">
+          <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="Warszawa / Remote" />
+        </FieldGroup>
+        <FieldGroup label="Remote policy">
+          <Select value={form.remote_policy} onChange={e => onChange("remote_policy", e.target.value)}>
+            <option value="on_site">On-site</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="remote">Remote</option>
+            <option value="flexible">Elastyczny</option>
+          </Select>
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Widełki min (PLN)">
+          <Input type="number" value={form.salary_min} onChange={e => onChange("salary_min", e.target.value)} placeholder="15000" />
+        </FieldGroup>
+        <FieldGroup label="Widełki max (PLN)">
+          <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="25000" />
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Priorytet">
+          <Select value={form.priority} onChange={e => onChange("priority", e.target.value)}>
+            <option value="low">Niski</option>
+            <option value="medium">Średni</option>
+            <option value="high">Wysoki</option>
+            <option value="critical">Krytyczny</option>
+          </Select>
+        </FieldGroup>
+        <FieldGroup label="Deadline">
+          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
+        </FieldGroup>
+      </div>
+      <FieldGroup label="Rekruter">
+        <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
+          <option value="">— przypisz rekrutera —</option>
+          {users.map((u: any) => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+        </Select>
+      </FieldGroup>
+    </>
+  );
+}
+
+export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<JobFormData>(EMPTY_JOB);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  const { data: clientsData } = useQuery({
+    queryKey: ["clients-list-qa"],
+    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+  });
+  const { data: usersData } = useQuery({
+    queryKey: ["users-list-qa"],
+    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+  });
+  const clients = clientsData?.items ?? [];
+  const users = usersData ?? [];
+
+  const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleGenerateAI = async () => {
+    if (!form.title.trim()) { setAiError("Wpisz najpierw tytuł stanowiska"); return; }
+    setAiGenerating(true);
+    setAiError("");
+    try {
+      const clientName = clients.find((c: any) => String(c.id) === form.client_id)?.name;
+      const skills = form.requirements
+        ? form.requirements.split(/[\n,]/).map(s => s.trim().replace(/^[-•*]/, "").trim()).filter(Boolean)
+        : [];
+      const { data } = await aiWriterApi.generateJob({
+        title: form.title,
+        client: clientName,
+        seniority: form.priority === "urgent" ? "lead" : ["low"].includes(form.priority) ? "junior" : "senior",
+        skills,
+        description_hint: form.description || undefined,
+      });
+      setForm(f => ({
+        ...f,
+        description: data.description + (data.nice_to_have ? `\n\n**Mile widziane:**\n${data.nice_to_have}` : ""),
+        requirements: data.requirements,
+        salary_min: f.salary_min || (data.salary_range_suggestion?.match(/(\d[\d\s]+)/)?.[1]?.replace(/\s/g, "") || ""),
+      }));
+    } catch (e: any) {
+      setAiError(e?.response?.data?.detail || "Błąd generowania AI");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title) { setError("Tytuł jest wymagany"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.post("/api/jobs", {
+        title: form.title,
+        client_id: form.client_id ? Number(form.client_id) : undefined,
+        recruitment_type: form.recruitment_type,
+        status: form.status,
+        description: form.description || undefined,
+        requirements: form.requirements || undefined,
+        location: form.location || undefined,
+        remote_policy: form.remote_policy,
+        salary_min: form.salary_min ? Number(form.salary_min) : undefined,
+        salary_max: form.salary_max ? Number(form.salary_max) : undefined,
+        priority: form.priority,
+        deadline: form.deadline || undefined,
+        recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+      });
+      onSuccess("Oferta dodana pomyślnie");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Dodaj ofertę pracy" onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {error && <ErrorBanner error={error} />}
+        {/* AI Generate button */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleGenerateAI}
+            disabled={aiGenerating || !form.title.trim()}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-gradient-to-r from-blue-600 to-violet-600 text-white rounded-lg hover:from-blue-700 hover:to-violet-700 disabled:opacity-50 transition-all font-medium shadow-sm"
+          >
+            {aiGenerating ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Generuję AI...</>
+            ) : (
+              <><Sparkles className="w-4 h-4" /> ✨ Generuj AI</>
+            )}
+          </button>
+          <span className="text-xs text-gray-400">Wypełni opis i wymagania automatycznie</span>
+        </div>
+        {aiError && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{aiError}</div>}
+        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Dodaj ofertę" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const { data: clientsData } = useQuery({
+    queryKey: ["clients-list-qa"],
+    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+  });
+  const { data: usersData } = useQuery({
+    queryKey: ["users-list-qa"],
+    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+  });
+  const clients = clientsData?.items ?? [];
+  const users = usersData ?? [];
+
+  const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title) { setError("Tytuł jest wymagany"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.patch(`/api/jobs/${job.id}`, {
+        title: form.title,
+        client_id: form.client_id ? Number(form.client_id) : undefined,
+        recruitment_type: form.recruitment_type,
+        status: form.status,
+        description: form.description || undefined,
+        requirements: form.requirements || undefined,
+        location: form.location || undefined,
+        remote_policy: form.remote_policy,
+        salary_min: form.salary_min ? Number(form.salary_min) : undefined,
+        salary_max: form.salary_max ? Number(form.salary_max) : undefined,
+        priority: form.priority,
+        deadline: form.deadline || undefined,
+        recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+      });
+      onSuccess("Oferta zaktualizowana");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {error && <ErrorBanner error={error} />}
+        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Zapisz zmiany" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Modal: Dodaj firmę ────────────────────────────────────────────────────────
+
+interface ClientFormData {
+  name: string;
+  industry: string;
+  website: string;
+  contact_person: string;
+  contact_email: string;
+  contact_phone: string;
+  address: string;
+  status: string;
+  nda_signed: boolean;
+  contract_type: string;
+  notes: string;
+}
+
+const EMPTY_CLIENT: ClientFormData = {
+  name: "", industry: "", website: "", contact_person: "", contact_email: "",
+  contact_phone: "", address: "", status: "prospect", nda_signed: false,
+  contract_type: "", notes: "",
+};
+
+function clientToForm(c: any): ClientFormData {
+  return {
+    name: c.name ?? "",
+    industry: c.industry ?? "",
+    website: c.website ?? "",
+    contact_person: c.contact_person ?? "",
+    contact_email: c.contact_email ?? "",
+    contact_phone: c.contact_phone ?? "",
+    address: c.address ?? "",
+    status: c.status ?? "prospect",
+    nda_signed: c.nda_signed ?? false,
+    contract_type: c.contract_type ?? "",
+    notes: c.notes ?? "",
+  };
+}
+
+function ClientFormFields({ form, onChange, onCheckbox }: {
+  form: ClientFormData;
+  onChange: (k: keyof ClientFormData, v: string) => void;
+  onCheckbox: (k: keyof ClientFormData, v: boolean) => void;
+}) {
+  return (
+    <>
+      <FieldGroup label="Nazwa firmy" required>
+        <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Acme Sp. z o.o." />
+      </FieldGroup>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Branża">
+          <Input value={form.industry} onChange={e => onChange("industry", e.target.value)} placeholder="IT / Finance..." />
+        </FieldGroup>
+        <FieldGroup label="Status">
+          <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
+            <option value="prospect">Prospect</option>
+            <option value="active">Aktywny</option>
+            <option value="inactive">Nieaktywny</option>
+          </Select>
+        </FieldGroup>
+      </div>
+      <FieldGroup label="Strona WWW">
+        <Input type="url" value={form.website} onChange={e => onChange("website", e.target.value)} placeholder="https://firma.pl" />
+      </FieldGroup>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Osoba kontaktowa">
+          <Input value={form.contact_person} onChange={e => onChange("contact_person", e.target.value)} placeholder="Jan Kowalski" />
+        </FieldGroup>
+        <FieldGroup label="Email kontaktowy">
+          <Input type="email" value={form.contact_email} onChange={e => onChange("contact_email", e.target.value)} placeholder="kontakt@firma.pl" />
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Telefon">
+          <Input type="tel" value={form.contact_phone} onChange={e => onChange("contact_phone", e.target.value)} placeholder="+48 500..." />
+        </FieldGroup>
+        <FieldGroup label="Typ kontraktu">
+          <Input value={form.contract_type} onChange={e => onChange("contract_type", e.target.value)} placeholder="B2B / Umowa..." />
+        </FieldGroup>
+      </div>
+      <FieldGroup label="Adres">
+        <Input value={form.address} onChange={e => onChange("address", e.target.value)} placeholder="ul. Przykładowa 1, Warszawa" />
+      </FieldGroup>
+      <FieldGroup label="Notatki">
+        <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
+      </FieldGroup>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={form.nda_signed}
+          onChange={e => onCheckbox("nda_signed", e.target.checked)}
+          className="w-4 h-4 rounded accent-blue-600"
+        />
+        <span className="text-sm text-gray-700 dark:text-gray-300">NDA podpisane</span>
+      </label>
+    </>
+  );
+}
+
+export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<ClientFormData>(EMPTY_CLIENT);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const onChange = (k: keyof ClientFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onCheckbox = (k: keyof ClientFormData, v: boolean) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.post("/api/clients", {
+        name: form.name,
+        industry: form.industry || undefined,
+        website: form.website || undefined,
+        contact_person: form.contact_person || undefined,
+        contact_email: form.contact_email || undefined,
+        contact_phone: form.contact_phone || undefined,
+        address: form.address || undefined,
+        status: form.status,
+        nda_signed: form.nda_signed,
+        contract_type: form.contract_type || undefined,
+        notes: form.notes || undefined,
+      });
+      onSuccess("Firma dodana pomyślnie");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Dodaj firmę" onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {error && <ErrorBanner error={error} />}
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Dodaj firmę" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Modal: Zaplanuj spotkanie ─────────────────────────────────────────────────
+
+function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const defaultStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours() + 1)}:00`;
+  const defaultEnd = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours() + 2)}:00`;
+
+  const [form, setForm] = useState({ title: "", event_type: "meeting", start_time: defaultStart, end_time: defaultEnd, candidate_id: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const { data: candidatesData } = useQuery({
+    queryKey: ["candidates-list-qa"],
+    queryFn: () => api.get("/api/candidates", { params: { page_size: 200 } }).then(r => r.data),
+  });
+  const candidates = candidatesData?.items ?? [];
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title || !form.start_time) { setError("Tytuł i czas rozpoczęcia są wymagane"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.post("/api/calendar/events", {
+        title: form.title,
+        event_type: form.event_type,
+        start_time: new Date(form.start_time).toISOString(),
+        end_time: form.end_time ? new Date(form.end_time).toISOString() : undefined,
+        candidate_id: form.candidate_id ? Number(form.candidate_id) : undefined,
+      });
+      onSuccess("Spotkanie zaplanowane pomyślnie");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Zaplanuj spotkanie" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {error && <ErrorBanner error={error} />}
+        <FieldGroup label="Tytuł" required>
+          <Input value={form.title} onChange={e => set("title", e.target.value)} placeholder="Screening call — Jan Kowalski" />
+        </FieldGroup>
+        <FieldGroup label="Typ spotkania">
+          <Select value={form.event_type} onChange={e => set("event_type", e.target.value)}>
+            <option value="meeting">Spotkanie</option>
+            <option value="interview">Rozmowa kwalifikacyjna</option>
+            <option value="screening">Screening</option>
+            <option value="call">Rozmowa telefoniczna</option>
+            <option value="deadline">Deadline</option>
+          </Select>
+        </FieldGroup>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Początek" required>
+            <Input type="datetime-local" value={form.start_time} onChange={e => set("start_time", e.target.value)} />
+          </FieldGroup>
+          <FieldGroup label="Koniec">
+            <Input type="datetime-local" value={form.end_time} onChange={e => set("end_time", e.target.value)} />
+          </FieldGroup>
+        </div>
+        <FieldGroup label="Kandydat">
+          <Select value={form.candidate_id} onChange={e => set("candidate_id", e.target.value)}>
+            <option value="">— opcjonalnie —</option>
+            {candidates.map((c: any) => (
+              <option key={c.id} value={c.id}>{c.name} {c.lastname}</option>
+            ))}
+          </Select>
+        </FieldGroup>
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Zaplanuj" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── Quick actions dropdown ───────────────────────────────────────────────────
+
+type ModalType = "candidate" | "job" | "client" | "meeting" | null;
+
+function QuickActionsButton({
+  externalModal,
+  onExternalModalClear,
+}: {
+  externalModal?: ModalType;
+  onExternalModalClear?: () => void;
+} = {}) {
+  const [open, setOpen] = useState(false);
+  const [modal, setModal] = useState<ModalType>(null);
+
+  // Handle external modal trigger (from keyboard shortcuts)
+  useEffect(() => {
+    if (externalModal) {
+      setModal(externalModal);
+      onExternalModalClear?.();
+    }
+  }, [externalModal, onExternalModalClear]);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const queryClient = useQueryClient();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+    queryClient.invalidateQueries({ queryKey: ["candidates"] });
+    queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    queryClient.invalidateQueries({ queryKey: ["clients"] });
+    queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    queryClient.invalidateQueries({ queryKey: ["calendar"] });
+  };
+
+  const QUICK_ACTIONS: { label: string; icon: React.ComponentType<{ className?: string }>; modal: ModalType }[] = [
+    { label: "Dodaj kandydata", icon: UserPlus, modal: "candidate" },
+    { label: "Dodaj ofertę", icon: Briefcase, modal: "job" },
+    { label: "Dodaj firmę", icon: Building2, modal: "client" },
+    { label: "Zaplanuj spotkanie", icon: CalendarPlus, modal: "meeting" },
+  ];
+
+  return (
+    <>
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="hidden sm:inline">Dodaj</span>
+        </button>
+
+        {open && (
+          <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1.5 z-50">
+            {QUICK_ACTIONS.map(({ label, icon: Icon, modal: m }) => (
+              <button
+                key={m}
+                onClick={() => { setOpen(false); setModal(m); }}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Icon className="w-4 h-4 text-gray-400" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "job" && <AddJobModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}
+
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </>
+  );
+}
+
+// ── AppShell ─────────────────────────────────────────────────────────────────
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isLoginPage = pathname === "/login";
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [pendingModal, setPendingModal] = useState<ModalType>(null);
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [pathname]);
+
+  const focusSearch = useCallback(() => {
+    const input = document.querySelector<HTMLInputElement>("input[data-global-search]");
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }, []);
+
+  // Global Cmd+K / Ctrl+K shortcut → focus global search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        focusSearch();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [focusSearch]);
+
+  // Keyboard shortcuts
+  const { showHelp, setShowHelp } = useKeyboardShortcuts({
+    onNewCandidate: useCallback(() => setPendingModal("candidate"), []),
+    onNewJob: useCallback(() => setPendingModal("job"), []),
+    onFocusSearch: focusSearch,
+  });
+
+  const { shouldShow: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
+
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
+      {/* Mobile overlay */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex h-full">
+        <Sidebar />
+      </div>
+
+      {/* Mobile sidebar drawer */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-y-0 left-0 z-50 md:hidden">
+          <Sidebar mobileOpen onClose={() => setMobileSidebarOpen(false)} />
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Top bar */}
+        <header className="flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm px-4 md:px-5 py-2.5 flex items-center gap-3">
+          {/* Mobile hamburger */}
+          <button
+            className="md:hidden p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            onClick={() => setMobileSidebarOpen(true)}
+            title="Otwórz menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          {/* Left: breadcrumb (desktop only) */}
+          <div className="hidden md:flex min-w-0 max-w-[220px]">
+            <Breadcrumb />
+          </div>
+
+          {/* Center: global search */}
+          <div className="flex-1">
+            <GlobalSearchBar />
+          </div>
+
+          {/* Right: notifications + quick actions */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <NotificationsDropdown />
+            <QuickActionsButton
+              externalModal={pendingModal}
+              onExternalModalClear={() => setPendingModal(null)}
+            />
+          </div>
+        </header>
+
+        {/* Open tabs bar */}
+        <OpenTabs />
+
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
+        </main>
+      </div>
+
+      {/* Keyboard shortcuts help modal */}
+      {showHelp && <ShortcutsModal onClose={() => setShowHelp(false)} />}
+
+      {/* Onboarding walkthrough */}
+      {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
+    </div>
+  );
+}
