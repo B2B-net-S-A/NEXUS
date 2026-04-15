@@ -1,0 +1,45 @@
+# Gitleaks configuration for Nexus ATS.
+# Docs: https://github.com/gitleaks/gitleaks
+title = "Nexus ATS gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional placeholders and docs"
+paths = [
+  '''frontend/tsconfig\.tsbuildinfo''',
+  '''frontend/package-lock\.json''',
+  '''NEXUS_AUDIT_AND_PLAN\.md''',
+  '''REQUIREMENTS_V[0-9]+\.md''',
+  '''QA_STRATEGY\.md''',
+]
+regexes = [
+  '''change-me''',
+  '''your-[a-z-]+-key-here''',
+  '''change-me-to-a-strong-password''',
+]
+
+[[rules]]
+id = "voyage-api-key"
+description = "Voyage AI API key"
+regex = '''pa-[A-Za-z0-9_-]{30,}'''
+tags = ["voyage", "api-key"]
+
+[[rules]]
+id = "fireflies-api-key"
+description = "Fireflies API key (UUID format used for bearer tokens)"
+regex = '''[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
+tags = ["fireflies", "api-key"]
+
+[[rules]]
+id = "hardcoded-db-password"
+description = "Postgres URL with password embedded"
+regex = '''postgresql(\+asyncpg)?://[a-zA-Z0-9_]+:[^@:/\s"]+@'''
+tags = ["db", "password"]
+# Allow docs that demonstrate the variable placeholder, not actual secrets.
+[rules.allowlist]
+regexes = [
+  '''postgresql\+asyncpg://nexus:change-me-to-a-strong-password@''',
+  '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
+]

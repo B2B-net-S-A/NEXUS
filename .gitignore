@@ -1,14 +1,49 @@
-.next/
-node_modules/
-__pycache__/
-*.pyc
+# Secrets — never commit
 .env
-venv/
-uploads/
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
 
-### AL ###
-# Template for AL projects for Dynamics 365 Business Central
+# Node / Next.js
+.next/
+out/
+node_modules/
+.npm
+npm-debug.log*
+yarn-error.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Uploads / runtime
+uploads/
+*.log
+
+# Editor / OS
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+frontend/tsconfig.tsbuildinfo
+dist/
+build/
+
+# Legacy AL / Dynamics 365
 .alcache/
 .alpackages/
 .snapshots/

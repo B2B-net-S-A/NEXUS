@@ -1,5 +1,5 @@
 """
-DynaMinds ATS — Reporting Module
+Nexus ATS — Reporting Module
 Generates live reports from ATS data (recruitment, sales, delivery, tenders, board).
 """
 from datetime import date, datetime, timedelta, timezone

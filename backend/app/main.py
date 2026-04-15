@@ -1,9 +1,17 @@
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.rate_limit import limiter
 from app.api import auth, candidates, jobs, clients, pipeline, notes, contracts, dashboard, search
 from app.api import activities
 from app.api import admin
@@ -13,7 +21,6 @@ from app.api import calls
 from app.api import reports
 from app.api import client_knowledge
 from app.api import screenings
-from app.api import sales
 from app.api import contacts
 from app.api import prep_kit
 from app.api import ai_writer
@@ -26,6 +33,51 @@ from app.api import fireflies
 from app.api import ws
 from app.api import matching
 
+logger = logging.getLogger(__name__)
+
+
+# ── Sentry (optional) ──────────────────────────────────────────────────────
+if settings.SENTRY_DSN:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.SENTRY_DSN,
+            environment=settings.SENTRY_ENVIRONMENT,
+            traces_sample_rate=0.1,
+            profiles_sample_rate=0.1,
+        )
+        logger.info("Sentry initialized for environment=%s", settings.SENTRY_ENVIRONMENT)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Sentry init failed: %s", e)
+
+
+# ── Security headers middleware ────────────────────────────────────────────
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Adds conservative security response headers on every reply.
+
+    Defaults are safe for an API + Next.js app behind a reverse proxy with TLS.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if not settings.DEBUG:
+            # HSTS only in prod — avoids pinning localhost dev to HTTPS.
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=63072000; includeSubDomains; preload",
+            )
+            # CSP for API responses — tight because we don't serve HTML here.
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none';",
+            )
+        return response
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,12 +87,11 @@ async def lifespan(app: FastAPI):
 
     # Startup: ensure Qdrant collection exists
     import asyncio
-    import logging
     from app.services.embedding_service import init_qdrant_collection
     try:
         await asyncio.to_thread(init_qdrant_collection)
     except Exception as e:
-        logging.getLogger(__name__).warning(f"Qdrant init skipped: {e}")
+        logger.warning("Qdrant init skipped: %s", e)
 
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
@@ -58,19 +109,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="DynaMinds ATS & CRM",
-    description="Modern recruitment platform for IT staffing agencies",
-    version="0.2.0",
+    title="Nexus ATS",
+    description="Modern ATS for IT staffing agencies (body leasing) — B2B.net",
+    version="0.3.0",
     lifespan=lifespan,
     redirect_slashes=False,
 )
+
+# Rate limiter (attach first so it wraps everything)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Register routers
@@ -91,7 +148,6 @@ app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(screenings.router, prefix="/api", tags=["screenings"])
-app.include_router(sales.router, prefix="/api", tags=["sales"])
 app.include_router(contacts.router, prefix="/api", tags=["contacts"])
 app.include_router(prep_kit.router, prefix="/api", tags=["prep-kit"])
 app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
@@ -107,4 +163,4 @@ app.include_router(matching.router, prefix="/api", tags=["matching"])
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "app": "DynaMinds ATS", "version": "0.2.0"}
+    return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}

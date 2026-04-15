@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create uploads directory
-RUN mkdir -p /tmp/dynaminds/uploads
+RUN mkdir -p /tmp/nexus/uploads
 
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh

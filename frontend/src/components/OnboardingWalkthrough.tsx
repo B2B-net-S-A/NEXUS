@@ -108,7 +108,7 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
         <div className="bg-gradient-to-r from-blue-600 to-violet-600 px-6 pt-6 pb-4 text-white">
           <div className="flex items-start justify-between">
             <div>
-              <h2 className="text-xl font-bold">Witaj w DynaMinds Nexus! 🚀</h2>
+              <h2 className="text-xl font-bold">Witaj w Nexus! 🚀</h2>
               <p className="text-blue-100 text-sm mt-1">Twój system ATS nowej generacji</p>
             </div>
             <button

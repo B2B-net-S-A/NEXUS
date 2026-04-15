@@ -1,6 +1,6 @@
 """
 Embedding Service — Voyage AI + Qdrant
-Semantic search for DynaMinds ATS candidates.
+Semantic search for Nexus ATS candidates.
 """
 from __future__ import annotations
 

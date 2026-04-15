@@ -24,7 +24,6 @@ const SEGMENT_LABELS: Record<string, string> = {
   jobs: "Oferty pracy",
   clients: "Klienci",
   contacts: "Kontakty",
-  sales: "Sprzedaż",
   contracts: "Kontrakty",
   talents: "Talenty",
   analytics: "Analityka",

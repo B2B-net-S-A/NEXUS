@@ -55,7 +55,7 @@ export default function LoginPage() {
         <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mb-4 shadow-lg">
           <Zap className="w-8 h-8 text-white" />
         </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">DynaMinds</h1>
+        <h1 className="text-3xl font-bold text-white tracking-tight">Nexus</h1>
         <p className="text-blue-100 dark:text-gray-400 text-sm mt-1">Nexus dla agencji IT</p>
       </div>
 

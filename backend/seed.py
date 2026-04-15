@@ -1,8 +1,8 @@
 """
-DynaMinds ATS — Seed Script v3
+Nexus ATS — Seed Script v3
 Populates the database with realistic demo data for B2B.net S.A. IT recruitment agency.
 Idempotent: checks if data already exists before inserting.
-Includes v3: ClientKnowledge, ScreeningNotes, SalesOpportunities, Contacts.
+Includes v3: ClientKnowledge, ScreeningNotes, Contacts.
 """
 import asyncio
 import os
@@ -30,14 +30,13 @@ from app.models.email_template import EmailTemplate, EmailCategory
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.screening_note import ScreeningNote, ScreeningType, MotivationType, CounterOfferRisk
-from app.models.sales_opportunity import SalesOpportunity, SalesStage
 from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.core.database import Base
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://dynaminds:dynaminds@localhost:5432/dynaminds"
+    "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
 )
 
 now = datetime.now(timezone.utc)
@@ -1396,7 +1395,7 @@ async def seed():
                 "job_idx": 0, "portal": Portal.justjoinit, "status": PostingStatus.published,
                 "published_at": days_ago(18), "expires_at": now + timedelta(days=12),
                 "views": 980, "applications": 31,
-                "external_id": "JJIT-ANG-001", "url": "https://justjoin.it/offers/dynaminds-angular-nordea",
+                "external_id": "JJIT-ANG-001", "url": "https://justjoin.it/offers/nexus-angular-nordea",
             },
             {
                 "job_idx": 0, "portal": Portal.linkedin, "status": PostingStatus.published,
@@ -1415,7 +1414,7 @@ async def seed():
                 "job_idx": 1, "portal": Portal.justjoinit, "status": PostingStatus.published,
                 "published_at": days_ago(22), "expires_at": now + timedelta(days=6),
                 "views": 1100, "applications": 36,
-                "external_id": "JJIT-JAVA-001", "url": "https://justjoin.it/offers/dynaminds-java-bnp",
+                "external_id": "JJIT-JAVA-001", "url": "https://justjoin.it/offers/nexus-java-bnp",
             },
             # Job 2 — DevOps / Cloud Engineer (Pekao) — LinkedIn + NoFluffJobs
             {
@@ -1428,7 +1427,7 @@ async def seed():
                 "job_idx": 2, "portal": Portal.nofluffjobs, "status": PostingStatus.published,
                 "published_at": days_ago(12), "expires_at": now + timedelta(days=18),
                 "views": 640, "applications": 14,
-                "external_id": "NFF-DEVOPS-001", "url": "https://nofluffjobs.com/job/dynaminds-devops-1",
+                "external_id": "NFF-DEVOPS-001", "url": "https://nofluffjobs.com/job/nexus-devops-1",
             },
             # Job 3 — QA Automation Engineer (Ferro) — Pracuj (expired)
             {
@@ -1441,14 +1440,14 @@ async def seed():
                 "job_idx": 3, "portal": Portal.bulldogjob, "status": PostingStatus.published,
                 "published_at": days_ago(10), "expires_at": now + timedelta(days=20),
                 "views": 310, "applications": 8,
-                "external_id": "BDJ-QA-001", "url": "https://bulldogjob.pl/companies/jobs/dynaminds-qa-1",
+                "external_id": "BDJ-QA-001", "url": "https://bulldogjob.pl/companies/jobs/nexus-qa-1",
             },
             # Job 4 — Python Data Engineer (Cognism) — JJIT + LinkedIn
             {
                 "job_idx": 4, "portal": Portal.justjoinit, "status": PostingStatus.published,
                 "published_at": days_ago(10), "expires_at": now + timedelta(days=20),
                 "views": 1380, "applications": 45,
-                "external_id": "JJIT-PY-001", "url": "https://justjoin.it/offers/dynaminds-python-cognism",
+                "external_id": "JJIT-PY-001", "url": "https://justjoin.it/offers/nexus-python-cognism",
             },
             {
                 "job_idx": 4, "portal": Portal.linkedin, "status": PostingStatus.published,
@@ -1467,7 +1466,7 @@ async def seed():
                 "job_idx": 5, "portal": Portal.bulldogjob, "status": PostingStatus.published,
                 "published_at": days_ago(28), "expires_at": now + timedelta(days=12),
                 "views": 480, "applications": 15,
-                "external_id": "BDJ-REACT-001", "url": "https://bulldogjob.pl/companies/jobs/dynaminds-react-1",
+                "external_id": "BDJ-REACT-001", "url": "https://bulldogjob.pl/companies/jobs/nexus-react-1",
             },
             # Job 8 — Tech Lead / Architect (Pekao) — LinkedIn (urgent!)
             {
@@ -1481,7 +1480,7 @@ async def seed():
                 "job_idx": 8, "portal": Portal.nofluffjobs, "status": PostingStatus.published,
                 "published_at": days_ago(6), "expires_at": now + timedelta(days=8),
                 "views": 830, "applications": 11,
-                "external_id": "NFF-TL-001", "url": "https://nofluffjobs.com/job/dynaminds-techlead-1",
+                "external_id": "NFF-TL-001", "url": "https://nofluffjobs.com/job/nexus-techlead-1",
             },
         ]
 
@@ -1941,100 +1940,6 @@ async def seed():
         print(f"  Created {len(screening_data)} screening notes")
 
         # ─────────────────────────────────────────────────────────────────────
-        # V3: SalesOpportunities — pipeline sprzedażowy
-        # ─────────────────────────────────────────────────────────────────────
-        sales_data = [
-            # Leads
-            {
-                "client_id": clients[7].id,  # PKO Bank Polski
-                "contact_person": "Robert Zając",
-                "title": "DevOps / Cloud Engineering dla PKO Digital",
-                "description": "PKO BP szuka 3-4 DevOps/Cloud engineers do projektu digitalizacji. Stack: Kubernetes, AWS, Terraform.",
-                "stage": SalesStage.lead,
-                "value": 480000,
-                "currency": "PLN",
-                "probability": 20,
-                "expected_close_date": date.today() + timedelta(days=90),
-                "assigned_to": users[0].id,  # Artur
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients[8].id,  # Allegro
-                "contact_person": "Monika Szymańska",
-                "title": "Platform Engineering Team — Allegro",
-                "description": "Allegro buduje nowy team Platform Engineering. Zapotrzebowanie na 2 senior devops + 1 SRE. Wstępna rozmowa odbyła się na konferencji.",
-                "stage": SalesStage.lead,
-                "value": 360000,
-                "currency": "PLN",
-                "probability": 15,
-                "expected_close_date": date.today() + timedelta(days=120),
-                "assigned_to": users[0].id,  # Artur
-                "lost_reason": None,
-            },
-            # Negotiations
-            {
-                "client_id": clients[0].id,  # Nordea
-                "contact_person": "Katarzyna Wiśniewska",
-                "title": "Rozszerzenie kontraktu Nordea — 5 pozycji Q2 2026",
-                "description": "Nordea chce rozszerzyć współpracę o 5 nowych pozycji od Q2: 3x Angular, 1x Java, 1x DevOps. Negocjujemy stawki ramowe na 2 lata.",
-                "stage": SalesStage.negotiation,
-                "value": 1200000,
-                "currency": "PLN",
-                "probability": 70,
-                "expected_close_date": date.today() + timedelta(days=30),
-                "assigned_to": users[0].id,  # Artur
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients[1].id,  # BNP Paribas
-                "contact_person": "Piotr Jankowski",
-                "title": "BNP — Data Engineering squad 2026",
-                "description": "BNP Paribas tworzy dedykowany Data Engineering team. Zapotrzebowanie: 3x Data Engineer (Python/Spark), 1x Data Architect. Rozmowy z decydentem trwają.",
-                "stage": SalesStage.negotiation,
-                "value": 820000,
-                "currency": "PLN",
-                "probability": 60,
-                "expected_close_date": date.today() + timedelta(days=21),
-                "assigned_to": users[1].id,  # Olaf
-                "lost_reason": None,
-            },
-            # Won
-            {
-                "client_id": clients[4].id,  # Cognism
-                "contact_person": "Sarah Mitchell",
-                "title": "Cognism — Python Data Engineer x1",
-                "description": "Zamknięty deal — 1 Data Engineer (Tomasz Dąbrowski) wchodzi do Cognism od 1 kwietnia.",
-                "stage": SalesStage.won,
-                "value": 288000,
-                "currency": "PLN",
-                "probability": 100,
-                "expected_close_date": date.today() - timedelta(days=10),
-                "assigned_to": users[3].id,  # Tomasz
-                "lost_reason": None,
-            },
-            # Lost
-            {
-                "client_id": clients[6].id,  # Comarch
-                "contact_person": "Agnieszka Nowak",
-                "title": "Comarch — Senior Java Team (przegrany)",
-                "description": "Comarch wybrał innego dostawcę (Experis). Powód: stawki B2B.net były o 8% wyższe od konkurencji przy podobnej jakości. Zbudować relację długoterminową.",
-                "stage": SalesStage.lost,
-                "value": 540000,
-                "currency": "PLN",
-                "probability": 0,
-                "expected_close_date": date.today() - timedelta(days=30),
-                "assigned_to": users[0].id,  # Artur
-                "lost_reason": "Konkurencja (Experis) zaproponowała niższe stawki o ~8%. Klient wybrał cenę nad jakością.",
-            },
-        ]
-
-        for sd in sales_data:
-            s = SalesOpportunity(**sd)
-            db.add(s)
-        await db.flush()
-        print(f"  Created {len(sales_data)} sales opportunities")
-
-        # ─────────────────────────────────────────────────────────────────────
         # V3: Contacts — osoby kontaktowe w firmach
         # ─────────────────────────────────────────────────────────────────────
         contacts_data = [
@@ -2237,7 +2142,7 @@ async def seed():
         print(f"   User activities: {len(user_activities_data)}, System activities: {len(activities_list)}")
         print(f"   Email templates: {len(email_templates_data)}")
         print(f"   V3: Knowledge: {len(knowledge_data)}, Screenings: {len(screening_data)}")
-        print(f"   V3: Sales Opps: {len(sales_data)}, Contacts: {len(contacts_data)}")
+        print(f"   V3: Contacts: {len(contacts_data)}")
         print(f"   V4: Talent Pools: {len(talent_pool_objects)}, Memberships: {membership_count}")
 
     await engine.dispose()
@@ -2246,7 +2151,7 @@ async def seed():
 async def seed_extended():
     """
     Extended seed data — adds 20 more candidates, 5 more jobs, 30 pipeline entries,
-    5 contracts, 5 sales opportunities, 50 activities, and 10 calendar events.
+    5 contracts, 50 activities, and 10 calendar events.
     Idempotent: checks by email before creating candidates.
     """
     from app.models.calendar_event import CalendarEvent, EventType, EventStatus
@@ -2850,81 +2755,6 @@ async def seed_extended():
         await db.flush()
         print(f"  Created {len(new_contracts_data)} new contracts")
 
-        # ── 5 NEW SALES OPPORTUNITIES ───────────────────────────────────────
-        new_sales_data = [
-            {
-                "client_id": clients_by_name["Ferro S.A."].id,
-                "contact_person": "Marcin Dąbrowski",
-                "title": "Ferro S.A. — Digital Transformation Team 2026",
-                "description": "Ferro planuje duży program transformacji cyfrowej ERP na 2026 rok. Zapotrzebowanie na 2x Backend (Java), 1x QA Lead i 1x Project Manager. Wstępne rozmowy prowadzone z IT Directorem.",
-                "stage": SalesStage.lead,
-                "value": 720000,
-                "currency": "PLN",
-                "probability": 25,
-                "expected_close_date": date.today() + timedelta(days=60),
-                "assigned_to": recruiter1.id,
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients_by_name["Comarch S.A."].id,
-                "contact_person": "Agnieszka Nowak",
-                "title": "Comarch — Cloud & DevOps Replatforming",
-                "description": "Comarch przeprowadza replatforming infrastruktury na Azure. Potrzeba 2x Cloud Engineer/DevOps. Po przegranym dealu z Javą — próba odbudowania relacji przez inne zapotrzebowanie.",
-                "stage": SalesStage.proposal,
-                "value": 480000,
-                "currency": "PLN",
-                "probability": 40,
-                "expected_close_date": date.today() + timedelta(days=35),
-                "assigned_to": admin_user.id,
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients_by_name["Nordea Bank AB"].id,
-                "contact_person": "Katarzyna Wiśniewska",
-                "title": "Nordea — Security & Compliance Engineers H2 2026",
-                "description": "Nordea rozszerza dział Security & Compliance zgodnie z wymogami DORA. Potrzeba 2x Security Analyst + 1x GRC Specialist do H2 2026. Szansa na rozszerzenie długoterminowej umowy ramowej.",
-                "stage": SalesStage.negotiation,
-                "value": 630000,
-                "currency": "PLN",
-                "probability": 65,
-                "expected_close_date": date.today() + timedelta(days=25),
-                "assigned_to": admin_user.id,
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients_by_name["Allegro"].id,
-                "contact_person": "Monika Szymańska",
-                "title": "Allegro — ML Platform Team",
-                "description": "Allegro tworzy wewnętrzny ML Platform team (MLOps, Feature Store, model serving). Szukają 2x MLOps Engineer i 1x Data Platform Architect. Kontakt nawiązany przez Kamila Brzozowskiego — wewnętrzne rekomendacje.",
-                "stage": SalesStage.lead,
-                "value": 900000,
-                "currency": "PLN",
-                "probability": 20,
-                "expected_close_date": date.today() + timedelta(days=90),
-                "assigned_to": recruiter3.id,
-                "lost_reason": None,
-            },
-            {
-                "client_id": clients_by_name["ING Bank Śląski"].id,
-                "contact_person": "Łukasz Pawlak",
-                "title": "ING Bank — Data Engineering Squad Q3 2026",
-                "description": "Kontrakt Przemysława Kowalczyka otworzył drzwi do ING. Łukasz Pawlak zapytał o rozszerzenie — 2 dodatkowych Data Engineers i 1 Data Architect. Negocjacje stawek ramowych w toku.",
-                "stage": SalesStage.negotiation,
-                "value": 756000,
-                "currency": "PLN",
-                "probability": 70,
-                "expected_close_date": date.today() + timedelta(days=20),
-                "assigned_to": recruiter1.id,
-                "lost_reason": None,
-            },
-        ]
-
-        for sd in new_sales_data:
-            s = SalesOpportunity(**sd)
-            db.add(s)
-        await db.flush()
-        print(f"  Created {len(new_sales_data)} new sales opportunities")
-
         # ── 50 ACTIVITY RECORDS ─────────────────────────────────────────────
         all_user_ids = [admin_user.id, recruiter1.id, recruiter2.id, recruiter3.id, dom_user.id]
         activity_records = []
@@ -2974,24 +2804,6 @@ async def seed_extended():
         activity_records.append(make_activity(
             "contract", 0, "created", admin_user.id,
             {"candidate": "Joanna Kowalska", "client": "Bank Pekao SA", "rate": 26500}, 5
-        ))
-
-        # Sales activities
-        activity_records.append(make_activity(
-            "sales", 0, "created", admin_user.id,
-            {"title": "Nordea — Security & Compliance", "probability": 65}, 7
-        ))
-        activity_records.append(make_activity(
-            "sales", 0, "stage_changed", admin_user.id,
-            {"from": "lead", "to": "negotiation", "title": "Nordea Security"}, 5
-        ))
-        activity_records.append(make_activity(
-            "sales", 0, "created", recruiter1.id,
-            {"title": "ING Bank — Data Engineering Squad", "probability": 70}, 6
-        ))
-        activity_records.append(make_activity(
-            "sales", 0, "note_added", admin_user.id,
-            {"note": "Rozmowa z Łukaszem Pawlakiem — zainteresowany rozszerzeniem. Czeka na ofertę."}, 3
         ))
 
         # Job published activities for new jobs
@@ -3198,7 +3010,7 @@ async def seed_extended():
         print("\n✅ Extended seed completed successfully!")
         print(f"   New candidates: {len(new_candidates)}, New jobs: {len(new_jobs)}")
         print(f"   Pipeline entries: {len(pipeline_entries)}, Contracts: {len(new_contracts_data)}")
-        print(f"   Sales opportunities: {len(new_sales_data)}, Activities: {len(activity_records)}")
+        print(f"   Activities: {len(activity_records)}")
         print(f"   Calendar events: {len(calendar_events_data)}")
 
     await engine.dispose()

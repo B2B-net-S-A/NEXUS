@@ -25,7 +25,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://dynaminds:dynaminds@localhost:5433/dynaminds",
+    "postgresql+asyncpg://nexus:nexus@localhost:5433/nexus",
 )
 
 # Override port if running locally (docker maps 5433→5432)

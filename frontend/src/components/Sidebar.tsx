@@ -14,7 +14,6 @@ import {
   FileBarChart,
   Shield,
   Settings,
-  TrendingUp,
   Star,
   Calendar,
   UserSquare2,
@@ -62,11 +61,10 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "SPRZEDAŻ",
+    title: "KLIENCI",
     items: [
       { href: "/clients", label: "Klienci", icon: Building2 },
       { href: "/contacts", label: "Kontakty", icon: UserSquare2, badgeKey: "contacts" },
-      { href: "/sales", label: "Sprzedaż", icon: TrendingUp },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
     ],
   },
@@ -241,13 +239,13 @@ export function Sidebar({ onClose, mobileOpen }: { onClose?: () => void; mobileO
         <Link
           href="/"
           className="flex items-center gap-1.5 flex-1 min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded"
-          aria-label="DynaMinds Nexus — strona główna"
+          aria-label="Nexus — strona główna"
         >
           <Zap className="w-5 h-5 text-blue-400 flex-shrink-0" aria-hidden="true" />
           {(!collapsed || mobileOpen) && (
             <div className="min-w-0">
-              <div className="font-bold text-base leading-tight tracking-tight">DynaMinds</div>
-              <div className="text-[10px] text-gray-400 leading-none">Nexus</div>
+              <div className="font-bold text-base leading-tight tracking-tight">Nexus</div>
+              <div className="text-[10px] text-gray-400 leading-none">ATS · B2B.net</div>
             </div>
           )}
         </Link>

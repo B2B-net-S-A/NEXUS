@@ -1,5 +1,5 @@
 """
-Test fixtures for DynaMinds ATS.
+Test fixtures for Nexus ATS.
 Uses the running backend API (localhost:8000) for integration tests.
 """
 import pytest

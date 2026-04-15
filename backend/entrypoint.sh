@@ -3,7 +3,7 @@ set -e
 
 export PYTHONPATH=/app:${PYTHONPATH}
 
-echo "=== DynaMinds ATS Backend Starting ==="
+echo "=== Nexus ATS Backend Starting ==="
 
 # Wait for postgres to be ready
 echo "Waiting for database..."
@@ -11,7 +11,7 @@ until python -c "
 import asyncio, asyncpg, os
 
 async def check():
-    url = os.environ.get('DATABASE_URL', 'postgresql+asyncpg://dynaminds:dynaminds@postgres:5432/dynaminds')
+    url = os.environ.get('DATABASE_URL', 'postgresql+asyncpg://nexus:nexus@postgres:5432/nexus')
     url = url.replace('postgresql+asyncpg://', 'postgresql://')
     conn = await asyncpg.connect(url)
     await conn.close()

@@ -1,5 +1,5 @@
 """
-DynaMinds ATS — Seed v6: Rich Pipeline Data
+Nexus ATS — Seed v6: Rich Pipeline Data
 Populates realistic pipeline entries across multiple jobs with candidates
 spread across all stages (B2B.net flow).
 """
@@ -23,7 +23,7 @@ from app.models.activity import Activity
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://dynaminds:dynaminds@localhost:5433/dynaminds"
+    "postgresql+asyncpg://nexus:nexus@localhost:5433/nexus"
 )
 
 # Pipeline flow — candidates progress through these stages sequentially

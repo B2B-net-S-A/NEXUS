@@ -12,7 +12,6 @@ from app.models.job_posting import JobPosting
 from app.models.call import Call
 from app.models.client_knowledge import ClientKnowledge
 from app.models.screening_note import ScreeningNote
-from app.models.sales_opportunity import SalesOpportunity
 from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.calendar_event import CalendarEvent
@@ -22,7 +21,7 @@ __all__ = [
     "User", "Candidate", "Job", "Client",
     "CandidateStage", "Note", "Contract", "Activity", "UserActivity",
     "EmailTemplate", "JobPosting", "Call",
-    "ClientKnowledge", "ScreeningNote", "SalesOpportunity", "Contact",
+    "ClientKnowledge", "ScreeningNote", "Contact",
     "TalentPool", "TalentPoolMembership",
     "CalendarEvent", "Notification",
 ]

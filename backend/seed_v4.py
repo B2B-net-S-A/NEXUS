@@ -1,5 +1,5 @@
 """
-DynaMinds ATS — Seed v4 Addendum
+Nexus ATS — Seed v4 Addendum
 Adds TalentPools and TalentPoolMemberships.
 Safe to run after existing seed.
 """
@@ -19,7 +19,7 @@ from app.models.talent_pool import TalentPool, TalentPoolMembership
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://dynaminds:dynaminds@localhost:5432/dynaminds"
+    "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
 )
 
 

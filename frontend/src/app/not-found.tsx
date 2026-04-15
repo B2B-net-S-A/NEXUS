@@ -8,7 +8,7 @@ export default function NotFound() {
       <div className="flex items-center gap-2 mb-10">
         <Zap className="w-7 h-7 text-blue-500" aria-hidden="true" />
         <div>
-          <span className="font-bold text-xl text-gray-900 dark:text-gray-100">DynaMinds</span>
+          <span className="font-bold text-xl text-gray-900 dark:text-gray-100">Nexus</span>
           <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Nexus</span>
         </div>
       </div>

@@ -55,7 +55,7 @@ LABELS = {
         "languages": "Języki",
         "summary": "Podsumowanie",
         "key_skills_for_role": "Kluczowe kompetencje dla stanowiska",
-        "prepared_by": "Przygotowane przez DynaMinds Nexus",
+        "prepared_by": "Przygotowane przez Nexus",
         "present": "obecnie",
         "phone": "Telefon",
         "email": "Email",
@@ -71,7 +71,7 @@ LABELS = {
         "languages": "Languages",
         "summary": "Summary",
         "key_skills_for_role": "Key Skills for This Role",
-        "prepared_by": "Prepared by DynaMinds Nexus",
+        "prepared_by": "Prepared by Nexus",
         "present": "present",
         "phone": "Phone",
         "email": "Email",
@@ -473,7 +473,7 @@ def _generate_cv_html(
   <div class="cv-header">
     <div class="cv-header-brand">
       <div class="dot"></div>
-      DynaMinds Nexus &nbsp;·&nbsp; B2B.net S.A.
+      Nexus &nbsp;·&nbsp; B2B.net S.A.
     </div>
     <div class="cv-header-date">{today}</div>
     <div class="cv-name">{name}</div>
@@ -504,7 +504,7 @@ def _generate_cv_html(
 
   <!-- Footer -->
   <div class="cv-footer">
-    <div class="footer-brand">⚡ DynaMinds Nexus · B2B.net S.A.</div>
+    <div class="footer-brand">⚡ Nexus · B2B.net S.A.</div>
     <div>{L["prepared_by"]} · {today}</div>
   </div>
 

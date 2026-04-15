@@ -284,7 +284,7 @@ function OnboardingSettings() {
         <div>
           <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">Przewodnik wprowadzający</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Pokaż ponownie przewodnik po DynaMinds Nexus
+            Pokaż ponownie przewodnik po Nexus
           </p>
         </div>
       </div>

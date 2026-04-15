@@ -9,7 +9,7 @@ import { ToastProvider } from "@/components/Toast";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "DynaMinds Nexus",
+  title: "Nexus",
   description: "Modern recruitment platform for IT staffing agencies",
 };
 

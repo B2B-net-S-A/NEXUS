@@ -1,17 +1,22 @@
+# Development / local docker-compose for Nexus ATS.
+# All secrets come from the .env file (see .env.example). Never commit the real .env.
+# For production use docker-compose.prod.yml via Coolify on Hetzner.
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: dynaminds
-      POSTGRES_PASSWORD: dynaminds
-      POSTGRES_DB: dynaminds
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-nexus}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dynaminds"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexus}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -30,34 +35,30 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://dynaminds:dynaminds@postgres:5432/dynaminds
+      # Override endpoints to point at the compose service names.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
       QDRANT_HOST: qdrant
-      QDRANT_PORT: 6333
-      DEBUG: "false"
-      SECRET_KEY: dynaminds-ats-b2bnet-2026-jarvis-secret-key-change-in-prod
-      ACCESS_TOKEN_EXPIRE_MINUTES: "480"
-      CORS_ORIGINS: '["http://localhost:3001","http://localhost:8000","http://frontend:3000"]'
-      FIREFLIES_API_KEY: "5d18f533-cedf-4bfd-865d-e2cda3d9a373"
-      VOYAGE_API_KEY: "pa-AUA3I7fqhrMi2J7UdrTmNzgUwxbiq_TrlcU-wPGqiM1"
-      VOYAGE_MODEL: "voyage-3"
-      EMBEDDING_DIMENSION: "1024"
-      QDRANT_COLLECTION: "nexus_candidates"
+      QDRANT_PORT: "6333"
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - uploads_data:/tmp/dynaminds/uploads
+      - uploads_data:/tmp/nexus/uploads
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3001:3000"
     depends_on:

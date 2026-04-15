@@ -75,10 +75,10 @@ def _simulate_url(portal: Portal, job_id: int, posting_id: int) -> str:
     """Generate a simulated external URL for the posting."""
     base_urls = {
         Portal.pracuj_pl: f"https://pracuj.pl/praca/{job_id}-oferta-{posting_id}",
-        Portal.justjoinit: f"https://justjoin.it/offers/dynaminds-{job_id}-{posting_id}",
+        Portal.justjoinit: f"https://justjoin.it/offers/nexus-{job_id}-{posting_id}",
         Portal.linkedin: f"https://linkedin.com/jobs/view/{1000000 + posting_id}",
-        Portal.nofluffjobs: f"https://nofluffjobs.com/job/dynaminds-{job_id}-{posting_id}",
-        Portal.bulldogjob: f"https://bulldogjob.pl/companies/jobs/dynaminds-{posting_id}",
+        Portal.nofluffjobs: f"https://nofluffjobs.com/job/nexus-{job_id}-{posting_id}",
+        Portal.bulldogjob: f"https://bulldogjob.pl/companies/jobs/nexus-{posting_id}",
     }
     return base_urls.get(portal, "#")
 

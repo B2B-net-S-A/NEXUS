@@ -1,5 +1,5 @@
 """
-DynaMinds ATS — Seed v5
+Nexus ATS — Seed v5
 Adds CalendarEvents (5) and Notifications (8) for admin user.
 Safe to run after existing seeds.
 """
@@ -22,7 +22,7 @@ from app.models.notification import Notification, NotificationType
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://dynaminds:dynaminds@localhost:5432/dynaminds"
+    "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
 )
 
 
