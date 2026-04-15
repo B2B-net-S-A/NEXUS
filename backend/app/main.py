@@ -81,9 +81,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables if not exists (dev mode; use Alembic in production)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Startup: create tables if not exists.
+    # Only in DEBUG — production deploys must run `alembic upgrade head` explicitly.
+    # See plan Faza 1.1 for the Alembic reset that replaces this shortcut entirely.
+    if settings.DEBUG:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     # Startup: ensure Qdrant collection exists
     import asyncio
