@@ -1,8 +1,8 @@
-# DynaMinds ATS & CRM
+# Nexus
 
-> **Modern recruitment platform for IT staffing agencies** — built for B2B.net S.A.
+> **Modern ATS & CRM platform for IT staffing agencies** — built for B2B.net S.A.
 
-Inspired by [Recruitify](https://recruitify.ai). Full-stack, async-first, AI-ready.
+Previously developed internally as DynaMinds ATS. Full-stack, async-first, AI-ready.
 
 ---
 
@@ -42,7 +42,7 @@ Inspired by [Recruitify](https://recruitify.ai). Full-stack, async-first, AI-rea
 ### 1. Clone & configure
 
 ```bash
-cd dynaminds-ats
+cd Nexus
 cp .env.example .env
 # Edit .env — add VOYAGE_API_KEY, set SECRET_KEY
 ```
@@ -102,7 +102,7 @@ make dev
 ## Project Structure
 
 ```
-dynaminds-ats/
+Nexus/
 ├── backend/
 │   ├── app/
 │   │   ├── api/          # FastAPI routers
@@ -157,4 +157,4 @@ dynaminds-ats/
 
 ---
 
-*Built for B2B.net S.A. — Talent Solutions division*
+*Built for B2B.net S.A. — Talent Solutions division, project codename: Nexus*
