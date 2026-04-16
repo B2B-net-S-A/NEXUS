@@ -10,13 +10,15 @@ champion, verifier_id, verified_tech) and creates two auxiliary tables:
 - candidate_rate_history — historical rates per (candidate, client/job)
 - candidate_conflicts    — hard-filter blacklist (candidate should not be sent to client)
 
-Backward-compatible: all new columns are nullable or have safe defaults; existing
-rows are not modified.
+Backward-compatible AND idempotent: all DDL uses IF NOT EXISTS. Needed because
+migration 0001_initial runs `Base.metadata.create_all(checkfirst=True)` against
+the live model definitions — on a fresh DB, Phase 1 columns are already created
+by 0001 and this migration is a no-op for those columns but still creates the
+new aux tables.
 """
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = "0004"
 down_revision = "0003"
@@ -25,172 +27,160 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── candidates: add Phase 1 structured columns ─────────────────────────────
-    op.add_column(
-        "candidates",
-        sa.Column("years_it_experience", sa.Integer(), nullable=True),
+    # ── candidates: add Phase 1 structured columns (idempotent) ────────────────
+    op.execute(
+        sa.text(
+            "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS years_it_experience INTEGER"
+        )
     )
-    op.add_column(
-        "candidates",
-        sa.Column(
-            "preferences", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
+    op.execute(
+        sa.text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS preferences JSONB")
     )
-    op.add_column(
-        "candidates",
-        sa.Column(
-            "champion",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.false(),
-        ),
+    op.execute(
+        sa.text(
+            "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS champion BOOLEAN NOT NULL DEFAULT false"
+        )
     )
-    op.add_column(
-        "candidates",
-        sa.Column("verifier_id", sa.Integer(), nullable=True),
+    op.execute(
+        sa.text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS verifier_id INTEGER")
     )
-    op.create_foreign_key(
-        "fk_candidates_verifier_id",
-        "candidates",
-        "users",
-        ["verifier_id"],
-        ["id"],
+    # Best-effort FK (idempotent via NOT EXISTS check on constraint)
+    op.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'fk_candidates_verifier_id'
+                ) THEN
+                    ALTER TABLE candidates
+                    ADD CONSTRAINT fk_candidates_verifier_id
+                    FOREIGN KEY (verifier_id) REFERENCES users(id);
+                END IF;
+            END $$;
+            """
+        )
     )
-    op.add_column(
-        "candidates",
-        sa.Column(
-            "verified_tech", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-    )
-
-    # ── candidate_rate_history ────────────────────────────────────────────────
-    contracttype = postgresql.ENUM(
-        "b2b", "uop", "zlecenie", name="contracttype", create_type=False
-    )
-    contracttype.create(op.get_bind(), checkfirst=True)
-
-    op.create_table(
-        "candidate_rate_history",
-        sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column(
-            "candidate_id",
-            sa.Integer(),
-            sa.ForeignKey("candidates.id"),
-            nullable=False,
-            index=True,
-        ),
-        sa.Column(
-            "client_id",
-            sa.Integer(),
-            sa.ForeignKey("clients.id"),
-            nullable=True,
-            index=True,
-        ),
-        sa.Column(
-            "job_id",
-            sa.Integer(),
-            sa.ForeignKey("jobs.id"),
-            nullable=True,
-            index=True,
-        ),
-        sa.Column("rate", sa.Integer(), nullable=False),
-        sa.Column(
-            "currency", sa.String(length=3), nullable=False, server_default="PLN"
-        ),
-        sa.Column("contract_type", contracttype, nullable=False),
-        sa.Column("start_date", sa.Date(), nullable=False),
-        sa.Column("end_date", sa.Date(), nullable=True),
-        sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column(
-            "recorded_by", sa.Integer(), sa.ForeignKey("users.id"), nullable=True
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
+    op.execute(
+        sa.text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS verified_tech JSONB")
     )
 
-    # ── candidate_conflicts ───────────────────────────────────────────────────
-    conflicttype = postgresql.ENUM(
-        "blacklist",
-        "current_employment",
-        "nda",
-        "competitor",
-        name="conflicttype",
-        create_type=False,
+    # ── enums (idempotent) ────────────────────────────────────────────────────
+    op.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contracttype') THEN
+                    CREATE TYPE contracttype AS ENUM ('b2b', 'uop', 'zlecenie');
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'conflicttype') THEN
+                    CREATE TYPE conflicttype AS ENUM ('blacklist', 'current_employment', 'nda', 'competitor');
+                END IF;
+            END $$;
+            """
+        )
     )
-    conflicttype.create(op.get_bind(), checkfirst=True)
 
-    op.create_table(
-        "candidate_conflicts",
-        sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column(
-            "candidate_id",
-            sa.Integer(),
-            sa.ForeignKey("candidates.id"),
-            nullable=False,
-            index=True,
-        ),
-        sa.Column(
-            "client_id",
-            sa.Integer(),
-            sa.ForeignKey("clients.id"),
-            nullable=False,
-            index=True,
-        ),
-        sa.Column("type", conflicttype, nullable=False),
-        sa.Column("reason", sa.Text(), nullable=True),
-        sa.Column(
-            "active",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.true(),
-            index=True,
-        ),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_by", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
+    # ── candidate_rate_history (idempotent) ───────────────────────────────────
+    op.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS candidate_rate_history (
+                id SERIAL PRIMARY KEY,
+                candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+                client_id INTEGER REFERENCES clients(id),
+                job_id INTEGER REFERENCES jobs(id),
+                rate INTEGER NOT NULL,
+                currency VARCHAR(3) NOT NULL DEFAULT 'PLN',
+                contract_type contracttype NOT NULL,
+                start_date DATE NOT NULL,
+                end_date DATE,
+                notes TEXT,
+                recorded_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
     )
-    # Partial unique index: only one ACTIVE conflict per (candidate, client)
-    op.create_index(
-        "uq_candidate_conflict_active",
-        "candidate_conflicts",
-        ["candidate_id", "client_id"],
-        unique=True,
-        postgresql_where=sa.text("active = true"),
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_rate_history_candidate_id ON candidate_rate_history (candidate_id)"
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_rate_history_client_id ON candidate_rate_history (client_id)"
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_rate_history_job_id ON candidate_rate_history (job_id)"
+        )
+    )
+
+    # ── candidate_conflicts (idempotent) ──────────────────────────────────────
+    op.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS candidate_conflicts (
+                id SERIAL PRIMARY KEY,
+                candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+                client_id INTEGER NOT NULL REFERENCES clients(id),
+                type conflicttype NOT NULL,
+                reason TEXT,
+                active BOOLEAN NOT NULL DEFAULT true,
+                expires_at TIMESTAMPTZ,
+                created_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_conflicts_candidate_id ON candidate_conflicts (candidate_id)"
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_conflicts_client_id ON candidate_conflicts (client_id)"
+        )
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_candidate_conflicts_active ON candidate_conflicts (active)"
+        )
+    )
+    # Partial unique: one ACTIVE conflict per (candidate, client)
+    op.execute(
+        sa.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_candidate_conflict_active "
+            "ON candidate_conflicts (candidate_id, client_id) WHERE active = true"
+        )
     )
 
 
 def downgrade() -> None:
-    op.drop_index("uq_candidate_conflict_active", table_name="candidate_conflicts")
-    op.drop_table("candidate_conflicts")
-    op.execute("DROP TYPE IF EXISTS conflicttype")
+    op.execute(sa.text("DROP INDEX IF EXISTS uq_candidate_conflict_active"))
+    op.execute(sa.text("DROP TABLE IF EXISTS candidate_conflicts"))
+    op.execute(sa.text("DROP TYPE IF EXISTS conflicttype"))
 
-    op.drop_table("candidate_rate_history")
-    op.execute("DROP TYPE IF EXISTS contracttype")
+    op.execute(sa.text("DROP TABLE IF EXISTS candidate_rate_history"))
+    op.execute(sa.text("DROP TYPE IF EXISTS contracttype"))
 
-    op.drop_constraint("fk_candidates_verifier_id", "candidates", type_="foreignkey")
-    op.drop_column("candidates", "verified_tech")
-    op.drop_column("candidates", "verifier_id")
-    op.drop_column("candidates", "champion")
-    op.drop_column("candidates", "preferences")
-    op.drop_column("candidates", "years_it_experience")
+    op.execute(
+        sa.text(
+            "ALTER TABLE candidates DROP CONSTRAINT IF EXISTS fk_candidates_verifier_id"
+        )
+    )
+    op.execute(sa.text("ALTER TABLE candidates DROP COLUMN IF EXISTS verified_tech"))
+    op.execute(sa.text("ALTER TABLE candidates DROP COLUMN IF EXISTS verifier_id"))
+    op.execute(sa.text("ALTER TABLE candidates DROP COLUMN IF EXISTS champion"))
+    op.execute(sa.text("ALTER TABLE candidates DROP COLUMN IF EXISTS preferences"))
+    op.execute(
+        sa.text("ALTER TABLE candidates DROP COLUMN IF EXISTS years_it_experience")
+    )

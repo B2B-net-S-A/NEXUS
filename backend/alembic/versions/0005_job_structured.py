@@ -14,12 +14,12 @@ Adds Phase 1 structured fields on jobs:
 - embedding_id                 — persisted Qdrant vector id (populated by Faza 2)
 - criteria_generated_at        — timestamp of last AI criteria refresh
 
-All fields are nullable or have safe defaults; existing rows are preserved.
+Idempotent (IF NOT EXISTS) so that `Base.metadata.create_all(checkfirst=True)`
+in 0001_initial does not conflict on fresh DBs.
 """
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = "0005"
 down_revision = "0004"
@@ -28,115 +28,93 @@ depends_on = None
 
 
 def upgrade() -> None:
-    seniority = postgresql.ENUM(
-        "junior",
-        "mid",
-        "senior",
-        "lead",
-        "architect",
-        name="seniority",
-        create_type=False,
-    )
-    seniority.create(op.get_bind(), checkfirst=True)
-
-    workmode = postgresql.ENUM(
-        "fulltime",
-        "parttime",
-        "contract",
-        name="workmode",
-        create_type=False,
-    )
-    workmode.create(op.get_bind(), checkfirst=True)
-
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "must_skills", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-    )
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "nice_skills", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-    )
-    op.add_column("jobs", sa.Column("seniority", seniority, nullable=True))
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "work_mode",
-            workmode,
-            nullable=False,
-            server_default="fulltime",
-        ),
-    )
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "headcount",
-            sa.Integer(),
-            nullable=False,
-            server_default="1",
-        ),
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("reference_number", sa.String(length=50), nullable=True),
-    )
-    op.add_column("jobs", sa.Column("industry", sa.String(length=50), nullable=True))
-    op.add_column(
-        "jobs", sa.Column("subcategory", sa.String(length=100), nullable=True)
-    )
-    op.add_column(
-        "jobs",
-        sa.Column(
-            "custom_fields", postgresql.JSONB(astext_type=sa.Text()), nullable=True
-        ),
-    )
-    op.add_column(
-        "jobs", sa.Column("embedding_id", sa.String(length=100), nullable=True)
-    )
-    op.add_column(
-        "jobs",
-        sa.Column("criteria_generated_at", sa.DateTime(timezone=True), nullable=True),
+    op.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'seniority') THEN
+                    CREATE TYPE seniority AS ENUM ('junior', 'mid', 'senior', 'lead', 'architect');
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'workmode') THEN
+                    CREATE TYPE workmode AS ENUM ('fulltime', 'parttime', 'contract');
+                END IF;
+            END $$;
+            """
+        )
     )
 
-    # Unique only when reference_number is not null
-    op.create_index(
-        "uq_jobs_reference_number",
-        "jobs",
-        ["reference_number"],
-        unique=True,
-        postgresql_where=sa.text("reference_number IS NOT NULL"),
+    # Structured skill fields + metadata (idempotent)
+    op.execute(sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS must_skills JSONB"))
+    op.execute(sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS nice_skills JSONB"))
+    op.execute(sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS seniority seniority"))
+    op.execute(
+        sa.text(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS work_mode workmode NOT NULL DEFAULT 'fulltime'"
+        )
     )
-    op.create_index(
-        "ix_jobs_industry", "jobs", ["industry"], unique=False, if_not_exists=True
+    op.execute(
+        sa.text(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS headcount INTEGER NOT NULL DEFAULT 1"
+        )
     )
-    op.create_index(
-        "ix_jobs_embedding_id",
-        "jobs",
-        ["embedding_id"],
-        unique=False,
-        if_not_exists=True,
+    op.execute(
+        sa.text(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reference_number VARCHAR(50)"
+        )
+    )
+    op.execute(
+        sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS industry VARCHAR(50)")
+    )
+    op.execute(
+        sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS subcategory VARCHAR(100)")
+    )
+    op.execute(sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS custom_fields JSONB"))
+    op.execute(
+        sa.text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS embedding_id VARCHAR(100)")
+    )
+    op.execute(
+        sa.text(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS criteria_generated_at TIMESTAMPTZ"
+        )
+    )
+
+    # Partial unique on reference_number (when not null)
+    op.execute(
+        sa.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_reference_number "
+            "ON jobs (reference_number) WHERE reference_number IS NOT NULL"
+        )
+    )
+    op.execute(
+        sa.text("CREATE INDEX IF NOT EXISTS ix_jobs_industry ON jobs (industry)")
+    )
+    op.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_jobs_embedding_id ON jobs (embedding_id)"
+        )
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_jobs_embedding_id", table_name="jobs")
-    op.drop_index("ix_jobs_industry", table_name="jobs")
-    op.drop_index("uq_jobs_reference_number", table_name="jobs")
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_jobs_embedding_id"))
+    op.execute(sa.text("DROP INDEX IF EXISTS ix_jobs_industry"))
+    op.execute(sa.text("DROP INDEX IF EXISTS uq_jobs_reference_number"))
 
-    op.drop_column("jobs", "criteria_generated_at")
-    op.drop_column("jobs", "embedding_id")
-    op.drop_column("jobs", "custom_fields")
-    op.drop_column("jobs", "subcategory")
-    op.drop_column("jobs", "industry")
-    op.drop_column("jobs", "reference_number")
-    op.drop_column("jobs", "headcount")
-    op.drop_column("jobs", "work_mode")
-    op.drop_column("jobs", "seniority")
-    op.drop_column("jobs", "nice_skills")
-    op.drop_column("jobs", "must_skills")
+    for col in [
+        "criteria_generated_at",
+        "embedding_id",
+        "custom_fields",
+        "subcategory",
+        "industry",
+        "reference_number",
+        "headcount",
+        "work_mode",
+        "seniority",
+        "nice_skills",
+        "must_skills",
+    ]:
+        op.execute(sa.text(f"ALTER TABLE jobs DROP COLUMN IF EXISTS {col}"))
 
-    op.execute("DROP TYPE IF EXISTS workmode")
-    op.execute("DROP TYPE IF EXISTS seniority")
+    op.execute(sa.text("DROP TYPE IF EXISTS workmode"))
+    op.execute(sa.text("DROP TYPE IF EXISTS seniority"))
