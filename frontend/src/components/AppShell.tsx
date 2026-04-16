@@ -333,12 +333,41 @@ function CandidateFormFields({ form, onChange }: { form: CandidateFormData; onCh
   );
 }
 
+interface DuplicateCandidateHit {
+  candidate_id: number;
+  name: string;
+  lastname: string;
+  email: string | null;
+  match_score: number;
+  match_reasons: string[];
+}
+
 export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [duplicates, setDuplicates] = useState<DuplicateCandidateHit[]>([]);
+  const [dupeChecked, setDupeChecked] = useState(false);
 
   const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const checkDuplicates = async () => {
+    if (!form.email && !form.phone && !form.linkedin && !(form.name && form.lastname)) return;
+    try {
+      const res = await api.post("/api/candidates/check-duplicates", {
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        linkedin: form.linkedin || undefined,
+        name: form.name || undefined,
+        lastname: form.lastname || undefined,
+      });
+      setDuplicates(Array.isArray(res.data) ? res.data : []);
+      setDupeChecked(true);
+    } catch (err) {
+      console.error("Duplicate check failed:", err);
+      setDupeChecked(true); // Fail-open: don't block save on service error
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -371,10 +400,52 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         {error && <ErrorBanner error={error} />}
+        {duplicates.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-700 dark:text-amber-300 font-medium text-sm">
+                ⚠️ Znaleziono {duplicates.length} podobnego kandydata w bazie:
+              </span>
+            </div>
+            <ul className="space-y-1 text-sm">
+              {duplicates.slice(0, 5).map((d) => (
+                <li key={d.candidate_id} className="flex items-center justify-between">
+                  <span className="text-gray-800 dark:text-gray-200">
+                    {d.name} {d.lastname}
+                    {d.email ? ` (${d.email})` : ""}
+                    <span className="ml-2 text-xs text-amber-700">
+                      score {d.match_score} · {d.match_reasons.join(", ")}
+                    </span>
+                  </span>
+                  <a
+                    href={`/candidates/${d.candidate_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline text-xs"
+                  >
+                    Otwórz profil ↗
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-amber-800">
+              Możesz kontynuować, jeśli masz pewność że to inny kandydat.
+            </p>
+          </div>
+        )}
         <CandidateFormFields form={form} onChange={onChange} />
-        <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Dodaj kandydata" />
+        <div className="flex justify-between items-center pt-1">
+          <button
+            type="button"
+            onClick={checkDuplicates}
+            className="h-9 px-3 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+          >
+            {dupeChecked ? "Sprawdź duplikaty ponownie" : "Sprawdź duplikaty"}
+          </button>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+            <SaveButton saving={saving} label="Dodaj kandydata" />
+          </div>
         </div>
       </form>
     </Modal>
