@@ -42,6 +42,7 @@ from app.api import ws
 from app.api import matching
 from app.api import pipeline_templates
 from app.api import recommendations
+from app.api import phase3
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,7 @@ app.include_router(
     tags=["pipeline-templates"],
 )
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
+app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 
 
 @app.get("/health")

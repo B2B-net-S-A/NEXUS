@@ -384,6 +384,74 @@ export interface JobMatch {
   breakdown?: ScoreBreakdown;
 }
 
+// ── Phase 3 ─────────────────────────────────────────────────────────────────
+
+export interface ScorecardQuestion {
+  id: string;
+  label: string;
+  type: "rating" | "text" | "checkbox" | "select";
+  options?: string[];
+  required?: boolean;
+  description?: string;
+}
+
+export interface ScorecardSchema {
+  title?: string | null;
+  questions: ScorecardQuestion[];
+}
+
+export interface ScorecardAnswer {
+  question_id: string;
+  value: unknown;
+}
+
+export interface CandidatePipelineRow {
+  candidate_stage_id: number;
+  job_id: number;
+  job_title: string | null;
+  client_id: number | null;
+  stage_name: string | null;
+  stage_category: string | null;
+  is_terminal: boolean;
+  moved_at: string | null;
+  days_in_stage: number;
+  rating: number | null;
+  has_scorecard: boolean;
+}
+
+export const phase3Api = {
+  getScorecardSchema: (stageDefId: number) =>
+    api.get<{ stage_def_id: number; stage_name: string; schema: ScorecardSchema }>(
+      `/api/pipeline-stages/${stageDefId}/scorecard`,
+    ),
+  setScorecardSchema: (stageDefId: number, schema: ScorecardSchema) =>
+    api.put(`/api/pipeline-stages/${stageDefId}/scorecard`, schema),
+  submitAnswers: (
+    candidateStageId: number,
+    data: {
+      stage_id: number;
+      stage_def_id: number;
+      answers: ScorecardAnswer[];
+      overall_rating?: number;
+      notes?: string;
+    },
+  ) => api.patch(`/api/pipeline/${candidateStageId}/scorecard`, data),
+  slaAlerts: () => api.get<{ count: number; alerts: unknown[] }>("/api/pipeline/overview-sla"),
+  candidatePipelines: (candidateId: number) =>
+    api.get<{
+      candidate_id: number;
+      candidate_name: string;
+      count: number;
+      pipelines: CandidatePipelineRow[];
+    }>(`/api/candidates/${candidateId}/pipelines`),
+  funnel: (templateId?: number) =>
+    api.get("/api/reports/funnel", { params: templateId ? { template_id: templateId } : {} }),
+  timeToHire: (daysLookback = 180) =>
+    api.get("/api/reports/time-to-hire", { params: { days_lookback: daysLookback } }),
+  embedAllJobs: (limit = 200) =>
+    api.post("/api/jobs/embed-all", null, { params: { limit } }),
+};
+
 export const recommendationsApi = {
   forJob: (jobId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
     api.get<{ job_id: number; job_title: string; search_type: string; matches: CandidateMatch[] }>(
