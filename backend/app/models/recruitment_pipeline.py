@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -107,6 +108,10 @@ class CandidateStage(Base, TimestampMixin):
     rejection_reason_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("rejection_reasons.id"), nullable=True
     )
+
+    # Phase 3: stage-specific scorecard answers stored with the move.
+    # Shape: {"answers": [{"question_id": str, "value": Any}], "overall_rating": int}
+    scorecard_answers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")

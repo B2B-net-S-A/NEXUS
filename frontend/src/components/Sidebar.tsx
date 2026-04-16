@@ -92,6 +92,11 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Procesy rekrutacyjne",
         icon: GitBranch,
       },
+      {
+        href: "/analytics/pipeline",
+        label: "Analityka pipeline",
+        icon: BarChart3,
+      },
     ],
   },
 ];

@@ -45,6 +45,7 @@ import { SendEmailModal } from "@/components/SendEmailModal";
 import { CVGeneratorModal } from "@/components/CVGeneratorModal";
 import { EditCandidateModal } from "@/components/AppShell";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
+import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget";
 import Link from "next/link";
 import { formatDate, formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
@@ -985,6 +986,8 @@ export default function CandidateDetailPage() {
           {/* ── REKRUTACJE TAB ── */}
           {activeTab === "rekrutacje" && (
             <div className="space-y-6">
+              {/* Phase 3: multi-pipeline current view */}
+              <CandidatePipelinesWidget candidateId={Number(id)} />
               {/* Phase 2: AI-suggested jobs */}
               <SuggestedJobsWidget candidateId={Number(id)} />
 
