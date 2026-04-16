@@ -59,3 +59,4 @@ TestResults.xml
 *.env.backup
 
 frontend/tsconfig.tsbuildinfo
+.claude/scheduled_tasks.lock

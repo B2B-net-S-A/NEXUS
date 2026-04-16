@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
 from app.api import (
     auth,
@@ -101,6 +102,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Install JSON log formatter (no-op in DEBUG mode). Must happen early
+    # so every subsequent log line uses structured JSON.
+    configure_json_logging(debug=settings.DEBUG)
+
     # Startup: create tables if not exists.
     # Only in DEBUG — production deploys must run `alembic upgrade head` explicitly.
     # See plan Faza 1.1 for the Alembic reset that replaces this shortcut entirely.

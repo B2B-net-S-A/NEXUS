@@ -328,7 +328,9 @@ async def score_candidate_job(
     semantic_similarity: Optional[float] = None,
 ) -> ScoreBreakdown:
     """Compute the full ScoreBreakdown for one (candidate, job) pair."""
+    import time as _time
 
+    t0 = _time.perf_counter()
     semantic = score_semantic(semantic_similarity)
     skills, must_match, must_gap, nice_match, nice_gap = _score_skills(candidate, job)
     salary = _score_salary(candidate, job)
@@ -346,6 +348,27 @@ async def score_candidate_job(
             + location.points
             + availability.points
         )
+
+    latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
+    # Structured event for log aggregation (JSON formatter reshapes extras)
+    logger.info(
+        "score_computed",
+        extra={
+            "event": "score_computed",
+            "candidate_id": candidate.id,
+            "job_id": job.id,
+            "total_score": round(total, 2),
+            "semantic_points": round(semantic.points, 2),
+            "skills_points": round(skills.points, 2),
+            "salary_points": round(salary.points, 2),
+            "location_points": round(location.points, 2),
+            "availability_points": round(availability.points, 2),
+            "penalties_count": len(penalties),
+            "must_matched": len(must_match),
+            "must_missing": len(must_gap),
+            "latency_ms": latency_ms,
+        },
+    )
 
     return ScoreBreakdown(
         candidate_id=candidate.id,
