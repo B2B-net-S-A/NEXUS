@@ -522,7 +522,9 @@ async def update_candidate(
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
-    candidate_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
+    candidate_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()

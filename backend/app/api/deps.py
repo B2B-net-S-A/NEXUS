@@ -73,9 +73,7 @@ DeliveryLeadPlus = Annotated[
 
 TacPlus = Annotated[
     User,
-    Depends(
-        require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
-    ),
+    Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),
 ]
 
 RecruiterPlus = Annotated[
