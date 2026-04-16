@@ -226,6 +226,7 @@ class TalentRadarImporter:
                 skills, years_it_experience, competence_category, languages,
                 location, salary_expectation, availability_date,
                 cv_language, cv_parsed_at, source, status,
+                notes_count, champion,
                 created_at, updated_at
             ) VALUES (
                 :external_id, :external_source, :email, :name, :lastname,
@@ -233,6 +234,7 @@ class TalentRadarImporter:
                 CAST(:skills AS JSONB), :years_it_experience, :competence_category,
                 CAST(:languages AS JSONB), :location, :salary_expectation,
                 :availability_date, :cv_language, :cv_parsed_at, :source, :status,
+                0, false,
                 NOW(), NOW()
             )
             ON CONFLICT (external_source, external_id)
