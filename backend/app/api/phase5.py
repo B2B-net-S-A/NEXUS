@@ -187,7 +187,7 @@ async def list_rate_history(
 async def create_rate_history(
     candidate_id: int,
     data: RateHistoryCreate,
-    current_user: CurrentUser,
+    current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
@@ -208,7 +208,7 @@ async def create_rate_history(
 async def update_rate_history(
     rate_id: int,
     data: RateHistoryUpdate,
-    current_user: CurrentUser,
+    current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     r = await db.scalar(select(RateHistory).where(RateHistory.id == rate_id))
@@ -224,7 +224,7 @@ async def update_rate_history(
 @router.delete("/rate-history/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rate_history(
     rate_id: int,
-    current_user: CurrentUser,
+    current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     r = await db.scalar(select(RateHistory).where(RateHistory.id == rate_id))
@@ -280,7 +280,7 @@ async def list_conflicts(
 async def create_conflict(
     candidate_id: int,
     data: ConflictCreate,
-    current_user: CurrentUser,
+    current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
@@ -324,7 +324,7 @@ async def create_conflict(
 @router.patch("/conflicts/{conflict_id}/deactivate")
 async def deactivate_conflict(
     conflict_id: int,
-    current_user: CurrentUser,
+    current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     c = await db.scalar(

@@ -45,6 +45,7 @@ from app.api import recommendations
 from app.api import phase3
 from app.api import phase4
 from app.api import phase5
+from app.api import admin_import
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +193,7 @@ app.include_router(recommendations.router, prefix="/api", tags=["recommendations
 app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
+app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 
 
 @app.get("/health")

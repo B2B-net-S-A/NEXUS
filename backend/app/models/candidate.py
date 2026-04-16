@@ -2,7 +2,17 @@ import enum
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -119,6 +129,15 @@ class Candidate(Base, TimestampMixin):
     raw_cv_text: Mapped[Optional[str]] = mapped_column(Text)
     cv_filename: Mapped[Optional[str]] = mapped_column(String(500))
     cv_parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Sprint 7a — external sources (Traffit / talent-radar / CSV imports)
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+    cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    cv_language: Mapped[Optional[str]] = mapped_column(String(10))
+    cv_extracted_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 
     # Metadane rekrutacyjne
     notes_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

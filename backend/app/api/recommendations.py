@@ -15,13 +15,14 @@ import logging
 import re
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -45,7 +46,9 @@ router = APIRouter()
 
 
 @router.get("/jobs/{job_id}/recommendations")
+@limiter.limit("20/minute")
 async def recommend_candidates_for_job(
+    request: Request,
     job_id: int,
     current_user: CurrentUser,
     top_k: int = Query(20, ge=1, le=100),
@@ -152,7 +155,9 @@ async def recommend_candidates_for_job(
 
 
 @router.get("/candidates/{candidate_id}/recommendations")
+@limiter.limit("20/minute")
 async def recommend_jobs_for_candidate(
+    request: Request,
     candidate_id: int,
     current_user: CurrentUser,
     top_k: int = Query(10, ge=1, le=50),
@@ -331,7 +336,9 @@ def _fallback_criteria_from_text(job: Job) -> dict:
 
 
 @router.post("/jobs/{job_id}/refresh-criteria", response_model=dict)
+@limiter.limit("5/minute")
 async def refresh_job_criteria(
+    request: Request,
     job_id: int,
     current_user: ManagerOrAdmin,
     db: AsyncSession = Depends(get_db),
@@ -375,7 +382,9 @@ async def refresh_job_criteria(
 
 
 @router.post("/jobs/{job_id}/recompute-scores")
+@limiter.limit("2/minute")
 async def recompute_scores(
+    request: Request,
     job_id: int,
     current_user: ManagerOrAdmin,
     top_k: int = Query(200, ge=1, le=500),
