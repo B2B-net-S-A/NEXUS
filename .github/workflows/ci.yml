@@ -76,6 +76,7 @@ jobs:
         run: |
           pytest tests/test_scoring_service.py tests/test_dedup_service.py \
                  tests/test_talent_radar_importer.py \
+                 tests/test_ical_import.py \
                  -v --tb=short
 
   frontend-lint-build:
