@@ -40,6 +40,7 @@ class JobCreate(BaseModel):
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
+    pipeline_template_id: Optional[int] = None
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
@@ -73,6 +74,7 @@ class JobUpdate(BaseModel):
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
+    pipeline_template_id: Optional[int] = None
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod

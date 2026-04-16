@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { EditJobModal } from "@/components/AppShell";
+import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -997,13 +998,16 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "ai-matching" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <Sparkles className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-semibold">AI Matching</h2>
-            <span className="text-xs text-gray-400 ml-1">Kandydaci dopasowani do tej oferty</span>
+        <div className="space-y-4">
+          <SuggestedCandidatesWidget jobId={Number(id)} />
+          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center gap-2 mb-6">
+              <Sparkles className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-semibold">Klasyczne AI Matching (legacy)</h2>
+              <span className="text-xs text-gray-400 ml-1">Prosty semantic + tag fallback</span>
+            </div>
+            <AIMatchingSection jobId={Number(id)} job={job} />
           </div>
-          <AIMatchingSection jobId={Number(id)} job={job} />
         </div>
       )}
 

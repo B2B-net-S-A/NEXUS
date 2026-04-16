@@ -48,6 +48,7 @@ import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
+import { MatchHistoryWidget } from "@/components/MatchHistoryWidget";
 import Link from "next/link";
 import { formatDate, formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
@@ -1007,7 +1008,7 @@ export default function CandidateDetailPage() {
                       <SectionTitle>Procesy rekrutacyjne</SectionTitle>
                       <div className="space-y-3 mt-3">
                         {history.jobs.map((job: any) => (
-                          <JobHistoryCard key={job.job_id} job={job} />
+                          <JobHistoryCard key={job.job_id} job={job} candidateId={Number(id)} />
                         ))}
                       </div>
                     </section>
@@ -1357,7 +1358,8 @@ function TimelineFeed({ items }: { items: any[] }) {
   );
 }
 
-function JobHistoryCard({ job }: { job: any }) {
+function JobHistoryCard({ job, candidateId }: { job: any; candidateId: number }) {
+  const [showMatchHistory, setShowMatchHistory] = useState(false);
   const stageColors: Record<string, string> = {
     hired: "bg-green-100 text-green-700",
     rejected: "bg-red-100 text-red-700",
@@ -1410,6 +1412,19 @@ function JobHistoryCard({ job }: { job: any }) {
           ))}
         </div>
       )}
+      <div className="mt-3">
+        <button
+          onClick={() => setShowMatchHistory(v => !v)}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          {showMatchHistory ? "Ukryj historię match ▲" : "Pokaż historię match ▼"}
+        </button>
+        {showMatchHistory && (
+          <div className="mt-2">
+            <MatchHistoryWidget jobId={job.job_id} candidateId={candidateId} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
