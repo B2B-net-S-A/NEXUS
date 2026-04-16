@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,7 +11,32 @@ from app.models.activity import Activity
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
 from app.api.deps import CurrentUser
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+# Fields that, when changed, should trigger re-embedding the job (Phase 2).
+_EMBED_TRIGGER_FIELDS = {
+    "title",
+    "description",
+    "requirements",
+    "must_skills",
+    "nice_skills",
+    "seniority",
+    "subcategory",
+    "industry",
+}
+
+
+async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
+    """Fire-and-log job embedding; never raises."""
+    try:
+        from app.services.embedding_service import embed_job
+
+        await embed_job(job_id, db)
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[Job] embedding failed for job {job_id}: {e}")
 
 
 @router.get("")
@@ -79,7 +105,11 @@ async def create_job(
             user_id=current_user.id,
         )
     )
+    await db.commit()
     await db.refresh(job)
+
+    # Phase 2: embed the job so reverse matching picks it up.
+    await _maybe_embed_job(job.id, db)
     return job
 
 
@@ -117,7 +147,12 @@ async def update_job(
             details=updates,
         )
     )
+    await db.commit()
     await db.refresh(job)
+
+    # Phase 2: re-embed if any embed-relevant field changed
+    if _EMBED_TRIGGER_FIELDS & set(updates.keys()):
+        await _maybe_embed_job(job_id, db)
     return job
 
 

@@ -20,11 +20,18 @@ logger = logging.getLogger(__name__)
 VECTOR_SIZE = 1024
 VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
 
+JOBS_COLLECTION = "nexus_jobs"
+
 
 def _collection() -> str:
     """Return configured Qdrant collection name (default: nexus_candidates)."""
     name = getattr(settings, "QDRANT_COLLECTION", "nexus_candidates")
     return name or "nexus_candidates"
+
+
+def _jobs_collection() -> str:
+    """Separate Qdrant collection for job embeddings (Phase 2)."""
+    return getattr(settings, "QDRANT_JOBS_COLLECTION", None) or JOBS_COLLECTION
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +52,10 @@ def _get_qdrant_client():
 
 def init_qdrant_collection() -> None:
     """
-    Create the Qdrant collection 'nexus_candidates' if it does not exist.
+    Create Qdrant collections if missing:
+      - nexus_candidates (Phase 1)
+      - nexus_jobs       (Phase 2)
+
     Called at application startup (synchronous, runs in thread via asyncio.to_thread).
     """
     try:
@@ -53,18 +63,21 @@ def init_qdrant_collection() -> None:
         from qdrant_client.models import Distance, VectorParams
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        existing = [c.name for c in client.get_collections().collections]
+        existing = {c.name for c in client.get_collections().collections}
 
-        if _collection() not in existing:
-            client.create_collection(
-                collection_name=_collection(),
-                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-            )
-            logger.info(
-                f"[Qdrant] Collection '{_collection()}' created (dim={VECTOR_SIZE}, cosine)."
-            )
-        else:
-            logger.info(f"[Qdrant] Collection '{_collection()}' already exists.")
+        for coll in (_collection(), _jobs_collection()):
+            if coll not in existing:
+                client.create_collection(
+                    collection_name=coll,
+                    vectors_config=VectorParams(
+                        size=VECTOR_SIZE, distance=Distance.COSINE
+                    ),
+                )
+                logger.info(
+                    f"[Qdrant] Collection '{coll}' created (dim={VECTOR_SIZE}, cosine)."
+                )
+            else:
+                logger.info(f"[Qdrant] Collection '{coll}' already exists.")
     except Exception as e:
         logger.warning(
             f"[Qdrant] init_qdrant_collection failed: {e} — semantic search will be unavailable."
@@ -303,4 +316,130 @@ async def search_candidates_semantic(
         return await asyncio.to_thread(_search)
     except Exception as e:
         logger.error(f"[Search] Qdrant search error: {e}")
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Job embedding (reverse matching)
+# ---------------------------------------------------------------------------
+
+
+def _build_job_text(job) -> str:
+    """Build a rich text blob from job fields for embedding."""
+    parts: list[str] = []
+
+    if job.title:
+        parts.append(job.title)
+    if job.description:
+        parts.append(job.description[:1200])
+    if job.requirements:
+        parts.append(job.requirements[:1200])
+
+    # Structured fields (Phase 1)
+    if getattr(job, "seniority", None):
+        parts.append(f"{job.seniority.value} level")
+    if getattr(job, "subcategory", None):
+        parts.append(job.subcategory)
+    if getattr(job, "industry", None):
+        parts.append(f"branża {job.industry}")
+
+    # Must / nice skills names
+    for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):
+        if bucket and isinstance(bucket, list):
+            for item in bucket:
+                if isinstance(item, dict) and item.get("name"):
+                    parts.append(item["name"])
+                elif isinstance(item, str):
+                    parts.append(item)
+
+    return " ".join(p for p in parts if p and p.strip())
+
+
+async def embed_job(job_id: int, db: AsyncSession) -> bool:
+    """
+    Generate a vector embedding for *job_id* and upsert it into the nexus_jobs
+    collection. Sets jobs.embedding_id = str(job_id).
+    Non-blocking: returns False on any failure, logs at WARNING.
+    """
+    from app.models.job import Job
+
+    try:
+        result = await db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        if not job:
+            logger.warning(f"[Embed] Job {job_id} not found.")
+            return False
+
+        text = _build_job_text(job)
+        if not text.strip():
+            logger.warning(f"[Embed] Job {job_id} has no text to embed.")
+            return False
+
+        embedding = await generate_embedding(text)
+        if embedding is None:
+            return False
+
+        def _upsert():
+            from qdrant_client import QdrantClient
+            from qdrant_client.models import PointStruct
+
+            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            client.upsert(
+                collection_name=_jobs_collection(),
+                points=[
+                    PointStruct(
+                        id=job_id,
+                        vector=embedding,
+                        payload={
+                            "job_id": job_id,
+                            "title": job.title or "",
+                            "client_id": job.client_id,
+                            "industry": job.industry or "",
+                        },
+                    )
+                ],
+            )
+
+        await asyncio.to_thread(_upsert)
+
+        job.embedding_id = str(job_id)
+        await db.commit()
+
+        logger.info(f"[Embed] Job {job_id} embedded and stored in Qdrant.")
+        return True
+
+    except Exception as e:
+        logger.error(f"[Embed] Failed to embed job {job_id}: {e}")
+        return False
+
+
+async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
+    """Embed *query* and return top-k closest job ids from nexus_jobs."""
+    embedding = await generate_embedding(query)
+    if embedding is None:
+        return []
+
+    def _search():
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        hits = client.search(
+            collection_name=_jobs_collection(),
+            query_vector=embedding,
+            limit=top_k,
+            with_payload=True,
+        )
+        return [
+            {
+                "job_id": int(hit.id),
+                "score": round(float(hit.score), 4),
+                "payload": hit.payload or {},
+            }
+            for hit in hits
+        ]
+
+    try:
+        return await asyncio.to_thread(_search)
+    except Exception as e:
+        logger.error(f"[Search] Qdrant jobs search error: {e}")
         return []

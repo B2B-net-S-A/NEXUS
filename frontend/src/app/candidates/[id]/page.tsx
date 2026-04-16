@@ -44,6 +44,7 @@ import {
 import { SendEmailModal } from "@/components/SendEmailModal";
 import { CVGeneratorModal } from "@/components/CVGeneratorModal";
 import { EditCandidateModal } from "@/components/AppShell";
+import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import Link from "next/link";
 import { formatDate, formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
@@ -984,6 +985,9 @@ export default function CandidateDetailPage() {
           {/* ── REKRUTACJE TAB ── */}
           {activeTab === "rekrutacje" && (
             <div className="space-y-6">
+              {/* Phase 2: AI-suggested jobs */}
+              <SuggestedJobsWidget candidateId={Number(id)} />
+
               {historyLoading ? (
                 <LoadingSpinner text="Ładowanie historii rekrutacji..." />
               ) : !history ? null : (

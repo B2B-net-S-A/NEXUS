@@ -108,6 +108,7 @@ class JobResponse(BaseModel):
     custom_fields: Optional[Any] = None
     embedding_id: Optional[str] = None
     criteria_generated_at: Optional[datetime] = None
+    pipeline_template_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
