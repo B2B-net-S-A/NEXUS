@@ -44,6 +44,7 @@ from app.api import pipeline_templates
 from app.api import recommendations
 from app.api import phase3
 from app.api import phase4
+from app.api import phase5
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ app.include_router(
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])
+app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 
 
 @app.get("/health")

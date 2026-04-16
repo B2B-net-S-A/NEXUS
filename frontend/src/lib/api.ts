@@ -419,6 +419,77 @@ export interface CandidatePipelineRow {
   has_scorecard: boolean;
 }
 
+// ── Phase 5 ─────────────────────────────────────────────────────────────────
+
+export interface RateHistoryRow {
+  id: number;
+  candidate_id: number;
+  client_id: number | null;
+  job_id: number | null;
+  rate: number;
+  currency: string;
+  contract_type: "b2b" | "uop" | "zlecenie";
+  start_date: string;
+  end_date: string | null;
+  notes: string | null;
+  recorded_by: number | null;
+  created_at: string | null;
+}
+
+export interface ConflictRow {
+  id: number;
+  candidate_id: number;
+  client_id: number;
+  type: "blacklist" | "current_employment" | "nda" | "competitor";
+  reason: string | null;
+  active: boolean;
+  expires_at: string | null;
+  created_by: number | null;
+  created_at: string | null;
+}
+
+export const phase5Api = {
+  diagnostics: () => api.get("/api/embed-diagnostics"),
+  initCollections: () => api.post("/api/embed-init"),
+  clientsLookup: () => api.get<{ id: number; name: string }[]>("/api/clients-lookup"),
+  jobsLookup: () => api.get<{ id: number; title: string }[]>("/api/jobs-lookup"),
+  rateHistory: {
+    list: (candidateId: number) =>
+      api.get<RateHistoryRow[]>(`/api/candidates/${candidateId}/rate-history`),
+    create: (
+      candidateId: number,
+      data: {
+        rate: number;
+        currency?: string;
+        contract_type: "b2b" | "uop" | "zlecenie";
+        start_date: string;
+        end_date?: string | null;
+        client_id?: number | null;
+        job_id?: number | null;
+        notes?: string | null;
+      },
+    ) => api.post<RateHistoryRow>(`/api/candidates/${candidateId}/rate-history`, data),
+    delete: (rateId: number) => api.delete(`/api/rate-history/${rateId}`),
+  },
+  conflicts: {
+    list: (candidateId: number, active_only = true) =>
+      api.get<ConflictRow[]>(`/api/candidates/${candidateId}/conflicts`, {
+        params: { active_only },
+      }),
+    create: (
+      candidateId: number,
+      data: {
+        client_id: number;
+        type: "blacklist" | "current_employment" | "nda" | "competitor";
+        reason?: string;
+        expires_at?: string;
+      },
+    ) => api.post<ConflictRow>(`/api/candidates/${candidateId}/conflicts`, data),
+    deactivate: (conflictId: number) =>
+      api.patch(`/api/conflicts/${conflictId}/deactivate`),
+  },
+};
+
 export const phase3Api = {
   getScorecardSchema: (stageDefId: number) =>
     api.get<{ stage_def_id: number; stage_name: string; schema: ScorecardSchema }>(

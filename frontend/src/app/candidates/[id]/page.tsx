@@ -46,6 +46,8 @@ import { CVGeneratorModal } from "@/components/CVGeneratorModal";
 import { EditCandidateModal } from "@/components/AppShell";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget";
+import { RateHistoryWidget } from "@/components/RateHistoryWidget";
+import { ConflictsWidget } from "@/components/ConflictsWidget";
 import Link from "next/link";
 import { formatDate, formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
@@ -988,6 +990,11 @@ export default function CandidateDetailPage() {
             <div className="space-y-6">
               {/* Phase 3: multi-pipeline current view */}
               <CandidatePipelinesWidget candidateId={Number(id)} />
+              {/* Phase 5: rate history + conflicts (staffing guardrails) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <RateHistoryWidget candidateId={Number(id)} />
+                <ConflictsWidget candidateId={Number(id)} />
+              </div>
               {/* Phase 2: AI-suggested jobs */}
               <SuggestedJobsWidget candidateId={Number(id)} />
 
