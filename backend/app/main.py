@@ -41,6 +41,7 @@ from app.api import fireflies
 from app.api import ws
 from app.api import matching
 from app.api import pipeline_templates
+from app.api import recommendations
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ app.include_router(
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
 )
+app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 
 
 @app.get("/health")

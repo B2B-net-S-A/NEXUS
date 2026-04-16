@@ -321,4 +321,88 @@ export const pipelineApi = {
   }) => api.post("/api/pipeline/move", data),
 };
 
+// ── Recommendations (Phase 2) ────────────────────────────────────────────────
+export interface LayerPoints {
+  points: number;
+  max: number;
+  reason: string;
+}
+
+export interface ScoreBreakdown {
+  candidate_id: number;
+  job_id: number;
+  total: number;
+  semantic: LayerPoints;
+  skills: LayerPoints;
+  salary: LayerPoints;
+  location: LayerPoints;
+  availability: LayerPoints;
+  matching_must: string[];
+  gap_must: string[];
+  matching_nice: string[];
+  gap_nice: string[];
+  penalties: string[];
+}
+
+export interface CandidateMatch {
+  candidate: {
+    id: number;
+    name: string;
+    lastname: string;
+    email: string | null;
+    location: string | null;
+    champion: boolean;
+    salary_expectation: number | null;
+    salary_currency: string | null;
+    years_it_experience: number | null;
+    competence_category: string | null;
+    tags?: unknown;
+    skills?: unknown;
+    ai_summary?: string | null;
+    avatar_url?: string | null;
+  };
+  total_score: number;
+  breakdown?: ScoreBreakdown;
+}
+
+export interface JobMatch {
+  job: {
+    id: number;
+    title: string;
+    client_id: number | null;
+    location: string | null;
+    salary_min: number | null;
+    salary_max: number | null;
+    remote_policy: string | null;
+    status: string | null;
+    priority: string | null;
+    seniority: string | null;
+    industry: string | null;
+    deadline: string | null;
+  };
+  total_score: number;
+  breakdown?: ScoreBreakdown;
+}
+
+export const recommendationsApi = {
+  forJob: (jobId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
+    api.get<{ job_id: number; job_title: string; search_type: string; matches: CandidateMatch[] }>(
+      `/api/jobs/${jobId}/recommendations`,
+      { params: opts },
+    ),
+  forCandidate: (candidateId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
+    api.get<{ candidate_id: number; candidate_name: string; matches: JobMatch[] }>(
+      `/api/candidates/${candidateId}/recommendations`,
+      { params: opts },
+    ),
+  refreshCriteria: (jobId: number) =>
+    api.post<{ job_id: number; must_skills: unknown; nice_skills: unknown; criteria_generated_at: string }>(
+      `/api/jobs/${jobId}/refresh-criteria`,
+    ),
+  recomputeScores: (jobId: number, topK = 200) =>
+    api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
+  assignToJob: (candidateId: number, jobId: number) =>
+    api.post(`/api/candidates/${candidateId}/assign-to-job/${jobId}`),
+};
+
 export default api;
