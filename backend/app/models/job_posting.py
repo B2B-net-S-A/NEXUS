@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -29,11 +29,14 @@ class JobPosting(Base, TimestampMixin):
     Publikacja oferty pracy na zewnętrznym portalu ogłoszeniowym.
     Integracja z portalami w przygotowaniu — dane symulowane.
     """
+
     __tablename__ = "job_postings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     portal: Mapped[Portal] = mapped_column(Enum(Portal), nullable=False)
 
@@ -43,8 +46,12 @@ class JobPosting(Base, TimestampMixin):
         Enum(PostingStatus), default=PostingStatus.draft, nullable=False, index=True
     )
 
-    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
 

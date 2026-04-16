@@ -4,10 +4,10 @@ używając semantycznego wyszukiwania Qdrant (Voyage AI) + fallback tag-based.
 
 GET /api/jobs/{id}/ai-matches
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -71,12 +71,14 @@ def _build_match_info(
             score = len(matching) / len(req_set)
         else:
             # Fallback score based on profile completeness
-            filled = sum([
-                bool(candidate.skills),
-                bool(candidate.ai_summary),
-                bool(candidate.competence_category),
-                bool(candidate.email),
-            ])
+            filled = sum(
+                [
+                    bool(candidate.skills),
+                    bool(candidate.ai_summary),
+                    bool(candidate.competence_category),
+                    bool(candidate.email),
+                ]
+            )
             score = filled / 4
 
     return {
@@ -171,7 +173,7 @@ async def get_ai_matches(
         hits = await search_candidates_semantic(query_text, top_k=top_k * 2)
 
         if hits:
-            candidate_ids = [h["candidate_id"] for h in hits[:top_k * 2]]
+            candidate_ids = [h["candidate_id"] for h in hits[: top_k * 2]]
             score_map = {h["candidate_id"]: h["score"] for h in hits}
 
             cand_result = await db.execute(
@@ -180,7 +182,7 @@ async def get_ai_matches(
             candidates_by_id = {c.id: c for c in cand_result.scalars().all()}
 
             matches = []
-            for cid in candidate_ids[:top_k * 2]:
+            for cid in candidate_ids[: top_k * 2]:
                 c = candidates_by_id.get(cid)
                 if not c:
                     continue
@@ -200,7 +202,9 @@ async def get_ai_matches(
                 "matches": matches,
             }
     except Exception as e:
-        logger.warning(f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based")
+        logger.warning(
+            f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
+        )
 
     # ── Fallback: tag-based matching ─────────────────────────────────────────
     logger.info(f"[AIMatch] Using tag-based fallback for job {job_id}")

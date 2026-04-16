@@ -3,11 +3,12 @@ Email Communication API.
 Zarządzanie szablonami emaili i symulacja wysyłki.
 SMTP integration — TODO (currently console log only).
 """
+
 import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +24,7 @@ router = APIRouter()
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
+
 
 class EmailTemplateCreate(BaseModel):
     name: str
@@ -216,10 +218,15 @@ AVAILABLE_PLACEHOLDERS = [
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-def _render_template(subject: str, body: str, candidate: Optional[Candidate] = None) -> tuple[str, str]:
+
+def _render_template(
+    subject: str, body: str, candidate: Optional[Candidate] = None
+) -> tuple[str, str]:
     """Zastępuje placeholdery danymi kandydata."""
     placeholders = {
-        "{{candidate_name}}": f"{candidate.name} {candidate.lastname}".strip() if candidate else "Jan Kowalski",
+        "{{candidate_name}}": f"{candidate.name} {candidate.lastname}".strip()
+        if candidate
+        else "Jan Kowalski",
         "{{job_title}}": "Senior Java Developer",
         "{{company_name}}": "B2B.net S.A.",
         "{{interview_date}}": "2025-02-15 10:00",
@@ -239,11 +246,13 @@ def _render_template(subject: str, body: str, candidate: Optional[Candidate] = N
 def _extract_placeholders(text: str) -> List[str]:
     """Extract {{placeholder}} patterns from template text."""
     import re
+
     found = re.findall(r"\{\{[a-z_]+\}\}", text)
     return list(set(found))
 
 
 # ── Email Templates CRUD ───────────────────────────────────────────────────
+
 
 @router.get("/email-templates", response_model=List[EmailTemplateResponse])
 async def list_email_templates(
@@ -252,7 +261,9 @@ async def list_email_templates(
     category: Optional[EmailCategory] = None,
 ):
     """Lista wszystkich szablonów emaili."""
-    query = select(EmailTemplate).order_by(EmailTemplate.is_default.desc(), EmailTemplate.name)
+    query = select(EmailTemplate).order_by(
+        EmailTemplate.is_default.desc(), EmailTemplate.name
+    )
     if category:
         query = query.where(EmailTemplate.category == category)
     result = await db.execute(query)
@@ -279,7 +290,9 @@ async def get_email_template(
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz szablon emaila po ID."""
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
@@ -295,7 +308,11 @@ async def get_email_template(
     )
 
 
-@router.post("/email-templates", response_model=EmailTemplateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/email-templates",
+    response_model=EmailTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_email_template(
     data: EmailTemplateCreate,
     current_user: CurrentUser,
@@ -329,7 +346,9 @@ async def update_email_template(
     db: AsyncSession = Depends(get_db),
 ):
     """Zaktualizuj szablon emaila."""
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
@@ -356,7 +375,9 @@ async def delete_email_template(
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń szablon emaila."""
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
@@ -371,17 +392,23 @@ async def preview_template_by_id(
     candidate_id: Optional[int] = None,
 ):
     """Podgląd wyrenderowanego szablonu z przykładowymi danymi."""
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
 
     candidate = None
     if candidate_id:
-        cand_result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+        cand_result = await db.execute(
+            select(Candidate).where(Candidate.id == candidate_id)
+        )
         candidate = cand_result.scalar_one_or_none()
 
-    rendered_subject, rendered_body = _render_template(template.subject, template.body, candidate)
+    rendered_subject, rendered_body = _render_template(
+        template.subject, template.body, candidate
+    )
     return PreviewResponse(subject=rendered_subject, body=rendered_body)
 
 
@@ -395,14 +422,18 @@ async def send_test_email(
     Stub: simulates sending a test email to the current user.
     Logs to console; real SMTP is a TODO.
     """
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
 
     rendered_subject, rendered_body = _render_template(template.subject, template.body)
 
-    to_email = current_user.email if hasattr(current_user, "email") else "user@example.com"
+    to_email = (
+        current_user.email if hasattr(current_user, "email") else "user@example.com"
+    )
 
     logger.info("=" * 60)
     logger.info("[TEST EMAIL SIMULATION] — Email NIE został fizycznie wysłany")
@@ -430,7 +461,10 @@ async def seed_default_templates(
     """
     existing = (await db.execute(select(EmailTemplate))).scalars().all()
     if existing:
-        return {"status": "skipped", "message": f"Szablony już istnieją ({len(existing)} szt.)"}
+        return {
+            "status": "skipped",
+            "message": f"Szablony już istnieją ({len(existing)} szt.)",
+        }
 
     created = 0
     for tpl in DEFAULT_TEMPLATES:
@@ -450,6 +484,7 @@ async def seed_default_templates(
 
 
 # ── Send Email (Simulated) ─────────────────────────────────────────────────
+
 
 @router.post("/emails/send")
 async def send_email(
@@ -504,6 +539,7 @@ async def send_email(
 
 # ── Preview ────────────────────────────────────────────────────────────────
 
+
 @router.post("/emails/preview", response_model=PreviewResponse)
 async def preview_email(
     data: PreviewRequest,
@@ -511,15 +547,21 @@ async def preview_email(
     db: AsyncSession = Depends(get_db),
 ):
     """Podgląd wyrenderowanego szablonu z podstawionymi placeholderami."""
-    result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == data.template_id))
+    result = await db.execute(
+        select(EmailTemplate).where(EmailTemplate.id == data.template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Szablon nie znaleziony")
 
     candidate = None
     if data.candidate_id:
-        cand_result = await db.execute(select(Candidate).where(Candidate.id == data.candidate_id))
+        cand_result = await db.execute(
+            select(Candidate).where(Candidate.id == data.candidate_id)
+        )
         candidate = cand_result.scalar_one_or_none()
 
-    rendered_subject, rendered_body = _render_template(template.subject, template.body, candidate)
+    rendered_subject, rendered_body = _render_template(
+        template.subject, template.body, candidate
+    )
     return PreviewResponse(subject=rendered_subject, body=rendered_body)

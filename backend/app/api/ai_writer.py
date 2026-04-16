@@ -4,6 +4,7 @@ Obsługuje dwa endpointy:
   - POST /api/ai/generate-job-description  (istniejący, template-based)
   - POST /api/ai/generate-job              (nowy, integracja z Claude API lub mock)
 """
+
 import json
 import os
 import logging
@@ -145,13 +146,21 @@ Szukamy osoby z co najmniej {seniority_exp} doświadczenia, gotowej do podjęcia
 
         # Add seniority-based defaults
         if seniority in ("senior", "lead"):
-            requirements_section.append("- Doświadczenie w mentoringu i wsparciu juniorów")
+            requirements_section.append(
+                "- Doświadczenie w mentoringu i wsparciu juniorów"
+            )
         if seniority == "lead":
-            requirements_section.append("- Umiejętności przywódcze i prowadzenia zespołu technicznego")
-            requirements_section.append("- Doświadczenie w architekturze systemów i podejmowaniu decyzji technicznych")
+            requirements_section.append(
+                "- Umiejętności przywódcze i prowadzenia zespołu technicznego"
+            )
+            requirements_section.append(
+                "- Doświadczenie w architekturze systemów i podejmowaniu decyzji technicznych"
+            )
 
         requirements_section.append("- Dobra znajomość języka angielskiego (min. B2)")
-        requirements_section.append("- Umiejętność pracy w zwinnym środowisku (Agile/Scrum)")
+        requirements_section.append(
+            "- Umiejętność pracy w zwinnym środowisku (Agile/Scrum)"
+        )
         sections.append("\n".join(requirements_section))
     else:
         requirements_section = f"""\n## Wymagania
@@ -188,6 +197,7 @@ Skontaktujemy się z wybranymi kandydatami w ciągu 3 dni roboczych.
 
 
 # ── New: AI Generate Job (structured, Claude or mock) ─────────────────────────
+
 
 class GenerateJobRequest(BaseModel):
     title: str
@@ -241,7 +251,7 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
     message = client.messages.create(
         model="claude-opus-4-5",
         max_tokens=1500,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
     )
 
     raw = message.content[0].text.strip()
@@ -269,15 +279,29 @@ def _generate_mock(request: GenerateJobRequest) -> GenerateJobResponse:
     title = request.title.strip()
     client_name = request.client or "nasz klient"
 
-    seniority_labels = {"junior": "Junior", "mid": "Mid", "senior": "Senior", "lead": "Lead"}
-    seniority_exp = {"junior": "1–2 lat", "mid": "3–5 lat", "senior": "5+ lat", "lead": "7+ lat"}
+    seniority_labels = {
+        "junior": "Junior",
+        "mid": "Mid",
+        "senior": "Senior",
+        "lead": "Lead",
+    }
+    seniority_exp = {
+        "junior": "1–2 lat",
+        "mid": "3–5 lat",
+        "senior": "5+ lat",
+        "lead": "7+ lat",
+    }
 
     seniority_label = seniority_labels.get(seniority, "Senior")
     exp = seniority_exp.get(seniority, "5+ lat")
     full_title = f"{seniority_label} {title}"
 
     skills = request.skills or []
-    skills_md = "\n".join(f"- {s}" for s in skills) if skills else "- Wymagane technologie (uzupełnij)"
+    skills_md = (
+        "\n".join(f"- {s}" for s in skills)
+        if skills
+        else "- Wymagane technologie (uzupełnij)"
+    )
 
     extra_reqs = ""
     if seniority in ("senior", "lead"):

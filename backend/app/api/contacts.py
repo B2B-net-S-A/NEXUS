@@ -16,6 +16,7 @@ router = APIRouter()
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
+
 class ContactCreate(BaseModel):
     client_id: int
     name: str
@@ -73,6 +74,7 @@ class ContactWithClientResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/contacts", response_model=list[ContactWithClientResponse])
 async def list_all_contacts(
@@ -134,7 +136,9 @@ async def list_client_contacts(
     return list(result.scalars().all())
 
 
-@router.post("/contacts", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/contacts", response_model=ContactResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_contact(
     data: ContactCreate,
     current_user: CurrentUser,

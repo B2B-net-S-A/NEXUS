@@ -32,7 +32,9 @@ class ClientKnowledgeResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-@router.get("/clients/{client_id}/knowledge", response_model=list[ClientKnowledgeResponse])
+@router.get(
+    "/clients/{client_id}/knowledge", response_model=list[ClientKnowledgeResponse]
+)
 async def list_client_knowledge(
     client_id: int,
     current_user: CurrentUser,
@@ -80,13 +82,17 @@ async def create_client_knowledge(
     return entry
 
 
-@router.delete("/client-knowledge/{knowledge_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/client-knowledge/{knowledge_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def delete_client_knowledge(
     knowledge_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(ClientKnowledge).where(ClientKnowledge.id == knowledge_id))
+    result = await db.execute(
+        select(ClientKnowledge).where(ClientKnowledge.id == knowledge_id)
+    )
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")

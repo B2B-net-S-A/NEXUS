@@ -2,6 +2,7 @@
 AI Prep Kit Generator — generuje zestaw przygotowawczy dla kandydata do rozmowy.
 Aggregates data from DB: Job, Client, ClientKnowledge, Candidate, ScreeningNotes.
 """
+
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -61,7 +62,9 @@ async def generate_prep_kit(
         raise HTTPException(status_code=404, detail="Nie znaleziono oferty pracy")
 
     # ── Fetch Candidate ──────────────────────────────────────────────────────
-    cand_result = await db.execute(select(Candidate).where(Candidate.id == request.candidate_id))
+    cand_result = await db.execute(
+        select(Candidate).where(Candidate.id == request.candidate_id)
+    )
     candidate: Optional[Candidate] = cand_result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Nie znaleziono kandydata")
@@ -78,7 +81,9 @@ async def generate_prep_kit(
     # ── Fetch Client ──────────────────────────────────────────────────────────
     client: Optional[Client] = None
     if job.client_id:
-        client_result = await db.execute(select(Client).where(Client.id == job.client_id))
+        client_result = await db.execute(
+            select(Client).where(Client.id == job.client_id)
+        )
         client = client_result.scalar_one_or_none()
 
     # ── Fetch Client Knowledge ─────────────────────────────────────────────
@@ -91,7 +96,8 @@ async def generate_prep_kit(
 
     # ── Fetch Screening Notes ─────────────────────────────────────────────
     sn_result = await db.execute(
-        select(ScreeningNote).where(ScreeningNote.candidate_id == request.candidate_id)
+        select(ScreeningNote)
+        .where(ScreeningNote.candidate_id == request.candidate_id)
         .order_by(ScreeningNote.created_at.desc())
     )
     screening_notes = sn_result.scalars().all()
@@ -104,12 +110,14 @@ async def generate_prep_kit(
     job_remote = {
         "onsite": "praca stacjonarna",
         "hybrid": "tryb hybrydowy",
-        "remote": "praca zdalna"
+        "remote": "praca zdalna",
     }.get(job.remote_policy.value if job.remote_policy else "hybrid", "tryb hybrydowy")
 
     salary_info = ""
     if job.salary_min and job.salary_max:
-        salary_info = f" Widełki wynagrodzenia: {job.salary_min:,}–{job.salary_max:,} PLN/mies."
+        salary_info = (
+            f" Widełki wynagrodzenia: {job.salary_min:,}–{job.salary_max:,} PLN/mies."
+        )
     elif job.salary_min:
         salary_info = f" Wynagrodzenie od {job.salary_min:,} PLN/mies."
     elif job.salary_max:
@@ -153,7 +161,11 @@ async def generate_prep_kit(
 
     # Add auto-generated questions from requirements
     if job.requirements:
-        req_lines = [l.strip().lstrip("•-–*").strip() for l in job.requirements.splitlines() if l.strip()]
+        req_lines = [
+            line.strip().lstrip("•-–*").strip()
+            for line in job.requirements.splitlines()
+            if line.strip()
+        ]
         for req in req_lines[:5]:
             if len(req) > 10:
                 likely_questions.append(f"Opisz swoje doświadczenie z: {req}")
@@ -180,7 +192,6 @@ async def generate_prep_kit(
     likely_questions = unique_questions[:10]
 
     # 3. CANDIDATE STRENGTHS
-    candidate_name = f"{candidate.name} {candidate.lastname}"
     strengths = []
 
     # From skills
@@ -217,7 +228,9 @@ async def generate_prep_kit(
         if isinstance(verified, list):
             for skill in verified:
                 if isinstance(skill, dict) and skill.get("level") == "confirmed":
-                    strengths.append(f"{skill.get('skill', '')} (potwierdzone screeningiem)")
+                    strengths.append(
+                        f"{skill.get('skill', '')} (potwierdzone screeningiem)"
+                    )
 
     # Competence category
     if candidate.competence_category:
@@ -227,9 +240,9 @@ async def generate_prep_kit(
     langs = candidate.languages or []
     if isinstance(langs, list) and langs:
         lang_strs = []
-        for l in langs[:3]:
-            if isinstance(l, dict):
-                lang_strs.append(f"{l.get('lang', '')} ({l.get('level', '')})")
+        for lang in langs[:3]:
+            if isinstance(lang, dict):
+                lang_strs.append(f"{lang.get('lang', '')} ({lang.get('level', '')})")
         if lang_strs:
             strengths.append(f"Języki: {', '.join(lang_strs)}")
 
@@ -243,7 +256,7 @@ async def generate_prep_kit(
 
     # Check required technologies from job vs candidate skills
     candidate_skill_names = set()
-    for sk in (skills if isinstance(skills, list) else []):
+    for sk in skills if isinstance(skills, list) else []:
         if isinstance(sk, dict):
             candidate_skill_names.add(sk.get("name", "").lower())
         elif isinstance(sk, str):
@@ -259,7 +272,7 @@ async def generate_prep_kit(
         if sn.red_flags:
             gaps.append(f"Red flag ze screeningu: {sn.red_flags[:100]}")
         verified = sn.verified_skills or []
-        for sk in (verified if isinstance(verified, list) else []):
+        for sk in verified if isinstance(verified, list) else []:
             if isinstance(sk, dict) and sk.get("level") == "none":
                 gaps.append(f"Brak umiejętności: {sk.get('skill', '')}")
 
@@ -267,7 +280,9 @@ async def generate_prep_kit(
     if candidate.salary_expectation and job.salary_max:
         if candidate.salary_expectation > job.salary_max:
             diff = candidate.salary_expectation - job.salary_max
-            gaps.append(f"Oczekiwania finansowe ({candidate.salary_expectation:,} PLN) powyżej widełek o {diff:,} PLN — negocjacja konieczna")
+            gaps.append(
+                f"Oczekiwania finansowe ({candidate.salary_expectation:,} PLN) powyżej widełek o {diff:,} PLN — negocjacja konieczna"
+            )
 
     if not gaps:
         gaps = ["Brak zidentyfikowanych luk — profil pasuje do wymagań"]
@@ -333,14 +348,20 @@ async def generate_prep_kit(
             "technical": "Etap techniczny — skupić się na weryfikacji kompetencji hard skills",
             "offer": "Etap oferty — mieć gotową argumentację negocjacyjną",
         }
-        stage_val = latest_stage.stage.value if hasattr(latest_stage.stage, 'value') else str(latest_stage.stage)
+        stage_val = (
+            latest_stage.stage.value
+            if hasattr(latest_stage.stage, "value")
+            else str(latest_stage.stage)
+        )
         if stage_val in stage_strategies:
             strategy_parts.append(stage_strategies[stage_val])
 
     # Check counteroffer risk
     for sn in screening_notes[:1]:
         if sn.counteroffer_risk and sn.counteroffer_risk.value == "high":
-            strategy_parts.append("⚠️ Wysokie ryzyko counteroffer — wzmocnić argumenty i przyspieszyć decyzję")
+            strategy_parts.append(
+                "⚠️ Wysokie ryzyko counteroffer — wzmocnić argumenty i przyspieszyć decyzję"
+            )
 
     if not strategy_parts:
         strategy_parts = [

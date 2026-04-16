@@ -10,7 +10,7 @@ import codecs
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +24,14 @@ router = APIRouter()
 
 # Expected CSV columns (case-insensitive, order flexible)
 EXPECTED_COLUMNS = {
-    "name", "lastname", "email", "phone",
-    "location", "source", "skills", "salary_expectation",
+    "name",
+    "lastname",
+    "email",
+    "phone",
+    "location",
+    "source",
+    "skills",
+    "salary_expectation",
 }
 
 
@@ -61,7 +67,7 @@ async def import_candidates(
 
     # Detect and strip BOM if present
     if raw_bytes.startswith(codecs.BOM_UTF8):
-        raw_bytes = raw_bytes[len(codecs.BOM_UTF8):]
+        raw_bytes = raw_bytes[len(codecs.BOM_UTF8) :]
 
     try:
         text = raw_bytes.decode("utf-8")
@@ -69,12 +75,17 @@ async def import_candidates(
         try:
             text = raw_bytes.decode("cp1250")  # Windows Polish fallback
         except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Nie można odczytać pliku — użyj kodowania UTF-8")
+            raise HTTPException(
+                status_code=400,
+                detail="Nie można odczytać pliku — użyj kodowania UTF-8",
+            )
 
     reader = csv.DictReader(io.StringIO(text))
 
     if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="Plik CSV jest pusty lub nie ma nagłówków")
+        raise HTTPException(
+            status_code=400, detail="Plik CSV jest pusty lub nie ma nagłówków"
+        )
 
     # Normalize header names (strip whitespace, lowercase)
     normalized_fields = {f.strip().lower(): f for f in reader.fieldnames}
@@ -98,11 +109,13 @@ async def import_candidates(
 
             if not name and not lastname:
                 errors += 1
-                details.append({
-                    "row": row_num,
-                    "status": "error",
-                    "reason": "Brak imienia i nazwiska",
-                })
+                details.append(
+                    {
+                        "row": row_num,
+                        "status": "error",
+                        "reason": "Brak imienia i nazwiska",
+                    }
+                )
                 continue
 
             # Dedup by email
@@ -112,12 +125,14 @@ async def import_candidates(
                 )
                 if existing.scalar_one_or_none():
                     skipped += 1
-                    details.append({
-                        "row": row_num,
-                        "status": "skipped",
-                        "email": email,
-                        "reason": "Email już istnieje w bazie",
-                    })
+                    details.append(
+                        {
+                            "row": row_num,
+                            "status": "skipped",
+                            "email": email,
+                            "reason": "Email już istnieje w bazie",
+                        }
+                    )
                     continue
 
             skills_raw = get_col(row, "skills")
@@ -143,25 +158,32 @@ async def import_candidates(
                 entity_id=candidate.id,
                 action="imported",
                 user_id=current_user.id,
-                details={"name": f"{candidate.name} {candidate.lastname}", "source": "csv_import"},
+                details={
+                    "name": f"{candidate.name} {candidate.lastname}",
+                    "source": "csv_import",
+                },
             )
             db.add(activity)
 
             imported += 1
-            details.append({
-                "row": row_num,
-                "status": "imported",
-                "name": f"{name} {lastname}".strip(),
-                "email": email,
-            })
+            details.append(
+                {
+                    "row": row_num,
+                    "status": "imported",
+                    "name": f"{name} {lastname}".strip(),
+                    "email": email,
+                }
+            )
 
         except Exception as exc:
             errors += 1
-            details.append({
-                "row": row_num,
-                "status": "error",
-                "reason": str(exc),
-            })
+            details.append(
+                {
+                    "row": row_num,
+                    "status": "error",
+                    "reason": str(exc),
+                }
+            )
 
     await db.commit()
 
@@ -181,47 +203,56 @@ async def export_candidates(
     """
     Export all candidates as CSV with UTF-8 BOM (Polish characters support).
     """
-    result = await db.execute(
-        select(Candidate).order_by(Candidate.created_at.desc())
-    )
+    result = await db.execute(select(Candidate).order_by(Candidate.created_at.desc()))
     candidates = result.scalars().all()
 
     output = io.StringIO()
     writer = csv.writer(output)
 
     # Header
-    writer.writerow([
-        "id", "name", "lastname", "email", "phone",
-        "location", "source", "status", "skills",
-        "salary_expectation", "created_at",
-    ])
+    writer.writerow(
+        [
+            "id",
+            "name",
+            "lastname",
+            "email",
+            "phone",
+            "location",
+            "source",
+            "status",
+            "skills",
+            "salary_expectation",
+            "created_at",
+        ]
+    )
 
     for c in candidates:
         # Flatten skills list → "Python, React, AWS"
         skills_list = c.skills or []
         if isinstance(skills_list, list):
             skills_str = ", ".join(
-                s.get("name", s) if isinstance(s, dict) else str(s)
-                for s in skills_list
+                s.get("name", s) if isinstance(s, dict) else str(s) for s in skills_list
             )
         else:
             skills_str = ""
 
         created = c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else ""
 
-        writer.writerow([
-            c.id,
-            c.name or "",
-            c.lastname or "",
-            c.email or "",
-            c.phone or "",
-            c.location or "",
-            c.source or "",
-            c.status.value if c.status else "",
-            skills_str,
-            c.salary_expectation or "",
-            created,
-        ])
+        writer.writerow(
+            [
+                c.id,
+                c.name or "",
+                c.lastname or "",
+                c.email or "",
+                c.phone or "",
+                c.location or "",
+                c.source or "",
+                c.status.value if c.status else "",
+                skills_str,
+                c.salary_expectation or "",
+                created,
+            ]
+        )
 
     # Encode with UTF-8 BOM for Polish characters in Excel
     csv_bytes = codecs.BOM_UTF8 + output.getvalue().encode("utf-8")

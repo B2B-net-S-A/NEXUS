@@ -20,6 +20,7 @@ class Note(Base, TimestampMixin):
     """
     Notatka powiązana z kandydatem i/lub ofertą pracy.
     """
+
     __tablename__ = "notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -30,14 +31,20 @@ class Note(Base, TimestampMixin):
     )
 
     # Powiązania — notatka może być przy kandydacie, ofercie lub obu
-    candidate_id: Mapped[Optional[int]] = mapped_column(ForeignKey("candidates.id"), index=True)
+    candidate_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidates.id"), index=True
+    )
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
     author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
     job = relationship("Job", back_populates="notes")
-    author = relationship("User", back_populates="authored_notes", foreign_keys=[author_id])
+    author = relationship(
+        "User", back_populates="authored_notes", foreign_keys=[author_id]
+    )
 
     def __repr__(self) -> str:
-        return f"<Note id={self.id} type={self.note_type} candidate={self.candidate_id}>"
+        return (
+            f"<Note id={self.id} type={self.note_type} candidate={self.candidate_id}>"
+        )

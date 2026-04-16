@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models.screening_note import ScreeningNote, ScreeningType, MotivationType, CounterOfferRisk
+from app.models.screening_note import (
+    ScreeningNote,
+    ScreeningType,
+    MotivationType,
+    CounterOfferRisk,
+)
 from app.models.candidate import Candidate
 from app.api.deps import CurrentUser
 
@@ -16,6 +21,7 @@ router = APIRouter()
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
+
 
 class VerifiedSkill(BaseModel):
     skill: str
@@ -66,7 +72,10 @@ class ScreeningNoteResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.get("/candidates/{candidate_id}/screenings", response_model=list[ScreeningNoteResponse])
+
+@router.get(
+    "/candidates/{candidate_id}/screenings", response_model=list[ScreeningNoteResponse]
+)
 async def list_candidate_screenings(
     candidate_id: int,
     current_user: CurrentUser,
@@ -84,17 +93,25 @@ async def list_candidate_screenings(
     return list(result.scalars().all())
 
 
-@router.post("/screenings", response_model=ScreeningNoteResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/screenings",
+    response_model=ScreeningNoteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_screening_note(
     data: ScreeningNoteCreate,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Candidate).where(Candidate.id == data.candidate_id))
+    result = await db.execute(
+        select(Candidate).where(Candidate.id == data.candidate_id)
+    )
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    skills_data = [s.model_dump() for s in data.verified_skills] if data.verified_skills else []
+    skills_data = (
+        [s.model_dump() for s in data.verified_skills] if data.verified_skills else []
+    )
 
     note = ScreeningNote(
         candidate_id=data.candidate_id,
@@ -193,13 +210,19 @@ async def get_candidate_ai_profile(
     if red_flags:
         warnings.extend(red_flags)
 
-    high_risk = [s for s in screenings if s.counteroffer_risk and s.counteroffer_risk.value == "high"]
+    high_risk = [
+        s
+        for s in screenings
+        if s.counteroffer_risk and s.counteroffer_risk.value == "high"
+    ]
     if high_risk:
         warnings.append(f"Wysokie ryzyko counteroffer ({len(high_risk)}x odnotowane)")
 
     # Averages
     impressions = [s.overall_impression for s in screenings if s.overall_impression]
-    impression_avg = round(sum(impressions) / len(impressions), 1) if impressions else None
+    impression_avg = (
+        round(sum(impressions) / len(impressions), 1) if impressions else None
+    )
 
     readiness = [s.readiness_to_change for s in screenings if s.readiness_to_change]
     readiness_avg = round(sum(readiness) / len(readiness), 1) if readiness else None

@@ -2,6 +2,7 @@
 Simple in-memory TTL cache for heavy API endpoints.
 No external dependencies required — uses plain dict + timestamps.
 """
+
 import time
 import asyncio
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -55,32 +56,35 @@ def cached(ttl_seconds: int, key_prefix: str):
     Decorator for async endpoint functions.
     Caches the return value for ttl_seconds.
     The cache key includes all function arguments.
-    
+
     Usage:
         @cached(ttl_seconds=120, key_prefix="dashboard_kpis")
         async def get_kpis(current_user, db):
             ...
     """
+
     def decorator(func: Callable):
         async def wrapper(*args, **kwargs):
             # Build cache key from kwargs that are simple scalars
             cache_kwargs = {
-                k: v for k, v in kwargs.items()
+                k: v
+                for k, v in kwargs.items()
                 if isinstance(v, (str, int, float, bool, type(None)))
             }
             key = _make_key(key_prefix, **cache_kwargs)
-            
+
             cached_value = await cache_get(key)
             if cached_value is not None:
                 logger.debug(f"Cache HIT: {key}")
                 return cached_value
-            
+
             logger.debug(f"Cache MISS: {key}")
             result = await func(*args, **kwargs)
             await cache_set(key, result, ttl_seconds)
             return result
-        
+
         wrapper.__name__ = func.__name__
         wrapper.__doc__ = func.__doc__
         return wrapper
+
     return decorator

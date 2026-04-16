@@ -18,16 +18,21 @@ class KnowledgeCategory(str, enum.Enum):
 
 class ClientKnowledge(Base):
     """Baza wiedzy o kliencie — selling points, pytania, stack, kultura itp."""
+
     __tablename__ = "client_knowledge"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False, index=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id"), nullable=False, index=True
+    )
     category: Mapped[KnowledgeCategory] = mapped_column(
         Enum(KnowledgeCategory), nullable=False, index=True
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    added_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    added_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
     source: Mapped[Optional[str]] = mapped_column(String(255))
 
     created_at: Mapped[datetime] = mapped_column(

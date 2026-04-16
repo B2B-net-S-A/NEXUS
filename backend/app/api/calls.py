@@ -2,10 +2,11 @@
 Calls API — rejestr rozmów telefonicznych z kandydatami.
 Integracja z CloudTalk: PLACEHOLDER — webhooks w przygotowaniu po uzyskaniu klucza API.
 """
+
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ router = APIRouter()
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
+
 
 class CallCreate(BaseModel):
     candidate_id: int
@@ -48,6 +50,7 @@ class CallResponse(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+
 def format_duration(seconds: Optional[int]) -> str:
     if not seconds:
         return "—"
@@ -57,6 +60,7 @@ def format_duration(seconds: Optional[int]) -> str:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/candidates/{candidate_id}/calls", response_model=list[CallResponse])
 async def list_candidate_calls(
@@ -112,58 +116,76 @@ async def call_stats(
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # Total calls by this user
-    total = (await db.execute(
-        select(func.count(Call.id)).where(Call.user_id == current_user.id)
-    )).scalar() or 0
+    total = (
+        await db.execute(
+            select(func.count(Call.id)).where(Call.user_id == current_user.id)
+        )
+    ).scalar() or 0
 
     # Avg duration
-    avg_duration = (await db.execute(
-        select(func.avg(Call.duration_seconds)).where(
-            Call.user_id == current_user.id,
-            Call.duration_seconds.isnot(None),
+    avg_duration = (
+        await db.execute(
+            select(func.avg(Call.duration_seconds)).where(
+                Call.user_id == current_user.id,
+                Call.duration_seconds.isnot(None),
+            )
         )
-    )).scalar()
+    ).scalar()
 
     # This week
-    this_week = (await db.execute(
-        select(func.count(Call.id)).where(
-            Call.user_id == current_user.id,
-            Call.created_at >= start_of_week,
+    this_week = (
+        await db.execute(
+            select(func.count(Call.id)).where(
+                Call.user_id == current_user.id,
+                Call.created_at >= start_of_week,
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
 
     # This month
-    this_month = (await db.execute(
-        select(func.count(Call.id)).where(
-            Call.user_id == current_user.id,
-            Call.created_at >= start_of_month,
+    this_month = (
+        await db.execute(
+            select(func.count(Call.id)).where(
+                Call.user_id == current_user.id,
+                Call.created_at >= start_of_month,
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
 
     # Global stats (all users) — this week
-    all_this_week = (await db.execute(
-        select(func.count(Call.id)).where(Call.created_at >= start_of_week)
-    )).scalar() or 0
-
-    all_avg_duration = (await db.execute(
-        select(func.avg(Call.duration_seconds)).where(
-            Call.created_at >= start_of_week,
-            Call.duration_seconds.isnot(None),
+    all_this_week = (
+        await db.execute(
+            select(func.count(Call.id)).where(Call.created_at >= start_of_week)
         )
-    )).scalar()
+    ).scalar() or 0
+
+    all_avg_duration = (
+        await db.execute(
+            select(func.avg(Call.duration_seconds)).where(
+                Call.created_at >= start_of_week,
+                Call.duration_seconds.isnot(None),
+            )
+        )
+    ).scalar()
 
     return {
         "user": {
             "total_calls": total,
             "avg_duration_seconds": round(avg_duration) if avg_duration else None,
-            "avg_duration_formatted": format_duration(round(avg_duration) if avg_duration else None),
+            "avg_duration_formatted": format_duration(
+                round(avg_duration) if avg_duration else None
+            ),
             "calls_this_week": this_week,
             "calls_this_month": this_month,
         },
         "global": {
             "calls_this_week": all_this_week,
-            "avg_duration_seconds": round(all_avg_duration) if all_avg_duration else None,
-            "avg_duration_formatted": format_duration(round(all_avg_duration) if all_avg_duration else None),
+            "avg_duration_seconds": round(all_avg_duration)
+            if all_avg_duration
+            else None,
+            "avg_duration_formatted": format_duration(
+                round(all_avg_duration) if all_avg_duration else None
+            ),
         },
         "cloudtalk_status": "placeholder",  # zmienić po podłączeniu CloudTalk
     }

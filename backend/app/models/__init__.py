@@ -16,12 +16,31 @@ from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.calendar_event import CalendarEvent
 from app.models.notification import Notification
+from app.models.rate_history import RateHistory, ContractType
+from app.models.candidate_conflict import CandidateConflict, ConflictType
 
 __all__ = [
-    "User", "Candidate", "Job", "Client",
-    "CandidateStage", "Note", "Contract", "Activity", "UserActivity",
-    "EmailTemplate", "JobPosting", "Call",
-    "ClientKnowledge", "ScreeningNote", "Contact",
-    "TalentPool", "TalentPoolMembership",
-    "CalendarEvent", "Notification",
+    "User",
+    "Candidate",
+    "Job",
+    "Client",
+    "CandidateStage",
+    "Note",
+    "Contract",
+    "Activity",
+    "UserActivity",
+    "EmailTemplate",
+    "JobPosting",
+    "Call",
+    "ClientKnowledge",
+    "ScreeningNote",
+    "Contact",
+    "TalentPool",
+    "TalentPoolMembership",
+    "CalendarEvent",
+    "Notification",
+    "RateHistory",
+    "ContractType",
+    "CandidateConflict",
+    "ConflictType",
 ]

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.activity import Activity
-from app.schemas.job import JobCreate, JobList, JobResponse, JobUpdate
+from app.schemas.job import JobCreate, JobResponse, JobUpdate
 from app.api.deps import CurrentUser
 
 router = APIRouter()
@@ -35,7 +35,9 @@ async def list_jobs(
         query = query.where(Job.client_id == client_id)
     if q:
         query = query.where(Job.title.ilike(f"%{q}%"))
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
+    total = (
+        await db.execute(select(func.count()).select_from(query.subquery()))
+    ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     jobs = list(result.scalars().all())
 
@@ -46,7 +48,7 @@ async def list_jobs(
         count_result = await db.execute(
             select(
                 CandidateStage.job_id,
-                func.count(func.distinct(CandidateStage.candidate_id))
+                func.count(func.distinct(CandidateStage.candidate_id)),
             )
             .where(CandidateStage.job_id.in_(job_ids))
             .group_by(CandidateStage.job_id)
@@ -63,17 +65,28 @@ async def list_jobs(
 
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(data: JobCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def create_job(
+    data: JobCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     job = Job(**data.model_dump(), created_by=current_user.id)
     db.add(job)
     await db.flush()
-    db.add(Activity(entity_type="job", entity_id=job.id, action="created", user_id=current_user.id))
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action="created",
+            user_id=current_user.id,
+        )
+    )
     await db.refresh(job)
     return job
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-async def get_job(job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def get_job(
+    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
@@ -83,7 +96,10 @@ async def get_job(job_id: int, current_user: CurrentUser, db: AsyncSession = Dep
 
 @router.patch("/{job_id}", response_model=JobResponse)
 async def update_job(
-    job_id: int, data: JobUpdate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    data: JobUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
@@ -92,35 +108,63 @@ async def update_job(
     updates = data.model_dump(exclude_unset=True)
     for k, v in updates.items():
         setattr(job, k, v)
-    db.add(Activity(entity_type="job", entity_id=job_id, action="updated", user_id=current_user.id, details=updates))
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="updated",
+            user_id=current_user.id,
+            details=updates,
+        )
+    )
     await db.refresh(job)
     return job
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_job(job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def delete_job(
+    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    db.add(Activity(entity_type="job", entity_id=job_id, action="deleted", user_id=current_user.id))
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="deleted",
+            user_id=current_user.id,
+        )
+    )
     await db.delete(job)
 
 
 @router.post("/{job_id}/publish")
-async def publish_job(job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def publish_job(
+    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     job.status = JobStatus.published
-    db.add(Activity(entity_type="job", entity_id=job_id, action="published", user_id=current_user.id))
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="published",
+            user_id=current_user.id,
+        )
+    )
     return {"status": "published", "job_id": job_id}
 
 
 @router.get("/{job_id}/match-candidates")
-async def match_candidates(job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def match_candidates(
+    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     """Placeholder: semantic match of candidates to job (Qdrant + Voyage)."""
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()

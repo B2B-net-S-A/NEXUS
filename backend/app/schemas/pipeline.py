@@ -3,11 +3,12 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.recruitment_pipeline import PipelineStage, StageCategory, STAGE_CATEGORY, STAGE_ORDER
+from app.models.recruitment_pipeline import PipelineStage, StageCategory
 
 
 class StageMove(BaseModel):
     """Payload for moving a candidate to a new stage."""
+
     candidate_id: int
     job_id: int
     stage: PipelineStage

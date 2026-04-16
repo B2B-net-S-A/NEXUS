@@ -1,8 +1,8 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -35,10 +35,25 @@ class RecruitmentType(str, enum.Enum):
     tender = "tender"
 
 
+class Seniority(str, enum.Enum):
+    junior = "junior"
+    mid = "mid"
+    senior = "senior"
+    lead = "lead"
+    architect = "architect"
+
+
+class WorkMode(str, enum.Enum):
+    fulltime = "fulltime"
+    parttime = "parttime"
+    contract = "contract"
+
+
 class Job(Base, TimestampMixin):
     """
     Oferta pracy / zlecenie rekrutacyjne.
     """
+
     __tablename__ = "jobs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -65,7 +80,10 @@ class Job(Base, TimestampMixin):
     )
 
     recruitment_type: Mapped[RecruitmentType] = mapped_column(
-        Enum(RecruitmentType), default=RecruitmentType.body_leasing, nullable=False, index=True
+        Enum(RecruitmentType),
+        default=RecruitmentType.body_leasing,
+        nullable=False,
+        index=True,
     )
 
     deadline: Mapped[Optional[date]] = mapped_column(Date)
@@ -73,8 +91,43 @@ class Job(Base, TimestampMixin):
     # Portale ogłoszeniowe — lista opublikowanych URL/statusów
     portals: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 
+    # Structured matching-criteria (must-have vs nice-to-have)
+    # Shape: [{"name": str, "level": "expert|senior|mid|junior", "years": int, "category": str}, ...]
+    must_skills: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+    nice_skills: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+
+    # Additional job metadata
+    seniority: Mapped[Optional[Seniority]] = mapped_column(
+        Enum(Seniority, name="seniority"), nullable=True
+    )
+    work_mode: Mapped[WorkMode] = mapped_column(
+        Enum(WorkMode, name="workmode"), default=WorkMode.fulltime, nullable=False
+    )
+    headcount: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    reference_number: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, unique=True
+    )
+    industry: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, index=True
+    )
+    subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Freeform custom fields — Faza 4 will replace with dedicated engine
+    custom_fields: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
+
+    # Persisted Qdrant embedding reference (populated by Faza 2 scoring)
+    embedding_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, index=True
+    )
+    criteria_generated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Foreign keys
-    client_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clients.id"), index=True)
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id"), index=True
+    )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
@@ -82,10 +135,14 @@ class Job(Base, TimestampMixin):
     client = relationship("Client", back_populates="jobs")
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     creator = relationship("User", foreign_keys=[created_by])
-    pipeline_stages = relationship("CandidateStage", back_populates="job", cascade="all, delete-orphan")
+    pipeline_stages = relationship(
+        "CandidateStage", back_populates="job", cascade="all, delete-orphan"
+    )
     notes = relationship("Note", back_populates="job")
     contracts = relationship("Contract", back_populates="job")
-    postings = relationship("JobPosting", back_populates="job", cascade="all, delete-orphan")
+    postings = relationship(
+        "JobPosting", back_populates="job", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Job id={self.id} title={self.title} status={self.status}>"

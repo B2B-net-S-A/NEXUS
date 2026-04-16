@@ -2,12 +2,11 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import cast, or_, select, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.candidate import Candidate, CandidateSource
+from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.client import Client
 from app.models.contact import Contact
@@ -48,7 +47,6 @@ async def advanced_candidate_search(
 
     query = select(Candidate)
     filters = []
-    relevance_boosts: dict = {}
 
     # Full-text search across name, email, raw_cv_text
     if body.q:
@@ -89,15 +87,18 @@ async def advanced_candidate_search(
 
     if filters:
         from sqlalchemy import and_
+
         query = query.where(and_(*filters))
 
     # Stage filter — join with pipeline stages
     if body.stage:
         try:
             stage_enum = PipelineStage(body.stage)
-            stage_subq = select(CandidateStage.candidate_id).where(
-                CandidateStage.stage == stage_enum
-            ).distinct()
+            stage_subq = (
+                select(CandidateStage.candidate_id)
+                .where(CandidateStage.stage == stage_enum)
+                .distinct()
+            )
             query = query.where(Candidate.id.in_(stage_subq))
         except ValueError:
             pass  # ignore invalid stage
@@ -133,26 +134,30 @@ async def advanced_candidate_search(
                 if tech.lower() in skills_text:
                     score += 5
 
-        items.append({
-            "id": c.id,
-            "name": c.name,
-            "lastname": c.lastname,
-            "email": c.email,
-            "phone": c.phone,
-            "location": c.location,
-            "status": c.status.value if c.status else None,
-            "source": c.source,
-            "competence_category": c.competence_category,
-            "salary_expectation": c.salary_expectation,
-            "salary_currency": c.salary_currency,
-            "availability_date": c.availability_date.isoformat() if c.availability_date else None,
-            "tags": c.tags,
-            "skills": c.skills,
-            "ai_summary": c.ai_summary,
-            "avatar_url": c.avatar_url,
-            "relevance_score": score,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-        })
+        items.append(
+            {
+                "id": c.id,
+                "name": c.name,
+                "lastname": c.lastname,
+                "email": c.email,
+                "phone": c.phone,
+                "location": c.location,
+                "status": c.status.value if c.status else None,
+                "source": c.source,
+                "competence_category": c.competence_category,
+                "salary_expectation": c.salary_expectation,
+                "salary_currency": c.salary_currency,
+                "availability_date": c.availability_date.isoformat()
+                if c.availability_date
+                else None,
+                "tags": c.tags,
+                "skills": c.skills,
+                "ai_summary": c.ai_summary,
+                "avatar_url": c.avatar_url,
+                "relevance_score": score,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+        )
 
     # Sort by relevance score (descending)
     items.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -179,7 +184,9 @@ async def unified_search(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     q: str = Query(..., min_length=2),
-    entity: Optional[str] = Query(None, description="candidates|jobs|clients — filter by entity type"),
+    entity: Optional[str] = Query(
+        None, description="candidates|jobs|clients — filter by entity type"
+    ),
 ):
     """
     Full-text search across candidates, jobs, and clients.
@@ -189,28 +196,37 @@ async def unified_search(
 
     if not entity or entity == "candidates":
         result = await db.execute(
-            select(Candidate).where(
+            select(Candidate)
+            .where(
                 or_(
                     Candidate.name.ilike(f"%{q}%"),
                     Candidate.lastname.ilike(f"%{q}%"),
                     Candidate.email.ilike(f"%{q}%"),
                     Candidate.location.ilike(f"%{q}%"),
                 )
-            ).limit(10)
+            )
+            .limit(10)
         )
         results["candidates"] = [
-            {"id": c.id, "name": f"{c.name} {c.lastname}", "email": c.email, "status": c.status}
+            {
+                "id": c.id,
+                "name": f"{c.name} {c.lastname}",
+                "email": c.email,
+                "status": c.status,
+            }
             for c in result.scalars().all()
         ]
 
     if not entity or entity == "jobs":
         result = await db.execute(
-            select(Job).where(
+            select(Job)
+            .where(
                 or_(
                     Job.title.ilike(f"%{q}%"),
                     Job.description.ilike(f"%{q}%"),
                 )
-            ).limit(10)
+            )
+            .limit(10)
         )
         results["jobs"] = [
             {"id": j.id, "title": j.title, "status": j.status, "location": j.location}
@@ -219,12 +235,14 @@ async def unified_search(
 
     if not entity or entity == "clients":
         result = await db.execute(
-            select(Client).where(
+            select(Client)
+            .where(
                 or_(
                     Client.name.ilike(f"%{q}%"),
                     Client.industry.ilike(f"%{q}%"),
                 )
-            ).limit(10)
+            )
+            .limit(10)
         )
         results["clients"] = [
             {"id": c.id, "name": c.name, "status": c.status}
@@ -249,13 +267,15 @@ async def global_search(
 
     # Candidates
     cand_result = await db.execute(
-        select(Candidate).where(
+        select(Candidate)
+        .where(
             or_(
                 Candidate.name.ilike(f"%{q}%"),
                 Candidate.lastname.ilike(f"%{q}%"),
                 Candidate.email.ilike(f"%{q}%"),
             )
-        ).limit(LIMIT)
+        )
+        .limit(LIMIT)
     )
     candidates = [
         {
@@ -269,60 +289,70 @@ async def global_search(
 
     # Jobs
     jobs_result = await db.execute(
-        select(Job).where(
+        select(Job)
+        .where(
             Job.title.ilike(f"%{q}%"),
-        ).limit(LIMIT)
+        )
+        .limit(LIMIT)
     )
     jobs_list = []
     for j in jobs_result.scalars().all():
         # Get client name via client_id
         client_name = ""
         if j.client_id:
-            client_res = await db.execute(select(Client).where(Client.id == j.client_id))
+            client_res = await db.execute(
+                select(Client).where(Client.id == j.client_id)
+            )
             client = client_res.scalar_one_or_none()
             if client:
                 client_name = client.name
-        jobs_list.append({
-            "id": j.id,
-            "name": j.title,
-            "subtitle": client_name or j.location or "",
-            "url": f"/jobs/{j.id}",
-        })
+        jobs_list.append(
+            {
+                "id": j.id,
+                "name": j.title,
+                "subtitle": client_name or j.location or "",
+                "url": f"/jobs/{j.id}",
+            }
+        )
 
     # Clients
     clients_result = await db.execute(
-        select(Client).where(
+        select(Client)
+        .where(
             or_(
                 Client.name.ilike(f"%{q}%"),
                 Client.industry.ilike(f"%{q}%"),
             )
-        ).limit(LIMIT)
+        )
+        .limit(LIMIT)
     )
     clients_list = [
         {
             "id": c.id,
             "name": c.name,
             "subtitle": c.industry or "",
-            "url": f"/clients",
+            "url": "/clients",
         }
         for c in clients_result.scalars().all()
     ]
 
     # Contacts
     contacts_result = await db.execute(
-        select(Contact).where(
+        select(Contact)
+        .where(
             or_(
                 Contact.name.ilike(f"%{q}%"),
                 Contact.email.ilike(f"%{q}%"),
             )
-        ).limit(LIMIT)
+        )
+        .limit(LIMIT)
     )
     contacts_list = [
         {
             "id": c.id,
             "name": c.name,
             "subtitle": c.email or c.position or "",
-            "url": f"/contacts",
+            "url": "/contacts",
         }
         for c in contacts_result.scalars().all()
     ]
@@ -386,7 +416,64 @@ async def semantic_search(
             elif c.raw_cv_text:
                 highlight = c.raw_cv_text[:120]
 
-            results.append({
+            results.append(
+                {
+                    "candidate": {
+                        "id": c.id,
+                        "name": c.name,
+                        "lastname": c.lastname,
+                        "email": c.email,
+                        "phone": c.phone,
+                        "location": c.location,
+                        "status": c.status.value if c.status else None,
+                        "competence_category": c.competence_category,
+                        "salary_expectation": c.salary_expectation,
+                        "salary_currency": c.salary_currency,
+                        "availability_date": c.availability_date.isoformat()
+                        if c.availability_date
+                        else None,
+                        "tags": c.tags,
+                        "skills": c.skills,
+                        "ai_summary": c.ai_summary,
+                        "avatar_url": c.avatar_url,
+                        "created_at": c.created_at.isoformat()
+                        if c.created_at
+                        else None,
+                    },
+                    "score": score,
+                    "highlight": highlight,
+                }
+            )
+
+        return {
+            "query": q,
+            "results": results,
+            "total": len(results),
+            "search_type": "semantic",
+        }
+
+    # --- Fallback: ILIKE text search ---
+    fallback_result = await db.execute(
+        select(Candidate)
+        .where(
+            or_(
+                Candidate.name.ilike(f"%{q}%"),
+                Candidate.lastname.ilike(f"%{q}%"),
+                Candidate.email.ilike(f"%{q}%"),
+                Candidate.competence_category.ilike(f"%{q}%"),
+                Candidate.raw_cv_text.ilike(f"%{q}%"),
+            )
+        )
+        .limit(body.top_k)
+    )
+    fallback_candidates = fallback_result.scalars().all()
+    results = []
+    for c in fallback_candidates:
+        highlight = c.competence_category or (
+            c.ai_summary[:120] if c.ai_summary else ""
+        )
+        results.append(
+            {
                 "candidate": {
                     "id": c.id,
                     "name": c.name,
@@ -398,62 +485,19 @@ async def semantic_search(
                     "competence_category": c.competence_category,
                     "salary_expectation": c.salary_expectation,
                     "salary_currency": c.salary_currency,
-                    "availability_date": c.availability_date.isoformat() if c.availability_date else None,
+                    "availability_date": c.availability_date.isoformat()
+                    if c.availability_date
+                    else None,
                     "tags": c.tags,
                     "skills": c.skills,
                     "ai_summary": c.ai_summary,
                     "avatar_url": c.avatar_url,
                     "created_at": c.created_at.isoformat() if c.created_at else None,
                 },
-                "score": score,
+                "score": None,
                 "highlight": highlight,
-            })
-
-        return {
-            "query": q,
-            "results": results,
-            "total": len(results),
-            "search_type": "semantic",
-        }
-
-    # --- Fallback: ILIKE text search ---
-    fallback_result = await db.execute(
-        select(Candidate).where(
-            or_(
-                Candidate.name.ilike(f"%{q}%"),
-                Candidate.lastname.ilike(f"%{q}%"),
-                Candidate.email.ilike(f"%{q}%"),
-                Candidate.competence_category.ilike(f"%{q}%"),
-                Candidate.raw_cv_text.ilike(f"%{q}%"),
-            )
-        ).limit(body.top_k)
-    )
-    fallback_candidates = fallback_result.scalars().all()
-    results = []
-    for c in fallback_candidates:
-        highlight = c.competence_category or (c.ai_summary[:120] if c.ai_summary else "")
-        results.append({
-            "candidate": {
-                "id": c.id,
-                "name": c.name,
-                "lastname": c.lastname,
-                "email": c.email,
-                "phone": c.phone,
-                "location": c.location,
-                "status": c.status.value if c.status else None,
-                "competence_category": c.competence_category,
-                "salary_expectation": c.salary_expectation,
-                "salary_currency": c.salary_currency,
-                "availability_date": c.availability_date.isoformat() if c.availability_date else None,
-                "tags": c.tags,
-                "skills": c.skills,
-                "ai_summary": c.ai_summary,
-                "avatar_url": c.avatar_url,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-            },
-            "score": None,
-            "highlight": highlight,
-        })
+            }
+        )
 
     return {
         "query": q,

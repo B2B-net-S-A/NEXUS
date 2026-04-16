@@ -3,6 +3,7 @@ CV Generator API
 Generates professional CV HTML from candidate data.
 Supports: standard & blind templates, PL/EN language, optional job tailoring.
 """
+
 from typing import Optional
 from datetime import datetime
 
@@ -21,9 +22,10 @@ router = APIRouter()
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
+
 class CVGenerateRequest(BaseModel):
-    template: str = "standard"   # "standard" | "blind"
-    language: str = "pl"         # "pl" | "en"
+    template: str = "standard"  # "standard" | "blind"
+    language: str = "pl"  # "pl" | "en"
     job_id: Optional[int] = None
 
 
@@ -83,6 +85,7 @@ LABELS = {
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _calc_experience_years(experience: list) -> int:
     """Estimate total years of experience from experience entries."""
     total_months = 0
@@ -93,7 +96,14 @@ def _calc_experience_years(experience: list) -> int:
         end = exp.get("end", "")
         try:
             start_year = int(str(start)[:4]) if start else None
-            if end and str(end).lower() not in ("", "none", "null", "obecnie", "present", "now"):
+            if end and str(end).lower() not in (
+                "",
+                "none",
+                "null",
+                "obecnie",
+                "present",
+                "now",
+            ):
                 end_year = int(str(end)[:4])
             else:
                 end_year = datetime.now().year
@@ -112,7 +122,16 @@ def _education_level(education: list) -> str:
     for edu in education:
         deg = (edu.get("degree") or "").lower()
         degrees.append(deg)
-    degree_priority = ["dokt", "phd", "magist", "master", "licencj", "bachelor", "inżynier", "engineer"]
+    degree_priority = [
+        "dokt",
+        "phd",
+        "magist",
+        "master",
+        "licencj",
+        "bachelor",
+        "inżynier",
+        "engineer",
+    ]
     for kw in degree_priority:
         for d in degrees:
             if kw in d:
@@ -125,6 +144,7 @@ def _education_level(education: list) -> str:
 def _anonymize_text(text: str) -> str:
     """Replace potential company/person identifiers with [ANONIMIZACJA]."""
     import re
+
     # Remove email patterns
     text = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "[EMAIL]", text)
     # Remove phone patterns
@@ -143,7 +163,11 @@ def _generate_cv_html(
     blind = template == "blind"
 
     # Candidate data
-    name = f"{candidate.name} {candidate.lastname}" if not blind else "Kandydat / Candidate"
+    name = (
+        f"{candidate.name} {candidate.lastname}"
+        if not blind
+        else "Kandydat / Candidate"
+    )
     email = candidate.email if not blind else None
     phone = candidate.phone if not blind else None
     location = candidate.location if not blind else None
@@ -183,9 +207,13 @@ def _generate_cv_html(
     if phone:
         contact_rows += f'<tr><td class="label">{L["phone"]}</td><td>{phone}</td></tr>'
     if location:
-        contact_rows += f'<tr><td class="label">{L["location"]}</td><td>{location}</td></tr>'
+        contact_rows += (
+            f'<tr><td class="label">{L["location"]}</td><td>{location}</td></tr>'
+        )
     if linkedin:
-        contact_rows += f'<tr><td class="label">{L["linkedin"]}</td><td>{linkedin}</td></tr>'
+        contact_rows += (
+            f'<tr><td class="label">{L["linkedin"]}</td><td>{linkedin}</td></tr>'
+        )
 
     skills_html = ""
     if skills:
@@ -199,7 +227,7 @@ def _generate_cv_html(
                 badge += f' <span class="skill-badge">{slevel}</span>'
             if syears:
                 badge += f' <span class="skill-years">{syears}y</span>'
-            items.append(f'<li>{sname}{badge}</li>')
+            items.append(f"<li>{sname}{badge}</li>")
         skills_html = f'<ul class="skills-list">{"".join(items)}</ul>'
 
     exp_html = ""
@@ -217,7 +245,7 @@ def _generate_cv_html(
     <span class="exp-company">{company}</span>
   </div>
   <div class="exp-dates">{start} – {end}</div>
-  {f'<p class="exp-desc">{desc}</p>' if desc else ''}
+  {f'<p class="exp-desc">{desc}</p>' if desc else ""}
 </div>"""
 
     edu_html = ""
@@ -230,8 +258,8 @@ def _generate_cv_html(
             edu_html += f"""
 <div class="edu-item">
   <strong>{school}</strong>
-  {f'<div class="edu-degree">{degree}{" — " + field if field else ""}</div>' if degree else ''}
-  {f'<div class="edu-year">{year}</div>' if year else ''}
+  {f'<div class="edu-degree">{degree}{" — " + field if field else ""}</div>' if degree else ""}
+  {f'<div class="edu-year">{year}</div>' if year else ""}
 </div>"""
 
     lang_html = ""
@@ -240,7 +268,7 @@ def _generate_cv_html(
         for lang in languages_list:
             lname = lang.get("lang") or lang.get("name") or ""
             llevel = lang.get("level") or ""
-            items.append(f'<li>{lname}{" — " + llevel if llevel else ""}</li>')
+            items.append(f"<li>{lname}{' — ' + llevel if llevel else ''}</li>")
         lang_html = f'<ul class="lang-list">{"".join(items)}</ul>'
 
     summary_section = ""
@@ -488,17 +516,17 @@ def _generate_cv_html(
     <aside class="cv-sidebar">
       {f'<section><h2>{L["contact"]}</h2><table class="contact-table">{contact_rows}</table></section>' if contact_rows else ""}
 
-      {f'<section><h2>{L["skills"]}</h2>{skills_html}</section>' if skills_html else ""}
+      {f"<section><h2>{L["skills"]}</h2>{skills_html}</section>" if skills_html else ""}
 
-      {f'<section><h2>{L["languages"]}</h2>{lang_html}</section>' if lang_html else ""}
+      {f"<section><h2>{L["languages"]}</h2>{lang_html}</section>" if lang_html else ""}
     </aside>
 
     <!-- Main -->
     <main class="cv-main">
       {summary_section}
       {tailored_section}
-      {f'<section><h2>{L["experience"]}</h2>{exp_html}</section>' if exp_html else ""}
-      {f'<section><h2>{L["education"]}</h2>{edu_html}</section>' if edu_html else ""}
+      {f"<section><h2>{L["experience"]}</h2>{exp_html}</section>" if exp_html else ""}
+      {f"<section><h2>{L["education"]}</h2>{edu_html}</section>" if edu_html else ""}
     </main>
   </div>
 
@@ -517,6 +545,7 @@ def _generate_cv_html(
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @router.post("/candidates/{candidate_id}/generate-cv", response_model=CVResponse)
 async def generate_cv(
     candidate_id: int,
@@ -531,7 +560,9 @@ async def generate_cv(
         raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
 
     if body.template not in ("standard", "blind"):
-        raise HTTPException(status_code=422, detail="template musi być 'standard' lub 'blind'")
+        raise HTTPException(
+            status_code=422, detail="template musi być 'standard' lub 'blind'"
+        )
     if body.language not in ("pl", "en"):
         raise HTTPException(status_code=422, detail="language musi być 'pl' lub 'en'")
 
@@ -552,7 +583,10 @@ async def generate_cv(
     )
 
 
-@router.post("/candidates/{candidate_id}/generate-blind-profile", response_model=BlindProfileResponse)
+@router.post(
+    "/candidates/{candidate_id}/generate-blind-profile",
+    response_model=BlindProfileResponse,
+)
 async def generate_blind_profile(
     candidate_id: int,
     current_user: CurrentUser,
@@ -575,9 +609,9 @@ async def generate_blind_profile(
 
     languages_list = candidate.languages or []
     languages = [
-        f"{l.get('lang', '')} {('— ' + l.get('level', '')) if l.get('level') else ''}".strip()
-        for l in languages_list
-        if l.get("lang")
+        f"{lang.get('lang', '')} {('— ' + lang.get('level', '')) if lang.get('level') else ''}".strip()
+        for lang in languages_list
+        if lang.get("lang")
     ]
 
     return BlindProfileResponse(

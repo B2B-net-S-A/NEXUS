@@ -2,6 +2,7 @@
 Notifications API
 User notification system with unread badge support.
 """
+
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +18,7 @@ router = APIRouter()
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
+
 
 class NotificationResponse(BaseModel):
     id: int
@@ -43,6 +45,7 @@ class UnreadCountResponse(BaseModel):
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/notifications", response_model=NotificationListResponse)
 async def list_notifications(
     current_user: CurrentUser,
@@ -61,7 +64,7 @@ async def list_notifications(
     unread_result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .where(Notification.user_id == current_user.id, not Notification.is_read)
     )
     unread_count = unread_result.scalar() or 0
 
@@ -91,14 +94,18 @@ async def get_unread_count(
     result = await db.execute(
         select(func.count())
         .select_from(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .where(Notification.user_id == current_user.id, not Notification.is_read)
     )
     count = result.scalar() or 0
     return UnreadCountResponse(count=count)
 
 
-@router.put("/notifications/{notification_id}/read", response_model=NotificationResponse)
-@router.patch("/notifications/{notification_id}/read", response_model=NotificationResponse)
+@router.put(
+    "/notifications/{notification_id}/read", response_model=NotificationResponse
+)
+@router.patch(
+    "/notifications/{notification_id}/read", response_model=NotificationResponse
+)
 async def mark_as_read(
     notification_id: int,
     current_user: CurrentUser,
@@ -140,14 +147,18 @@ async def mark_all_read(
     """Mark all notifications as read for current user (supports both PUT and PATCH)."""
     await db.execute(
         update(Notification)
-        .where(Notification.user_id == current_user.id, Notification.is_read == False)
+        .where(Notification.user_id == current_user.id, not Notification.is_read)
         .values(is_read=True)
     )
     await db.commit()
-    return {"success": True, "message": "Wszystkie powiadomienia oznaczone jako przeczytane"}
+    return {
+        "success": True,
+        "message": "Wszystkie powiadomienia oznaczone jako przeczytane",
+    }
 
 
 # ── Helper — create notifications from other endpoints ────────────────────────
+
 
 async def create_notification(
     db: AsyncSession,
