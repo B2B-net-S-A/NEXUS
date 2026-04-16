@@ -99,12 +99,23 @@ class CandidateStage(Base, TimestampMixin):
     # Ocena kandydata na danym etapie (1-5)
     rating: Mapped[Optional[int]] = mapped_column(Integer)  # 1..5
 
+    # Phase 1: new pipeline template system (enum `stage` column remains for
+    # backward-compat and is populated alongside stage_def_id until Phase 3).
+    stage_def_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("pipeline_stage_defs.id"), nullable=True, index=True
+    )
+    rejection_reason_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("rejection_reasons.id"), nullable=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")
     moved_by_user = relationship(
         "User", back_populates="pipeline_moves", foreign_keys=[moved_by]
     )
+    stage_def = relationship("PipelineStageDef")
+    rejection_reason = relationship("RejectionReason")
 
     def __repr__(self) -> str:
         return f"<CandidateStage candidate={self.candidate_id} job={self.job_id} stage={self.stage}>"

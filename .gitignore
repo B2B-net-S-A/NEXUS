@@ -58,3 +58,4 @@ TestResults.xml
 .local-state/
 *.env.backup
 
+frontend/tsconfig.tsbuildinfo

@@ -22,6 +22,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -86,6 +87,11 @@ const NAV_SECTIONS: NavSection[] = [
     title: "SYSTEM",
     items: [
       { href: "/settings", label: "Ustawienia", icon: Settings },
+      {
+        href: "/settings/pipeline-templates",
+        label: "Procesy rekrutacyjne",
+        icon: GitBranch,
+      },
     ],
   },
 ];
