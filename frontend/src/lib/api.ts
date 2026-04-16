@@ -225,6 +225,7 @@ export interface StageDef {
   tracker_public_name: string | null;
   sla_max_days: number | null;
   legacy_enum_value: string | null;
+  scorecard_schema?: { title?: string | null; questions?: unknown[] } | null;
   created_at: string;
   updated_at: string;
 }
@@ -521,6 +522,58 @@ export const phase3Api = {
     api.get("/api/reports/time-to-hire", { params: { days_lookback: daysLookback } }),
   embedAllJobs: (limit = 200) =>
     api.post("/api/jobs/embed-all", null, { params: { limit } }),
+};
+
+// ── Saved searches + match history (Phase 4) ────────────────────────────────
+
+export interface SavedSearchRow {
+  id: number;
+  user_id: number;
+  name: string;
+  entity: string;
+  filters: Record<string, unknown>;
+  shared: boolean;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export const savedSearchesApi = {
+  list: (entity?: string) =>
+    api.get<SavedSearchRow[]>("/api/saved-searches", {
+      params: entity ? { entity } : undefined,
+    }),
+  create: (data: {
+    name: string;
+    entity: string;
+    filters: Record<string, unknown>;
+    shared?: boolean;
+    description?: string;
+  }) => api.post<SavedSearchRow>("/api/saved-searches", data),
+  update: (
+    id: number,
+    data: Partial<{ name: string; filters: Record<string, unknown>; shared: boolean; description: string }>,
+  ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
+  delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
+};
+
+export interface MatchHistoryRow {
+  id: number;
+  job_id: number;
+  candidate_id: number;
+  total_score: number;
+  breakdown: ScoreBreakdown | null;
+  triggered_by: number | null;
+  created_at: string | null;
+}
+
+export const matchHistoryApi = {
+  list: (jobId: number, candidateId: number, limit = 10) =>
+    api.get<MatchHistoryRow[]>(`/api/match-history/${jobId}/${candidateId}`, {
+      params: { limit },
+    }),
+  log: (data: { job_id: number; candidate_id: number; total_score: number; breakdown?: ScoreBreakdown }) =>
+    api.post("/api/match-history", data),
 };
 
 export const recommendationsApi = {

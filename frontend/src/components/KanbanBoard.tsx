@@ -12,6 +12,7 @@ import {
   RejectionReasonModal,
   RejectionReasonOption,
 } from "./RejectionReasonModal";
+import { ScorecardModal } from "./ScorecardModal";
 import api, { pipelineTemplatesApi } from "@/lib/api";
 
 // ── Fallback styling for well-known legacy stages ────────────────────────────
@@ -205,6 +206,15 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<TabFilter>("all");
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [rejectionReasons, setRejectionReasons] = useState<RejectionReasonOption[]>([]);
+  // Stage def ids that have a non-empty scorecard_schema.questions[]
+  const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
+  // Scorecard prompt after a successful move
+  const [scorecardPrompt, setScorecardPrompt] = useState<{
+    candidateStageId: number;
+    stageId: number;
+    stageDefId: number;
+    stageName: string;
+  } | null>(null);
   // Phase 4: multi-select + bulk move
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -238,6 +248,14 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
               category: r.category as "rejected" | "withdrawn",
             }))
           );
+          const withScorecard = new Set<number>();
+          for (const s of detail.data.stages ?? []) {
+            const schema = (s as { scorecard_schema?: { questions?: unknown[] } }).scorecard_schema;
+            if (schema && Array.isArray(schema.questions) && schema.questions.length > 0) {
+              withScorecard.add(s.id);
+            }
+          }
+          setStagesWithScorecard(withScorecard);
         }
       } catch (err) {
         console.error("Failed to load pipeline template for kanban:", err);
@@ -276,7 +294,7 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
       rejectionReasonId?: number
     ) => {
       try {
-        await api.post("/api/pipeline/move", {
+        const res = await api.post("/api/pipeline/move", {
           candidate_id: item.candidate_id,
           job_id: jobId,
           // Send BOTH — server accepts either
@@ -284,12 +302,28 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
           stage_def_id: dstCol.stage_def_id ?? undefined,
           rejection_reason_id: rejectionReasonId,
         });
+        // Prompt for scorecard if target stage has a schema (non-terminal only)
+        const newStageId = res.data?.id as number | undefined;
+        const newStageDefId = res.data?.stage_def_id as number | null | undefined;
+        if (
+          newStageId &&
+          newStageDefId &&
+          stagesWithScorecard.has(newStageDefId) &&
+          dstCol.category !== "terminal"
+        ) {
+          setScorecardPrompt({
+            candidateStageId: newStageId,
+            stageId: newStageId,
+            stageDefId: newStageDefId,
+            stageName: dstCol.name ?? dstCol.stage,
+          });
+        }
       } catch (err) {
         console.error("Pipeline move failed:", err);
         setCols(columns); // revert to server truth
       }
     },
-    [jobId, columns]
+    [jobId, columns, stagesWithScorecard]
   );
 
   const handleDragEnd = useCallback(
@@ -463,6 +497,17 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
         onClose={() => setPendingRejection(null)}
         onConfirm={handleConfirmRejection}
       />
+
+      {scorecardPrompt && (
+        <ScorecardModal
+          candidateStageId={scorecardPrompt.candidateStageId}
+          stageId={scorecardPrompt.stageId}
+          stageDefId={scorecardPrompt.stageDefId}
+          stageName={scorecardPrompt.stageName}
+          onClose={() => setScorecardPrompt(null)}
+          onSaved={() => setScorecardPrompt(null)}
+        />
+      )}
 
       {templateId === null && (
         <p className="text-xs text-gray-400 mt-2">

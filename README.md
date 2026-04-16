@@ -19,15 +19,21 @@ Previously developed internally as DynaMinds ATS. Full-stack, async-first, AI-re
 
 ## Features
 
-- 👥 **Candidate Database** — full profile, skills JSONB, CV upload, semantic search
-- 📋 **Job Management** — pipeline, portal syndication, AI-matching
+- 👥 **Candidate Database** — full profile, structured skills with `must`/`nice` + verification, CV upload, semantic search, preferences (remote modes, rate range, excluded clients), champion/verifier flags
+- 📋 **Job Management** — pipeline, portal syndication, **hybrid AI matching with explainable score breakdown**, AI-generated must/nice criteria (Ollama)
+- 🎯 **Pipeline Templates** — custom stages per job/client, drag-drop reorder, rejection reasons, per-stage scorecards with rating/text/checkbox/select questions, SLA max_days per stage
 - 🏢 **Client CRM** — companies, contacts, NDA tracking
-- 🔄 **Recruitment Pipeline** — Kanban board, stage history, audit trail
+- 🔄 **Recruitment Pipeline** — Kanban board, stage history, audit trail, multi-select bulk move, **per-candidate multi-pipeline view**
+- 🔬 **Hybrid Recommendations** — semantic (Qdrant) + skills overlap + salary fit + location + availability, with blacklist/conflict/excluded-client penalties. Both directions: `jobs → candidates` and `candidate → jobs`.
+- 💰 **Rate History** — per-candidate compensation log (B2B/UoP/Zlecenie) with client/project context
+- ⛔ **Conflicts** — client↔candidate guards (blacklist, current employment, NDA, competitor)
 - 📝 **Notes** — call/meeting/email notes per candidate or job
 - 📄 **Contracts** — B2B/UoP/Zlecenie, auto margin calculation, expiry alerts
-- 📊 **Dashboard** — KPIs, recent activity, pipeline funnel
-- 🔍 **Search** — full-text (PostgreSQL) + semantic (Qdrant/Voyage)
+- 📊 **Dashboard + Analytics** — KPIs, recent activity, pipeline funnel, time-to-hire per recruiter, SLA alerts
+- 🔍 **Search** — full-text (PostgreSQL) + semantic (Qdrant/Voyage) + **saved searches** (per-user, shareable)
+- 📜 **Match History** — per (candidate, job) timeline of scoring snapshots for retrospective analysis
 - 🔒 **Roles** — Admin, Recruiter, Manager, Client
+- 🛠️ **Diagnostics** — Voyage/Qdrant health + collection init from UI
 
 ---
 
@@ -85,17 +91,38 @@ make dev
 | POST | `/api/auth/register` | Register user |
 | GET | `/api/auth/me` | Current user |
 | GET | `/api/candidates` | List candidates |
-| POST | `/api/candidates` | Create candidate |
+| POST | `/api/candidates` | Create candidate (with preferences/champion/verifier) |
+| POST | `/api/candidates/check-duplicates` | Pre-create dedup warning |
 | POST | `/api/candidates/{id}/cv` | Upload CV |
+| GET | `/api/candidates/{id}/pipelines` | All pipelines for a candidate |
+| GET | `/api/candidates/{id}/rate-history` | Rate history log |
+| GET | `/api/candidates/{id}/conflicts` | Active client conflicts |
+| GET | `/api/candidates/{id}/recommendations` | Suggested jobs (hybrid) |
+| POST | `/api/candidates/{id}/assign-to-job/{job_id}` | Add to recruitment pipeline |
 | GET | `/api/jobs` | List jobs |
 | POST | `/api/jobs/{id}/publish` | Publish to portals |
-| GET | `/api/jobs/{id}/match-candidates` | AI match (Qdrant) |
-| POST | `/api/pipeline/move` | Move stage |
+| GET | `/api/jobs/{id}/recommendations` | **Hybrid recommendations** with breakdown |
+| POST | `/api/jobs/{id}/refresh-criteria` | AI-generate must/nice skills (Ollama) |
+| POST | `/api/jobs/{id}/recompute-scores` | Batch rescore |
+| POST | `/api/pipeline/move` | Move stage (legacy enum or stage_def_id) |
+| POST | `/api/pipeline/bulk-move` | Multi-candidate move |
 | GET | `/api/pipeline/kanban/{job_id}` | Kanban view |
+| GET | `/api/pipeline/overview-sla` | SLA alerts per stage |
+| GET | `/api/pipeline-stages/{id}/scorecard` | Scorecard schema |
+| PATCH | `/api/pipeline/{stage_id}/scorecard` | Submit scorecard answers |
+| GET | `/api/pipeline-templates` | List templates |
+| POST | `/api/pipeline-templates/{id}/clone` | Clone template |
+| POST | `/api/pipeline-templates/assign-to-job/{job_id}` | Assign template |
 | GET | `/api/contracts/expiring` | Expiring contracts alert |
 | GET | `/api/dashboard/stats` | KPI stats |
+| GET | `/api/reports/funnel` | Pipeline funnel report |
+| GET | `/api/reports/time-to-hire` | Time-to-hire per recruiter |
 | GET | `/api/search/?q=` | Full-text search |
 | GET | `/api/search/semantic?q=` | Semantic search |
+| GET/POST | `/api/saved-searches` | Per-user named filter presets |
+| GET/POST | `/api/match-history` | Per (candidate,job) scoring timeline |
+| GET | `/api/embed-diagnostics` | Voyage/Qdrant health |
+| POST | `/api/embed-init` | Create/verify Qdrant collections |
 
 ---
 
@@ -148,12 +175,22 @@ Nexus/
 
 ## Roadmap
 
+Completed:
+- [x] Phase 1 — Structured skills (must/nice), pipeline templates, rejection reasons, duplicate detection
+- [x] Phase 2 — Hybrid recommendations with explainable ScoreBreakdown (both directions)
+- [x] Phase 3 — Stage-specific scorecards, SLA alerts, multi-pipeline candidate view, funnel/time-to-hire reports
+- [x] Phase 4 — Saved searches, match history, AI-generated criteria (Ollama), bulk kanban ops
+- [x] Phase 5 — Embedding diagnostics UI, rate history CRUD, client-candidate conflicts CRUD
+
+Next:
 - [ ] CV auto-parsing (Ollama LLM)
-- [ ] Pracuj.pl / LinkedIn portal integration
+- [ ] Pracuj.pl / LinkedIn portal integration via n8n
 - [ ] Email automation (follow-ups, rejections)
 - [ ] Traffit ATS import (40k CVs migration)
 - [ ] Multi-language CV processing
 - [ ] Mobile-friendly kanban
+
+See [docs/pipeline-templates.md](docs/pipeline-templates.md) for custom pipeline setup guide.
 
 ---
 

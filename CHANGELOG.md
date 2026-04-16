@@ -3,6 +3,31 @@
 All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com) and semver-like `MAJOR.MINOR.PATCH`.
 
+## [0.9.0] — 2026-04-16 — Phase 6: UI polish & coverage
+
+Finishes every remaining item from the original roadmap. Pure UI/docs/tests — no schema
+changes. All Phase 1-5 backend endpoints now have a matching UI.
+
+### Added — UI
+
+- **AddCandidateModal / EditCandidateModal** — new "Dane strukturalne" section (`years_it_experience`, `champion`, `verifier_id`, `verified_tech`) and "Preferencje kontraktowe" section (`remote_modes` chips, `rate_min/max`, `industries`, `contract_types` chips, `excluded_clients` multi-select). Writes through to `Candidate.preferences` JSONB.
+- **AddJobModal / EditJobModal** — "Szablon procesu rekrutacyjnego" dropdown now lets users assign a `pipeline_template_id` at create/edit time. Defaults to "— domyślny szablon —".
+- **SuggestedCandidatesWidget** — new job-detail widget exposing `/api/jobs/{id}/recommendations?include_breakdown=true`. Score chip 0-100, color-coded bands (75+/50+/25+/low), "dlaczego?" tooltip with per-layer bars + must/nice skill matches/gaps, "Przypisz" button that creates the CandidateStage on the default "new" stage. Top-3 results auto-logged to `/api/match-history`.
+- **ScorecardModal** — opens after a successful kanban move to a stage with a non-empty `scorecard_schema.questions[]`. Renders rating/text/checkbox/select questions + overall rating + notes; submits via `PATCH /api/pipeline/{stage_id}/scorecard`.
+- **SavedSearchPicker** — dropdown in Kandydaci list for saving/applying named filter presets. Shared vs private, inline delete. Applies `q/status/sort` filters atomically.
+- **MatchHistoryWidget** — expandable per-job panel inside a candidate's "Rekrutacje" tab. Timeline of score snapshots with ScoreBreakdownTooltip.
+
+### Added — Backend
+
+- **JobCreate/JobUpdate** schemas — `pipeline_template_id` now accepted on create/update (previously only via `/assign-to-job`).
+- **StageDefResponse** — exposes `scorecard_schema` so the frontend can detect which stages have defined questions.
+- **Unit tests** — 36 pure-function tests in `tests/test_scoring_service.py` (22) and `tests/test_dedup_service.py` (14). Exercise `_skill_names`, `_score_skills`, `_score_salary`, `_score_location`, `_score_availability`, `score_semantic`, and every normalizer in `dedup_service`. All pass, zero external dependencies.
+
+### Docs
+
+- **README.md** — Features & Roadmap sections rewritten around Phases 1-5, API endpoints table expanded.
+- **docs/pipeline-templates.md** — new how-to covering the template/StageDef/RejectionReason model, scorecard schema format, backward-compat guarantees, and the Traffit migration path.
+
 ## [0.4.0] — 2026-04-16 — Phase 1 complete
 
 Full Phase 1 of the matching-engine and pipeline-template roadmap. Backward-compatible

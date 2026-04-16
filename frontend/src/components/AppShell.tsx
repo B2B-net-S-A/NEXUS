@@ -12,7 +12,7 @@ import {
   Plus, UserPlus, Briefcase, Building2, CalendarPlus,
   ChevronRight, X, Loader2, Menu, Sparkles,
 } from "lucide-react";
-import api, { aiWriterApi } from "@/lib/api";
+import api, { aiWriterApi, phase5Api, pipelineTemplatesApi } from "@/lib/api";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 
@@ -236,15 +236,46 @@ interface CandidateFormData {
   status: string;
   tags: string;
   notes: string;
+  // Structured (Phase 1 – Sprint 3)
+  years_it_experience: string;
+  champion: boolean;
+  verifier_id: string;
+  verified_tech: string; // comma separated
+  // Preferences JSONB
+  pref_remote_modes: string[]; // ['remote','hybrid','on_site']
+  pref_rate_min: string;
+  pref_rate_max: string;
+  pref_industries: string; // comma separated
+  pref_contract_types: string[]; // ['b2b','uop','zlecenie']
+  pref_excluded_clients: string; // comma separated client ids
 }
 
 const EMPTY_CANDIDATE: CandidateFormData = {
   name: "", lastname: "", email: "", phone: "", location: "",
   source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
   availability_date: "", notice_period: "", status: "active", tags: "", notes: "",
+  years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
+  pref_remote_modes: [], pref_rate_min: "", pref_rate_max: "",
+  pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
 };
 
+type VerifiedTechItem = string | { name?: string; skill?: string } | null;
+
+function _verifiedTechToString(v: unknown): string {
+  if (!Array.isArray(v)) return "";
+  return v
+    .map((it: VerifiedTechItem) => {
+      if (!it) return "";
+      if (typeof it === "string") return it;
+      if (typeof it === "object") return it.name ?? it.skill ?? "";
+      return "";
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
 function candidateToForm(c: any): CandidateFormData {
+  const prefs = (c.preferences && typeof c.preferences === "object") ? c.preferences : {};
   return {
     name: c.name ?? "",
     lastname: c.lastname ?? "",
@@ -260,10 +291,107 @@ function candidateToForm(c: any): CandidateFormData {
     status: c.status ?? "active",
     tags: Array.isArray(c.tags) ? c.tags.join(", ") : (c.tags ?? ""),
     notes: "",
+    years_it_experience: c.years_it_experience != null ? String(c.years_it_experience) : "",
+    champion: !!c.champion,
+    verifier_id: c.verifier_id != null ? String(c.verifier_id) : "",
+    verified_tech: _verifiedTechToString(c.verified_tech),
+    pref_remote_modes: Array.isArray(prefs.remote_modes) ? prefs.remote_modes : [],
+    pref_rate_min: prefs.rate_min != null ? String(prefs.rate_min) : "",
+    pref_rate_max: prefs.rate_max != null ? String(prefs.rate_max) : "",
+    pref_industries: Array.isArray(prefs.industries) ? prefs.industries.join(", ") : "",
+    pref_contract_types: Array.isArray(prefs.contract_types) ? prefs.contract_types : [],
+    pref_excluded_clients: Array.isArray(prefs.excluded_clients)
+      ? prefs.excluded_clients.join(", ")
+      : "",
   };
 }
 
-function CandidateFormFields({ form, onChange }: { form: CandidateFormData; onChange: (k: keyof CandidateFormData, v: string) => void }) {
+function candidateFormToPayload(form: CandidateFormData) {
+  const tags = form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+  const verifiedTech = form.verified_tech
+    ? form.verified_tech.split(",").map(t => t.trim()).filter(Boolean)
+    : [];
+  const industries = form.pref_industries
+    ? form.pref_industries.split(",").map(t => t.trim()).filter(Boolean)
+    : [];
+  const excluded = form.pref_excluded_clients
+    ? form.pref_excluded_clients
+        .split(",")
+        .map(t => t.trim())
+        .filter(Boolean)
+        .map(n => Number(n))
+        .filter(n => !Number.isNaN(n))
+    : [];
+
+  const preferences: Record<string, unknown> = {};
+  if (form.pref_remote_modes.length) preferences.remote_modes = form.pref_remote_modes;
+  if (form.pref_rate_min) preferences.rate_min = Number(form.pref_rate_min);
+  if (form.pref_rate_max) preferences.rate_max = Number(form.pref_rate_max);
+  if (industries.length) preferences.industries = industries;
+  if (form.pref_contract_types.length) preferences.contract_types = form.pref_contract_types;
+  if (excluded.length) preferences.excluded_clients = excluded;
+
+  return {
+    name: form.name,
+    lastname: form.lastname,
+    email: form.email || undefined,
+    phone: form.phone || undefined,
+    location: form.location || undefined,
+    source: form.source,
+    linkedin: form.linkedin || undefined,
+    salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
+    salary_currency: form.salary_currency,
+    availability_date: form.availability_date || undefined,
+    notice_period: form.notice_period ? Number(form.notice_period) : undefined,
+    status: form.status,
+    tags: tags.length ? tags : undefined,
+    years_it_experience: form.years_it_experience ? Number(form.years_it_experience) : undefined,
+    champion: form.champion,
+    verifier_id: form.verifier_id ? Number(form.verifier_id) : undefined,
+    verified_tech: verifiedTech.length ? verifiedTech : undefined,
+    preferences: Object.keys(preferences).length ? preferences : undefined,
+  };
+}
+
+function CandidateFormFields({
+  form,
+  onChange,
+  onToggle,
+  onMulti,
+  users,
+  clients,
+}: {
+  form: CandidateFormData;
+  onChange: (k: keyof CandidateFormData, v: string) => void;
+  onToggle: (k: "champion", v: boolean) => void;
+  onMulti: (k: "pref_remote_modes" | "pref_contract_types", v: string, on: boolean) => void;
+  users: { id: number; full_name?: string; email?: string }[];
+  clients: { id: number; name: string }[];
+}) {
+  const CB = ({
+    field,
+    value,
+    label,
+  }: {
+    field: "pref_remote_modes" | "pref_contract_types";
+    value: string;
+    label: string;
+  }) => {
+    const arr = form[field];
+    const checked = arr.includes(value);
+    return (
+      <label className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={e => onMulti(field, value, e.target.checked)}
+          className="w-3.5 h-3.5 accent-blue-600"
+        />
+        <span>{label}</span>
+      </label>
+    );
+  };
+
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -329,6 +457,123 @@ function CandidateFormFields({ form, onChange }: { form: CandidateFormData; onCh
       <FieldGroup label="Notatki">
         <Textarea value={form.notes} onChange={e => onChange("notes", e.target.value)} rows={3} placeholder="Dodatkowe informacje..." />
       </FieldGroup>
+
+      {/* ── Dane strukturalne ───────────────────────────────────────────── */}
+      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+          Dane strukturalne
+        </h4>
+        <div className="grid grid-cols-3 gap-3">
+          <FieldGroup label="Lata doświadczenia IT">
+            <Input
+              type="number"
+              value={form.years_it_experience}
+              onChange={e => onChange("years_it_experience", e.target.value)}
+              placeholder="8"
+            />
+          </FieldGroup>
+          <FieldGroup label="Weryfikator (recruiter)">
+            <Select
+              value={form.verifier_id}
+              onChange={e => onChange("verifier_id", e.target.value)}
+            >
+              <option value="">— brak —</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name || u.email}
+                </option>
+              ))}
+            </Select>
+          </FieldGroup>
+          <label className="flex items-center gap-2 mt-6 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.champion}
+              onChange={e => onToggle("champion", e.target.checked)}
+              className="w-4 h-4 accent-yellow-500"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              Champion (ulubieniec)
+            </span>
+          </label>
+        </div>
+        <FieldGroup label="Zweryfikowane technologie (rozdzielone przecinkami)">
+          <Input
+            value={form.verified_tech}
+            onChange={e => onChange("verified_tech", e.target.value)}
+            placeholder="Python, AWS, Kubernetes"
+          />
+        </FieldGroup>
+      </div>
+
+      {/* ── Preferencje kontraktowe ─────────────────────────────────────── */}
+      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+          Preferencje kontraktowe
+        </h4>
+        <FieldGroup label="Tryb pracy">
+          <div className="flex flex-wrap gap-2">
+            <CB field="pref_remote_modes" value="remote" label="Remote" />
+            <CB field="pref_remote_modes" value="hybrid" label="Hybrid" />
+            <CB field="pref_remote_modes" value="on_site" label="On-site" />
+          </div>
+        </FieldGroup>
+        <FieldGroup label="Typ kontraktu">
+          <div className="flex flex-wrap gap-2">
+            <CB field="pref_contract_types" value="b2b" label="B2B" />
+            <CB field="pref_contract_types" value="uop" label="UoP" />
+            <CB field="pref_contract_types" value="zlecenie" label="Zlecenie" />
+          </div>
+        </FieldGroup>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Stawka min (PLN)">
+            <Input
+              type="number"
+              value={form.pref_rate_min}
+              onChange={e => onChange("pref_rate_min", e.target.value)}
+              placeholder="12000"
+            />
+          </FieldGroup>
+          <FieldGroup label="Stawka max (PLN)">
+            <Input
+              type="number"
+              value={form.pref_rate_max}
+              onChange={e => onChange("pref_rate_max", e.target.value)}
+              placeholder="20000"
+            />
+          </FieldGroup>
+        </div>
+        <FieldGroup label="Preferowane branże (rozdzielone przecinkami)">
+          <Input
+            value={form.pref_industries}
+            onChange={e => onChange("pref_industries", e.target.value)}
+            placeholder="Fintech, E-commerce"
+          />
+        </FieldGroup>
+        <FieldGroup label="Wykluczeni klienci">
+          <Select
+            multiple
+            value={
+              form.pref_excluded_clients
+                ? form.pref_excluded_clients.split(",").map(s => s.trim()).filter(Boolean)
+                : []
+            }
+            onChange={e => {
+              const opts = Array.from(e.target.selectedOptions, o => o.value);
+              onChange("pref_excluded_clients", opts.join(", "));
+            }}
+          >
+            {clients.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+          <p className="text-[11px] text-gray-400 mt-1">
+            Ctrl/⌘+klik aby zaznaczyć wielu klientów.
+          </p>
+        </FieldGroup>
+      </div>
     </>
   );
 }
@@ -349,7 +594,29 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
   const [duplicates, setDuplicates] = useState<DuplicateCandidateHit[]>([]);
   const [dupeChecked, setDupeChecked] = useState(false);
 
+  const { data: usersData } = useQuery({
+    queryKey: ["users-list-for-candidate"],
+    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+  });
+  const { data: clientsData } = useQuery({
+    queryKey: ["clients-lookup-for-candidate"],
+    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
+  });
+  const users = usersData ?? [];
+  const clients = clientsData ?? [];
+
   const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
+  const onMulti = (
+    k: "pref_remote_modes" | "pref_contract_types",
+    v: string,
+    on: boolean,
+  ) =>
+    setForm(f => {
+      const current = f[k];
+      const next = on ? Array.from(new Set([...current, v])) : current.filter(x => x !== v);
+      return { ...f, [k]: next };
+    });
 
   const checkDuplicates = async () => {
     if (!form.email && !form.phone && !form.linkedin && !(form.name && form.lastname)) return;
@@ -374,21 +641,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
-      const tags = form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
-      await api.post("/api/candidates", {
-        name: form.name, lastname: form.lastname,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
-        location: form.location || undefined,
-        source: form.source,
-        linkedin: form.linkedin || undefined,
-        salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
-        salary_currency: form.salary_currency,
-        availability_date: form.availability_date || undefined,
-        notice_period: form.notice_period ? Number(form.notice_period) : undefined,
-        status: form.status,
-        tags: tags.length ? tags : undefined,
-      });
+      await api.post("/api/candidates", candidateFormToPayload(form));
       onSuccess("Kandydat dodany pomyślnie");
       onClose();
     } catch (err: any) {
@@ -398,7 +651,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         {duplicates.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
@@ -433,7 +686,14 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
             </p>
           </div>
         )}
-        <CandidateFormFields form={form} onChange={onChange} />
+        <CandidateFormFields
+          form={form}
+          onChange={onChange}
+          onToggle={onToggle}
+          onMulti={onMulti}
+          users={users}
+          clients={clients}
+        />
         <div className="flex justify-between items-center pt-1">
           <button
             type="button"
@@ -457,28 +717,36 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const { data: usersData } = useQuery({
+    queryKey: ["users-list-for-candidate"],
+    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+  });
+  const { data: clientsData } = useQuery({
+    queryKey: ["clients-lookup-for-candidate"],
+    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
+  });
+  const users = usersData ?? [];
+  const clients = clientsData ?? [];
+
   const onChange = (k: keyof CandidateFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onToggle = (k: "champion", v: boolean) => setForm(f => ({ ...f, [k]: v }));
+  const onMulti = (
+    k: "pref_remote_modes" | "pref_contract_types",
+    v: string,
+    on: boolean,
+  ) =>
+    setForm(f => {
+      const current = f[k];
+      const next = on ? Array.from(new Set([...current, v])) : current.filter(x => x !== v);
+      return { ...f, [k]: next };
+    });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
-      const tags = form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
-      await api.patch(`/api/candidates/${candidate.id}`, {
-        name: form.name, lastname: form.lastname,
-        email: form.email || undefined,
-        phone: form.phone || undefined,
-        location: form.location || undefined,
-        source: form.source,
-        linkedin: form.linkedin || undefined,
-        salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
-        salary_currency: form.salary_currency,
-        availability_date: form.availability_date || undefined,
-        notice_period: form.notice_period ? Number(form.notice_period) : undefined,
-        status: form.status,
-        tags: tags.length ? tags : undefined,
-      });
+      await api.patch(`/api/candidates/${candidate.id}`, candidateFormToPayload(form));
       onSuccess("Kandydat zaktualizowany");
       onClose();
     } catch (err: any) {
@@ -488,9 +756,16 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   return (
     <Modal title={`Edytuj: ${candidate.name} ${candidate.lastname}`} onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <CandidateFormFields form={form} onChange={onChange} />
+        <CandidateFormFields
+          form={form}
+          onChange={onChange}
+          onToggle={onToggle}
+          onMulti={onMulti}
+          users={users}
+          clients={clients}
+        />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
@@ -516,12 +791,14 @@ interface JobFormData {
   priority: string;
   deadline: string;
   recruiter_id: string;
+  pipeline_template_id: string;
 }
 
 const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
   salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
+  pipeline_template_id: "",
 };
 
 function jobToForm(j: any): JobFormData {
@@ -539,14 +816,16 @@ function jobToForm(j: any): JobFormData {
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
+    pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
   };
 }
 
-function JobFormFields({ form, onChange, clients, users }: {
+function JobFormFields({ form, onChange, clients, users, templates }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
+  templates: { id: number; name: string; is_default?: boolean; archived?: boolean }[];
 }) {
   return (
     <>
@@ -621,6 +900,28 @@ function JobFormFields({ form, onChange, clients, users }: {
           {users.map((u: any) => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
         </Select>
       </FieldGroup>
+      <FieldGroup label="Szablon procesu rekrutacyjnego">
+        <Select
+          value={form.pipeline_template_id}
+          onChange={e => onChange("pipeline_template_id", e.target.value)}
+        >
+          <option value="">— domyślny szablon —</option>
+          {templates
+            .filter(t => !t.archived)
+            .map(t => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.is_default ? " (domyślny)" : ""}
+              </option>
+            ))}
+        </Select>
+        <p className="text-[11px] text-gray-400 mt-1">
+          Definiuje etapy kanbana i powody odrzucenia. Zmień w{" "}
+          <a href="/settings/pipeline-templates" target="_blank" className="text-blue-500 underline">
+            Ustawieniach →
+          </a>
+        </p>
+      </FieldGroup>
     </>
   );
 }
@@ -640,8 +941,13 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     queryKey: ["users-list-qa"],
     queryFn: () => api.get("/api/admin/users").then(r => r.data),
   });
+  const { data: templatesData } = useQuery({
+    queryKey: ["pipeline-templates-list"],
+    queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
+  });
   const clients = clientsData?.items ?? [];
   const users = usersData ?? [];
+  const templates = templatesData ?? [];
 
   const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -693,6 +999,7 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+        pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
       });
       onSuccess("Oferta dodana pomyślnie");
       onClose();
@@ -722,7 +1029,7 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           <span className="text-xs text-gray-400">Wypełni opis i wymagania automatycznie</span>
         </div>
         {aiError && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{aiError}</div>}
-        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} templates={templates} />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj ofertę" />
@@ -745,8 +1052,13 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     queryKey: ["users-list-qa"],
     queryFn: () => api.get("/api/admin/users").then(r => r.data),
   });
+  const { data: templatesData } = useQuery({
+    queryKey: ["pipeline-templates-list"],
+    queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
+  });
   const clients = clientsData?.items ?? [];
   const users = usersData ?? [];
+  const templates = templatesData ?? [];
 
   const onChange = (k: keyof JobFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -769,6 +1081,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+        pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : null,
       });
       onSuccess("Oferta zaktualizowana");
       onClose();
@@ -781,7 +1094,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} templates={templates} />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />

@@ -1,7 +1,7 @@
 """Pydantic schemas for pipeline templates CRUD."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +45,7 @@ class StageDefResponse(BaseModel):
     tracker_public_name: Optional[str]
     sla_max_days: Optional[int]
     legacy_enum_value: Optional[str]
+    scorecard_schema: Optional[Any] = None
     created_at: datetime
     updated_at: datetime
 

@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesModal } from "@/components/ImportCandidatesModal";
+import { SavedSearchPicker } from "@/components/SavedSearchPicker";
 import { UserPlus, Linkedin, Globe, User2, Users, ChevronRight, Upload, GitCompare } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Suspense } from "react";
@@ -287,6 +288,22 @@ function CandidatesPageInner() {
                 <option value="newest">Najnowsi</option>
                 <option value="name_asc">Nazwa A–Z</option>
               </select>
+            </div>
+            <div className="flex">
+              <SavedSearchPicker
+                entity="candidate"
+                currentFilters={{
+                  q: search,
+                  status: statusFilter,
+                  sort: sortBy,
+                }}
+                onApply={(f) => {
+                  if (typeof f.q === "string") setSearch(f.q);
+                  if (typeof f.status === "string") setStatusFilter(f.status);
+                  if (typeof f.sort === "string") setSortBy(f.sort);
+                  setPage(1);
+                }}
+              />
             </div>
           </div>
 
