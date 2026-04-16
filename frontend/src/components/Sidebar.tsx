@@ -97,6 +97,11 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Analityka pipeline",
         icon: BarChart3,
       },
+      {
+        href: "/settings/diagnostics",
+        label: "Diagnostyka AI",
+        icon: Shield,
+      },
     ],
   },
 ];
