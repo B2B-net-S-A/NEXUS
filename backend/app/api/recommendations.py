@@ -19,10 +19,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.deps import (
+    CurrentUser,
+    get_current_user,
+    require_roles,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.user import User, UserRole
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
@@ -50,12 +55,12 @@ router = APIRouter()
 async def recommend_candidates_for_job(
     request: Request,
     job_id: int,
-    current_user: CurrentUser,
     top_k: int = Query(20, ge=1, le=100),
     include_breakdown: bool = Query(True),
     exclude_in_pipeline: bool = Query(
         True, description="Skip candidates already added to this job's pipeline."
     ),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -159,10 +164,10 @@ async def recommend_candidates_for_job(
 async def recommend_jobs_for_candidate(
     request: Request,
     candidate_id: int,
-    current_user: CurrentUser,
     top_k: int = Query(10, ge=1, le=50),
     include_breakdown: bool = Query(True),
     only_open: bool = Query(True, description="Only jobs with status=published."),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Reverse recommendations: which open jobs fit this candidate?"""
@@ -340,7 +345,7 @@ def _fallback_criteria_from_text(job: Job) -> dict:
 async def refresh_job_criteria(
     request: Request,
     job_id: int,
-    current_user: ManagerOrAdmin,
+    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -386,8 +391,8 @@ async def refresh_job_criteria(
 async def recompute_scores(
     request: Request,
     job_id: int,
-    current_user: ManagerOrAdmin,
     top_k: int = Query(200, ge=1, le=500),
+    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
     db: AsyncSession = Depends(get_db),
 ):
     """
