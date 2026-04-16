@@ -18,6 +18,13 @@ from app.models.calendar_event import CalendarEvent
 from app.models.notification import Notification
 from app.models.rate_history import RateHistory, ContractType
 from app.models.candidate_conflict import CandidateConflict, ConflictType
+from app.models.pipeline_template import (
+    PipelineTemplate,
+    PipelineStageDef,
+    RejectionReason,
+    StageCategoryEnum,
+    TerminalType,
+)
 
 __all__ = [
     "User",
@@ -43,4 +50,9 @@ __all__ = [
     "ContractType",
     "CandidateConflict",
     "ConflictType",
+    "PipelineTemplate",
+    "PipelineStageDef",
+    "RejectionReason",
+    "StageCategoryEnum",
+    "TerminalType",
 ]

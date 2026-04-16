@@ -7,14 +7,21 @@ from app.models.recruitment_pipeline import PipelineStage, StageCategory
 
 
 class StageMove(BaseModel):
-    """Payload for moving a candidate to a new stage."""
+    """Payload for moving a candidate to a new stage.
+
+    Phase 1 accepts EITHER `stage` (legacy enum, resolved via default template
+    legacy_enum_value) OR `stage_def_id` (new FK). At least one is required.
+    Terminal moves (rejected/withdrawn) should include `rejection_reason_id`.
+    """
 
     candidate_id: int
     job_id: int
-    stage: PipelineStage
+    stage: Optional[PipelineStage] = None
+    stage_def_id: Optional[int] = None
     notes: Optional[str] = None
     rating: Optional[int] = Field(None, ge=1, le=5)
-    rejection_reason: Optional[str] = None
+    rejection_reason_id: Optional[int] = None
+    rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
 
 
 class CandidateStageResponse(BaseModel):
@@ -22,6 +29,8 @@ class CandidateStageResponse(BaseModel):
     candidate_id: int
     job_id: int
     stage: PipelineStage
+    stage_def_id: Optional[int] = None
+    rejection_reason_id: Optional[int] = None
     moved_at: datetime
     moved_by: Optional[int]
     notes: Optional[str]
@@ -37,6 +46,10 @@ class KanbanColumn(BaseModel):
     category: StageCategory
     count: int
     items: List[CandidateStageResponse]
+    # Phase 1 additions (optional, BC)
+    stage_def_id: Optional[int] = None
+    name: Optional[str] = None
+    order: Optional[int] = None
 
 
 class KanbanView(BaseModel):
@@ -49,6 +62,9 @@ class StageInfo(BaseModel):
     category: StageCategory
     label: str
     order: int
+    # Phase 1: new elastic fields (None for the synthetic terminal stages)
+    stage_def_id: Optional[int] = None
+    is_terminal: bool = False
 
 
 # Polish labels for all stages

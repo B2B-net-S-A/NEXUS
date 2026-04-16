@@ -40,6 +40,7 @@ from app.api import import_export
 from app.api import fireflies
 from app.api import ws
 from app.api import matching
+from app.api import pipeline_templates
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,11 @@ app.include_router(import_export.router, prefix="/api", tags=["import-export"])
 app.include_router(fireflies.router, prefix="/api", tags=["fireflies"])
 app.include_router(ws.router, tags=["websocket"])
 app.include_router(matching.router, prefix="/api", tags=["matching"])
+app.include_router(
+    pipeline_templates.router,
+    prefix="/api/pipeline-templates",
+    tags=["pipeline-templates"],
+)
 
 
 @app.get("/health")

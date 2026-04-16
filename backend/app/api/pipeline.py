@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,11 @@ from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.models.job import Job
+from app.models.pipeline_template import (
+    PipelineStageDef,
+    PipelineTemplate,
+    RejectionReason,
+)
 from app.schemas.pipeline import (
     CandidateStageResponse,
     KanbanColumn,
@@ -29,6 +34,44 @@ from app.api.deps import CurrentUser
 from app.api import ws as ws_manager
 
 router = APIRouter()
+
+
+# ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
+
+
+async def _default_template_id(db: AsyncSession) -> Optional[int]:
+    """Return id of the is_default=true template (or None if unseeded)."""
+    return await db.scalar(
+        select(PipelineTemplate.id).where(PipelineTemplate.is_default.is_(True))
+    )
+
+
+async def _resolve_stage_def(
+    db: AsyncSession,
+    job: Optional[Job],
+    *,
+    stage_def_id: Optional[int] = None,
+    legacy_stage: Optional[PipelineStage] = None,
+) -> Optional[PipelineStageDef]:
+    """Resolve a StageDef from either explicit id or legacy enum (via template)."""
+    if stage_def_id:
+        return await db.scalar(
+            select(PipelineStageDef).where(PipelineStageDef.id == stage_def_id)
+        )
+    if legacy_stage is None:
+        return None
+
+    template_id = (
+        job.pipeline_template_id if job else None
+    ) or await _default_template_id(db)
+    if not template_id:
+        return None
+    return await db.scalar(
+        select(PipelineStageDef).where(
+            PipelineStageDef.template_id == template_id,
+            PipelineStageDef.legacy_enum_value == legacy_stage.value,
+        )
+    )
 
 
 def _days_in_stage(moved_at: datetime) -> int:
@@ -48,6 +91,8 @@ def _stage_response(stage: CandidateStage) -> dict:
         "candidate_id": stage.candidate_id,
         "job_id": stage.job_id,
         "stage": stage.stage,
+        "stage_def_id": stage.stage_def_id,
+        "rejection_reason_id": stage.rejection_reason_id,
         "moved_at": stage.moved_at,
         "moved_by": stage.moved_by,
         "notes": stage.notes,
@@ -58,8 +103,67 @@ def _stage_response(stage: CandidateStage) -> dict:
 
 
 @router.get("/stages", response_model=List[StageInfo])
-async def list_stages(current_user: CurrentUser):
-    """Return all pipeline stages with labels, categories, and order."""
+async def list_stages(
+    current_user: CurrentUser,
+    job_id: Optional[int] = Query(
+        None, description="If provided, return stages of this job's template."
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return pipeline stages.
+
+    - With `job_id`: stages of the template attached to that job.
+    - Without: stages of the default template.
+
+    Fallback: if no templates exist yet (e.g. during migration), returns the
+    legacy hardcoded enum stages so the UI keeps rendering.
+    """
+    # Resolve template id
+    template_id: Optional[int] = None
+    if job_id is not None:
+        job = await db.scalar(select(Job).where(Job.id == job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        template_id = job.pipeline_template_id
+    if template_id is None:
+        template_id = await _default_template_id(db)
+
+    if template_id is not None:
+        rows = (
+            (
+                await db.execute(
+                    select(PipelineStageDef)
+                    .where(PipelineStageDef.template_id == template_id)
+                    .order_by(PipelineStageDef.order)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        result: list[StageInfo] = []
+        for sd in rows:
+            # Map new category enum → legacy StageCategory for BC
+            legacy_enum = None
+            if sd.legacy_enum_value:
+                try:
+                    legacy_enum = PipelineStage(sd.legacy_enum_value)
+                except ValueError:
+                    legacy_enum = None
+            result.append(
+                StageInfo(
+                    stage=legacy_enum
+                    or PipelineStage.new,  # fallback for custom stages
+                    category=sd.category,
+                    label=sd.name,
+                    order=sd.order,
+                    stage_def_id=sd.id,
+                    is_terminal=sd.is_terminal,
+                )
+            )
+        return result
+
+    # Legacy fallback — pre-seed / no template world
     result = []
     for i, stage in enumerate(STAGE_ORDER):
         result.append(
@@ -68,9 +172,9 @@ async def list_stages(current_user: CurrentUser):
                 category=STAGE_CATEGORY[stage],
                 label=STAGE_LABELS[stage],
                 order=i,
+                is_terminal=False,
             )
         )
-    # Add terminal stages
     for stage in [PipelineStage.rejected, PipelineStage.withdrawn]:
         result.append(
             StageInfo(
@@ -78,6 +182,7 @@ async def list_stages(current_user: CurrentUser):
                 category=STAGE_CATEGORY[stage],
                 label=STAGE_LABELS[stage],
                 order=99,
+                is_terminal=True,
             )
         )
     return result
@@ -89,11 +194,69 @@ async def move_candidate(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Move a candidate to a new pipeline stage for a given job."""
+    """Move a candidate to a new pipeline stage for a given job.
+
+    Accepts either `stage` (legacy enum) or `stage_def_id` (new FK). For
+    custom stages introduced via templates, the legacy enum is set to
+    `PipelineStage.new` as a placeholder — the real identifier is stage_def_id.
+    """
+    if data.stage is None and data.stage_def_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Either `stage` (legacy enum) or `stage_def_id` must be provided",
+        )
+
+    job = await db.scalar(select(Job).where(Job.id == data.job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    stage_def = await _resolve_stage_def(
+        db, job, stage_def_id=data.stage_def_id, legacy_stage=data.stage
+    )
+
+    # Derive effective legacy-enum value for backward-compat column
+    legacy_enum: PipelineStage = data.stage or PipelineStage.new
+    if stage_def and stage_def.legacy_enum_value:
+        try:
+            legacy_enum = PipelineStage(stage_def.legacy_enum_value)
+        except ValueError:
+            legacy_enum = data.stage or PipelineStage.new
+
+    # Terminal-move validation: require rejection_reason_id
+    if (
+        stage_def
+        and stage_def.is_terminal
+        and stage_def.terminal_type
+        and stage_def.terminal_type.value
+        in (
+            "rejected",
+            "withdrawn",
+        )
+    ):
+        if not data.rejection_reason_id and not data.rejection_reason:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Terminal stage ({stage_def.terminal_type.value}) requires rejection_reason_id",
+            )
+        # Validate the FK
+        if data.rejection_reason_id:
+            reason = await db.scalar(
+                select(RejectionReason).where(
+                    RejectionReason.id == data.rejection_reason_id
+                )
+            )
+            if not reason or not reason.active:
+                raise HTTPException(
+                    status_code=422,
+                    detail="rejection_reason_id not found or inactive",
+                )
+
     stage = CandidateStage(
         candidate_id=data.candidate_id,
         job_id=data.job_id,
-        stage=data.stage,
+        stage=legacy_enum,
+        stage_def_id=stage_def.id if stage_def else None,
+        rejection_reason_id=data.rejection_reason_id,
         moved_at=datetime.now(timezone.utc),
         moved_by=current_user.id,
         notes=data.notes,
@@ -101,6 +264,12 @@ async def move_candidate(
     )
     db.add(stage)
     await db.flush()
+
+    stage_display_name = (
+        stage_def.name
+        if stage_def
+        else STAGE_LABELS.get(legacy_enum, legacy_enum.value)
+    )
 
     # Activity log
     db.add(
@@ -112,7 +281,9 @@ async def move_candidate(
             details={
                 "candidate_id": data.candidate_id,
                 "job_id": data.job_id,
-                "stage": data.stage.value,
+                "stage": legacy_enum.value,
+                "stage_def_id": stage_def.id if stage_def else None,
+                "stage_name": stage_display_name,
             },
         )
     )
@@ -127,19 +298,18 @@ async def move_candidate(
             details={
                 "candidate_id": data.candidate_id,
                 "job_id": data.job_id,
-                "stage": data.stage.value,
+                "stage": legacy_enum.value,
+                "stage_def_id": stage_def.id if stage_def else None,
             },
         )
     )
 
     # Notification for the recruiter assigned to the job (if different from current user)
-    job_result = await db.execute(select(Job).where(Job.id == data.job_id))
-    job = job_result.scalar_one_or_none()
-    if job and job.recruiter_id and job.recruiter_id != current_user.id:
+    if job.recruiter_id and job.recruiter_id != current_user.id:
         notif = Notification(
             user_id=job.recruiter_id,
             title="Zmiana etapu kandydata",
-            message=f"Kandydat #{data.candidate_id} → '{STAGE_LABELS.get(data.stage, data.stage.value)}' w ofercie #{data.job_id}.",
+            message=f"Kandydat #{data.candidate_id} → '{stage_display_name}' w ofercie #{data.job_id}.",
             link=f"/jobs/{data.job_id}",
             notification_type=NotificationType.stage_changed,
         )
@@ -171,41 +341,104 @@ async def get_kanban(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return kanban view: all stages with latest candidate stage entries."""
+    """
+    Return kanban view for a job — columns driven by the job's pipeline template.
+
+    Backward-compat: rows whose stage_def_id is NULL are bucketed by legacy enum
+    via PipelineStageDef.legacy_enum_value lookup.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Latest CandidateStage row per candidate for this job
     result = await db.execute(
         select(CandidateStage)
         .where(CandidateStage.job_id == job_id)
         .order_by(CandidateStage.candidate_id, CandidateStage.moved_at.desc())
     )
     all_stages = result.scalars().all()
-
-    # Deduplicate: keep latest stage per candidate
-    seen = {}
+    seen: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
 
-    # Group by stage (ordered)
-    columns_map: dict[PipelineStage, list[CandidateStage]] = {
+    # Resolve target template
+    template_id = job.pipeline_template_id or await _default_template_id(db)
+
+    if template_id is not None:
+        # Template-driven columns
+        stage_defs = (
+            (
+                await db.execute(
+                    select(PipelineStageDef)
+                    .where(PipelineStageDef.template_id == template_id)
+                    .order_by(PipelineStageDef.order)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        enum_to_def: dict[str, PipelineStageDef] = {
+            sd.legacy_enum_value: sd for sd in stage_defs if sd.legacy_enum_value
+        }
+
+        columns_map: dict[int, list[CandidateStage]] = {sd.id: [] for sd in stage_defs}
+
+        for entry in seen.values():
+            # Prefer explicit FK; fall back to legacy enum mapping
+            if entry.stage_def_id in columns_map:
+                columns_map[entry.stage_def_id].append(entry)
+            else:
+                mapped = enum_to_def.get(entry.stage.value) if entry.stage else None
+                if mapped:
+                    columns_map[mapped.id].append(entry)
+
+        columns = []
+        for sd in stage_defs:
+            entries = columns_map.get(sd.id, [])
+            legacy = None
+            if sd.legacy_enum_value:
+                try:
+                    legacy = PipelineStage(sd.legacy_enum_value)
+                except ValueError:
+                    legacy = PipelineStage.new
+            columns.append(
+                KanbanColumn(
+                    stage=legacy or PipelineStage.new,
+                    category=sd.category,
+                    count=len(entries),
+                    items=[
+                        CandidateStageResponse(**_stage_response(e)) for e in entries
+                    ],
+                    stage_def_id=sd.id,
+                    name=sd.name,
+                    order=sd.order,
+                )
+            )
+        return KanbanView(job_id=job_id, columns=columns)
+
+    # ── Legacy fallback (no template seeded yet) ──────────────────────────────
+    columns_map_legacy: dict[PipelineStage, list[CandidateStage]] = {
         s: [] for s in STAGE_ORDER
     }
-    # Add terminal stages
-    columns_map[PipelineStage.rejected] = []
-    columns_map[PipelineStage.withdrawn] = []
-
+    columns_map_legacy[PipelineStage.rejected] = []
+    columns_map_legacy[PipelineStage.withdrawn] = []
     for stage_entry in seen.values():
-        if stage_entry.stage in columns_map:
-            columns_map[stage_entry.stage].append(stage_entry)
+        if stage_entry.stage in columns_map_legacy:
+            columns_map_legacy[stage_entry.stage].append(stage_entry)
 
     columns = []
     for stage in list(STAGE_ORDER) + [PipelineStage.rejected, PipelineStage.withdrawn]:
-        entries = columns_map.get(stage, [])
+        entries = columns_map_legacy.get(stage, [])
         columns.append(
             KanbanColumn(
                 stage=stage,
                 category=STAGE_CATEGORY[stage],
                 count=len(entries),
                 items=[CandidateStageResponse(**_stage_response(e)) for e in entries],
+                name=STAGE_LABELS[stage],
             )
         )
     return KanbanView(job_id=job_id, columns=columns)

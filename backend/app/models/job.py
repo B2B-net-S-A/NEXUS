@@ -130,11 +130,15 @@ class Job(Base, TimestampMixin):
     )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    pipeline_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("pipeline_templates.id"), nullable=True, index=True
+    )
 
     # Relationships
     client = relationship("Client", back_populates="jobs")
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     creator = relationship("User", foreign_keys=[created_by])
+    pipeline_template = relationship("PipelineTemplate")
     pipeline_stages = relationship(
         "CandidateStage", back_populates="job", cascade="all, delete-orphan"
     )

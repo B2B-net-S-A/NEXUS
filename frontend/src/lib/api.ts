@@ -201,4 +201,124 @@ export const contractsApi = {
   expiring: (days?: number) => api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
 };
 
+// ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────
+export interface PipelineTemplateSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  archived: boolean;
+  stage_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StageDef {
+  id: number;
+  template_id: number;
+  name: string;
+  order: number;
+  category: "internal" | "external" | "terminal";
+  is_terminal: boolean;
+  terminal_type: "hired" | "rejected" | "withdrawn" | null;
+  tracker_enabled: boolean;
+  tracker_public_name: string | null;
+  sla_max_days: number | null;
+  legacy_enum_value: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RejectionReasonDef {
+  id: number;
+  template_id: number;
+  stage_def_id: number | null;
+  name: string;
+  order: number;
+  category: "hired" | "rejected" | "withdrawn";
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineTemplateDetail {
+  id: number;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+  stages: StageDef[];
+  rejection_reasons: RejectionReasonDef[];
+}
+
+export const pipelineTemplatesApi = {
+  list: (include_archived = false) =>
+    api.get<PipelineTemplateSummary[]>("/api/pipeline-templates", {
+      params: { include_archived },
+    }),
+  get: (id: number) => api.get<PipelineTemplateDetail>(`/api/pipeline-templates/${id}`),
+  create: (data: { name: string; description?: string; is_default?: boolean }) =>
+    api.post<PipelineTemplateDetail>("/api/pipeline-templates", data),
+  update: (id: number, data: Partial<{ name: string; description: string; is_default: boolean; archived: boolean }>) =>
+    api.patch(`/api/pipeline-templates/${id}`, data),
+  archive: (id: number) => api.delete(`/api/pipeline-templates/${id}`),
+  clone: (id: number, newName: string) =>
+    api.post<PipelineTemplateDetail>(`/api/pipeline-templates/${id}/clone`, null, {
+      params: { new_name: newName },
+    }),
+  addStage: (
+    id: number,
+    data: {
+      name: string;
+      order: number;
+      category: "internal" | "external" | "terminal";
+      is_terminal?: boolean;
+      terminal_type?: "hired" | "rejected" | "withdrawn" | null;
+    }
+  ) => api.post<StageDef>(`/api/pipeline-templates/${id}/stages`, data),
+  updateStage: (id: number, stageId: number, data: Partial<StageDef>) =>
+    api.patch(`/api/pipeline-templates/${id}/stages/${stageId}`, data),
+  reorderStages: (id: number, items: { stage_id: number; order: number }[]) =>
+    api.patch(`/api/pipeline-templates/${id}/stages/reorder`, items),
+  deleteStage: (id: number, stageId: number) =>
+    api.delete(`/api/pipeline-templates/${id}/stages/${stageId}`),
+  addRejectionReason: (
+    id: number,
+    data: { name: string; category: "hired" | "rejected" | "withdrawn"; order?: number; stage_def_id?: number | null }
+  ) => api.post<RejectionReasonDef>(`/api/pipeline-templates/${id}/rejection-reasons`, data),
+  deactivateRejectionReason: (id: number, reasonId: number) =>
+    api.delete(`/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`),
+  assignToJob: (jobId: number, templateId: number) =>
+    api.post(`/api/pipeline-templates/assign-to-job/${jobId}`, { template_id: templateId }),
+};
+
+// ── Pipeline stages (server-driven) ──────────────────────────────────────────
+export interface StageInfo {
+  stage: string;
+  category: "internal" | "external" | "terminal";
+  label: string;
+  order: number;
+  stage_def_id: number | null;
+  is_terminal: boolean;
+}
+
+export const pipelineApi = {
+  stagesForJob: (jobId?: number) =>
+    api.get<StageInfo[]>("/api/pipeline/stages", {
+      params: jobId !== undefined ? { job_id: jobId } : undefined,
+    }),
+  kanban: (jobId: number) => api.get(`/api/pipeline/kanban/${jobId}`),
+  move: (data: {
+    candidate_id: number;
+    job_id: number;
+    stage?: string;
+    stage_def_id?: number;
+    notes?: string;
+    rating?: number;
+    rejection_reason_id?: number;
+  }) => api.post("/api/pipeline/move", data),
+};
+
 export default api;
