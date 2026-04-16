@@ -97,20 +97,64 @@ function clearAuthCookie(): void {
   document.cookie = `${COOKIE_NAME}=; path=/; max-age=0; samesite=lax`
 }
 
-// Bezpieczny odczyt tokena z localStorage — w środowisku testowym
-// (jsdom/Vitest) localStorage może być niedostępny lub częściowo
-// inicjowany. Zwracamy null zamiast rzucać na module load.
-function readInitialToken(): string | null {
+// Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
+// localStorage może być niedostępny lub częściowo inicjowany.
+// Zwracamy null zamiast rzucać na module load.
+function safeGet(key: string): string | null {
   if (typeof window === "undefined") return null
   try {
-    return window.localStorage.getItem("access_token")
+    return window.localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
+function readInitialToken(): string | null {
+  return safeGet("access_token")
+}
+
+// User jest persystowany w localStorage razem z tokenem — inaczej po
+// hard navigation (np. middleware redirect → /403) Zustand resetuje się
+// i Sidebar/RequireRole dostają user=null, co chowa wszystkie role-gated
+// linki. Token samo nie wystarczy, bo frontend nie dekoduje JWT payload —
+// user.role musi być dostępny synchronicznie w store.
+const USER_STORAGE_KEY = "nexus_user"
+
+function readInitialUser(): User | null {
+  const raw = safeGet(USER_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.id === "number" &&
+      typeof parsed.email === "string" &&
+      typeof parsed.role === "string"
+    ) {
+      return parsed as User
+    }
+  } catch {
+    /* corrupt value */
+  }
+  return null
+}
+
+function persistUser(user: User | null): void {
+  if (typeof window === "undefined") return
+  try {
+    if (user) {
+      window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
+    } else {
+      window.localStorage.removeItem(USER_STORAGE_KEY)
+    }
+  } catch {
+    /* non-browser env */
+  }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
+  user: readInitialUser(),
   token: readInitialToken(),
   setAuth: (user, token) => {
     try {
@@ -118,6 +162,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       /* non-browser env */
     }
+    persistUser(user)
     writeAuthCookie(token)
     set({ user, token })
   },
@@ -127,6 +172,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       /* non-browser env */
     }
+    persistUser(null)
     clearAuthCookie()
     set({ user: null, token: null })
     if (typeof window !== "undefined") {
