@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
+import { SavedSearchPicker } from "@/components/SavedSearchPicker";
 import { AddJobModal } from "@/components/AppShell";
 import { Briefcase, Plus, Users, Clock, TrendingUp, BarChart2 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
@@ -238,6 +239,17 @@ export default function JobsPage() {
           <option value="published">Opublikowane</option>
           <option value="closed">Zamknięte</option>
         </select>
+        <SavedSearchPicker
+          entity="job"
+          currentFilters={{ q: search, status: statusFilter, recruitment_type: typeFilter }}
+          onApply={(f) => {
+            if (typeof f.q === "string") setSearch(f.q);
+            if (typeof f.status === "string") setStatusFilter(f.status);
+            if (typeof f.recruitment_type === "string")
+              setTypeFilter(f.recruitment_type as RecruitmentTypeFilter);
+            setPage(1);
+          }}
+        />
       </div>
 
       {/* Card grid */}

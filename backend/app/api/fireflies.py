@@ -5,7 +5,9 @@ GET /api/fireflies/transcripts — list recent meeting notes from Fireflies
 GET /api/fireflies/status      — current integration status
 """
 
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,17 +36,18 @@ async def trigger_fireflies_sync(
 async def list_fireflies_transcripts(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    limit: int = 20,
+    candidate_id: Optional[int] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
 ):
     """
     List recent meeting notes created from Fireflies sync.
+    Optionally filter by candidate_id.
     """
-    result = await db.execute(
-        select(Note)
-        .where(Note.note_type == NoteType.meeting)
-        .order_by(desc(Note.created_at))
-        .limit(limit)
-    )
+    q = select(Note).where(Note.note_type == NoteType.meeting)
+    if candidate_id is not None:
+        q = q.where(Note.candidate_id == candidate_id)
+    q = q.order_by(desc(Note.created_at)).limit(limit)
+    result = await db.execute(q)
     notes = result.scalars().all()
 
     return [

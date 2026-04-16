@@ -19,8 +19,10 @@ import {
   Phone,
   CheckCircle,
   AlertCircle,
+  Download,
+  Loader2,
 } from "lucide-react";
-import { calendarApi, candidatesApi } from "@/lib/api";
+import api, { calendarApi, candidatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 
@@ -251,6 +253,11 @@ export default function CalendarPage() {
             ))}
           </div>
 
+          <ICalImportButton
+            onImported={() => {
+              queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+            }}
+          />
           <button
             onClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
@@ -1032,4 +1039,108 @@ function EventDetailModal({
   );
 }
 
+// ── iCal import button (Phase 7b.6) ──────────────────────────────────────────
 
+function ICalImportButton({ onImported }: { onImported: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [since, setSince] = useState(7);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!url.trim()) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.post("/api/calendar/import-ical", {
+        url: url.trim(),
+        since_days: since,
+      });
+      const d = r.data as {
+        events_fetched: number;
+        inserted: number;
+        updated: number;
+        skipped_past: number;
+        errors: number;
+      };
+      setResult(
+        `fetched=${d.events_fetched} ins=${d.inserted} upd=${d.updated} skip=${d.skipped_past} err=${d.errors}`
+      );
+      onImported();
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
+            "Błąd")
+          : "Błąd";
+      setResult(`Błąd: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+        title="Importuj z publicznego feedu iCal (Outlook / Google Calendar)"
+      >
+        <Download className="w-4 h-4" />
+        iCal import
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 z-30 space-y-2">
+          <p className="text-xs text-gray-500">
+            Wklej publiczny URL iCal (Outlook → Publikuj kalendarz, albo Google
+            Calendar → Private address in iCal format).
+          </p>
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://outlook.office365.com/.../calendar.ics"
+            className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+          />
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            Pomiń starsze niż
+            <input
+              type="number"
+              value={since}
+              onChange={(e) => setSince(Number(e.target.value) || 7)}
+              className="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-0.5 text-xs bg-white dark:bg-gray-900"
+              min={0}
+              max={365}
+            />
+            dni
+          </label>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setOpen(false)}
+              className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+            >
+              Anuluj
+            </button>
+            <button
+              onClick={run}
+              disabled={!url.trim() || busy}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Download className="w-3 h-3" />
+              )}
+              Importuj
+            </button>
+          </div>
+          {result && (
+            <div className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 rounded p-2 font-mono">
+              {result}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

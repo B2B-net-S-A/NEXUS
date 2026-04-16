@@ -23,7 +23,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  ClipboardList,
 } from "lucide-react";
+import { ScorecardSchemaBuilder } from "@/components/ScorecardSchemaBuilder";
 
 const CATEGORY_LABELS: Record<string, string> = {
   internal: "Wewnętrzny",
@@ -44,6 +46,10 @@ export default function PipelineTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [savingOrder, setSavingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scorecardEditor, setScorecardEditor] = useState<{
+    stageDefId: number;
+    stageName: string;
+  } | null>(null);
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -442,6 +448,32 @@ export default function PipelineTemplatesPage() {
                                     {stage.terminal_type ? ` · ${stage.terminal_type}` : ""}
                                   </span>
                                   <button
+                                    onClick={() =>
+                                      setScorecardEditor({
+                                        stageDefId: stage.id,
+                                        stageName: stage.name,
+                                      })
+                                    }
+                                    title="Edytuj scorecard etapu"
+                                    className={`text-xs flex items-center gap-1 px-2 py-0.5 rounded transition-colors ${
+                                      stage.scorecard_schema &&
+                                      Array.isArray(stage.scorecard_schema.questions) &&
+                                      stage.scorecard_schema.questions.length > 0
+                                        ? "text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                        : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
+                                    }`}
+                                  >
+                                    <ClipboardList className="w-3.5 h-3.5" />
+                                    Scorecard
+                                    {stage.scorecard_schema &&
+                                      Array.isArray(stage.scorecard_schema.questions) &&
+                                      stage.scorecard_schema.questions.length > 0 && (
+                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                          {stage.scorecard_schema.questions.length}
+                                        </span>
+                                      )}
+                                  </button>
+                                  <button
                                     onClick={() => handleRenameStage(stage)}
                                     className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
                                   >
@@ -523,6 +555,20 @@ export default function PipelineTemplatesPage() {
           </main>
         </div>
       </div>
+
+      {scorecardEditor && (
+        <ScorecardSchemaBuilder
+          stageDefId={scorecardEditor.stageDefId}
+          stageName={scorecardEditor.stageName}
+          onClose={() => setScorecardEditor(null)}
+          onSaved={() => {
+            setScorecardEditor(null);
+            if (selectedId) {
+              void loadDetail(selectedId);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

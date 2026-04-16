@@ -5,7 +5,7 @@ import aiofiles
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,6 +77,137 @@ async def list_candidates(
     result = await db.execute(query)
     items = result.scalars().all()
     return CandidateList(items=list(items), total=total, page=page, page_size=page_size)
+
+
+# ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
+
+
+_EXPORT_COLUMNS = [
+    "id",
+    "name",
+    "lastname",
+    "email",
+    "phone",
+    "location",
+    "competence_category",
+    "years_it_experience",
+    "skills",
+    "tags",
+    "status",
+    "source",
+    "salary_expectation",
+    "salary_currency",
+    "availability_date",
+    "champion",
+    "created_at",
+]
+
+
+def _skill_names_flat(raw) -> str:
+    if not raw:
+        return ""
+    if isinstance(raw, list):
+        out: list[str] = []
+        for it in raw:
+            if isinstance(it, dict):
+                v = it.get("name")
+                if v:
+                    out.append(str(v))
+            elif isinstance(it, str):
+                out.append(it)
+        return ", ".join(out)
+    return str(raw)
+
+
+def _row_for_export(c: Candidate) -> list:
+    return [
+        c.id,
+        c.name or "",
+        c.lastname or "",
+        c.email or "",
+        c.phone or "",
+        c.location or "",
+        c.competence_category or "",
+        c.years_it_experience if c.years_it_experience is not None else "",
+        _skill_names_flat(c.skills),
+        _skill_names_flat(c.tags),
+        c.status.value if c.status else "",
+        c.source or "",
+        c.salary_expectation if c.salary_expectation is not None else "",
+        c.salary_currency or "",
+        c.availability_date.isoformat() if c.availability_date else "",
+        "true" if c.champion else "false",
+        c.created_at.isoformat() if c.created_at else "",
+    ]
+
+
+@router.get("/export")
+async def export_candidates(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    format: str = Query("csv", regex="^(csv|xlsx)$"),
+    status_: Optional[CandidateStatus] = Query(None, alias="status"),
+    q: Optional[str] = None,
+    location: Optional[str] = None,
+    limit: int = Query(10000, ge=1, le=50000),
+):
+    """Stream candidates as CSV or Excel file respecting the same filters as list."""
+    query = select(Candidate)
+    if status_:
+        query = query.where(Candidate.status == status_)
+    if location:
+        query = query.where(Candidate.location.ilike(f"%{location}%"))
+    if q:
+        query = query.where(
+            or_(
+                Candidate.name.ilike(f"%{q}%"),
+                Candidate.lastname.ilike(f"%{q}%"),
+                Candidate.email.ilike(f"%{q}%"),
+            )
+        )
+    query = query.order_by(Candidate.id).limit(limit)
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if format == "xlsx":
+        from io import BytesIO
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Candidates"
+        ws.append(_EXPORT_COLUMNS)
+        for c in rows:
+            ws.append(_row_for_export(c))
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"candidates_{ts}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    # CSV (default)
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(_EXPORT_COLUMNS)
+    for c in rows:
+        writer.writerow(_row_for_export(c))
+    buf.seek(0)
+    filename = f"candidates_{ts}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)

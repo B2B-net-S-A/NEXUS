@@ -49,6 +49,7 @@ import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget"
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { MatchHistoryWidget } from "@/components/MatchHistoryWidget";
+import { FirefliesTranscriptsWidget } from "@/components/FirefliesTranscriptsWidget";
 import Link from "next/link";
 import { formatDate, formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
@@ -1051,6 +1052,8 @@ export default function CandidateDetailPage() {
           {/* ── ROZMOWY TAB ── */}
           {activeTab === "rozmowy" && (
             <div className="space-y-4">
+              {/* Fireflies transcripts (Phase 7b.5) */}
+              <FirefliesTranscriptsWidget candidateId={Number(id)} />
               {/* CloudTalk placeholder notice */}
               <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5">
                 <PhoneCall className="w-4 h-4 flex-shrink-0 text-amber-500" />

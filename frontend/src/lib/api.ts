@@ -628,6 +628,15 @@ export const recommendationsApi = {
     api.post<{ job_id: number; must_skills: unknown; nice_skills: unknown; criteria_generated_at: string }>(
       `/api/jobs/${jobId}/refresh-criteria`,
     ),
+  previewCriteria: (jobId: number) =>
+    api.post<{
+      job_id: number;
+      must_skills: Array<{ name: string; level?: string | null }>;
+      nice_skills: Array<{ name: string; level?: string | null }>;
+      source: "ollama" | "heuristic";
+      current_must_skills: Array<{ name: string; level?: string | null }>;
+      current_nice_skills: Array<{ name: string; level?: string | null }>;
+    }>(`/api/jobs/${jobId}/generate-criteria-preview`),
   recomputeScores: (jobId: number, topK = 200) =>
     api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
   assignToJob: (candidateId: number, jobId: number) =>

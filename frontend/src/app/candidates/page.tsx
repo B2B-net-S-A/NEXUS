@@ -8,7 +8,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesModal } from "@/components/ImportCandidatesModal";
 import { SavedSearchPicker } from "@/components/SavedSearchPicker";
-import { UserPlus, Linkedin, Globe, User2, Users, ChevronRight, Upload, GitCompare } from "lucide-react";
+import { UserPlus, Linkedin, Globe, User2, Users, ChevronRight, Upload, GitCompare, Download } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Suspense } from "react";
 
@@ -165,6 +165,77 @@ function CandidateDetailFrame({ candidateId }: { candidateId: number }) {
   );
 }
 
+// ── Export dropdown (Phase 7b.4) ──────────────────────────────────────────────
+
+function ExportDropdown({ search, statusFilter }: { search: string; statusFilter: string }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const doExport = async (fmt: "csv" | "xlsx") => {
+    setBusy(true);
+    try {
+      const params = new URLSearchParams({ format: fmt, limit: "10000" });
+      if (search) params.set("q", search);
+      if (statusFilter) params.set("status", statusFilter);
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiBase}/api/candidates/export?${params}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        alert(`Export nie powiódł się: HTTP ${res.status}`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const cd = res.headers.get("Content-Disposition") || "";
+      const match = cd.match(/filename="([^"]+)"/);
+      a.download = match ? match[1] : `candidates.${fmt}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Błąd: ${e instanceof Error ? e.message : "unknown"}`);
+    } finally {
+      setBusy(false);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className="flex items-center gap-2 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50"
+      >
+        <Download className="w-4 h-4" />
+        {busy ? "Exportuję..." : "Eksport"}
+      </button>
+      {open && !busy && (
+        <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20">
+          <button
+            onClick={() => doExport("csv")}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-lg"
+          >
+            CSV
+          </button>
+          <button
+            onClick={() => doExport("xlsx")}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 rounded-b-lg"
+          >
+            Excel (.xlsx)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function CandidatesPageInner() {
@@ -224,6 +295,7 @@ function CandidatesPageInner() {
             <Upload className="w-4 h-4" />
             Import CSV
           </button>
+          <ExportDropdown search={search} statusFilter={statusFilter} />
           {compareIds.length >= 2 && (
             <button
               onClick={() => router.push(`/candidates/compare?ids=${compareIds.join(",")}`)}
