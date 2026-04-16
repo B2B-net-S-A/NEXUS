@@ -36,7 +36,33 @@ branch_labels = None
 depends_on = None
 
 
+def _column_exists(conn, table: str, column: str) -> bool:
+    """Sprawdza czy kolumna istnieje (robust na pusty CI schema)."""
+    return (
+        conn.execute(
+            sa.text(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = :table
+                  AND column_name = :column
+                LIMIT 1
+                """
+            ),
+            {"table": table, "column": column},
+        ).first()
+        is not None
+    )
+
+
 def upgrade() -> None:
+    # `recruiter_role` istnieje tylko w środowiskach gdzie tabela `users` została
+    # stworzona przez `Base.metadata.create_all` (dev seed). Świeża baza CI
+    # zbudowana wyłącznie przez alembic history nie zna tej kolumny — trzeba
+    # rozgałęzić mapowanie.
+    conn = op.get_bind()
+    has_recruiter_role = _column_exists(conn, "users", "recruiter_role")
+
     # 1. Add temporary VARCHAR column to hold remapped value
     op.execute(
         sa.text(
@@ -47,25 +73,41 @@ def upgrade() -> None:
         )
     )
 
-    # 2. Populate role_new from current (role, recruiter_role) pair.
-    #    Enum values compared as text via ::text cast.
-    op.execute(
-        sa.text(
-            """
-            UPDATE users SET role_new = CASE
-                WHEN role::text = 'admin' THEN 'admin'
-                WHEN role::text = 'manager' THEN 'delivery_lead'
-                WHEN role::text = 'client' THEN 'user'
-                WHEN role::text = 'recruiter' AND recruiter_role::text = 'sourcer' THEN 'sourcer'
-                WHEN role::text = 'recruiter' AND recruiter_role::text = 'tac' THEN 'tac'
-                WHEN role::text = 'recruiter' AND recruiter_role::text = 'delivery_lead' THEN 'delivery_lead'
-                WHEN role::text = 'recruiter' AND recruiter_role::text = 'quality_control' THEN 'user'
-                WHEN role::text = 'recruiter' AND recruiter_role::text = 'admin' THEN 'admin'
-                ELSE 'recruiter'
-            END
-            """
+    # 2. Populate role_new. Enum values compared as text via ::text cast.
+    if has_recruiter_role:
+        op.execute(
+            sa.text(
+                """
+                UPDATE users SET role_new = CASE
+                    WHEN role::text = 'admin' THEN 'admin'
+                    WHEN role::text = 'manager' THEN 'delivery_lead'
+                    WHEN role::text = 'client' THEN 'user'
+                    WHEN role::text = 'recruiter' AND recruiter_role::text = 'sourcer' THEN 'sourcer'
+                    WHEN role::text = 'recruiter' AND recruiter_role::text = 'tac' THEN 'tac'
+                    WHEN role::text = 'recruiter' AND recruiter_role::text = 'delivery_lead' THEN 'delivery_lead'
+                    WHEN role::text = 'recruiter' AND recruiter_role::text = 'quality_control' THEN 'user'
+                    WHEN role::text = 'recruiter' AND recruiter_role::text = 'admin' THEN 'admin'
+                    ELSE 'recruiter'
+                END
+                """
+            )
         )
-    )
+    else:
+        # Pusta baza CI — mapujemy tylko po głównej roli, bez subtelności
+        # recruiter_role. Żaden seed nie został jeszcze uruchomiony, więc
+        # realnie ta gałąź mapuje tylko pre-phase-8 userów jeśli w ogóle.
+        op.execute(
+            sa.text(
+                """
+                UPDATE users SET role_new = CASE
+                    WHEN role::text = 'admin' THEN 'admin'
+                    WHEN role::text = 'manager' THEN 'delivery_lead'
+                    WHEN role::text = 'client' THEN 'user'
+                    ELSE 'recruiter'
+                END
+                """
+            )
+        )
 
     # 3. Drop old enum columns and their types.
     op.execute(sa.text("ALTER TABLE users DROP COLUMN IF EXISTS recruiter_role"))
