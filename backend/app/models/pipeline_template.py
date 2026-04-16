@@ -26,6 +26,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -58,8 +60,12 @@ class PipelineTemplate(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
     stages = relationship(
@@ -97,14 +103,16 @@ class PipelineStageDef(Base, TimestampMixin):
         Enum(StageCategoryEnum, name="stagecategoryenum"), nullable=False
     )
 
-    is_terminal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_terminal: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     terminal_type: Mapped[Optional[TerminalType]] = mapped_column(
         Enum(TerminalType, name="terminaltype"), nullable=True
     )
 
     # Phase 3: public-facing candidate tracker
     tracker_enabled: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
+        Boolean, default=False, server_default=false(), nullable=False
     )
     tracker_public_name: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
@@ -147,11 +155,15 @@ class RejectionReason(Base, TimestampMixin):
         ForeignKey("pipeline_stage_defs.id"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     category: Mapped[TerminalType] = mapped_column(
         Enum(TerminalType, name="terminaltype"), nullable=False
     )
-    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
 
     template = relationship("PipelineTemplate", back_populates="rejection_reasons")
 
