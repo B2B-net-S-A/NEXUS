@@ -14,6 +14,7 @@ paths = [
   '''REQUIREMENTS_V[0-9]+\.md''',
   '''QA_STRATEGY\.md''',
   '''\.github/workflows/ci\.yml''',
+  '''\.github/workflows/backup-drill\.yml''',
 ]
 regexes = [
   '''change-me''',
@@ -21,6 +22,7 @@ regexes = [
   '''change-me-to-a-strong-password''',
   # CI-only test creds (clearly marked, no prod secret value)
   '''nexus:nexus-ci-password''',
+  '''drill:drill-password''',
   # Placeholder examples in docstrings / error messages (no real secret)
   '''postgresql://user:pass@db\.<project-ref>\.supabase\.co''',
 ]

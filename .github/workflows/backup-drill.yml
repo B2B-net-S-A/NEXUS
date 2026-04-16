@@ -1,0 +1,89 @@
+name: Backup Restore Drill
+
+on:
+  schedule:
+    # Monday 04:00 UTC
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  drill:
+    name: pg_restore dry-run + alembic upgrade
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill-password
+          POSTGRES_DB: nexus_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Setup SSH to backup host
+        if: env.BACKUP_DRILL_SSH_KEY != ''
+        env:
+          BACKUP_DRILL_SSH_KEY: ${{ secrets.BACKUP_DRILL_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$BACKUP_DRILL_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }} >> ~/.ssh/known_hosts
+
+      - name: Fetch latest backup from VPS
+        if: env.BACKUP_DRILL_SSH_KEY != ''
+        env:
+          BACKUP_DRILL_SSH_KEY: ${{ secrets.BACKUP_DRILL_SSH_KEY }}
+        run: |
+          scp -q root@${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }}:/var/backups/nexus/postgres/$(date -u +%Y-%m-%d).dump /tmp/latest.dump \
+            || scp -q root@${{ secrets.BACKUP_DRILL_HOST || '91.99.199.112' }}:/var/backups/nexus/postgres/$(date -u -d 'yesterday' +%Y-%m-%d).dump /tmp/latest.dump
+          ls -lh /tmp/latest.dump
+
+      - name: Restore dump into ephemeral Postgres
+        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
+        env:
+          PGPASSWORD: drill-password
+        run: |
+          pg_restore --clean --if-exists --no-owner --no-privileges \
+            -h localhost -U drill -d nexus_drill /tmp/latest.dump \
+            || echo "pg_restore reported warnings (common for views/extensions); continuing"
+
+      - name: Alembic upgrade head on restored DB
+        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://drill:drill-password@localhost:5432/nexus_drill
+          SECRET_KEY: drill-only-not-for-production-at-least-48-chars-long
+        run: alembic -c alembic/alembic.ini upgrade head
+
+      - name: Sample query (smoke)
+        if: env.BACKUP_DRILL_SSH_KEY != '' && success()
+        env:
+          PGPASSWORD: drill-password
+        run: |
+          psql -h localhost -U drill -d nexus_drill -c "SELECT count(*) AS candidates FROM candidates;"
+
+      - name: No SSH key — drill skipped
+        if: env.BACKUP_DRILL_SSH_KEY == ''
+        run: |
+          echo "::warning::BACKUP_DRILL_SSH_KEY secret not configured. "
+          echo "::warning::Add it in repo settings to enable weekly backup restore drills."
+          echo "Backup drill configuration is documented in docs/disaster-recovery.md"

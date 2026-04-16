@@ -69,14 +69,17 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
         run: python -c "from app.main import app; print('app importable:', app.title)"
-      - name: Pytest (pure-function unit tests)
+      - name: Pytest (unit + in-process integration)
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          # Ensure live-server tests are skipped — our CI uses app_client fixture
+          RUN_LIVE_TESTS: "0"
         run: |
           pytest tests/test_scoring_service.py tests/test_dedup_service.py \
                  tests/test_talent_radar_importer.py \
                  tests/test_ical_import.py \
+                 tests/test_api_integration.py \
                  -v --tb=short
 
   frontend-lint-build:
@@ -97,6 +100,8 @@ jobs:
       - run: npm run type-check
       # NOTE: `npm run lint` requires interactive eslint setup (pre-existing).
       # TODO(Faza 3+): add non-interactive eslint config and re-enable.
+      - name: Vitest (unit + component)
+        run: npm run test
       - name: Build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
