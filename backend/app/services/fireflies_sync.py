@@ -113,7 +113,9 @@ def _extract_summary(summary: Optional[dict]) -> str:
     return "\n\n".join(parts)
 
 
-async def _find_candidate_by_emails(db: AsyncSession, participant_emails: list) -> Optional[Candidate]:
+async def _find_candidate_by_emails(
+    db: AsyncSession, participant_emails: list
+) -> Optional[Candidate]:
     """Find a candidate whose email matches any of the meeting participants."""
     if not participant_emails:
         return None
@@ -153,7 +155,7 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
 
         for transcript in transcripts:
             try:
-                t_id = transcript.get("id", "")
+                transcript.get("id", "")
                 title = transcript.get("title", "Spotkanie bez tytułu")
                 date_str = transcript.get("date")
                 participants = transcript.get("participants", []) or []
@@ -168,7 +170,9 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                 if date_str:
                     content_parts.append(f"📅 Data: {date_str}")
                 if participants:
-                    content_parts.append(f"👥 Uczestnicy: {', '.join(p for p in participants if p)}")
+                    content_parts.append(
+                        f"👥 Uczestnicy: {', '.join(p for p in participants if p)}"
+                    )
                 if summary_text:
                     content_parts.append(f"\n{summary_text}")
                 if transcript_text:
@@ -189,13 +193,19 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                 synced += 1
                 if candidate:
                     linked += 1
-                    logger.info(f"Fireflies: linked transcript '{title}' to candidate {candidate.id}")
+                    logger.info(
+                        f"Fireflies: linked transcript '{title}' to candidate {candidate.id}"
+                    )
                 else:
-                    logger.info(f"Fireflies: imported transcript '{title}' (no candidate match)")
+                    logger.info(
+                        f"Fireflies: imported transcript '{title}' (no candidate match)"
+                    )
 
             except Exception as exc:
                 errors += 1
-                logger.warning(f"Fireflies: error processing transcript {transcript.get('id', '?')}: {exc}")
+                logger.warning(
+                    f"Fireflies: error processing transcript {transcript.get('id', '?')}: {exc}"
+                )
 
         await db.commit()
 

@@ -29,6 +29,7 @@ class CalendarEvent(Base, TimestampMixin):
     Wydarzenie w kalendarzu rekrutacyjnym.
     Może być powiązane z kandydatem, ofertą lub klientem.
     """
+
     __tablename__ = "calendar_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -40,14 +41,20 @@ class CalendarEvent(Base, TimestampMixin):
         Enum(EventType, name="eventtype"), nullable=False, default=EventType.meeting
     )
 
-    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    start_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     end_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     all_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Optional relations
-    candidate_id: Mapped[Optional[int]] = mapped_column(ForeignKey("candidates.id"), index=True)
+    candidate_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidates.id"), index=True
+    )
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
-    client_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clients.id"), index=True)
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id"), index=True
+    )
 
     # Attendees — list of emails
     attendees: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
@@ -73,4 +80,6 @@ class CalendarEvent(Base, TimestampMixin):
     creator = relationship("User", foreign_keys=[created_by])
 
     def __repr__(self) -> str:
-        return f"<CalendarEvent id={self.id} title={self.title!r} type={self.event_type}>"
+        return (
+            f"<CalendarEvent id={self.id} title={self.title!r} type={self.event_type}>"
+        )

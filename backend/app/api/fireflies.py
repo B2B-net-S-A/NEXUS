@@ -50,10 +50,14 @@ async def list_fireflies_transcripts(
     return [
         {
             "id": n.id,
-            "title": n.content.split("\n")[0].replace("# ", "").strip() if n.content else "Spotkanie",
+            "title": n.content.split("\n")[0].replace("# ", "").strip()
+            if n.content
+            else "Spotkanie",
             "candidate_id": n.candidate_id,
             "created_at": n.created_at.isoformat() if n.created_at else None,
-            "preview": (n.content or "")[:200] + "..." if len(n.content or "") > 200 else (n.content or ""),
+            "preview": (n.content or "")[:200] + "..."
+            if len(n.content or "") > 200
+            else (n.content or ""),
         }
         for n in notes
     ]
@@ -68,12 +72,11 @@ async def fireflies_status(
     Get Fireflies integration status: last sync time, transcript count, errors.
     """
     import os
+
     status = get_sync_status()
 
     # Count total meeting notes in DB
-    result = await db.execute(
-        select(Note).where(Note.note_type == NoteType.meeting)
-    )
+    result = await db.execute(select(Note).where(Note.note_type == NoteType.meeting))
     total_notes = len(result.scalars().all())
 
     return {

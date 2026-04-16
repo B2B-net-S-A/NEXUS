@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -11,6 +11,7 @@ from app.models.base import TimestampMixin
 
 class StageCategory(str, enum.Enum):
     """Podział na etapy wewnętrzne i zewnętrzne (inspiracja: Recruitify)."""
+
     internal = "internal"
     external = "external"
     terminal = "terminal"
@@ -18,20 +19,20 @@ class StageCategory(str, enum.Enum):
 
 class PipelineStage(str, enum.Enum):
     # ── Etapy wewnętrzne ────────────────────────────────
-    new = "new"                         # Nowy kandydat / Analiza CV
-    prep_call = "prep_call"             # Preparation Call (pre-screening telefoniczny)
-    screening = "screening"             # Screening rekruterski
-    interview = "interview"             # Interview wewnętrzny / techniczny
-    cv_sent = "cv_sent"                 # CV wysłane do klienta
+    new = "new"  # Nowy kandydat / Analiza CV
+    prep_call = "prep_call"  # Preparation Call (pre-screening telefoniczny)
+    screening = "screening"  # Screening rekruterski
+    interview = "interview"  # Interview wewnętrzny / techniczny
+    cv_sent = "cv_sent"  # CV wysłane do klienta
     # ── Etapy zewnętrzne (klient) ───────────────────────
     client_interview = "client_interview"  # Rozmowa u klienta
-    acceptance = "acceptance"           # Klient akceptuje kandydata
-    negotiation = "negotiation"         # Negocjacje warunków
-    onboarding = "onboarding"           # Onboarding — start pracy
+    acceptance = "acceptance"  # Klient akceptuje kandydata
+    negotiation = "negotiation"  # Negocjacje warunków
+    onboarding = "onboarding"  # Onboarding — start pracy
     # ── Etapy końcowe ──────────────────────────────────
-    hired = "hired"                     # Zatrudniony / kontrakt aktywny
-    rejected = "rejected"               # Odrzucony (na dowolnym etapie)
-    withdrawn = "withdrawn"             # Kandydat się wycofał
+    hired = "hired"  # Zatrudniony / kontrakt aktywny
+    rejected = "rejected"  # Odrzucony (na dowolnym etapie)
+    withdrawn = "withdrawn"  # Kandydat się wycofał
 
 
 STAGE_CATEGORY: dict[PipelineStage, StageCategory] = {
@@ -70,12 +71,17 @@ class CandidateStage(Base, TimestampMixin):
     Etap kandydata w procesie rekrutacyjnym dla danej oferty.
     Śledzi historię przejść między etapami — audit trail pipeline.
     """
+
     __tablename__ = "candidate_stages"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), nullable=False, index=True)
-    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("candidates.id"), nullable=False, index=True
+    )
+    job_id: Mapped[int] = mapped_column(
+        ForeignKey("jobs.id"), nullable=False, index=True
+    )
 
     stage: Mapped[PipelineStage] = mapped_column(
         Enum(PipelineStage), default=PipelineStage.new, nullable=False, index=True
@@ -96,7 +102,9 @@ class CandidateStage(Base, TimestampMixin):
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")
-    moved_by_user = relationship("User", back_populates="pipeline_moves", foreign_keys=[moved_by])
+    moved_by_user = relationship(
+        "User", back_populates="pipeline_moves", foreign_keys=[moved_by]
+    )
 
     def __repr__(self) -> str:
         return f"<CandidateStage candidate={self.candidate_id} job={self.job_id} stage={self.stage}>"

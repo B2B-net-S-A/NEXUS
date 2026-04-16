@@ -2,6 +2,7 @@
 WebSocket notifications endpoint.
 Maintains per-user connections and broadcasts real-time events.
 """
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ router = APIRouter()
 
 # ── Connection Manager ─────────────────────────────────────────────────────────
 
+
 class ConnectionManager:
     def __init__(self):
         # user_id → list of active WebSocket connections
@@ -30,7 +32,9 @@ class ConnectionManager:
         if user_id not in self._connections:
             self._connections[user_id] = []
         self._connections[user_id].append(websocket)
-        logger.info(f"WS connected: user_id={user_id}, total={len(self._connections[user_id])}")
+        logger.info(
+            f"WS connected: user_id={user_id}, total={len(self._connections[user_id])}"
+        )
 
     def disconnect(self, user_id: int, websocket: WebSocket):
         if user_id in self._connections:
@@ -76,6 +80,7 @@ async def notify_user(user_id: int, event: dict):
 
 # ── Token auth helper ──────────────────────────────────────────────────────────
 
+
 async def _authenticate_ws_token(token: str) -> Optional[User]:
     """Validate JWT token and return User, or None on failure."""
     try:
@@ -97,6 +102,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 
+
 @router.websocket("/ws/notifications")
 async def ws_notifications(
     websocket: WebSocket,
@@ -105,7 +111,7 @@ async def ws_notifications(
     """
     WebSocket endpoint for real-time notifications.
     Connect with: ws://host/ws/notifications?token=<access_token>
-    
+
     Events sent to client:
       {type: "notification", data: {id, title, message, link, created_at}}
       {type: "ping"}
@@ -119,13 +125,15 @@ async def ws_notifications(
 
     try:
         # Send initial "connected" confirmation
-        await websocket.send_json({
-            "type": "connected",
-            "data": {
-                "user_id": user.id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "data": {
+                    "user_id": user.id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
             }
-        })
+        )
 
         # Keep-alive loop — receive pings from client, send pongs
         while True:

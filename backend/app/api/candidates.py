@@ -111,7 +111,7 @@ async def create_candidate(
 
     # Notify all managers/admins about new candidate (real-time)
     managers_result = await db.execute(
-        select(User).where(User.is_active == True, User.role.in_(["admin", "manager"]))
+        select(User).where(User.is_active, User.role.in_(["admin", "manager"]))
     )
     managers = managers_result.scalars().all()
     notif_ids = []

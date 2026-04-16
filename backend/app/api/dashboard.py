@@ -24,37 +24,49 @@ router = APIRouter()
 async def get_stats(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
     """Main KPI dashboard stats."""
     candidates_total = (await db.execute(select(func.count(Candidate.id)))).scalar()
-    candidates_active = (await db.execute(
-        select(func.count(Candidate.id)).where(Candidate.status == CandidateStatus.active)
-    )).scalar()
-    jobs_open = (await db.execute(
-        select(func.count(Job.id)).where(Job.status == JobStatus.published)
-    )).scalar()
-    clients_active = (await db.execute(
-        select(func.count(Client.id))
-    )).scalar()
-    contracts_active = (await db.execute(
-        select(func.count(Contract.id)).where(Contract.status == ContractStatus.active)
-    )).scalar()
+    candidates_active = (
+        await db.execute(
+            select(func.count(Candidate.id)).where(
+                Candidate.status == CandidateStatus.active
+            )
+        )
+    ).scalar()
+    jobs_open = (
+        await db.execute(
+            select(func.count(Job.id)).where(Job.status == JobStatus.published)
+        )
+    ).scalar()
+    clients_active = (await db.execute(select(func.count(Client.id)))).scalar()
+    contracts_active = (
+        await db.execute(
+            select(func.count(Contract.id)).where(
+                Contract.status == ContractStatus.active
+            )
+        )
+    ).scalar()
 
     # Contracts expiring in next 30 days
     cutoff = date.today() + timedelta(days=30)
-    contracts_expiring = (await db.execute(
-        select(func.count(Contract.id)).where(
-            Contract.end_date <= cutoff,
-            Contract.end_date >= date.today(),
-            Contract.status == ContractStatus.active,
+    contracts_expiring = (
+        await db.execute(
+            select(func.count(Contract.id)).where(
+                Contract.end_date <= cutoff,
+                Contract.end_date >= date.today(),
+                Contract.status == ContractStatus.active,
+            )
         )
-    )).scalar()
+    ).scalar()
 
     # Hired this month
     first_of_month = date.today().replace(day=1)
-    hired_this_month = (await db.execute(
-        select(func.count(CandidateStage.id)).where(
-            CandidateStage.stage == PipelineStage.hired,
-            CandidateStage.moved_at >= first_of_month,
+    hired_this_month = (
+        await db.execute(
+            select(func.count(CandidateStage.id)).where(
+                CandidateStage.stage == PipelineStage.hired,
+                CandidateStage.moved_at >= first_of_month,
+            )
         )
-    )).scalar()
+    ).scalar()
 
     return {
         "candidates": {
@@ -93,27 +105,36 @@ async def get_kpis(current_user: CurrentUser, db: AsyncSession = Depends(get_db)
     ir_data = await infrareporter.get_infrareporter_kpis()
 
     # ATS stats
-    contracts_active = (await db.execute(
-        select(func.count(Contract.id)).where(Contract.status == ContractStatus.active)
-    )).scalar()
+    contracts_active = (
+        await db.execute(
+            select(func.count(Contract.id)).where(
+                Contract.status == ContractStatus.active
+            )
+        )
+    ).scalar()
 
     first_of_month = date.today().replace(day=1)
-    placements_this_month = (await db.execute(
-        select(func.count(CandidateStage.id)).where(
-            CandidateStage.stage == PipelineStage.hired,
-            CandidateStage.moved_at >= first_of_month,
+    placements_this_month = (
+        await db.execute(
+            select(func.count(CandidateStage.id)).where(
+                CandidateStage.stage == PipelineStage.hired,
+                CandidateStage.moved_at >= first_of_month,
+            )
         )
-    )).scalar()
+    ).scalar()
 
-    candidates_added_this_month = (await db.execute(
-        select(func.count(UserActivity.id)).where(
-            UserActivity.action_type == UserActionType.candidate_added,
-            UserActivity.created_at >= first_of_month,
+    candidates_added_this_month = (
+        await db.execute(
+            select(func.count(UserActivity.id)).where(
+                UserActivity.action_type == UserActionType.candidate_added,
+                UserActivity.created_at >= first_of_month,
+            )
         )
-    )).scalar()
+    ).scalar()
 
     # Top recruiters this month (from user activities)
     from sqlalchemy import case
+
     leaderboard_result = await db.execute(
         select(
             User.id,
@@ -182,10 +203,13 @@ async def recent_activity(
 
 
 @router.get("/pipeline-funnel")
-async def pipeline_funnel(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
+async def pipeline_funnel(
+    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     """Aggregate pipeline counts per stage across all jobs."""
     result = await db.execute(
-        select(CandidateStage.stage, func.count(CandidateStage.id))
-        .group_by(CandidateStage.stage)
+        select(CandidateStage.stage, func.count(CandidateStage.id)).group_by(
+            CandidateStage.stage
+        )
     )
     return {stage.value: count for stage, count in result.all()}

@@ -1,11 +1,12 @@
 """
 Talent Pools API — zarządzanie pulami talentów.
 """
-from datetime import datetime, timezone
+
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ router = APIRouter()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class TalentPoolCreate(BaseModel):
     name: str
@@ -59,6 +61,7 @@ class CandidateInPoolOut(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 async def _get_pool_or_404(pool_id: int, db: AsyncSession) -> TalentPool:
     result = await db.execute(
         select(TalentPool)
@@ -72,6 +75,7 @@ async def _get_pool_or_404(pool_id: int, db: AsyncSession) -> TalentPool:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/talent-pools", response_model=list[TalentPoolOut])
 async def list_talent_pools(
@@ -134,10 +138,12 @@ async def add_candidate_to_pool(
     current_user: User = Depends(get_current_user),
 ):
     # Verify pool exists
-    pool = await _get_pool_or_404(pool_id, db)
+    await _get_pool_or_404(pool_id, db)
 
     # Verify candidate exists
-    cand_result = await db.execute(select(Candidate).where(Candidate.id == data.candidate_id))
+    cand_result = await db.execute(
+        select(Candidate).where(Candidate.id == data.candidate_id)
+    )
     candidate = cand_result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
@@ -160,7 +166,11 @@ async def add_candidate_to_pool(
     db.add(membership)
     await db.commit()
 
-    return {"message": "Kandydat dodany do puli", "pool_id": pool_id, "candidate_id": data.candidate_id}
+    return {
+        "message": "Kandydat dodany do puli",
+        "pool_id": pool_id,
+        "candidate_id": data.candidate_id,
+    }
 
 
 @router.delete("/talent-pools/{pool_id}/remove/{candidate_id}", status_code=200)
@@ -209,17 +219,21 @@ async def list_pool_candidates(
 
     candidates = []
     for membership, candidate in rows:
-        candidates.append({
-            "id": candidate.id,
-            "name": candidate.name,
-            "lastname": candidate.lastname,
-            "email": candidate.email,
-            "location": candidate.location,
-            "competence_category": candidate.competence_category,
-            "skills": candidate.skills,
-            "status": candidate.status.value if hasattr(candidate.status, 'value') else candidate.status,
-            "added_at": membership.added_at.isoformat(),
-        })
+        candidates.append(
+            {
+                "id": candidate.id,
+                "name": candidate.name,
+                "lastname": candidate.lastname,
+                "email": candidate.email,
+                "location": candidate.location,
+                "competence_category": candidate.competence_category,
+                "skills": candidate.skills,
+                "status": candidate.status.value
+                if hasattr(candidate.status, "value")
+                else candidate.status,
+                "added_at": membership.added_at.isoformat(),
+            }
+        )
 
     return {
         "pool": {
@@ -240,8 +254,9 @@ async def get_pools_for_candidate(
 ):
     """Zwraca listę pul, do których należy kandydat (do dropdownu)."""
     result = await db.execute(
-        select(TalentPoolMembership.talent_pool_id)
-        .where(TalentPoolMembership.candidate_id == candidate_id)
+        select(TalentPoolMembership.talent_pool_id).where(
+            TalentPoolMembership.candidate_id == candidate_id
+        )
     )
     pool_ids = [r[0] for r in result.all()]
     return {"pool_ids": pool_ids}

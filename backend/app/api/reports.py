@@ -2,6 +2,7 @@
 Nexus ATS — Reporting Module
 Generates live reports from ATS data (recruitment, sales, delivery, tenders, board).
 """
+
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -22,6 +23,7 @@ from app.models.user import User
 router = APIRouter()
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
 
 def _period_start(period: str) -> datetime:
     """Return the start datetime for the given period string."""
@@ -44,6 +46,7 @@ def _safe_pct(numerator: int, denominator: int) -> float:
 
 
 # ── Recruitment Report ─────────────────────────────────────────────────────────
+
 
 @router.get("/recruitment")
 async def report_recruitment(
@@ -108,7 +111,12 @@ async def report_recruitment(
             User.name,
             func.sum(
                 case(
-                    (CandidateStage.stage.in_([PipelineStage.new, PipelineStage.screening]), 1),
+                    (
+                        CandidateStage.stage.in_(
+                            [PipelineStage.new, PipelineStage.screening]
+                        ),
+                        1,
+                    ),
                     else_=0,
                 )
             ).label("weryfikacje"),
@@ -126,7 +134,11 @@ async def report_recruitment(
         .join(Job, CandidateStage.job_id == Job.id)
         .where(CandidateStage.moved_at >= start, *job_filter)
         .group_by(User.id, User.name)
-        .order_by(func.sum(case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)).desc())
+        .order_by(
+            func.sum(
+                case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)
+            ).desc()
+        )
     )
     rows = (await db.execute(per_recruiter_q)).all()
 
@@ -168,6 +180,7 @@ async def report_recruitment(
 
 # ── Sales Report ───────────────────────────────────────────────────────────────
 
+
 @router.get("/sales")
 async def report_sales(
     current_user: CurrentUser,
@@ -188,7 +201,9 @@ async def report_sales(
     active_q = select(Contract).where(Contract.status == ContractStatus.active)
     active_contracts = (await db.execute(active_q)).scalars().all()
 
-    total_revenue = sum((c.rate_client or 0) * 160 for c in active_contracts)  # ~160h/month
+    total_revenue = sum(
+        (c.rate_client or 0) * 160 for c in active_contracts
+    )  # ~160h/month
     total_margin = sum((c.margin or 0) * 160 for c in active_contracts)
     active_consultants = len(active_contracts)
 
@@ -234,14 +249,25 @@ async def report_sales(
             month_end = month_start.replace(month=month_start.month + 1, day=1)
 
         month_contracts = (
-            await db.execute(
-                select(Contract).where(
-                    Contract.start_date < month_end,
-                    (Contract.end_date >= month_start) | Contract.end_date.is_(None),
-                    Contract.status.in_([ContractStatus.active, ContractStatus.ending, ContractStatus.ended]),
+            (
+                await db.execute(
+                    select(Contract).where(
+                        Contract.start_date < month_end,
+                        (Contract.end_date >= month_start)
+                        | Contract.end_date.is_(None),
+                        Contract.status.in_(
+                            [
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                                ContractStatus.ended,
+                            ]
+                        ),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         m_revenue = sum((c.rate_client or 0) * 160 for c in month_contracts)
         m_margin = sum((c.margin or 0) * 160 for c in month_contracts)
@@ -297,6 +323,7 @@ async def report_sales(
 
 
 # ── Delivery Leads Report ──────────────────────────────────────────────────────
+
 
 @router.get("/delivery-leads")
 async def report_delivery_leads(
@@ -400,6 +427,7 @@ async def report_delivery_leads(
 
 # ── Tenders Report ─────────────────────────────────────────────────────────────
 
+
 @router.get("/tenders")
 async def report_tenders(
     current_user: CurrentUser,
@@ -428,7 +456,12 @@ async def report_tenders(
     tenders_rows = (await db.execute(tenders_q)).all()
 
     total = len(tenders_rows)
-    won = sum(1 for r in tenders_rows if r.Job.status.value == "closed" and (r.Job.priority.value in ("high", "urgent")))
+    sum(
+        1
+        for r in tenders_rows
+        if r.Job.status.value == "closed"
+        and (r.Job.priority.value in ("high", "urgent"))
+    )
     # Simplification: closed + high/urgent = won; closed + low/medium = lost; rest = pending
     # A more robust way: use a dedicated field. For now:
     lost_list = []
@@ -437,7 +470,7 @@ async def report_tenders(
 
     for r in tenders_rows:
         j = r.Job
-        value = (j.salary_max or j.salary_min or 0)
+        value = j.salary_max or j.salary_min or 0
         entry = {
             "job_id": j.id,
             "job_title": j.title,
@@ -479,6 +512,7 @@ async def report_tenders(
 
 # ── Board Report (Rada Nadzorcza) ──────────────────────────────────────────────
 
+
 @router.get("/board")
 async def report_board(
     current_user: CurrentUser,
@@ -519,8 +553,14 @@ async def report_board(
 
     # ── Sales YTD ────────────────────────────────────────────────────────────
     active_contracts = (
-        await db.execute(select(Contract).where(Contract.status == ContractStatus.active))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(Contract).where(Contract.status == ContractStatus.active)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     revenue_ytd = sum((c.rate_client or 0) * 160 for c in active_contracts)
     margin_ytd = sum((c.margin or 0) * 160 for c in active_contracts)
@@ -544,7 +584,9 @@ async def report_board(
     top_dl_row = (await db.execute(dl_q)).first()
     top_dl = top_dl_row.name if top_dl_row else "—"
 
-    jobs_count = (await db.execute(select(func.count(Job.id)).where(Job.created_at >= year_start))).scalar() or 0
+    jobs_count = (
+        await db.execute(select(func.count(Job.id)).where(Job.created_at >= year_start))
+    ).scalar() or 0
     avg_hit_ratio = _safe_pct(placements_ytd, jobs_count)
 
     # ── Tenders ──────────────────────────────────────────────────────────────
@@ -570,7 +612,9 @@ async def report_board(
 
     # ── Headcount ────────────────────────────────────────────────────────────
     total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
-    total_candidates = (await db.execute(select(func.count(Candidate.id)))).scalar() or 0
+    total_candidates = (
+        await db.execute(select(func.count(Candidate.id)))
+    ).scalar() or 0
 
     # ── 12-month Trends ───────────────────────────────────────────────────────
     trends = []
@@ -592,14 +636,25 @@ async def report_board(
         ).scalar() or 0
 
         m_contracts = (
-            await db.execute(
-                select(Contract).where(
-                    Contract.start_date < month_end,
-                    (Contract.end_date >= month_start) | Contract.end_date.is_(None),
-                    Contract.status.in_([ContractStatus.active, ContractStatus.ending, ContractStatus.ended]),
+            (
+                await db.execute(
+                    select(Contract).where(
+                        Contract.start_date < month_end,
+                        (Contract.end_date >= month_start)
+                        | Contract.end_date.is_(None),
+                        Contract.status.in_(
+                            [
+                                ContractStatus.active,
+                                ContractStatus.ending,
+                                ContractStatus.ended,
+                            ]
+                        ),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         m_revenue = sum((c.rate_client or 0) * 160 for c in m_contracts)
 

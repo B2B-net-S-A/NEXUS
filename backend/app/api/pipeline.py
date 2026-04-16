@@ -8,16 +8,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.recruitment_pipeline import (
-    CandidateStage, PipelineStage, StageCategory,
-    STAGE_CATEGORY, STAGE_ORDER,
+    CandidateStage,
+    PipelineStage,
+    STAGE_CATEGORY,
+    STAGE_ORDER,
 )
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.models.job import Job
 from app.schemas.pipeline import (
-    CandidateStageResponse, KanbanColumn, KanbanView,
-    StageMove, StageInfo, STAGE_LABELS,
+    CandidateStageResponse,
+    KanbanColumn,
+    KanbanView,
+    StageMove,
+    StageInfo,
+    STAGE_LABELS,
 )
 from app.api.deps import CurrentUser
 from app.api import ws as ws_manager
@@ -30,6 +36,7 @@ def _days_in_stage(moved_at: datetime) -> int:
     now = datetime.now(timezone.utc)
     if moved_at.tzinfo is None:
         from datetime import timezone as tz
+
         moved_at = moved_at.replace(tzinfo=tz.utc)
     return max(0, (now - moved_at).days)
 
@@ -55,20 +62,24 @@ async def list_stages(current_user: CurrentUser):
     """Return all pipeline stages with labels, categories, and order."""
     result = []
     for i, stage in enumerate(STAGE_ORDER):
-        result.append(StageInfo(
-            stage=stage,
-            category=STAGE_CATEGORY[stage],
-            label=STAGE_LABELS[stage],
-            order=i,
-        ))
+        result.append(
+            StageInfo(
+                stage=stage,
+                category=STAGE_CATEGORY[stage],
+                label=STAGE_LABELS[stage],
+                order=i,
+            )
+        )
     # Add terminal stages
     for stage in [PipelineStage.rejected, PipelineStage.withdrawn]:
-        result.append(StageInfo(
-            stage=stage,
-            category=STAGE_CATEGORY[stage],
-            label=STAGE_LABELS[stage],
-            order=99,
-        ))
+        result.append(
+            StageInfo(
+                stage=stage,
+                category=STAGE_CATEGORY[stage],
+                label=STAGE_LABELS[stage],
+                order=99,
+            )
+        )
     return result
 
 
@@ -92,30 +103,34 @@ async def move_candidate(
     await db.flush()
 
     # Activity log
-    db.add(Activity(
-        entity_type="pipeline",
-        entity_id=stage.id,
-        action="stage_changed",
-        user_id=current_user.id,
-        details={
-            "candidate_id": data.candidate_id,
-            "job_id": data.job_id,
-            "stage": data.stage.value,
-        },
-    ))
+    db.add(
+        Activity(
+            entity_type="pipeline",
+            entity_id=stage.id,
+            action="stage_changed",
+            user_id=current_user.id,
+            details={
+                "candidate_id": data.candidate_id,
+                "job_id": data.job_id,
+                "stage": data.stage.value,
+            },
+        )
+    )
 
     # UserActivity for leaderboard/performance tracking
-    db.add(UserActivity(
-        user_id=current_user.id,
-        action_type=UserActionType.stage_changed,
-        entity_type="pipeline",
-        entity_id=stage.id,
-        details={
-            "candidate_id": data.candidate_id,
-            "job_id": data.job_id,
-            "stage": data.stage.value,
-        },
-    ))
+    db.add(
+        UserActivity(
+            user_id=current_user.id,
+            action_type=UserActionType.stage_changed,
+            entity_type="pipeline",
+            entity_id=stage.id,
+            details={
+                "candidate_id": data.candidate_id,
+                "job_id": data.job_id,
+                "stage": data.stage.value,
+            },
+        )
+    )
 
     # Notification for the recruiter assigned to the job (if different from current user)
     job_result = await db.execute(select(Job).where(Job.id == data.job_id))
@@ -130,16 +145,19 @@ async def move_candidate(
         )
         db.add(notif)
         await db.flush()
-        await ws_manager.notify_user(job.recruiter_id, {
-            "type": "notification",
-            "data": {
-                "id": notif.id,
-                "title": notif.title,
-                "message": notif.message,
-                "link": notif.link,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        })
+        await ws_manager.notify_user(
+            job.recruiter_id,
+            {
+                "type": "notification",
+                "data": {
+                    "id": notif.id,
+                    "title": notif.title,
+                    "message": notif.message,
+                    "link": notif.link,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            },
+        )
 
     await db.commit()
     await db.refresh(stage)
@@ -168,7 +186,9 @@ async def get_kanban(
             seen[s.candidate_id] = s
 
     # Group by stage (ordered)
-    columns_map: dict[PipelineStage, list[CandidateStage]] = {s: [] for s in STAGE_ORDER}
+    columns_map: dict[PipelineStage, list[CandidateStage]] = {
+        s: [] for s in STAGE_ORDER
+    }
     # Add terminal stages
     columns_map[PipelineStage.rejected] = []
     columns_map[PipelineStage.withdrawn] = []
@@ -191,7 +211,9 @@ async def get_kanban(
     return KanbanView(job_id=job_id, columns=columns)
 
 
-@router.get("/history/{candidate_id}/{job_id}", response_model=List[CandidateStageResponse])
+@router.get(
+    "/history/{candidate_id}/{job_id}", response_model=List[CandidateStageResponse]
+)
 async def get_stage_history(
     candidate_id: int,
     job_id: int,
@@ -201,7 +223,9 @@ async def get_stage_history(
     """Full stage history for a candidate in a specific job."""
     result = await db.execute(
         select(CandidateStage)
-        .where(CandidateStage.candidate_id == candidate_id, CandidateStage.job_id == job_id)
+        .where(
+            CandidateStage.candidate_id == candidate_id, CandidateStage.job_id == job_id
+        )
         .order_by(CandidateStage.moved_at.asc())
     )
     stages = result.scalars().all()
@@ -217,13 +241,14 @@ async def pipeline_overview(
     Manager dashboard: bird's eye view across ALL jobs.
     Returns per-job stage counts + bottleneck alerts + workload per recruiter.
     """
-    from sqlalchemy import func, case
-    from app.models.candidate import Candidate
 
     # Get latest stage per candidate per job
     result = await db.execute(
-        select(CandidateStage)
-        .order_by(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStage.moved_at.desc())
+        select(CandidateStage).order_by(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.moved_at.desc(),
+        )
     )
     all_entries = result.scalars().all()
 
@@ -243,7 +268,9 @@ async def pipeline_overview(
         if jid not in jobs_data:
             jobs_data[jid] = {"stages": {}, "total": 0}
         stage_val = entry.stage.value
-        jobs_data[jid]["stages"][stage_val] = jobs_data[jid]["stages"].get(stage_val, 0) + 1
+        jobs_data[jid]["stages"][stage_val] = (
+            jobs_data[jid]["stages"].get(stage_val, 0) + 1
+        )
         jobs_data[jid]["total"] += 1
 
     # Fetch job titles
@@ -265,33 +292,44 @@ async def pipeline_overview(
     for entry in latest:
         days = _days_in_stage(entry.moved_at)
         if days > AGING_THRESHOLD_DAYS and entry.stage not in (
-            PipelineStage.hired, PipelineStage.rejected, PipelineStage.withdrawn
+            PipelineStage.hired,
+            PipelineStage.rejected,
+            PipelineStage.withdrawn,
         ):
-            aging_alerts.append({
-                "candidate_id": entry.candidate_id,
-                "job_id": entry.job_id,
-                "stage": entry.stage.value,
-                "days": days,
-                "job_title": job_titles.get(entry.job_id, "?"),
-            })
+            aging_alerts.append(
+                {
+                    "candidate_id": entry.candidate_id,
+                    "job_id": entry.job_id,
+                    "stage": entry.stage.value,
+                    "days": days,
+                    "job_title": job_titles.get(entry.job_id, "?"),
+                }
+            )
 
     for jid, data in jobs_data.items():
         for stage_key in ["prep_call", "screening", "cv_sent"]:
             count = data["stages"].get(stage_key, 0)
             if count >= BOTTLENECK_THRESHOLD:
-                bottlenecks.append({
-                    "job_id": jid,
-                    "job_title": job_titles.get(jid, "?"),
-                    "stage": stage_key,
-                    "count": count,
-                    "message": f"Dużo kandydatów ({count}) czeka na {STAGE_LABELS.get(PipelineStage(stage_key), stage_key)} — potrzebna pomoc!",
-                })
+                bottlenecks.append(
+                    {
+                        "job_id": jid,
+                        "job_title": job_titles.get(jid, "?"),
+                        "stage": stage_key,
+                        "count": count,
+                        "message": f"Dużo kandydatów ({count}) czeka na {STAGE_LABELS.get(PipelineStage(stage_key), stage_key)} — potrzebna pomoc!",
+                    }
+                )
 
     # ── Workload per recruiter (by moved_by of latest entries) ──
     from app.models.user import User
+
     recruiter_load: dict[int, int] = {}
     for entry in latest:
-        if entry.stage not in (PipelineStage.hired, PipelineStage.rejected, PipelineStage.withdrawn):
+        if entry.stage not in (
+            PipelineStage.hired,
+            PipelineStage.rejected,
+            PipelineStage.withdrawn,
+        ):
             rid = entry.moved_by or 0
             recruiter_load[rid] = recruiter_load.get(rid, 0) + 1
 
@@ -303,21 +341,29 @@ async def pipeline_overview(
             recruiter_names[u.id] = u.name
 
     workload = [
-        {"recruiter_id": rid, "name": recruiter_names.get(rid, "Nieprzypisany"), "active_candidates": count}
+        {
+            "recruiter_id": rid,
+            "name": recruiter_names.get(rid, "Nieprzypisany"),
+            "active_candidates": count,
+        }
         for rid, count in sorted(recruiter_load.items(), key=lambda x: -x[1])
     ]
 
     # ── Opportunity alerts (acceptance/negotiation → help close!) ──
     opportunities = []
     for jid, data in jobs_data.items():
-        acceptance_count = data["stages"].get("acceptance", 0) + data["stages"].get("negotiation", 0)
+        acceptance_count = data["stages"].get("acceptance", 0) + data["stages"].get(
+            "negotiation", 0
+        )
         if acceptance_count > 0:
-            opportunities.append({
-                "job_id": jid,
-                "job_title": job_titles.get(jid, "?"),
-                "count": acceptance_count,
-                "message": f"{acceptance_count} kandydat(ów) do domknięcia w {job_titles.get(jid, '?')} — manager, pomóż!",
-            })
+            opportunities.append(
+                {
+                    "job_id": jid,
+                    "job_title": job_titles.get(jid, "?"),
+                    "count": acceptance_count,
+                    "message": f"{acceptance_count} kandydat(ów) do domknięcia w {job_titles.get(jid, '?')} — manager, pomóż!",
+                }
+            )
 
     # Sort aging by days desc
     aging_alerts.sort(key=lambda x: -x["days"])
@@ -339,7 +385,6 @@ async def pipeline_overview(
         "workload": workload,
         "stage_labels": {s.value: STAGE_LABELS[s] for s in PipelineStage},
     }
-
 
 
 class BulkMoveRequest(BaseModel):

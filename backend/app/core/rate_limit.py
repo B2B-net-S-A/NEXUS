@@ -8,6 +8,7 @@ Key function is ``get_remote_address`` (client IP). When deployed behind a
 reverse proxy (Coolify/Traefik/Cloudflare), ensure ``X-Forwarded-For`` is
 trusted by the ASGI server for accurate client IPs.
 """
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 

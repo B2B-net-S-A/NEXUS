@@ -13,6 +13,7 @@ class Activity(Base, TimestampMixin):
     Dziennik aktywności — audit trail wszystkich zmian w systemie.
     Każda operacja CRUD na encjach jest tu rejestrowana.
     """
+
     __tablename__ = "activities"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

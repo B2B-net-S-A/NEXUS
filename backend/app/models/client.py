@@ -18,6 +18,7 @@ class Client(Base, TimestampMixin):
     """
     Klient/firma — podmiot zlecający rekrutacje.
     """
+
     __tablename__ = "clients"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -38,7 +39,9 @@ class Client(Base, TimestampMixin):
         Enum(ClientStatus), default=ClientStatus.prospect, nullable=False, index=True
     )
     nda_signed: Mapped[bool] = mapped_column(Boolean, default=False)
-    contract_type: Mapped[Optional[str]] = mapped_column(String(100))  # np. "ramowa", "jednorazowa"
+    contract_type: Mapped[Optional[str]] = mapped_column(
+        String(100)
+    )  # np. "ramowa", "jednorazowa"
 
     notes: Mapped[Optional[str]] = mapped_column(Text)
 

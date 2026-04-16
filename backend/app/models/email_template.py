@@ -32,6 +32,7 @@ class EmailTemplate(Base, TimestampMixin):
     Szablony emaili do komunikacji z kandydatami.
     Obsługuje placeholdery: {{candidate_name}}, {{job_title}}, {{company_name}}.
     """
+
     __tablename__ = "email_templates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -47,7 +48,9 @@ class EmailTemplate(Base, TimestampMixin):
         index=True,
     )
 
-    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships

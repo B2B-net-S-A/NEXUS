@@ -2,7 +2,7 @@ import enum
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, Numeric, String, event
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -12,14 +12,14 @@ from app.models.base import TimestampMixin
 
 class ContractType(str, enum.Enum):
     b2b = "b2b"
-    uop = "uop"          # Umowa o pracę
+    uop = "uop"  # Umowa o pracę
     uzlecenie = "uzlecenie"  # Umowa zlecenie
 
 
 class ContractStatus(str, enum.Enum):
     draft = "draft"
     active = "active"
-    ending = "ending"    # < 30 dni do końca
+    ending = "ending"  # < 30 dni do końca
     ended = "ended"
 
 
@@ -28,13 +28,18 @@ class Contract(Base, TimestampMixin):
     Kontrakt body-leasingowy — łączy kandydata z klientem przez ofertę.
     Marża obliczana automatycznie: rate_client - rate_candidate.
     """
+
     __tablename__ = "contracts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # Strony kontraktu
-    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), nullable=False, index=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False, index=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("candidates.id"), nullable=False, index=True
+    )
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id"), nullable=False, index=True
+    )
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
 
     # Daty
@@ -42,8 +47,10 @@ class Contract(Base, TimestampMixin):
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
     # Stawki finansowe
-    rate_candidate: Mapped[Optional[int]] = mapped_column(Integer)   # stawka dla kandydata (PLN/h lub mies.)
-    rate_client: Mapped[Optional[int]] = mapped_column(Integer)      # stawka dla klienta
+    rate_candidate: Mapped[Optional[int]] = mapped_column(
+        Integer
+    )  # stawka dla kandydata (PLN/h lub mies.)
+    rate_client: Mapped[Optional[int]] = mapped_column(Integer)  # stawka dla klienta
     currency: Mapped[str] = mapped_column(String(3), default="PLN")
 
     # Marża — obliczana automatycznie (rate_client - rate_candidate)

@@ -3,16 +3,24 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.rate_limit import limiter
-from app.api import auth, candidates, jobs, clients, pipeline, notes, contracts, dashboard, search
+from app.api import (
+    auth,
+    candidates,
+    jobs,
+    clients,
+    pipeline,
+    notes,
+    contracts,
+    dashboard,
+    search,
+)
 from app.api import activities
 from app.api import admin
 from app.api import emails
@@ -47,7 +55,9 @@ if settings.SENTRY_DSN:
             traces_sample_rate=0.1,
             profiles_sample_rate=0.1,
         )
-        logger.info("Sentry initialized for environment=%s", settings.SENTRY_ENVIRONMENT)
+        logger.info(
+            "Sentry initialized for environment=%s", settings.SENTRY_ENVIRONMENT
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("Sentry init failed: %s", e)
 
@@ -63,8 +73,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Referrer-Policy", "strict-origin-when-cross-origin"
+        )
+        response.headers.setdefault(
+            "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+        )
         if not settings.DEBUG:
             # HSTS only in prod — avoids pinning localhost dev to HTTPS.
             response.headers.setdefault(
@@ -91,6 +105,7 @@ async def lifespan(app: FastAPI):
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection
+
     try:
         await asyncio.to_thread(init_qdrant_collection)
     except Exception as e:
@@ -98,6 +113,7 @@ async def lifespan(app: FastAPI):
 
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
+
     reminder_task = asyncio.create_task(calendar_reminder_loop())
 
     yield

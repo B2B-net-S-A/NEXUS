@@ -1,5 +1,5 @@
 """Admin-only API endpoints for user management and system stats."""
-import os
+
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -23,6 +23,7 @@ from app.schemas.user import UserResponse
 router = APIRouter()
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
+
 
 class AdminUserResponse(BaseModel):
     id: int
@@ -62,6 +63,7 @@ _start_time = time.time()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/users", response_model=list[AdminUserResponse])
 async def list_users(
@@ -161,7 +163,9 @@ async def deactivate_user(
 ):
     """Soft-delete user by setting is_active=False."""
     if admin.id == user_id:
-        raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+        raise HTTPException(
+            status_code=400, detail="Cannot deactivate your own account"
+        )
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()

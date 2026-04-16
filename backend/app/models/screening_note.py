@@ -34,12 +34,17 @@ class CounterOfferRisk(str, enum.Enum):
 
 class ScreeningNote(Base):
     """Ustrukturyzowana notatka ze screeningu kandydata."""
+
     __tablename__ = "screening_notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"), nullable=False, index=True)
-    job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("candidates.id"), nullable=False, index=True
+    )
+    job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id"), nullable=True, index=True
+    )
     author_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     screening_type: Mapped[ScreeningType] = mapped_column(
@@ -47,8 +52,12 @@ class ScreeningNote(Base):
     )
 
     # Motywacja
-    motivation_primary: Mapped[Optional[MotivationType]] = mapped_column(Enum(MotivationType))
-    motivation_secondary: Mapped[Optional[MotivationType]] = mapped_column(Enum(MotivationType))
+    motivation_primary: Mapped[Optional[MotivationType]] = mapped_column(
+        Enum(MotivationType)
+    )
+    motivation_secondary: Mapped[Optional[MotivationType]] = mapped_column(
+        Enum(MotivationType)
+    )
 
     # Wynagrodzenie
     salary_expectation: Mapped[Optional[int]] = mapped_column(Integer)
@@ -63,7 +72,9 @@ class ScreeningNote(Base):
     personality_notes: Mapped[Optional[str]] = mapped_column(Text)
 
     readiness_to_change: Mapped[Optional[int]] = mapped_column(Integer)  # 1-5
-    counteroffer_risk: Mapped[Optional[CounterOfferRisk]] = mapped_column(Enum(CounterOfferRisk))
+    counteroffer_risk: Mapped[Optional[CounterOfferRisk]] = mapped_column(
+        Enum(CounterOfferRisk)
+    )
 
     closing_strategy: Mapped[Optional[str]] = mapped_column(Text)
     overall_impression: Mapped[Optional[int]] = mapped_column(Integer)  # 1-5

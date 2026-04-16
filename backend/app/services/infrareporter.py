@@ -3,6 +3,7 @@ InfraReporter integration service.
 Fetches KPI data from https://infrareporter.onrender.com/api/kpi/board/monthly
 and caches results for 1 hour.
 """
+
 import asyncio
 import logging
 import time
@@ -13,7 +14,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 INFRAREPORTER_URL = "https://infrareporter.onrender.com/api/kpi/board/monthly"
-INFRAREPORTER_API_KEY = "ir_c45b22c54a8281e73c23c402328bcadd31af166b84d148dcd6af155012f218ba"
+INFRAREPORTER_API_KEY = (
+    "ir_c45b22c54a8281e73c23c402328bcadd31af166b84d148dcd6af155012f218ba"
+)
 CACHE_TTL_SECONDS = 3600  # 1 hour
 
 # Simple in-memory cache
@@ -32,7 +35,10 @@ async def get_infrareporter_kpis() -> Optional[Dict[str, Any]]:
     """
     async with _cache_lock:
         now = time.time()
-        if _cache["data"] is not None and (now - _cache["fetched_at"]) < CACHE_TTL_SECONDS:
+        if (
+            _cache["data"] is not None
+            and (now - _cache["fetched_at"]) < CACHE_TTL_SECONDS
+        ):
             logger.debug("InfraReporter: returning cached data")
             return _cache["data"]
 

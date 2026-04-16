@@ -24,11 +24,14 @@ class UserActivity(Base):
     Śledzenie aktywności użytkowników — każda czynność rekrutacyjna.
     Używane do dashboard performance i leaderboard.
     """
+
     __tablename__ = "user_activities"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
 
     # Typ akcji
     action_type: Mapped[UserActionType] = mapped_column(
@@ -50,4 +53,6 @@ class UserActivity(Base):
     user = relationship("User", back_populates="user_activities")
 
     def __repr__(self) -> str:
-        return f"<UserActivity id={self.id} user={self.user_id} action={self.action_type}>"
+        return (
+            f"<UserActivity id={self.id} user={self.user_id} action={self.action_type}>"
+        )

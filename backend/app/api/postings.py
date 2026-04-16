@@ -2,6 +2,7 @@
 Job Multi-Posting API
 Integracja z portalami w przygotowaniu — dane symulowane.
 """
+
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -17,10 +18,13 @@ from app.models.job_posting import JobPosting, Portal, PostingStatus
 
 router = APIRouter()
 
-now_utc = lambda: datetime.now(timezone.utc)
+
+def now_utc():
+    return datetime.now(timezone.utc)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
+
 
 class PostingOut(BaseModel):
     id: int
@@ -71,6 +75,7 @@ class PostingsStats(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _simulate_url(portal: Portal, job_id: int, posting_id: int) -> str:
     """Generate a simulated external URL for the posting."""
     base_urls = {
@@ -85,6 +90,7 @@ def _simulate_url(portal: Portal, job_id: int, posting_id: int) -> str:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/jobs/{job_id}/postings", response_model=List[PostingOut])
 async def list_postings(
     job_id: int,
@@ -98,12 +104,18 @@ async def list_postings(
         raise HTTPException(status_code=404, detail="Job not found")
 
     result = await db.execute(
-        select(JobPosting).where(JobPosting.job_id == job_id).order_by(JobPosting.id.desc())
+        select(JobPosting)
+        .where(JobPosting.job_id == job_id)
+        .order_by(JobPosting.id.desc())
     )
     return list(result.scalars().all())
 
 
-@router.post("/jobs/{job_id}/postings", response_model=PostingOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/jobs/{job_id}/postings",
+    response_model=PostingOut,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_posting(
     job_id: int,
     data: PostingCreate,
@@ -148,7 +160,9 @@ async def update_posting(
     db: AsyncSession = Depends(get_db),
 ):
     """Update posting status or metrics."""
-    posting = (await db.execute(select(JobPosting).where(JobPosting.id == posting_id))).scalar_one_or_none()
+    posting = (
+        await db.execute(select(JobPosting).where(JobPosting.id == posting_id))
+    ).scalar_one_or_none()
     if not posting:
         raise HTTPException(status_code=404, detail="Posting not found")
 
@@ -171,7 +185,9 @@ async def delete_posting(
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a posting."""
-    posting = (await db.execute(select(JobPosting).where(JobPosting.id == posting_id))).scalar_one_or_none()
+    posting = (
+        await db.execute(select(JobPosting).where(JobPosting.id == posting_id))
+    ).scalar_one_or_none()
     if not posting:
         raise HTTPException(status_code=404, detail="Posting not found")
 
@@ -195,12 +211,18 @@ async def publish_all(
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Get existing active postings for this job
-    existing = (await db.execute(
-        select(JobPosting).where(
-            JobPosting.job_id == job_id,
-            JobPosting.status == PostingStatus.published,
+    existing = (
+        (
+            await db.execute(
+                select(JobPosting).where(
+                    JobPosting.job_id == job_id,
+                    JobPosting.status == PostingStatus.published,
+                )
+            )
         )
-    )).scalars().all()
+        .scalars()
+        .all()
+    )
     existing_portals = {p.portal for p in existing}
 
     now = now_utc()
@@ -245,9 +267,13 @@ async def get_postings_stats(
     )
     totals = total_result.one()
 
-    active_count = (await db.execute(
-        select(func.count(JobPosting.id)).where(JobPosting.status == PostingStatus.published)
-    )).scalar() or 0
+    active_count = (
+        await db.execute(
+            select(func.count(JobPosting.id)).where(
+                JobPosting.status == PostingStatus.published
+            )
+        )
+    ).scalar() or 0
 
     # Per-portal breakdown
     portal_result = await db.execute(
@@ -261,20 +287,23 @@ async def get_postings_stats(
 
     by_portal = []
     for row in portal_result.all():
-        by_portal.append(PortalStat(
-            portal=row.portal,
-            total_postings=row.total_postings or 0,
-            active_postings=0,  # computed separately below
-            total_views=row.total_views or 0,
-            total_applications=row.total_applications or 0,
-        ))
+        by_portal.append(
+            PortalStat(
+                portal=row.portal,
+                total_postings=row.total_postings or 0,
+                active_postings=0,  # computed separately below
+                total_views=row.total_views or 0,
+                total_applications=row.total_applications or 0,
+            )
+        )
 
     # Compute active per portal separately (simpler query)
     active_by_portal_result = await db.execute(
         select(
             JobPosting.portal,
             func.count(JobPosting.id).label("active"),
-        ).where(JobPosting.status == PostingStatus.published)
+        )
+        .where(JobPosting.status == PostingStatus.published)
         .group_by(JobPosting.portal)
     )
     active_map = {row.portal: row.active for row in active_by_portal_result.all()}

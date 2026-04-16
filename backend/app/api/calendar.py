@@ -2,6 +2,7 @@
 Calendar API
 Manages recruitment calendar events — interviews, screenings, prep calls, meetings, deadlines.
 """
+
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.calendar_event import CalendarEvent, EventType, EventStatus
@@ -27,6 +27,7 @@ router = APIRouter()
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
+
 
 class CalendarEventCreate(BaseModel):
     title: str
@@ -89,6 +90,7 @@ class CalendarEventResponse(BaseModel):
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
+
 @router.get("/calendar/events", response_model=List[CalendarEventResponse])
 async def list_events(
     current_user: CurrentUser,
@@ -124,7 +126,9 @@ async def list_events(
         client_name = None
 
         if ev.candidate_id:
-            cand_r = await db.execute(select(Candidate).where(Candidate.id == ev.candidate_id))
+            cand_r = await db.execute(
+                select(Candidate).where(Candidate.id == ev.candidate_id)
+            )
             cand = cand_r.scalar_one_or_none()
             if cand:
                 candidate_name = f"{cand.name} {cand.lastname}"
@@ -141,28 +145,30 @@ async def list_events(
             if cli:
                 client_name = cli.name
 
-        output.append(CalendarEventResponse(
-            id=ev.id,
-            title=ev.title,
-            description=ev.description,
-            event_type=ev.event_type.value,
-            start_time=ev.start_time,
-            end_time=ev.end_time,
-            all_day=ev.all_day,
-            candidate_id=ev.candidate_id,
-            candidate_name=candidate_name,
-            job_id=ev.job_id,
-            job_title=job_title,
-            client_id=ev.client_id,
-            client_name=client_name,
-            attendees=ev.attendees or [],
-            location=ev.location,
-            teams_link=ev.teams_link,
-            created_by=ev.created_by,
-            reminder_minutes=ev.reminder_minutes,
-            status=ev.status.value,
-            created_at=ev.created_at,
-        ))
+        output.append(
+            CalendarEventResponse(
+                id=ev.id,
+                title=ev.title,
+                description=ev.description,
+                event_type=ev.event_type.value,
+                start_time=ev.start_time,
+                end_time=ev.end_time,
+                all_day=ev.all_day,
+                candidate_id=ev.candidate_id,
+                candidate_name=candidate_name,
+                job_id=ev.job_id,
+                job_title=job_title,
+                client_id=ev.client_id,
+                client_name=client_name,
+                attendees=ev.attendees or [],
+                location=ev.location,
+                teams_link=ev.teams_link,
+                created_by=ev.created_by,
+                reminder_minutes=ev.reminder_minutes,
+                status=ev.status.value,
+                created_at=ev.created_at,
+            )
+        )
 
     return output
 
@@ -201,7 +207,9 @@ async def create_event(
     client_name = None
 
     if event.candidate_id:
-        cand_r = await db.execute(select(Candidate).where(Candidate.id == event.candidate_id))
+        cand_r = await db.execute(
+            select(Candidate).where(Candidate.id == event.candidate_id)
+        )
         cand = cand_r.scalar_one_or_none()
         if cand:
             candidate_name = f"{cand.name} {cand.lastname}"
@@ -258,7 +266,9 @@ async def get_event(
     client_name = None
 
     if event.candidate_id:
-        cand_r = await db.execute(select(Candidate).where(Candidate.id == event.candidate_id))
+        cand_r = await db.execute(
+            select(Candidate).where(Candidate.id == event.candidate_id)
+        )
         cand = cand_r.scalar_one_or_none()
         if cand:
             candidate_name = f"{cand.name} {cand.lastname}"
@@ -319,7 +329,9 @@ async def update_event(
 
     candidate_name = None
     if event.candidate_id:
-        cand_r = await db.execute(select(Candidate).where(Candidate.id == event.candidate_id))
+        cand_r = await db.execute(
+            select(Candidate).where(Candidate.id == event.candidate_id)
+        )
         cand = cand_r.scalar_one_or_none()
         if cand:
             candidate_name = f"{cand.name} {cand.lastname}"
@@ -364,6 +376,7 @@ async def delete_event(
 
 # ── Background reminder task ──────────────────────────────────────────────────
 
+
 async def _send_reminder(event: CalendarEvent):
     """Send 15-min reminder notification via WebSocket to the event creator."""
     # Import here to avoid circular imports
@@ -377,23 +390,26 @@ async def _send_reminder(event: CalendarEvent):
             user_id=event.created_by,
             title="Przypomnienie o wydarzeniu",
             message=f"Za 15 minut: {event.title}",
-            link=f"/calendar",
+            link="/calendar",
             notification_type=NotificationType.interview_scheduled,
         )
         db.add(notif)
         await db.commit()
         await db.refresh(notif)
 
-    await ws_manager.notify_user(event.created_by, {
-        "type": "notification",
-        "data": {
-            "id": notif.id,
-            "title": notif.title,
-            "message": notif.message,
-            "link": notif.link,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-    })
+    await ws_manager.notify_user(
+        event.created_by,
+        {
+            "type": "notification",
+            "data": {
+                "id": notif.id,
+                "title": notif.title,
+                "message": notif.message,
+                "link": notif.link,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        },
+    )
     logger.info(f"Reminder sent for event {event.id} to user {event.created_by}")
 
 
