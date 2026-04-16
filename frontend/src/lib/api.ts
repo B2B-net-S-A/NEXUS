@@ -58,6 +58,34 @@ export const candidatesApi = {
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
+export interface ImportTaskStatus {
+  task_id: string;
+  kind: string;
+  status: "queued" | "running" | "done" | "error";
+  started_at: string;
+  finished_at: string | null;
+  progress: {
+    candidates?: {
+      processed: number;
+      inserted: number;
+      updated: number;
+      skipped: number;
+      errors: number;
+      total: number;
+      error_samples: string[];
+    };
+    embeddings?: {
+      processed: number;
+      copied: number;
+      missing_source: number;
+      errors: number;
+      total: number;
+      error_samples: string[];
+    };
+  };
+  error: string | null;
+}
+
 export const adminApi = {
   listUsers: () => api.get("/api/admin/users"),
   createUser: (data: Record<string, unknown>) => api.post("/api/admin/users", data),
@@ -66,6 +94,15 @@ export const adminApi = {
   resetPassword: (id: number, new_password: string) =>
     api.post(`/api/admin/users/${id}/reset-password`, { new_password }),
   systemStats: () => api.get("/api/admin/system"),
+  // Phase 7a: talent-radar import
+  startTalentRadarImport: (data: {
+    dry_run?: boolean;
+    batch_size?: number;
+    copy_embeddings?: boolean;
+  }) => api.post<ImportTaskStatus>("/api/admin/import-talent-radar", data),
+  getTalentRadarImportStatus: (taskId: string) =>
+    api.get<ImportTaskStatus>(`/api/admin/import-talent-radar/${taskId}`),
+  listImportTasks: () => api.get<ImportTaskStatus[]>("/api/admin/import-tasks"),
 };
 
 // ── Job Postings ──────────────────────────────────────────────────────────────

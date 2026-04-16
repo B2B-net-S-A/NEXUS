@@ -64,12 +64,19 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
         run: alembic -c alembic/alembic.ini upgrade head
-      # TODO: replace integration tests with isolated fixtures (see plan Faza 1.2)
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
         run: python -c "from app.main import app; print('app importable:', app.title)"
+      - name: Pytest (pure-function unit tests)
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+        run: |
+          pytest tests/test_scoring_service.py tests/test_dedup_service.py \
+                 tests/test_talent_radar_importer.py \
+                 -v --tb=short
 
   frontend-lint-build:
     name: Frontend (typecheck + build)

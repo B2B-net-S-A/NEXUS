@@ -13,11 +13,16 @@ paths = [
   '''NEXUS_AUDIT_AND_PLAN\.md''',
   '''REQUIREMENTS_V[0-9]+\.md''',
   '''QA_STRATEGY\.md''',
+  '''\.github/workflows/ci\.yml''',
 ]
 regexes = [
   '''change-me''',
   '''your-[a-z-]+-key-here''',
   '''change-me-to-a-strong-password''',
+  # CI-only test creds (clearly marked, no prod secret value)
+  '''nexus:nexus-ci-password''',
+  # Placeholder examples in docstrings / error messages (no real secret)
+  '''postgresql://user:pass@db\.<project-ref>\.supabase\.co''',
 ]
 
 [[rules]]
