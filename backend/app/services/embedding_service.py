@@ -2,6 +2,7 @@
 Embedding Service — Voyage AI + Qdrant
 Semantic search for Nexus ATS candidates.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,10 +31,12 @@ def _collection() -> str:
 # Qdrant helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_qdrant_client():
     """Return a synchronous Qdrant client (used in background tasks)."""
     try:
         from qdrant_client import QdrantClient
+
         return QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
     except Exception as e:
         logger.error(f"[Qdrant] Failed to create client: {e}")
@@ -57,16 +60,21 @@ def init_qdrant_collection() -> None:
                 collection_name=_collection(),
                 vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
-            logger.info(f"[Qdrant] Collection '{_collection()}' created (dim={VECTOR_SIZE}, cosine).")
+            logger.info(
+                f"[Qdrant] Collection '{_collection()}' created (dim={VECTOR_SIZE}, cosine)."
+            )
         else:
             logger.info(f"[Qdrant] Collection '{_collection()}' already exists.")
     except Exception as e:
-        logger.warning(f"[Qdrant] init_qdrant_collection failed: {e} — semantic search will be unavailable.")
+        logger.warning(
+            f"[Qdrant] init_qdrant_collection failed: {e} — semantic search will be unavailable."
+        )
 
 
 # ---------------------------------------------------------------------------
 # Voyage AI — embedding generation
 # ---------------------------------------------------------------------------
+
 
 async def generate_embedding(text: str) -> Optional[list[float]]:
     """
@@ -99,7 +107,9 @@ async def generate_embedding(text: str) -> Optional[list[float]]:
             data = response.json()
             return data["data"][0]["embedding"]
     except httpx.HTTPStatusError as e:
-        logger.error(f"[Voyage] HTTP error: {e.response.status_code} — {e.response.text[:200]}")
+        logger.error(
+            f"[Voyage] HTTP error: {e.response.status_code} — {e.response.text[:200]}"
+        )
         return None
     except Exception as e:
         logger.error(f"[Voyage] Unexpected error: {e}")
@@ -109,6 +119,7 @@ async def generate_embedding(text: str) -> Optional[list[float]]:
 # ---------------------------------------------------------------------------
 # Candidate embedding — store in Qdrant
 # ---------------------------------------------------------------------------
+
 
 def _build_candidate_text(candidate) -> str:
     """Build a rich text blob from candidate fields for embedding."""
@@ -121,6 +132,16 @@ def _build_candidate_text(candidate) -> str:
     if candidate.competence_category:
         parts.append(candidate.competence_category)
 
+    # Seniority hint from structured years_it_experience
+    years = getattr(candidate, "years_it_experience", None)
+    if years is not None:
+        if years >= 7:
+            parts.append("senior experienced engineer")
+        elif years >= 3:
+            parts.append("mid-level developer")
+        else:
+            parts.append("junior entry-level developer")
+
     # Skills
     if candidate.skills:
         skills = candidate.skills
@@ -132,6 +153,16 @@ def _build_candidate_text(candidate) -> str:
                     parts.append(s)
         elif isinstance(skills, str):
             parts.append(skills)
+
+    # Verified tech (Phase 1 — structured list of confirmed technologies)
+    verified_tech = getattr(candidate, "verified_tech", None)
+    if verified_tech:
+        if isinstance(verified_tech, list):
+            for t in verified_tech:
+                if isinstance(t, dict):
+                    parts.append(t.get("name", ""))
+                elif isinstance(t, str):
+                    parts.append(t)
 
     # Experience
     if candidate.experience:
@@ -152,6 +183,13 @@ def _build_candidate_text(candidate) -> str:
             parts.extend([str(t) for t in tags])
         elif isinstance(tags, str):
             parts.append(tags)
+
+    # Preferences — industries help matching engine
+    prefs = getattr(candidate, "preferences", None)
+    if prefs and isinstance(prefs, dict):
+        industries = prefs.get("industries") or []
+        if isinstance(industries, list):
+            parts.extend([str(i) for i in industries if i])
 
     # AI summary
     if candidate.ai_summary:
@@ -226,6 +264,7 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 # Semantic search
 # ---------------------------------------------------------------------------
 
+
 async def search_candidates_semantic(
     query: str,
     top_k: int = 20,
@@ -236,7 +275,9 @@ async def search_candidates_semantic(
     """
     embedding = await generate_embedding(query)
     if embedding is None:
-        logger.warning("[Search] Could not generate query embedding — returning empty results.")
+        logger.warning(
+            "[Search] Could not generate query embedding — returning empty results."
+        )
         return []
 
     def _search():

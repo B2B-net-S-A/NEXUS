@@ -1,9 +1,17 @@
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from app.models.job import JobPriority, JobStatus, RemotePolicy, RecruitmentType
+from app.models.job import (
+    JobPriority,
+    JobStatus,
+    RecruitmentType,
+    RemotePolicy,
+    Seniority,
+    WorkMode,
+)
+from app.schemas.candidate import _normalize_skill_list
 
 
 class JobCreate(BaseModel):
@@ -22,6 +30,22 @@ class JobCreate(BaseModel):
     recruiter_id: Optional[int] = None
     portals: Optional[Any] = None
 
+    # Phase 1 structured fields
+    must_skills: Optional[List[Any]] = None
+    nice_skills: Optional[List[Any]] = None
+    seniority: Optional[Seniority] = None
+    work_mode: WorkMode = WorkMode.fulltime
+    headcount: int = 1
+    reference_number: Optional[str] = None
+    industry: Optional[str] = None
+    subcategory: Optional[str] = None
+    custom_fields: Optional[dict] = None
+
+    @field_validator("must_skills", "nice_skills", mode="before")
+    @classmethod
+    def _normalize_skills(cls, v: Any) -> Any:
+        return _normalize_skill_list(v)
+
 
 class JobUpdate(BaseModel):
     title: Optional[str] = None
@@ -38,6 +62,22 @@ class JobUpdate(BaseModel):
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
     portals: Optional[Any] = None
+
+    # Phase 1 structured fields
+    must_skills: Optional[List[Any]] = None
+    nice_skills: Optional[List[Any]] = None
+    seniority: Optional[Seniority] = None
+    work_mode: Optional[WorkMode] = None
+    headcount: Optional[int] = None
+    reference_number: Optional[str] = None
+    industry: Optional[str] = None
+    subcategory: Optional[str] = None
+    custom_fields: Optional[dict] = None
+
+    @field_validator("must_skills", "nice_skills", mode="before")
+    @classmethod
+    def _normalize_skills(cls, v: Any) -> Any:
+        return _normalize_skill_list(v)
 
 
 class JobResponse(BaseModel):
@@ -57,6 +97,17 @@ class JobResponse(BaseModel):
     recruiter_id: Optional[int]
     created_by: Optional[int]
     portals: Optional[Any]
+    must_skills: Optional[Any] = None
+    nice_skills: Optional[Any] = None
+    seniority: Optional[Seniority] = None
+    work_mode: WorkMode = WorkMode.fulltime
+    headcount: int = 1
+    reference_number: Optional[str] = None
+    industry: Optional[str] = None
+    subcategory: Optional[str] = None
+    custom_fields: Optional[Any] = None
+    embedding_id: Optional[str] = None
+    criteria_generated_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
