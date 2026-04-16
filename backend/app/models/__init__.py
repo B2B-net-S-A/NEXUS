@@ -25,6 +25,7 @@ from app.models.pipeline_template import (
     StageCategoryEnum,
     TerminalType,
 )
+from app.models.saved_search import SavedSearch, MatchHistory
 
 __all__ = [
     "User",
@@ -55,4 +56,6 @@ __all__ = [
     "RejectionReason",
     "StageCategoryEnum",
     "TerminalType",
+    "SavedSearch",
+    "MatchHistory",
 ]

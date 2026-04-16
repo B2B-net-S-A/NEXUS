@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import api, { postingsApi, aiWriterApi, matchingApi } from "@/lib/api";
+import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { EditJobModal } from "@/components/AppShell";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
@@ -488,6 +488,84 @@ function AIJobWriterModal({
   );
 }
 
+// ── Phase 4: AI criteria / scoring actions ──────────────────────────────────
+
+function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) {
+  const [busy, setBusy] = useState<null | "criteria" | "recompute" | "embed-all">(null);
+  const [last, setLast] = useState<string | null>(null);
+
+  const run = async (kind: "criteria" | "recompute" | "embed-all") => {
+    setBusy(kind);
+    setLast(null);
+    try {
+      if (kind === "criteria") {
+        const r = await recommendationsApi.refreshCriteria(jobId);
+        const d = r.data as { must_skills: unknown[]; nice_skills: unknown[] };
+        setLast(
+          `Kryteria odświeżone: must=${d.must_skills.length}, nice=${d.nice_skills.length}`
+        );
+      } else if (kind === "recompute") {
+        const r = await recommendationsApi.recomputeScores(jobId, 200);
+        const d = r.data as { evaluated: number };
+        setLast(`Przeliczono scoring dla ${d.evaluated} kandydatów`);
+      } else {
+        const r = await phase3Api.embedAllJobs(500);
+        const d = r.data as { requested: number; embedded: number; failed: number };
+        setLast(
+          `Embedding ofert: requested=${d.requested}, embedded=${d.embedded}, failed=${d.failed}`
+        );
+      }
+      onDone();
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ?? "Błąd")
+          : "Błąd";
+      setLast(`Błąd: ${msg}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 mr-2">
+          AI / Scoring:
+        </span>
+        <button
+          onClick={() => run("criteria")}
+          disabled={!!busy}
+          className="text-xs px-3 py-1.5 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+          data-testid="refresh-criteria"
+        >
+          {busy === "criteria" ? "Generuję…" : "✨ Odśwież kryteria (AI)"}
+        </button>
+        <button
+          onClick={() => run("recompute")}
+          disabled={!!busy}
+          className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          data-testid="recompute-scores"
+        >
+          {busy === "recompute" ? "Liczę…" : "🧮 Przelicz scoring"}
+        </button>
+        <button
+          onClick={() => run("embed-all")}
+          disabled={!!busy}
+          className="text-xs px-3 py-1.5 rounded-md bg-slate-600 text-white hover:bg-slate-700 disabled:opacity-50"
+          data-testid="embed-all-jobs"
+          title="Jednorazowo: wylicza embeddingi dla wszystkich ofert bez vector ID"
+        >
+          {busy === "embed-all" ? "Embedduję…" : "🗂 Embed all jobs"}
+        </button>
+      </div>
+      {last && (
+        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{last}</div>
+      )}
+    </div>
+  );
+}
+
 // ── AI Matching Section ───────────────────────────────────────────────────────
 
 function MatchScoreBar({ score }: { score: number }) {
@@ -612,6 +690,9 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   return (
     <div className="space-y-4">
+      {/* Phase 4: AI criteria + scoring actions */}
+      <JobAIActions jobId={jobId} onDone={() => refetch()} />
+
       {/* Header info */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

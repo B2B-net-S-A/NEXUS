@@ -109,8 +109,12 @@ const columnIcon = (col: KanbanColumn): string => {
 
 const KanbanColumnView = memo(function KanbanColumnView({
   col,
+  selectedIds,
+  onToggleSelect,
 }: {
   col: KanbanColumn;
+  selectedIds: Set<number>;
+  onToggleSelect: (id: number) => void;
 }) {
   const dropId = colId(col);
   return (
@@ -155,12 +159,27 @@ const KanbanColumnView = memo(function KanbanColumnView({
                     ref={dragProvided.innerRef}
                     {...dragProvided.draggableProps}
                     {...dragProvided.dragHandleProps}
-                    className={`transition-shadow ${
+                    className={`relative transition-shadow ${
                       dragSnapshot.isDragging
                         ? "shadow-lg rotate-1 opacity-90"
                         : "shadow-none"
+                    } ${
+                      selectedIds.has(item.id)
+                        ? "ring-2 ring-blue-500 rounded-lg"
+                        : ""
                     }`}
                   >
+                    <label
+                      className="absolute top-1 left-1 z-10 flex items-center bg-white/80 dark:bg-gray-900/80 rounded p-0.5 cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        className="w-3 h-3"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => onToggleSelect(item.id)}
+                      />
+                    </label>
                     <CandidateCard
                       candidateId={item.candidate_id}
                       stage={item.stage}
@@ -186,6 +205,9 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
   const [activeTab, setActiveTab] = useState<TabFilter>("all");
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [rejectionReasons, setRejectionReasons] = useState<RejectionReasonOption[]>([]);
+  // Phase 4: multi-select + bulk move
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Pending rejection (drop awaiting reason selection)
   const [pendingRejection, setPendingRejection] = useState<{
@@ -324,8 +346,87 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
     { key: "terminal", label: "🏁 Zakończone", color: "bg-green-100 text-green-700" },
   ];
 
+  const toggleSelect = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = () => setSelected(new Set());
+
+  const bulkMoveTo = async (targetCol: KanbanColumn) => {
+    if (selected.size === 0) return;
+    const idsArr = Array.from(selected);
+    const rowsById = new Map<number, KanbanItem>();
+    cols.forEach((c) => c.items.forEach((i) => rowsById.set(i.id, i)));
+
+    setBulkBusy(true);
+    try {
+      // Use the existing /api/pipeline/bulk-move endpoint for atomic server move
+      const candidateIds = idsArr
+        .map((id) => rowsById.get(id)?.candidate_id)
+        .filter((x): x is number => typeof x === "number");
+      await api.post("/api/pipeline/bulk-move", {
+        candidate_ids: candidateIds,
+        job_id: jobId,
+        stage: targetCol.stage,
+      });
+      // Refetch by reverting to server state — parent holds the source of truth
+      setCols(columns);
+      clearSelection();
+    } catch (err) {
+      console.error("bulk-move failed:", err);
+      alert("Nie udało się wykonać bulk move.");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   return (
     <div>
+      {/* Phase 4: bulk action bar */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg bg-blue-600 text-white px-3 py-2 shadow">
+          <span className="text-sm font-medium">
+            {selected.size} zaznaczonych
+          </span>
+          <span className="text-xs opacity-80">Przenieś do:</span>
+          <select
+            onChange={(e) => {
+              const cid = e.target.value;
+              const target = cols.find((c) => colId(c) === cid);
+              if (target) bulkMoveTo(target);
+              e.currentTarget.selectedIndex = 0;
+            }}
+            disabled={bulkBusy}
+            className="text-xs rounded bg-white/20 border border-white/30 text-white px-2 py-1 focus:bg-white/30"
+            data-testid="bulk-move-select"
+          >
+            <option value="">-- wybierz etap --</option>
+            {cols
+              .filter((c) => c.category !== "terminal")
+              .map((c) => (
+                <option
+                  key={colId(c)}
+                  value={colId(c)}
+                  className="text-gray-900"
+                >
+                  {c.name ?? c.stage}
+                </option>
+              ))}
+          </select>
+          <button
+            onClick={clearSelection}
+            className="ml-auto text-xs hover:underline"
+          >
+            Wyczyść zaznaczenie
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-2 mb-4 flex-wrap">
         {tabs.map((tab) => (
           <button
@@ -345,7 +446,12 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 300 }}>
           {filteredCols.map((col) => (
-            <KanbanColumnView key={colId(col)} col={col} />
+            <KanbanColumnView
+              key={colId(col)}
+              col={col}
+              selectedIds={selected}
+              onToggleSelect={toggleSelect}
+            />
           ))}
         </div>
       </DragDropContext>
