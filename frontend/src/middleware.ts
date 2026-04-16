@@ -1,0 +1,140 @@
+import { NextRequest, NextResponse } from "next/server"
+
+/**
+ * Next.js middleware — gate routing based on role-based access control (RBAC).
+ *
+ * Token jest czytany z cookie `nexus_access` (ustawianego przez auth store po loginie).
+ * Middleware dekoduje claim `role` z JWT i porównuje z wymaganiami route'u.
+ *
+ * Niepowodzenie walidacji (brak tokena/zły format/wygasły) → redirect /login?next=<pathname>.
+ * Zły rola → redirect /403.
+ *
+ * Uwaga: to *defense in depth*. Guardy backendu (deps.py) pozostają ostatecznym
+ * arbitrem — middleware blokuje tylko nawigację do UI, nie chroni API.
+ */
+
+type UserRole =
+  | "admin"
+  | "delivery_lead"
+  | "tac"
+  | "recruiter"
+  | "sourcer"
+  | "user"
+
+const COOKIE_NAME = "nexus_access"
+
+// Route → dozwolone role. `null` = każda zalogowana rola (także `user`).
+// Kolejność prefixów nie ma znaczenia — dopasowywany jest pierwszy prefix
+// który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
+const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
+  { prefix: "/admin", roles: ["admin"] },
+  { prefix: "/manager", roles: ["admin", "delivery_lead"] },
+  { prefix: "/reports", roles: ["admin", "delivery_lead", "tac"] },
+  // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
+  { prefix: "/candidates", roles: null },
+  { prefix: "/jobs", roles: null },
+  { prefix: "/contracts", roles: null },
+  { prefix: "/contacts", roles: null },
+  { prefix: "/clients", roles: null },
+  { prefix: "/talents", roles: null },
+  { prefix: "/calendar", roles: null },
+  { prefix: "/profile", roles: null },
+  { prefix: "/analytics", roles: null },
+  { prefix: "/settings", roles: null },
+]
+
+// Ścieżki nigdy nieobjęte middleware (publiczne, assety, API).
+const PUBLIC_PATHS = ["/login", "/403", "/_next", "/favicon", "/public"]
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+}
+
+function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
+  // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
+  // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
+  const sorted = [...PROTECTED_ROUTES].sort(
+    (a, b) => b.prefix.length - a.prefix.length
+  )
+  const match = sorted.find((r) => pathname.startsWith(r.prefix))
+  return match ? match.roles : undefined
+}
+
+/**
+ * Dekoduje payload JWT bez weryfikacji podpisu.
+ * Dlaczego bez weryfikacji: middleware Next.js działa w runtime edge — nie
+ * mamy tu `jsonwebtoken` ani dostępu do SECRET_KEY (który jest po stronie
+ * backendu). Dekodujemy payload, aby wyciągnąć `role` na potrzeby routingu UI.
+ * Prawdziwa walidacja sygnatury odbywa się przy każdym wywołaniu API
+ * (backend/app/api/deps.py::get_current_user) — middleware to tylko UX guard.
+ */
+function decodeJwtPayload(token: string): { role?: UserRole; exp?: number } | null {
+  try {
+    const parts = token.split(".")
+    if (parts.length !== 3) return null
+    const payload = parts[1]
+    // base64url → base64
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
+    const json = atob(padded)
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+function isExpired(exp: number | undefined): boolean {
+  if (!exp) return true
+  return Date.now() / 1000 >= exp
+}
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  if (isPublicPath(pathname)) {
+    return NextResponse.next()
+  }
+
+  const token = request.cookies.get(COOKIE_NAME)?.value
+
+  // Route chroniony? Sprawdź listę.
+  const allowedRoles = resolveAllowedRoles(pathname)
+  const isProtected = allowedRoles !== undefined
+
+  if (!isProtected) {
+    // Trasy root (np. /), not-found, itp. — zostaw Next.js
+    return NextResponse.next()
+  }
+
+  // Brak tokena na chronionej trasie → login.
+  if (!token) {
+    const loginUrl = new URL("/login", request.url)
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  const payload = decodeJwtPayload(token)
+  if (!payload || isExpired(payload.exp) || !payload.role) {
+    const loginUrl = new URL("/login", request.url)
+    if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
+    const response = NextResponse.redirect(loginUrl)
+    // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
+    response.cookies.delete(COOKIE_NAME)
+    return response
+  }
+
+  // Rola OK? (null = zalogowany wystarczy)
+  if (allowedRoles && !allowedRoles.includes(payload.role)) {
+    return NextResponse.redirect(new URL("/403", request.url))
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  // Matcher wykluczający API, assety Next.js, pliki statyczne.
+  // Dopasowane zasady: wszystkie pathy pod "/" OPRÓCZ listy poniżej.
+  matcher: [
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
+  ],
+}

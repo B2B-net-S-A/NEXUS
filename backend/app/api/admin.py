@@ -15,7 +15,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
-from app.models.user import RecruiterRole, User, UserRole
+from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser
 from app.schemas.user import UserResponse
@@ -30,7 +30,6 @@ class AdminUserResponse(BaseModel):
     email: str
     name: str
     role: UserRole
-    recruiter_role: Optional[RecruiterRole] = None
     is_active: bool
     activity_count: int
     last_activity: Optional[datetime] = None
@@ -44,13 +43,11 @@ class AdminUserCreate(BaseModel):
     password: str
     name: str
     role: UserRole = UserRole.recruiter
-    recruiter_role: Optional[RecruiterRole] = None
 
 
 class AdminUserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
-    recruiter_role: Optional[RecruiterRole] = None
     is_active: Optional[bool] = None
 
 
@@ -94,7 +91,6 @@ async def list_users(
             email=u.email,
             name=u.name,
             role=u.role,
-            recruiter_role=u.recruiter_role,
             is_active=u.is_active,
             activity_count=activity_map.get(u.id, {}).get("count", 0),
             last_activity=activity_map.get(u.id, {}).get("last"),
@@ -120,7 +116,6 @@ async def create_user(
         password_hash=hash_password(data.password),
         name=data.name,
         role=data.role,
-        recruiter_role=data.recruiter_role,
     )
     db.add(user)
     await db.flush()
@@ -135,7 +130,7 @@ async def update_user(
     _admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update user details (name, role, recruiter_role, is_active)."""
+    """Update user details (name, role, is_active)."""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -145,8 +140,6 @@ async def update_user(
         user.name = data.name
     if data.role is not None:
         user.role = data.role
-    if data.recruiter_role is not None:
-        user.recruiter_role = data.recruiter_role
     if data.is_active is not None:
         user.is_active = data.is_active
 

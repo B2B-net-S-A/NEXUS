@@ -3,6 +3,43 @@
 All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com) and semver-like `MAJOR.MINOR.PATCH`.
 
+## [Unreleased] — Phase 8: RBAC consolidation + login protection
+
+### Changed — Breaking (DB schema)
+
+- **`UserRole` enum** skonsolidowany z poprzedniego dualu `(role, recruiter_role)` do jednej sześciowartościowej hierarchii: `admin`, `delivery_lead`, `tac`, `recruiter`, `sourcer`, `user`.
+- **Kolumna `users.recruiter_role` usunięta** wraz z typem enum `recruiterrole`. Mapowanie w migracji `0011_consolidate_user_roles.py`: `manager → delivery_lead`, `client → user`, `recruiter + quality_control → user`, reszta naturalnie.
+- **`UserCreate` / `UserUpdate` / `UserResponse` / `AdminUserCreate` / `AdminUserUpdate`** — pole `recruiter_role` usunięte.
+
+### Added — Backend RBAC
+
+- **Nowe guardy w `backend/app/api/deps.py`**: `DeliveryLeadPlus`, `TacPlus`, `RecruiterPlus` (plus zachowany alias `ManagerOrAdmin` = `DeliveryLeadPlus` dla backward compat).
+- **Macierz uprawnień przypięta do routerów**: `jobs.py` (create/patch/delete → TacPlus), `contracts.py` (create/patch/delete → TacPlus), `candidates.py` (create/patch/upload-cv/bulk-import → RecruiterPlus, delete → DeliveryLeadPlus), `pipeline.py` (move/bulk-move → RecruiterPlus), `reports.py` (wszystkie → TacPlus), `recommendations.py` (refresh-criteria/recompute → DeliveryLeadPlus).
+- **`backend/tests/test_rbac.py`** — parametryzowany test suite dla każdej kombinacji (rola × endpoint): oczekiwane 200/403.
+
+### Added — Frontend login + RBAC
+
+- **`frontend/src/middleware.ts`** — Next.js middleware Edge Runtime dekoduje JWT payload z cookie `nexus_access`, przekierowuje niezalogowanych na `/login?next=<path>` i niewłaściwe role na `/403`.
+- **`frontend/src/app/403/page.tsx`** — dedykowana strona błędu RBAC.
+- **`frontend/src/components/RequireRole.tsx`** — komponent UI gating z dwoma trybami: exact-match (`roles={...}`) i hierarchiczny (`minRole`).
+- **`frontend/src/store/auth.ts`** — rozszerzony `UserRole` do unii 6 wartości, dodane helpery `hasRole`, `hasMinRole`, `ROLE_RANK`, `ROLE_LABELS`. `setAuth`/`logout` synchronizują cookie `nexus_access` z localStorage.
+- **`frontend/src/components/Sidebar.tsx`** — wpisy nawigacji filtrowane per rola (`roles?: UserRole[]`); sekcje bez widocznych linków znikają.
+- **`frontend/src/app/login/page.tsx`** — obsługa `?next=` (safe allowlist: tylko relatywne ścieżki).
+- **`frontend/src/store/auth.test.ts`** — Vitest unit tests dla `hasRole`, `hasMinRole`, niezmienników `ROLE_RANK`.
+
+### Docs
+
+- **`docs/RBAC.md`** — nowy doc: model ról, trzy warstwy autoryzacji (API/route/UI), pełna macierz per-endpoint, instrukcje „jak dodać endpoint / jak zmienić rolę usera".
+- **`docs/SUPABASE_ANALYSIS.md`** — analiza za/przeciw migracji na Supabase (wynik: zostaje self-hosted).
+- **`README.md`** — tabela „Roles & Permissions" przepisana pod 6 ról, link do RBAC.md.
+
+### Migration guide
+
+1. `cd backend && alembic upgrade head` — migracja 0011 przemapuje istniejących userów (admin→admin, manager→delivery_lead, recruiter+sourcer/tac/DL→odpowiednio, recruiter+QC→user, client→user).
+2. Restart backendu — guardy aktywne natychmiast.
+3. Deploy frontendu — middleware aktywne od pierwszego requesta (cookie ustawia się przy następnym loginie).
+4. **Istniejące tokeny pozostają ważne** — guardy backendu czytają rolę z DB (przez `get_current_user`), nie z JWT claim, więc migracja danych automatycznie przepina uprawnienia. Frontend middleware czyta claim z cookie, więc do momentu następnego loginu rola w UI może być stała — zaleca się wymusić logout wszystkim poprzez `UPDATE users SET is_active=false; ...; UPDATE users SET is_active=true;` LUB akceptacja, że użytkownicy zobaczą poprawne UI po następnym loginie (max 8h).
+
 ## [0.9.0] — 2026-04-16 — Phase 6: UI polish & coverage
 
 Finishes every remaining item from the original roadmap. Pure UI/docs/tests — no schema

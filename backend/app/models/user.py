@@ -1,5 +1,4 @@
 import enum
-from typing import Optional
 
 from sqlalchemy import Boolean, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,26 +8,28 @@ from app.models.base import TimestampMixin
 
 
 class UserRole(str, enum.Enum):
+    """
+    Jedna, skonsolidowana hierarchia ról dla procesu B2B.net:
+
+    - admin         — zarządzanie systemem i userami
+    - delivery_lead — kierownik procesu, rate cards, konflikty, pipeline templates
+    - tac           — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
+    - recruiter     — 100% LinkedIn, dodaje kandydatów
+    - sourcer       — 100% ATS + ogłoszenia
+    - user          — read-only viewer (także Quality Control / klient)
+    """
+
     admin = "admin"
-    recruiter = "recruiter"
-    manager = "manager"
-    client = "client"
-
-
-class RecruiterRole(str, enum.Enum):
-    """Operational recruitment role — separate from auth role."""
-
+    delivery_lead = "delivery_lead"
+    tac = "tac"
     recruiter = "recruiter"
     sourcer = "sourcer"
-    tac = "tac"
-    delivery_lead = "delivery_lead"
-    quality_control = "quality_control"
-    admin = "admin"
+    user = "user"
 
 
 class User(Base, TimestampMixin):
     """
-    Użytkownik systemu (Admin, Rekruter, Manager, Klient).
+    Użytkownik systemu. Jedna rola = jedno źródło prawdy.
     """
 
     __tablename__ = "users"
@@ -40,10 +41,9 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole), default=UserRole.recruiter, nullable=False
-    )
-    recruiter_role: Mapped[Optional[RecruiterRole]] = mapped_column(
-        Enum(RecruiterRole, name="recruiterrole"), nullable=True
+        Enum(UserRole, name="userrole"),
+        default=UserRole.recruiter,
+        nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

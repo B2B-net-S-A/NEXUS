@@ -30,7 +30,7 @@ from app.schemas.pipeline import (
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, RecruiterPlus
 from app.api import ws as ws_manager
 
 router = APIRouter()
@@ -191,7 +191,7 @@ async def list_stages(
 @router.post("/move", response_model=CandidateStageResponse)
 async def move_candidate(
     data: StageMove,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Move a candidate to a new pipeline stage for a given job.
@@ -630,7 +630,7 @@ class BulkMoveRequest(BaseModel):
 @router.post("/bulk-move")
 async def bulk_move_candidates(
     data: BulkMoveRequest,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Move multiple candidates to a stage at once."""
