@@ -8,6 +8,7 @@ import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsA
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
+import { CriteriaPreviewModal } from "@/components/CriteriaPreviewModal";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -494,6 +495,7 @@ function AIJobWriterModal({
 function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) {
   const [busy, setBusy] = useState<null | "criteria" | "recompute" | "embed-all">(null);
   const [last, setLast] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const run = async (kind: "criteria" | "recompute" | "embed-all") => {
     setBusy(kind);
@@ -535,12 +537,20 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
           AI / Scoring:
         </span>
         <button
+          onClick={() => setShowPreview(true)}
+          disabled={!!busy}
+          className="text-xs px-3 py-1.5 rounded-md bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+          data-testid="preview-criteria"
+        >
+          ✨ Podgląd kryteriów (edytowalne)
+        </button>
+        <button
           onClick={() => run("criteria")}
           disabled={!!busy}
           className="text-xs px-3 py-1.5 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
           data-testid="refresh-criteria"
         >
-          {busy === "criteria" ? "Generuję…" : "✨ Odśwież kryteria (AI)"}
+          {busy === "criteria" ? "Generuję…" : "⚡ Szybkie odświeżenie"}
         </button>
         <button
           onClick={() => run("recompute")}
@@ -562,6 +572,18 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
       </div>
       {last && (
         <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{last}</div>
+      )}
+
+      {showPreview && (
+        <CriteriaPreviewModal
+          jobId={jobId}
+          onClose={() => setShowPreview(false)}
+          onSaved={() => {
+            setShowPreview(false);
+            setLast("Kryteria zaktualizowane. Uruchom 'Przelicz scoring' aby odświeżyć wyniki.");
+            onDone();
+          }}
+        />
       )}
     </div>
   );

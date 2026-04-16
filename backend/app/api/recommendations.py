@@ -383,6 +383,37 @@ async def refresh_job_criteria(
     }
 
 
+@router.post("/jobs/{job_id}/generate-criteria-preview", response_model=dict)
+@limiter.limit("5/minute")
+async def generate_job_criteria_preview(
+    request: Request,
+    job_id: int,
+    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Preview-only: generate proposed must/nice skills without persisting them.
+    Client can then edit and PATCH /api/jobs/{id} with the approved list.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    criteria = await _generate_criteria_with_ollama(job)
+    source = "ollama" if criteria and "_source" in criteria else "heuristic"
+    if not criteria:
+        criteria = _fallback_criteria_from_text(job)
+
+    return {
+        "job_id": job_id,
+        "must_skills": criteria.get("must_skills") or [],
+        "nice_skills": criteria.get("nice_skills") or [],
+        "source": source,
+        "current_must_skills": job.must_skills or [],
+        "current_nice_skills": job.nice_skills or [],
+    }
+
+
 # ── Batch recompute ─────────────────────────────────────────────────────────
 
 

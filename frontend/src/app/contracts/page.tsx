@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { contractsApi } from "@/lib/api";
 import { DataTable } from "@/components/DataTable";
+import { SavedSearchPicker } from "@/components/SavedSearchPicker";
 import { Plus, AlertCircle, X, Loader2 } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
@@ -431,7 +432,7 @@ export default function ContractsPage() {
         </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex gap-3 items-center">
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
@@ -443,6 +444,14 @@ export default function ContractsPage() {
           <option value="ending">Kończące się</option>
           <option value="ended">Zakończone</option>
         </select>
+        <SavedSearchPicker
+          entity="contract"
+          currentFilters={{ status: statusFilter }}
+          onApply={(f) => {
+            if (typeof f.status === "string") setStatusFilter(f.status);
+            setPage(1);
+          }}
+        />
       </div>
 
       <DataTable

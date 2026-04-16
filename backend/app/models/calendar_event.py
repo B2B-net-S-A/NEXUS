@@ -62,6 +62,12 @@ class CalendarEvent(Base, TimestampMixin):
     location: Mapped[Optional[str]] = mapped_column(String(500))
     teams_link: Mapped[Optional[str]] = mapped_column(String(1000))
 
+    # Phase 7b.6 — external calendar sources (iCal / Outlook / Google)
+    external_id: Mapped[Optional[str]] = mapped_column(String(200), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
     reminder_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)

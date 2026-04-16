@@ -374,6 +374,39 @@ async def delete_event(
     await db.commit()
 
 
+# ── iCal URL import (Phase 7b.6) ──────────────────────────────────────────────
+
+
+class ICalImportRequest(BaseModel):
+    url: str
+    since_days: int = 7
+    source_tag: str = "ical"
+
+
+@router.post("/calendar/import-ical")
+async def import_ical(
+    body: ICalImportRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pull events from a public iCal feed URL (Outlook/Google publish-as-iCal)."""
+    from app.services.ical_import import import_ical_url
+
+    if not body.url or not body.url.startswith(("http://", "https://", "webcal://")):
+        raise HTTPException(
+            status_code=422, detail="URL must start with http/https/webcal"
+        )
+    url = body.url.replace("webcal://", "https://", 1)
+    res = await import_ical_url(
+        db,
+        url,
+        since_days=body.since_days,
+        source_tag=body.source_tag,
+        creator_id=current_user.id,
+    )
+    return res.as_dict()
+
+
 # ── Background reminder task ──────────────────────────────────────────────────
 
 
