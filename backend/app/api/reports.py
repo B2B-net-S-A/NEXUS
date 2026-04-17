@@ -80,10 +80,10 @@ async def report_recruitment(
     stage_filter = [CandidateStage.moved_at >= start]
 
     # Global funnel counts (across all recruiters)
-    # Weryfikacje = new + screening
-    # Rekomendacje = interview
-    # Interviews = technical
-    # Placements = hired
+    # Weryfikacje    = new + screening           (rekruter sourcuje)
+    # Rekomendacje   = interview                 (internal OK → rekomendacja do klienta)
+    # Interviews     = client_interview          (klient weryfikuje technicznie)
+    # Placements     = hired                     (kontrakt aktywny)
 
     async def count_stage(stages: list) -> int:
         q = (
@@ -95,7 +95,7 @@ async def report_recruitment(
 
     weryfikacje = await count_stage([PipelineStage.new, PipelineStage.screening])
     rekomendacje = await count_stage([PipelineStage.interview])
-    interviews = await count_stage([PipelineStage.technical])
+    interviews = await count_stage([PipelineStage.client_interview])
     placements = await count_stage([PipelineStage.hired])
 
     funnel_efficiency = {
@@ -124,7 +124,10 @@ async def report_recruitment(
                 case((CandidateStage.stage == PipelineStage.interview, 1), else_=0)
             ).label("rekomendacje"),
             func.sum(
-                case((CandidateStage.stage == PipelineStage.technical, 1), else_=0)
+                case(
+                    (CandidateStage.stage == PipelineStage.client_interview, 1),
+                    else_=0,
+                )
             ).label("interviews"),
             func.sum(
                 case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)

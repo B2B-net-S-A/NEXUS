@@ -72,10 +72,10 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
 async def rbac_client() -> AsyncClient:
     """In-process client bez rate-limit.
 
-    raise_app_exceptions=False — testujemy *status code* gateu, a niektóre
-    endpointy mają pre-existing bugs (np. reports/recruitment → 500 przez
-    PipelineStage.technical). Dla testów RBAC liczy się 403 vs not-403;
-    500 jest akceptowalną wartością not-403.
+    raise_app_exceptions=False — testujemy *status code* gateu, a nie body.
+    Niektóre endpointy mogą zwracać 500 z powodów niezwiązanych z RBAC;
+    dla testów RBAC liczy się 403 vs not-403 — 500 jest akceptowalną
+    wartością not-403.
     """
     from app.main import app
     from app.core.rate_limit import limiter as _limiter
