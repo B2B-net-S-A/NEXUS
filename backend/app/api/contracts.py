@@ -20,6 +20,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
+from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.rate_history import RateHistory
 from app.models.user import User
@@ -39,6 +40,11 @@ from app.schemas.contract_amendment import (
 from app.schemas.contract_document import (
     ContractDocumentResponse,
     ContractDocumentUpdate,
+)
+from app.schemas.contract_onboarding import (
+    OnboardingItemCreate,
+    OnboardingItemResponse,
+    OnboardingItemUpdate,
 )
 from app.services import storage_service
 from app.tasks.contract_alerts import run_contract_alerts_cycle
@@ -708,3 +714,90 @@ async def create_contract_amendment(
     await db.flush()
     await db.refresh(amendment)
     return await _amendment_to_response(db, amendment)
+
+
+# ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
+
+
+@router.get(
+    "/{contract_id}/onboarding",
+    response_model=List[OnboardingItemResponse],
+)
+async def list_onboarding_items(
+    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    await _assert_contract(db, contract_id)
+    res = await db.execute(
+        select(ContractOnboardingItem)
+        .where(ContractOnboardingItem.contract_id == contract_id)
+        .order_by(ContractOnboardingItem.order, ContractOnboardingItem.id)
+    )
+    return list(res.scalars().all())
+
+
+@router.post(
+    "/{contract_id}/onboarding",
+    response_model=OnboardingItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_onboarding_item(
+    contract_id: int,
+    data: OnboardingItemCreate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    item = ContractOnboardingItem(contract_id=contract_id, **data.model_dump())
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.patch(
+    "/{contract_id}/onboarding/{item_id}",
+    response_model=OnboardingItemResponse,
+)
+async def update_onboarding_item(
+    contract_id: int,
+    item_id: int,
+    data: OnboardingItemUpdate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    item = await db.scalar(
+        select(ContractOnboardingItem).where(
+            ContractOnboardingItem.id == item_id,
+            ContractOnboardingItem.contract_id == contract_id,
+        )
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Onboarding item not found")
+    for k, v in data.model_dump(exclude_unset=True).items():
+        setattr(item, k, v)
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.delete(
+    "/{contract_id}/onboarding/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_onboarding_item(
+    contract_id: int,
+    item_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    item = await db.scalar(
+        select(ContractOnboardingItem).where(
+            ContractOnboardingItem.id == item_id,
+            ContractOnboardingItem.contract_id == contract_id,
+        )
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Onboarding item not found")
+    await db.delete(item)
