@@ -712,4 +712,98 @@ export const scoringWeightsApi = {
   remove: (id: number) => api.delete(`/api/scoring-weights/${id}`),
 };
 
+// ── Champion Profile (Phase 10) ─────────────────────────────────────────────
+
+export interface ChampionBasics {
+  onsite_days_per_week?: number | null;
+  candidate_location_pref?: string | null;
+  language?: string | null;
+}
+
+export interface ChampionProjectContext {
+  about: string;
+  responsibilities: string;
+  selling_points: string;
+}
+
+export interface ScreeningQuestion {
+  id: string;
+  question: string;
+  ideal_answer: string;
+  deal_breaker: string;
+}
+
+export interface SourcingStrategy {
+  sources: Array<"internal_base" | "linkedin" | "ad" | "referrals" | "other">;
+  keywords: string;
+  target_companies: string;
+  notes: string;
+}
+
+export interface ChampionProfile {
+  basics: ChampionBasics;
+  project_context: ChampionProjectContext;
+  screening_questions: ScreeningQuestion[];
+  historical_client_questions: string;
+  internal_consultant_insight: string;
+  sourcing: SourcingStrategy;
+}
+
+export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
+  basics: { onsite_days_per_week: null, candidate_location_pref: null, language: null },
+  project_context: { about: "", responsibilities: "", selling_points: "" },
+  screening_questions: [],
+  historical_client_questions: "",
+  internal_consultant_insight: "",
+  sourcing: { sources: [], keywords: "", target_companies: "", notes: "" },
+};
+
+export interface ChampionProfileResponse {
+  job_id: number;
+  job_title?: string;
+  champion_profile: ChampionProfile | Record<string, never>;
+}
+
+export const championApi = {
+  get: (jobId: number) =>
+    api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
+  put: (jobId: number, profile: ChampionProfile) =>
+    api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
+};
+
+// Screening answers
+
+export interface ScreeningAnswerItem {
+  question_id: string;
+  response: string;
+  deal_breaker_hit: boolean;
+}
+
+export interface ScreeningAnswers {
+  answers: ScreeningAnswerItem[];
+  overall_fit: "fit" | "uncertain" | "miss";
+  notes: string;
+  answered_at?: string | null;
+  answered_by?: number | null;
+}
+
+export interface StageScreeningResponse {
+  stage_id: number;
+  candidate_id: number;
+  job_id: number;
+  champion_profile: ChampionProfile | Record<string, never>;
+  screening_answers: ScreeningAnswers | null;
+}
+
+export const screeningApi = {
+  getForStage: (stageId: number) =>
+    api.get<StageScreeningResponse>(`/api/pipeline/stages/${stageId}/screening`),
+  submit: (stageId: number, answers: ScreeningAnswers) =>
+    api.post<{
+      stage_id: number;
+      match_percent: number;
+      screening_answers: ScreeningAnswers;
+    }>(`/api/pipeline/stages/${stageId}/screening`, answers),
+};
+
 export default api;

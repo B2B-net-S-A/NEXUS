@@ -116,6 +116,12 @@ class Job(Base, TimestampMixin):
     # Freeform custom fields — Faza 4 will replace with dedicated engine
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 
+    # Phase 10: "Profil Championa" — Delivery Lead fills this once per job.
+    # Shape validated by app.schemas.champion.ChampionProfile.
+    champion_profile: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+
     # Persisted Qdrant embedding reference (populated by Faza 2 scoring)
     embedding_id: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True, index=True

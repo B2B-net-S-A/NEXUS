@@ -108,6 +108,7 @@ class JobResponse(BaseModel):
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[Any] = None
+    champion_profile: Optional[Any] = None
     embedding_id: Optional[str] = None
     criteria_generated_at: Optional[datetime] = None
     pipeline_template_id: Optional[int] = None

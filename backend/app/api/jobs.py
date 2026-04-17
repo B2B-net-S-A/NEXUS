@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.activity import Activity
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +203,53 @@ async def publish_job(
         )
     )
     return {"status": "published", "job_id": job_id}
+
+
+# ── Champion Profile (Phase 10) ─────────────────────────────────────────────
+
+
+@router.get("/{job_id}/champion-profile")
+async def get_champion_profile(
+    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Return the Delivery Lead's Champion Profile for this job (or {})."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": job.id,
+        "job_title": job.title,
+        "champion_profile": job.champion_profile or {},
+    }
+
+
+@router.put("/{job_id}/champion-profile")
+async def update_champion_profile(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+) -> dict:
+    """Upsert Champion Profile (Delivery Lead / admin only)."""
+    from app.schemas.champion import ChampionProfile
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    profile = ChampionProfile.model_validate(payload or {})
+    job.champion_profile = profile.model_dump()
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="champion_profile_updated",
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return {"job_id": job.id, "champion_profile": job.champion_profile}
 
 
 @router.get("/{job_id}/match-candidates")

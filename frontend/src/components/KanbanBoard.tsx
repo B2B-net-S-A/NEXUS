@@ -13,6 +13,7 @@ import {
   RejectionReasonOption,
 } from "./RejectionReasonModal";
 import { ScorecardModal } from "./ScorecardModal";
+import { ScreeningModal } from "./ScreeningModal";
 import api, { pipelineTemplatesApi } from "@/lib/api";
 
 // ── Fallback styling for well-known legacy stages ────────────────────────────
@@ -66,6 +67,8 @@ interface KanbanItem {
   stage_def_id?: number | null;
   rating?: number;
   days_in_stage?: number;
+  name?: string;
+  lastname?: string;
 }
 
 interface KanbanColumn {
@@ -108,14 +111,24 @@ const columnIcon = (col: KanbanColumn): string => {
 
 // ── Memoized column ──────────────────────────────────────────────────────────
 
+const EXTERNAL_STAGES_FOR_SCREENING = new Set([
+  "cv_sent",
+  "client_interview",
+  "acceptance",
+  "negotiation",
+  "onboarding",
+]);
+
 const KanbanColumnView = memo(function KanbanColumnView({
   col,
   selectedIds,
   onToggleSelect,
+  onOpenScreening,
 }: {
   col: KanbanColumn;
   selectedIds: Set<number>;
   onToggleSelect: (id: number) => void;
+  onOpenScreening: (stageId: number, candidateName: string) => void;
 }) {
   const dropId = colId(col);
   return (
@@ -187,6 +200,25 @@ const KanbanColumnView = memo(function KanbanColumnView({
                       rating={item.rating}
                       daysInStage={item.days_in_stage}
                     />
+                    {EXTERNAL_STAGES_FOR_SCREENING.has(item.stage) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          onOpenScreening(
+                            item.id,
+                            `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
+                              "Kandydat"
+                          );
+                        }}
+                        className="absolute bottom-1 right-1 text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 font-semibold"
+                        title="Screening Championa"
+                        data-testid={`open-screening-${item.id}`}
+                      >
+                        ★ Screening
+                      </button>
+                    )}
                   </div>
                 )}
               </Draggable>
@@ -209,6 +241,12 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
   // Stage def ids that have a non-empty scorecard_schema.questions[]
   const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
   // Scorecard prompt after a successful move
+  // Phase 10: screening prompt when moving to cv_sent or later.
+  const [screeningPrompt, setScreeningPrompt] = useState<{
+    stageId: number;
+    candidateName: string;
+  } | null>(null);
+
   const [scorecardPrompt, setScorecardPrompt] = useState<{
     candidateStageId: number;
     stageId: number;
@@ -316,6 +354,23 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
             stageId: newStageId,
             stageDefId: newStageDefId,
             stageName: dstCol.name ?? dstCol.stage,
+          });
+        }
+
+        // Phase 10: Champion screening prompt when moving to cv_sent or any
+        // external stage — recruiter must capture answers before the client
+        // reviews the CV.
+        const EXTERNAL_STAGES = new Set([
+          "cv_sent",
+          "client_interview",
+          "acceptance",
+          "negotiation",
+          "onboarding",
+        ]);
+        if (newStageId && EXTERNAL_STAGES.has(dstCol.stage)) {
+          setScreeningPrompt({
+            stageId: newStageId,
+            candidateName: `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat",
           });
         }
       } catch (err) {
@@ -485,6 +540,9 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
               col={col}
               selectedIds={selected}
               onToggleSelect={toggleSelect}
+              onOpenScreening={(stageId, candidateName) =>
+                setScreeningPrompt({ stageId, candidateName })
+              }
             />
           ))}
         </div>
@@ -506,6 +564,15 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
           stageName={scorecardPrompt.stageName}
           onClose={() => setScorecardPrompt(null)}
           onSaved={() => setScorecardPrompt(null)}
+        />
+      )}
+
+      {screeningPrompt && (
+        <ScreeningModal
+          stageId={screeningPrompt.stageId}
+          candidateName={screeningPrompt.candidateName}
+          onClose={() => setScreeningPrompt(null)}
+          onSubmitted={() => setScreeningPrompt(null)}
         />
       )}
 
