@@ -8,6 +8,7 @@ import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsA
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
+import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { CriteriaPreviewModal } from "@/components/CriteriaPreviewModal";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -845,7 +846,7 @@ const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> 
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type PageTab = "pipeline" | "ai-matching" | "portals";
+type PageTab = "pipeline" | "ai-matching" | "portals" | "champion";
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -1005,6 +1006,19 @@ export default function JobDetailPage() {
           >
             Portale ogłoszeniowe
           </button>
+          <button
+            onClick={() => setActiveTab("champion")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "champion"
+                ? "border-purple-600 text-purple-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            )}
+            data-testid="tab-champion"
+          >
+            <Sparkles className="w-4 h-4" />
+            Profil Championa
+          </button>
         </div>
       </div>
 
@@ -1035,6 +1049,10 @@ export default function JobDetailPage() {
 
       {activeTab === "portals" && (
         <PostingsSection jobId={Number(id)} />
+      )}
+
+      {activeTab === "champion" && (
+        <ChampionProfileEditor jobId={Number(id)} />
       )}
     </div>
   );

@@ -65,6 +65,12 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "contract_type": contract.contract_type,
         "status": contract.status,
         "documents": contract.documents,
+        "client_pm_name": contract.client_pm_name,
+        "client_pm_email": contract.client_pm_email,
+        "work_mode": contract.work_mode,
+        "office_location": contract.office_location,
+        "team_name": contract.team_name,
+        "project_name": contract.project_name,
         "created_at": contract.created_at,
         "updated_at": contract.updated_at,
         "candidate_name": (

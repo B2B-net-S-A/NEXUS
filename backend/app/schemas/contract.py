@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from app.models.contract import ContractStatus, ContractType, RateUnit
+from app.models.contract import ContractStatus, ContractType, ContractWorkMode, RateUnit
 
 
 class ContractCreate(BaseModel):
@@ -20,6 +20,12 @@ class ContractCreate(BaseModel):
     contract_type: ContractType = ContractType.b2b
     status: ContractStatus = ContractStatus.draft
     documents: Optional[Any] = None
+    client_pm_name: Optional[str] = None
+    client_pm_email: Optional[str] = None
+    work_mode: Optional[ContractWorkMode] = None
+    office_location: Optional[str] = None
+    team_name: Optional[str] = None
+    project_name: Optional[str] = None
 
 
 class ContractUpdate(BaseModel):
@@ -33,6 +39,12 @@ class ContractUpdate(BaseModel):
     contract_type: Optional[ContractType] = None
     status: Optional[ContractStatus] = None
     documents: Optional[Any] = None
+    client_pm_name: Optional[str] = None
+    client_pm_email: Optional[str] = None
+    work_mode: Optional[ContractWorkMode] = None
+    office_location: Optional[str] = None
+    team_name: Optional[str] = None
+    project_name: Optional[str] = None
 
 
 class ContractResponse(BaseModel):
@@ -51,6 +63,12 @@ class ContractResponse(BaseModel):
     contract_type: ContractType
     status: ContractStatus
     documents: Optional[Any]
+    client_pm_name: Optional[str] = None
+    client_pm_email: Optional[str] = None
+    work_mode: Optional[ContractWorkMode] = None
+    office_location: Optional[str] = None
+    team_name: Optional[str] = None
+    project_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

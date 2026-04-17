@@ -61,3 +61,5 @@ TestResults.xml
 frontend/tsconfig.tsbuildinfo
 .claude/scheduled_tasks.lock
 .backups/
+frontend/playwright-report/
+frontend/test-results/

@@ -113,6 +113,10 @@ class CandidateStage(Base, TimestampMixin):
     # Shape: {"answers": [{"question_id": str, "value": Any}], "overall_rating": int}
     scorecard_answers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
+    # Phase 10: recruiter's answers to the Champion Profile screening questions.
+    # Shape validated by app.schemas.champion.ScreeningAnswers.
+    screening_answers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")

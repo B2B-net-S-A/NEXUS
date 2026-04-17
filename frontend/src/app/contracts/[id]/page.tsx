@@ -49,6 +49,12 @@ interface ContractDetail {
   contract_type: "b2b" | "uop" | "uzlecenie";
   status: "draft" | "active" | "ending" | "ended";
   documents: unknown;
+  client_pm_name: string | null;
+  client_pm_email: string | null;
+  work_mode: "remote" | "hybrid" | "onsite" | null;
+  office_location: string | null;
+  team_name: string | null;
+  project_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +111,12 @@ const RATE_UNIT_LABELS: Record<string, string> = {
   monthly: "Miesięcznie",
   daily: "Dziennie",
   hourly: "Godzinowo",
+};
+
+const WORK_MODE_LABELS: Record<string, string> = {
+  remote: "Zdalnie",
+  hybrid: "Hybrydowo",
+  onsite: "Stacjonarnie",
 };
 
 function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): number {
@@ -173,6 +185,12 @@ interface EditForm {
   billing_hours_per_month: string;
   contract_type: string;
   status: string;
+  client_pm_name: string;
+  client_pm_email: string;
+  work_mode: string;
+  office_location: string;
+  team_name: string;
+  project_name: string;
 }
 
 function contractToForm(c: ContractDetail): EditForm {
@@ -186,6 +204,12 @@ function contractToForm(c: ContractDetail): EditForm {
     billing_hours_per_month: (c.billing_hours_per_month ?? 160).toString(),
     contract_type: c.contract_type,
     status: c.status,
+    client_pm_name: c.client_pm_name ?? "",
+    client_pm_email: c.client_pm_email ?? "",
+    work_mode: c.work_mode ?? "",
+    office_location: c.office_location ?? "",
+    team_name: c.team_name ?? "",
+    project_name: c.project_name ?? "",
   };
 }
 
@@ -273,6 +297,12 @@ export default function ContractDetailPage() {
       billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
       contract_type: form.contract_type,
       status: form.status,
+      client_pm_name: form.client_pm_name || null,
+      client_pm_email: form.client_pm_email || null,
+      work_mode: form.work_mode || null,
+      office_location: form.office_location || null,
+      team_name: form.team_name || null,
+      project_name: form.project_name || null,
     };
     updateMutation.mutate(payload);
   };
@@ -473,6 +503,41 @@ export default function ContractDetailPage() {
               </div>
             )}
 
+            {/* Assignment context */}
+            {!editing && (contract.client_pm_name || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-1">
+                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                  Osadzenie u klienta
+                </h2>
+                {contract.client_pm_name && (
+                  <InfoRow icon={User} label="PM po stronie klienta">
+                    {contract.client_pm_name}
+                    {contract.client_pm_email && (
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                        {contract.client_pm_email}
+                      </span>
+                    )}
+                  </InfoRow>
+                )}
+                {contract.work_mode && (
+                  <InfoRow icon={Building2} label="Tryb pracy">
+                    {WORK_MODE_LABELS[contract.work_mode] ?? contract.work_mode}
+                    {contract.office_location && ` · ${contract.office_location}`}
+                  </InfoRow>
+                )}
+                {contract.project_name && (
+                  <InfoRow icon={Briefcase} label="Projekt">
+                    {contract.project_name}
+                  </InfoRow>
+                )}
+                {contract.team_name && (
+                  <InfoRow icon={Briefcase} label="Zespół">
+                    {contract.team_name}
+                  </InfoRow>
+                )}
+              </div>
+            )}
+
             {/* Edit mode */}
             {editing && form && (
               <form
@@ -636,6 +701,105 @@ export default function ContractDetailPage() {
                     </div>
                   )}
                 </div>
+
+                <details className="border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Osadzenie u klienta
+                  </summary>
+                  <div className="space-y-3 mt-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          PM po stronie klienta
+                        </label>
+                        <input
+                          type="text"
+                          value={form.client_pm_name}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, client_pm_name: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          placeholder="Jan Kowalski"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Email PM
+                        </label>
+                        <input
+                          type="email"
+                          value={form.client_pm_email}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, client_pm_email: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          placeholder="jan.kowalski@klient.pl"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Tryb pracy
+                        </label>
+                        <select
+                          value={form.work_mode}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, work_mode: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                        >
+                          <option value="">— nie określono —</option>
+                          <option value="remote">Zdalnie</option>
+                          <option value="hybrid">Hybrydowo</option>
+                          <option value="onsite">Stacjonarnie</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Lokalizacja biura
+                        </label>
+                        <input
+                          type="text"
+                          value={form.office_location}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, office_location: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          placeholder="Warszawa — Domaniewska 50"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Projekt
+                        </label>
+                        <input
+                          type="text"
+                          value={form.project_name}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, project_name: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          Zespół
+                        </label>
+                        <input
+                          type="text"
+                          value={form.team_name}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, team_name: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </details>
 
                 <div className="flex justify-end gap-2">
                   <button

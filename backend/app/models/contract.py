@@ -29,6 +29,12 @@ class RateUnit(str, enum.Enum):
     monthly = "monthly"
 
 
+class ContractWorkMode(str, enum.Enum):
+    remote = "remote"
+    hybrid = "hybrid"
+    onsite = "onsite"
+
+
 class Contract(Base, TimestampMixin):
     """
     Kontrakt body-leasingowy — łączy kandydata z klientem przez ofertę.
@@ -81,6 +87,16 @@ class Contract(Base, TimestampMixin):
 
     # Załączniki/dokumenty (lista URL lub metadanych)
     documents: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+
+    # Assignment / deployment context (Phase 9 B5) — gdzie i pod kim kontraktor pracuje.
+    client_pm_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    client_pm_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    work_mode: Mapped[Optional[ContractWorkMode]] = mapped_column(
+        Enum(ContractWorkMode, name="contractworkmode"), nullable=True
+    )
+    office_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    team_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    project_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="contracts")
