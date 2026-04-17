@@ -9,6 +9,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
+import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -253,6 +254,14 @@ export default function ContractDetailPage() {
     enabled: !Number.isNaN(id) && activeTab === "rateHistory",
   });
 
+  // Compliance risk — eagerly fetch documents so the badge works on all tabs.
+  const { data: contractDocs } = useQuery<ContractDocument[]>({
+    queryKey: ["contract-documents", id],
+    queryFn: () => contractsApi.documents(id).then((r) => r.data),
+    enabled: !Number.isNaN(id),
+  });
+  const complianceRisk = summariseComplianceRisk(contractDocs);
+
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => contractsApi.update(id, data),
     onSuccess: () => {
@@ -372,9 +381,19 @@ export default function ContractDetailPage() {
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
-          <h1 className="text-2xl font-bold flex items-center gap-3">
+          <h1 className="text-2xl font-bold flex items-center gap-3 flex-wrap">
             Kontrakt #{contract.id}
             <StatusBadge status={contract.status} />
+            {complianceRisk.risk === "overdue" && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                Compliance: dokument wygasł
+              </span>
+            )}
+            {complianceRisk.risk === "soon" && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200">
+                Compliance: {complianceRisk.docType} wygasa {formatDate(complianceRisk.soonestDate)}
+              </span>
+            )}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {contract.candidate_name ? (

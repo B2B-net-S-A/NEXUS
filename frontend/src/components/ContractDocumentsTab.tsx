@@ -42,7 +42,7 @@ const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   other: FileText,
 };
 
-interface ContractDocument {
+export interface ContractDocument {
   id: number;
   contract_id: number;
   filename: string;
@@ -64,6 +64,41 @@ function formatBytes(n: number | null | undefined): string {
 
 interface Props {
   contractId: number;
+}
+
+const COMPLIANCE_TYPES = new Set(["nip", "zus_certificate", "oc_policy"]);
+
+/**
+ * Inspect the list of documents and return the soonest compliance-related
+ * expiry that's already past or less than 30 days away. Used by consumers
+ * that want to render a "Compliance risk" badge.
+ */
+export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
+  risk: "overdue" | "soon" | "ok";
+  soonestDate: string | null;
+  docType: string | null;
+} {
+  if (!docs || docs.length === 0) {
+    return { risk: "ok", soonestDate: null, docType: null };
+  }
+  const now = Date.now();
+  let soonest: { ts: number; date: string; type: string } | null = null;
+  for (const d of docs) {
+    if (!d.expiry_date) continue;
+    if (!COMPLIANCE_TYPES.has(d.doc_type)) continue;
+    const ts = new Date(d.expiry_date).getTime();
+    if (Number.isNaN(ts)) continue;
+    if (soonest === null || ts < soonest.ts) {
+      soonest = { ts, date: d.expiry_date, type: d.doc_type };
+    }
+  }
+  if (!soonest) return { risk: "ok", soonestDate: null, docType: null };
+  const days = Math.floor((soonest.ts - now) / (1000 * 60 * 60 * 24));
+  return {
+    risk: days < 0 ? "overdue" : days <= 30 ? "soon" : "ok",
+    soonestDate: soonest.date,
+    docType: soonest.type,
+  };
 }
 
 export function ContractDocumentsTab({ contractId }: Props) {
