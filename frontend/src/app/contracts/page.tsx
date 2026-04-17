@@ -357,6 +357,115 @@ function NewContractModal({ onClose, onSuccess }: { onClose: () => void; onSucce
   );
 }
 
+// ── Bulk actions bar (Phase 9 C3) ────────────────────────────────────────────
+
+function BulkActionsBar({
+  selectedIds,
+  clear,
+  onDone,
+  toggleAllVisible,
+  visibleCount,
+}: {
+  selectedIds: Set<number>;
+  clear: () => void;
+  onDone: (msg: string) => void;
+  toggleAllVisible: () => void;
+  visibleCount: number;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const bulkExtend = async (months: number) => {
+    if (selectedIds.size === 0) return;
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      selectedIds.forEach((id) => params.append("ids", String(id)));
+      params.append("months", String(months));
+      const { data: res } = await api.post(
+        `/api/contracts/bulk-extend?${params.toString()}`,
+      );
+      onDone(
+        `Przedłużono ${res.extended} kontraktów o ${months} mies. (pominięto bez end_date: ${res.skipped_no_end_date?.length ?? 0}).`,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const bulkMarkEnded = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Oznaczyć ${selectedIds.size} kontraktów jako zakończone?`)) return;
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      selectedIds.forEach((id) => params.append("ids", String(id)));
+      const { data: res } = await api.post(
+        `/api/contracts/bulk-mark-ended?${params.toString()}`,
+      );
+      onDone(`Zakończono ${res.changed} kontraktów.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (selectedIds.size === 0) {
+    return (
+      <div className="flex items-center gap-3 text-xs text-gray-500">
+        <button
+          onClick={toggleAllVisible}
+          className="text-blue-600 hover:underline"
+        >
+          Zaznacz widoczne ({visibleCount})
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded-lg px-4 py-2 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium">
+          Wybrano: <strong>{selectedIds.size}</strong>
+        </span>
+        <button
+          onClick={() => bulkExtend(3)}
+          disabled={busy}
+          className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 py-1.5 rounded"
+        >
+          Przedłuż +3m
+        </button>
+        <button
+          onClick={() => bulkExtend(6)}
+          disabled={busy}
+          className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 py-1.5 rounded"
+        >
+          Przedłuż +6m
+        </button>
+        <button
+          onClick={() => bulkExtend(12)}
+          disabled={busy}
+          className="text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 py-1.5 rounded"
+        >
+          Przedłuż +12m
+        </button>
+        <button
+          onClick={bulkMarkEnded}
+          disabled={busy}
+          className="text-sm bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-3 py-1.5 rounded"
+        >
+          Oznacz zakończone
+        </button>
+        <button
+          onClick={clear}
+          className="text-sm text-gray-500 hover:text-gray-700 ml-auto"
+        >
+          Wyczyść zaznaczenie
+        </button>
+      </div>
+    </RequireRole>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ContractsPage() {
@@ -375,6 +484,7 @@ export default function ContractsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [showNewModal, setShowNewModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const queryClient = useQueryClient();
 
   const queryParams = {
@@ -436,7 +546,35 @@ export default function ContractsPage() {
     queryClient.invalidateQueries({ queryKey: ["contracts"] });
   };
 
+  const toggleId = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    const all = (data?.items ?? []) as any[];
+    if (all.length === 0) return;
+    const allSelected = all.every((r) => selectedIds.has(r.id));
+    setSelectedIds(allSelected ? new Set() : new Set(all.map((r) => r.id as number)));
+  };
+
   const columns = [
+    {
+      key: "_select",
+      label: "",
+      render: (row: any) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.has(row.id)}
+          onChange={() => toggleId(row.id)}
+          className="w-4 h-4"
+        />
+      ),
+      csvValue: () => "",
+    },
     {
       key: "id",
       label: "ID",
@@ -678,6 +816,17 @@ export default function ContractsPage() {
           </div>
         )}
       </div>
+
+      <BulkActionsBar
+        selectedIds={selectedIds}
+        clear={() => setSelectedIds(new Set())}
+        onDone={(msg) => {
+          showToast(msg, "success");
+          setSelectedIds(new Set());
+        }}
+        toggleAllVisible={toggleAll}
+        visibleCount={(data?.items?.length ?? 0) as number}
+      />
 
       <DataTable
         columns={columns}
