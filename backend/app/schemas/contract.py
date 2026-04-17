@@ -26,6 +26,7 @@ class ContractCreate(BaseModel):
     office_location: Optional[str] = None
     team_name: Optional[str] = None
     project_name: Optional[str] = None
+    handover_notes: Optional[str] = None
 
 
 class ContractUpdate(BaseModel):
@@ -45,6 +46,7 @@ class ContractUpdate(BaseModel):
     office_location: Optional[str] = None
     team_name: Optional[str] = None
     project_name: Optional[str] = None
+    handover_notes: Optional[str] = None
 
 
 class ContractResponse(BaseModel):
@@ -69,6 +71,7 @@ class ContractResponse(BaseModel):
     office_location: Optional[str] = None
     team_name: Optional[str] = None
     project_name: Optional[str] = None
+    handover_notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
