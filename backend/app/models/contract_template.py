@@ -16,9 +16,7 @@ class ContractTemplate(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     contract_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     content_jinja: Mapped[str] = mapped_column(Text, nullable=False)
-    is_default: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
