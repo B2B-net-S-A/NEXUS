@@ -482,16 +482,25 @@ export default function ContractsPage() {
           <h1 className="text-2xl font-bold">Kontrakty</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">{data?.total ?? 0} kontraktów</p>
         </div>
-        {/* TacPlus guard — create contract wymaga admin/delivery_lead/tac. */}
-        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Nowy kontrakt
-          </button>
-        </RequireRole>
+        <div className="flex items-center gap-2">
+          <RequireRole roles={["admin", "delivery_lead"]}>
+            <a
+              href="/contracts/analytics"
+              className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              Analityka
+            </a>
+          </RequireRole>
+          <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nowy kontrakt
+            </button>
+          </RequireRole>
+        </div>
       </div>
 
       {expiring && expiring.length > 0 && (
