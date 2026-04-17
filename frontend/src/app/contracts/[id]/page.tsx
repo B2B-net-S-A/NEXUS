@@ -9,6 +9,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
+import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
@@ -201,7 +202,7 @@ function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): 
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabKey = "details" | "documents" | "amendments" | "onboarding" | "rateHistory" | "timeline";
+type TabKey = "details" | "documents" | "amendments" | "onboarding" | "invoices" | "rateHistory" | "timeline";
 
 interface Tab {
   key: TabKey;
@@ -214,6 +215,7 @@ const TABS: Tab[] = [
   { key: "documents", label: "Dokumenty", icon: FileText },
   { key: "amendments", label: "Aneksy", icon: FileEdit },
   { key: "onboarding", label: "Onboarding", icon: FileText },
+  { key: "invoices", label: "Faktury", icon: Banknote },
   { key: "rateHistory", label: "Historia stawek", icon: History },
   { key: "timeline", label: "Timeline", icon: ActivityIcon },
 ];
@@ -1018,6 +1020,9 @@ export default function ContractDetailPage() {
 
       {/* Tab: Onboarding */}
       {activeTab === "onboarding" && <ContractOnboardingTab contractId={id} />}
+
+      {/* Tab: Faktury */}
+      {activeTab === "invoices" && <ContractInvoicesTab contractId={id} />}
 
       {/* Tab: Rate history */}
       {activeTab === "rateHistory" && (
