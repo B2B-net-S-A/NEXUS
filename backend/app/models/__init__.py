@@ -14,6 +14,7 @@ from app.models.contract_onboarding import (
 )
 from app.models.contract_template import ContractTemplate
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
+from app.models.fx_rate import FxRate
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
@@ -55,6 +56,7 @@ __all__ = [
     "Invoice",
     "InvoiceDirection",
     "InvoiceStatus",
+    "FxRate",
     "Activity",
     "UserActivity",
     "EmailTemplate",

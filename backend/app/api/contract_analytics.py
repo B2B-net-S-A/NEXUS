@@ -11,6 +11,7 @@ billing_hours_per_month fields introduced in A3.
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -23,6 +24,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
+from app.services.fx_service import convert_to_pln
 
 router = APIRouter()
 
@@ -224,6 +226,10 @@ async def revenue_forecast(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     horizon_months: int = Query(12, ge=1, le=24),
+    convert_currency: bool = Query(
+        False,
+        description="If true, converts non-PLN amounts to PLN via cached NBP rates.",
+    ),
 ):
     today = date.today()
     first_of_month = today.replace(day=1)
@@ -237,9 +243,14 @@ async def revenue_forecast(
 
     from app.api.reports import _monthly_margin, _monthly_rate_client
 
+    async def _to_display(amount: int, currency: str) -> int:
+        if not convert_currency or (currency or "PLN").upper() == "PLN":
+            return amount
+        converted = await convert_to_pln(db, Decimal(amount), currency)
+        return int(converted)
+
     months: list[ForecastMonth] = []
     for i in range(horizon_months):
-        # Compute month_start
         month = first_of_month.month + i
         year = first_of_month.year + (month - 1) // 12
         month = ((month - 1) % 12) + 1
@@ -255,14 +266,17 @@ async def revenue_forecast(
             if c.start_date < next_month
             and (c.end_date is None or c.end_date >= month_start)
         ]
-        revenue = sum(_monthly_rate_client(c) for c in active_in_month)
-        margin = sum(_monthly_margin(c) for c in active_in_month)
+        revenue_raw = 0
+        margin_raw = 0
+        for c in active_in_month:
+            revenue_raw += await _to_display(_monthly_rate_client(c), c.currency)
+            margin_raw += await _to_display(_monthly_margin(c), c.currency)
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),
                 month_label=month_start.strftime("%b %Y"),
-                revenue=int(revenue),
-                margin=int(margin),
+                revenue=int(revenue_raw),
+                margin=int(margin_raw),
                 active_count=len(active_in_month),
             )
         )
