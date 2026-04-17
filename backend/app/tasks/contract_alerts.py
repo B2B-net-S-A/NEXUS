@@ -24,12 +24,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
 THRESHOLDS_DAYS = (60, 30, 14, 7)
+COMPLIANCE_THRESHOLD_DAYS = 30
+_COMPLIANCE_DOC_TYPES = (
+    ContractDocumentType.nip,
+    ContractDocumentType.zus_certificate,
+    ContractDocumentType.oc_policy,
+)
 _DEFAULT_INTERVAL_HOURS = 24.0
 _STAFF_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
 
@@ -131,12 +138,50 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
         logger.warning("contract_alerts: slack post failed %s", e)
 
 
+async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocument]:
+    """Return NIP/OC/ZUS docs whose expiry_date is within COMPLIANCE_THRESHOLD_DAYS."""
+    today = date.today()
+    cutoff = today + timedelta(days=COMPLIANCE_THRESHOLD_DAYS)
+    res = await db.execute(
+        select(ContractDocument).where(
+            ContractDocument.doc_type.in_(_COMPLIANCE_DOC_TYPES),
+            ContractDocument.expiry_date.isnot(None),
+            ContractDocument.expiry_date <= cutoff,
+            ContractDocument.expiry_date >= today,
+        )
+    )
+    return list(res.scalars().all())
+
+
+async def _compliance_already_notified(db: AsyncSession) -> set[int]:
+    """Find contract_document ids already reported."""
+    res = await db.execute(
+        select(Notification.message).where(
+            Notification.notification_type == NotificationType.contract_ending,
+            Notification.title.like("[compliance]%"),
+        )
+    )
+    ids: set[int] = set()
+    for (msg,) in res.all():
+        # Message encodes the doc id in the form 'doc_id=<N>'
+        if not msg:
+            continue
+        for tok in msg.split():
+            if tok.startswith("doc_id="):
+                try:
+                    ids.add(int(tok.split("=", 1)[1].rstrip(".")))
+                except ValueError:
+                    pass
+    return ids
+
+
 async def run_contract_alerts_cycle() -> dict:
     """One pass: promote statuses + create notifications + post Slack summary."""
     stats = {
         "promoted_ending": 0,
         "promoted_ended": 0,
         "notifications_created": 0,
+        "compliance_alerts": 0,
         "slack_sent": 0,
     }
     async with AsyncSessionLocal() as db:
@@ -174,6 +219,36 @@ async def run_contract_alerts_cycle() -> dict:
                     )
                     stats["notifications_created"] += 1
                 to_slack.append((threshold, c))
+        await db.commit()
+
+    # Compliance: NIP / OC / ZUS expiring soon
+    async with AsyncSessionLocal() as db:
+        staff_ids_res = await db.execute(
+            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
+        )
+        staff_ids = [row[0] for row in staff_ids_res.all()]
+        if staff_ids:
+            expiring = await _compliance_documents_expiring(db)
+            already = await _compliance_already_notified(db)
+            fresh = [d for d in expiring if d.id not in already]
+            for doc in fresh:
+                title = f"[compliance] Dokument #{doc.id} wygasa"
+                message = (
+                    f"Dokument {doc.doc_type.value} (doc_id={doc.id}) kontraktu "
+                    f"#{doc.contract_id} wygasa {doc.expiry_date}. "
+                    f"Zamów nowy zanim straci ważność."
+                )
+                for uid in staff_ids:
+                    db.add(
+                        Notification(
+                            user_id=uid,
+                            title=title,
+                            message=message,
+                            link=f"/contracts/{doc.contract_id}",
+                            notification_type=NotificationType.contract_ending,
+                        )
+                    )
+                stats["compliance_alerts"] += 1
         await db.commit()
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
