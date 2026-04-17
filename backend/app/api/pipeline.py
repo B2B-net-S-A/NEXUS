@@ -329,6 +329,68 @@ async def move_candidate(
             },
         )
 
+    # Phase 9 A2: auto-create a draft Contract when the candidate is hired.
+    # Staff fills in the rates + dates afterwards — this just removes the
+    # "go to Contracts → create" click.
+    if legacy_enum == PipelineStage.hired:
+        from datetime import date as _date
+
+        from app.models.contract import Contract, ContractStatus
+        from app.models.user import User, UserRole
+
+        existing_draft = await db.scalar(
+            select(Contract).where(
+                Contract.candidate_id == data.candidate_id,
+                Contract.client_id == job.client_id,
+                Contract.job_id == job.id,
+                Contract.status == ContractStatus.draft,
+            )
+        )
+        if existing_draft is None and job.client_id:
+            draft = Contract(
+                candidate_id=data.candidate_id,
+                client_id=job.client_id,
+                job_id=job.id,
+                start_date=_date.today(),
+                status=ContractStatus.draft,
+            )
+            db.add(draft)
+            await db.flush()
+            db.add(
+                Activity(
+                    entity_type="contract",
+                    entity_id=draft.id,
+                    action="auto_drafted_from_pipeline",
+                    user_id=current_user.id,
+                    details={
+                        "candidate_id": data.candidate_id,
+                        "job_id": job.id,
+                        "stage": legacy_enum.value,
+                    },
+                )
+            )
+            staff_ids_res = await db.execute(
+                select(User.id).where(
+                    User.role.in_(
+                        [UserRole.admin, UserRole.delivery_lead, UserRole.tac]
+                    ),
+                    User.is_active.is_(True),
+                )
+            )
+            for (uid,) in staff_ids_res.all():
+                db.add(
+                    Notification(
+                        user_id=uid,
+                        title=f"Nowy draft kontraktu #{draft.id}",
+                        message=(
+                            f"Kandydat #{data.candidate_id} został zatrudniony "
+                            f"na ofertę #{job.id}. Uzupełnij stawki i daty kontraktu."
+                        ),
+                        link=f"/contracts/{draft.id}",
+                        notification_type=NotificationType.contract_ending,
+                    )
+                )
+
     await db.commit()
     await db.refresh(stage)
     resp = _stage_response(stage)
