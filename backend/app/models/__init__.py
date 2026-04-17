@@ -12,6 +12,7 @@ from app.models.contract_onboarding import (
     ContractOnboardingItem,
     OnboardingItemStatus,
 )
+from app.models.contract_template import ContractTemplate
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
@@ -49,6 +50,7 @@ __all__ = [
     "ContractAmendmentType",
     "ContractOnboardingItem",
     "OnboardingItemStatus",
+    "ContractTemplate",
     "Activity",
     "UserActivity",
     "EmailTemplate",
