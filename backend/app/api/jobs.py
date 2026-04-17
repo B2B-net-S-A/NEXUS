@@ -151,8 +151,17 @@ async def update_job(
     await db.refresh(job)
 
     # Phase 2: re-embed if any embed-relevant field changed
-    if _EMBED_TRIGGER_FIELDS & set(updates.keys()):
+    changed = set(updates.keys())
+    if _EMBED_TRIGGER_FIELDS & changed:
         await _maybe_embed_job(job_id, db)
+
+    # Phase C1: invalidate cached (*, job) match scores when any scoring input
+    # changes (_EMBED_TRIGGER_FIELDS covers must/nice, seniority, salary, etc.)
+    if _EMBED_TRIGGER_FIELDS & changed:
+        from app.services.match_score_cache import mark_stale_for_job
+
+        await mark_stale_for_job(db, job_id)
+        await db.commit()
     return job
 
 

@@ -118,6 +118,14 @@ class CandidateUpdate(BaseModel):
         return _normalize_skill_list(v)
 
 
+class MatchStats(BaseModel):
+    """Lightweight summary used by the candidates list badge (Phase A1)."""
+
+    open_count: int
+    total_open: int
+    top_score: float
+
+
 class CandidateResponse(BaseModel):
     id: int
     name: str
@@ -152,6 +160,8 @@ class CandidateResponse(BaseModel):
     embedding_id: Optional[str]
     created_at: datetime
     updated_at: datetime
+    # Phase A1: populated only when list endpoint is called with include_match_stats=true
+    match_stats: Optional[MatchStats] = None
 
     model_config = {"from_attributes": True}
 

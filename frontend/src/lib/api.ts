@@ -645,4 +645,62 @@ export const recommendationsApi = {
     api.post(`/api/candidates/${candidateId}/assign-to-job/${jobId}`),
 };
 
+// ── Skill taxonomy (Phase B1) ───────────────────────────────────────────────
+
+export interface SkillSuggestion {
+  id: number;
+  name: string;
+  category: string | null;
+}
+
+export const skillsApi = {
+  autocomplete: (q: string, limit = 20) =>
+    api.get<{ items: SkillSuggestion[] }>("/api/skills/autocomplete", {
+      params: { q, limit },
+    }),
+  list: (limit = 100) =>
+    api.get<{
+      items: Array<{ id: number; name: string; category: string | null; aliases: string[] }>;
+      total: number;
+    }>("/api/skills", { params: { limit } }),
+};
+
+// ── Scoring weight profiles (Phase D1) ──────────────────────────────────────
+
+export interface ScoringWeights {
+  semantic: number;
+  skills: number;
+  salary: number;
+  location: number;
+  availability: number;
+}
+
+export interface ScoringWeightProfile {
+  id: number;
+  name: string;
+  user_id: number | null;
+  client_id: number | null;
+  weights: ScoringWeights;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScoringWeightProfileCreate {
+  name: string;
+  user_id?: number | null;
+  client_id?: number | null;
+  weights: ScoringWeights;
+  active?: boolean;
+}
+
+export const scoringWeightsApi = {
+  list: () => api.get<ScoringWeightProfile[]>("/api/scoring-weights"),
+  create: (payload: ScoringWeightProfileCreate) =>
+    api.post<ScoringWeightProfile>("/api/scoring-weights", payload),
+  update: (id: number, payload: ScoringWeightProfileCreate) =>
+    api.patch<ScoringWeightProfile>(`/api/scoring-weights/${id}`, payload),
+  remove: (id: number) => api.delete(`/api/scoring-weights/${id}`),
+};
+
 export default api;

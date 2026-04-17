@@ -8,6 +8,15 @@ import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
   candidateId: number;
+  /** Cap the number of matches shown. Default 10. */
+  maxItems?: number;
+  /**
+   * "full" — full-height card with title, refresh, and footer details.
+   * "compact" — trimmed for headers/sidebars; hides refresh button, shrinks rows.
+   */
+  variant?: "full" | "compact";
+  /** Optional callback to jump to the full matches view (e.g. switch tabs). */
+  onShowAll?: () => void;
 }
 
 function ScoreChip({ score }: { score: number }) {
@@ -28,22 +37,28 @@ function ScoreChip({ score }: { score: number }) {
   );
 }
 
-export function SuggestedJobsWidget({ candidateId }: Props) {
+export function SuggestedJobsWidget({
+  candidateId,
+  maxItems = 10,
+  variant = "full",
+  onShowAll,
+}: Props) {
   const [matches, setMatches] = useState<JobMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  const compact = variant === "compact";
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await recommendationsApi.forCandidate(candidateId, {
-        top_k: 10,
+        top_k: Math.max(maxItems, 10),
         include_breakdown: true,
       });
-      setMatches(res.data.matches);
+      setMatches(res.data.matches.slice(0, maxItems));
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
@@ -76,19 +91,42 @@ export function SuggestedJobsWidget({ candidateId }: Props) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-purple-500" />
-          Sugerowane projekty
-        </h3>
-        <button
-          onClick={load}
-          className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-300"
-          disabled={loading}
+    <div
+      className={
+        compact
+          ? "bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-800/50 p-3"
+          : "bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+      }
+    >
+      <div className="flex items-center justify-between mb-2">
+        <h3
+          className={
+            compact
+              ? "font-semibold text-xs text-purple-700 dark:text-purple-200 flex items-center gap-1.5 uppercase tracking-wide"
+              : "font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2"
+          }
         >
-          {loading ? "Ładowanie…" : "Odśwież"}
-        </button>
+          <Sparkles className={compact ? "w-3.5 h-3.5 text-purple-500" : "w-4 h-4 text-purple-500"} />
+          Sugerowane rekrutacje
+        </h3>
+        {compact ? (
+          onShowAll && matches.length >= maxItems ? (
+            <button
+              onClick={onShowAll}
+              className="text-[11px] text-blue-600 hover:text-blue-800 dark:text-blue-300"
+            >
+              Pokaż wszystkie →
+            </button>
+          ) : null
+        ) : (
+          <button
+            onClick={load}
+            className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-300"
+            disabled={loading}
+          >
+            {loading ? "Ładowanie…" : "Odśwież"}
+          </button>
+        )}
       </div>
 
       {error && (

@@ -43,6 +43,8 @@ from app.api import ws
 from app.api import matching
 from app.api import pipeline_templates
 from app.api import recommendations
+from app.api import skills as skills_api
+from app.api import scoring_weights as scoring_weights_api
 from app.api import phase3
 from app.api import phase4
 from app.api import phase5
@@ -122,6 +124,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Qdrant init skipped: %s", e)
 
+    # Phase B1: preload skill alias map into scoring engine
+    try:
+        from app.services.skill_taxonomy_loader import refresh_alias_map
+
+        count = await refresh_alias_map()
+        logger.info("Skill alias map loaded: %d aliases", count)
+    except Exception as e:
+        logger.warning("Skill alias map preload skipped: %s", e)
+
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
     from app.tasks.match_history_ttl import match_history_ttl_loop
@@ -195,6 +206,12 @@ app.include_router(import_export.router, prefix="/api", tags=["import-export"])
 app.include_router(fireflies.router, prefix="/api", tags=["fireflies"])
 app.include_router(ws.router, tags=["websocket"])
 app.include_router(matching.router, prefix="/api", tags=["matching"])
+app.include_router(skills_api.router, prefix="/api/skills", tags=["skills"])
+app.include_router(
+    scoring_weights_api.router,
+    prefix="/api/scoring-weights",
+    tags=["scoring-weights"],
+)
 app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
