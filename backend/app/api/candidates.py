@@ -27,7 +27,13 @@ from app.schemas.candidate import (
     CandidateUpdate,
     MatchStats,
 )
-from app.services.scoring_service import rank_jobs_for_candidate, summarize_match_stats
+from app.services.scoring_service import (
+    DEFAULT_PROFILE,
+    WeightProfile,
+    rank_jobs_for_candidate,
+    resolve_active_profile,
+    summarize_match_stats,
+)
 from app.services.dedup_service import find_candidate_duplicates
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
 from app.api import ws as ws_manager
@@ -104,6 +110,10 @@ async def list_candidates(
         ge=0.0,
         le=100.0,
         description="Minimum total score (0-100) to count an open job as matching.",
+    ),
+    profile_id: Optional[int] = Query(
+        None,
+        description="Phase D1 scoring weight profile id. None = auto-resolve by user.",
     ),
 ):
     query = select(Candidate)
@@ -198,6 +208,22 @@ async def list_candidates(
     result = await db.execute(query)
     items = list(result.scalars().all())
 
+    # Phase D1: resolve which weight profile to use for the match-stats column.
+    profile: WeightProfile = DEFAULT_PROFILE
+    if include_match_stats and items:
+        if profile_id is not None:
+            from app.models.scoring_weight_profile import ScoringWeightProfile
+
+            row = await db.scalar(
+                select(ScoringWeightProfile).where(
+                    ScoringWeightProfile.id == profile_id
+                )
+            )
+            if row:
+                profile = WeightProfile.from_record(row)
+        else:
+            profile = await resolve_active_profile(db, user_id=current_user.id)
+
     match_stats_by_candidate: dict[int, MatchStats] = {}
     if include_match_stats and items:
         open_jobs_stmt = (
@@ -209,7 +235,9 @@ async def list_candidates(
         total_open = len(open_jobs)
         if total_open:
             for cand in items:
-                breakdowns = await rank_jobs_for_candidate(cand, open_jobs, db)
+                breakdowns = await rank_jobs_for_candidate(
+                    cand, open_jobs, db, profile=profile
+                )
                 stats = summarize_match_stats(
                     breakdowns, total_open=total_open, min_score=match_threshold
                 )

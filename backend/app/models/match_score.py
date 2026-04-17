@@ -27,7 +27,7 @@ class CandidateJobMatchScore(Base):
     __tablename__ = "candidate_job_match_scores"
     __table_args__ = (
         PrimaryKeyConstraint(
-            "candidate_id", "job_id", name="pk_candidate_job_match_scores"
+            "candidate_id", "job_id", "profile_id", name="pk_candidate_job_match_scores"
         ),
     )
 
@@ -36,6 +36,9 @@ class CandidateJobMatchScore(Base):
         ForeignKey("candidates.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # 0 = built-in DEFAULT_PROFILE (no row in scoring_weight_profiles);
+    # >0 = id of a custom profile.
+    profile_id: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     job_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("jobs.id", ondelete="CASCADE"),

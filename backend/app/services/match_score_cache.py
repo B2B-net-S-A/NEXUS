@@ -33,8 +33,10 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.match_score import CandidateJobMatchScore
 from app.services.scoring_service import (
+    DEFAULT_PROFILE,
     LayerResult,
     ScoreBreakdown,
+    WeightProfile,
     score_candidate_job,
 )
 
@@ -73,11 +75,14 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
     )
 
 
-async def _upsert_breakdown(db: AsyncSession, breakdown: ScoreBreakdown) -> None:
+async def _upsert_breakdown(
+    db: AsyncSession, breakdown: ScoreBreakdown, *, profile_id: int
+) -> None:
     """Persist (insert-or-update) a computed breakdown; clears `stale`."""
     stmt = pg_insert(CandidateJobMatchScore).values(
         candidate_id=breakdown.candidate_id,
         job_id=breakdown.job_id,
+        profile_id=profile_id,
         total_score=breakdown.total,
         breakdown=breakdown.as_dict(),
         stale=False,
@@ -86,6 +91,7 @@ async def _upsert_breakdown(db: AsyncSession, breakdown: ScoreBreakdown) -> None
         index_elements=[
             CandidateJobMatchScore.candidate_id,
             CandidateJobMatchScore.job_id,
+            CandidateJobMatchScore.profile_id,
         ],
         set_={
             "total_score": stmt.excluded.total_score,
@@ -106,26 +112,29 @@ async def get_cached_or_compute(
     db: AsyncSession,
     *,
     semantic_similarity: Optional[float] = None,
+    profile: WeightProfile = DEFAULT_PROFILE,
 ) -> ScoreBreakdown:
     """
     Return a fresh ScoreBreakdown: hit the cache first, recompute on miss/stale.
 
-    The recompute path persists the result so subsequent calls are cache hits.
+    The cache is keyed by (candidate, job, profile) so different weight
+    profiles don't trample each other's results.
     """
     row = await db.scalar(
         select(CandidateJobMatchScore).where(
             CandidateJobMatchScore.candidate_id == candidate.id,
             CandidateJobMatchScore.job_id == job.id,
+            CandidateJobMatchScore.profile_id == profile.id,
         )
     )
     if row is not None and not row.stale:
         return _breakdown_from_row(row)
 
     breakdown = await score_candidate_job(
-        candidate, job, db, semantic_similarity=semantic_similarity
+        candidate, job, db, semantic_similarity=semantic_similarity, profile=profile
     )
     try:
-        await _upsert_breakdown(db, breakdown)
+        await _upsert_breakdown(db, breakdown, profile_id=profile.id)
         await db.commit()
     except Exception as e:  # pragma: no cover — write-through best-effort
         logger.warning("match score cache upsert failed: %s", e)
@@ -139,6 +148,7 @@ async def bulk_get_or_compute(
     db: AsyncSession,
     *,
     similarity_map: Optional[dict[int, float]] = None,
+    profile: WeightProfile = DEFAULT_PROFILE,
 ) -> list[ScoreBreakdown]:
     """Score N candidates against one job, preferring cache, sorted desc by total."""
     if not candidates:
@@ -151,6 +161,7 @@ async def bulk_get_or_compute(
                 select(CandidateJobMatchScore).where(
                     CandidateJobMatchScore.job_id == job.id,
                     CandidateJobMatchScore.candidate_id.in_([c.id for c in candidates]),
+                    CandidateJobMatchScore.profile_id == profile.id,
                     CandidateJobMatchScore.stale.is_(False),
                 )
             )
@@ -168,7 +179,7 @@ async def bulk_get_or_compute(
             results.append(_breakdown_from_row(row))
             continue
         breakdown = await score_candidate_job(
-            c, job, db, semantic_similarity=sims.get(c.id)
+            c, job, db, semantic_similarity=sims.get(c.id), profile=profile
         )
         results.append(breakdown)
         pending_writes.append(breakdown)
@@ -176,7 +187,7 @@ async def bulk_get_or_compute(
     if pending_writes:
         try:
             for b in pending_writes:
-                await _upsert_breakdown(db, b)
+                await _upsert_breakdown(db, b, profile_id=profile.id)
             await db.commit()
         except Exception as e:  # pragma: no cover
             logger.warning("match score bulk cache upsert failed: %s", e)
