@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -16,6 +17,11 @@ from app.schemas.user import LoginRequest, TokenResponse, UserCreate, UserRespon
 from app.api.deps import CurrentUser
 
 router = APIRouter()
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -93,3 +99,32 @@ async def refresh_token(
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: CurrentUser):
     return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("3/minute")
+async def change_password(
+    request: Request,
+    data: ChangePasswordRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service password change.
+
+    Wymaga obecnego hasła (proof-of-possession) + nowego hasła min. 8 znaków.
+    Rate-limited 3/min per IP. Nie ujawnia że user istnieje — wszystkie
+    niepoprawne próby zwracają 401.
+    """
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    if data.new_password == data.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must differ from current",
+        )
+    current_user.password_hash = hash_password(data.new_password)
+    await db.flush()
+    return None

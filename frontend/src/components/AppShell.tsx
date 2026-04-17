@@ -13,6 +13,7 @@ import {
   ChevronRight, X, Loader2, Menu, Sparkles,
 } from "lucide-react";
 import api, { aiWriterApi, phase5Api, pipelineTemplatesApi } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 
@@ -1424,6 +1425,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === "/login";
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<ModalType>(null);
+
+  // Hydrate auth state from localStorage after mount (SSR-safe).
+  // Unika React hydration mismatch (#418) — initial render ma user=null na
+  // server i client, a Zustand wypełnia stan dopiero w useEffect.
+  const hydrateAuth = useAuthStore((s) => s.hydrate);
+  const hydrated = useAuthStore((s) => s.hydrated);
+  useEffect(() => {
+    if (!hydrated) hydrateAuth();
+  }, [hydrated, hydrateAuth]);
 
   // Close mobile sidebar on route change
   useEffect(() => {

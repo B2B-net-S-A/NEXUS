@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
 import { SavedSearchPicker } from "@/components/SavedSearchPicker";
 import { AddJobModal } from "@/components/AppShell";
+import { RequireRole } from "@/components/RequireRole";
 import { Briefcase, Plus, Users, Clock, TrendingUp, BarChart2 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -185,22 +186,26 @@ export default function JobsPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Oferty pracy</h1>
           <p className="text-sm text-gray-500">{data?.total ?? 0} ofert</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Nowa oferta
-        </button>
-        {showAddModal && (
-          <AddJobModal
-            onClose={() => setShowAddModal(false)}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ["jobs"] });
-              setShowAddModal(false);
-            }}
-          />
-        )}
+        {/* TacPlus guard — create job wymaga admin/delivery_lead/tac.
+            Rekruter/sourcer/user widzą tylko listę ofert. */}
+        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Nowa oferta
+          </button>
+          {showAddModal && (
+            <AddJobModal
+              onClose={() => setShowAddModal(false)}
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["jobs"] });
+                setShowAddModal(false);
+              }}
+            />
+          )}
+        </RequireRole>
       </div>
 
       {/* Recruitment type filter tabs */}

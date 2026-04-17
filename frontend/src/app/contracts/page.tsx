@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { contractsApi } from "@/lib/api";
 import { DataTable } from "@/components/DataTable";
 import { SavedSearchPicker } from "@/components/SavedSearchPicker";
+import { RequireRole } from "@/components/RequireRole";
 import { Plus, AlertCircle, X, Loader2 } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
@@ -416,13 +417,16 @@ export default function ContractsPage() {
           <h1 className="text-2xl font-bold">Kontrakty</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">{data?.total ?? 0} kontraktów</p>
         </div>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Nowy kontrakt
-        </button>
+        {/* TacPlus guard — create contract wymaga admin/delivery_lead/tac. */}
+        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Nowy kontrakt
+          </button>
+        </RequireRole>
       </div>
 
       {expiring && expiring.length > 0 && (

@@ -7,6 +7,7 @@ import api from "@/lib/api";
 import { DataTable } from "@/components/DataTable";
 import { SearchBar } from "@/components/SearchBar";
 import { AddClientModal } from "@/components/AppShell";
+import { RequireRole } from "@/components/RequireRole";
 import { Building2, Plus, CheckCircle, XCircle } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -65,22 +66,25 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-bold dark:text-gray-100">Klienci</h1>
           <p className="text-sm text-gray-500">{data?.total ?? 0} firm</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          Nowy klient
-        </button>
-        {showAddModal && (
-          <AddClientModal
-            onClose={() => setShowAddModal(false)}
-            onSuccess={() => {
-              queryClient.invalidateQueries({ queryKey: ["clients"] });
-              setShowAddModal(false);
-            }}
-          />
-        )}
+        {/* TacPlus guard — create client wymaga admin/delivery_lead/tac. */}
+        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            Nowy klient
+          </button>
+          {showAddModal && (
+            <AddClientModal
+              onClose={() => setShowAddModal(false)}
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ["clients"] });
+                setShowAddModal(false);
+              }}
+            />
+          )}
+        </RequireRole>
       </div>
 
       <SearchBar value={search} onChange={setSearch} placeholder="Szukaj klientów..." />
