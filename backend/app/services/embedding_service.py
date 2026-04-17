@@ -127,9 +127,8 @@ async def _ollama_embed(text: str) -> Optional[list[float]]:
     Local fallback using Ollama's `mxbai-embed-large` (1024-dim, same as Voyage).
     Lets the stack run fully offline without any external API key.
     """
-    host = (
-        getattr(settings, "OLLAMA_BASE_URL", None)
-        or getattr(settings, "OLLAMA_HOST", None)
+    host = getattr(settings, "OLLAMA_BASE_URL", None) or getattr(
+        settings, "OLLAMA_HOST", None
     )
     if not host:
         return None

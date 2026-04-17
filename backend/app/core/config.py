@@ -30,9 +30,10 @@ class Settings(BaseSettings):
     VOYAGE_MODEL: str = "voyage-3"
     EMBEDDING_DIMENSION: int = 1024
 
-    # Ollama (local LLM)
+    # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
+    OLLAMA_EMBED_MODEL: str = "mxbai-embed-large"
 
     # Fireflies integration
     FIREFLIES_API_KEY: str = ""
