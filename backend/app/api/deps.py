@@ -52,8 +52,45 @@ def require_roles(*roles: UserRole):
     return _check_role
 
 
+# ── Named guards (hierarchiczne "role X or higher") ──────────────────────────
+#
+# Hierarchia:
+#   admin          (5) — pełne uprawnienia, user management
+#   delivery_lead  (4) — rate cards, konflikty, pipeline templates, raporty
+#   tac            (3) — CRUD ofert/kontraktów, reject/offer, prep kit
+#   recruiter      (2) — dodawanie kandydatów, ruchy w pipeline
+#   sourcer        (2) — dodawanie kandydatów z ATS/ogłoszeń
+#   user           (1) — read-only viewer (QC, klient)
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
 AdminUser = Annotated[User, Depends(require_roles(UserRole.admin))]
-ManagerOrAdmin = Annotated[
-    User, Depends(require_roles(UserRole.admin, UserRole.manager))
+
+DeliveryLeadPlus = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
+
+TacPlus = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),
+]
+
+RecruiterPlus = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+        )
+    ),
+]
+
+# Backwards-compatibility alias for routers still importing the old name.
+# `ManagerOrAdmin` was the pre-RBAC guard for (manager, admin). After
+# consolidation it maps to DeliveryLeadPlus (admin + delivery_lead) — same
+# semantic: „privileged operations beyond regular recruiters".
+ManagerOrAdmin = DeliveryLeadPlus

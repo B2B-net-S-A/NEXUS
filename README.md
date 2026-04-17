@@ -155,12 +155,20 @@ Nexus/
 
 ## Roles & Permissions
 
-| Role | Access |
-|------|--------|
-| **Admin** | Full access |
-| **Manager** | All operations, no user management |
-| **Recruiter** | Candidates, jobs, pipeline, notes |
-| **Client** | Read-only: job status, hired candidates |
+Six-tier RBAC consolidated from the previous dual `UserRole` + `RecruiterRole`
+model (phase 8). See [`docs/RBAC.md`](docs/RBAC.md) for the full per-endpoint matrix.
+
+| Role | Rank | Access summary |
+|---|:---:|---|
+| **Admin** | 5 | Full access, user management, system settings |
+| **Delivery Lead** | 4 | Rate cards, konflikty, pipeline templates, full reports |
+| **TAC** (Talent Acquisition Consultant) | 3 | Jobs/contracts CRUD, reject/offer, prep kit, full reports |
+| **Recruiter** | 2 | Add candidates, pipeline moves, own-data reports |
+| **Sourcer** | 2 | Add candidates from ATS/postings, pipeline moves, own-data reports |
+| **User** | 1 | Read-only viewer (QC, klient) |
+
+Guards: `AdminUser`, `DeliveryLeadPlus`, `TacPlus`, `RecruiterPlus`, `CurrentUser` —
+defined in [`backend/app/api/deps.py`](backend/app/api/deps.py).
 
 ---
 

@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.activity import Activity
 from app.schemas.job import JobCreate, JobResponse, JobUpdate
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, TacPlus
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ async def list_jobs(
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
-    data: JobCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    data: JobCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     job = Job(**data.model_dump(), created_by=current_user.id)
     db.add(job)
@@ -128,7 +128,7 @@ async def get_job(
 async def update_job(
     job_id: int,
     data: JobUpdate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -158,7 +158,7 @@ async def update_job(
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
-    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
@@ -177,7 +177,7 @@ async def delete_job(
 
 @router.post("/{job_id}/publish")
 async def publish_job(
-    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))

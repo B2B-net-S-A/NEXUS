@@ -345,7 +345,7 @@ def _fallback_criteria_from_text(job: Job) -> dict:
 async def refresh_job_criteria(
     request: Request,
     job_id: int,
-    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -388,7 +388,7 @@ async def refresh_job_criteria(
 async def generate_job_criteria_preview(
     request: Request,
     job_id: int,
-    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -423,7 +423,7 @@ async def recompute_scores(
     request: Request,
     job_id: int,
     top_k: int = Query(200, ge=1, le=500),
-    current_user: User = Depends(require_roles(UserRole.manager, UserRole.admin)),
+    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
     db: AsyncSession = Depends(get_db),
 ):
     """

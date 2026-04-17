@@ -14,7 +14,7 @@ from app.schemas.contract import (
     ContractResponse,
     ContractUpdate,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, TacPlus
 
 router = APIRouter()
 
@@ -46,7 +46,7 @@ async def list_contracts(
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
-    data: ContractCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     contract = Contract(**data.model_dump())
     # margin auto-calculated via SQLAlchemy event
@@ -97,7 +97,7 @@ async def get_contract(
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Contract).where(Contract.id == contract_id))
@@ -124,7 +124,7 @@ async def update_contract(
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contract(
-    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Contract).where(Contract.id == contract_id))
     contract = result.scalar_one_or_none()

@@ -1,10 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { Zap } from "lucide-react";
+
+// Prostą allowlistą ograniczamy `?next=` do relatywnych ścieżek —
+// żaden `//evil.com` nie przejdzie jako open redirect.
+function safeNextPath(raw: string | null): string {
+  if (!raw) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -12,15 +20,17 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
   const { setAuth, token } = useAuthStore();
 
   // Auto-redirect if already logged in
   useEffect(() => {
     const storedToken = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     if (storedToken || token) {
-      router.replace("/");
+      router.replace(nextPath);
     }
-  }, [token, router]);
+  }, [token, router, nextPath]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +42,7 @@ export default function LoginPage() {
         headers: { Authorization: `Bearer ${data.access_token}` },
       });
       setAuth(me.data, data.access_token);
-      router.push("/");
+      router.push(nextPath);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Błąd logowania");
     } finally {

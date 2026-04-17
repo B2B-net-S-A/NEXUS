@@ -27,7 +27,7 @@ from app.schemas.candidate import (
     CandidateUpdate,
 )
 from app.services.dedup_service import find_candidate_duplicates
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -213,7 +213,7 @@ async def export_candidates(
 @router.post("", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED)
 async def create_candidate(
     data: CandidateCreate,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     candidate = Candidate(**data.model_dump())
@@ -498,7 +498,7 @@ async def get_candidate_history(
 async def update_candidate(
     candidate_id: int,
     data: CandidateUpdate,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
@@ -522,7 +522,9 @@ async def update_candidate(
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_candidate(
-    candidate_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    candidate_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
@@ -541,7 +543,7 @@ async def delete_candidate(
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
 async def upload_cv(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -621,7 +623,7 @@ async def download_cv(
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
 async def bulk_import_candidates(
     data: list[CandidateCreate],
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Import multiple candidates at once."""

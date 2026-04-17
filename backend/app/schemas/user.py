@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr
 
-from app.models.user import UserRole, RecruiterRole
+from app.models.user import UserRole
 
 
 class UserCreate(BaseModel):
@@ -11,13 +11,11 @@ class UserCreate(BaseModel):
     password: str
     name: str
     role: UserRole = UserRole.recruiter
-    recruiter_role: Optional[RecruiterRole] = None
 
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
-    recruiter_role: Optional[RecruiterRole] = None
     is_active: Optional[bool] = None
 
 
@@ -26,7 +24,6 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: UserRole
-    recruiter_role: Optional[RecruiterRole] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

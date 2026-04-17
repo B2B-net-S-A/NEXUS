@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.security import hash_password
-from app.models.user import User, UserRole, RecruiterRole
+from app.models.user import User, UserRole
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client, ClientStatus
 from app.models.job import Job, JobStatus, JobPriority, RemotePolicy, RecruitmentType
@@ -74,35 +74,30 @@ async def seed():
                 "email": "artur@b2bnet.pl",
                 "name": "Artur Twardowski",
                 "role": UserRole.admin,
-                "recruiter_role": RecruiterRole.admin,
                 "password": "admin123",
             },
             {
                 "email": "olaf@b2bnet.pl",
                 "name": "Olaf Moczydłowski",
-                "role": UserRole.manager,
-                "recruiter_role": RecruiterRole.delivery_lead,
+                "role": UserRole.delivery_lead,
                 "password": "recruiter123",
             },
             {
                 "email": "marta@b2bnet.pl",
                 "name": "Marta Kowalska",
                 "role": UserRole.recruiter,
-                "recruiter_role": RecruiterRole.recruiter,
                 "password": "recruiter123",
             },
             {
                 "email": "tomasz@b2bnet.pl",
                 "name": "Tomasz Wierzbicki",
-                "role": UserRole.recruiter,
-                "recruiter_role": RecruiterRole.sourcer,
+                "role": UserRole.sourcer,
                 "password": "recruiter123",
             },
             {
                 "email": "dominik@b2bnet.pl",
                 "name": "Dominik Zwierzchowski",
-                "role": UserRole.manager,
-                "recruiter_role": RecruiterRole.quality_control,
+                "role": UserRole.user,
                 "password": "recruiter123",
             },
         ]
@@ -113,7 +108,6 @@ async def seed():
                 password_hash=hash_password(ud["password"]),
                 name=ud["name"],
                 role=ud["role"],
-                recruiter_role=ud.get("recruiter_role"),
                 is_active=True,
             )
             db.add(u)

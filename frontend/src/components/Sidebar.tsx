@@ -25,7 +25,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/store/auth";
+import { useAuthStore, hasRole, ROLE_LABELS, UserRole } from "@/store/auth";
 import { useTabsStore } from "@/store/tabs";
 import { useThemeStore } from "@/store/theme";
 import { useState, useEffect } from "react";
@@ -44,6 +44,8 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badgeKey?: keyof BadgeCounts;
+  /** Jeśli obecne — link widoczny tylko dla userów z którąkolwiek z ról. */
+  roles?: UserRole[];
 };
 
 type NavSection = {
@@ -72,14 +74,24 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "ZARZĄDZANIE",
     items: [
-      { href: "/manager", label: "Panel Managera", icon: BarChart3 },
+      {
+        href: "/manager",
+        label: "Panel Managera",
+        icon: BarChart3,
+        roles: ["admin", "delivery_lead"],
+      },
     ],
   },
   {
     title: "NARZĘDZIA",
     items: [
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
-      { href: "/reports", label: "Raporty", icon: FileBarChart },
+      {
+        href: "/reports",
+        label: "Raporty",
+        icon: FileBarChart,
+        roles: ["admin", "delivery_lead", "tac"],
+      },
       { href: "/analytics", label: "Analityka", icon: BarChart3 },
     ],
   },
@@ -91,16 +103,19 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/settings/pipeline-templates",
         label: "Procesy rekrutacyjne",
         icon: GitBranch,
+        roles: ["admin", "delivery_lead"],
       },
       {
         href: "/analytics/pipeline",
         label: "Analityka pipeline",
         icon: BarChart3,
+        roles: ["admin", "delivery_lead", "tac"],
       },
       {
         href: "/settings/diagnostics",
         label: "Diagnostyka AI",
         icon: Shield,
+        roles: ["admin"],
       },
     ],
   },
@@ -300,28 +315,36 @@ export function Sidebar({ onClose, mobileOpen }: { onClose?: () => void; mobileO
         className={cn("flex-1 overflow-y-auto py-3", (collapsed && !mobileOpen) ? "px-0" : "px-2")}
         aria-label="Nawigacja główna"
       >
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.title} className="mb-1">
-            {(!collapsed || mobileOpen) && (
-              <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider select-none">
-                {section.title}
-              </p>
-            )}
-            {(collapsed && !mobileOpen) && <div className="my-2 border-t border-gray-800 mx-2" />}
-            {section.items.map(({ href, label, icon, badgeKey }) => (
-              <NavItemComponent
-                key={href}
-                href={href}
-                label={label}
-                icon={icon}
-                active={isActive(href)}
-                collapsed={collapsed && !mobileOpen}
-                badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
-                onClick={onClose}
-              />
-            ))}
-          </div>
-        ))}
+        {NAV_SECTIONS.map((section) => {
+          // Przefiltruj elementy sekcji przez role usera (jeśli item ma `roles`).
+          const visibleItems = section.items.filter(
+            (item) => !item.roles || hasRole(user, ...item.roles)
+          );
+          // Jeśli po filtrze sekcja jest pusta — nie renderuj nagłówka.
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={section.title} className="mb-1">
+              {(!collapsed || mobileOpen) && (
+                <p className="px-3 pt-3 pb-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider select-none">
+                  {section.title}
+                </p>
+              )}
+              {(collapsed && !mobileOpen) && <div className="my-2 border-t border-gray-800 mx-2" />}
+              {visibleItems.map(({ href, label, icon, badgeKey }) => (
+                <NavItemComponent
+                  key={href}
+                  href={href}
+                  label={label}
+                  icon={icon}
+                  active={isActive(href)}
+                  collapsed={collapsed && !mobileOpen}
+                  badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
+                  onClick={onClose}
+                />
+              ))}
+            </div>
+          );
+        })}
 
         {/* Admin — admins only */}
         {user?.role === "admin" && (
@@ -396,9 +419,11 @@ export function Sidebar({ onClose, mobileOpen }: { onClose?: () => void; mobileO
                     "text-[10px] px-1.5 py-0.5 rounded font-medium",
                     user.role === "admin"
                       ? "bg-blue-900 text-blue-300"
-                      : "bg-gray-700 text-gray-400"
+                      : user.role === "delivery_lead"
+                        ? "bg-purple-900 text-purple-300"
+                        : "bg-gray-700 text-gray-400"
                   )}>
-                    {user.role}
+                    {ROLE_LABELS[user.role]}
                   </span>
                 </div>
                 <button

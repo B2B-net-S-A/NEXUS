@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import TacPlus
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
@@ -50,7 +50,7 @@ def _safe_pct(numerator: int, denominator: int) -> float:
 
 @router.get("/recruitment")
 async def report_recruitment(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
     recruitment_type: Optional[str] = Query(None),
@@ -183,7 +183,7 @@ async def report_recruitment(
 
 @router.get("/sales")
 async def report_sales(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -327,7 +327,7 @@ async def report_sales(
 
 @router.get("/delivery-leads")
 async def report_delivery_leads(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
@@ -430,7 +430,7 @@ async def report_delivery_leads(
 
 @router.get("/tenders")
 async def report_tenders(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     period: str = Query("year", enum=["week", "month", "quarter", "year"]),
 ):
@@ -515,7 +515,7 @@ async def report_tenders(
 
 @router.get("/board")
 async def report_board(
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """
