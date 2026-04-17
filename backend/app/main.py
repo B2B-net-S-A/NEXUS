@@ -19,6 +19,7 @@ from app.api import (
     pipeline,
     notes,
     contracts,
+    contract_analytics,
     rate_cards,
     dashboard,
     search,
@@ -190,6 +191,11 @@ app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
+app.include_router(
+    contract_analytics.router,
+    prefix="/api/contract-analytics",
+    tags=["contract-analytics"],
+)
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
