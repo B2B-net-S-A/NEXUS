@@ -117,6 +117,78 @@ async def test_contract_has_rate_unit_default(
         assert isinstance(item["billing_hours_per_month"], int)
 
 
+async def test_contract_documents_list_empty_ok(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    list_resp = await app_client.get("/api/contracts", headers=app_auth_headers)
+    items = list_resp.json().get("items", [])
+    if not items:
+        return
+    cid = items[0]["id"]
+    resp = await app_client.get(
+        f"/api/contracts/{cid}/documents", headers=app_auth_headers
+    )
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+async def test_contract_document_upload_download_delete(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Round-trip: upload → list includes file → download returns bytes → delete."""
+    list_resp = await app_client.get("/api/contracts", headers=app_auth_headers)
+    items = list_resp.json().get("items", [])
+    if not items:
+        return
+    cid = items[0]["id"]
+
+    payload = b"Test contract content"
+    files = {"file": ("test.pdf", payload, "application/pdf")}
+    data = {"doc_type": "contract"}
+    up = await app_client.post(
+        f"/api/contracts/{cid}/documents",
+        files=files,
+        data=data,
+        headers=app_auth_headers,
+    )
+    assert up.status_code == 201, up.text
+    body = up.json()
+    assert body["filename"] == "test.pdf"
+    assert body["doc_type"] == "contract"
+    assert body["size_bytes"] == len(payload)
+
+    # List includes the file
+    lst = await app_client.get(
+        f"/api/contracts/{cid}/documents", headers=app_auth_headers
+    )
+    assert lst.status_code == 200
+    assert any(d["id"] == body["id"] for d in lst.json())
+
+    # Download returns bytes
+    dl = await app_client.get(
+        f"/api/contracts/{cid}/documents/{body['id']}/download",
+        headers=app_auth_headers,
+    )
+    assert dl.status_code == 200
+    assert dl.content == payload
+
+    # Delete
+    dele = await app_client.delete(
+        f"/api/contracts/{cid}/documents/{body['id']}",
+        headers=app_auth_headers,
+    )
+    assert dele.status_code == 204
+
+
+async def test_contract_document_404(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    resp = await app_client.get(
+        "/api/contracts/999999/documents", headers=app_auth_headers
+    )
+    assert resp.status_code == 404
+
+
 async def test_contract_rate_unit_round_trip(
     app_client: AsyncClient, app_auth_headers: dict
 ):

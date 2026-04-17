@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { contractsApi } from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
+import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -721,13 +722,8 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {/* Tab: Dokumenty (placeholder A4) */}
-      {activeTab === "documents" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          <FileText className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-500" />
-          Upload dokumentów (umowa, aneksy, NIP, OC) — zostanie uruchomione w etapie A4.
-        </div>
-      )}
+      {/* Tab: Dokumenty */}
+      {activeTab === "documents" && <ContractDocumentsTab contractId={id} />}
 
       {/* Tab: Aneksy (placeholder B3) */}
       {activeTab === "amendments" && (
