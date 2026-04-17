@@ -118,6 +118,13 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ContractAmendment.created_at.desc()",
     )
+    onboarding_items = relationship(
+        "ContractOnboardingItem",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ContractOnboardingItem.order",
+    )
 
     def calculate_margin(self) -> Optional[int]:
         """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""

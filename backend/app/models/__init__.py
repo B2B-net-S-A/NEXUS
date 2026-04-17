@@ -8,6 +8,10 @@ from app.models.contract import Contract
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.rate_card import RateCard
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
+from app.models.contract_onboarding import (
+    ContractOnboardingItem,
+    OnboardingItemStatus,
+)
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
@@ -43,6 +47,8 @@ __all__ = [
     "RateCard",
     "ContractAmendment",
     "ContractAmendmentType",
+    "ContractOnboardingItem",
+    "OnboardingItemStatus",
     "Activity",
     "UserActivity",
     "EmailTemplate",
