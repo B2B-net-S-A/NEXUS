@@ -89,19 +89,13 @@ def init_qdrant_collection() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def generate_embedding(text: str) -> Optional[list[float]]:
-    """
-    Generate a 1024-dim embedding for *text* using Voyage AI voyage-3.
-    Returns None on error so callers can fall back to text search.
-    """
+OLLAMA_EMBED_MODEL = "mxbai-embed-large"  # 1024-dim, compatible with Qdrant collection
+
+
+async def _voyage_embed(text: str) -> Optional[list[float]]:
+    """Generate embedding via Voyage AI voyage-3."""
     if not settings.VOYAGE_API_KEY:
-        logger.warning("[Voyage] VOYAGE_API_KEY not set — cannot generate embeddings.")
         return None
-
-    if not text or not text.strip():
-        logger.warning("[Voyage] Empty text passed to generate_embedding.")
-        return None
-
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -117,16 +111,68 @@ async def generate_embedding(text: str) -> Optional[list[float]]:
                 },
             )
             response.raise_for_status()
-            data = response.json()
-            return data["data"][0]["embedding"]
+            return response.json()["data"][0]["embedding"]
     except httpx.HTTPStatusError as e:
-        logger.error(
-            f"[Voyage] HTTP error: {e.response.status_code} — {e.response.text[:200]}"
+        logger.warning(
+            "[Voyage] HTTP %s — %s", e.response.status_code, e.response.text[:200]
         )
         return None
     except Exception as e:
-        logger.error(f"[Voyage] Unexpected error: {e}")
+        logger.warning("[Voyage] error: %s", e)
         return None
+
+
+async def _ollama_embed(text: str) -> Optional[list[float]]:
+    """
+    Local fallback using Ollama's `mxbai-embed-large` (1024-dim, same as Voyage).
+    Lets the stack run fully offline without any external API key.
+    """
+    host = getattr(settings, "OLLAMA_BASE_URL", None) or getattr(
+        settings, "OLLAMA_HOST", None
+    )
+    if not host:
+        return None
+    model = getattr(settings, "OLLAMA_EMBED_MODEL", OLLAMA_EMBED_MODEL)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{host.rstrip('/')}/api/embeddings",
+                json={"model": model, "prompt": text},
+            )
+            response.raise_for_status()
+            emb = response.json().get("embedding")
+            if not isinstance(emb, list) or len(emb) != VECTOR_SIZE:
+                logger.warning(
+                    "[Ollama] unexpected embedding shape: dim=%s (expected %s)",
+                    (len(emb) if isinstance(emb, list) else None),
+                    VECTOR_SIZE,
+                )
+                return None
+            return emb
+    except Exception as e:
+        logger.warning("[Ollama embed] error: %s", e)
+        return None
+
+
+async def generate_embedding(text: str) -> Optional[list[float]]:
+    """
+    Generate a 1024-dim embedding for *text*. Tries Voyage first (if key present),
+    falls back to local Ollama (mxbai-embed-large). Returns None only if both fail.
+    """
+    if not text or not text.strip():
+        return None
+
+    emb = await _voyage_embed(text)
+    if emb is not None:
+        return emb
+
+    emb = await _ollama_embed(text)
+    if emb is not None:
+        logger.info("[embedding] using Ollama fallback (Voyage unavailable)")
+        return emb
+
+    logger.warning("[embedding] both Voyage and Ollama unavailable")
+    return None
 
 
 # ---------------------------------------------------------------------------

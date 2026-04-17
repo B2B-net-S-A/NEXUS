@@ -706,6 +706,16 @@ export default function CandidateDetailPage() {
           </div>
         )}
 
+        {/* Sugerowane rekrutacje (Phase A2) — widoczne w nagłówku, nie tylko w tabie */}
+        <div className="mx-6 mb-3">
+          <SuggestedJobsWidget
+            candidateId={Number(id)}
+            variant="compact"
+            maxItems={3}
+            onShowAll={() => setActiveTab("rekrutacje")}
+          />
+        </div>
+
         {/* AI Profile (from screenings) */}
         {aiProfile && aiProfile.screening_count > 0 && (
           <div className="mx-6 mb-6 rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-3">

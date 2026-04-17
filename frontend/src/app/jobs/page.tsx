@@ -8,8 +8,9 @@ import { SearchBar } from "@/components/SearchBar";
 import { SavedSearchPicker } from "@/components/SavedSearchPicker";
 import { AddJobModal } from "@/components/AppShell";
 import { RequireRole } from "@/components/RequireRole";
-import { Briefcase, Plus, Users, Clock, TrendingUp, BarChart2 } from "lucide-react";
+import { Briefcase, Plus, Users, Clock, TrendingUp, BarChart2, Sparkles, Globe, Home, Building2 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
+import { SuggestedCandidatesDrawer } from "@/components/SuggestedCandidatesDrawer";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,53 @@ const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> 
   tender:        { label: "Przetarg",    color: "bg-orange-100 text-orange-700" },
 };
 
+const SENIORITY_LABELS: Record<string, string> = {
+  junior: "Junior",
+  mid: "Mid",
+  senior: "Senior",
+  lead: "Lead",
+  principal: "Principal",
+};
+
+const REMOTE_POLICY_META: Record<
+  string,
+  { label: string; icon: typeof Globe }
+> = {
+  remote: { label: "Zdalna", icon: Globe },
+  hybrid: { label: "Hybryda", icon: Home },
+  on_site: { label: "Stacjonarna", icon: Building2 },
+  onsite: { label: "Stacjonarna", icon: Building2 },
+};
+
+/**
+ * Extract the first N skill names from a JSONB must/nice_skills field.
+ * Seed data ships with multiple shapes: list[str], list[{name}], {technologies: []}.
+ */
+function extractSkillNames(raw: unknown, max = 5): string[] {
+  const out: string[] = [];
+  const push = (name: unknown) => {
+    if (typeof name === "string" && name.trim()) out.push(name.trim());
+  };
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item === "string") push(item);
+      else if (item && typeof item === "object" && "name" in item) push((item as { name: unknown }).name);
+      if (out.length >= max) break;
+    }
+  } else if (raw && typeof raw === "object") {
+    for (const key of ["technologies", "skills", "stack", "tech"] as const) {
+      const value = (raw as Record<string, unknown>)[key];
+      if (Array.isArray(value)) {
+        for (const v of value) {
+          push(v);
+          if (out.length >= max) break;
+        }
+      }
+    }
+  }
+  return out.slice(0, max);
+}
+
 type RecruitmentTypeFilter = "" | "body_leasing" | "sales_project" | "tender";
 
 const FILTER_TABS: { value: RecruitmentTypeFilter; label: string }[] = [
@@ -49,7 +97,15 @@ const FILTER_TABS: { value: RecruitmentTypeFilter; label: string }[] = [
 
 // ── Job Card ─────────────────────────────────────────────────────────────────
 
-function JobCard({ job, onClick }: { job: any; onClick: () => void }) {
+function JobCard({
+  job,
+  onClick,
+  onSuggestCandidates,
+}: {
+  job: any;
+  onClick: () => void;
+  onSuggestCandidates: (e: React.MouseEvent) => void;
+}) {
   const typeConfig = RECRUITMENT_TYPE_CONFIG[job.recruitment_type];
   const daysOpen = job.created_at
     ? Math.floor((Date.now() - new Date(job.created_at).getTime()) / 86400000)
@@ -61,28 +117,70 @@ function JobCard({ job, onClick }: { job: any; onClick: () => void }) {
 
   const statusCfg = { color: STATUS_COLORS[job.status] ?? "bg-gray-100 text-gray-600", label: STATUS_LABELS[job.status] ?? job.status };
 
+  const skills = extractSkillNames(job.must_skills, 5);
+  const remoteMeta = job.remote_policy ? REMOTE_POLICY_META[job.remote_policy] : null;
+  const RemoteIcon = remoteMeta?.icon;
+  const seniorityLabel = job.seniority ? SENIORITY_LABELS[job.seniority] ?? job.seniority : null;
+
   return (
     <div
       onClick={onClick}
       className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 hover:shadow-md hover:-translate-y-[1px] transition-all duration-200 cursor-pointer relative flex flex-col gap-4"
     >
-      {/* Corner status badge */}
-      <div className="absolute top-4 right-4">
+      {/* Corner status + quick suggest */}
+      <div className="absolute top-4 right-4 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onSuggestCandidates}
+          className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
+          title="Pokaż sugerowanych kandydatów"
+          aria-label={`Sugerowani kandydaci dla ${job.title}`}
+        >
+          <Sparkles className="w-3.5 h-3.5" aria-hidden />
+        </button>
         <span className={cn("text-[11px] px-2 py-0.5 rounded-full font-medium", statusCfg.color)}>
           {statusCfg.label}
         </span>
       </div>
 
       {/* Header */}
-      <div className="pr-20">
+      <div className="pr-24">
         <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base leading-tight">{job.title}</h3>
         {job.client_name && (
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{job.client_name}</p>
         )}
-        {typeConfig && (
-          <span className={cn("inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full font-medium", typeConfig.color)}>
-            {typeConfig.label}
-          </span>
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          {typeConfig && (
+            <span className={cn("text-[11px] px-2 py-0.5 rounded-full font-medium", typeConfig.color)}>
+              {typeConfig.label}
+            </span>
+          )}
+          {seniorityLabel && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
+              {seniorityLabel}
+            </span>
+          )}
+          {remoteMeta && RemoteIcon && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium bg-gray-50 text-gray-700 border border-gray-200"
+              title={remoteMeta.label}
+            >
+              <RemoteIcon className="w-3 h-3" aria-hidden />
+              {remoteMeta.label}
+            </span>
+          )}
+        </div>
+        {skills.length > 0 && (
+          <div className="flex items-center gap-1 mt-2 flex-wrap">
+            {skills.map((name) => (
+              <span
+                key={name}
+                className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-100 font-medium"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
@@ -160,6 +258,7 @@ export default function JobsPage() {
   const [typeFilter, setTypeFilter] = useState<RecruitmentTypeFilter>("");
   const [page, setPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [suggestFor, setSuggestFor] = useState<{ id: number; title: string } | null>(null);
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -278,6 +377,10 @@ export default function JobsPage() {
                 key={job.id}
                 job={job}
                 onClick={() => router.push(`/jobs/${job.id}`)}
+                onSuggestCandidates={(e) => {
+                  e.stopPropagation();
+                  setSuggestFor({ id: job.id, title: job.title ?? "Oferta" });
+                }}
               />
             ))}
           </div>
@@ -303,6 +406,14 @@ export default function JobsPage() {
             </div>
           )}
         </>
+      )}
+
+      {suggestFor && (
+        <SuggestedCandidatesDrawer
+          jobId={suggestFor.id}
+          jobTitle={suggestFor.title}
+          onClose={() => setSuggestFor(null)}
+        />
       )}
     </div>
   );

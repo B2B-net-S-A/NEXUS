@@ -8,7 +8,13 @@ import { SearchBar } from "@/components/SearchBar";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesModal } from "@/components/ImportCandidatesModal";
 import { SavedSearchPicker } from "@/components/SavedSearchPicker";
-import { UserPlus, Linkedin, Globe, User2, Users, ChevronRight, Upload, GitCompare, Download } from "lucide-react";
+import {
+  AdvancedFilterBar,
+  EMPTY_ADVANCED_FILTERS,
+  type AdvancedFilters,
+} from "@/components/AdvancedFilterBar";
+import { UserPlus, Linkedin, Globe, User2, Users, ChevronRight, Upload, GitCompare, Download, Target, Briefcase } from "lucide-react";
+import { QuickAssignModal } from "@/components/QuickAssignModal";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Suspense } from "react";
 
@@ -43,6 +49,36 @@ function SourceIcon({ source }: { source: string }) {
   return <Globe className="w-3 h-3 text-gray-400" />;
 }
 
+// ── Match stats badge (Phase A1) ─────────────────────────────────────────────
+
+interface MatchStats {
+  open_count: number;
+  total_open: number;
+  top_score: number;
+}
+
+function matchBadgeColor(topScore: number): string {
+  if (topScore >= 75) return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+  if (topScore >= 50) return "bg-blue-100 text-blue-700 border border-blue-200";
+  return "bg-gray-100 text-gray-600 border border-gray-200";
+}
+
+function MatchStatsBadge({ stats }: { stats: MatchStats }) {
+  if (!stats || stats.open_count <= 0) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+        matchBadgeColor(stats.top_score)
+      )}
+      title={`${stats.open_count} z ${stats.total_open} otwartych rekrutacji pasuje (top ${stats.top_score}%)`}
+    >
+      <Target className="w-3 h-3" aria-hidden />
+      {stats.open_count} otwarte · top {Math.round(stats.top_score)}
+    </span>
+  );
+}
+
 // ── Candidate list item ───────────────────────────────────────────────────────
 
 function CandidateListItem({
@@ -51,12 +87,14 @@ function CandidateListItem({
   checked,
   onCheck,
   onClick,
+  onAssignClick,
 }: {
   candidate: any;
   selected: boolean;
   checked: boolean;
   onCheck: (e: React.MouseEvent) => void;
   onClick: () => void;
+  onAssignClick: (e: React.MouseEvent) => void;
 }) {
   const fullName = `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim();
   const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -120,12 +158,23 @@ function CandidateListItem({
           <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", STATUS_COLORS[candidate.status] ?? "bg-gray-100 text-gray-500")}>
             {STATUS_LABELS[candidate.status] ?? candidate.status}
           </span>
+          {candidate.match_stats && <MatchStatsBadge stats={candidate.match_stats} />}
           {tags.map((tag: string) => (
             <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full">
               {tag}
             </span>
           ))}
-          <span className="ml-auto flex-shrink-0 flex items-center" title={source}>
+          <button
+            type="button"
+            onClick={onAssignClick}
+            className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium transition-colors"
+            title="Przypisz do rekrutacji"
+            aria-label={`Przypisz kandydata ${fullName} do rekrutacji`}
+          >
+            <Briefcase className="w-3 h-3" aria-hidden />
+            Przypisz
+          </button>
+          <span className="flex-shrink-0 flex items-center" title={source}>
             <SourceIcon source={source} />
           </span>
         </div>
@@ -249,9 +298,11 @@ function CandidatesPageInner() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [compareIds, setCompareIds] = useState<number[]>([]);
+  const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["candidates", search, statusFilter, page, sortBy],
+    queryKey: ["candidates", search, statusFilter, page, sortBy, advancedFilters],
     queryFn: () =>
       api
         .get("/api/candidates", {
@@ -259,6 +310,19 @@ function CandidatesPageInner() {
             q: search || undefined,
             status: statusFilter || undefined,
             page,
+            include_match_stats: true,
+            // 35 is a soft "likely match" threshold — matches the UI's tiered
+            // color scale (gray <50 / blue 50-74 / green ≥75) and lets seed
+            // data without semantic embeddings still surface a useful badge.
+            match_threshold: 35,
+            skills: advancedFilters.skills.length > 0 ? advancedFilters.skills : undefined,
+            skill_combine: advancedFilters.skills.length > 1 ? advancedFilters.skillCombine : undefined,
+            remote_policy: advancedFilters.remotePolicy || undefined,
+            min_salary: advancedFilters.minSalary ?? undefined,
+            max_salary: advancedFilters.maxSalary ?? undefined,
+          },
+          paramsSerializer: {
+            indexes: null, // repeat `skills=...` for each value (FastAPI list-compatible)
           },
         })
         .then((r) => r.data),
@@ -361,6 +425,13 @@ function CandidatesPageInner() {
                 <option value="name_asc">Nazwa A–Z</option>
               </select>
             </div>
+            <AdvancedFilterBar
+              value={advancedFilters}
+              onChange={(next) => {
+                setAdvancedFilters(next);
+                setPage(1);
+              }}
+            />
             <div className="flex">
               <SavedSearchPicker
                 entity="candidate"
@@ -368,11 +439,20 @@ function CandidatesPageInner() {
                   q: search,
                   status: statusFilter,
                   sort: sortBy,
+                  advanced: advancedFilters,
                 }}
                 onApply={(f) => {
                   if (typeof f.q === "string") setSearch(f.q);
                   if (typeof f.status === "string") setStatusFilter(f.status);
                   if (typeof f.sort === "string") setSortBy(f.sort);
+                  if (f.advanced && typeof f.advanced === "object") {
+                    const adv = f.advanced as Partial<AdvancedFilters>;
+                    setAdvancedFilters({
+                      ...EMPTY_ADVANCED_FILTERS,
+                      ...adv,
+                      skills: Array.isArray(adv.skills) ? adv.skills : [],
+                    });
+                  }
                   setPage(1);
                 }}
               />
@@ -404,6 +484,13 @@ function CandidatesPageInner() {
                   checked={compareIds.includes(candidate.id)}
                   onCheck={(e) => handleToggleCompare(e, candidate.id)}
                   onClick={() => handleSelect(candidate.id)}
+                  onAssignClick={(e) => {
+                    e.stopPropagation();
+                    setAssignFor({
+                      id: candidate.id,
+                      name: `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat",
+                    });
+                  }}
                 />
               ))
             )}
@@ -442,6 +529,17 @@ function CandidatesPageInner() {
           )}
         </div>
       </div>
+
+      {assignFor && (
+        <QuickAssignModal
+          candidateId={assignFor.id}
+          candidateName={assignFor.name}
+          onClose={() => setAssignFor(null)}
+          onAssigned={() => {
+            queryClient.invalidateQueries({ queryKey: ["candidates"] });
+          }}
+        />
+      )}
     </div>
   );
 }

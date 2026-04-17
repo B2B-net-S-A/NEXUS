@@ -18,14 +18,16 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateList,
     CandidateResponse,
     CandidateUpdate,
+    MatchStats,
 )
+from app.services.scoring_service import rank_jobs_for_candidate, summarize_match_stats
 from app.services.dedup_service import find_candidate_duplicates
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
 from app.api import ws as ws_manager
@@ -48,6 +50,12 @@ def _build_response(data: dict) -> dict:
     return {"success": True, "data": data}
 
 
+# Cap on how many open jobs we score per candidate when populating match stats.
+# Keeps worst-case latency bounded: page_size × _MATCH_STATS_JOB_CAP score computes.
+_MATCH_STATS_JOB_CAP = 50
+_MATCH_STATS_DEFAULT_THRESHOLD = 50.0
+
+
 @router.get("", response_model=CandidateList)
 async def list_candidates(
     current_user: CurrentUser,
@@ -57,6 +65,46 @@ async def list_candidates(
     status: Optional[CandidateStatus] = None,
     location: Optional[str] = None,
     q: Optional[str] = None,
+    skills: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter by canonical skill names (resolved against the alias taxonomy "
+            "on the scoring engine). Multiple values combined by `skill_combine`."
+        ),
+    ),
+    skill_combine: str = Query(
+        "and",
+        pattern="^(and|or)$",
+        description="How to combine multiple `skills` filters — 'and' or 'or'.",
+    ),
+    remote_policy: Optional[str] = Query(
+        None,
+        description="Filter by candidate remote preference (remote/hybrid/onsite).",
+    ),
+    min_salary: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Minimum salary expectation (PLN) — exclusive of nulls.",
+    ),
+    max_salary: Optional[int] = Query(
+        None,
+        ge=0,
+        description="Maximum salary expectation (PLN) — exclusive of nulls.",
+    ),
+    include_match_stats: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets a `match_stats` summary with the number "
+            "of open jobs they match (score ≥ threshold) and their top match score. "
+            "O(page_size × open_jobs) scoring work — enable lazily on the UI."
+        ),
+    ),
+    match_threshold: float = Query(
+        _MATCH_STATS_DEFAULT_THRESHOLD,
+        ge=0.0,
+        le=100.0,
+        description="Minimum total score (0-100) to count an open job as matching.",
+    ),
 ):
     query = select(Candidate)
     if status:
@@ -64,19 +112,124 @@ async def list_candidates(
     if location:
         query = query.where(Candidate.location.ilike(f"%{location}%"))
     if q:
+        q_stripped = q.strip()
+        # Phase B2: for longer queries use pg_trgm similarity over name+lastname+email
+        # + raw_cv_text; fall back to ilike for 1-2 char queries where trigram
+        # similarity is noisy.
+        if len(q_stripped) >= 3:
+            identity_expr = (
+                func.coalesce(Candidate.name, "")
+                + " "
+                + func.coalesce(Candidate.lastname, "")
+                + " "
+                + func.coalesce(Candidate.email, "")
+            )
+            like_pat = f"%{q_stripped}%"
+            # `func.similarity(a, q) > 0.2` uses the GIN trigram index on the
+            # expression; robust against typos and case mismatches. Also keep
+            # raw ilike on raw_cv_text (index-backed via ix_candidates_cv_trgm).
+            query = query.where(
+                or_(
+                    func.similarity(identity_expr, q_stripped) > 0.2,
+                    Candidate.raw_cv_text.ilike(like_pat),
+                    Candidate.name.ilike(like_pat),
+                    Candidate.lastname.ilike(like_pat),
+                    Candidate.email.ilike(like_pat),
+                )
+            )
+        else:
+            like_pat = f"%{q_stripped}%"
+            query = query.where(
+                or_(
+                    Candidate.name.ilike(like_pat),
+                    Candidate.lastname.ilike(like_pat),
+                    Candidate.email.ilike(like_pat),
+                )
+            )
+    # Phase B3: structured filters over JSONB
+    if skills:
+        # skills is a list of canonical/alias names; normalize through the
+        # scoring engine so UI can ship whatever the user typed.
+        from app.services.scoring_service import canonical_skill_names
+
+        wanted = [s for s in (canonical_skill_names(skills) or []) if s]
+        if wanted:
+            # Case-insensitive text LIKE on the JSONB payload — handles both
+            # shapes the seed data ships with:
+            #   [{"name": "Python"}, ...]             → matches "name": "python"
+            #   {"technologies": ["Python", ...]}     → matches "python"
+            # Also checks tags + verified_tech for a generous match.
+            def _skill_predicate(s: str):
+                pat = f"%{s.lower()}%"
+                return or_(
+                    func.lower(
+                        Candidate.skills.cast(__import__("sqlalchemy").Text)
+                    ).like(pat),
+                    func.lower(
+                        Candidate.verified_tech.cast(__import__("sqlalchemy").Text)
+                    ).like(pat),
+                    func.lower(Candidate.tags.cast(__import__("sqlalchemy").Text)).like(
+                        pat
+                    ),
+                )
+
+            skill_clauses = [_skill_predicate(s) for s in wanted]
+            combiner = __import__("sqlalchemy").and_ if skill_combine == "and" else or_
+            query = query.where(combiner(*skill_clauses))
+
+    if remote_policy:
+        # Stored inside `preferences.remote_modes` JSON array
         query = query.where(
-            or_(
-                Candidate.name.ilike(f"%{q}%"),
-                Candidate.lastname.ilike(f"%{q}%"),
-                Candidate.email.ilike(f"%{q}%"),
+            Candidate.preferences.op("@>")(
+                func.jsonb_build_object(
+                    "remote_modes", func.jsonb_build_array(remote_policy)
+                )
             )
         )
+
+    if min_salary is not None:
+        query = query.where(Candidate.salary_expectation >= min_salary)
+    if max_salary is not None:
+        query = query.where(Candidate.salary_expectation <= max_salary)
+
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
-    items = result.scalars().all()
-    return CandidateList(items=list(items), total=total, page=page, page_size=page_size)
+    items = list(result.scalars().all())
+
+    match_stats_by_candidate: dict[int, MatchStats] = {}
+    if include_match_stats and items:
+        open_jobs_stmt = (
+            select(Job)
+            .where(Job.status == JobStatus.published)
+            .limit(_MATCH_STATS_JOB_CAP)
+        )
+        open_jobs = list((await db.execute(open_jobs_stmt)).scalars().all())
+        total_open = len(open_jobs)
+        if total_open:
+            for cand in items:
+                breakdowns = await rank_jobs_for_candidate(cand, open_jobs, db)
+                stats = summarize_match_stats(
+                    breakdowns, total_open=total_open, min_score=match_threshold
+                )
+                match_stats_by_candidate[cand.id] = MatchStats(**stats)
+        else:
+            zero = MatchStats(open_count=0, total_open=0, top_score=0.0)
+            for cand in items:
+                match_stats_by_candidate[cand.id] = zero
+
+    response_items: list[CandidateResponse] = []
+    for cand in items:
+        payload = CandidateResponse.model_validate(cand)
+        stats = match_stats_by_candidate.get(cand.id)
+        if stats is not None:
+            payload = payload.model_copy(update={"match_stats": stats})
+        response_items.append(payload)
+
+    return CandidateList(
+        items=response_items, total=total, page=page, page_size=page_size
+    )
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
@@ -494,6 +647,21 @@ async def get_candidate_history(
     }
 
 
+# Fields that change the scoring inputs — mutating them invalidates cache entries.
+_MATCH_CACHE_INVALIDATING_FIELDS = frozenset(
+    {
+        "skills",
+        "verified_tech",
+        "tags",
+        "salary_expectation",
+        "availability_date",
+        "preferences",
+        "location",
+        "status",
+    }
+)
+
+
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
     candidate_id: int,
@@ -516,6 +684,14 @@ async def update_candidate(
         details=updates,
     )
     db.add(activity)
+
+    # Phase C1: invalidate cached (candidate, *) scores if matching-critical
+    # fields changed. Cheap single UPDATE — much faster than refetching scores.
+    if _MATCH_CACHE_INVALIDATING_FIELDS & set(updates.keys()):
+        from app.services.match_score_cache import mark_stale_for_candidate
+
+        await mark_stale_for_candidate(db, candidate.id)
+
     await db.refresh(candidate)
     return candidate
 
@@ -591,6 +767,42 @@ async def upload_cv(
         logger.warning(
             f"[CV upload] embedding failed for candidate {candidate_id}: {e}"
         )
+
+    # Phase D3: enrich structured fields (years, position, skills, education…)
+    # from CV text. Best-effort — uses Ollama when available, falls back to
+    # regex heuristic otherwise. Also invalidates the match score cache so the
+    # next /recommendations read reflects the new skills.
+    if candidate.raw_cv_text:
+        try:
+            from app.services.cv_parser import parse_cv
+            from app.services.match_score_cache import mark_stale_for_candidate
+
+            parsed = await parse_cv(candidate.raw_cv_text)
+            if parsed.get("years_it_experience") is not None:
+                candidate.years_it_experience = parsed["years_it_experience"]
+            if parsed.get("skills"):
+                # Only overwrite if the LLM/heuristic produced a non-empty list —
+                # don't clobber manually curated skills with a regex miss.
+                candidate.skills = parsed["skills"]
+            if parsed.get("education"):
+                candidate.education = parsed["education"]
+            if parsed.get("languages"):
+                candidate.languages = parsed["languages"]
+            candidate.cv_extracted_data = parsed
+            await db.commit()
+            await db.refresh(candidate)
+
+            await mark_stale_for_candidate(db, candidate_id)
+            await db.commit()
+            logger.info(
+                "[CV upload] enrichment source=%s candidate=%s",
+                parsed.get("_source"),
+                candidate_id,
+            )
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning(
+                f"[CV upload] enrichment failed for candidate {candidate_id}: {e}"
+            )
 
     return candidate
 

@@ -37,10 +37,8 @@ from app.services.embedding_service import (
     search_candidates_semantic,
     search_jobs_semantic,
 )
-from app.services.scoring_service import (
-    rank_candidates_for_job,
-    rank_jobs_for_candidate,
-)
+from app.services.scoring_service import rank_jobs_for_candidate
+from app.services.match_score_cache import bulk_get_or_compute
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +111,8 @@ async def recommend_candidates_for_job(
     )
     candidates = cand_res.scalars().all()
 
-    breakdowns = await rank_candidates_for_job(
+    # Phase C1: cache-first scoring. bulk_get_or_compute handles upsert + commit.
+    breakdowns = await bulk_get_or_compute(
         job, candidates, db, similarity_map=similarity_map
     )
     breakdowns = breakdowns[:top_k]
@@ -273,19 +272,13 @@ async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
     model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
 
     import httpx
+    from app.services.llm_prompts import JOB_CRITERIA_FROM_DESCRIPTION
 
-    prompt = f"""You are a technical recruiter. Based on the job title and
-description below, output a JSON object with two lists:
-  "must_skills": hard requirements mentioned explicitly (up to 8)
-  "nice_skills": preferred but optional skills (up to 6)
-
-Each item is an object {{"name": "<skill>", "level": null}}. Respond with ONLY the
-raw JSON, no prose.
-
-Title: {job.title or ""}
-Description: {(job.description or "")[:2000]}
-Requirements: {(job.requirements or "")[:2000]}
-"""
+    prompt = JOB_CRITERIA_FROM_DESCRIPTION.render(
+        title=job.title or "",
+        description=(job.description or "")[:2000],
+        requirements=(job.requirements or "")[:2000],
+    )
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -310,7 +303,12 @@ Requirements: {(job.requirements or "")[:2000]}
                 "nice_skills": data.get("nice_skills") or [],
             }
     except Exception as e:
-        logger.warning(f"[Ollama] criteria generation failed: {e}")
+        logger.warning(
+            "[Ollama] criteria generation failed (template=%s v%d): %s",
+            JOB_CRITERIA_FROM_DESCRIPTION.name,
+            JOB_CRITERIA_FROM_DESCRIPTION.version,
+            e,
+        )
         return None
 
 

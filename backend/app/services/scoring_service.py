@@ -112,8 +112,54 @@ class ScoreBreakdown:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
+_DICT_SKILL_LIST_KEYS = ("technologies", "skills", "stack", "tech")
+
+
+# ── Alias map (Phase B1 skill taxonomy) ──────────────────────────────────────
+#
+# Populated at application startup from the `skill_aliases` table; normalized
+# lookup `alias (lower) -> canonical (lower)`. Empty by default so tests and
+# offline tools work without a DB connection.
+
+ALIAS_MAP: dict[str, str] = {}
+
+
+def set_alias_map(mapping: dict[str, str]) -> None:
+    """Replace the in-memory alias map atomically (called from FastAPI startup)."""
+    ALIAS_MAP.clear()
+    ALIAS_MAP.update({k.lower(): v.lower() for k, v in mapping.items()})
+
+
+def canonical_skill_names(raw) -> List[str]:
+    """
+    Return skill names normalized through the alias map, order-preserving,
+    deduplicated. When `ALIAS_MAP` is empty, behaves exactly like `_skill_names`.
+    """
+    names = _skill_names(raw)
+    if not ALIAS_MAP:
+        return names
+    seen: set[str] = set()
+    out: List[str] = []
+    for n in names:
+        canonical = ALIAS_MAP.get(n, n)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        out.append(canonical)
+    return out
+
+
 def _skill_names(raw) -> List[str]:
-    """Extract lowercase skill names from JSONB (list of dict/str)."""
+    """Extract lowercase skill names from JSONB.
+
+    Accepted shapes (seed data in the wild mixes them):
+      - list[str]                                        -> ["Python", "Go"]
+      - list[dict]                                       -> [{"name": "Python"}, ...]
+      - dict with "name" key                             -> {"name": "Python"}
+      - dict with a list-valued key in _DICT_SKILL_LIST_KEYS
+                                                          -> {"technologies": [...]}
+    Anything else yields [] (silent ignore, matches prior behavior for unknown types).
+    """
     out: List[str] = []
     if not raw:
         return out
@@ -125,6 +171,14 @@ def _skill_names(raw) -> List[str]:
                     out.append(str(name).lower().strip())
             elif isinstance(item, str):
                 out.append(item.lower().strip())
+    elif isinstance(raw, dict):
+        name = raw.get("name")
+        if isinstance(name, str) and name.strip():
+            out.append(name.lower().strip())
+        for key in _DICT_SKILL_LIST_KEYS:
+            value = raw.get(key)
+            if isinstance(value, list):
+                out.extend(_skill_names(value))
     return [s for s in out if s]
 
 
@@ -132,14 +186,15 @@ def _score_skills(
     candidate: Candidate, job: Job
 ) -> tuple[LayerResult, List[str], List[str], List[str], List[str]]:
     """Return (LayerResult, matching_must, gap_must, matching_nice, gap_nice)."""
-    must = _skill_names(job.must_skills)
-    nice = _skill_names(job.nice_skills)
+    must = canonical_skill_names(job.must_skills)
+    nice = canonical_skill_names(job.nice_skills)
     cand_skills = set(
-        _skill_names(candidate.skills) + _skill_names(candidate.verified_tech)
+        canonical_skill_names(candidate.skills)
+        + canonical_skill_names(candidate.verified_tech)
     )
     # Tags fallback
     if not cand_skills and candidate.tags:
-        cand_skills = set(_skill_names(candidate.tags))
+        cand_skills = set(canonical_skill_names(candidate.tags))
 
     must_match = [s for s in must if s in cand_skills]
     must_gap = [s for s in must if s not in cand_skills]
@@ -402,6 +457,34 @@ async def rank_candidates_for_job(
         results.append(await score_candidate_job(c, job, db, semantic_similarity=sim))
     results.sort(key=lambda r: -r.total)
     return results
+
+
+def summarize_match_stats(
+    breakdowns: Sequence[ScoreBreakdown],
+    total_open: int,
+    *,
+    min_score: float = 50.0,
+) -> dict:
+    """
+    Summarize a list of candidate↔job ScoreBreakdowns into badge-ready stats.
+
+    Returned shape matches what the candidates list UI renders on a row:
+
+        {
+          "open_count": int,        # breakdowns with total >= min_score
+          "total_open": int,        # open jobs considered (from caller)
+          "top_score": float,       # highest total (0.0 when no breakdowns)
+        }
+    """
+    if not breakdowns:
+        return {"open_count": 0, "total_open": total_open, "top_score": 0.0}
+    open_count = sum(1 for b in breakdowns if b.total >= min_score)
+    top_score = max(b.total for b in breakdowns)
+    return {
+        "open_count": open_count,
+        "total_open": total_open,
+        "top_score": round(top_score, 1),
+    }
 
 
 async def rank_jobs_for_candidate(
