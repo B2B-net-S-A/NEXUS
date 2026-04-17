@@ -238,6 +238,15 @@ export const contractsApi = {
   expiring: (days?: number) => api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
   activities: (id: number) => api.get(`/api/contracts/${id}/activities`),
   rateHistory: (id: number) => api.get(`/api/contracts/${id}/rate-history`),
+  documents: (id: number) => api.get(`/api/contracts/${id}/documents`),
+  uploadDocument: (id: number, formData: FormData) =>
+    api.post(`/api/contracts/${id}/documents`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  deleteDocument: (contractId: number, documentId: number) =>
+    api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
+  documentDownloadUrl: (contractId: number, documentId: number) =>
+    `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────

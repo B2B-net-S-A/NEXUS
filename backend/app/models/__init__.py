@@ -5,6 +5,7 @@ from app.models.client import Client
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract
+from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
@@ -35,6 +36,8 @@ __all__ = [
     "CandidateStage",
     "Note",
     "Contract",
+    "ContractDocument",
+    "ContractDocumentType",
     "Activity",
     "UserActivity",
     "EmailTemplate",

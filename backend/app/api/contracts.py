@@ -1,7 +1,17 @@
 from datetime import date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,6 +19,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.rate_history import RateHistory
 from app.models.user import User
 from app.schemas.contract import (
@@ -20,9 +31,17 @@ from app.schemas.contract import (
     ContractResponse,
     ContractUpdate,
 )
+from app.schemas.contract_document import (
+    ContractDocumentResponse,
+    ContractDocumentUpdate,
+)
+from app.services import storage_service
 from app.api.deps import CurrentUser, TacPlus
 
 router = APIRouter()
+
+# Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 EXPIRY_WARNING_DAYS = 30
 
@@ -274,3 +293,202 @@ async def delete_contract(
         )
     )
     await db.delete(contract)
+
+
+# ── Documents (Phase 9 A4) ────────────────────────────────────────────────────
+
+
+async def _assert_contract(db: AsyncSession, contract_id: int) -> None:
+    exists = await db.execute(select(Contract.id).where(Contract.id == contract_id))
+    if exists.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+
+async def _document_to_response(
+    db: AsyncSession, doc: ContractDocument
+) -> ContractDocumentResponse:
+    user_email: Optional[str] = None
+    if doc.uploaded_by:
+        user_email = await db.scalar(
+            select(User.email).where(User.id == doc.uploaded_by)
+        )
+    return ContractDocumentResponse(
+        id=doc.id,
+        contract_id=doc.contract_id,
+        filename=doc.filename,
+        doc_type=doc.doc_type,
+        content_type=doc.content_type,
+        size_bytes=doc.size_bytes,
+        expiry_date=doc.expiry_date,
+        uploaded_by=doc.uploaded_by,
+        uploaded_by_email=user_email,
+        created_at=doc.created_at,
+    )
+
+
+@router.get(
+    "/{contract_id}/documents",
+    response_model=List[ContractDocumentResponse],
+)
+async def list_contract_documents(
+    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractDocument)
+        .where(ContractDocument.contract_id == contract_id)
+        .order_by(ContractDocument.created_at.desc())
+    )
+    docs = list(result.scalars().all())
+    return [await _document_to_response(db, d) for d in docs]
+
+
+@router.post(
+    "/{contract_id}/documents",
+    response_model=ContractDocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_contract_document(
+    contract_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    doc_type: ContractDocumentType = Form(ContractDocumentType.other),
+    expiry_date: Optional[date] = Form(None),
+):
+    await _assert_contract(db, contract_id)
+
+    # Rudimentary size guard — FastAPI's UploadFile is a SpooledTemporaryFile,
+    # so we only know the true size after reading. We read via storage_service
+    # which returns the byte count and lets us reject oversized files.
+    relative_path, size = storage_service.save_contract_document(
+        contract_id=contract_id,
+        upload_filename=file.filename or "file",
+        source=file.file,
+    )
+    if size > MAX_UPLOAD_BYTES:
+        storage_service.delete_contract_document(relative_path)
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
+        )
+
+    doc = ContractDocument(
+        contract_id=contract_id,
+        filename=file.filename or "file",
+        file_path=relative_path,
+        content_type=file.content_type,
+        size_bytes=size,
+        doc_type=doc_type,
+        expiry_date=expiry_date,
+        uploaded_by=current_user.id,
+    )
+    db.add(doc)
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="document_uploaded",
+            user_id=current_user.id,
+            details={
+                "filename": doc.filename,
+                "doc_type": doc_type.value
+                if hasattr(doc_type, "value")
+                else str(doc_type),
+                "size_bytes": size,
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(doc)
+    return await _document_to_response(db, doc)
+
+
+@router.patch(
+    "/{contract_id}/documents/{document_id}",
+    response_model=ContractDocumentResponse,
+)
+async def update_contract_document(
+    contract_id: int,
+    document_id: int,
+    data: ContractDocumentUpdate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractDocument).where(
+            ContractDocument.id == document_id,
+            ContractDocument.contract_id == contract_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    updates = data.model_dump(exclude_unset=True)
+    for k, v in updates.items():
+        setattr(doc, k, v)
+    await db.flush()
+    await db.refresh(doc)
+    return await _document_to_response(db, doc)
+
+
+@router.get("/{contract_id}/documents/{document_id}/download")
+async def download_contract_document(
+    contract_id: int,
+    document_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractDocument).where(
+            ContractDocument.id == document_id,
+            ContractDocument.contract_id == contract_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        abs_path = storage_service.get_contract_document_path(doc.file_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=410, detail="File no longer on storage")
+    return FileResponse(
+        path=str(abs_path),
+        filename=doc.filename,
+        media_type=doc.content_type or "application/octet-stream",
+    )
+
+
+@router.delete(
+    "/{contract_id}/documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_contract_document(
+    contract_id: int,
+    document_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractDocument).where(
+            ContractDocument.id == document_id,
+            ContractDocument.contract_id == contract_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    storage_service.delete_contract_document(doc.file_path)
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="document_deleted",
+            user_id=current_user.id,
+            details={"filename": doc.filename},
+        )
+    )
+    await db.delete(doc)

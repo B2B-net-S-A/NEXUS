@@ -86,6 +86,12 @@ class Contract(Base, TimestampMixin):
     candidate = relationship("Candidate", back_populates="contracts")
     client = relationship("Client", back_populates="contracts")
     job = relationship("Job", back_populates="contracts")
+    documents_rel = relationship(
+        "ContractDocument",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def calculate_margin(self) -> Optional[int]:
         """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""
