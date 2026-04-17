@@ -20,6 +20,7 @@ from app.api import (
     notes,
     contracts,
     contract_analytics,
+    contract_templates,
     rate_cards,
     dashboard,
     search,
@@ -195,6 +196,11 @@ app.include_router(
     contract_analytics.router,
     prefix="/api/contract-analytics",
     tags=["contract-analytics"],
+)
+app.include_router(
+    contract_templates.router,
+    prefix="/api/contract-templates",
+    tags=["contract-templates"],
 )
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])

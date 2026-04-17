@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { contractsApi } from "@/lib/api";
+import api, { contractsApi } from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
@@ -29,6 +29,7 @@ import {
   Calendar,
   Banknote,
   TrendingUp,
+  Printer,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -122,6 +123,75 @@ const WORK_MODE_LABELS: Record<string, string> = {
   hybrid: "Hybrydowo",
   onsite: "Stacjonarnie",
 };
+
+interface ContractTemplate {
+  id: number;
+  name: string;
+  contract_type: string;
+}
+
+function GenerateDocumentButton({
+  contractId,
+  contractType,
+}: {
+  contractId: number;
+  contractType: string;
+}) {
+  const { data: templates } = useQuery<ContractTemplate[]>({
+    queryKey: ["contract-templates-by-type", contractType],
+    queryFn: () =>
+      api
+        .get("/api/contract-templates", { params: { contract_type: contractType } })
+        .then((r) => r.data),
+  });
+
+  if (!templates || templates.length === 0) return null;
+
+  const openRendered = async (templateId: number) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
+    try {
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) {
+        alert(`Błąd renderowania: ${resp.status}`);
+        return;
+      }
+      const html = await resp.text();
+      const win = window.open("", "_blank");
+      if (!win) {
+        alert("Popupy są blokowane — pozwól na okno i spróbuj ponownie.");
+        return;
+      }
+      win.document.write(html);
+      win.document.close();
+    } catch (err) {
+      alert(`Błąd: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <select
+        onChange={(e) => {
+          const id = Number(e.target.value);
+          if (id) openRendered(id);
+          e.target.value = "";
+        }}
+        className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 px-3 py-2 rounded-lg text-sm font-medium"
+      >
+        <option value="">Generuj z szablonu…</option>
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): number {
   if (rate_unit === "daily") return 22;
@@ -422,7 +492,8 @@ export default function ContractDetailPage() {
         </div>
 
         <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
             {!editing && (
               <button
                 onClick={handleStartEdit}
