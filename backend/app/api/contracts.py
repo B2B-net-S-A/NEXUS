@@ -19,6 +19,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.rate_history import RateHistory
 from app.models.user import User
@@ -30,6 +31,10 @@ from app.schemas.contract import (
     ContractRateHistoryEntry,
     ContractResponse,
     ContractUpdate,
+)
+from app.schemas.contract_amendment import (
+    ContractAmendmentCreate,
+    ContractAmendmentResponse,
 )
 from app.schemas.contract_document import (
     ContractDocumentResponse,
@@ -506,3 +511,162 @@ async def delete_contract_document(
         )
     )
     await db.delete(doc)
+
+
+# ── Amendments (Phase 9 B3) ──────────────────────────────────────────────────
+
+
+async def _amendment_to_response(
+    db: AsyncSession, amendment: ContractAmendment
+) -> ContractAmendmentResponse:
+    user_email: Optional[str] = None
+    if amendment.created_by:
+        user_email = await db.scalar(
+            select(User.email).where(User.id == amendment.created_by)
+        )
+    return ContractAmendmentResponse(
+        id=amendment.id,
+        contract_id=amendment.contract_id,
+        amendment_type=amendment.amendment_type,
+        old_values=amendment.old_values,
+        new_values=amendment.new_values,
+        effective_date=amendment.effective_date,
+        reason=amendment.reason,
+        document_id=amendment.document_id,
+        created_by=amendment.created_by,
+        created_by_email=user_email,
+        created_at=amendment.created_at,
+    )
+
+
+@router.get(
+    "/{contract_id}/amendments",
+    response_model=List[ContractAmendmentResponse],
+)
+async def list_contract_amendments(
+    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractAmendment)
+        .where(ContractAmendment.contract_id == contract_id)
+        .order_by(ContractAmendment.created_at.desc())
+    )
+    amendments = list(result.scalars().all())
+    return [await _amendment_to_response(db, a) for a in amendments]
+
+
+@router.post(
+    "/{contract_id}/amendments",
+    response_model=ContractAmendmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_amendment(
+    contract_id: int,
+    data: ContractAmendmentCreate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    contract_res = await db.execute(select(Contract).where(Contract.id == contract_id))
+    contract = contract_res.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    # Snapshot only the fields that might change, for audit.
+    old_values: dict = {
+        "end_date": contract.end_date.isoformat() if contract.end_date else None,
+        "rate_candidate": contract.rate_candidate,
+        "rate_client": contract.rate_client,
+        "rate_unit": contract.rate_unit.value
+        if hasattr(contract.rate_unit, "value")
+        else str(contract.rate_unit),
+        "billing_hours_per_month": contract.billing_hours_per_month,
+        "project_name": contract.project_name,
+        "team_name": contract.team_name,
+        "status": contract.status.value
+        if hasattr(contract.status, "value")
+        else str(contract.status),
+    }
+    new_values: dict = {}
+
+    # Apply changes per amendment_type
+    if data.amendment_type == ContractAmendmentType.extension:
+        if data.new_end_date is None:
+            raise HTTPException(
+                status_code=422,
+                detail="new_end_date is required for extension amendment",
+            )
+        contract.end_date = data.new_end_date
+        # If status was 'ending' or 'ended', flip back to active after extension.
+        if contract.status in (ContractStatus.ending, ContractStatus.ended):
+            contract.status = ContractStatus.active
+        new_values["end_date"] = data.new_end_date.isoformat()
+        new_values["status"] = contract.status.value
+
+    elif data.amendment_type == ContractAmendmentType.rate_change:
+        if data.new_rate_candidate is not None:
+            contract.rate_candidate = data.new_rate_candidate
+            new_values["rate_candidate"] = data.new_rate_candidate
+        if data.new_rate_client is not None:
+            contract.rate_client = data.new_rate_client
+            new_values["rate_client"] = data.new_rate_client
+        if data.new_rate_unit is not None:
+            contract.rate_unit = data.new_rate_unit  # type: ignore[assignment]
+            new_values["rate_unit"] = data.new_rate_unit
+        if data.new_billing_hours_per_month is not None:
+            contract.billing_hours_per_month = data.new_billing_hours_per_month
+            new_values["billing_hours_per_month"] = data.new_billing_hours_per_month
+        if not new_values:
+            raise HTTPException(
+                status_code=422,
+                detail="At least one rate field must change for rate_change amendment",
+            )
+        contract.margin = contract.calculate_margin()
+
+    elif data.amendment_type == ContractAmendmentType.scope_change:
+        if data.new_project_name is not None:
+            contract.project_name = data.new_project_name
+            new_values["project_name"] = data.new_project_name
+        if data.new_team_name is not None:
+            contract.team_name = data.new_team_name
+            new_values["team_name"] = data.new_team_name
+        if not new_values:
+            raise HTTPException(
+                status_code=422,
+                detail="scope_change requires new_project_name or new_team_name",
+            )
+
+    elif data.amendment_type == ContractAmendmentType.early_termination:
+        end = data.new_end_date or data.effective_date
+        contract.end_date = end
+        contract.status = ContractStatus.ended
+        new_values["end_date"] = end.isoformat()
+        new_values["status"] = contract.status.value
+
+    amendment = ContractAmendment(
+        contract_id=contract_id,
+        amendment_type=data.amendment_type,
+        old_values=old_values,
+        new_values=new_values,
+        effective_date=data.effective_date,
+        reason=data.reason,
+        document_id=data.document_id,
+        created_by=current_user.id,
+    )
+    db.add(amendment)
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action=f"amendment_{data.amendment_type.value}",
+            user_id=current_user.id,
+            details={
+                "old": old_values,
+                "new": new_values,
+                "effective_date": data.effective_date.isoformat(),
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(amendment)
+    return await _amendment_to_response(db, amendment)
