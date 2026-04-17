@@ -98,12 +98,49 @@ async def list_contracts(
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[ContractStatus] = None,
     client_id: Optional[int] = None,
+    candidate_id: Optional[int] = None,
+    contract_type: Optional[str] = Query(None),
+    start_from: Optional[date] = Query(None),
+    start_to: Optional[date] = Query(None),
+    end_from: Optional[date] = Query(None),
+    end_to: Optional[date] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0),
+    rate_client_max: Optional[int] = Query(None, ge=0),
+    margin_min: Optional[int] = Query(None),
+    expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
 ):
+    """List contracts with advanced filters (Phase 9 C5)."""
     query = select(Contract)
     if status:
         query = query.where(Contract.status == status)
     if client_id:
         query = query.where(Contract.client_id == client_id)
+    if candidate_id:
+        query = query.where(Contract.candidate_id == candidate_id)
+    if contract_type:
+        query = query.where(Contract.contract_type == contract_type)
+    if start_from:
+        query = query.where(Contract.start_date >= start_from)
+    if start_to:
+        query = query.where(Contract.start_date <= start_to)
+    if end_from:
+        query = query.where(Contract.end_date >= end_from)
+    if end_to:
+        query = query.where(Contract.end_date <= end_to)
+    if rate_client_min is not None:
+        query = query.where(Contract.rate_client >= rate_client_min)
+    if rate_client_max is not None:
+        query = query.where(Contract.rate_client <= rate_client_max)
+    if margin_min is not None:
+        query = query.where(Contract.margin >= margin_min)
+    if expiring_in_days is not None:
+        today = date.today()
+        cutoff = today + timedelta(days=expiring_in_days)
+        query = query.where(
+            Contract.end_date.isnot(None),
+            Contract.end_date <= cutoff,
+            Contract.end_date >= today,
+        )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()

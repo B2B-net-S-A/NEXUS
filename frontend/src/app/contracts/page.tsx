@@ -361,16 +361,54 @@ function NewContractModal({ onClose, onSuccess }: { onClose: () => void; onSucce
 
 export default function ContractsPage() {
   const [statusFilter, setStatusFilter] = useState("active");
+  const [contractTypeFilter, setContractTypeFilter] = useState("");
+  const [startFrom, setStartFrom] = useState("");
+  const [startTo, setStartTo] = useState("");
+  const [endFrom, setEndFrom] = useState("");
+  const [endTo, setEndTo] = useState("");
+  const [rateClientMin, setRateClientMin] = useState("");
+  const [rateClientMax, setRateClientMax] = useState("");
+  const [marginMin, setMarginMin] = useState("");
+  const [expiringInDays, setExpiringInDays] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [showNewModal, setShowNewModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const queryClient = useQueryClient();
 
+  const queryParams = {
+    status: statusFilter || undefined,
+    contract_type: contractTypeFilter || undefined,
+    start_from: startFrom || undefined,
+    start_to: startTo || undefined,
+    end_from: endFrom || undefined,
+    end_to: endTo || undefined,
+    rate_client_min: rateClientMin || undefined,
+    rate_client_max: rateClientMax || undefined,
+    margin_min: marginMin || undefined,
+    expiring_in_days: expiringInDays || undefined,
+    page,
+    page_size: pageSize,
+  };
+
+  const resetFilters = () => {
+    setContractTypeFilter("");
+    setStartFrom("");
+    setStartTo("");
+    setEndFrom("");
+    setEndTo("");
+    setRateClientMin("");
+    setRateClientMax("");
+    setMarginMin("");
+    setExpiringInDays("");
+    setPage(1);
+  };
+
   const { data, isLoading } = useQuery({
-    queryKey: ["contracts", statusFilter, page, pageSize],
+    queryKey: ["contracts", queryParams],
     queryFn: () =>
-      api.get("/api/contracts", { params: { status: statusFilter || undefined, page, page_size: pageSize } }).then((r) => r.data),
+      api.get("/api/contracts", { params: queryParams }).then((r) => r.data),
   });
 
   const { data: expiring } = useQuery({
@@ -510,26 +548,135 @@ export default function ContractsPage() {
         </div>
       )}
 
-      <div className="flex gap-3 items-center">
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-        >
-          <option value="">Wszystkie</option>
-          <option value="draft">Draft</option>
-          <option value="active">Aktywne</option>
-          <option value="ending">Kończące się</option>
-          <option value="ended">Zakończone</option>
-        </select>
-        <SavedSearchPicker
-          entity="contract"
-          currentFilters={{ status: statusFilter }}
-          onApply={(f) => {
-            if (typeof f.status === "string") setStatusFilter(f.status);
-            setPage(1);
-          }}
-        />
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-3 items-center">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+          >
+            <option value="">Wszystkie statusy</option>
+            <option value="draft">Draft</option>
+            <option value="active">Aktywne</option>
+            <option value="ending">Kończące się</option>
+            <option value="ended">Zakończone</option>
+          </select>
+          <select
+            value={contractTypeFilter}
+            onChange={(e) => { setContractTypeFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+          >
+            <option value="">Wszystkie typy</option>
+            <option value="b2b">B2B</option>
+            <option value="uop">UoP</option>
+            <option value="uzlecenie">Zlecenie</option>
+          </select>
+          <select
+            value={expiringInDays}
+            onChange={(e) => { setExpiringInDays(e.target.value); setPage(1); }}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+          >
+            <option value="">Bez ograniczenia wygaśnięcia</option>
+            <option value="7">Wygasa w 7 dni</option>
+            <option value="14">Wygasa w 14 dni</option>
+            <option value="30">Wygasa w 30 dni</option>
+            <option value="60">Wygasa w 60 dni</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((s) => !s)}
+            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            {showAdvanced ? "Ukryj filtry" : "Więcej filtrów"}
+          </button>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Wyczyść
+          </button>
+          <SavedSearchPicker
+            entity="contract"
+            currentFilters={{ status: statusFilter }}
+            onApply={(f) => {
+              if (typeof f.status === "string") setStatusFilter(f.status);
+              setPage(1);
+            }}
+          />
+        </div>
+
+        {showAdvanced && (
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start od</span>
+                <input
+                  type="date"
+                  value={startFrom}
+                  onChange={(e) => { setStartFrom(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start do</span>
+                <input
+                  type="date"
+                  value={startTo}
+                  onChange={(e) => { setStartTo(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Koniec od</span>
+                <input
+                  type="date"
+                  value={endFrom}
+                  onChange={(e) => { setEndFrom(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Koniec do</span>
+                <input
+                  type="date"
+                  value={endTo}
+                  onChange={(e) => { setEndTo(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stawka klient od</span>
+                <input
+                  type="number"
+                  value={rateClientMin}
+                  onChange={(e) => { setRateClientMin(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stawka klient do</span>
+                <input
+                  type="number"
+                  value={rateClientMax}
+                  onChange={(e) => { setRateClientMax(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Marża min</span>
+                <input
+                  type="number"
+                  value={marginMin}
+                  onChange={(e) => { setMarginMin(e.target.value); setPage(1); }}
+                  className="w-full px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-sm bg-white dark:bg-gray-700"
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       <DataTable
