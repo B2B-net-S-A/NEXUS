@@ -100,3 +100,58 @@ async def test_contract_rate_history_shape(
     )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+async def test_contract_has_rate_unit_default(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Phase 9 A3: response exposes rate_unit + billing_hours_per_month."""
+    list_resp = await app_client.get("/api/contracts", headers=app_auth_headers)
+    items = list_resp.json().get("items", [])
+    if not items:
+        return
+    for item in items:
+        assert "rate_unit" in item
+        assert item["rate_unit"] in ("hourly", "daily", "monthly")
+        assert "billing_hours_per_month" in item
+        assert isinstance(item["billing_hours_per_month"], int)
+
+
+async def test_contract_rate_unit_round_trip(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Creating a contract with rate_unit=hourly persists it."""
+    # Find an existing candidate and client to reuse
+    cands = (
+        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    clients = (
+        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    if not cands or not clients:
+        return
+    payload = {
+        "candidate_id": cands[0]["id"],
+        "client_id": clients[0]["id"],
+        "start_date": "2026-04-17",
+        "rate_client": 150,
+        "rate_candidate": 100,
+        "currency": "PLN",
+        "rate_unit": "hourly",
+        "billing_hours_per_month": 168,
+        "contract_type": "b2b",
+        "status": "draft",
+    }
+    resp = await app_client.post(
+        "/api/contracts", json=payload, headers=app_auth_headers
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["rate_unit"] == "hourly"
+    assert body["billing_hours_per_month"] == 168
+    # Margin auto-computed = 50
+    assert body["margin"] == 50
+    # Clean up
+    await app_client.delete(
+        f"/api/contracts/{body['id']}", headers=app_auth_headers
+    )

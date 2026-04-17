@@ -16,6 +16,17 @@ const STATUS_COLORS: Record<string, string> = {
   ended: "bg-red-100 text-red-600",
 };
 
+const RATE_UNIT_SUFFIX: Record<string, string> = {
+  monthly: "/mies.",
+  daily: "/dz.",
+  hourly: "/h",
+};
+
+function formatRateWithUnit(amount: number | null | undefined, currency: string, rateUnit?: string): string {
+  const base = formatCurrency(amount, currency);
+  return rateUnit && RATE_UNIT_SUFFIX[rateUnit] ? `${base}${RATE_UNIT_SUFFIX[rateUnit]}` : base;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -95,6 +106,8 @@ interface ContractFormData {
   rate_candidate: string;
   rate_client: string;
   currency: string;
+  rate_unit: string;
+  billing_hours_per_month: string;
   contract_type: string;
   status: string;
 }
@@ -108,6 +121,8 @@ const EMPTY_CONTRACT: ContractFormData = {
   rate_candidate: "",
   rate_client: "",
   currency: "PLN",
+  rate_unit: "monthly",
+  billing_hours_per_month: "160",
   contract_type: "b2b",
   status: "draft",
 };
@@ -141,6 +156,14 @@ function NewContractModal({ onClose, onSuccess }: { onClose: () => void; onSucce
   const rateClient = parseFloat(form.rate_client) || 0;
   const margin = rateClient - rateCandidate;
   const marginPct = rateClient > 0 ? ((margin / rateClient) * 100).toFixed(1) : null;
+  const unitLabel: Record<string, string> = {
+    monthly: "/mies.",
+    daily: "/dz.",
+    hourly: "/h",
+  };
+  const monthlyMultiplier =
+    form.rate_unit === "daily" ? 22 : form.rate_unit === "hourly" ? (Number(form.billing_hours_per_month) || 160) : 1;
+  const monthlyMargin = margin * monthlyMultiplier;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,6 +183,8 @@ function NewContractModal({ onClose, onSuccess }: { onClose: () => void; onSucce
         rate_candidate: form.rate_candidate ? Number(form.rate_candidate) : undefined,
         rate_client: form.rate_client ? Number(form.rate_client) : undefined,
         currency: form.currency,
+        rate_unit: form.rate_unit,
+        billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
         contract_type: form.contract_type,
         status: form.status,
       });
@@ -260,15 +285,42 @@ function NewContractModal({ onClose, onSuccess }: { onClose: () => void; onSucce
             </FieldGroup>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <FieldGroup label="Jednostka stawki">
+              <Select value={form.rate_unit} onChange={e => set("rate_unit", e.target.value)}>
+                <option value="monthly">Miesięcznie</option>
+                <option value="daily">Dziennie</option>
+                <option value="hourly">Godzinowo</option>
+              </Select>
+            </FieldGroup>
+            {form.rate_unit === "hourly" && (
+              <FieldGroup label="Godzin / miesiąc">
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.billing_hours_per_month}
+                  onChange={e => set("billing_hours_per_month", e.target.value)}
+                  placeholder="160"
+                />
+              </FieldGroup>
+            )}
+          </div>
+
           {/* Margin auto-display */}
           {(rateCandidate > 0 || rateClient > 0) && (
-            <div className={`flex items-center gap-4 text-sm rounded-lg px-4 py-2 ${margin >= 0 ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
+            <div className={`flex flex-wrap items-center gap-4 text-sm rounded-lg px-4 py-2 ${margin >= 0 ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"}`}>
               <span className="font-medium">Marża:</span>
               <span className="font-bold">
-                {margin.toLocaleString("pl-PL")} {form.currency}
+                {margin.toLocaleString("pl-PL")} {form.currency}{unitLabel[form.rate_unit] ?? ""}
               </span>
               {marginPct && (
                 <span className="text-xs opacity-75">({marginPct}%)</span>
+              )}
+              {form.rate_unit !== "monthly" && (
+                <span className="text-xs opacity-75">
+                  ≈ {monthlyMargin.toLocaleString("pl-PL")} {form.currency}/mies.
+                </span>
               )}
             </div>
           )}
@@ -388,13 +440,13 @@ export default function ContractsPage() {
       key: "rate_client",
       label: "Stawka klient",
       sortable: true,
-      render: (row: any) => formatCurrency(row.rate_client, row.currency),
+      render: (row: any) => formatRateWithUnit(row.rate_client, row.currency, row.rate_unit),
       csvValue: (row: any) => row.rate_client ?? "",
     },
     {
       key: "rate_candidate",
       label: "Stawka kandydat",
-      render: (row: any) => formatCurrency(row.rate_candidate, row.currency),
+      render: (row: any) => formatRateWithUnit(row.rate_candidate, row.currency, row.rate_unit),
       csvValue: (row: any) => row.rate_candidate ?? "",
     },
     {
@@ -403,7 +455,7 @@ export default function ContractsPage() {
       sortable: true,
       render: (row: any) => (
         <span className={row.margin > 0 ? "text-green-600 font-medium" : "text-red-500"}>
-          {formatCurrency(row.margin, row.currency)}
+          {formatRateWithUnit(row.margin, row.currency, row.rate_unit)}
         </span>
       ),
       csvValue: (row: any) => row.margin ?? "",

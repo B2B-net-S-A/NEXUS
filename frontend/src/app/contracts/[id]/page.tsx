@@ -42,6 +42,8 @@ interface ContractDetail {
   rate_candidate: number | null;
   rate_client: number | null;
   currency: string;
+  rate_unit: "hourly" | "daily" | "monthly";
+  billing_hours_per_month: number;
   margin: number | null;
   contract_type: "b2b" | "uop" | "uzlecenie";
   status: "draft" | "active" | "ending" | "ended";
@@ -91,6 +93,24 @@ const TYPE_LABELS: Record<string, string> = {
   uop: "Umowa o pracę",
   uzlecenie: "Zlecenie",
 };
+
+const RATE_UNIT_SUFFIX: Record<string, string> = {
+  monthly: "/mies.",
+  daily: "/dz.",
+  hourly: "/h",
+};
+
+const RATE_UNIT_LABELS: Record<string, string> = {
+  monthly: "Miesięcznie",
+  daily: "Dziennie",
+  hourly: "Godzinowo",
+};
+
+function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): number {
+  if (rate_unit === "daily") return 22;
+  if (rate_unit === "hourly") return billing_hours_per_month || 160;
+  return 1;
+}
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
@@ -148,6 +168,8 @@ interface EditForm {
   rate_candidate: string;
   rate_client: string;
   currency: string;
+  rate_unit: string;
+  billing_hours_per_month: string;
   contract_type: string;
   status: string;
 }
@@ -159,6 +181,8 @@ function contractToForm(c: ContractDetail): EditForm {
     rate_candidate: c.rate_candidate?.toString() ?? "",
     rate_client: c.rate_client?.toString() ?? "",
     currency: c.currency,
+    rate_unit: c.rate_unit ?? "monthly",
+    billing_hours_per_month: (c.billing_hours_per_month ?? 160).toString(),
     contract_type: c.contract_type,
     status: c.status,
   };
@@ -244,6 +268,8 @@ export default function ContractDetailPage() {
       rate_candidate: form.rate_candidate ? Number(form.rate_candidate) : null,
       rate_client: form.rate_client ? Number(form.rate_client) : null,
       currency: form.currency,
+      rate_unit: form.rate_unit,
+      billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
       contract_type: form.contract_type,
       status: form.status,
     };
@@ -292,6 +318,10 @@ export default function ContractDetailPage() {
     contract.rate_client && contract.rate_client > 0 && contract.margin !== null
       ? ((contract.margin / contract.rate_client) * 100).toFixed(1)
       : null;
+
+  const unitSuffix = RATE_UNIT_SUFFIX[contract.rate_unit] ?? "";
+  const monthlyMult = monthlyMultiplier(contract.rate_unit, contract.billing_hours_per_month);
+  const monthlyMargin = contract.margin !== null ? contract.margin * monthlyMult : null;
 
   return (
     <div className="space-y-6">
@@ -570,6 +600,42 @@ export default function ContractDetailPage() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Jednostka stawki
+                    </label>
+                    <select
+                      value={form.rate_unit}
+                      onChange={(e) =>
+                        setForm((f) => (f ? { ...f, rate_unit: e.target.value } : f))
+                      }
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                    >
+                      <option value="monthly">Miesięcznie</option>
+                      <option value="daily">Dziennie</option>
+                      <option value="hourly">Godzinowo</option>
+                    </select>
+                  </div>
+                  {form.rate_unit === "hourly" && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Godziny / miesiąc
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={form.billing_hours_per_month}
+                        onChange={(e) =>
+                          setForm((f) => (f ? { ...f, billing_hours_per_month: e.target.value } : f))
+                        }
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -601,17 +667,25 @@ export default function ContractDetailPage() {
               <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
                 <Banknote className="w-4 h-4" /> Stawki finansowe
               </h2>
+              <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+                <span>Jednostka: {RATE_UNIT_LABELS[contract.rate_unit] ?? contract.rate_unit}</span>
+                {contract.rate_unit === "hourly" && (
+                  <span>{contract.billing_hours_per_month} h/mies.</span>
+                )}
+              </div>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500 dark:text-gray-400">Klient</span>
                   <span className="font-medium">
                     {formatCurrency(contract.rate_client, contract.currency)}
+                    <span className="text-xs opacity-70">{unitSuffix}</span>
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500 dark:text-gray-400">Kandydat</span>
                   <span className="font-medium">
                     {formatCurrency(contract.rate_candidate, contract.currency)}
+                    <span className="text-xs opacity-70">{unitSuffix}</span>
                   </span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
@@ -619,16 +693,23 @@ export default function ContractDetailPage() {
                     <TrendingUp className="w-3.5 h-3.5" /> Marża
                   </span>
                   <span
-                    className={`font-bold ${
+                    className={`font-bold text-right ${
                       (contract.margin ?? 0) > 0 ? "text-emerald-600" : "text-red-600"
                     }`}
                   >
                     {formatCurrency(contract.margin, contract.currency)}
+                    <span className="text-xs opacity-70">{unitSuffix}</span>
                     {marginPct && (
                       <span className="ml-1 text-xs opacity-70">({marginPct}%)</span>
                     )}
                   </span>
                 </div>
+                {contract.rate_unit !== "monthly" && monthlyMargin !== null && (
+                  <div className="flex justify-between pt-1 text-xs text-gray-500 dark:text-gray-400">
+                    <span>Marża miesięcznie (≈)</span>
+                    <span>{formatCurrency(monthlyMargin, contract.currency)}</span>
+                  </div>
+                )}
               </div>
             </div>
 

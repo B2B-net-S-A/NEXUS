@@ -22,6 +22,43 @@ from app.models.user import User
 
 router = APIRouter()
 
+
+# ── Rate-unit aware helpers (Phase 9 A3) ───────────────────────────────────────
+# Previously reports used a blanket `* 160` multiplier, assuming every Contract
+# stored a monthly rate. Phase 9 A3 introduced `rate_unit` + `billing_hours_per_month`;
+# these helpers normalise stored rates to a monthly amount.
+
+_WORKING_DAYS_PER_MONTH = 22
+
+
+def _monthly(contract: Contract, value: Optional[int]) -> int:
+    if value is None:
+        return 0
+    if contract.rate_unit is None or contract.rate_unit.value == "monthly":
+        return int(value)
+    if contract.rate_unit.value == "daily":
+        return int(value) * _WORKING_DAYS_PER_MONTH
+    # hourly
+    return int(value) * int(contract.billing_hours_per_month or 160)
+
+
+def _monthly_rate_client(contract: Contract) -> int:
+    return _monthly(contract, contract.rate_client)
+
+
+def _monthly_margin(contract: Contract) -> int:
+    return _monthly(contract, contract.margin)
+
+
+def _sql_monthly(col):
+    """SQLAlchemy CASE expr: convert rate column to monthly using Contract.rate_unit."""
+    return case(
+        (Contract.rate_unit == "daily", col * _WORKING_DAYS_PER_MONTH),
+        (Contract.rate_unit == "hourly", col * Contract.billing_hours_per_month),
+        else_=col,
+    )
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
@@ -204,10 +241,8 @@ async def report_sales(
     active_q = select(Contract).where(Contract.status == ContractStatus.active)
     active_contracts = (await db.execute(active_q)).scalars().all()
 
-    total_revenue = sum(
-        (c.rate_client or 0) * 160 for c in active_contracts
-    )  # ~160h/month
-    total_margin = sum((c.margin or 0) * 160 for c in active_contracts)
+    total_revenue = sum(_monthly_rate_client(c) for c in active_contracts)
+    total_margin = sum(_monthly_margin(c) for c in active_contracts)
     active_consultants = len(active_contracts)
 
     # New contracts this month
@@ -272,8 +307,8 @@ async def report_sales(
             .all()
         )
 
-        m_revenue = sum((c.rate_client or 0) * 160 for c in month_contracts)
-        m_margin = sum((c.margin or 0) * 160 for c in month_contracts)
+        m_revenue = sum(_monthly_rate_client(c) for c in month_contracts)
+        m_margin = sum(_monthly_margin(c) for c in month_contracts)
 
         mrr_trend.append(
             {
@@ -291,13 +326,13 @@ async def report_sales(
             Client.id,
             Client.name,
             func.count(Contract.id).label("contracts_count"),
-            func.sum(Contract.rate_client * 160).label("revenue"),
-            func.sum(Contract.margin * 160).label("margin"),
+            func.sum(_sql_monthly(Contract.rate_client)).label("revenue"),
+            func.sum(_sql_monthly(Contract.margin)).label("margin"),
         )
         .join(Contract, Client.id == Contract.client_id)
         .where(Contract.status == ContractStatus.active)
         .group_by(Client.id, Client.name)
-        .order_by(func.sum(Contract.rate_client * 160).desc())
+        .order_by(func.sum(_sql_monthly(Contract.rate_client)).desc())
         .limit(10)
     )
     top_clients_rows = (await db.execute(top_clients_q)).all()
@@ -565,8 +600,8 @@ async def report_board(
         .all()
     )
 
-    revenue_ytd = sum((c.rate_client or 0) * 160 for c in active_contracts)
-    margin_ytd = sum((c.margin or 0) * 160 for c in active_contracts)
+    revenue_ytd = sum(_monthly_rate_client(c) for c in active_contracts)
+    margin_ytd = sum(_monthly_margin(c) for c in active_contracts)
     active_consultants = len(active_contracts)
 
     # ── Delivery ─────────────────────────────────────────────────────────────
@@ -659,7 +694,7 @@ async def report_board(
             .all()
         )
 
-        m_revenue = sum((c.rate_client or 0) * 160 for c in m_contracts)
+        m_revenue = sum(_monthly_rate_client(c) for c in m_contracts)
 
         trends.append(
             {

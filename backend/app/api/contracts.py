@@ -39,6 +39,8 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "rate_candidate": contract.rate_candidate,
         "rate_client": contract.rate_client,
         "currency": contract.currency,
+        "rate_unit": contract.rate_unit,
+        "billing_hours_per_month": contract.billing_hours_per_month,
         "margin": contract.margin,
         "contract_type": contract.contract_type,
         "status": contract.status,
