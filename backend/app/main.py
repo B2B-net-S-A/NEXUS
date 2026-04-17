@@ -21,6 +21,7 @@ from app.api import (
     contracts,
     contract_analytics,
     contract_templates,
+    invoices,
     rate_cards,
     dashboard,
     search,
@@ -202,6 +203,7 @@ app.include_router(
     prefix="/api/contract-templates",
     tags=["contract-templates"],
 )
+app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])

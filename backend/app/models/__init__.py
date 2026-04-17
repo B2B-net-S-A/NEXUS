@@ -13,6 +13,7 @@ from app.models.contract_onboarding import (
     OnboardingItemStatus,
 )
 from app.models.contract_template import ContractTemplate
+from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
@@ -51,6 +52,9 @@ __all__ = [
     "ContractOnboardingItem",
     "OnboardingItemStatus",
     "ContractTemplate",
+    "Invoice",
+    "InvoiceDirection",
+    "InvoiceStatus",
     "Activity",
     "UserActivity",
     "EmailTemplate",
