@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { contractsApi } from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
+import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -889,13 +890,8 @@ export default function ContractDetailPage() {
       {/* Tab: Dokumenty */}
       {activeTab === "documents" && <ContractDocumentsTab contractId={id} />}
 
-      {/* Tab: Aneksy (placeholder B3) */}
-      {activeTab === "amendments" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          <FileEdit className="w-10 h-10 mx-auto mb-3 text-gray-300 dark:text-gray-500" />
-          Workflow aneksów (przedłużenie, zmiana stawki, wcześniejsze zakończenie) — etap B3.
-        </div>
-      )}
+      {/* Tab: Aneksy */}
+      {activeTab === "amendments" && <ContractAmendmentsTab contractId={id} />}
 
       {/* Tab: Rate history */}
       {activeTab === "rateHistory" && (
