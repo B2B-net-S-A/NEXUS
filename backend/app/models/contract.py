@@ -23,6 +23,12 @@ class ContractStatus(str, enum.Enum):
     ended = "ended"
 
 
+class RateUnit(str, enum.Enum):
+    hourly = "hourly"
+    daily = "daily"
+    monthly = "monthly"
+
+
 class Contract(Base, TimestampMixin):
     """
     Kontrakt body-leasingowy — łączy kandydata z klientem przez ofertę.
@@ -47,11 +53,20 @@ class Contract(Base, TimestampMixin):
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
     # Stawki finansowe
-    rate_candidate: Mapped[Optional[int]] = mapped_column(
-        Integer
-    )  # stawka dla kandydata (PLN/h lub mies.)
-    rate_client: Mapped[Optional[int]] = mapped_column(Integer)  # stawka dla klienta
+    rate_candidate: Mapped[Optional[int]] = mapped_column(Integer)
+    rate_client: Mapped[Optional[int]] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), default="PLN")
+
+    # Jednostka stawki (godz. / dzień / mies.) + liczba godzin billingowych (dla stawki godzinowej).
+    rate_unit: Mapped[RateUnit] = mapped_column(
+        Enum(RateUnit, name="rateunit"),
+        default=RateUnit.monthly,
+        nullable=False,
+        server_default="monthly",
+    )
+    billing_hours_per_month: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=160, server_default="160"
+    )
 
     # Marża — obliczana automatycznie (rate_client - rate_candidate)
     margin: Mapped[Optional[int]] = mapped_column(Integer)
@@ -73,10 +88,37 @@ class Contract(Base, TimestampMixin):
     job = relationship("Job", back_populates="contracts")
 
     def calculate_margin(self) -> Optional[int]:
-        """Oblicz marżę: stawka klienta - stawka kandydata."""
+        """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""
         if self.rate_client is not None and self.rate_candidate is not None:
             return self.rate_client - self.rate_candidate
         return None
+
+    def monthly_rate(self, rate: Optional[int]) -> Optional[int]:
+        """Normalize a stored rate to a monthly amount using rate_unit + billing_hours."""
+        if rate is None:
+            return None
+        if self.rate_unit == RateUnit.monthly:
+            return rate
+        if self.rate_unit == RateUnit.daily:
+            return rate * 22  # standardowy miesiąc roboczy (PL)
+        if self.rate_unit == RateUnit.hourly:
+            return rate * (self.billing_hours_per_month or 160)
+        return rate
+
+    @property
+    def monthly_rate_client(self) -> Optional[int]:
+        return self.monthly_rate(self.rate_client)
+
+    @property
+    def monthly_rate_candidate(self) -> Optional[int]:
+        return self.monthly_rate(self.rate_candidate)
+
+    @property
+    def monthly_margin(self) -> Optional[int]:
+        c, k = self.monthly_rate_client, self.monthly_rate_candidate
+        if c is None or k is None:
+            return None
+        return c - k
 
     def __repr__(self) -> str:
         return f"<Contract id={self.id} candidate={self.candidate_id} client={self.client_id} status={self.status}>"

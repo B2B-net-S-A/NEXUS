@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from app.models.contract import ContractStatus, ContractType
+from app.models.contract import ContractStatus, ContractType, RateUnit
 
 
 class ContractCreate(BaseModel):
@@ -15,6 +15,8 @@ class ContractCreate(BaseModel):
     rate_candidate: Optional[int] = None
     rate_client: Optional[int] = None
     currency: str = "PLN"
+    rate_unit: RateUnit = RateUnit.monthly
+    billing_hours_per_month: int = 160
     contract_type: ContractType = ContractType.b2b
     status: ContractStatus = ContractStatus.draft
     documents: Optional[Any] = None
@@ -26,6 +28,8 @@ class ContractUpdate(BaseModel):
     rate_candidate: Optional[int] = None
     rate_client: Optional[int] = None
     currency: Optional[str] = None
+    rate_unit: Optional[RateUnit] = None
+    billing_hours_per_month: Optional[int] = None
     contract_type: Optional[ContractType] = None
     status: Optional[ContractStatus] = None
     documents: Optional[Any] = None
@@ -41,6 +45,8 @@ class ContractResponse(BaseModel):
     rate_candidate: Optional[int]
     rate_client: Optional[int]
     currency: str
+    rate_unit: RateUnit
+    billing_hours_per_month: int
     margin: Optional[int]
     contract_type: ContractType
     status: ContractStatus
