@@ -37,7 +37,12 @@ from app.services.embedding_service import (
     search_candidates_semantic,
     search_jobs_semantic,
 )
-from app.services.scoring_service import rank_jobs_for_candidate
+from app.services.scoring_service import (
+    DEFAULT_PROFILE,
+    WeightProfile,
+    rank_jobs_for_candidate,
+    resolve_active_profile,
+)
 from app.services.match_score_cache import bulk_get_or_compute
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,13 @@ async def recommend_candidates_for_job(
     exclude_in_pipeline: bool = Query(
         True, description="Skip candidates already added to this job's pipeline."
     ),
+    profile_id: Optional[int] = Query(
+        None,
+        description=(
+            "Optional scoring weight profile id (Phase D1). If omitted, falls back "
+            "to user → client → global → built-in default."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,6 +80,21 @@ async def recommend_candidates_for_job(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Phase D1: resolve active weight profile for this request.
+    profile: WeightProfile = DEFAULT_PROFILE
+    if profile_id is not None:
+        from app.models.scoring_weight_profile import ScoringWeightProfile
+
+        row = await db.scalar(
+            select(ScoringWeightProfile).where(ScoringWeightProfile.id == profile_id)
+        )
+        if row:
+            profile = WeightProfile.from_record(row)
+    else:
+        profile = await resolve_active_profile(
+            db, user_id=current_user.id, client_id=job.client_id
+        )
 
     query_text = _build_job_text(job)
 
@@ -111,9 +138,9 @@ async def recommend_candidates_for_job(
     )
     candidates = cand_res.scalars().all()
 
-    # Phase C1: cache-first scoring. bulk_get_or_compute handles upsert + commit.
+    # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
-        job, candidates, db, similarity_map=similarity_map
+        job, candidates, db, similarity_map=similarity_map, profile=profile
     )
     breakdowns = breakdowns[:top_k]
 
@@ -151,6 +178,7 @@ async def recommend_candidates_for_job(
         "job_id": job_id,
         "job_title": job.title,
         "search_type": "hybrid",
+        "profile": {"id": profile.id, "name": profile.name},
         "matches": matches,
     }
 
