@@ -4,13 +4,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models.contract import Contract, ContractStatus
 from app.models.activity import Activity
+from app.models.contract import Contract, ContractStatus
+from app.models.rate_history import RateHistory
+from app.models.user import User
 from app.schemas.contract import (
+    ContractActivityEntry,
     ContractCreate,
+    ContractDetailResponse,
     ContractList,
+    ContractRateHistoryEntry,
     ContractResponse,
     ContractUpdate,
 )
@@ -19,6 +25,35 @@ from app.api.deps import CurrentUser, TacPlus
 router = APIRouter()
 
 EXPIRY_WARNING_DAYS = 30
+
+
+def _to_detail(contract: Contract) -> ContractDetailResponse:
+    """Serialize a Contract (with eager-loaded relations) to the detail schema."""
+    data = {
+        "id": contract.id,
+        "candidate_id": contract.candidate_id,
+        "client_id": contract.client_id,
+        "job_id": contract.job_id,
+        "start_date": contract.start_date,
+        "end_date": contract.end_date,
+        "rate_candidate": contract.rate_candidate,
+        "rate_client": contract.rate_client,
+        "currency": contract.currency,
+        "margin": contract.margin,
+        "contract_type": contract.contract_type,
+        "status": contract.status,
+        "documents": contract.documents,
+        "created_at": contract.created_at,
+        "updated_at": contract.updated_at,
+        "candidate_name": (
+            f"{contract.candidate.name} {contract.candidate.lastname}"
+            if contract.candidate
+            else None
+        ),
+        "client_name": contract.client.name if contract.client else None,
+        "job_title": contract.job.title if contract.job else None,
+    }
+    return ContractDetailResponse(**data)
 
 
 @router.get("", response_model=ContractList)
@@ -49,7 +84,6 @@ async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     contract = Contract(**data.model_dump())
-    # margin auto-calculated via SQLAlchemy event
     db.add(contract)
     await db.flush()
     db.add(
@@ -82,32 +116,127 @@ async def expiring_contracts(
     return list(result.scalars().all())
 
 
-@router.get("/{contract_id}", response_model=ContractResponse)
+@router.get("/{contract_id}", response_model=ContractDetailResponse)
 async def get_contract(
     contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Contract).where(Contract.id == contract_id))
+    """Return contract with denormalized candidate/client/job names."""
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    return contract
+    return _to_detail(contract)
 
 
-@router.patch("/{contract_id}", response_model=ContractResponse)
+@router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
+async def contract_activities(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Return activity log entries for a contract, newest first."""
+    contract_exists = await db.execute(
+        select(Contract.id).where(Contract.id == contract_id)
+    )
+    if contract_exists.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    result = await db.execute(
+        select(Activity, User.email)
+        .outerjoin(User, Activity.user_id == User.id)
+        .where(Activity.entity_type == "contract", Activity.entity_id == contract_id)
+        .order_by(Activity.created_at.desc())
+        .limit(limit)
+    )
+    entries: list[ContractActivityEntry] = []
+    for activity, user_email in result.all():
+        entries.append(
+            ContractActivityEntry(
+                id=activity.id,
+                action=activity.action,
+                details=activity.details,
+                user_id=activity.user_id,
+                user_name=user_email,
+                created_at=activity.created_at,
+            )
+        )
+    return entries
+
+
+@router.get(
+    "/{contract_id}/rate-history", response_model=List[ContractRateHistoryEntry]
+)
+async def contract_rate_history(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return rate history for this contract's candidate+client combination."""
+    contract_result = await db.execute(
+        select(Contract).where(Contract.id == contract_id)
+    )
+    contract = contract_result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    history_query = select(RateHistory).where(
+        RateHistory.candidate_id == contract.candidate_id
+    )
+    history_query = history_query.where(
+        (RateHistory.client_id == contract.client_id)
+        | (RateHistory.client_id.is_(None))
+    )
+    history_query = history_query.order_by(RateHistory.start_date.desc())
+
+    result = await db.execute(history_query)
+    return [
+        ContractRateHistoryEntry(
+            id=r.id,
+            rate=r.rate,
+            currency=r.currency,
+            contract_type=r.contract_type.value
+            if hasattr(r.contract_type, "value")
+            else str(r.contract_type),
+            start_date=r.start_date,
+            end_date=r.end_date,
+            notes=r.notes,
+            created_at=r.created_at,
+        )
+        for r in result.scalars().all()
+    ]
+
+
+@router.patch("/{contract_id}", response_model=ContractDetailResponse)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Contract).where(Contract.id == contract_id))
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     updates = data.model_dump(exclude_unset=True)
     for k, v in updates.items():
         setattr(contract, k, v)
-    # Recalculate margin if rates changed
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(
@@ -115,11 +244,15 @@ async def update_contract(
             entity_id=contract_id,
             action="updated",
             user_id=current_user.id,
-            details=updates,
+            details={
+                k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                for k, v in updates.items()
+            },
         )
     )
+    await db.flush()
     await db.refresh(contract)
-    return contract
+    return _to_detail(contract)
 
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)

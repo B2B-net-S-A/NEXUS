@@ -41,7 +41,7 @@ class ContractResponse(BaseModel):
     rate_candidate: Optional[int]
     rate_client: Optional[int]
     currency: str
-    margin: Optional[int]  # auto-calculated
+    margin: Optional[int]
     contract_type: ContractType
     status: ContractStatus
     documents: Optional[Any]
@@ -56,3 +56,37 @@ class ContractList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ContractDetailResponse(ContractResponse):
+    """Extended response for the contract detail page — includes denormalized names."""
+
+    candidate_name: Optional[str] = None
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ContractActivityEntry(BaseModel):
+    id: int
+    action: str
+    details: Optional[Any] = None
+    user_id: Optional[int] = None
+    user_name: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContractRateHistoryEntry(BaseModel):
+    id: int
+    rate: int
+    currency: str
+    contract_type: str
+    start_date: date
+    end_date: Optional[date] = None
+    notes: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

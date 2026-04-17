@@ -236,6 +236,8 @@ export const contractsApi = {
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/contracts/${id}`, data),
   delete: (id: number) => api.delete(`/api/contracts/${id}`),
   expiring: (days?: number) => api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
+  activities: (id: number) => api.get(`/api/contracts/${id}/activities`),
+  rateHistory: (id: number) => api.get(`/api/contracts/${id}/rate-history`),
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────

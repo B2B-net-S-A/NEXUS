@@ -347,7 +347,20 @@ export default function ContractsPage() {
   };
 
   const columns = [
-    { key: "id", label: "ID", sortable: true },
+    {
+      key: "id",
+      label: "ID",
+      sortable: true,
+      render: (row: any) => (
+        <a
+          href={`/contracts/${row.id}`}
+          className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+        >
+          #{row.id}
+        </a>
+      ),
+      csvValue: (row: any) => row.id,
+    },
     {
       key: "candidate_id",
       label: "Kandydat",
