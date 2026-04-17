@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
+import { RateCardsTab } from "@/components/RateCardsTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
@@ -690,7 +691,7 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "info" | "projekty" | "wiedza" | "kontakty" | "kontrakty";
+type Tab = "info" | "projekty" | "wiedza" | "kontakty" | "kontrakty" | "cennik";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -724,6 +725,7 @@ export default function ClientDetailPage() {
     { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
     { key: "kontakty", label: "Kontakty", icon: <Users className="w-4 h-4" /> },
     { key: "kontrakty", label: "Kontrakty", icon: <FileText className="w-4 h-4" /> },
+    { key: "cennik", label: "Cennik", icon: <DollarSign className="w-4 h-4" /> },
   ];
 
   return (
@@ -847,6 +849,7 @@ export default function ClientDetailPage() {
           {activeTab === "wiedza" && <KnowledgeTab clientId={Number(id)} />}
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
           {activeTab === "kontrakty" && <ContractsTab clientId={Number(id)} />}
+          {activeTab === "cennik" && <RateCardsTab clientId={Number(id)} />}
         </div>
       </div>
     </div>

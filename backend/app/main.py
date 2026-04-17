@@ -19,6 +19,7 @@ from app.api import (
     pipeline,
     notes,
     contracts,
+    rate_cards,
     dashboard,
     search,
 )
@@ -188,6 +189,7 @@ app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
+app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
