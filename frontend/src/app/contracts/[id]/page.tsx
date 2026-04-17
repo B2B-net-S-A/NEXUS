@@ -56,6 +56,7 @@ interface ContractDetail {
   office_location: string | null;
   team_name: string | null;
   project_name: string | null;
+  handover_notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -192,6 +193,7 @@ interface EditForm {
   office_location: string;
   team_name: string;
   project_name: string;
+  handover_notes: string;
 }
 
 function contractToForm(c: ContractDetail): EditForm {
@@ -211,6 +213,7 @@ function contractToForm(c: ContractDetail): EditForm {
     office_location: c.office_location ?? "",
     team_name: c.team_name ?? "",
     project_name: c.project_name ?? "",
+    handover_notes: c.handover_notes ?? "",
   };
 }
 
@@ -304,6 +307,7 @@ export default function ContractDetailPage() {
       office_location: form.office_location || null,
       team_name: form.team_name || null,
       project_name: form.project_name || null,
+      handover_notes: form.handover_notes || null,
     };
     updateMutation.mutate(payload);
   };
@@ -539,6 +543,18 @@ export default function ContractDetailPage() {
               </div>
             )}
 
+            {/* Handover notes (C6) — wewnętrzne */}
+            {!editing && contract.handover_notes && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-2xl p-5">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200 mb-2">
+                  Notatki wewnętrzne (handover)
+                </h2>
+                <p className="text-sm text-amber-900 dark:text-amber-100 whitespace-pre-line">
+                  {contract.handover_notes}
+                </p>
+              </div>
+            )}
+
             {/* Edit mode */}
             {editing && form && (
               <form
@@ -701,6 +717,21 @@ export default function ContractDetailPage() {
                       />
                     </div>
                   )}
+                </div>
+
+                <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Notatki wewnętrzne (widoczne tylko dla TAC/delivery)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={form.handover_notes}
+                    onChange={(e) =>
+                      setForm((f) => (f ? { ...f, handover_notes: e.target.value } : f))
+                    }
+                    placeholder="Preferencje kontraktora, quirks, historia relacji z klientem…"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                  />
                 </div>
 
                 <details className="border-t border-gray-100 dark:border-gray-700 pt-3">

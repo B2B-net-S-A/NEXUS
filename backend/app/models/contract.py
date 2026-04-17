@@ -2,7 +2,7 @@ import enum
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, event
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -97,6 +97,9 @@ class Contract(Base, TimestampMixin):
     office_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     team_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     project_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Free-form internal handover notes (C6) — widoczne tylko dla TAC/delivery.
+    handover_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="contracts")
