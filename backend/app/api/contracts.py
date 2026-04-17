@@ -182,6 +182,88 @@ async def run_alerts_now(current_user: AdminUser):
     return stats
 
 
+# ── Bulk operations (Phase 9 C3) ─────────────────────────────────────────────
+
+
+@router.post("/bulk-extend", status_code=status.HTTP_200_OK)
+async def bulk_extend_contracts(
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    contract_ids: list[int] = Query(..., alias="ids"),
+    months: int = Query(..., ge=1, le=24, description="Extension in months"),
+):
+    """Extend each selected contract's end_date by N months.
+
+    If end_date is NULL, the contract is skipped. Returns per-id outcome.
+    """
+    if not contract_ids:
+        raise HTTPException(status_code=422, detail="No contract ids provided")
+    result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
+    contracts = list(result.scalars().all())
+    extended = 0
+    skipped: list[int] = []
+    for c in contracts:
+        if c.end_date is None:
+            skipped.append(c.id)
+            continue
+        # Add N months naively (month-wise; day may clamp if end-of-month)
+        y, m = c.end_date.year, c.end_date.month + months
+        while m > 12:
+            m -= 12
+            y += 1
+        new_day = min(c.end_date.day, 28)  # safe for all months
+        c.end_date = c.end_date.replace(year=y, month=m, day=new_day)
+        # If the contract had rolled to ending/ended, bring it back to active
+        if c.status in (ContractStatus.ending, ContractStatus.ended):
+            c.status = ContractStatus.active
+        extended += 1
+    for cid in contract_ids:
+        db.add(
+            Activity(
+                entity_type="contract",
+                entity_id=cid,
+                action=f"bulk_extended_{months}m",
+                user_id=current_user.id,
+            )
+        )
+    await db.commit()
+    return {
+        "requested": len(contract_ids),
+        "extended": extended,
+        "skipped_no_end_date": skipped,
+    }
+
+
+@router.post("/bulk-mark-ended", status_code=status.HTTP_200_OK)
+async def bulk_mark_ended(
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    contract_ids: list[int] = Query(..., alias="ids"),
+):
+    """Mark each selected contract as ended (status='ended')."""
+    if not contract_ids:
+        raise HTTPException(status_code=422, detail="No contract ids provided")
+    result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
+    contracts = list(result.scalars().all())
+    changed = 0
+    today = date.today()
+    for c in contracts:
+        c.status = ContractStatus.ended
+        if c.end_date is None or c.end_date > today:
+            c.end_date = today
+        changed += 1
+        db.add(
+            Activity(
+                entity_type="contract",
+                entity_id=c.id,
+                action="bulk_marked_ended",
+                user_id=current_user.id,
+            )
+        )
+    await db.commit()
+    return {"requested": len(contract_ids), "changed": changed}
+
+
 @router.get("/expiring", response_model=List[ContractResponse])
 async def expiring_contracts(
     current_user: CurrentUser,
