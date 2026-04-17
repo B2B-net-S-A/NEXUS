@@ -189,6 +189,33 @@ async def test_contract_document_404(
     assert resp.status_code == 404
 
 
+async def test_contract_alerts_run_admin_only(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """POST /contracts/alerts/run requires admin; returns stats dict."""
+    resp = await app_client.post(
+        "/api/contracts/alerts/run", headers=app_auth_headers
+    )
+    # Default test user is admin — should return 200 with stats dict.
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body.keys()) >= {
+        "promoted_ending",
+        "promoted_ended",
+        "notifications_created",
+        "slack_sent",
+    }
+
+
+async def test_contract_alerts_cycle_callable():
+    """run_contract_alerts_cycle must complete without raising even on empty DB."""
+    from app.tasks.contract_alerts import run_contract_alerts_cycle
+
+    stats = await run_contract_alerts_cycle()
+    assert isinstance(stats, dict)
+    assert "notifications_created" in stats
+
+
 async def test_contract_rate_unit_round_trip(
     app_client: AsyncClient, app_auth_headers: dict
 ):

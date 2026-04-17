@@ -137,17 +137,20 @@ async def lifespan(app: FastAPI):
     from app.api.calendar import calendar_reminder_loop
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
+    from app.tasks.contract_alerts import contract_alerts_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
     ttl_task = asyncio.create_task(match_history_ttl_loop())
     slack_task = asyncio.create_task(slack_sla_alerts_loop())
+    contract_task = asyncio.create_task(contract_alerts_loop())
 
     yield
 
     # Shutdown
-    for t in (reminder_task, ttl_task, slack_task):
+    tasks = (reminder_task, ttl_task, slack_task, contract_task)
+    for t in tasks:
         t.cancel()
-    for t in (reminder_task, ttl_task, slack_task):
+    for t in tasks:
         try:
             await t
         except asyncio.CancelledError:

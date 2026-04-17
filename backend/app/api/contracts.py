@@ -36,7 +36,8 @@ from app.schemas.contract_document import (
     ContractDocumentUpdate,
 )
 from app.services import storage_service
-from app.api.deps import CurrentUser, TacPlus
+from app.tasks.contract_alerts import run_contract_alerts_cycle
+from app.api.deps import AdminUser, CurrentUser, TacPlus
 
 router = APIRouter()
 
@@ -117,6 +118,13 @@ async def create_contract(
     )
     await db.refresh(contract)
     return contract
+
+
+@router.post("/alerts/run", status_code=status.HTTP_200_OK)
+async def run_alerts_now(current_user: AdminUser):
+    """Admin trigger for the contract-alerts cycle — useful for smoke tests."""
+    stats = await run_contract_alerts_cycle()
+    return stats
 
 
 @router.get("/expiring", response_model=List[ContractResponse])
