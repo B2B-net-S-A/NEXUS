@@ -75,6 +75,10 @@ export function hasMinRole(
 interface AuthState {
   user: User | null
   token: string | null
+  /** False przed wyciągnięciem user/token z localStorage (SSR + pierwszy render klienta). */
+  hydrated: boolean
+  /** Ładuje user + token z localStorage. Wołać raz w root provider. */
+  hydrate: () => void
   setAuth: (user: User, token: string) => void
   logout: () => void
 }
@@ -153,9 +157,21 @@ function persistUser(user: User | null): void {
   }
 }
 
+// Initial state = ZAWSZE null na server + pierwszym rendrze klienta.
+// Inaczej SSR wyrzuca pusty sidebar a client wypełnia go z localStorage,
+// co produkuje React hydration mismatch (error #418). Dopiero po mount
+// (hydrate()) czytamy z localStorage i re-renderujemy z pełnym stanem.
 export const useAuthStore = create<AuthState>((set) => ({
-  user: readInitialUser(),
-  token: readInitialToken(),
+  user: null,
+  token: null,
+  hydrated: false,
+  hydrate: () => {
+    set({
+      user: readInitialUser(),
+      token: readInitialToken(),
+      hydrated: true,
+    })
+  },
   setAuth: (user, token) => {
     try {
       localStorage.setItem("access_token", token)
@@ -164,7 +180,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     persistUser(user)
     writeAuthCookie(token)
-    set({ user, token })
+    set({ user, token, hydrated: true })
   },
   logout: () => {
     try {
@@ -174,7 +190,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     persistUser(null)
     clearAuthCookie()
-    set({ user: null, token: null })
+    set({ user: null, token: null, hydrated: true })
     if (typeof window !== "undefined") {
       window.location.href = "/login"
     }

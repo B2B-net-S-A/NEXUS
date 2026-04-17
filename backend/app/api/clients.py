@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.models.client import Client
 from app.models.activity import Activity
 from app.schemas.client import ClientCreate, ClientList, ClientResponse, ClientUpdate
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, TacPlus, DeliveryLeadPlus
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ async def list_clients(
 
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
-    data: ClientCreate, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    data: ClientCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
     client = Client(**data.model_dump())
     db.add(client)
@@ -67,7 +67,7 @@ async def get_client(
 async def update_client(
     client_id: int,
     data: ClientUpdate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
@@ -92,7 +92,7 @@ async def update_client(
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client(
-    client_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    client_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
     client = result.scalar_one_or_none()
