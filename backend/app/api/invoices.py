@@ -133,19 +133,6 @@ async def dso_by_client(
             Client.name,
             func.count(Invoice.id).label("cnt"),
             func.coalesce(func.sum(Invoice.amount), 0).label("total"),
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        Invoice.amount
-                        * func.cast(
-                            (Invoice.status == InvoiceStatus.paid).label("p"),
-                            type_=None,
-                        ),
-                        0,
-                    )
-                ),
-                0,
-            ).label("paid"),
         )
         .join(Contract, Contract.client_id == Client.id)
         .join(Invoice, Invoice.contract_id == Contract.id)
@@ -154,8 +141,19 @@ async def dso_by_client(
         .order_by(func.count(Invoice.id).desc())
     )
     rows: list[DsoRow] = []
-    # For DSO avg, collect per-client paid invoices in a second pass
     for r in res.all():
+        # Paid sum via a separate targeted query — simpler than CASE WHEN.
+        paid_res = await db.execute(
+            select(func.coalesce(func.sum(Invoice.amount), 0)).where(
+                Invoice.contract_id.in_(
+                    select(Contract.id).where(Contract.client_id == r.id)
+                ),
+                Invoice.direction == InvoiceDirection.to_client,
+                Invoice.status == InvoiceStatus.paid,
+            )
+        )
+        paid_sum = int(paid_res.scalar() or 0)
+
         per_client = await db.execute(
             select(Invoice.issue_date, Invoice.paid_date).where(
                 Invoice.contract_id.in_(
@@ -172,18 +170,6 @@ async def dso_by_client(
         ]
         avg_dso = round(sum(diffs) / len(diffs), 1) if diffs else None
         total = int(r.total or 0)
-        paid_sum = int(r.paid or 0)
-        # The `paid` aggregate used a hacky cast — recompute properly.
-        paid_res = await db.execute(
-            select(func.coalesce(func.sum(Invoice.amount), 0)).where(
-                Invoice.contract_id.in_(
-                    select(Contract.id).where(Contract.client_id == r.id)
-                ),
-                Invoice.direction == InvoiceDirection.to_client,
-                Invoice.status == InvoiceStatus.paid,
-            )
-        )
-        paid_sum = int(paid_res.scalar() or 0)
         rows.append(
             DsoRow(
                 client_id=r.id,

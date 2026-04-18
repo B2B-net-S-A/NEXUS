@@ -24,9 +24,15 @@ def upgrade() -> None:
             currency VARCHAR(3) NOT NULL,
             rate_to_pln NUMERIC(14, 6) NOT NULL,
             source VARCHAR(32) NOT NULL DEFAULT 'NBP',
-            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
         )
     """)
+    # Idempotent backfill for environments that already ran an earlier draft.
+    op.execute(
+        "ALTER TABLE fx_rates ADD COLUMN IF NOT EXISTS updated_at "
+        "TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()"
+    )
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_fx_rates_date_currency "
         "ON fx_rates(effective_date, currency)"

@@ -126,3 +126,21 @@ async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:
 
 
 _ = timedelta  # silence unused-import warning if tests add variations later
+
+
+async def fx_refresh_loop(interval_hours: float = 24.0) -> None:
+    """Long-running task — fetch NBP table A once a day.
+
+    Best-effort: if NBP is down, the cycle silently logs and retries next day.
+    """
+    import asyncio
+
+    logger.info("fx_refresh_loop: started interval=%.1f h", interval_hours)
+    # Initial delay to keep startup snappy.
+    await asyncio.sleep(60)
+    while True:
+        try:
+            await fetch_and_store_nbp_today()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("fx_refresh_loop: cycle error %s", e)
+        await asyncio.sleep(interval_hours * 3600)
