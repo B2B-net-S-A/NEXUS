@@ -143,16 +143,18 @@ async def lifespan(app: FastAPI):
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
     from app.tasks.contract_alerts import contract_alerts_loop
+    from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
     ttl_task = asyncio.create_task(match_history_ttl_loop())
     slack_task = asyncio.create_task(slack_sla_alerts_loop())
     contract_task = asyncio.create_task(contract_alerts_loop())
+    fx_task = asyncio.create_task(fx_refresh_loop())
 
     yield
 
     # Shutdown
-    tasks = (reminder_task, ttl_task, slack_task, contract_task)
+    tasks = (reminder_task, ttl_task, slack_task, contract_task, fx_task)
     for t in tasks:
         t.cancel()
     for t in tasks:
