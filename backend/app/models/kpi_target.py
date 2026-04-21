@@ -32,9 +32,7 @@ class KpiRoleDefault(Base, TimestampMixin):
     __tablename__ = "kpi_role_defaults"
     __table_args__ = (
         UniqueConstraint("role", "kpi_id", name="uq_kpi_role_defaults_role_kpi"),
-        CheckConstraint(
-            "target_value >= 0", name="ck_kpi_role_defaults_target_nonneg"
-        ),
+        CheckConstraint("target_value >= 0", name="ck_kpi_role_defaults_target_nonneg"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -56,12 +54,8 @@ class UserKpiTarget(Base, TimestampMixin):
 
     __tablename__ = "user_kpi_targets"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "kpi_id", name="uq_user_kpi_targets_user_kpi"
-        ),
-        CheckConstraint(
-            "target_value >= 0", name="ck_user_kpi_targets_target_nonneg"
-        ),
+        UniqueConstraint("user_id", "kpi_id", name="uq_user_kpi_targets_user_kpi"),
+        CheckConstraint("target_value >= 0", name="ck_user_kpi_targets_target_nonneg"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

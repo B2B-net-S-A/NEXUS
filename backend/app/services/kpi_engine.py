@@ -36,9 +36,8 @@ WARSAW = ZoneInfo("Europe/Warsaw")
 WORKDAY_START = time(9, 0)
 WORKDAY_END = time(17, 30)
 # 8.5h w minutach, używane przy skalowaniu ratio.
-_WORKDAY_MINUTES = (
-    (WORKDAY_END.hour * 60 + WORKDAY_END.minute)
-    - (WORKDAY_START.hour * 60 + WORKDAY_START.minute)
+_WORKDAY_MINUTES = (WORKDAY_END.hour * 60 + WORKDAY_END.minute) - (
+    WORKDAY_START.hour * 60 + WORKDAY_START.minute
 )
 
 # Tydzień roboczy (pon-pt), używany przy skalowaniu tygodniowym.
@@ -91,9 +90,7 @@ def period_bounds(period: KpiPeriod, now: datetime) -> tuple[datetime, datetime]
         monday = now_w - timedelta(days=now_w.weekday())
         start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == KpiPeriod.month:
-        start = now_w.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        start = now_w.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     else:  # pragma: no cover — exhaustive
         raise ValueError(f"Unknown period: {period}")
 
@@ -168,9 +165,7 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
     raise ValueError(f"Unknown period: {period}")  # pragma: no cover
 
 
-def derive_state(
-    *, current: int, target: int, expected_ratio: float
-) -> KpiState:
+def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiState:
     """Mapuje (current, target, expected_ratio) na jeden z 5 stanów.
 
     Zasady:
@@ -206,9 +201,7 @@ def derive_state(
 # ── DB helpers ──────────────────────────────────────────────────────────
 
 
-async def resolve_target(
-    db: AsyncSession, *, user: User, kpi_def: KpiDef
-) -> int:
+async def resolve_target(db: AsyncSession, *, user: User, kpi_def: KpiDef) -> int:
     """Zwraca efektywny target dla (user, kpi_def):
     user_kpi_targets → kpi_role_defaults → kpi_def.default_targets → 0.
     """
@@ -266,9 +259,7 @@ async def count_user_action_in_window(
         # JSONB @> operator — `details` zawiera filter jako sub-obiekt.
         conds.append(UserActivity.details.cast(JSONB).contains(details_filter))
 
-    result = await db.scalar(
-        select(func.count(UserActivity.id)).where(and_(*conds))
-    )
+    result = await db.scalar(select(func.count(UserActivity.id)).where(and_(*conds)))
     return int(result or 0)
 
 
@@ -321,9 +312,7 @@ async def evaluate_user_kpis(
             details_filter=kpi_def.details_filter,
         )
         ratio = expected_progress_ratio(kpi_def.period, now)
-        state = derive_state(
-            current=current, target=target, expected_ratio=ratio
-        )
+        state = derive_state(current=current, target=target, expected_ratio=ratio)
         progress = (current / target * 100.0) if target > 0 else 0.0
         hours_left = _hours_until_period_end(kpi_def.period, now)
 

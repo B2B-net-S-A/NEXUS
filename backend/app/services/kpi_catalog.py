@@ -140,9 +140,7 @@ def kpis_for_role(role: UserRole) -> tuple[KpiDef, ...]:
     helper zwraca pustą krotkę (chyba że default_targets explicitly
     wymienia tę rolę).
     """
-    return tuple(
-        kpi for kpi in KPI_CATALOG if kpi.default_targets.get(role, 0) > 0
-    )
+    return tuple(kpi for kpi in KPI_CATALOG if kpi.default_targets.get(role, 0) > 0)
 
 
 def all_kpi_ids() -> tuple[str, ...]:
