@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.vscode
+.idea
+coverage
+*.log
+.DS_Store
+.env.local
+.env.*.local
+test-results
+playwright-report
+blob-report
+playwright/.cache

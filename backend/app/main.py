@@ -56,6 +56,7 @@ from app.api import phase3
 from app.api import phase4
 from app.api import phase5
 from app.api import admin_import
+from app.api import kpis as kpis_api
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +254,7 @@ app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
+app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 
 
 @app.get("/health")

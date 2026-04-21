@@ -9,6 +9,7 @@ import { BreadcrumbV2 } from "./BreadcrumbV2";
 import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
+import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -76,8 +77,9 @@ export function TopbarV2({
         </div>
       </button>
 
-      {/* Right: notifications + quick actions */}
+      {/* Right: KPI widget + notifications + quick actions */}
       <div className="flex items-center gap-2 shrink-0">
+        <MyKpiWidget variant="compact" className="hidden md:block" />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}

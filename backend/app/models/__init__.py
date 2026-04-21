@@ -38,6 +38,8 @@ from app.models.pipeline_template import (
     TerminalType,
 )
 from app.models.saved_search import SavedSearch, MatchHistory
+from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
+from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
 
 __all__ = [
     "User",
@@ -84,4 +86,9 @@ __all__ = [
     "TerminalType",
     "SavedSearch",
     "MatchHistory",
+    "KpiRoleDefault",
+    "UserKpiTarget",
+    "KpiNudgeLog",
+    "KpiNudgeType",
+    "KpiNudgeChannel",
 ]
