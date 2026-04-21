@@ -1,18 +1,18 @@
 /**
- * Public Champion Card view (Phase 12).
+ * Public Champion Card view — v2 redesign (theme-dark).
  *
- * Rendered server-side from a recruiter-issued token. No auth required — the
- * backend enforces `expires_at` + `revoked`. A client can open this URL
- * straight from email to see the filled briefing.
+ * Rendered server-side from a recruiter-issued token. No auth required —
+ * backend enforces `expires_at` + `revoked`. The page uses Dynaminds
+ * theme-dark palette (black canvas, plum cards, cream text, burgundy
+ * accents) for a premium client-facing feel.
  */
 import { notFound } from "next/navigation";
+import { AlertCircle, Calendar, CheckCircle2, Sparkles, XCircle } from "lucide-react";
 
 interface PageProps {
   params: Promise<{ token: string }>;
 }
 
-// Server-side fetch → prefer the docker-internal service URL so SSR doesn't
-// try to hit `localhost:8000` from inside the frontend container.
 function apiBase(): string {
   return (
     process.env.INTERNAL_API_URL ||
@@ -64,10 +64,28 @@ interface ShareResponse {
   expires_at: string | null;
 }
 
-const FIT_LABEL: Record<string, { label: string; color: string }> = {
-  fit: { label: "Pasuje", color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-  uncertain: { label: "Niepewnie", color: "bg-amber-100 text-amber-800 border-amber-300" },
-  miss: { label: "Nie pasuje", color: "bg-red-100 text-red-700 border-red-200" },
+const FIT_META: Record<
+  string,
+  { label: string; chipBg: string; chipText: string; icon: React.ReactNode }
+> = {
+  fit: {
+    label: "Pasuje",
+    chipBg: "bg-[#1d5e31]/20 border border-[#1d5e31]/40",
+    chipText: "text-[#7fcf8e]",
+    icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+  },
+  uncertain: {
+    label: "Niepewnie",
+    chipBg: "bg-amber-500/15 border border-amber-500/40",
+    chipText: "text-amber-300",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+  },
+  miss: {
+    label: "Nie pasuje",
+    chipBg: "bg-[hsl(var(--accent))]/20 border border-[hsl(var(--accent))]/40",
+    chipText: "text-[#d48b95]",
+    icon: <XCircle className="h-3.5 w-3.5" />,
+  },
 };
 
 async function fetchShare(token: string): Promise<ShareResponse | null> {
@@ -92,49 +110,107 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
 
   const questions: Question[] = data.champion_profile.screening_questions ?? [];
   const answers = data.screening_answers;
-  const fitMeta = answers ? FIT_LABEL[answers.overall_fit] ?? FIT_LABEL.uncertain : null;
+  const fitMeta = answers ? FIT_META[answers.overall_fit] ?? FIT_META.uncertain : null;
+  const fullName = `${data.candidate.name ?? ""} ${data.candidate.lastname ?? ""}`.trim();
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-white py-8 px-4">
-      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-        {/* Header */}
-        <header className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-5">
-          <p className="text-xs uppercase tracking-widest opacity-80">Rekomendacja kandydata</p>
-          <h1 className="text-2xl font-bold mt-1">
-            {data.candidate.name} {data.candidate.lastname}
-          </h1>
-          <p className="text-sm opacity-95 mt-1">
-            {data.candidate.competence_category}
-            {data.candidate.location ? ` · ${data.candidate.location}` : ""}
-            {data.candidate.years_it_experience
-              ? ` · ${data.candidate.years_it_experience} lat doświadczenia`
-              : ""}
-          </p>
-          <p className="text-xs opacity-80 mt-3">
-            Stanowisko: <strong>{data.job.title}</strong>
-            {data.job.location ? ` (${data.job.location})` : ""}
-          </p>
-        </header>
+    <div
+      data-ui="v2"
+      data-ui-theme="share-dark"
+      className="min-h-screen bg-[hsl(var(--bg-canvas))] text-[hsl(var(--text-body))]"
+    >
+      {/* Ambient glow */}
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--accent))/15, transparent 70%)",
+        }}
+        aria-hidden="true"
+      />
 
-        {/* Champion basics / context */}
-        {(data.champion_profile.basics || data.champion_profile.project_context) && (
-          <section className="px-6 py-5 border-b border-gray-100 space-y-3">
-            {data.champion_profile.project_context?.about && (
+      {/* Top bar */}
+      <header className="relative z-10 max-w-4xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-v2-s bg-[hsl(var(--accent))] text-white flex items-center justify-center font-display font-extrabold text-sm">
+            N
+          </div>
+          <div className="leading-tight">
+            <div className="text-xs font-semibold tracking-[0.22em] uppercase text-[hsl(var(--accent))]">
+              Nexus · Dynaminds
+            </div>
+            <div className="text-[10px] opacity-60">Rekomendacja kandydata</div>
+          </div>
+        </div>
+        {data.expires_at && (
+          <div className="inline-flex items-center gap-1.5 text-[11px] opacity-70">
+            <Calendar className="h-3 w-3" />
+            Ważne do{" "}
+            {new Date(data.expires_at).toLocaleDateString("pl-PL", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
+          </div>
+        )}
+      </header>
+
+      {/* Hero */}
+      <section className="relative z-10 max-w-4xl mx-auto px-6 pt-4 pb-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))] mb-2">
+          {data.candidate.competence_category ?? "Kandydat"}
+        </p>
+        <h1 className="font-display text-4xl md:text-5xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] leading-[1.02]">
+          {fullName || "Kandydat"}
+        </h1>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm opacity-80">
+          {data.candidate.location && <span>{data.candidate.location}</span>}
+          {data.candidate.years_it_experience && (
+            <>
+              <span className="opacity-40">·</span>
+              <span>{data.candidate.years_it_experience} lat doświadczenia</span>
+            </>
+          )}
+        </div>
+
+        {/* Role chip */}
+        <div className="mt-5 inline-flex items-center gap-2 rounded-v2-m border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-surface))]/40 px-4 py-2">
+          <Sparkles className="h-4 w-4 text-[hsl(var(--accent))]" />
+          <span className="text-sm">
+            Rekomendacja na stanowisko:{" "}
+            <strong className="text-[hsl(var(--text-title))]">{data.job.title}</strong>
+            {data.job.location && (
+              <span className="opacity-70"> · {data.job.location}</span>
+            )}
+          </span>
+        </div>
+      </section>
+
+      {/* Main content */}
+      <main className="relative z-10 max-w-4xl mx-auto px-6 pb-12 space-y-5">
+        {/* Project context */}
+        {(data.champion_profile.project_context?.about ||
+          data.champion_profile.project_context?.responsibilities) && (
+          <section className="rounded-v2-l bg-[hsl(var(--bg-surface))] border border-[hsl(var(--border-subtle))] shadow-v2-xl p-6 space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--accent))]">
+              Kontekst projektu
+            </p>
+            {data.champion_profile.project_context.about && (
               <div>
-                <h3 className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
+                <h3 className="font-display font-bold text-lg text-[hsl(var(--text-title))] mb-1">
                   O projekcie
                 </h3>
-                <p className="text-sm text-gray-800 whitespace-pre-line">
+                <p className="text-sm leading-relaxed whitespace-pre-line">
                   {data.champion_profile.project_context.about}
                 </p>
               </div>
             )}
-            {data.champion_profile.project_context?.responsibilities && (
+            {data.champion_profile.project_context.responsibilities && (
               <div>
-                <h3 className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
-                  Obowiązki na stanowisku
+                <h3 className="font-display font-bold text-lg text-[hsl(var(--text-title))] mb-1">
+                  Obowiązki
                 </h3>
-                <p className="text-sm text-gray-800 whitespace-pre-line">
+                <p className="text-sm leading-relaxed whitespace-pre-line">
                   {data.champion_profile.project_context.responsibilities}
                 </p>
               </div>
@@ -143,22 +219,23 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
         )}
 
         {/* Screening */}
-        <section className="px-6 py-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-purple-800 uppercase tracking-wide flex items-center gap-1.5">
-              ✨ Screening rekrutera
-            </h2>
+        <section className="rounded-v2-l bg-[hsl(var(--bg-surface))] border border-[hsl(var(--border-subtle))] shadow-v2-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--accent))]">
+              Screening rekrutera
+            </p>
             {fitMeta && (
               <span
-                className={`text-xs px-2 py-0.5 rounded-md border font-medium ${fitMeta.color}`}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${fitMeta.chipBg} ${fitMeta.chipText}`}
               >
+                {fitMeta.icon}
                 {fitMeta.label}
               </span>
             )}
           </div>
 
           {!answers || questions.length === 0 ? (
-            <p className="text-sm text-gray-500 italic">
+            <p className="text-sm opacity-60 italic py-6 text-center">
               Screening jeszcze nie został przeprowadzony.
             </p>
           ) : (
@@ -168,29 +245,29 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
                 return (
                   <li
                     key={q.id}
-                    className="rounded-lg border border-gray-200 p-3 bg-gray-50"
+                    className="rounded-v2-m border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-canvas))]/40 p-4"
                   >
-                    <div className="flex items-start gap-2">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono mt-0.5 flex-shrink-0">
+                    <div className="flex items-start gap-2 mb-2">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-v2-xs font-mono bg-[hsl(var(--accent))]/20 text-[hsl(var(--accent))] mt-0.5 shrink-0">
                         Q{i + 1}
                       </span>
-                      <p className="text-sm font-medium text-gray-900 flex-1">
+                      <p className="text-sm font-semibold text-[hsl(var(--text-title))] flex-1">
                         {q.question}
                       </p>
                     </div>
                     <p
-                      className={`text-sm mt-2 pl-7 ${
+                      className={`text-sm pl-8 ${
                         a?.deal_breaker_hit
-                          ? "text-red-700 font-medium"
-                          : "text-gray-800"
+                          ? "text-[#d48b95] font-medium"
+                          : "text-[hsl(var(--text-body))]"
                       }`}
                     >
                       {a?.response?.trim() || (
-                        <span className="italic text-gray-400">brak odpowiedzi</span>
+                        <span className="italic opacity-50">brak odpowiedzi</span>
                       )}
                       {a?.deal_breaker_hit && (
-                        <span className="ml-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">
-                          deal-breaker ✗
+                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-v2-xs bg-[hsl(var(--accent))]/20 text-[#d48b95] border border-[hsl(var(--accent))]/40">
+                          deal-breaker
                         </span>
                       )}
                     </p>
@@ -201,27 +278,23 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
           )}
 
           {answers?.notes && (
-            <p className="mt-4 text-[13px] text-gray-600 italic border-l-2 border-purple-300 pl-3">
-              {answers.notes}
-            </p>
+            <div className="mt-5 pt-4 border-t border-[hsl(var(--border-subtle))]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[hsl(var(--accent))] mb-1">
+                Komentarz rekrutera
+              </p>
+              <p className="text-sm italic opacity-90 whitespace-pre-line">{answers.notes}</p>
+            </div>
           )}
         </section>
 
         {/* Footer */}
-        <footer className="px-6 py-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-400">
-          <span>Dokument udostępniony przez Nexus ATS</span>
-          {data.expires_at && (
-            <span>
-              Ważne do{" "}
-              {new Date(data.expires_at).toLocaleDateString("pl-PL", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-              })}
-            </span>
-          )}
+        <footer className="flex items-center justify-between text-[11px] opacity-60 pt-2">
+          <span>Dokument udostępniony przez Nexus ATS · B2B.net S.A.</span>
+          <span className="font-display font-semibold text-[hsl(var(--text-title))]">
+            Define tomorrow.
+          </span>
         </footer>
-      </div>
+      </main>
     </div>
   );
 }
