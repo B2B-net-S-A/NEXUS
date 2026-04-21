@@ -55,7 +55,7 @@ Recruiter generuje shareable link, wkleja w email, klient otwiera bez logowania.
 
 ### Verified in Chrome (localhost:3001)
 
-Token generated: `5VAPRupMJQMUNxIyJbE7USu5gwnknU28r0DKosa9td2NVG6Z`.
+Token generated: `<48-char-url-safe-string>` (localhost dev token).
 
 `http://localhost:3001/share/champion-card/<token>` renderuje (screenshot `/tmp/share-page-final.png`):
 - Gradient purple/indigo header "REKOMENDACJA KANDYDATA" + "Agnieszka Nowak · Backend · Kraków"
