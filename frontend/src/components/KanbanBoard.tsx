@@ -478,7 +478,7 @@ export function KanbanBoard({ columns, jobId }: KanbanBoardProps) {
   };
 
   return (
-    <div>
+    <div data-component="kanban-board">
       {/* Phase 4: bulk action bar */}
       {selected.size > 0 && (
         <div className="mb-3 flex items-center gap-3 rounded-lg bg-blue-600 text-white px-3 py-2 shadow">

@@ -377,7 +377,7 @@ export default function CandidateDetailPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4 max-w-5xl">
+    <div data-component="candidate-detail" className="space-y-4 max-w-5xl">
       {/* Back link */}
       <Link
         href="/candidates"
