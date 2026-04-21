@@ -22,6 +22,10 @@ from app.schemas.user import UserResponse
 
 router = APIRouter()
 
+# Roles that must complete first-login onboarding before the frontend unlocks
+# the shell. Keep in sync with backend/app/api/onboarding.py.
+_ONBOARDING_REQUIRED_ROLES = {UserRole.delivery_lead, UserRole.recruiter}
+
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 
@@ -111,11 +115,14 @@ async def create_user(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
+    preexempt = data.role not in _ONBOARDING_REQUIRED_ROLES
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
         name=data.name,
         role=data.role,
+        profile_completed=preexempt,
+        profile_completed_at=func.now() if preexempt else None,
     )
     db.add(user)
     await db.flush()

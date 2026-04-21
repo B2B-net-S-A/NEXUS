@@ -1,6 +1,8 @@
 import enum
+from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import Boolean, Enum, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -46,6 +48,18 @@ class User(Base, TimestampMixin):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # First-login onboarding gate.
+    # `delivery_lead` and `recruiter` must complete a role-specific onboarding
+    # flow (see backend/app/api/onboarding.py) before accessing the app.
+    # Existing users with other roles are backfilled to True by migration
+    # 0035 so the rollout does not block them.
+    profile_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    profile_completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     authored_notes = relationship(

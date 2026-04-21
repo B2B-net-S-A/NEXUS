@@ -2,7 +2,7 @@ import enum
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -77,6 +77,12 @@ class Job(Base, TimestampMixin):
 
     priority: Mapped[JobPriority] = mapped_column(
         Enum(JobPriority), default=JobPriority.medium, nullable=False
+    )
+
+    # Flagged by Delivery Lead (during onboarding or from the jobs list) to
+    # signal the role needs active candidate sourcing.
+    needs_sourcing: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
     )
 
     recruitment_type: Mapped[RecruitmentType] = mapped_column(

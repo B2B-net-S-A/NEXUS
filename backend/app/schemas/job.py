@@ -24,6 +24,7 @@ class JobCreate(BaseModel):
     remote_policy: RemotePolicy = RemotePolicy.hybrid
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium
+    needs_sourcing: bool = False
     recruitment_type: RecruitmentType = RecruitmentType.body_leasing
     deadline: Optional[date] = None
     client_id: Optional[int] = None
@@ -58,6 +59,7 @@ class JobUpdate(BaseModel):
     remote_policy: Optional[RemotePolicy] = None
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
+    needs_sourcing: Optional[bool] = None
     recruitment_type: Optional[RecruitmentType] = None
     deadline: Optional[date] = None
     client_id: Optional[int] = None
@@ -93,6 +95,7 @@ class JobResponse(BaseModel):
     remote_policy: RemotePolicy
     status: JobStatus
     priority: JobPriority
+    needs_sourcing: bool = False
     recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]

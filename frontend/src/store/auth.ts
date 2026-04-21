@@ -40,6 +40,28 @@ interface User {
   email: string
   name: string
   role: UserRole
+  /** Pierwsze logowanie: DL i rekruter muszą uzupełnić dane operacyjne,
+   *  zanim frontend odblokuje shell. Ustawiane na true przez
+   *  POST /api/users/me/onboarding (lub z góry przez backend dla ról,
+   *  które onboardingu nie wymagają). */
+  profile_completed: boolean
+  profile_completed_at: string | null
+}
+
+/** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
+ *  Trzymane w sync z backendem (backend/app/api/onboarding.py). */
+export const ONBOARDING_REQUIRED_ROLES: ReadonlySet<UserRole> = new Set([
+  "delivery_lead",
+  "recruiter",
+])
+
+export function requiresOnboarding(
+  user: Pick<User, "role" | "profile_completed"> | null | undefined
+): boolean {
+  if (!user) return false
+  return (
+    ONBOARDING_REQUIRED_ROLES.has(user.role) && !user.profile_completed
+  )
 }
 
 // ── Role helpers ────────────────────────────────────────────────────────────
@@ -136,7 +158,17 @@ function readInitialUser(): User | null {
       typeof parsed.email === "string" &&
       typeof parsed.role === "string"
     ) {
-      return parsed as User
+      // Backfill for users cached before profile_completed existed.
+      // Treat missing flag as true so the guard does not falsely
+      // redirect existing sessions to /onboarding on upgrade.
+      const user = parsed as Record<string, unknown>
+      if (typeof user.profile_completed !== "boolean") {
+        user.profile_completed = true
+      }
+      if (typeof user.profile_completed_at !== "string") {
+        user.profile_completed_at = null
+      }
+      return user as unknown as User
     }
   } catch {
     /* corrupt value */

@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api from "@/lib/api";
-import { useAuthStore } from "@/store/auth";
+import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,11 @@ function LoginForm() {
         headers: { Authorization: `Bearer ${data.access_token}` },
       });
       setAuth(me.data, data.access_token);
-      router.push(nextPath);
+      if (requiresOnboarding(me.data)) {
+        router.push("/onboarding");
+      } else {
+        router.push(nextPath);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Błąd logowania");
     } finally {

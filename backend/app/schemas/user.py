@@ -25,6 +25,8 @@ class UserResponse(BaseModel):
     name: str
     role: UserRole
     is_active: bool
+    profile_completed: bool = False
+    profile_completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

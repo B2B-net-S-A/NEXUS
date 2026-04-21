@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
+import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { OpenTabsV2 } from "./OpenTabsV2";
@@ -30,6 +31,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
   const isSharePage = pathname?.startsWith("/share/") ?? false;
+  const isApplyPage = pathname?.startsWith("/apply/") ?? false;
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<QuickActionModal>(null);
@@ -77,8 +79,23 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
   const { shouldShow: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
 
+  // Blocks DL/recruiter first-login: if profile not completed, redirect
+  // to /onboarding before the shell renders. Runs after hydration so we
+  // don't bounce on initial SSR paint.
+  const { needsOnboarding } = useOnboardingGuard();
+
   if (isLoginPage) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
+  if (isApplyPage) return <>{children}</>;
+
+  // /onboarding has its own dedicated layout (no sidebar); let it render
+  // without the AppShell wrapper.
+  const isOnboardingPage = pathname === "/onboarding" || pathname?.startsWith("/onboarding/");
+  if (isOnboardingPage) return <>{children}</>;
+
+  // User must finish onboarding before seeing app content — render a blank
+  // shell while the redirect above takes effect.
+  if (needsOnboarding) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[hsl(var(--bg-canvas))] text-[hsl(var(--text-body))]">

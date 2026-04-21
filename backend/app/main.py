@@ -57,6 +57,7 @@ from app.api import phase4
 from app.api import phase5
 from app.api import admin_import
 from app.api import kpis as kpis_api
+from app.api import onboarding as onboarding_api
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,7 @@ app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
+app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
 
 
 @app.get("/health")
