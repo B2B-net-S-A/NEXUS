@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoard } from "@/components/KanbanBoard";
+import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
+import { readUiFlagClient } from "@/lib/ui-flag";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
@@ -1027,6 +1029,8 @@ export default function JobDetailPage() {
         <div>
           {kanbanLoading ? (
             <div className="text-gray-400">Ładowanie pipeline...</div>
+          ) : readUiFlagClient() === "v2" ? (
+            <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
           ) : (
             <KanbanBoard columns={kanban?.columns ?? []} jobId={Number(id)} />
           )}

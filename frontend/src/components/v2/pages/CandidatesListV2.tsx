@@ -27,6 +27,8 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
+import { CandidateDetailV2 } from "@/components/v2/pages/CandidateDetailV2";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useUiStore } from "@/store/ui";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -200,6 +202,7 @@ export function CandidatesListV2() {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
   const [showToast, setToast] = useState<string | null>(null);
   const toastOnSuccess = (msg: string) => {
     setToast(msg);
@@ -585,15 +588,16 @@ export function CandidatesListV2() {
                     >
                       <Checkbox checked={isSelected} onCheckedChange={() => toggleId(candidate.id)} />
                     </div>
-                    <Link
-                      href={`/candidates/${candidate.id}`}
-                      className="flex items-center gap-3 min-w-0"
+                    <button
+                      type="button"
+                      onClick={() => setDetailId(candidate.id)}
+                      className="flex items-center gap-3 min-w-0 text-left"
                     >
                       <Avatar size={density === "compact" ? "sm" : "md"}>
                         <AvatarFallback>{initials}</AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <div className="font-medium text-[hsl(var(--text-title))] truncate">
+                        <div className="font-medium text-[hsl(var(--text-title))] truncate hover:text-[hsl(var(--accent))]">
                           {fullName}
                         </div>
                         <div className="text-xs text-[hsl(var(--text-muted))] flex items-center gap-1.5 truncate">
@@ -603,7 +607,7 @@ export function CandidatesListV2() {
                           </span>
                         </div>
                       </div>
-                    </Link>
+                    </button>
                     <div className="min-w-0">
                       <span className="text-sm text-[hsl(var(--text-body))] truncate block">
                         {candidate.position ?? candidate.current_role ?? "—"}
@@ -751,6 +755,24 @@ export function CandidatesListV2() {
         candidateName={assignFor?.name ?? ""}
         onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
       />
+
+      {/* Side sheet: candidate detail (embedded) */}
+      <Sheet
+        open={detailId !== null}
+        onOpenChange={(v) => !v && setDetailId(null)}
+      >
+        <SheetContent side="right" size="2xl" className="!p-0">
+          {detailId !== null && (
+            <div className="h-full overflow-y-auto p-6">
+              <CandidateDetailV2
+                embedded
+                candidateId={detailId}
+                onClose={() => setDetailId(null)}
+              />
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       {showToast && (
         <div className="fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-v2-m shadow-v2-xl text-sm bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]">
