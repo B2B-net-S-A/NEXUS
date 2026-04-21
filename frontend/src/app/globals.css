@@ -26,17 +26,81 @@
 
 @layer base {
   :root {
+    /* ── V1 tokens (generic SaaS blue) — untouched ─────────────────────── */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
     --sidebar-bg: 222.2 84% 4.9%;
     --sidebar-text: 210 40% 98%;
+
+    /* ── V2 tokens (Dynaminds brand — light mode defaults) ─────────────── */
+    /* Hex values kept in /tmp/anthropic-design/dynaminds-design-system/project/colors_and_type.css */
+    --bg-canvas: 37 30% 92%;        /* cream-200 #F0EBE3 — body bg */
+    --bg-surface: 0 0% 100%;        /* white — cards, tables */
+    --bg-chrome: 309 28% 14%;       /* plum-700 #2E1A2B — sidebar, topbar */
+
+    --text-title: 309 28% 14%;      /* plum-700 on light surfaces */
+    --text-body: 36 6% 33%;         /* nt-dark #5A5650 */
+    --text-muted: 36 5% 60%;        /* nt-medium #9E9A94 */
+    --text-onchrome: 37 30% 92%;    /* cream-200 on plum chrome */
+
+    --border-subtle: 36 18% 89%;    /* nt-light #E8E4DE */
+    --border-strong: 309 28% 14%;   /* plum-700 */
+
+    --accent: 351 68% 32%;          /* burgundy-600 #8B1A2B */
+    --accent-foreground: 0 0% 100%; /* white on burgundy */
+    --accent-strong: 351 73% 24%;   /* burgundy-700 #6B1120 — hover */
+    --accent-soft: 351 60% 96%;     /* burgundy-50 #FBF2F3 — subtle bg wash */
+
+    --success: 138 45% 33%;         /* #2f7a45 from brandbook */
+    --success-foreground: 0 0% 100%;
+    --warning: 32 95% 44%;          /* amber-600-ish */
+    --warning-foreground: 0 0% 100%;
+    --danger: 351 68% 32%;          /* alias to accent */
+    --danger-foreground: 0 0% 100%;
   }
 
+  /* V1 dark (existing) — untouched */
   .dark {
     --background: 0 0% 6%;
     --foreground: 0 0% 96%;
+  }
+
+  /* V2 scope: explicit confirmation + future-proof for dark override.
+     All v2 surfaces sit under [data-ui="v2"] at the html element. */
+  [data-ui="v2"] {
+    /* Light defaults already set in :root; restated here to make scope explicit. */
+    --bg-canvas: 37 30% 92%;
+    --bg-surface: 0 0% 100%;
+    --bg-chrome: 309 28% 14%;
+    --text-title: 309 28% 14%;
+    --text-body: 36 6% 33%;
+    --text-muted: 36 5% 60%;
+    --text-onchrome: 37 30% 92%;
+    --border-subtle: 36 18% 89%;
+    --border-strong: 309 28% 14%;
+    --accent: 351 68% 32%;
+    --accent-foreground: 0 0% 100%;
+    --accent-strong: 351 73% 24%;
+    --accent-soft: 351 60% 96%;
+  }
+
+  /* Client-facing /share portal — dark theme (plum/black/burgundy) */
+  [data-ui-theme="share-dark"] {
+    --bg-canvas: 0 0% 0%;              /* black body */
+    --bg-surface: 309 28% 14%;         /* plum-700 cards on black */
+    --bg-chrome: 0 0% 0%;
+    --text-title: 37 30% 92%;          /* cream-200 titles */
+    --text-body: 36 18% 89%;           /* nt-light */
+    --text-muted: 36 5% 60%;
+    --text-onchrome: 37 30% 92%;
+    --border-subtle: 309 15% 22%;      /* subtle plum hairline */
+    --border-strong: 37 30% 92%;
+    --accent: 351 60% 55%;             /* brighter burgundy on dark */
+    --accent-foreground: 0 0% 100%;
+    --accent-strong: 351 70% 68%;
+    --accent-soft: 309 28% 14%;
   }
 
   * {
@@ -47,7 +111,7 @@
     @apply bg-background text-foreground;
   }
 
-  /* ── Consistent heading hierarchy ────────────────────────────── */
+  /* ── Consistent heading hierarchy (V1 global — kept; V2 overrides via own typography layer) ── */
   h1 {
     @apply text-2xl font-bold text-gray-900 dark:text-gray-100;
   }
@@ -70,7 +134,18 @@
     @apply outline-none ring-2 ring-blue-500 ring-offset-1;
   }
 
-  /* ── Table rows — consistent height ─────────────────────────── */
+  /* V2 focus ring — opt-in via .v2-focusable on elements under [data-ui="v2"] */
+  [data-ui="v2"] button:focus-visible,
+  [data-ui="v2"] a:focus-visible,
+  [data-ui="v2"] input:focus-visible,
+  [data-ui="v2"] select:focus-visible,
+  [data-ui="v2"] textarea:focus-visible,
+  [data-ui="v2"] [tabindex]:focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 4px hsl(var(--accent-soft)), 0 0 0 5px hsl(var(--accent));
+  }
+
+  /* ── Table rows — consistent height (v1) ─────────────────────── */
   tbody tr {
     @apply h-12;
   }
@@ -87,5 +162,29 @@
   select,
   textarea {
     @apply text-sm;
+  }
+
+  /* ── V2: canvas bg on body when data-ui=v2 on html ──────────── */
+  [data-ui="v2"] body {
+    @apply bg-canvas text-body font-sans;
+  }
+
+  /* V2 eyebrow — uppercase section kicker */
+  [data-ui="v2"] .eyebrow {
+    @apply font-display text-xs font-semibold uppercase tracking-[0.22em] text-accent;
+  }
+
+  /* V2 display (hero-scale text) */
+  [data-ui="v2"] .display {
+    @apply font-display font-extrabold text-title;
+    font-size: clamp(4.8rem, 7.5vw, 9.6rem);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+  }
+
+  /* Share-dark overrides for body (black canvas) */
+  [data-ui-theme="share-dark"] body {
+    background: hsl(var(--bg-canvas));
+    color: hsl(var(--text-body));
   }
 }
