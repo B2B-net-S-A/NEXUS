@@ -1252,7 +1252,7 @@ export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; on
 
 // ── Modal: Zaplanuj spotkanie ─────────────────────────────────────────────────
 
-function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const defaultStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours() + 1)}:00`;

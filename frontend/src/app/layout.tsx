@@ -4,9 +4,11 @@ import { cookies } from "next/headers";
 import "./globals.css";
 import { QueryProvider } from "@/components/QueryProvider";
 import { AppShell } from "@/components/AppShell";
+import { AppShellV2 } from "@/components/v2/shell/AppShellV2";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";
 import { UiFlagUrlSync } from "@/components/UiFlagUrlSync";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { readUiFlagFromCookies } from "@/lib/ui-flag";
 
 const inter = Inter({
@@ -43,13 +45,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>
-              {/* Phase 0: shell selector is wired, but both branches still render v1 AppShell.
-                  Phase 2 flips the v2 branch to <AppShellV2>. */}
-              {ui === "v2" ? (
-                <AppShell>{children}</AppShell>
-              ) : (
-                <AppShell>{children}</AppShell>
-              )}
+              <TooltipProvider delayDuration={200} skipDelayDuration={100}>
+                {ui === "v2" ? (
+                  <AppShellV2>{children}</AppShellV2>
+                ) : (
+                  <AppShell>{children}</AppShell>
+                )}
+              </TooltipProvider>
             </ToastProvider>
           </ThemeProvider>
         </QueryProvider>
