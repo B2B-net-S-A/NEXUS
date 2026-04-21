@@ -86,9 +86,7 @@ async def _apply_recruiter_onboarding(
         ]
         stmt = pg_insert(JobCollaborator).values(rows)
         # UNIQUE(job_id, user_id) — skip rows already present.
-        stmt = stmt.on_conflict_do_nothing(
-            index_elements=["job_id", "user_id"]
-        )
+        stmt = stmt.on_conflict_do_nothing(index_elements=["job_id", "user_id"])
         await db.execute(stmt)
 
     return payload
