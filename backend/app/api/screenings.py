@@ -160,12 +160,17 @@ async def get_candidate_ai_profile(
             "candidate_id": candidate_id,
             "screening_count": 0,
             "motivation_trend": [],
+            "motivation_top": None,
             "salary_trend": [],
+            "salary_summary": None,
             "verified_skills_aggregate": [],
             "warnings": [],
+            "red_flags_unique": [],
             "overall_impression_avg": None,
             "readiness_avg": None,
             "counteroffer_risk_distribution": {},
+            "counteroffer_risk_dominant": None,
+            "last_screening": None,
         }
 
     # Motivation trend
@@ -180,6 +185,14 @@ async def get_candidate_ai_profile(
         if s.motivation_primary
     ]
 
+    # Motivation top — most frequent primary across all screenings
+    primary_values = [
+        s.motivation_primary.value for s in screenings if s.motivation_primary
+    ]
+    motivation_top = (
+        Counter(primary_values).most_common(1)[0][0] if primary_values else None
+    )
+
     # Salary trend
     salary_trend = [
         {
@@ -191,6 +204,21 @@ async def get_candidate_ai_profile(
         for s in screenings
         if s.salary_expectation
     ]
+
+    # Salary summary — min/max/latest for quick glance
+    salaries = [s for s in screenings if s.salary_expectation]
+    if salaries:
+        amounts = [s.salary_expectation for s in salaries]
+        latest_salary = salaries[-1]
+        salary_summary = {
+            "min": min(amounts),
+            "max": max(amounts),
+            "latest": latest_salary.salary_expectation,
+            "currency": latest_salary.salary_currency or "PLN",
+            "negotiable": any(s.salary_negotiable for s in salaries),
+        }
+    else:
+        salary_summary = None
 
     # Skills aggregate — collect confirmed/basic skills
     skills_map: dict[str, dict] = {}
@@ -204,11 +232,25 @@ async def get_candidate_ai_profile(
 
     verified_skills_aggregate = list(skills_map.values())
 
-    # Warnings — red flags accumulation
-    warnings = []
-    red_flags = [s.red_flags for s in screenings if s.red_flags]
-    if red_flags:
-        warnings.extend(red_flags)
+    # Red flags — dedup case-insensitive, split by newline/comma, preserve original casing
+    red_flags_raw: list[str] = []
+    for s in screenings:
+        if s.red_flags:
+            for rf in s.red_flags.replace(",", "\n").split("\n"):
+                rf_clean = rf.strip()
+                if rf_clean:
+                    red_flags_raw.append(rf_clean)
+
+    seen_rf: set[str] = set()
+    red_flags_unique: list[str] = []
+    for rf in red_flags_raw:
+        key = rf.lower()
+        if key not in seen_rf:
+            seen_rf.add(key)
+            red_flags_unique.append(rf)
+
+    # Warnings — legacy compat: red flags + counteroffer summary (kept for backwards compat)
+    warnings: list[str] = list(red_flags_unique)
 
     high_risk = [
         s
@@ -227,18 +269,34 @@ async def get_candidate_ai_profile(
     readiness = [s.readiness_to_change for s in screenings if s.readiness_to_change]
     readiness_avg = round(sum(readiness) / len(readiness), 1) if readiness else None
 
-    # Counteroffer risk distribution
+    # Counteroffer risk distribution + dominant
     risks = [s.counteroffer_risk.value for s in screenings if s.counteroffer_risk]
     risk_dist = dict(Counter(risks))
+    risk_dominant = Counter(risks).most_common(1)[0][0] if risks else None
+
+    # Last screening meta (screenings are ordered ASC → last is most recent)
+    last = screenings[-1]
+    last_screening = {
+        "id": last.id,
+        "created_at": last.created_at.isoformat(),
+        "author_id": last.author_id,
+        "screening_type": last.screening_type.value if last.screening_type else None,
+        "overall_impression": last.overall_impression,
+    }
 
     return {
         "candidate_id": candidate_id,
         "screening_count": len(screenings),
         "motivation_trend": motivation_trend,
+        "motivation_top": motivation_top,
         "salary_trend": salary_trend,
+        "salary_summary": salary_summary,
         "verified_skills_aggregate": verified_skills_aggregate,
         "warnings": warnings,
+        "red_flags_unique": red_flags_unique,
         "overall_impression_avg": impression_avg,
         "readiness_avg": readiness_avg,
         "counteroffer_risk_distribution": risk_dist,
+        "counteroffer_risk_dominant": risk_dominant,
+        "last_screening": last_screening,
     }

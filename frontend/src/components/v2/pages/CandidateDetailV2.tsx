@@ -6,9 +6,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowLeft,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   FileText,
+  Gauge,
   Linkedin,
   Mail,
   MapPin,
@@ -17,10 +21,13 @@ import {
   Phone,
   PhoneCall,
   Plus,
+  ShieldAlert,
   Sparkles,
   Star,
+  Target,
   User,
   UserPlus,
+  Wallet,
   X,
 } from "lucide-react";
 import api from "@/lib/api";
@@ -43,6 +50,10 @@ import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget"
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { FirefliesTranscriptsWidget } from "@/components/FirefliesTranscriptsWidget";
+import {
+  AtOurClientBanner,
+  CandidateHighlights,
+} from "@/components/v2/CandidateHighlights";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   active: "success",
@@ -202,6 +213,10 @@ export function CandidateDetailV2({
         </Link>
       )}
 
+      {candidate.employment && (
+        <AtOurClientBanner employment={candidate.employment} />
+      )}
+
       {/* ── HERO CARD ── */}
       <Card variant="default" size="md" className="!p-0 overflow-hidden">
         {/* Top accent bar */}
@@ -222,6 +237,7 @@ export function CandidateDetailV2({
                     {STATUS_LABELS[candidate.status]}
                   </Badge>
                 )}
+                <CandidateHighlights candidate={candidate} variant="full" />
                 {candidate.source === "linkedin" && (
                   <Badge variant="plum" size="sm">
                     <Linkedin className="h-3 w-3" />
@@ -386,6 +402,14 @@ export function CandidateDetailV2({
         </Card>
       )}
 
+      {/* Sticky screening summary — always visible across tabs */}
+      {aiProfile && aiProfile.screening_count > 0 && (
+        <ScreeningSummary
+          aiProfile={aiProfile}
+          onOpenScreenings={() => setActiveTab("screeningi")}
+        />
+      )}
+
       {/* Suggested jobs (reuse v1 widget) */}
       <SuggestedJobsWidget candidateId={Number(id)} />
 
@@ -442,7 +466,10 @@ export function CandidateDetailV2({
                   <RekrutacjeTab history={history} />
                 </div>
                 <div className="space-y-4">
-                  <CandidatePipelinesWidget candidateId={Number(id)} />
+                  <CandidatePipelinesWidget
+                    candidateId={Number(id)}
+                    employment={candidate.employment}
+                  />
                 </div>
               </div>
             </TabsContent>
@@ -540,9 +567,29 @@ function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
 function ProfilTab({ candidate }: { candidate: any }) {
   const skills: any[] = candidate.skills ?? [];
   const experience: any[] = candidate.experience ?? [];
+  const aiSummary: string | null = candidate.ai_summary ?? null;
+  const aiCompanies: string[] = candidate.cv_extracted_data?.companies ?? [];
+  const aiSource: string = candidate.cv_extracted_data?._source ?? "";
+  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
 
   return (
     <div className="space-y-6">
+      {aiSummary && (
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2 flex items-center gap-2">
+            Podsumowanie AI
+            {aiBadge && (
+              <Badge size="sm" variant="info">
+                AI
+              </Badge>
+            )}
+          </h3>
+          <p className="text-sm text-[hsl(var(--text-body))] whitespace-pre-line">
+            {aiSummary}
+          </p>
+        </section>
+      )}
+
       {candidate.about && (
         <section>
           <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
@@ -551,6 +598,31 @@ function ProfilTab({ candidate }: { candidate: any }) {
           <p className="text-sm text-[hsl(var(--text-body))] whitespace-pre-line">
             {candidate.about}
           </p>
+        </section>
+      )}
+
+      {aiCompanies.length > 0 && (
+        <section>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2 flex items-center gap-2">
+            Firmy z CV
+            {aiBadge && (
+              <Badge size="sm" variant="info">
+                AI
+              </Badge>
+            )}
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {aiCompanies.map((name: string, i: number) => (
+              <div
+                key={i}
+                className="inline-flex items-center px-3 py-1.5 rounded-v2-m bg-[hsl(var(--bg-surface))] border border-[hsl(var(--border-subtle))]"
+              >
+                <span className="text-sm font-medium text-[hsl(var(--text-title))]">
+                  {name}
+                </span>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
@@ -589,37 +661,56 @@ function ProfilTab({ candidate }: { candidate: any }) {
 
       {experience.length > 0 && (
         <section>
-          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-3">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-3 flex items-center gap-2">
             Doświadczenie zawodowe
+            {aiBadge && (
+              <Badge size="sm" variant="info">
+                AI
+              </Badge>
+            )}
           </h3>
           <div className="space-y-3">
-            {experience.map((exp: any, i: number) => (
-              <div
-                key={i}
-                className="rounded-v2-m bg-[hsl(var(--bg-canvas))]/40 border border-[hsl(var(--border-subtle))] p-3"
-              >
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div className="min-w-0">
-                    <div className="font-medium text-[hsl(var(--text-title))]">
-                      {exp.title}
+            {experience.map((exp: any, i: number) => {
+              // Backend schema: {company, role, start, end, desc}
+              // Legacy imports may still use: {title, start_date, end_date, description}
+              const role = exp.role ?? exp.title ?? "";
+              const company = exp.company ?? "";
+              const start = exp.start ?? exp.start_date ?? "";
+              const end = exp.end ?? exp.end_date ?? "";
+              const desc = exp.desc ?? exp.description ?? "";
+              const location = exp.location ?? "";
+              return (
+                <div
+                  key={i}
+                  className="rounded-v2-m bg-[hsl(var(--bg-canvas))]/40 border border-[hsl(var(--border-subtle))] p-3"
+                >
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="min-w-0">
+                      {role && (
+                        <div className="font-medium text-[hsl(var(--text-title))]">
+                          {role}
+                        </div>
+                      )}
+                      <div className="text-xs text-[hsl(var(--text-muted))]">
+                        {company}
+                        {location ? ` · ${location}` : ""}
+                      </div>
                     </div>
-                    <div className="text-xs text-[hsl(var(--text-muted))]">
-                      {exp.company}
-                      {exp.location ? ` · ${exp.location}` : ""}
-                    </div>
+                    {(start || end) && (
+                      <div className="text-xs text-[hsl(var(--text-muted))] whitespace-nowrap">
+                        {start ? formatDate(start) : ""} —{" "}
+                        {end ? formatDate(end) : "obecnie"}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-xs text-[hsl(var(--text-muted))] whitespace-nowrap">
-                    {exp.start_date ? formatDate(exp.start_date) : ""} —{" "}
-                    {exp.end_date ? formatDate(exp.end_date) : "obecnie"}
-                  </div>
+                  {desc && (
+                    <p className="text-sm text-[hsl(var(--text-body))] mt-2 whitespace-pre-line">
+                      {desc}
+                    </p>
+                  )}
                 </div>
-                {exp.description && (
-                  <p className="text-sm text-[hsl(var(--text-body))] mt-2 whitespace-pre-line">
-                    {exp.description}
-                  </p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
@@ -947,6 +1038,259 @@ function NotatkiTab({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Screening summary (sticky, always visible across tabs) ─────────────
+
+const MOTIVATION_LABEL_PL: Record<string, string> = {
+  money: "Pieniądze",
+  growth: "Rozwój",
+  project: "Projekt",
+  team: "Zespół",
+  work_mode: "Tryb pracy",
+  stability: "Stabilność",
+  technology: "Technologia",
+  location: "Lokalizacja",
+};
+
+const RISK_LABEL_PL: Record<string, string> = {
+  low: "Niskie",
+  medium: "Średnie",
+  high: "Wysokie",
+};
+
+const RISK_VARIANT: Record<string, "success" | "warning" | "danger"> = {
+  low: "success",
+  medium: "warning",
+  high: "danger",
+};
+
+interface VerifiedSkillAgg {
+  skill: string;
+  level: string;
+  notes?: string;
+}
+
+interface SalarySummary {
+  min: number;
+  max: number;
+  latest: number;
+  currency: string;
+  negotiable: boolean;
+}
+
+interface LastScreeningMeta {
+  id: number;
+  created_at: string;
+  screening_type?: string | null;
+  overall_impression?: number | null;
+}
+
+interface AiProfile {
+  screening_count: number;
+  motivation_top?: string | null;
+  salary_summary?: SalarySummary | null;
+  readiness_avg?: number | null;
+  overall_impression_avg?: number | null;
+  counteroffer_risk_dominant?: string | null;
+  counteroffer_risk_distribution?: Record<string, number>;
+  red_flags_unique?: string[];
+  verified_skills_aggregate?: VerifiedSkillAgg[];
+  motivation_trend?: Array<{
+    date: string;
+    primary?: string | null;
+    secondary?: string | null;
+    type?: string | null;
+  }>;
+  last_screening?: LastScreeningMeta | null;
+}
+
+function pluralScreenings(n: number): string {
+  if (n === 1) return "rozmowa";
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return "rozmowy";
+  return "rozmów";
+}
+
+function ScreeningSummary({
+  aiProfile,
+  onOpenScreenings,
+}: {
+  aiProfile: AiProfile;
+  onOpenScreenings: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const {
+    screening_count,
+    motivation_top,
+    salary_summary,
+    readiness_avg,
+    overall_impression_avg,
+    counteroffer_risk_dominant,
+    red_flags_unique = [],
+    verified_skills_aggregate = [],
+    motivation_trend = [],
+    last_screening,
+  } = aiProfile;
+
+  const lastRelative = last_screening?.created_at
+    ? formatRelativeTime(last_screening.created_at)
+    : null;
+  const topSkills = verified_skills_aggregate.slice(0, 5);
+
+  return (
+    <div className="sticky top-0 z-20">
+      <Card
+        variant="default"
+        size="md"
+        className={cn(
+          "!py-3 shadow-v2-md",
+          "bg-[hsl(var(--bg-surface))]/95 backdrop-blur-sm"
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Sparkles className="h-4 w-4 text-[hsl(var(--accent))] shrink-0" />
+          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--accent))]">
+            Podsumowanie screeningów
+          </h3>
+          <span className="text-xs text-[hsl(var(--text-muted))]">
+            · {screening_count} {pluralScreenings(screening_count)}
+          </span>
+          {lastRelative && (
+            <span className="text-xs text-[hsl(var(--text-muted))]">
+              · ostatnia {lastRelative}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] transition-colors"
+            aria-expanded={expanded}
+          >
+            {expanded ? "Zwiń" : "Rozwiń"}
+            {expanded ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+          </button>
+        </div>
+
+        {/* Badges row */}
+        <div className="flex items-center gap-2 flex-wrap mt-2.5">
+          {motivation_top && (
+            <Badge variant="soft" size="md">
+              <Target className="h-3 w-3" />
+              Motywacja: {MOTIVATION_LABEL_PL[motivation_top] ?? motivation_top}
+            </Badge>
+          )}
+          {salary_summary && (
+            <Badge variant="plum" size="md">
+              <Wallet className="h-3 w-3" />
+              {salary_summary.min === salary_summary.max
+                ? salary_summary.latest.toLocaleString("pl-PL")
+                : `${salary_summary.min.toLocaleString("pl-PL")}–${salary_summary.max.toLocaleString("pl-PL")}`}{" "}
+              {salary_summary.currency}
+              {salary_summary.negotiable ? " (neg.)" : ""}
+            </Badge>
+          )}
+          {readiness_avg != null && (
+            <Badge variant="soft" size="md">
+              <Gauge className="h-3 w-3" />
+              Gotowość: {readiness_avg}/5
+            </Badge>
+          )}
+          {counteroffer_risk_dominant && (
+            <Badge
+              variant={RISK_VARIANT[counteroffer_risk_dominant] ?? "neutral"}
+              size="md"
+            >
+              <ShieldAlert className="h-3 w-3" />
+              Counteroffer:{" "}
+              {RISK_LABEL_PL[counteroffer_risk_dominant] ??
+                counteroffer_risk_dominant}
+            </Badge>
+          )}
+          {overall_impression_avg != null && (
+            <Badge variant="burgundy" size="md">
+              <Star className="h-3 w-3" />
+              Wrażenie: {overall_impression_avg}/5
+            </Badge>
+          )}
+          {red_flags_unique.length > 0 && (
+            <Badge variant="danger" size="md">
+              <AlertTriangle className="h-3 w-3" />
+              {red_flags_unique.length}{" "}
+              {red_flags_unique.length === 1 ? "red flag" : "red flags"}
+            </Badge>
+          )}
+        </div>
+
+        {/* Expanded content */}
+        {expanded && (
+          <div className="mt-3.5 pt-3.5 border-t border-[hsl(var(--border-subtle))] space-y-3">
+            {red_flags_unique.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#6b1120] mb-1.5">
+                  <AlertTriangle className="h-3 w-3" />
+                  Red flags
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {red_flags_unique.map((rf, i) => (
+                    <Badge key={i} variant="danger" size="sm">
+                      {rf}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {topSkills.length > 0 && (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-1.5">
+                  Potwierdzone umiejętności
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {topSkills.map((sk, i) => (
+                    <Badge
+                      key={i}
+                      variant={sk.level === "confirmed" ? "success" : "soft"}
+                      size="sm"
+                    >
+                      {sk.skill}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {motivation_trend.length > 1 && (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-1.5">
+                  Trend motywacji
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {motivation_trend.map((m, i) => (
+                    <Badge key={i} variant="outline" size="sm">
+                      {MOTIVATION_LABEL_PL[m.primary ?? ""] ??
+                        m.primary ??
+                        "—"}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end pt-1">
+              <Button size="sm" variant="ghost" onClick={onOpenScreenings}>
+                Zobacz wszystkie screeningi →
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
