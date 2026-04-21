@@ -147,8 +147,8 @@ def _parse_required_skills(job: Job) -> list[str]:
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
+    current_user: CurrentUser,
     top_k: int = 10,
-    current_user: CurrentUser = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
