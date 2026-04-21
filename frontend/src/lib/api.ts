@@ -44,7 +44,63 @@ export const activitiesApi = {
     api.get("/api/activities/leaderboard", { params }),
 };
 
+// ── KPI Coach ────────────────────────────────────────────────────────────────
+
+export type KpiPeriod = "day" | "week" | "month";
+export type KpiState = "on_track" | "ahead" | "behind" | "hit" | "missed";
+
+export interface KpiResult {
+  kpi_id: string;
+  period: KpiPeriod;
+  title_pl: string;
+  description_pl: string;
+  target: number;
+  current: number;
+  progress_pct: number;
+  state: KpiState;
+  deadline_hours_left: number;
+}
+
+export const kpisApi = {
+  /** KPI rekrutera dla current usera (pusta lista dla ról nieoperacyjnych). */
+  myToday: () => api.get<KpiResult[]>("/api/kpis/me/today"),
+  /** KPI dowolnego usera — dla delivery_leada / admina monitorującego team. */
+  userToday: (userId: number) =>
+    api.get<KpiResult[]>(`/api/kpis/users/${userId}/today`),
+};
+
 // ── Candidates ───────────────────────────────────────────────────────────────
+
+/** AI-extracted CV data — Phase D4 adds `companies` and `career_summary`.
+ *  The `_source` tag (e.g. "claude:cv_enrichment:v2") lets the UI show an
+ *  "AI" badge and helps support debug why a given record is missing fields. */
+export interface CvExtractedData {
+  years_it_experience?: number | null;
+  current_position?: string | null;
+  skills?: unknown[];
+  education?: unknown[];
+  languages?: unknown[];
+  /** Phase D4: list of past employers, most recent first. */
+  companies?: string[];
+  /** Phase D4: 3-4 sentence career trajectory summary in Polish. */
+  career_summary?: string | null;
+  /** Identifier of the parse source — "regex", "ollama:...", "claude:...". */
+  _source?: string;
+  /** Set when a recruiter manually edited `candidate.experience`.
+   *  Blocks AI from overwriting curated data on subsequent uploads. */
+  _manual_override_experience?: boolean;
+}
+
+/** Single work-history entry. Mirrors backend `candidate.experience` JSONB
+ *  shape: {company, role, start, end, desc}. */
+export interface CandidateExperienceEntry {
+  company?: string | null;
+  role?: string | null;
+  start?: string | null;
+  end?: string | null;
+  desc?: string | null;
+}
+
 export const candidatesApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/candidates", { params }),
   get: (id: number) => api.get(`/api/candidates/${id}`),
@@ -656,6 +712,70 @@ export const recommendationsApi = {
     api.post(`/api/candidates/${candidateId}/assign-to-job/${jobId}`),
 };
 
+// ── Proposal snapshots (Phase 13) ───────────────────────────────────────────
+
+export type ProposalStatus = "pending" | "ready" | "failed";
+export type ProposalSource = "create" | "manual_regenerate" | "job_updated";
+
+export interface ProposalCandidateItem {
+  candidate: {
+    id: number;
+    name: string | null;
+    lastname: string | null;
+    email: string | null;
+    phone?: string | null;
+    location: string | null;
+    avatar_url: string | null;
+    competence_category: string | null;
+    years_it_experience: number | null;
+    salary_expectation: number | null;
+    salary_currency: string | null;
+    status: string | null;
+    champion: boolean | null;
+  };
+  total_score: number;
+  breakdown: ScoreBreakdown;
+}
+
+export interface ProposalSnapshot {
+  id: number;
+  job_id: number;
+  status: ProposalStatus;
+  source: ProposalSource;
+  top_k: number;
+  profile_id: number;
+  created_at: string;
+  error_message: string | null;
+  candidates: ProposalCandidateItem[];
+}
+
+export interface ProposalSnapshotSummary {
+  id: number;
+  job_id: number;
+  status: ProposalStatus;
+  source: ProposalSource;
+  top_k: number;
+  created_at: string;
+  candidate_count: number;
+  error_message: string | null;
+}
+
+export const proposalsApi = {
+  latest: (jobId: number) =>
+    api.get<ProposalSnapshot>(`/api/jobs/${jobId}/proposals/latest`),
+  list: (jobId: number, page = 1, pageSize = 10) =>
+    api.get<{
+      items: ProposalSnapshotSummary[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>(`/api/jobs/${jobId}/proposals`, { params: { page, page_size: pageSize } }),
+  regenerate: (jobId: number, topK = 20) =>
+    api.post<ProposalSnapshot>(`/api/jobs/${jobId}/proposals/regenerate`, null, {
+      params: { top_k: topK },
+    }),
+};
+
 // ── Skill taxonomy (Phase B1) ───────────────────────────────────────────────
 
 export interface SkillSuggestion {
@@ -773,6 +893,91 @@ export const championApi = {
     api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
 };
 
+// ── Champion Profile AI Intake (Phase 14) ──────────────────────────────────
+
+export type ChampionSuggestionSource =
+  | "jd_paste"
+  | "fireflies_meeting"
+  | "cloudtalk_call"
+  | "manual_consultant_note";
+
+export type ChampionSuggestionStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "partially_accepted"
+  | "superseded";
+
+export type ChampionSectionName =
+  | "basics"
+  | "project_context"
+  | "screening_questions"
+  | "historical_client_questions"
+  | "internal_consultant_insight"
+  | "sourcing";
+
+export const CHAMPION_SECTIONS: ChampionSectionName[] = [
+  "basics",
+  "project_context",
+  "screening_questions",
+  "historical_client_questions",
+  "internal_consultant_insight",
+  "sourcing",
+];
+
+export interface ChampionSectionPatch {
+  section: ChampionSectionName;
+  value: unknown;
+  confidence: number;
+  rationale: string;
+}
+
+export interface ChampionProfileSuggestion {
+  id: number;
+  job_id: number;
+  source_type: ChampionSuggestionSource;
+  source_ref: string | null;
+  status: ChampionSuggestionStatus;
+  created_by_id: number | null;
+  reviewed_by_id: number | null;
+  created_at: string;
+  reviewed_at: string | null;
+  model_name: string | null;
+  prompt_version: number | null;
+  error_message: string | null;
+  patches: ChampionSectionPatch[];
+}
+
+export interface ChampionSuggestionListResponse {
+  items: ChampionProfileSuggestion[];
+  total: number;
+}
+
+export const championSuggestionsApi = {
+  generateFromJd: (jobId: number, rawDescription: string) =>
+    api.post<ChampionProfileSuggestion>(
+      `/api/jobs/${jobId}/champion-profile/generate-from-jd`,
+      { raw_description: rawDescription },
+    ),
+  list: (jobId: number, statusFilter?: ChampionSuggestionStatus) => {
+    const qs = statusFilter ? `?status=${statusFilter}` : "";
+    return api.get<ChampionSuggestionListResponse>(
+      `/api/jobs/${jobId}/champion-profile/suggestions${qs}`,
+    );
+  },
+  get: (suggestionId: number) =>
+    api.get<ChampionProfileSuggestion>(`/api/champion-suggestions/${suggestionId}`),
+  apply: (suggestionId: number, acceptedSections: ChampionSectionName[]) =>
+    api.post<ChampionProfileSuggestion>(
+      `/api/champion-suggestions/${suggestionId}/apply`,
+      { accepted_sections: acceptedSections },
+    ),
+  reject: (suggestionId: number) =>
+    api.post<ChampionProfileSuggestion>(
+      `/api/champion-suggestions/${suggestionId}/reject`,
+    ),
+};
+
 // Screening answers
 
 export interface ScreeningAnswerItem {
@@ -816,5 +1021,19 @@ export const screeningApi = {
   revokeShareToken: (token: string) =>
     api.delete(`/api/pipeline/stages/share-token/${token}`),
 };
+
+// ── Saved searches (used by the candidates list filter toolbar) ──────────────
+
+export interface SavedSearch {
+  id: number;
+  user_id: number;
+  name: string;
+  entity: string;
+  filters: { qs?: string; [k: string]: unknown };
+  shared: boolean;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export default api;

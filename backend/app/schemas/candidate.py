@@ -1,9 +1,36 @@
 from datetime import date, datetime
-from typing import Any, List, Optional
+from enum import Enum
+from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models.candidate import CandidateStatus
+from app.models.candidate import AvailabilityStatus, CandidateStatus
+
+
+class EmploymentState(str, Enum):
+    """
+    Derived fact about current engagement — computed from active contracts
+    and `current_employment` conflicts. Not persisted on `candidates`.
+    """
+
+    employed_at_client = "employed_at_client"
+    on_bench = "on_bench"
+    external = "external"
+    unknown = "unknown"
+
+
+class EmploymentInfo(BaseModel):
+    """
+    Employment snapshot rendered next to every candidate in the list/profile.
+    `source` exposes whether the fact came from a live Contract or a manual
+    CandidateConflict so UI can show a different tooltip.
+    """
+
+    state: EmploymentState
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    contract_end_date: Optional[date] = None
+    source: Literal["contract", "conflict", "none"] = "none"
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
@@ -65,6 +92,7 @@ class CandidateCreate(BaseModel):
     notice_period: Optional[int] = None
     source: Optional[str] = None
     status: CandidateStatus = CandidateStatus.active
+    availability_status: AvailabilityStatus = AvailabilityStatus.unknown
     avatar_url: Optional[str] = None
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
@@ -98,6 +126,7 @@ class CandidateUpdate(BaseModel):
     notice_period: Optional[int] = None
     source: Optional[str] = None
     status: Optional[CandidateStatus] = None
+    availability_status: Optional[AvailabilityStatus] = None
     avatar_url: Optional[str] = None
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None
@@ -126,6 +155,15 @@ class MatchStats(BaseModel):
     top_score: float
 
 
+class CandidateCreatorBrief(BaseModel):
+    """Minimal creator info for the "Dodał" column in the candidates list."""
+
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class CandidateResponse(BaseModel):
     id: int
     name: str
@@ -144,6 +182,8 @@ class CandidateResponse(BaseModel):
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     status: CandidateStatus
+    availability_status: AvailabilityStatus = AvailabilityStatus.unknown
+    employment: EmploymentInfo = EmploymentInfo(state=EmploymentState.unknown)
     tags: Optional[Any]
     skills: Optional[Any]
     experience: Optional[Any]
@@ -155,15 +195,25 @@ class CandidateResponse(BaseModel):
     verified_tech: Optional[Any] = None
     cv_filename: Optional[str]
     cv_parsed_at: Optional[datetime]
+    # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,
+    # manual-override flag). Surfaced to the frontend so the profile view can
+    # render "Firmy z CV" / "Podsumowanie AI" sections without a second fetch.
+    cv_extracted_data: Optional[Any] = None
     notes_count: int
     last_contacted_at: Optional[datetime]
     embedding_id: Optional[str]
+    created_by: Optional[int] = None
+    # Reads from ORM attribute `creator` (Candidate.creator relationship).
+    # Populated when the endpoint eager-loads `selectinload(Candidate.creator)`.
+    created_by_user: Optional[CandidateCreatorBrief] = Field(
+        default=None, validation_alias="creator"
+    )
     created_at: datetime
     updated_at: datetime
     # Phase A1: populated only when list endpoint is called with include_match_stats=true
     match_stats: Optional[MatchStats] = None
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class CandidateList(BaseModel):

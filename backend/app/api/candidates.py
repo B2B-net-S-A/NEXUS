@@ -1,30 +1,39 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
+import io
 import logging
+import re
+import zipfile
 import aiofiles
 import os
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import func, or_, select
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
+from app.models.candidate_conflict import CandidateConflict, ConflictType
+from app.models.contract import Contract, ContractStatus
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.job import Job, JobStatus
+from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateList,
     CandidateResponse,
     CandidateUpdate,
+    EmploymentInfo,
+    EmploymentState,
     MatchStats,
 )
 from app.services.scoring_service import (
@@ -60,6 +69,90 @@ def _build_response(data: dict) -> dict:
 # Keeps worst-case latency bounded: page_size × _MATCH_STATS_JOB_CAP score computes.
 _MATCH_STATS_JOB_CAP = 50
 _MATCH_STATS_DEFAULT_THRESHOLD = 50.0
+
+
+def _candidate_list_options():
+    """Eager-load relations required to derive employment state without N+1 lazy loads."""
+    return (
+        selectinload(Candidate.contracts).selectinload(Contract.client),
+        selectinload(Candidate.conflicts).selectinload(CandidateConflict.client),
+        selectinload(Candidate.creator),
+    )
+
+
+def _at_client_predicate():
+    """
+    Derived SQL predicate: candidate has either an active Contract OR an active
+    current_employment conflict. Used to filter the candidates list.
+    """
+    contract_exists = (
+        select(1)
+        .where(
+            and_(
+                Contract.candidate_id == Candidate.id,
+                Contract.status == ContractStatus.active,
+            )
+        )
+        .exists()
+    )
+    conflict_exists = (
+        select(1)
+        .where(
+            and_(
+                CandidateConflict.candidate_id == Candidate.id,
+                CandidateConflict.type == ConflictType.current_employment,
+                CandidateConflict.active.is_(True),
+            )
+        )
+        .exists()
+    )
+    return or_(contract_exists, conflict_exists)
+
+
+def _derive_employment(candidate: Candidate) -> EmploymentInfo:
+    """
+    Compute EmploymentInfo from eager-loaded `contracts` + `conflicts`.
+    Preference order: active Contract (source of truth) → active
+    current_employment conflict (manual flag) → on_bench (has history) →
+    external (never engaged).
+    """
+    active_contracts = [
+        c for c in (candidate.contracts or []) if c.status == ContractStatus.active
+    ]
+    if active_contracts:
+        chosen = max(
+            active_contracts,
+            key=lambda c: (c.end_date or date.max),
+        )
+        return EmploymentInfo(
+            state=EmploymentState.employed_at_client,
+            client_id=chosen.client_id,
+            client_name=chosen.client.name if chosen.client else None,
+            contract_end_date=chosen.end_date,
+            source="contract",
+        )
+
+    active_conflicts = [
+        cf
+        for cf in (candidate.conflicts or [])
+        if cf.active and cf.type == ConflictType.current_employment
+    ]
+    if active_conflicts:
+        chosen = active_conflicts[0]
+        return EmploymentInfo(
+            state=EmploymentState.employed_at_client,
+            client_id=chosen.client_id,
+            client_name=chosen.client.name if chosen.client else None,
+            contract_end_date=None,
+            source="conflict",
+        )
+
+    has_history = bool(candidate.contracts) or any(
+        cf.type == ConflictType.current_employment for cf in (candidate.conflicts or [])
+    )
+    if has_history:
+        return EmploymentInfo(state=EmploymentState.on_bench, source="none")
+    return EmploymentInfo(state=EmploymentState.external, source="none")
 
 
 @router.get("", response_model=CandidateList)
@@ -115,10 +208,45 @@ async def list_candidates(
         None,
         description="Phase D1 scoring weight profile id. None = auto-resolve by user.",
     ),
+    employment: Optional[str] = Query(
+        None,
+        pattern="^(at_client|available)$",
+        description=(
+            "Derived employment filter: 'at_client' = consultant is employed at one "
+            "of our clients (active contract OR active current_employment conflict); "
+            "'available' = the inverse (on bench or external). None = no filter."
+        ),
+    ),
+    availability: Optional[AvailabilityStatus] = Query(
+        None,
+        description=(
+            "Filter by `availability_status` — actively_looking / open_to_offers / "
+            "not_looking / unknown."
+        ),
+    ),
+    added_by_user_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by `created_by` — one or more user ids. "
+            "Sentinel `0` matches NULL (pre-backfill / system-imported rows)."
+        ),
+    ),
+    talent_pool_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by talent pool membership — one or more pool ids, OR-combined."
+        ),
+    ),
 ):
-    query = select(Candidate)
+    query = select(Candidate).options(*_candidate_list_options())
     if status:
         query = query.where(Candidate.status == status)
+    if employment == "at_client":
+        query = query.where(_at_client_predicate())
+    elif employment == "available":
+        query = query.where(not_(_at_client_predicate()))
+    if availability:
+        query = query.where(Candidate.availability_status == availability)
     if location:
         query = query.where(Candidate.location.ilike(f"%{location}%"))
     if q:
@@ -202,6 +330,32 @@ async def list_candidates(
     if max_salary is not None:
         query = query.where(Candidate.salary_expectation <= max_salary)
 
+    if added_by_user_id:
+        # Sentinel 0 = "no created_by on record" (pre-backfill / system import).
+        real_ids = [uid for uid in added_by_user_id if uid != 0]
+        include_null = 0 in added_by_user_id
+        if include_null and real_ids:
+            query = query.where(
+                or_(Candidate.created_by.is_(None), Candidate.created_by.in_(real_ids))
+            )
+        elif include_null:
+            query = query.where(Candidate.created_by.is_(None))
+        elif real_ids:
+            query = query.where(Candidate.created_by.in_(real_ids))
+
+    if talent_pool_id:
+        pool_exists = (
+            select(1)
+            .where(
+                and_(
+                    TalentPoolMembership.candidate_id == Candidate.id,
+                    TalentPoolMembership.talent_pool_id.in_(talent_pool_id),
+                )
+            )
+            .exists()
+        )
+        query = query.where(pool_exists)
+
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -250,9 +404,11 @@ async def list_candidates(
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = CandidateResponse.model_validate(cand)
+        updates: dict = {"employment": _derive_employment(cand)}
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
-            payload = payload.model_copy(update={"match_stats": stats})
+            updates["match_stats"] = stats
+        payload = payload.model_copy(update=updates)
         response_items.append(payload)
 
     return CandidateList(
@@ -398,6 +554,7 @@ async def create_candidate(
     db: AsyncSession = Depends(get_db),
 ):
     candidate = Candidate(**data.model_dump())
+    candidate.created_by = current_user.id
     db.add(candidate)
     await db.flush()
     activity = Activity(
@@ -455,18 +612,31 @@ async def create_candidate(
         )
 
     await db.refresh(candidate)
-    return candidate
+    # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
+    reloaded = await db.execute(
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate.id)
+    )
+    full = reloaded.scalar_one()
+    payload = CandidateResponse.model_validate(full)
+    return payload.model_copy(update={"employment": _derive_employment(full)})
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 async def get_candidate(
     candidate_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+    result = await db.execute(
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate_id)
+    )
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return candidate
+    payload = CandidateResponse.model_validate(candidate)
+    return payload.model_copy(update={"employment": _derive_employment(candidate)})
 
 
 @router.get("/{candidate_id}/timeline")
@@ -702,6 +872,14 @@ async def update_candidate(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+
+    # Phase D4: flag manual edits to `experience` so a subsequent CV upload
+    # does not silently overwrite recruiter-curated data with AI extraction.
+    if "experience" in updates:
+        current_extracted = dict(candidate.cv_extracted_data or {})
+        current_extracted["_manual_override_experience"] = True
+        updates["cv_extracted_data"] = current_extracted
+
     for field, value in updates.items():
         setattr(candidate, field, value)
     activity = Activity(
@@ -720,8 +898,19 @@ async def update_candidate(
 
         await mark_stale_for_candidate(db, candidate.id)
 
-    await db.refresh(candidate)
-    return candidate
+    # Async SQLAlchemy doesn't autoflush before `refresh`, so setattr changes
+    # could get overwritten by the in-memory state read. Flush first, then
+    # reload with eager-loaded relations so `_derive_employment` sees current
+    # contracts/conflicts.
+    await db.flush()
+    reloaded = await db.execute(
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate.id)
+    )
+    full = reloaded.scalar_one()
+    payload = CandidateResponse.model_validate(full)
+    return payload.model_copy(update={"employment": _derive_employment(full)})
 
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -744,14 +933,124 @@ async def delete_candidate(
     await db.delete(candidate)
 
 
+def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
+    """Pure function: mutate `candidate` fields from a `parse_cv()` result.
+
+    Returns the number of companies that were written into `experience`
+    (zero when the recruiter has manually curated it, or the AI returned no
+    companies). This function is the unit-testable seam for Phase D4 — it
+    has zero DB or async concerns.
+
+    Contract:
+      * Never clobbers recruiter-curated data (`_manual_override_experience`).
+      * Never downgrades a rich `experience` record (with roles) to a flat
+        company-name list — bulk imports from Traffit are protected.
+      * Preserves the manual-override flag across writes so the guard
+        survives future uploads.
+    """
+    existing_extracted = dict(candidate.cv_extracted_data or {})
+    manual_override = bool(
+        existing_extracted.get("_manual_override_experience", False)
+    )
+
+    if parsed.get("years_it_experience") is not None:
+        candidate.years_it_experience = parsed["years_it_experience"]
+    if parsed.get("skills"):
+        candidate.skills = parsed["skills"]
+    if parsed.get("education"):
+        candidate.education = parsed["education"]
+    if parsed.get("languages"):
+        candidate.languages = parsed["languages"]
+    if parsed.get("career_summary"):
+        candidate.ai_summary = parsed["career_summary"]
+
+    next_extracted = dict(parsed)
+    if manual_override:
+        next_extracted["_manual_override_experience"] = True
+    candidate.cv_extracted_data = next_extracted
+
+    companies = parsed.get("companies") or []
+    has_rich_experience = bool(candidate.experience) and any(
+        isinstance(e, dict) and e.get("role")
+        for e in (candidate.experience or [])
+    )
+    written = 0
+    if companies and not manual_override and not has_rich_experience:
+        candidate.experience = [
+            {
+                "company": name,
+                "role": None,
+                "start": None,
+                "end": None,
+                "desc": None,
+            }
+            for name in companies
+        ]
+        written = len(companies)
+
+    candidate.cv_parsed_at = datetime.now(timezone.utc)
+    return written
+
+
+async def _enrich_candidate_cv_task(candidate_id: int) -> None:
+    """Background task: parse `raw_cv_text` and fan out to candidate fields.
+
+    Runs with a fresh DB session because FastAPI's per-request session is
+    closed once the response is returned. Never raises — every failure is
+    logged and the upload response stays successful.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.cv_parser import parse_cv
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            candidate = result.scalar_one_or_none()
+            if not candidate or not candidate.raw_cv_text:
+                return
+
+            parsed = await parse_cv(candidate.raw_cv_text)
+            written = _apply_cv_enrichment(candidate, parsed)
+            await db.commit()
+
+            await mark_stale_for_candidate(db, candidate_id)
+            await db.commit()
+
+            logger.info(
+                "[cv_enrich] source=%s candidate=%s companies_written=%d",
+                parsed.get("_source"),
+                candidate_id,
+                written,
+            )
+        except Exception as e:  # pragma: no cover — defensive
+            logger.warning(
+                f"[cv_enrich] failed for candidate {candidate_id}: {e}"
+            )
+            await db.rollback()
+
+
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)
 async def upload_cv(
     candidate_id: int,
     current_user: RecruiterPlus,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
-    """Upload CV file for a candidate. Stores file, records filename."""
+    """Upload CV file for a candidate.
+
+    Saves the file, extracts text (PDF/DOCX/TXT) into `raw_cv_text`, and
+    schedules an async enrichment task that populates AI summary, companies
+    and skill facts in the background. Response returns as soon as the file
+    is on disk — callers don't block on the LLM.
+    """
+    import asyncio
+
+    from app.services import cv_text_extractor
+
     result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
     candidate = result.scalar_one_or_none()
     if not candidate:
@@ -764,6 +1063,22 @@ async def upload_cv(
     async with aiofiles.open(file_path, "wb") as f:
         content = await file.read()
         await f.write(content)
+
+    # Phase D4: extract text from PDF/DOCX/TXT so the enrichment task has
+    # something to work with. Heavy libraries run in a thread to keep the
+    # event loop responsive.
+    try:
+        raw_text = await asyncio.to_thread(
+            cv_text_extractor.extract_text, file_path, file.filename or ""
+        )
+        if raw_text:
+            candidate.raw_cv_text = raw_text
+    except cv_text_extractor.UnsupportedCvFormat as e:
+        logger.info(f"[CV upload] unsupported format for {candidate_id}: {e}")
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            f"[CV upload] text extraction failed for candidate {candidate_id}: {e}"
+        )
 
     candidate.cv_filename = file.filename
     activity = Activity(
@@ -796,43 +1111,23 @@ async def upload_cv(
             f"[CV upload] embedding failed for candidate {candidate_id}: {e}"
         )
 
-    # Phase D3: enrich structured fields (years, position, skills, education…)
-    # from CV text. Best-effort — uses Ollama when available, falls back to
-    # regex heuristic otherwise. Also invalidates the match score cache so the
-    # next /recommendations read reflects the new skills.
+    # Phase D4: schedule AI enrichment off the request path. Task runs in a
+    # fresh DB session so it survives the response lifecycle.
     if candidate.raw_cv_text:
-        try:
-            from app.services.cv_parser import parse_cv
-            from app.services.match_score_cache import mark_stale_for_candidate
+        background_tasks.add_task(_enrich_candidate_cv_task, candidate_id)
 
-            parsed = await parse_cv(candidate.raw_cv_text)
-            if parsed.get("years_it_experience") is not None:
-                candidate.years_it_experience = parsed["years_it_experience"]
-            if parsed.get("skills"):
-                # Only overwrite if the LLM/heuristic produced a non-empty list —
-                # don't clobber manually curated skills with a regex miss.
-                candidate.skills = parsed["skills"]
-            if parsed.get("education"):
-                candidate.education = parsed["education"]
-            if parsed.get("languages"):
-                candidate.languages = parsed["languages"]
-            candidate.cv_extracted_data = parsed
-            await db.commit()
-            await db.refresh(candidate)
-
-            await mark_stale_for_candidate(db, candidate_id)
-            await db.commit()
-            logger.info(
-                "[CV upload] enrichment source=%s candidate=%s",
-                parsed.get("_source"),
-                candidate_id,
-            )
-        except Exception as e:  # pragma: no cover — defensive
-            logger.warning(
-                f"[CV upload] enrichment failed for candidate {candidate_id}: {e}"
-            )
-
-    return candidate
+    # Re-fetch with eager-loaded relations so CandidateResponse can build
+    # the derived `employment` field; upload_cv used to return the bare
+    # Candidate, which tripped the response schema when strict validation
+    # was introduced.
+    reloaded = await db.execute(
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate_id)
+    )
+    full = reloaded.scalar_one()
+    payload = CandidateResponse.model_validate(full)
+    return payload.model_copy(update={"employment": _derive_employment(full)})
 
 
 @router.get("/{candidate_id}/cv-download")
@@ -860,6 +1155,109 @@ async def download_cv(
     )
 
 
+class BulkCvDownloadRequest(BaseModel):
+    candidate_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+_FILENAME_UNSAFE_RE = re.compile(r"[^\w\-. ]", re.UNICODE)
+
+
+def _sanitize_zip_component(value: str) -> str:
+    cleaned = _FILENAME_UNSAFE_RE.sub("_", (value or "").strip())
+    cleaned = cleaned.replace("..", "_")
+    return cleaned[:200] or "_"
+
+
+@router.post("/bulk-cv-download")
+async def bulk_cv_download(
+    payload: BulkCvDownloadRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Download multiple candidate CVs as a single ZIP archive.
+
+    Skips candidates without an uploaded CV or missing file on disk and reports
+    them in the `_manifest.txt` entry included at the archive root.
+    """
+    requested_ids = list(dict.fromkeys(payload.candidate_ids))
+
+    result = await db.execute(
+        select(Candidate).where(Candidate.id.in_(requested_ids))
+    )
+    candidates_by_id = {c.id: c for c in result.scalars().all()}
+
+    manifest_rows: list[str] = ["id\tfirst\tlast\tcv_filename\tstatus"]
+    included = 0
+    skipped = 0
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
+        for cid in requested_ids:
+            candidate = candidates_by_id.get(cid)
+            if candidate is None:
+                manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
+                skipped += 1
+                continue
+            if not candidate.cv_filename:
+                manifest_rows.append(
+                    f"{cid}\t{candidate.name}\t{candidate.lastname}\t\tskipped_no_cv"
+                )
+                skipped += 1
+                continue
+
+            file_path = os.path.join(
+                settings.UPLOAD_DIR,
+                f"candidate_{candidate.id}_{candidate.cv_filename}",
+            )
+            data: bytes | None = None
+            if os.path.exists(file_path):
+                try:
+                    async with aiofiles.open(file_path, "rb") as f:
+                        data = await f.read()
+                except OSError as err:
+                    logger.warning(
+                        "bulk_cv_download: failed to read %s: %s", file_path, err
+                    )
+            elif candidate.cv_file_content:
+                data = candidate.cv_file_content
+
+            if data is None:
+                manifest_rows.append(
+                    f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
+                    f"{candidate.cv_filename}\tskipped_file_missing"
+                )
+                skipped += 1
+                continue
+
+            ext = os.path.splitext(candidate.cv_filename)[1] or ".pdf"
+            entry_name = (
+                f"{_sanitize_zip_component(candidate.lastname)}_"
+                f"{_sanitize_zip_component(candidate.name)}_"
+                f"{candidate.id}{ext}"
+            )
+            zf.writestr(entry_name, data)
+            manifest_rows.append(
+                f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
+                f"{candidate.cv_filename}\tincluded"
+            )
+            included += 1
+
+        zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
+
+    archive_name = f"nexus-cvs-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{archive_name}"',
+        "X-Included-Count": str(included),
+        "X-Skipped-Count": str(skipped),
+        "Access-Control-Expose-Headers": "Content-Disposition, X-Included-Count, X-Skipped-Count",
+    }
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/zip",
+        headers=headers,
+    )
+
+
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
 async def bulk_import_candidates(
     data: list[CandidateCreate],
@@ -870,6 +1268,7 @@ async def bulk_import_candidates(
     created = []
     for item in data:
         candidate = Candidate(**item.model_dump())
+        candidate.created_by = current_user.id
         db.add(candidate)
         await db.flush()
         created.append(candidate.id)

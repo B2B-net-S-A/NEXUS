@@ -72,7 +72,7 @@ JOB_CRITERIA_FROM_DESCRIPTION = PromptTemplate(
 
 CV_ENRICHMENT = PromptTemplate(
     name="cv_enrichment",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -86,7 +86,12 @@ CV_ENRICHMENT = PromptTemplate(
         '  "current_position": short string (e.g. "Senior Python Developer") or null\n'
         '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}\n'
         '  "education": list of {{"degree": str, "field": str|null, "school": str, "year": int|null}}\n'
-        '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n\n'
+        '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n'
+        '  "companies": list of strings — past employers in chronological order, '
+        "most recent first, unique (max 15). Use official company names as they appear in the CV.\n"
+        '  "career_summary": short Polish paragraph (3-4 zdania) describing the candidate\'s '
+        "trajectory: years in IT, main stack, seniority progression and industries. "
+        "Do not add knowledge that is not in the CV. Null if the CV is too short to summarize.\n\n"
         "Respond with ONLY the raw JSON, no prose.\n\n"
         "CV:\n{cv_text}\n"
     ),
@@ -115,6 +120,152 @@ INTERVIEW_PREP = PromptTemplate(
 )
 
 
+# ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────
+
+CHAMPION_PROFILE_FROM_JD = PromptTemplate(
+    name="champion_profile_from_jd",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT w polskiej agencji staffing. "
+        "Twoim zadaniem jest ekstrahowanie ustrukturyzowanego Profilu Championa "
+        "z opisu stanowiska dostarczonego przez klienta. "
+        "NAJWAŻNIEJSZE REGUŁY: "
+        "(1) Jeśli informacji NIE MA w źródle — pozostaw pole puste "
+        "(null / \"\" / []) i ustaw confidence=0 dla tej sekcji. "
+        "(2) Nigdy nie wymyślaj ani nie zgaduj danych. "
+        "(3) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+    ),
+    template=(
+        "Kontekst oferty:\n"
+        "  Tytuł stanowiska: {job_title}\n"
+        "  Klient: {client_name}\n\n"
+        "Opis od klienta:\n"
+        "---\n"
+        "{raw_description}\n"
+        "---\n\n"
+        "Wygeneruj JSON zgodny z poniższą strukturą (wszystkie pola wymagane, "
+        "ale mogą być puste):\n"
+        '{{\n'
+        '  "basics": {{\n'
+        '    "onsite_days_per_week": int|null,\n'
+        '    "candidate_location_pref": str|null,\n'
+        '    "language": str|null\n'
+        '  }},\n'
+        '  "project_context": {{\n'
+        '    "about": "cel projektu, zespół, harmonogram (po polsku)",\n'
+        '    "responsibilities": "obowiązki stanowiska (po polsku)",\n'
+        '    "selling_points": "co przekona kandydata (po polsku)"\n'
+        '  }},\n'
+        '  "screening_questions": [\n'
+        '    {{"id": "q1", "question": "...", "ideal_answer": "...", "deal_breaker": ""}}\n'
+        '  ],\n'
+        '  "historical_client_questions": "",\n'
+        '  "internal_consultant_insight": "",\n'
+        '  "sourcing": {{\n'
+        '    "sources": ["internal_base"|"linkedin"|"ad"|"referrals"|"other"],\n'
+        '    "keywords": "słowa kluczowe do search",\n'
+        '    "target_companies": "firmy skąd warto sourcować",\n'
+        '    "notes": ""\n'
+        '  }},\n'
+        '  "_confidence": {{\n'
+        '    "basics": 0.0,\n'
+        '    "project_context": 0.0,\n'
+        '    "screening_questions": 0.0,\n'
+        '    "historical_client_questions": 0.0,\n'
+        '    "internal_consultant_insight": 0.0,\n'
+        '    "sourcing": 0.0\n'
+        '  }}\n'
+        '}}\n\n'
+        "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer; "
+        "deal_breaker wypełnij TYLKO gdy klient wyraźnie wskazał dyskwalifikator. "
+        "W polu sourcing.sources zaznacz TYLKO kanały EXPLICIT sugerowane w opisie — "
+        "jeśli brak wzmianki, zostaw []. "
+        "Confidence: 0.0 gdy sekcja pusta, 0.3–0.6 gdy wywnioskowane, "
+        "0.8–1.0 gdy explicit w opisie."
+    ),
+)
+
+
+CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
+    name="champion_profile_enrich_from_meeting",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT. Analizujesz transkrypt rozmowy "
+        "Delivery Lead z Hiring Managerem (u klienta) lub wewnętrznym "
+        "konsultantem technicznym. Twoim zadaniem jest wyłącznie "
+        "UZUPEŁNIENIE istniejącego Profilu Championa — NIE duplikuj informacji "
+        "które już są zapisane. Proponuj zmiany TYLKO dla faktów EXPLICIT "
+        "wspomnianych w transkrypcie. Odpowiedź MUSI być czystym JSON."
+    ),
+    template=(
+        "Obecny Profil Championa (JSON):\n"
+        "---\n"
+        "{current_profile_json}\n"
+        "---\n\n"
+        "Kontekst oferty:\n"
+        "  Tytuł: {job_title}\n"
+        "  Klient: {client_name}\n\n"
+        "Spotkanie — tytuł: {meeting_title}\n"
+        "Spotkanie — podsumowanie:\n"
+        "{meeting_summary}\n\n"
+        "Spotkanie — fragmenty transkryptu:\n"
+        "---\n"
+        "{meeting_transcript}\n"
+        "---\n\n"
+        "Zwróć delta-patch JSON — tylko sekcje do aktualizacji:\n"
+        '{{\n'
+        '  "basics": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
+        '  "project_context": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
+        '  "screening_questions": {{ "value": [{{...}}]|null, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "historical_client_questions": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "internal_consultant_insight": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "sourcing": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "..." }}\n'
+        '}}\n\n'
+        "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie. "
+        "rationale = krótki cytat/fragment z transkryptu uzasadniający zmianę "
+        "(1-2 zdania, po polsku). "
+        "Dla screening_questions.value dodawaj TYLKO nowe pytania których brak "
+        "w obecnym profilu — nie powielaj."
+    ),
+)
+
+
+CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
+    name="champion_profile_enrich_from_call",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT. Analizujesz krótki transkrypt rozmowy "
+        "telefonicznej Delivery Lead (CloudTalk). Kontekst może być "
+        "fragmentaryczny — wyciągaj tylko to co explicit wspomniane. "
+        "NIE uzupełniaj braków zgadywaniem. "
+        "Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+    ),
+    template=(
+        "Obecny Profil Championa (JSON):\n"
+        "---\n"
+        "{current_profile_json}\n"
+        "---\n\n"
+        "Kontekst oferty:\n"
+        "  Tytuł: {job_title}\n"
+        "  Klient: {client_name}\n\n"
+        "Rozmowa telefoniczna — uczestnicy: {call_participants}\n"
+        "Rozmowa telefoniczna — podsumowanie:\n"
+        "{call_summary}\n\n"
+        "Rozmowa telefoniczna — transkrypt:\n"
+        "---\n"
+        "{call_transcript}\n"
+        "---\n\n"
+        "Zwróć delta-patch JSON z TYLKO sekcjami do aktualizacji "
+        "(format identyczny jak dla meeting enrichment). "
+        "Ze względu na krótki format rozmowy ogranicz confidence do max 0.8. "
+        "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie."
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -123,5 +274,8 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         JOB_CRITERIA_FROM_DESCRIPTION,
         CV_ENRICHMENT,
         INTERVIEW_PREP,
+        CHAMPION_PROFILE_FROM_JD,
+        CHAMPION_PROFILE_ENRICH_FROM_MEETING,
+        CHAMPION_PROFILE_ENRICH_FROM_CALL,
     )
 }

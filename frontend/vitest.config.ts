@@ -11,6 +11,18 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     exclude: ["node_modules", ".next", "e2e"],
     css: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.{test,spec}.{ts,tsx}",
+        "src/test/**",
+        "src/**/*.d.ts",
+        "src/**/types/**",
+      ],
+    },
   },
   resolve: {
     alias: {
