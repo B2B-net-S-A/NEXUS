@@ -67,6 +67,7 @@ def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
         salary=layer("salary"),
         location=layer("location"),
         availability=layer("availability"),
+        champion_fit=layer("champion_fit"),
         matching_must=list(b.get("matching_must") or []),
         gap_must=list(b.get("gap_must") or []),
         matching_nice=list(b.get("matching_nice") or []),

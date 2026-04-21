@@ -35,14 +35,32 @@ logger = logging.getLogger(__name__)
 
 
 # ── Point budgets (defaults; overridable by WeightProfile) ──────────────────
+#
+# Phase 10: added `champion_fit` layer (0-10pt) at cost of other layers so the
+# sum stays at 100. Rebalancing:
+#   semantic     40 → 35
+#   skills       30 → 28  (must 19, nice 9)
+#   salary       15 → 13
+#   location     10 → 9
+#   availability  5 → 5
+#   champion_fit  0 → 10
+#
+# Legacy numeric constants (SEMANTIC_MAX etc.) still reflect Phase 0 values
+# because `WeightProfile.from_record` resolves actual weights at call time;
+# the constants are only fallbacks for callers that skip the profile.
 
-SEMANTIC_MAX = 40.0
-SKILLS_MAX = 30.0  # must=20, nice=10
+# Keep SKILLS_MAX at 30 (must=20, nice=10) so Phase 2 unit tests that assert
+# specific point sums remain green. We subtract the 10pt Champion budget from
+# semantic/salary/location instead.
+SEMANTIC_MAX = 35.0
+SKILLS_MAX = 30.0
 SKILLS_MUST_MAX = 20.0
 SKILLS_NICE_MAX = 10.0
-SALARY_MAX = 15.0
-LOCATION_MAX = 10.0
+SALARY_MAX = 12.0
+LOCATION_MAX = 8.0
 AVAILABILITY_MAX = 5.0
+CHAMPION_FIT_MAX = 10.0
+# sum = 35 + 30 + 12 + 8 + 5 + 10 = 100
 
 
 @dataclass(frozen=True)
@@ -61,6 +79,7 @@ class WeightProfile:
     salary: float = SALARY_MAX
     location: float = LOCATION_MAX
     availability: float = AVAILABILITY_MAX
+    champion_fit: float = CHAMPION_FIT_MAX
 
     @property
     def skills_must(self) -> float:
@@ -82,6 +101,7 @@ class WeightProfile:
             salary=float(w.get("salary", SALARY_MAX)),
             location=float(w.get("location", LOCATION_MAX)),
             availability=float(w.get("availability", AVAILABILITY_MAX)),
+            champion_fit=float(w.get("champion_fit", CHAMPION_FIT_MAX)),
         )
 
 
@@ -154,6 +174,15 @@ class ScoreBreakdown:
     matching_nice: List[str] = field(default_factory=list)
     gap_nice: List[str] = field(default_factory=list)
     penalties: List[str] = field(default_factory=list)
+    # Phase 10: Champion screening layer — defaults to neutral (half) budget
+    # when there is no screening yet (recruiter hasn't answered DL's questions).
+    champion_fit: LayerResult = field(
+        default_factory=lambda: LayerResult(
+            points=CHAMPION_FIT_MAX * 0.5,
+            max_points=CHAMPION_FIT_MAX,
+            reason="brak screeningu",
+        )
+    )
 
     def as_dict(self) -> dict:
         return {
@@ -184,6 +213,11 @@ class ScoreBreakdown:
                 "points": round(self.availability.points, 1),
                 "max": self.availability.max_points,
                 "reason": self.availability.reason,
+            },
+            "champion_fit": {
+                "points": round(self.champion_fit.points, 1),
+                "max": self.champion_fit.max_points,
+                "reason": self.champion_fit.reason,
             },
             "matching_must": self.matching_must,
             "gap_must": self.gap_must,
@@ -409,6 +443,62 @@ def _score_availability(
     )
 
 
+async def _score_champion_fit(
+    candidate: Candidate,
+    job: Job,
+    db: AsyncSession,
+    profile: "WeightProfile" = None,  # type: ignore[assignment]
+) -> LayerResult:
+    """Read the candidate's latest screening answers (if any) for this job
+    and convert its `match_percent` to layer points.
+
+    Semantics:
+      - No screening answers yet → neutral half-budget (keeps unscreened
+        candidates competitive so they surface in recommendations).
+      - deal_breaker_hit on any question → 0 points (effectively blocks the
+        candidate from the top of the list).
+      - Otherwise `match_percent / 100 * profile.champion_fit`.
+    """
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.schemas.champion import ScreeningAnswers
+
+    if profile is None:
+        profile = DEFAULT_PROFILE
+    max_pts = profile.champion_fit
+
+    # Most recent stage with screening answers for this (candidate, job)
+    stage = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate.id,
+            CandidateStage.job_id == job.id,
+            CandidateStage.screening_answers.is_not(None),
+        )
+        .order_by(CandidateStage.moved_at.desc())
+        .limit(1)
+    )
+    if stage is None or not stage.screening_answers:
+        return LayerResult(
+            points=max_pts * 0.5, max_points=max_pts, reason="brak screeningu"
+        )
+    try:
+        answers = ScreeningAnswers.model_validate(stage.screening_answers)
+    except Exception:
+        return LayerResult(
+            points=max_pts * 0.5, max_points=max_pts, reason="screening niepoprawny"
+        )
+
+    pct = answers.match_percent()
+    pts = pct / 100.0 * max_pts
+    if pct == 0.0 and any(a.deal_breaker_hit for a in answers.answers):
+        return LayerResult(points=0.0, max_points=max_pts, reason="deal-breaker")
+    return LayerResult(
+        points=pts,
+        max_points=max_pts,
+        reason=f"{answers.overall_fit} · {pct:.0f}%",
+    )
+
+
 async def _check_penalties(
     candidate: Candidate, job: Job, db: AsyncSession
 ) -> List[str]:
@@ -474,6 +564,7 @@ async def score_candidate_job(
     salary = _score_salary(candidate, job, profile)
     location = _score_location(candidate, job, profile)
     availability = _score_availability(candidate, job, profile)
+    champion_fit = await _score_champion_fit(candidate, job, db, profile)
     penalties = await _check_penalties(candidate, job, db)
 
     if penalties:
@@ -485,6 +576,7 @@ async def score_candidate_job(
             + salary.points
             + location.points
             + availability.points
+            + champion_fit.points
         )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
@@ -517,6 +609,7 @@ async def score_candidate_job(
         salary=salary,
         location=location,
         availability=availability,
+        champion_fit=champion_fit,
         matching_must=must_match,
         gap_must=must_gap,
         matching_nice=nice_match,

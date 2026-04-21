@@ -386,6 +386,8 @@ export interface ScoreBreakdown {
   salary: LayerPoints;
   location: LayerPoints;
   availability: LayerPoints;
+  /** Phase 10: Champion screening layer — optional for backwards-compat. */
+  champion_fit?: LayerPoints;
   matching_must: string[];
   gap_must: string[];
   matching_nice: string[];
@@ -804,6 +806,15 @@ export const screeningApi = {
       match_percent: number;
       screening_answers: ScreeningAnswers;
     }>(`/api/pipeline/stages/${stageId}/screening`, answers),
+  // Phase 12 — client-shareable token for the Champion card.
+  createShareToken: (stageId: number, expiresInDays = 30) =>
+    api.post<{
+      token: string;
+      expires_at: string;
+      share_url_suffix: string;
+    }>(`/api/pipeline/stages/${stageId}/share-token?expires_in_days=${expiresInDays}`),
+  revokeShareToken: (token: string) =>
+    api.delete(`/api/pipeline/stages/share-token/${token}`),
 };
 
 export default api;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Briefcase, Clock, Loader2, Star } from "lucide-react";
 import { phase3Api, CandidatePipelineRow } from "@/lib/api";
+import { ChampionCard } from "./ChampionCard";
 
 interface Props {
   candidateId: number;
@@ -87,38 +88,46 @@ function PipelineRow({
   row: CandidatePipelineRow;
   muted?: boolean;
 }) {
+  // Show Champion card once the candidate advances to an external stage —
+  // recruiter should have filled screening before moving into cv_sent+.
+  const showChampion =
+    row.stage_category === "external" || row.stage_category === "terminal";
   return (
     <li
-      className={`flex items-center gap-3 rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 ${
+      className={`flex flex-col gap-2 rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 ${
         muted ? "opacity-70" : "bg-gray-50 dark:bg-gray-900/40"
       }`}
     >
-      <Link
-        href={`/jobs/${row.job_id}`}
-        className="font-medium text-sm text-gray-800 dark:text-gray-100 hover:underline truncate flex-1 min-w-0"
-      >
-        {row.job_title ?? `#${row.job_id}`}
-      </Link>
-
-      {row.stage_category && (
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[row.stage_category] || ""}`}
+      <div className="flex items-center gap-3">
+        <Link
+          href={`/jobs/${row.job_id}`}
+          className="font-medium text-sm text-gray-800 dark:text-gray-100 hover:underline truncate flex-1 min-w-0"
         >
-          {row.stage_name}
-        </span>
-      )}
+          {row.job_title ?? `#${row.job_id}`}
+        </Link>
 
-      {row.rating !== null && row.rating !== undefined && (
-        <span className="flex items-center gap-0.5 text-xs text-amber-600">
-          <Star className="w-3 h-3 fill-current" />
-          {row.rating}/5
-        </span>
-      )}
+        {row.stage_category && (
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full border ${CATEGORY_COLORS[row.stage_category] || ""}`}
+          >
+            {row.stage_name}
+          </span>
+        )}
 
-      <span className="flex items-center gap-1 text-xs text-gray-500">
-        <Clock className="w-3 h-3" />
-        {row.days_in_stage}d
-      </span>
+        {row.rating !== null && row.rating !== undefined && (
+          <span className="flex items-center gap-0.5 text-xs text-amber-600">
+            <Star className="w-3 h-3 fill-current" />
+            {row.rating}/5
+          </span>
+        )}
+
+        <span className="flex items-center gap-1 text-xs text-gray-500">
+          <Clock className="w-3 h-3" />
+          {row.days_in_stage}d
+        </span>
+      </div>
+
+      {showChampion && <ChampionCard stageId={row.candidate_stage_id} />}
     </li>
   );
 }

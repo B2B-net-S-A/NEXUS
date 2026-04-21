@@ -73,6 +73,9 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
           <Row label="Salary" {...breakdown.salary} />
           <Row label="Location" {...breakdown.location} />
           <Row label="Availability" {...breakdown.availability} />
+          {breakdown.champion_fit && (
+            <Row label="Champion" {...breakdown.champion_fit} />
+          )}
 
           {breakdown.penalties.length > 0 && (
             <div className="mt-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-2 text-xs text-red-700 dark:text-red-300">

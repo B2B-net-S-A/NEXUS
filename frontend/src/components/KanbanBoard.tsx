@@ -172,7 +172,6 @@ const KanbanColumnView = memo(function KanbanColumnView({
                   <div
                     ref={dragProvided.innerRef}
                     {...dragProvided.draggableProps}
-                    {...dragProvided.dragHandleProps}
                     className={`relative transition-shadow ${
                       dragSnapshot.isDragging
                         ? "shadow-lg rotate-1 opacity-90"
@@ -194,12 +193,16 @@ const KanbanColumnView = memo(function KanbanColumnView({
                         onChange={() => onToggleSelect(item.id)}
                       />
                     </label>
-                    <CandidateCard
-                      candidateId={item.candidate_id}
-                      stage={item.stage}
-                      rating={item.rating}
-                      daysInStage={item.days_in_stage}
-                    />
+                    {/* dragHandle only wraps the card body — leaves screening
+                        button free from rbd pointer interception. */}
+                    <div {...dragProvided.dragHandleProps}>
+                      <CandidateCard
+                        candidateId={item.candidate_id}
+                        stage={item.stage}
+                        rating={item.rating}
+                        daysInStage={item.days_in_stage}
+                      />
+                    </div>
                     {EXTERNAL_STAGES_FOR_SCREENING.has(item.stage) && (
                       <button
                         type="button"
@@ -212,7 +215,7 @@ const KanbanColumnView = memo(function KanbanColumnView({
                               "Kandydat"
                           );
                         }}
-                        className="absolute bottom-1 right-1 text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 font-semibold"
+                        className="absolute bottom-1 right-1 text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 font-semibold z-20"
                         title="Screening Championa"
                         data-testid={`open-screening-${item.id}`}
                       >
