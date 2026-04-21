@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 # Build stage: install deps + produce Next.js standalone output.
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --legacy-peer-deps
 
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 # NEXT_PUBLIC_* vars MUST be present at build time for Next.js to inline them.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # Runtime stage: minimal image with the standalone server.
-FROM node:20-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
