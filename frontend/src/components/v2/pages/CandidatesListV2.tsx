@@ -8,6 +8,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Briefcase,
   ChevronRight,
+  Columns3,
   Download,
   Filter,
   GitCompare,
@@ -24,8 +25,8 @@ import {
 import api from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { AddCandidateModal } from "@/components/AppShell";
-import { ImportCandidatesModal } from "@/components/ImportCandidatesModal";
-import { QuickAssignModal } from "@/components/QuickAssignModal";
+import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
+import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { useUiStore } from "@/store/ui";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -98,11 +99,25 @@ function matchBadgeVariant(
   return "neutral";
 }
 
+// All columns that can be shown/hidden via the "Kolumny" popover.
+const ALL_COLUMNS = [
+  { id: "candidate", label: "Kandydat", required: true },
+  { id: "position", label: "Pozycja", required: false },
+  { id: "status", label: "Status", required: false },
+  { id: "match", label: "Match", required: false },
+  { id: "created", label: "Dodano", required: false },
+] as const;
+type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
+
 export function CandidatesListV2() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const density = useUiStore((s) => s.density);
   const setDensity = useUiStore((s) => s.setDensity);
+  const columnPrefs = useUiStore((s) => s.columnPreferences);
+  const setColumnPref = useUiStore((s) => s.setColumnPreference);
+  const hiddenColumns = new Set(columnPrefs["candidates-v2"] ?? []);
+  const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
   const parentRef = useRef<HTMLDivElement>(null);
 
   // URL state ---------------------------------------------------
@@ -405,6 +420,59 @@ export function CandidatesListV2() {
           </PopoverContent>
         </Popover>
         <div className="ml-auto flex items-center gap-2">
+          {/* Column customization popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                title="Konfiguracja kolumn"
+                className="h-9 w-9 flex items-center justify-center rounded-v2-s text-[hsl(var(--text-muted))] hover:bg-[hsl(var(--accent-soft))] hover:text-[hsl(var(--text-title))]"
+              >
+                <Columns3 className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Pokazuj kolumny
+              </h3>
+              <div className="space-y-1.5">
+                {ALL_COLUMNS.map((col) => {
+                  const shown = !hiddenColumns.has(col.id);
+                  return (
+                    <label
+                      key={col.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer rounded-v2-s px-1.5 py-1 hover:bg-[hsl(var(--accent-soft))]"
+                    >
+                      <Checkbox
+                        checked={shown}
+                        disabled={col.required}
+                        onCheckedChange={(v) => {
+                          const next = new Set(hiddenColumns);
+                          if (v) next.delete(col.id);
+                          else next.add(col.id);
+                          setColumnPref(
+                            "candidates-v2",
+                            Array.from(next) as ColumnId[]
+                          );
+                        }}
+                      />
+                      <span
+                        className={
+                          col.required
+                            ? "text-[hsl(var(--text-muted))]"
+                            : "text-[hsl(var(--text-body))]"
+                        }
+                      >
+                        {col.label}
+                        {col.required && (
+                          <span className="ml-1 text-[10px]">(wymagane)</span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
           <button
             onClick={() => setDensity(density === "cozy" ? "compact" : "cozy")}
             title="Przełącz gęstość"
@@ -671,18 +739,18 @@ export function CandidatesListV2() {
       {showAdd && (
         <AddCandidateModal onClose={() => setShowAdd(false)} onSuccess={toastOnSuccess} />
       )}
-      {showImport && <ImportCandidatesModal onClose={() => setShowImport(false)} />}
-      {assignFor && (
-        <QuickAssignModal
-          candidateId={assignFor.id}
-          candidateName={assignFor.name}
-          onClose={() => setAssignFor(null)}
-          onAssigned={() => {
-            toastOnSuccess("Kandydat przypisany.");
-            setAssignFor(null);
-          }}
-        />
-      )}
+      <ImportCandidatesV2
+        open={showImport}
+        onOpenChange={setShowImport}
+        onImported={() => toastOnSuccess("Import zakończony.")}
+      />
+      <QuickAssignV2
+        open={!!assignFor}
+        onOpenChange={(v) => !v && setAssignFor(null)}
+        candidateId={assignFor?.id ?? 0}
+        candidateName={assignFor?.name ?? ""}
+        onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
+      />
 
       {showToast && (
         <div className="fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-v2-m shadow-v2-xl text-sm bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]">

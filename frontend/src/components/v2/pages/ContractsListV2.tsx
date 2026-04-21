@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Calendar,
@@ -16,7 +16,9 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { ContractsBulkActionsBarV2 } from "@/components/v2/modals/ContractsBulkActionsBar";
 import {
   Select,
   SelectContent,
@@ -72,6 +74,18 @@ export function ContractsListV2() {
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const toggleId = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["contracts-v2", search, statusFilter, typeFilter, page],
@@ -209,10 +223,46 @@ export function ContractsListV2() {
         </Select>
       </div>
 
+      {/* Bulk actions bar */}
+      <ContractsBulkActionsBarV2
+        selectedIds={selectedIds}
+        onClear={() => setSelectedIds(new Set())}
+        onSelectAllVisible={() =>
+          setSelectedIds(
+            selectedIds.size === items.length
+              ? new Set()
+              : new Set(items.map((i) => i.id))
+          )
+        }
+        visibleCount={items.length}
+        onDone={(msg) => {
+          setToast(msg);
+          setTimeout(() => setToast(null), 3500);
+          queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+          queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
+          setSelectedIds(new Set());
+        }}
+      />
+
       {/* Table */}
       <Table density="cozy">
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8">
+              <Checkbox
+                checked={
+                  items.length > 0 && items.every((i) => selectedIds.has(i.id))
+                    ? true
+                    : selectedIds.size > 0
+                      ? "indeterminate"
+                      : false
+                }
+                onCheckedChange={(v) =>
+                  setSelectedIds(v ? new Set(items.map((i) => i.id)) : new Set())
+                }
+                aria-label="Zaznacz wszystkie"
+              />
+            </TableHead>
             <TableHead>Kandydat</TableHead>
             <TableHead>Klient · Oferta</TableHead>
             <TableHead>Daty</TableHead>
@@ -225,13 +275,13 @@ export function ContractsListV2() {
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-10 text-[hsl(var(--text-muted))]">
+              <TableCell colSpan={8} className="text-center py-10 text-[hsl(var(--text-muted))]">
                 Ładowanie…
               </TableCell>
             </TableRow>
           ) : items.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center py-10">
+              <TableCell colSpan={8} className="text-center py-10">
                 <FileText className="h-10 w-10 mx-auto text-[hsl(var(--text-muted))] mb-2 opacity-40" />
                 <p className="text-sm text-[hsl(var(--text-muted))]">
                   Brak kontraktów spełniających kryteria.
@@ -240,7 +290,14 @@ export function ContractsListV2() {
             </TableRow>
           ) : (
             items.map((c) => (
-              <TableRow key={c.id} interactive>
+              <TableRow key={c.id} interactive selected={selectedIds.has(c.id)}>
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedIds.has(c.id)}
+                    onCheckedChange={() => toggleId(c.id)}
+                    aria-label={`Zaznacz kontrakt ${c.id}`}
+                  />
+                </TableCell>
                 <TableCell>
                   <Link
                     href={`/contracts/${c.id}`}
@@ -291,6 +348,12 @@ export function ContractsListV2() {
           )}
         </TableBody>
       </Table>
+
+      {toast && (
+        <div className="fixed bottom-24 right-4 z-[9999] px-4 py-3 rounded-v2-m shadow-v2-xl text-sm bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]">
+          {toast}
+        </div>
+      )}
 
       {/* Pagination */}
       {!isLoading && total > pageSize && (
