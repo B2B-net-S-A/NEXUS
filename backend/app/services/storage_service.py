@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 STORAGE_ROOT = Path(os.environ.get("UPLOADS_DIR", "/tmp/nexus/uploads"))
 CONTRACTS_DIR = STORAGE_ROOT / "contracts"
+CLIENT_ONE_PAGERS_DIR = STORAGE_ROOT / "client_one_pagers"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -86,5 +87,66 @@ def delete_contract_document(relative_path: str) -> None:
     try:
         abs_path.unlink()
         logger.info("Deleted contract document: %s", relative_path)
+    except OSError:
+        logger.exception("Failed to delete %s", relative_path)
+
+
+# ── Client one-pagers (sales materials) ──────────────────────────────────────
+
+
+def save_client_one_pager(
+    client_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save a sales-material file under /client_one_pagers/{client_id}/{uuid}-{name}.
+
+    Returns (relative_path, size_bytes).
+    """
+    safe = _sanitize_filename(upload_filename)
+    target_dir = CLIENT_ONE_PAGERS_DIR / str(client_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
+    target_path = target_dir / stored_name
+
+    size = 0
+    with target_path.open("wb") as dst:
+        while True:
+            chunk = source.read(1024 * 64)
+            if not chunk:
+                break
+            dst.write(chunk)
+            size += len(chunk)
+
+    rel = str(target_path.relative_to(STORAGE_ROOT))
+    logger.info("Saved client one-pager: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_client_one_pager_path(relative_path: str) -> Path:
+    """Resolve the stored relative path back to an absolute path.
+
+    Raises FileNotFoundError if the file isn't on disk (stale DB row).
+    Guards against path traversal — must stay under STORAGE_ROOT.
+    """
+    abs_path = (STORAGE_ROOT / relative_path).resolve()
+    try:
+        abs_path.relative_to(STORAGE_ROOT.resolve())
+    except ValueError as exc:
+        raise FileNotFoundError(f"Invalid storage path: {relative_path}") from exc
+    if not abs_path.is_file():
+        raise FileNotFoundError(f"File missing on disk: {relative_path}")
+    return abs_path
+
+
+def delete_client_one_pager(relative_path: str) -> None:
+    """Best-effort delete — doesn't raise when file is already gone."""
+    try:
+        abs_path = get_client_one_pager_path(relative_path)
+    except FileNotFoundError:
+        logger.warning("Delete requested for missing file: %s", relative_path)
+        return
+    try:
+        abs_path.unlink()
+        logger.info("Deleted client one-pager: %s", relative_path)
     except OSError:
         logger.exception("Failed to delete %s", relative_path)

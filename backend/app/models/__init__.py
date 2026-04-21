@@ -21,6 +21,8 @@ from app.models.email_template import EmailTemplate
 from app.models.job_posting import JobPosting
 from app.models.call import Call
 from app.models.client_knowledge import ClientKnowledge
+from app.models.client_one_pager import ClientOnePager
+from app.models.client_contract_terms import ClientContractTerms
 from app.models.screening_note import ScreeningNote
 from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -63,6 +65,8 @@ __all__ = [
     "JobPosting",
     "Call",
     "ClientKnowledge",
+    "ClientOnePager",
+    "ClientContractTerms",
     "ScreeningNote",
     "Contact",
     "TalentPool",

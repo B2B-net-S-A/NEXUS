@@ -148,7 +148,7 @@ def _parse_required_skills(job: Job) -> list[str]:
 async def get_ai_matches(
     job_id: int,
     top_k: int = 10,
-    current_user: CurrentUser = None,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
