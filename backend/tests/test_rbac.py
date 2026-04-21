@@ -12,7 +12,6 @@ serwera — tylko Postgres z wykonanymi migracjami.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 import pytest
 import pytest_asyncio
@@ -89,7 +88,9 @@ async def rbac_client() -> AsyncClient:
 
 
 @pytest_asyncio.fixture(params=ROLES)
-async def role_headers(request, rbac_client: AsyncClient) -> tuple[UserRole, dict[str, str]]:
+async def role_headers(
+    request, rbac_client: AsyncClient
+) -> tuple[UserRole, dict[str, str]]:
     """Parametryzowany fixture: (UserRole, auth_headers dla usera z tą rolą)."""
     role: UserRole = request.param
     email, password = await _seed_user(role)
@@ -119,6 +120,7 @@ GET_ENDPOINTS_ALL = [
 TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
+    ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
     ("GET", "/api/reports/recruitment"),
     ("GET", "/api/reports/sales"),
     ("GET", "/api/reports/board"),
@@ -139,6 +141,7 @@ DELIVERY_LEAD_PLUS_ENDPOINTS = [
     ("POST", "/api/pipeline-templates"),
     ("POST", "/api/embed-init"),
     ("POST", "/api/candidates/99999/rate-history"),
+    ("DELETE", "/api/clients/99999"),  # PR #17 — DELETE client wymaga DL+
 ]
 
 # Endpointy admin-only:
@@ -317,3 +320,95 @@ async def test_inactive_user_cannot_login(rbac_client: AsyncClient):
     )
     # 403 Account disabled
     assert resp.status_code == 403
+
+
+# ── /api/auth/change-password — self-service password update ────────────────
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_wrong_current(rbac_client: AsyncClient):
+    """Weryfikacja current_password — złe hasło → 401 bez zmiany hasha."""
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(rbac_client, email, password)
+
+    resp = await rbac_client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": "wrong-password-xxx", "new_password": "brandnew123"},
+    )
+    assert resp.status_code == 401
+
+    # Stare hasło wciąż działa — nie zostało nadpisane
+    ok = await rbac_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_identical_new_password(
+    rbac_client: AsyncClient,
+):
+    """Nowe hasło identyczne z obecnym → 400 (security: żadnej tautologii)."""
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(rbac_client, email, password)
+
+    resp = await rbac_client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": password, "new_password": password},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_too_short(rbac_client: AsyncClient):
+    """Pydantic validation: new_password min_length=8 → 422."""
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(rbac_client, email, password)
+
+    resp = await rbac_client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": password, "new_password": "short1"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_change_password_happy_path_updates_hash(
+    rbac_client: AsyncClient,
+):
+    """Poprawny flow: stare hasło przestaje działać, nowe działa."""
+    email, old_password = await _seed_user(UserRole.recruiter)
+    new_password = f"NewTestPass_{uuid.uuid4().hex[:8]}!"
+    headers = await _login(rbac_client, email, old_password)
+
+    resp = await rbac_client.post(
+        "/api/auth/change-password",
+        headers=headers,
+        json={"current_password": old_password, "new_password": new_password},
+    )
+    assert resp.status_code == 204
+
+    # Stare hasło już nie pasuje
+    bad = await rbac_client.post(
+        "/api/auth/login", json={"email": email, "password": old_password}
+    )
+    assert bad.status_code == 401
+
+    # Nowe hasło działa
+    good = await rbac_client.post(
+        "/api/auth/login", json={"email": email, "password": new_password}
+    )
+    assert good.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_change_password_requires_auth(rbac_client: AsyncClient):
+    """Bez JWT → 403 (HTTPBearer security)."""
+    resp = await rbac_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "whatever", "new_password": "whatever2"},
+    )
+    assert resp.status_code in (401, 403)

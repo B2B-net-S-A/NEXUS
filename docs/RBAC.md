@@ -167,6 +167,29 @@ domyślnie używają `CurrentUser`.
 Rate cards, konflikty, templates — zarządzanie procesem. Wymaga DL+ (via
 alias `ManagerOrAdmin` = `DeliveryLeadPlus`).
 
+### 4.8 `/api/clients/*` — Tac+
+
+| Endpoint | Guard |
+|---|---|
+| `GET /api/clients` | CurrentUser |
+| `GET /api/clients/{id}` | CurrentUser |
+| `POST /api/clients` | TacPlus |
+| `PATCH /api/clients/{id}` | TacPlus |
+| `DELETE /api/clients/{id}` | **DeliveryLeadPlus** |
+
+Dodane w PR #17 — poprzednio wszystko pod `CurrentUser` (brak guarda na
+business-critical CRUD, niespójne z jobs/contracts).
+
+### 4.9 `/api/auth/*` — mix
+
+| Endpoint | Guard | Uwagi |
+|---|---|---|
+| `POST /api/auth/login` | brak (public) | Rate limit 5/min per IP |
+| `POST /api/auth/register` | brak (public) | Rate limit 3/min. Rola default=recruiter |
+| `POST /api/auth/refresh` | brak (token-based) | Rate limit 10/min |
+| `GET /api/auth/me` | CurrentUser | |
+| `POST /api/auth/change-password` | CurrentUser | Rate limit 3/min. Weryfikuje `current_password`, `new_password` ≥ 8 znaków, rzuca 400 gdy identyczne. Dodany w PR #17 |
+
 ---
 
 ## 5. Frontend — route gating (middleware)
@@ -254,3 +277,26 @@ mapuje stare pary `(role, recruiter_role)` na jedno nowe pole `role`
 z 6 wartościami. Downgrade jest best-effort (pewna informacja tracona
 — np. QC i client dają oba `user` po migracji, downgrade nie odróżni
 ich).
+
+---
+
+## 10. Emergency reset hasła (admin out-of-band)
+
+Gdy nikt nie zna hasła admin'a (zgubiony password manager, reset
+personelu, fresh deploy): jest CLI w backendzie który omija API.
+
+```bash
+# Przez Coolify shell lub SSH do backend container
+docker exec -w /app nexusats-backend-1 \
+  python scripts/reset_password.py <email> <new_password>
+```
+
+Script (`backend/scripts/reset_password.py`):
+- Walidacja: user istnieje, hasło ≥ 8 znaków, DATABASE_URL w env
+- Haszowanie przez bcrypt (passlib, zgodnie z `/api/auth/login`)
+- Commit bezpośredni do tabeli `users` (omija guardy)
+
+Bezpieczeństwo: kto ma shell do backend container, ma wszystko — stąd
+script wymaga tylko tego dostępu. Nie loguje hasła. Exit codes: 0 OK,
+1 missing args, 2 hasło za krótkie, 3 user nie znaleziony, 4 brak
+DATABASE_URL.
