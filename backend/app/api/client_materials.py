@@ -59,7 +59,9 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
         raise HTTPException(status_code=404, detail="Client not found")
 
 
-async def _resolve_user_email(db: AsyncSession, user_id: Optional[int]) -> Optional[str]:
+async def _resolve_user_email(
+    db: AsyncSession, user_id: Optional[int]
+) -> Optional[str]:
     if not user_id:
         return None
     return await db.scalar(select(User.email).where(User.id == user_id))
@@ -232,9 +234,7 @@ async def download_one_pager(
     try:
         abs_path = storage_service.get_client_one_pager_path(op.file_path)
     except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=404, detail="File missing on disk"
-        ) from exc
+        raise HTTPException(status_code=404, detail="File missing on disk") from exc
 
     return FileResponse(
         path=str(abs_path),
