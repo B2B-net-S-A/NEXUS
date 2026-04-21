@@ -527,6 +527,154 @@ async def get_stage_history(
     return [CandidateStageResponse(**_stage_response(s)) for s in stages]
 
 
+# ── Champion-profile screening answers (Phase 10) ───────────────────────────
+
+
+@router.get("/stages/{stage_id}/screening")
+async def get_stage_screening(
+    stage_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return recruiter screening answers + the job's Champion Profile."""
+    stage = await db.scalar(
+        select(CandidateStage).where(CandidateStage.id == stage_id)
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    return {
+        "stage_id": stage.id,
+        "candidate_id": stage.candidate_id,
+        "job_id": stage.job_id,
+        "champion_profile": (job.champion_profile if job else None) or {},
+        "screening_answers": stage.screening_answers or None,
+    }
+
+
+@router.post("/stages/{stage_id}/screening")
+async def submit_stage_screening(
+    stage_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+):
+    """Recruiter records answers to the Champion Profile screening questions.
+    Also invalidates the (candidate, *) match score cache so the next
+    recommendation read recomputes `champion_fit`.
+    """
+    from app.schemas.champion import ScreeningAnswers
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    stage = await db.scalar(
+        select(CandidateStage).where(CandidateStage.id == stage_id)
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    answers = ScreeningAnswers.model_validate(payload or {})
+    answers.answered_at = datetime.now(timezone.utc)
+    answers.answered_by = current_user.id
+
+    stage.screening_answers = answers.model_dump(mode="json")
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="screening_answered",
+            user_id=current_user.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "overall_fit": answers.overall_fit,
+                "match_percent": answers.match_percent(),
+            },
+        )
+    )
+    await db.commit()
+
+    # Mark cached scores stale — champion_fit layer depends on these answers.
+    try:
+        await mark_stale_for_candidate(db, stage.candidate_id)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+    await db.refresh(stage)
+    return {
+        "stage_id": stage.id,
+        "match_percent": answers.match_percent(),
+        "screening_answers": stage.screening_answers,
+    }
+
+
+# ── Champion Card share tokens (Phase 12) ───────────────────────────────────
+
+
+@router.post("/stages/{stage_id}/share-token")
+async def create_share_token(
+    stage_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    expires_in_days: int = Query(30, ge=1, le=365),
+):
+    """Generate a shareable token for this CandidateStage's Champion card."""
+    import secrets
+    from datetime import timedelta
+
+    from app.models.champion_share import ChampionCardShareToken
+
+    stage = await db.scalar(
+        select(CandidateStage).where(CandidateStage.id == stage_id)
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    token = secrets.token_urlsafe(36)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_in_days)
+    row = ChampionCardShareToken(
+        token=token,
+        candidate_stage_id=stage_id,
+        created_by=current_user.id,
+        expires_at=expires_at,
+    )
+    db.add(row)
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage_id,
+            action="champion_share_created",
+            user_id=current_user.id,
+            details={"expires_at": expires_at.isoformat()},
+        )
+    )
+    await db.commit()
+    return {
+        "token": token,
+        "expires_at": expires_at.isoformat(),
+        "share_url_suffix": f"/share/champion-card/{token}",
+    }
+
+
+@router.delete("/stages/share-token/{token}")
+async def revoke_share_token(
+    token: str,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke (soft-delete) a previously issued share token."""
+    from app.models.champion_share import ChampionCardShareToken
+
+    row = await db.scalar(
+        select(ChampionCardShareToken).where(ChampionCardShareToken.token == token)
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Token not found")
+    row.revoked = True
+    await db.commit()
+    return {"status": "revoked", "token": token}
+
+
 @router.get("/overview")
 async def pipeline_overview(
     current_user: CurrentUser,

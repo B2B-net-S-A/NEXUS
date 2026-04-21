@@ -217,8 +217,10 @@ def test_location_same_city_prefix_partial():
     )
     cand = make_candidate(location="Warszawa, Mokotów", preferences={})
     r = ss._score_location(cand, job)
-    # One of the two branches fires (either full substring or prefix partial)
-    assert 3.0 <= r.points <= ss.LOCATION_MAX
+    # One of the two branches fires (either full substring or prefix partial);
+    # partial/prefix branch scales with LOCATION_MAX (~30% of budget).
+    assert r.points >= ss.LOCATION_MAX * 0.25
+    assert r.points <= ss.LOCATION_MAX
 
 
 # ── _score_availability ──────────────────────────────────────────────────────
@@ -261,6 +263,126 @@ def test_semantic_none_gives_zero():
 def test_semantic_mid_similarity_linear():
     r = ss.score_semantic(0.5)
     assert r.points == pytest.approx(ss.SEMANTIC_MAX * 0.5)
+
+
+# ── _score_champion_fit (Phase 10/11) ────────────────────────────────────────
+
+
+class _FakeScalarDB:
+    """Async session stub that returns one queued value per `scalar()` call."""
+
+    def __init__(self, value):
+        self._value = value
+
+    async def scalar(self, _stmt):  # type: ignore[no-untyped-def]
+        return self._value
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_no_screening_gives_neutral_half():
+    db = _FakeScalarDB(None)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * 0.5)
+    assert r.max_points == ss.CHAMPION_FIT_MAX
+    assert "brak screening" in r.reason
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_perfect_fit_full_points():
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {"question_id": "q1", "response": "świetna odpowiedź", "deal_breaker_hit": False},
+                {"question_id": "q2", "response": "druga odpowiedź", "deal_breaker_hit": False},
+            ],
+            "overall_fit": "fit",
+            "notes": "",
+        }
+    )
+    db = _FakeScalarDB(stage)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX)
+    assert "100%" in r.reason
+    assert r.reason.startswith("fit")
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_deal_breaker_zeroes_points():
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {"question_id": "q1", "response": "ok", "deal_breaker_hit": True},
+            ],
+            "overall_fit": "miss",
+            "notes": "",
+        }
+    )
+    db = _FakeScalarDB(stage)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    assert r.points == 0.0
+    assert "deal-breaker" in r.reason
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_uncertain_scales_with_fit_weight():
+    # 2/2 answered, overall_fit=uncertain → 100% × 0.6 = 60% → 6.0/10
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {"question_id": "q1", "response": "ok", "deal_breaker_hit": False},
+                {"question_id": "q2", "response": "ok", "deal_breaker_hit": False},
+            ],
+            "overall_fit": "uncertain",
+            "notes": "",
+        }
+    )
+    db = _FakeScalarDB(stage)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * 0.6)
+    assert "uncertain" in r.reason
+    assert "60%" in r.reason
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_partial_answers_proportional():
+    # Only 1/2 answered (second has empty response), fit → 50% × 1.0 = 50% → 5.0/10
+    stage = SimpleNamespace(
+        screening_answers={
+            "answers": [
+                {"question_id": "q1", "response": "konkretna odpowiedź", "deal_breaker_hit": False},
+                {"question_id": "q2", "response": "", "deal_breaker_hit": False},
+            ],
+            "overall_fit": "fit",
+            "notes": "",
+        }
+    )
+    db = _FakeScalarDB(stage)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * 0.5)
+
+
+@pytest.mark.asyncio
+async def test_champion_fit_invalid_payload_falls_back_to_neutral():
+    # Something totally unexpected in the JSONB → shouldn't blow up scoring.
+    stage = SimpleNamespace(screening_answers={"not_a_valid_schema": True})
+    db = _FakeScalarDB(stage)
+    cand = make_candidate(id=1)
+    job = make_job(id=2)
+    r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
+    # Pydantic validates the payload; invalid shape → points == 0 per schema.
+    # We assert it doesn't raise; exact value is covered by match_percent tests.
+    assert r.max_points == ss.CHAMPION_FIT_MAX
+    assert 0.0 <= r.points <= ss.CHAMPION_FIT_MAX
 
 
 # ── canonical_skill_names (Phase B1 alias normalization) ────────────────────

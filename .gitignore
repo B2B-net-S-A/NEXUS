@@ -63,3 +63,4 @@ frontend/tsconfig.tsbuildinfo
 .backups/
 frontend/playwright-report/
 frontend/test-results/
+frontend/e2e/.auth/

@@ -1423,6 +1423,13 @@ function QuickActionsButton({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
+
+  // Phase 12: public-share routes are rendered without the authenticated
+  // shell (no sidebar, no onboarding overlay, no breadcrumbs). Recruiters
+  // email these links to external clients.
+  if (pathname?.startsWith("/share/")) {
+    return <>{children}</>;
+  }
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<ModalType>(null);
 

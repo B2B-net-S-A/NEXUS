@@ -50,6 +50,7 @@ from app.api import pipeline_templates
 from app.api import recommendations
 from app.api import skills as skills_api
 from app.api import scoring_weights as scoring_weights_api
+from app.api import public_share as public_share_api
 from app.api import phase3
 from app.api import phase4
 from app.api import phase5
@@ -234,6 +235,11 @@ app.include_router(
     scoring_weights_api.router,
     prefix="/api/scoring-weights",
     tags=["scoring-weights"],
+)
+app.include_router(
+    public_share_api.router,
+    prefix="/api/public",
+    tags=["public-share"],
 )
 app.include_router(
     pipeline_templates.router,

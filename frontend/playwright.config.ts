@@ -1,14 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
+import path from "path";
 
 /**
- * Phase 7d.7 — Playwright E2E config.
+ * Phase 7d.7 + Phase 12 — Playwright E2E config.
  *
  * Runs against a live Nexus instance. Default targets production
  * (https://nexus.dynaminds.pl); set E2E_BASE_URL to point elsewhere.
  *
- * CI runs in a separate workflow (e2e.yml) triggered on demand or
- * nightly — not blocking PR-level CI. See .github/workflows/e2e.yml.
+ * Phase 12: adds a `setup` project that logs in once and persists the auth
+ * state to `e2e/.auth/state.json`. All `chromium` tests reuse that state,
+ * which eliminates the post-login race with the onboarding overlay that
+ * caused intermittent timeouts in Phase 9/11.
  */
+const AUTH_STATE = path.join(__dirname, "e2e", ".auth", "state.json");
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -24,8 +29,16 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "setup",
+      testMatch: /.*\.setup\.ts/,
+    },
+    {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: AUTH_STATE,
+      },
+      dependencies: ["setup"],
     },
   ],
 });

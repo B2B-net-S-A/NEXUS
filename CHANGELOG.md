@@ -3,6 +3,81 @@
 All notable changes are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com) and semver-like `MAJOR.MINOR.PATCH`.
 
+## [Unreleased] — Phase 10: Champion Profile + recruiter screening flow
+
+Wewnętrzny szablon "Profil Championa" (wypełniany przez Delivery Leada per rekrutacja) wbudowany w ATS + obligatoryjny flow screeningu kandydata przed rekomendacją do klienta.
+
+### Added — Domain + DB
+
+- **Migracja `0019_champion_profile.py`**:
+  - `jobs.champion_profile` JSONB — dokument validowany przez Pydantic `ChampionProfile`.
+  - `candidate_stages.screening_answers` JSONB — odpowiedzi rekrutera per stage.
+  - Partial index `ix_candidate_stages_has_screening` dla filtrów.
+- **Schemas w `app/schemas/champion.py`**: `ChampionProfile`, `ChampionBasics`, `ChampionProjectContext`, `ScreeningQuestion`, `SourcingStrategy`, `ScreeningAnswers`, `ScreeningAnswerItem`.
+- **`ScreeningAnswers.match_percent()`** — deterministic 0-100 score: `0` jeśli któryś `deal_breaker_hit`, inaczej `(% odpowiedzianych) × {fit:1.0, uncertain:0.6, miss:0.2}`.
+
+### Added — API
+
+- `GET /api/jobs/{id}/champion-profile` — odczyt (wszystkie role).
+- `PUT /api/jobs/{id}/champion-profile` — upsert (Delivery Lead / admin).
+- `GET /api/pipeline/stages/{stage_id}/screening` — odpowiedzi + champion profile dla tego stage.
+- `POST /api/pipeline/stages/{stage_id}/screening` — recruiter zapisuje odpowiedzi; response ma `match_percent`.
+
+### Added — Frontend
+
+- **`components/ChampionProfileEditor.tsx`** — pełny formularz dla DL: add/remove pytań screeningowych, sourcing checkboxes, read-only mode dla nie-DL.
+- **`components/ScreeningModal.tsx`** — modal z pytaniami DL + collapsible ideal answer/deal-breaker, toggle deal_breaker_hit per Q, overall fit (fit/uncertain/miss) + notes.
+- **`app/jobs/[id]/page.tsx`** — nowy tab **"Profil Championa"**.
+- **`components/KanbanBoard.tsx`**:
+  - Auto-open `ScreeningModal` po move do `cv_sent` / `client_interview` / `acceptance` / `negotiation` / `onboarding`.
+  - Manualny przycisk **★ Screening** na kartach w external stages.
+  - Drag handle zawężony do samej `CandidateCard` — wcześniej blokował klikanie elementów w karcie.
+- **`lib/api.ts`** — `championApi` + `screeningApi` + typy.
+
+### Flow
+
+1. Delivery Lead wypełnia Profil Championa (basics + kontekst + pytania + sourcing strategy).
+2. Rekruter idzie przez etapy wewnętrzne (new → prep_call → screening → interview).
+3. Przy przesunięciu do `cv_sent` `ScreeningModal` otwiera się automatycznie i wymaga odpowiedzi na pytania DL-a.
+4. System liczy `match_percent` z uwzględnieniem deal-breakerów; zapisuje `screening_answers` do CandidateStage + Activity log.
+
+### Verified in Chrome
+
+- `PUT /api/jobs/2/champion-profile` z 3 pytaniami zapisuje się OK.
+- Tab "Profil Championa" renderuje formularz z pre-filled danymi z backendu.
+- `POST /api/pipeline/stages/4/screening` zwraca `match_percent: 100.0` dla idealnej odpowiedzi + brak deal-breakerów.
+- ScreeningModal renderuje Q1/Q2 z Championa + pre-fill'uje odpowiedzi rekrutera z wcześniejszego zapisu.
+
+## [Unreleased] — Phase 12: Polish (tests + Playwright + client share)
+
+### Added — Testing
+
+- **6 unit tests dla `_score_champion_fit`** — `_FakeScalarDB` stub mocka `AsyncSession.scalar()` i odpala scenariusze: no screening (neutral 5/10), perfect fit (10/10), deal-breaker (0/10), uncertain 60%, partial answers 50%, invalid payload (graceful).
+- **Playwright `auth.setup.ts`** + projects w `playwright.config.ts` — login raz, `storageState` persist, reszta testów idzie od `page.goto("/...")` bez re-login. Wynik: **12/14 pass** (było 6/10).
+
+### Added — Client-facing Champion card share
+
+- **Migracja `0028_champion_share_token.py`** — tabela `champion_card_share_tokens` (token PK, candidate_stage_id FK, created_by, expires_at nullable, revoked bool) + partial index `WHERE revoked IS FALSE`.
+- **Model `app/models/champion_share.py` — `ChampionCardShareToken`**.
+- **Endpointy w `app/api/pipeline.py`**:
+  - `POST /api/pipeline/stages/{id}/share-token?expires_in_days=30` → random 48-char URL-safe token + activity log.
+  - `DELETE /api/pipeline/stages/share-token/{token}` → soft-revoke.
+- **Endpoint public `app/api/public_share.py`** (bez auth, mount `/api/public`):
+  - `GET /api/public/champion-card/{token}` → walidacja `revoked`/`expires_at`, slim response (candidate basics + job + champion_profile + screening_answers).
+- **Frontend `/share/champion-card/[token]/page.tsx`** — Server Component, gradient header, sekcje (o projekcie, obowiązki, screening Q+A, notatki), footer z datą ważności.
+- **`middleware.ts`** — `PUBLIC_PATHS` += `/share`.
+- **`AppShell`** — early-return bez sidebar/onboarding dla `/share/*`.
+- **`docker-compose.yml`** — `INTERNAL_API_URL=http://backend:8000` dla frontend SSR.
+- **`components/ChampionCard.tsx`** — "Udostępnij" button → API → "Kopiuj link" + external preview.
+
+### Verified in Chrome
+
+- `POST share-token` zwraca `{token, expires_at, share_url_suffix}`.
+- `GET /api/public/champion-card/<token>` bez auth → pełny JSON filled card (zweryfikowane z poziomu frontend containera przez `wget`).
+- `http://localhost:3001/share/champion-card/<token>` renderuje client-ready kartę (gradient + Q1/Q2 z odpowiedziami + notatki + "Ważne do").
+
+### Migracje head = 0028
+
 ## [Unreleased] — Phase 8: RBAC consolidation + login protection
 
 ### Changed — Breaking (DB schema)
