@@ -537,9 +537,7 @@ async def get_stage_screening(
     db: AsyncSession = Depends(get_db),
 ):
     """Return recruiter screening answers + the job's Champion Profile."""
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == stage_id)
-    )
+    stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
@@ -566,9 +564,7 @@ async def submit_stage_screening(
     from app.schemas.champion import ScreeningAnswers
     from app.services.match_score_cache import mark_stale_for_candidate
 
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == stage_id)
-    )
+    stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
@@ -624,9 +620,7 @@ async def create_share_token(
 
     from app.models.champion_share import ChampionCardShareToken
 
-    stage = await db.scalar(
-        select(CandidateStage).where(CandidateStage.id == stage_id)
-    )
+    stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == stage_id))
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
 
