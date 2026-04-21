@@ -107,30 +107,46 @@ export function CandidateDetailV2({
     }
   }, [candidate, id, openTab, embedded]);
 
-  const { data: timeline } = useQuery<any[]>({
+  // Timeline API returns `{ timeline: [...] }` — normalize to array.
+  const { data: timelineRaw } = useQuery<{ timeline?: any[] } | any[]>({
     queryKey: ["candidate-timeline", id],
     queryFn: () =>
       api.get(`/api/candidates/${id}/timeline?limit=50`).then((r) => r.data),
     enabled: !!id && (activeTab === "timeline" || activeTab === "notatki"),
   });
+  const timeline: any[] = Array.isArray(timelineRaw)
+    ? timelineRaw
+    : (timelineRaw?.timeline ?? []);
 
-  const { data: history = [] } = useQuery<any[]>({
+  // History API returns `{ jobs: [...], contracts: [...] }` — flatten jobs.
+  const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
     queryKey: ["candidate-history", id],
     queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
     enabled: !!id && activeTab === "rekrutacje",
   });
+  const history: any[] = Array.isArray(historyRaw)
+    ? historyRaw
+    : (historyRaw?.jobs ?? []);
+  const historyContracts: any[] = Array.isArray(historyRaw)
+    ? []
+    : (historyRaw?.contracts ?? []);
 
-  const { data: screenings = [] } = useQuery<any[]>({
+  // Screenings & calls may come as array or { items: [...] } — normalize both.
+  const { data: screeningsRaw } = useQuery<{ items?: any[] } | any[]>({
     queryKey: ["candidate-screenings", id],
     queryFn: () => api.get(`/api/candidates/${id}/screenings`).then((r) => r.data),
     enabled: !!id && activeTab === "screeningi",
   });
+  const screenings: any[] = Array.isArray(screeningsRaw)
+    ? screeningsRaw
+    : (screeningsRaw?.items ?? []);
 
-  const { data: calls = [] } = useQuery<any[]>({
+  const { data: callsRaw } = useQuery<{ items?: any[] } | any[]>({
     queryKey: ["candidate-calls", id],
     queryFn: () => api.get(`/api/candidates/${id}/calls`).then((r) => r.data),
     enabled: !!id && activeTab === "rozmowy",
   });
+  const calls: any[] = Array.isArray(callsRaw) ? callsRaw : (callsRaw?.items ?? []);
 
   const { data: aiProfile } = useQuery<any>({
     queryKey: ["candidate-ai-profile", id],
@@ -431,10 +447,7 @@ export function CandidateDetailV2({
               </div>
             </TabsContent>
             <TabsContent value="screeningi" className="mt-0">
-              <ScreeningsTab
-                screenings={screenings}
-                onOpenScreening={(stageId) => setScreeningStage(stageId)}
-              />
+              <ScreeningsTab screenings={screenings} />
             </TabsContent>
             <TabsContent value="rozmowy" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -614,8 +627,24 @@ function ProfilTab({ candidate }: { candidate: any }) {
   );
 }
 
+const TIMELINE_LABEL: Record<string, string> = {
+  note: "Notatka",
+  stage_change: "Zmiana etapu",
+  activity: "Aktywność",
+  user_activity: "Akcja użytkownika",
+};
+
+function timelineItemLabel(item: any): string {
+  if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` : ""}`;
+  if (item.type === "stage_change")
+    return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` : ""}`;
+  if (item.type === "activity") return item.action ?? "Aktywność";
+  if (item.type === "user_activity") return item.action_type ?? "Akcja";
+  return TIMELINE_LABEL[item.type] ?? item.type ?? "Zdarzenie";
+}
+
 function TimelineTab({ items }: { items: any[] }) {
-  if (items.length === 0) {
+  if (!Array.isArray(items) || items.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-[hsl(var(--text-muted))]">
         Brak zdarzeń w timeline.
@@ -624,29 +653,47 @@ function TimelineTab({ items }: { items: any[] }) {
   }
   return (
     <div className="space-y-0">
-      {items.map((e: any, i: number) => (
-        <div key={i} className="flex gap-3 py-2.5 border-b border-[hsl(var(--border-subtle))]/50 last:border-0">
+      {items.map((item: any, i: number) => (
+        <div
+          key={`${item.type}-${item.id}-${i}`}
+          className="flex gap-3 py-2.5 border-b border-[hsl(var(--border-subtle))]/50 last:border-0"
+        >
           <div className="w-7 h-7 rounded-full bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] flex items-center justify-center shrink-0 mt-0.5">
             <MessageSquare className="h-3.5 w-3.5" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-sm font-medium text-[hsl(var(--text-title))]">
-                {e.action_label ?? e.action ?? "Zdarzenie"}
+                {timelineItemLabel(item)}
               </span>
-              {e.author_name && (
-                <span className="text-xs text-[hsl(var(--text-muted))]">
-                  {e.author_name}
-                </span>
-              )}
               <span className="ml-auto text-xs text-[hsl(var(--text-muted))]">
-                {e.created_at ? formatRelativeTime(e.created_at) : ""}
+                {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
               </span>
             </div>
-            {e.content && (
+            {item.content && (
               <p className="text-sm text-[hsl(var(--text-body))] mt-1 whitespace-pre-line">
-                {e.content}
+                {item.content}
               </p>
+            )}
+            {item.notes && (
+              <p className="text-sm text-[hsl(var(--text-muted))] mt-1 italic whitespace-pre-line">
+                {item.notes}
+              </p>
+            )}
+            {item.rating && (
+              <div className="flex gap-0.5 mt-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Star
+                    key={n}
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      n <= item.rating
+                        ? "text-amber-500 fill-amber-500"
+                        : "text-[hsl(var(--border-subtle))] fill-[hsl(var(--border-subtle))]"
+                    )}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -656,7 +703,7 @@ function TimelineTab({ items }: { items: any[] }) {
 }
 
 function RekrutacjeTab({ history }: { history: any[] }) {
-  if (history.length === 0) {
+  if (!Array.isArray(history) || history.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-[hsl(var(--text-muted))]">
         Kandydat nie ma aktywnych rekrutacji.
@@ -665,24 +712,33 @@ function RekrutacjeTab({ history }: { history: any[] }) {
   }
   return (
     <div className="space-y-2">
-      {history.map((h: any, i: number) => (
+      {history.map((job: any, i: number) => (
         <Link
           key={i}
-          href={`/jobs/${h.job_id}`}
+          href={`/jobs/${job.job_id ?? job.id}`}
           className="block rounded-v2-m border border-[hsl(var(--border-subtle))] hover:border-[hsl(var(--accent))]/40 p-3 transition-colors"
         >
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="min-w-0 flex-1">
               <div className="font-medium text-[hsl(var(--text-title))] truncate">
-                {h.job_title ?? `Oferta #${h.job_id}`}
+                {job.job_title ?? `Oferta #${job.job_id ?? job.id}`}
               </div>
               <div className="text-xs text-[hsl(var(--text-muted))]">
-                {h.client_name ?? "—"} · {h.stage_name ?? h.stage}
+                {job.latest_stage ?? "—"}
+                {job.first_seen
+                  ? ` · dodano ${formatDate(job.first_seen)}`
+                  : ""}
               </div>
+              {Array.isArray(job.stages) && job.stages.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                  {job.stages.slice(0, 6).map((s: any, si: number) => (
+                    <Badge key={si} size="sm" variant="soft">
+                      {s.stage}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
-            <Badge size="sm" variant={h.is_terminal ? "neutral" : "success"}>
-              {h.is_terminal ? "Zamknięta" : "Aktywna"}
-            </Badge>
           </div>
         </Link>
       ))}
@@ -690,14 +746,16 @@ function RekrutacjeTab({ history }: { history: any[] }) {
   );
 }
 
-function ScreeningsTab({
-  screenings,
-  onOpenScreening,
-}: {
-  screenings: any[];
-  onOpenScreening: (stageId: number) => void;
-}) {
-  if (screenings.length === 0) {
+const SCREENING_TYPE_LABELS: Record<string, string> = {
+  first_contact: "Pierwszy kontakt",
+  technical: "Techniczny",
+  soft_skills: "Soft skills",
+  offer_negotiation: "Negocjacja oferty",
+  general: "Ogólny",
+};
+
+function ScreeningsTab({ screenings }: { screenings: any[] }) {
+  if (!Array.isArray(screenings) || screenings.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-[hsl(var(--text-muted))]">
         Kandydat nie ma jeszcze żadnych screeningów.
@@ -707,62 +765,77 @@ function ScreeningsTab({
   return (
     <div className="space-y-2">
       {screenings.map((s: any) => (
-        <button
-          key={s.stage_id}
-          onClick={() => onOpenScreening(s.stage_id)}
-          className="w-full text-left rounded-v2-m border border-[hsl(var(--border-subtle))] hover:border-[hsl(var(--accent))]/40 p-3 transition-colors"
+        <div
+          key={s.id}
+          className="rounded-v2-m border border-[hsl(var(--border-subtle))] p-3 hover:border-[hsl(var(--accent))]/40 transition-colors"
         >
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="min-w-0">
-              <div className="font-medium text-[hsl(var(--text-title))]">
-                {s.job_title ?? `Oferta #${s.job_id}`}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-[hsl(var(--text-title))]">
+                  {SCREENING_TYPE_LABELS[s.screening_type] ?? s.screening_type ?? "Screening"}
+                </span>
+                {s.overall_impression && (
+                  <div className="flex gap-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={cn(
+                          "h-3 w-3",
+                          n <= s.overall_impression
+                            ? "text-amber-500 fill-amber-500"
+                            : "text-[hsl(var(--border-subtle))] fill-[hsl(var(--border-subtle))]"
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="text-xs text-[hsl(var(--text-muted))]">
-                {s.stage_name ?? "Screening"} ·{" "}
-                {s.answered_at ? formatDate(s.answered_at) : "brak daty"}
+              <div className="text-xs text-[hsl(var(--text-muted))] mt-1">
+                {s.created_at ? formatDate(s.created_at) : "brak daty"}
+                {s.salary_expectation && (
+                  <>
+                    {" · "}
+                    {s.salary_expectation.toLocaleString("pl-PL")}{" "}
+                    {s.salary_currency ?? "PLN"}
+                    {s.salary_negotiable ? " (neg.)" : ""}
+                  </>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {typeof s.match_percent === "number" && (
-                <Badge
-                  size="sm"
-                  variant={
-                    s.match_percent >= 75
-                      ? "success"
-                      : s.match_percent >= 50
-                        ? "soft"
-                        : "neutral"
-                  }
-                >
-                  {Math.round(s.match_percent)}%
-                </Badge>
-              )}
+            {s.counteroffer_risk && (
               <Badge
                 size="sm"
                 variant={
-                  s.overall_fit === "fit"
+                  s.counteroffer_risk === "low"
                     ? "success"
-                    : s.overall_fit === "miss"
-                      ? "danger"
-                      : "warning"
+                    : s.counteroffer_risk === "medium"
+                      ? "warning"
+                      : "danger"
                 }
               >
-                {s.overall_fit === "fit"
-                  ? "Pasuje"
-                  : s.overall_fit === "miss"
-                    ? "Nie pasuje"
-                    : "Niepewnie"}
+                Counteroffer:{" "}
+                {s.counteroffer_risk === "low"
+                  ? "Niskie"
+                  : s.counteroffer_risk === "medium"
+                    ? "Średnie"
+                    : "Wysokie"}
               </Badge>
-            </div>
+            )}
           </div>
-        </button>
+          {s.notes && (
+            <p className="text-sm text-[hsl(var(--text-body))] mt-2 whitespace-pre-line">
+              {s.notes}
+            </p>
+          )}
+        </div>
       ))}
     </div>
   );
 }
 
 function RozmowyTab({ calls }: { calls: any[] }) {
-  if (calls.length === 0) {
+  if (!Array.isArray(calls) || calls.length === 0) {
     return (
       <div className="py-6 text-center text-sm text-[hsl(var(--text-muted))]">
         Brak zarejestrowanych rozmów.
@@ -771,32 +844,39 @@ function RozmowyTab({ calls }: { calls: any[] }) {
   }
   return (
     <div className="space-y-2">
-      {calls.map((c: any) => (
-        <div
-          key={c.id}
-          className="rounded-v2-m border border-[hsl(var(--border-subtle))] p-3"
-        >
-          <div className="flex items-center gap-2">
-            <PhoneCall className="h-3.5 w-3.5 text-[hsl(var(--accent))]" />
-            <span className="text-sm font-medium text-[hsl(var(--text-title))]">
-              {c.direction === "outbound" ? "Wychodząca" : "Przychodząca"}
-            </span>
-            <span className="ml-auto text-xs text-[hsl(var(--text-muted))]">
-              {c.created_at ? formatRelativeTime(c.created_at) : ""}
-            </span>
-          </div>
-          {c.duration_seconds != null && (
-            <div className="text-xs text-[hsl(var(--text-muted))] mt-1">
-              Czas: {Math.round(c.duration_seconds / 60)} min
+      {calls.map((c: any) => {
+        const dur = c.duration_seconds;
+        const mins = dur != null ? Math.floor(dur / 60) : null;
+        const secs = dur != null ? dur % 60 : null;
+        const durationLabel =
+          mins != null ? `${mins}:${String(secs).padStart(2, "0")}` : null;
+        return (
+          <div
+            key={c.id}
+            className="rounded-v2-m border border-[hsl(var(--border-subtle))] p-3"
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <PhoneCall className="h-3.5 w-3.5 text-[hsl(var(--accent))]" />
+              <span className="text-sm font-medium text-[hsl(var(--text-title))]">
+                {c.direction === "outbound" ? "↗ Wychodząca" : "↙ Przychodząca"}
+              </span>
+              {durationLabel && (
+                <Badge size="sm" variant="soft">
+                  {durationLabel}
+                </Badge>
+              )}
+              <span className="ml-auto text-xs text-[hsl(var(--text-muted))]">
+                {c.created_at ? formatRelativeTime(c.created_at) : ""}
+              </span>
             </div>
-          )}
-          {c.notes && (
-            <p className="text-sm text-[hsl(var(--text-body))] mt-2 whitespace-pre-line">
-              {c.notes}
-            </p>
-          )}
-        </div>
-      ))}
+            {c.summary && (
+              <p className="text-sm text-[hsl(var(--text-body))] mt-2 whitespace-pre-line">
+                {c.summary}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -814,7 +894,8 @@ function NotatkiTab({
   onAdd: () => void;
   saving: boolean;
 }) {
-  const notes = timeline.filter((t: any) => t.action === "note_added");
+  const items = Array.isArray(timeline) ? timeline : [];
+  const notes = items.filter((t: any) => t.type === "note");
 
   return (
     <div className="space-y-4">
@@ -849,15 +930,15 @@ function NotatkiTab({
         <div className="space-y-2">
           {notes.map((n: any, i: number) => (
             <div
-              key={i}
+              key={n.id ?? i}
               className="rounded-v2-m bg-[hsl(var(--bg-canvas))]/40 border border-[hsl(var(--border-subtle))] p-3"
             >
               <div className="flex items-baseline gap-2 text-xs text-[hsl(var(--text-muted))]">
                 <span className="font-medium text-[hsl(var(--text-title))]">
-                  {n.author_name ?? "System"}
+                  {n.note_type ? `Notatka — ${n.note_type}` : "Notatka"}
                 </span>
                 <span>·</span>
-                <span>{n.created_at ? formatRelativeTime(n.created_at) : ""}</span>
+                <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
               </div>
               <p className="text-sm text-[hsl(var(--text-body))] mt-1 whitespace-pre-line">
                 {n.content}
