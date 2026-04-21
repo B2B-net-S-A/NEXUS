@@ -25,8 +25,12 @@ env/
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
 .mypy_cache/
 .ruff_cache/
+
+# Coverage reports (frontend vitest)
+frontend/coverage/
 
 # Uploads / runtime
 uploads/

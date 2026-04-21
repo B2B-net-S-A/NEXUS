@@ -80,7 +80,17 @@ jobs:
                  tests/test_talent_radar_importer.py \
                  tests/test_ical_import.py \
                  tests/test_api_integration.py \
-                 -v --tb=short
+                 -v --tb=short \
+                 --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Upload backend coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   frontend-lint-build:
     name: Frontend (typecheck + build)
@@ -96,12 +106,28 @@ jobs:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: frontend/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**/*.{ts,tsx,js,jsx}') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
       - run: npm ci --legacy-peer-deps
+      - name: ESLint
+        run: npm run lint
       - run: npm run type-check
-      # NOTE: `npm run lint` requires interactive eslint setup (pre-existing).
-      # TODO(Faza 3+): add non-interactive eslint config and re-enable.
-      - name: Vitest (unit + component)
-        run: npm run test
+      - name: Vitest with coverage
+        run: npm run test:coverage
+      - name: Upload frontend coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v4
+        with:
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
