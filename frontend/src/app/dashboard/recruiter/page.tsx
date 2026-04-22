@@ -183,8 +183,10 @@ export default function RecruiterDashboard() {
   const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
 
-  const allowedRoles = ["sourcer", "tac", "recruiter"] as const
-  const isAllowed = !!user && (allowedRoles as readonly string[]).includes(user.role)
+  const recruiterRoles = ["sourcer", "tac", "recruiter"] as const
+  const isMeRecruiter = !!user && (recruiterRoles as readonly string[]).includes(user.role)
+  const isAllowed =
+    !!user && (isMeRecruiter || user.role === "admin" || user.role === "head_of_recruitment")
 
   const { data: report, refetch: refetchReport } = useQuery<RecruitmentReport>({
     queryKey: ["report-recruitment", "month"],
@@ -265,10 +267,10 @@ export default function RecruiterDashboard() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
-            Panel {ROLE_LABELS[user.role]} · Rekrutacja
+            Panel Rekrutacja · {ROLE_LABELS[user.role]}
           </p>
           <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] mt-1">
-            Cześć, {user.name.split(" ")[0]}
+            {isMeRecruiter ? `Cześć, ${user.name.split(" ")[0]}` : "Rekrutacja — widok zespołu"}
           </h1>
         </div>
         <Button
@@ -290,28 +292,28 @@ export default function RecruiterDashboard() {
         <PastelKpi
           title="Weryfikacje"
           value={funnel?.weryfikacje_count ?? 0}
-          subtitle={`Ja: ${myStats?.weryfikacje ?? 0}`}
+          subtitle={isMeRecruiter ? `Ja: ${myStats?.weryfikacje ?? 0}` : "zespół tego miesiąca"}
           icon={Filter}
           color="blue"
         />
         <PastelKpi
           title="Rekomendacje"
           value={funnel?.rekomendacje_count ?? 0}
-          subtitle={`Ja: ${myStats?.rekomendacje ?? 0}`}
+          subtitle={isMeRecruiter ? `Ja: ${myStats?.rekomendacje ?? 0}` : "zespół tego miesiąca"}
           icon={Users}
           color="purple"
         />
         <PastelKpi
           title="Interviews"
           value={funnel?.interviews_count ?? 0}
-          subtitle={`Ja: ${myStats?.interviews ?? 0}`}
+          subtitle={isMeRecruiter ? `Ja: ${myStats?.interviews ?? 0}` : "zespół tego miesiąca"}
           icon={CheckCircle2}
           color="amber"
         />
         <PastelKpi
           title="Placements"
           value={funnel?.placements_count ?? 0}
-          subtitle={`Ja: ${myStats?.placements ?? 0}`}
+          subtitle={isMeRecruiter ? `Ja: ${myStats?.placements ?? 0}` : "zespół tego miesiąca"}
           icon={Target}
           color="emerald"
         />
@@ -371,7 +373,7 @@ export default function RecruiterDashboard() {
           metricUnit="pkt"
           pointsFormula={quarterChampions.points_formula}
           requirement={quarterChampions.requirement}
-          highlightUserId={user.id}
+          highlightUserId={isMeRecruiter ? user.id : null}
         />
       )}
 
@@ -387,7 +389,7 @@ export default function RecruiterDashboard() {
             requirements={races.recommendations.requirements}
             ranking={races.recommendations.ranking}
             metricSuffix="rek."
-            highlightUserId={user.id}
+            highlightUserId={isMeRecruiter ? user.id : null}
           />
           <RaceCard
             title="Wyścig Placementów"
@@ -398,7 +400,7 @@ export default function RecruiterDashboard() {
             requirements={races.placements.requirements}
             ranking={races.placements.ranking}
             metricSuffix="plac."
-            highlightUserId={user.id}
+            highlightUserId={isMeRecruiter ? user.id : null}
           />
         </div>
       )}
@@ -440,7 +442,8 @@ export default function RecruiterDashboard() {
         </Card>
       )}
 
-      {/* LinkedIn metrics (manual) */}
+      {/* LinkedIn metrics (manual) — tylko dla recruitera */}
+      {isMeRecruiter && (
       <div>
         <div className="flex items-center gap-2 mb-2">
           <Linkedin className="h-4 w-4 text-[hsl(var(--accent))]" />
@@ -487,6 +490,7 @@ export default function RecruiterDashboard() {
           </p>
         )}
       </div>
+      )}
 
       {/* Team leaderboard */}
       <Card>
