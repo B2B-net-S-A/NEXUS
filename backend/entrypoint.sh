@@ -56,6 +56,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_feedback_1h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'stage_stuck_7d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_profile_updated'",
+    # Kontrakty expansion (migration 0037) notificationtype extensions
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_ending_90d'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_due_14d'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_order_ending_30d'",
     # availabilitystatus (migration wyroznienia_availability) — CREATE TYPE
     # must be gated with DO $$ because PG lacks CREATE TYPE IF NOT EXISTS.
     """DO $$
@@ -63,6 +67,36 @@ _ENUM_STATEMENTS = [
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'availabilitystatus') THEN
             CREATE TYPE availabilitystatus AS ENUM (
                 'actively_looking', 'open_to_offers', 'not_looking', 'unknown'
+            );
+        END IF;
+    END $$""",
+    # Kontrakty expansion (migration 0037) enum types
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contractterminationreason') THEN
+            CREATE TYPE contractterminationreason AS ENUM (
+                'poached_by_client', 'project_ended', 'client_budget_cut',
+                'performance_issue', 'consultant_resigned', 'better_offer',
+                'personal_reasons', 'contract_breach', 'mutual_agreement', 'other'
+            );
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'equipmentitemtype') THEN
+            CREATE TYPE equipmentitemtype AS ENUM (
+                'laptop', 'phone', 'monitor', 'headset', 'docking_station',
+                'security_token', 'keycard', 'sim_card', 'other'
+            );
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'equipmentowner') THEN
+            CREATE TYPE equipmentowner AS ENUM ('ours', 'client');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'equipmentreturnstatus') THEN
+            CREATE TYPE equipmentreturnstatus AS ENUM (
+                'pending', 'returned', 'lost', 'written_off'
+            );
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'seniorityleveltype') THEN
+            CREATE TYPE seniorityleveltype AS ENUM (
+                'junior', 'mid', 'senior', 'expert', 'principal'
             );
         END IF;
     END $$""",
@@ -84,6 +118,30 @@ _COLUMN_STATEMENTS = [
     # notifications (migration 0029_notifications_triggers)
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(50)",
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_id INTEGER",
+    # contracts (migration 0037_contracts_expansion)
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS termination_reason contractterminationreason",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS termination_lessons TEXT",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS terminated_at DATE",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_min INTEGER",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_max INTEGER",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS client_order_end_date DATE",
+    # candidates engagement flags (migration 0037_contracts_expansion)
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS is_ambassador BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS wants_to_verify_candidates BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_side_projects BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_sales_support BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_expert_consult BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS engagement_notes TEXT",
+    # candidates structured location (migration 0037_contracts_expansion)
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS country VARCHAR(2)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS region VARCHAR(120)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hub_city VARCHAR(120)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS longitude NUMERIC(9,6)",
+    # notes + calls contract_id FK (migration 0037_contracts_expansion)
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
 ]
 
 _DATA_STATEMENTS = [
