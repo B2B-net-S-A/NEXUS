@@ -1020,7 +1020,7 @@ async def report_invite_links(
     # sum(use_count) == total applications through that label.
     rollup_stmt = (
         select(
-            func.coalesce(CandidateInviteLink.label, "Bez etykiety").label("channel"),
+            CandidateInviteLink.label.label("channel"),
             func.count(CandidateInviteLink.token).label("links_count"),
             func.coalesce(
                 func.sum(CandidateInviteLink.use_count), 0
@@ -1028,7 +1028,7 @@ async def report_invite_links(
             func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
         )
         .where(*created_at_filter)
-        .group_by(func.coalesce(CandidateInviteLink.label, "Bez etykiety"))
+        .group_by(CandidateInviteLink.label)
         .order_by(func.coalesce(func.sum(CandidateInviteLink.use_count), 0).desc())
     )
     rollup_rows = (await db.execute(rollup_stmt)).all()
@@ -1043,7 +1043,9 @@ async def report_invite_links(
         totals_applications += applications
         channels.append(
             {
-                "channel": channel,
+                # NULL labels surface as "Bez etykiety" so the UI has a
+                # single bucket for unlabelled links rather than an empty row.
+                "channel": channel or "Bez etykiety",
                 "links_count": links_count,
                 "applications": applications,
                 "conversion_pct": _safe_pct(applications, links_count),

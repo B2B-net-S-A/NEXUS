@@ -278,7 +278,7 @@ export function GenerateInviteLinkV2({
 
                   <FormField
                     label="Etykieta (opcjonalnie)"
-                    hint={`Prywatna notatka, np. „LinkedIn post 04/26".`}
+                    description={`Prywatna notatka, np. „LinkedIn post 04/26".`}
                   >
                     <Input
                       value={label}

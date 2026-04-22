@@ -297,6 +297,21 @@ export const notificationsApi = {
   markAllRead: () => api.patch("/api/notifications/read-all"),
 };
 
+// ── Interview Feedback ────────────────────────────────────────────────────────
+export const interviewFeedbackApi = {
+  list: (params?: {
+    calendar_event_id?: number;
+    candidate_id?: number;
+    job_id?: number;
+  }) => api.get("/api/interview-feedback", { params }),
+  get: (id: number) => api.get(`/api/interview-feedback/${id}`),
+  create: (data: Record<string, unknown>) =>
+    api.post("/api/interview-feedback", data),
+  update: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/api/interview-feedback/${id}`, data),
+  delete: (id: number) => api.delete(`/api/interview-feedback/${id}`),
+};
+
 // ── Contacts ──────────────────────────────────────────────────────────────────
 export const contactsApi = {
   listAll: (search?: string) =>

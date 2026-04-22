@@ -37,6 +37,7 @@ from app.schemas.candidate import (
     CandidateUpdate,
     EmploymentInfo,
     EmploymentState,
+    InviteSourceBrief,
     MatchStats,
     TalentPoolBrief,
 )
@@ -155,6 +156,9 @@ def _past_company_predicate(values: list[str]):
 
     Uses jsonb_array_elements WITH ORDINALITY; `ordinality > 1` skips the
     current job (index 0 in SQL ordinality terms). OR-combined across values.
+
+    Guards against non-array `experience` values (legacy rows may have scalar/
+    object JSONB) — `jsonb_array_elements` raises otherwise.
     """
     clauses = []
     for i, v in enumerate(values):
@@ -166,7 +170,8 @@ def _past_company_predicate(values: list[str]):
             text(
                 "EXISTS ("
                 "SELECT 1 FROM jsonb_array_elements("
-                "coalesce(candidates.experience, '[]'::jsonb)"
+                "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
+                "THEN candidates.experience ELSE '[]'::jsonb END"
                 ") WITH ORDINALITY AS e(elem, idx) "
                 f"WHERE idx > 1 AND lower(elem->>'company') LIKE :past_co_{i}"
                 ")"
@@ -581,6 +586,49 @@ async def list_candidates(
     )
 
 
+# ── Autocomplete: companies from candidate CV experience ────────────────────
+
+
+class CompanySuggestion(BaseModel):
+    """A company name extracted from any candidate's parsed CV experience."""
+
+    name: str
+    count: int
+
+
+@router.get("/companies/suggest", response_model=list[CompanySuggestion])
+async def suggest_companies(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=100, description="Substring to match (ILIKE). Empty = top-N overall."),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Return top-N companies aggregated from all candidates' `experience[].company`.
+
+    Used by the frontend CompanyAutocomplete to power the current/past company
+    filters. Groups by lowercased name — acceptable MVP trade-off (collapses
+    "Google" / "google" to one suggestion).
+    """
+    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    sql = text(
+        "SELECT lower(elem->>'company') AS company, COUNT(DISTINCT c.id) AS n "
+        "FROM candidates c, "
+        "jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(c.experience) = 'array' "
+        "THEN c.experience ELSE '[]'::jsonb END"
+        ") AS elem "
+        "WHERE elem ? 'company' "
+        "AND elem->>'company' IS NOT NULL "
+        "AND elem->>'company' <> '' "
+        "AND (:pat = '' OR lower(elem->>'company') LIKE :pat) "
+        "GROUP BY lower(elem->>'company') "
+        "ORDER BY n DESC, company ASC "
+        "LIMIT :lim"
+    )
+    result = await db.execute(sql, {"pat": pat, "lim": limit})
+    return [CompanySuggestion(name=row[0], count=int(row[1])) for row in result]
+
+
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
 
 
@@ -789,7 +837,7 @@ async def create_candidate(
 
 async def _resolve_invite_source(
     candidate_id: int, db: AsyncSession
-) -> Optional[dict]:
+) -> Optional[InviteSourceBrief]:
     """Resolve the most recent `applied_via_invite` event into badge data.
 
     Returns None when the candidate never applied via an invite link (the
@@ -841,12 +889,12 @@ async def _resolve_invite_source(
         if prev_user is not None:
             previous_created_by_name = prev_user.name
 
-    return {
-        "label": label,
-        "created_by_name": created_by_name,
-        "applied_at": activity.created_at,
-        "previous_created_by_name": previous_created_by_name,
-    }
+    return InviteSourceBrief(
+        label=label,
+        created_by_name=created_by_name,
+        applied_at=activity.created_at,
+        previous_created_by_name=previous_created_by_name,
+    )
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)

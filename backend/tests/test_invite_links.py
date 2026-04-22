@@ -553,7 +553,10 @@ async def test_post_apply_task_auto_assigns_competence_category(
             slug=cc_slug,
             name_pl="Backend",
             name_en="Backend",
+            description="Test CC",
+            keywords=[],
             is_active=True,
+            display_order=999,
         )
         db.add(cc)
         await db.commit()
