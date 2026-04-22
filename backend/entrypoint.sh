@@ -56,6 +56,16 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_feedback_1h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'stage_stuck_7d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_profile_updated'",
+    # availabilitystatus (migration wyroznienia_availability) — CREATE TYPE
+    # must be gated with DO $$ because PG lacks CREATE TYPE IF NOT EXISTS.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'availabilitystatus') THEN
+            CREATE TYPE availabilitystatus AS ENUM (
+                'actively_looking', 'open_to_offers', 'not_looking', 'unknown'
+            );
+        END IF;
+    END $$""",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -66,9 +76,11 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS needs_sourcing BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS competence_category_id INTEGER",
-    # candidates (migration 0030_candidate_created_by + 0033_cc_entities)
+    # candidates (migration 0030_candidate_created_by + 0033_cc_entities +
+    # wyroznienia_availability)
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS competence_category_id INTEGER",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS availability_status availabilitystatus NOT NULL DEFAULT 'unknown'",
     # notifications (migration 0029_notifications_triggers)
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(50)",
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_id INTEGER",
