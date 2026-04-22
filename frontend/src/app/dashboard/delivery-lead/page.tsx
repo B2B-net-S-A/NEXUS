@@ -1,32 +1,37 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-  Legend,
-} from "recharts"
 import {
   Briefcase,
   ChevronDown,
   ChevronUp,
   Crown,
+  LineChart as LineIcon,
+  RefreshCw,
   Target,
   TrendingUp,
   Users,
 } from "lucide-react"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import api from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ChampionsPodium } from "@/components/v2/gamification/ChampionsPodium"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { HeroLigaMistrzow, type HeroPodiumEntry } from "@/components/v2/gamification/HeroLigaMistrzow"
 import { useAuthStore } from "@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -46,12 +51,10 @@ interface DlRow {
   clients: string[]
 }
 
-interface MyDlResponse {
+interface DlReport {
   period: string
-  me: DlRow
-  rank: number | null
-  total_dls: number
-  team_overall: {
+  per_dl: DlRow[]
+  overall: {
     total_requests: number
     total_vacancies: number
     total_placements: number
@@ -63,13 +66,6 @@ interface MyDlResponse {
     dl_count: number
     hit_ratio_target_pct: number
   }
-  leaderboard_top5: DlRow[]
-}
-
-interface DlReportResponse {
-  period: string
-  per_dl: DlRow[]
-  overall: MyDlResponse["team_overall"]
 }
 
 interface TrendPoint {
@@ -82,73 +78,105 @@ interface TrendPoint {
   fill_rate: number
 }
 
-interface TrendResponse {
-  dl_id: number
-  months: number
-  trend: TrendPoint[]
-}
-
 interface CompetitionResponse {
   type: string
   period: string
-  top3: Array<{
-    rank: number
-    user_id: number
-    name: string
-    metric_value: number
-    hit_ratio?: number | null
-    prize_pln?: number
-  }>
-  target_pct?: number | null
+  top3: HeroPodiumEntry[]
+  full_ranking: HeroPodiumEntry[]
+  days_remaining: number | null
+  quarterly_prizes_pln: Record<string, number> | null
+  requirement: string | null
+  target_pct: number | null
 }
 
-// ── KPI Card ─────────────────────────────────────────────────────────────
+interface DlClientsSummary {
+  delivery_lead: { id: number; name: string }
+  clients: Array<{ id: number; name: string; is_head: boolean }>
+}
 
-function KpiCard({
+// ── Pastel KPI (same as recruiter) ─────────────────────────────────────
+
+const KPI_COLORS = {
+  slate: {
+    bg: "bg-slate-50 border-slate-200",
+    icon: "bg-slate-100 text-slate-700",
+    title: "text-slate-900",
+    value: "text-slate-950",
+  },
+  amber: {
+    bg: "bg-amber-50 border-amber-200",
+    icon: "bg-amber-100 text-amber-700",
+    title: "text-amber-900",
+    value: "text-amber-950",
+  },
+  purple: {
+    bg: "bg-purple-50 border-purple-200",
+    icon: "bg-purple-100 text-purple-700",
+    title: "text-purple-900",
+    value: "text-purple-950",
+  },
+  emerald: {
+    bg: "bg-emerald-50 border-emerald-200",
+    icon: "bg-emerald-100 text-emerald-700",
+    title: "text-emerald-900",
+    value: "text-emerald-950",
+  },
+} as const
+
+function PastelKpi({
   title,
   value,
   subtitle,
-  accent,
   icon: Icon,
+  color,
 }: {
   title: string
   value: React.ReactNode
   subtitle?: string
-  accent?: "default" | "green" | "amber"
   icon: React.ComponentType<{ className?: string }>
+  color: keyof typeof KPI_COLORS
 }) {
-  const accentClass =
-    accent === "green"
-      ? "text-[#1d5e31]"
-      : accent === "amber"
-      ? "text-amber-600"
-      : "text-[hsl(var(--text-title))]"
+  const c = KPI_COLORS[color]
   return (
-    <Card>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-          {title}
-        </p>
-        <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+    <div className={cn("rounded-v2-m border px-4 py-3", c.bg)}>
+      <div className="flex items-center gap-2 mb-2">
+        <span
+          className={cn(
+            "inline-flex items-center justify-center h-7 w-7 rounded-full",
+            c.icon,
+          )}
+        >
           <Icon className="h-4 w-4" />
         </span>
+        <span className={cn("text-[11px] font-semibold uppercase tracking-wide", c.title)}>
+          {title}
+        </span>
       </div>
-      <div
-        className={cn(
-          "font-display text-3xl font-extrabold tracking-[-0.02em] leading-none",
-          accentClass,
-        )}
-      >
+      <div className={cn("font-display text-3xl font-extrabold leading-none", c.value)}>
         {value}
       </div>
       {subtitle && (
-        <p className="text-xs text-[hsl(var(--text-muted))] mt-2">{subtitle}</p>
+        <div className={cn("text-xs mt-1.5 opacity-80", c.title)}>{subtitle}</div>
       )}
-    </Card>
+    </div>
   )
 }
 
-// ── Ranking Table ────────────────────────────────────────────────────────
+// ── Hit ratio color helper ──────────────────────────────────────────────
+
+function hitRatioColor(value: number, target: number): string {
+  if (value >= target) return "text-emerald-600 font-semibold"
+  if (value >= target * 0.66) return "text-amber-600 font-medium"
+  return "text-rose-600"
+}
+
+function fillRateColor(value: number): string {
+  if (value >= 30) return "text-emerald-600 font-semibold"
+  if (value >= 15) return "text-amber-600 font-medium"
+  return "text-rose-600"
+}
+
+// ── Ranking table ───────────────────────────────────────────────────────
 
 type SortKey =
   | "placements"
@@ -158,7 +186,7 @@ type SortKey =
   | "fill_rate"
   | "name"
 
-function DlRankingTable({
+function DlRanking({
   rows,
   highlightUserId,
   targetPct,
@@ -167,24 +195,42 @@ function DlRankingTable({
   highlightUserId?: number | null
   targetPct: number
 }) {
-  const [sortBy, setSortBy] = useMemo(() => ["placements", "desc"] as const, [])
-  const sorted = [...rows].sort((a, b) => {
-    const va = a[sortBy[0] as keyof DlRow]
-    const vb = b[sortBy[0] as keyof DlRow]
-    if (typeof va === "string" && typeof vb === "string") {
-      return sortBy[1] === "asc" ? va.localeCompare(vb) : vb.localeCompare(va)
+  const [sortBy, setSortBy] = useState<SortKey>("placements")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+
+  const sorted = useMemo(() => {
+    const data = [...rows]
+    data.sort((a, b) => {
+      const va = a[sortBy] as number | string
+      const vb = b[sortBy] as number | string
+      if (typeof va === "string" && typeof vb === "string") {
+        return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va)
+      }
+      const na = Number(va) || 0
+      const nb = Number(vb) || 0
+      return sortDir === "asc" ? na - nb : nb - na
+    })
+    return data
+  }, [rows, sortBy, sortDir])
+
+  function toggleSort(key: SortKey) {
+    if (sortBy === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc")
+    } else {
+      setSortBy(key)
+      setSortDir("desc")
     }
-    const na = Number(va) || 0
-    const nb = Number(vb) || 0
-    return sortBy[1] === "asc" ? na - nb : nb - na
-  })
+  }
 
   const Header = ({ col, label }: { col: SortKey; label: string }) => (
-    <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
+    <th
+      className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2 cursor-pointer select-none"
+      onClick={() => toggleSort(col)}
+    >
       <span className="inline-flex items-center gap-1">
         {label}
-        {sortBy[0] === col &&
-          (sortBy[1] === "asc" ? (
+        {sortBy === col &&
+          (sortDir === "asc" ? (
             <ChevronUp className="h-3 w-3" />
           ) : (
             <ChevronDown className="h-3 w-3" />
@@ -192,6 +238,13 @@ function DlRankingTable({
       </span>
     </th>
   )
+
+  const rankBadge = (idx: number): string => {
+    if (idx === 0) return "bg-emerald-500 text-white"
+    if (idx === 1) return "bg-sky-500 text-white"
+    if (idx === 2) return "bg-amber-500 text-white"
+    return "bg-slate-200 text-slate-700"
+  }
 
   return (
     <div className="overflow-x-auto">
@@ -202,11 +255,11 @@ function DlRankingTable({
               #
             </th>
             <Header col="name" label="Delivery Lead" />
-            <Header col="total_requests" label="Requests" />
-            <Header col="total_vacancies" label="Vacancies" />
+            <Header col="total_requests" label="Zapytania" />
+            <Header col="total_vacancies" label="Wakaty" />
             <Header col="placements" label="Placements" />
-            <Header col="hit_ratio" label="Hit %" />
-            <Header col="fill_rate" label="Fill %" />
+            <Header col="hit_ratio" label="Hit Ratio" />
+            <Header col="fill_rate" label="Fill Rate" />
           </tr>
         </thead>
         <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
@@ -216,49 +269,55 @@ function DlRankingTable({
               <tr
                 key={r.user_id}
                 className={cn(
-                  "hover:bg-[hsl(var(--accent-soft))]/40 transition-colors",
+                  "hover:bg-[hsl(var(--accent-soft))]/40",
                   isMe && "bg-[hsl(var(--accent-soft))]/60",
-                  r.target_achieved &&
-                    !isMe &&
-                    "bg-emerald-50/40",
                 )}
               >
-                <td className="px-3 py-2 text-[hsl(var(--text-muted))] font-bold">
-                  {idx + 1}
-                </td>
-                <td className="px-3 py-2 font-medium text-[hsl(var(--text-title))]">
-                  <span className="inline-flex items-center gap-1.5">
-                    {r.name}
-                    {isMe && (
-                      <Badge variant="soft" size="sm">
-                        Ja
-                      </Badge>
+                <td className="px-3 py-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center justify-center h-6 w-6 rounded-full text-xs font-bold",
+                      rankBadge(idx),
                     )}
-                    {r.target_achieved && (
-                      <Crown
-                        className="h-3.5 w-3.5 text-amber-500"
-                        aria-label={`≥${targetPct}% hit ratio`}
-                      />
-                    )}
+                  >
+                    {idx + 1}
                   </span>
                 </td>
+                <td className="px-3 py-2 font-medium text-[hsl(var(--text-title))]">
+                  {r.name}
+                  {isMe && (
+                    <Badge variant="soft" size="sm" className="ml-2">
+                      Ja
+                    </Badge>
+                  )}
+                  {r.target_achieved && (
+                    <Crown
+                      className="inline h-3.5 w-3.5 ml-1.5 text-amber-500"
+                      aria-label={`hit ratio ≥ ${targetPct}%`}
+                    />
+                  )}
+                </td>
                 <td className="px-3 py-2 tabular-nums">{r.total_requests}</td>
-                <td className="px-3 py-2 tabular-nums">{r.total_vacancies}</td>
+                <td className="px-3 py-2 tabular-nums text-sky-600">
+                  {r.total_vacancies}
+                </td>
                 <td className="px-3 py-2 tabular-nums font-semibold">
                   {r.placements}
                 </td>
-                <td className="px-3 py-2 tabular-nums">
-                  <span
-                    className={cn(
-                      r.hit_ratio >= targetPct
-                        ? "text-[#1d5e31] font-semibold"
-                        : "text-[hsl(var(--text-muted))]",
-                    )}
-                  >
-                    {r.hit_ratio.toFixed(1)}%
-                  </span>
+                <td
+                  className={cn(
+                    "px-3 py-2 tabular-nums",
+                    hitRatioColor(r.hit_ratio, targetPct),
+                  )}
+                >
+                  {r.hit_ratio.toFixed(1)}%
                 </td>
-                <td className="px-3 py-2 tabular-nums">
+                <td
+                  className={cn(
+                    "px-3 py-2 tabular-nums",
+                    fillRateColor(r.fill_rate),
+                  )}
+                >
                   {r.fill_rate.toFixed(1)}%
                 </td>
               </tr>
@@ -275,93 +334,152 @@ function DlRankingTable({
   )
 }
 
-// ── Trend Chart ──────────────────────────────────────────────────────────
+// ── Team history chart (5 serii) ────────────────────────────────────────
 
-function TrendChart({ trend }: { trend: TrendPoint[] }) {
+function TeamHistoryChart({
+  trend,
+  type,
+}: {
+  trend: TrendPoint[]
+  type: "line" | "bar"
+}) {
+  const Chart = type === "line" ? LineChart : BarChart
   return (
-    <div className="h-64">
+    <div className="h-80">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={trend} margin={{ top: 10, right: 20, bottom: 0, left: -10 }}>
+        <Chart
+          data={trend}
+          margin={{ top: 10, right: 20, bottom: 0, left: -10 }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border-subtle))" />
           <XAxis
             dataKey="month_label"
             tick={{ fontSize: 11 }}
             stroke="hsl(var(--text-muted))"
           />
-          <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--text-muted))" />
+          <YAxis
+            yAxisId="left"
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--text-muted))"
+          />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--text-muted))"
+          />
           <Tooltip />
           <Legend wrapperStyle={{ fontSize: 12 }} />
-          <Line
-            type="monotone"
-            dataKey="requests"
-            stroke="hsl(var(--accent))"
-            strokeWidth={2}
-            dot={{ r: 3 }}
-            name="Requests"
-          />
-          <Line
-            type="monotone"
-            dataKey="placements"
-            stroke="#1d5e31"
-            strokeWidth={2}
-            dot={{ r: 3 }}
-            name="Placements"
-          />
-          <Line
-            type="monotone"
-            dataKey="hit_ratio"
-            stroke="#b45309"
-            strokeWidth={2}
-            dot={{ r: 3 }}
-            strokeDasharray="4 4"
-            name="Hit Ratio %"
-          />
-        </LineChart>
+          {type === "line" ? (
+            <>
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="requests"
+                stroke="#0ea5e9"
+                name="Zapytania"
+              />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="vacancies"
+                stroke="#8b5cf6"
+                name="Wakaty"
+              />
+              <Line
+                yAxisId="left"
+                type="monotone"
+                dataKey="placements"
+                stroke="#10b981"
+                name="Placements"
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="hit_ratio"
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+                name="Hit Ratio %"
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="fill_rate"
+                stroke="#ec4899"
+                strokeDasharray="4 4"
+                name="Fill Rate %"
+              />
+            </>
+          ) : (
+            <>
+              <Bar yAxisId="left" dataKey="requests" fill="#0ea5e9" name="Zapytania" />
+              <Bar yAxisId="left" dataKey="vacancies" fill="#8b5cf6" name="Wakaty" />
+              <Bar
+                yAxisId="left"
+                dataKey="placements"
+                fill="#10b981"
+                name="Placements"
+              />
+            </>
+          )}
+        </Chart>
       </ResponsiveContainer>
     </div>
   )
 }
 
-// ── Page ────────────────────────────────────────────────────────────────
+// ── Main Page ───────────────────────────────────────────────────────────
 
 export default function DeliveryLeadDashboard() {
   const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
 
-  const { data: me, isLoading: meLoading } = useQuery<MyDlResponse>({
-    queryKey: ["my-delivery-lead", "month"],
-    queryFn: () =>
-      api
-        .get("/api/reports/my-delivery-lead?period=month")
-        .then((r) => r.data),
-    enabled: hydrated && user?.role === "delivery_lead",
-    staleTime: 60 * 1000,
-  })
+  // Allow DL + admin + HoR (team-wide view).
+  const isAllowed =
+    !!user &&
+    ["delivery_lead", "admin", "head_of_recruitment"].includes(user.role)
+  const isMeDl = user?.role === "delivery_lead"
 
-  const { data: teamReport } = useQuery<DlReportResponse>({
+  const [chartType, setChartType] = useState<"line" | "bar">("line")
+
+  const { data: teamReport, refetch: refetchReport } = useQuery<DlReport>({
     queryKey: ["report-delivery-leads", "month"],
     queryFn: () =>
       api.get("/api/reports/delivery-leads?period=month").then((r) => r.data),
-    enabled: hydrated && !!user,
+    enabled: hydrated && isAllowed,
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: trend } = useQuery<TrendResponse>({
-    queryKey: ["delivery-lead-trend", user?.id],
-    queryFn: () =>
-      api
-        .get(`/api/reports/delivery-leads/${user?.id}/trend?months=6`)
-        .then((r) => r.data),
-    enabled: hydrated && !!user && user.role === "delivery_lead",
+  const { data: trendAll } = useQuery<{ trend: TrendPoint[] } | null>({
+    queryKey: ["dl-trend-all", "6m"],
+    // Nexus nie ma (jeszcze) team-wide trendu; używamy trendu zalogowanego DL
+    // jako proxy. Dla admina/HoR zwróci null (endpoint wymaga dl_id).
+    queryFn: async () => {
+      if (!user || user.role !== "delivery_lead") return null
+      const r = await api.get(
+        `/api/reports/delivery-leads/${user.id}/trend?months=6`,
+      )
+      return r.data
+    },
+    enabled: hydrated && isAllowed,
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: champions } = useQuery<CompetitionResponse>({
+  const { data: champions, refetch: refetchQ } = useQuery<CompetitionResponse>({
     queryKey: ["competitions-current", "quarterly_champions_dl"],
     queryFn: () =>
       api
         .get("/api/competitions/current?type=quarterly_champions_dl")
         .then((r) => r.data),
+    enabled: hydrated && isAllowed,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: dlClients } = useQuery<DlClientsSummary[]>({
+    queryKey: ["team-structure-dl-clients"],
+    queryFn: () =>
+      api.get("/api/team-structure/dl-clients").then((r) => r.data),
+    enabled: hydrated && isAllowed,
     staleTime: 5 * 60 * 1000,
   })
 
@@ -369,15 +487,14 @@ export default function DeliveryLeadDashboard() {
     return <div className="p-6 text-[hsl(var(--text-muted))]">Ładowanie…</div>
   }
 
-  if (!user || user.role !== "delivery_lead") {
+  if (!isAllowed) {
     return (
       <div className="p-6">
         <Card>
           <CardHeader>
             <CardTitle>Brak dostępu</CardTitle>
             <CardDescription>
-              Ten panel jest dostępny tylko dla roli Delivery Lead. Admini
-              mogą podejrzeć dane na /reports.
+              Panel dla ról: Delivery Lead, Admin, Head of Recruitment.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -385,176 +502,238 @@ export default function DeliveryLeadDashboard() {
     )
   }
 
-  const myRow = me?.me
-  const clientsCount = myRow?.clients.length ?? 0
-  const targetPct = me?.team_overall.hit_ratio_target_pct ?? 30
+  const ov = teamReport?.overall
+  const targetPct = ov?.hit_ratio_target_pct ?? 30
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-6 p-4 md:p-6">
-      {/* Hero */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
-          Panel Delivery Lead · {new Date().toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
-        </p>
-        <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] mt-1">
-          Cześć, {user.name.split(" ")[0]}
-        </h1>
-        <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
-          Twoje body leasing w liczbach + miejsce w Lidze Mistrzów.
-        </p>
+    <div className="max-w-[1400px] mx-auto space-y-5 p-4 md:p-6">
+      {/* Header */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-v2-m bg-amber-500 flex items-center justify-center shadow">
+            <Target className="h-7 w-7 text-white" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
+              Panel Delivery Lead
+            </p>
+            <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] leading-tight">
+              Hit Ratio i Placements
+            </h1>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            refetchReport()
+            refetchQ()
+          }}
+        >
+          <RefreshCw className="h-4 w-4" />
+          Odśwież
+        </Button>
       </div>
 
-      {/* KPI cards */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {meLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <div className="h-4 bg-[hsl(var(--border-subtle))] rounded w-24 mb-3" />
-              <div className="h-8 bg-[hsl(var(--border-subtle))] rounded w-20" />
-            </Card>
-          ))
-        ) : (
-          <>
-            <KpiCard
-              title="Requests (body leasing)"
-              value={myRow?.total_requests ?? 0}
-              subtitle={`${myRow?.total_vacancies ?? 0} vacancy`}
-              icon={Briefcase}
-            />
-            <KpiCard
-              title="Placements"
-              value={myRow?.placements ?? 0}
-              subtitle={`pozycja #${me?.rank ?? "—"} / ${me?.total_dls ?? 0}`}
-              icon={Target}
-              accent="green"
-            />
-            <KpiCard
-              title="Hit Ratio"
-              value={`${(myRow?.hit_ratio ?? 0).toFixed(1)}%`}
-              subtitle={
-                myRow?.target_achieved
-                  ? `cel ≥${targetPct}% osiągnięty`
-                  : `do celu brakuje ${Math.max(targetPct - (myRow?.hit_ratio ?? 0), 0).toFixed(1)} pp`
-              }
-              accent={myRow?.target_achieved ? "green" : "amber"}
-              icon={TrendingUp}
-            />
-            <KpiCard
-              title="Fill Rate"
-              value={`${(myRow?.fill_rate ?? 0).toFixed(1)}%`}
-              subtitle={`avg ${(myRow?.avg_vacancies_per_request ?? 0).toFixed(2)} vacancy/req`}
-              icon={Users}
-            />
-          </>
-        )}
-      </section>
-
-      {/* Moi klienci + Pipeline otwarty */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Crown className="h-4 w-4 text-amber-500" />
-              <CardTitle>Moi klienci</CardTitle>
-              <span className="ml-auto text-xs text-[hsl(var(--text-muted))]">
-                {clientsCount} aktywnych
+      {/* KPI row */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <PastelKpi
+          title="Zamknięte zapytania"
+          value={ov?.total_requests ?? 0}
+          subtitle={`+${ov?.total_open_requests ?? 0} otwartych`}
+          icon={Briefcase}
+          color="slate"
+        />
+        <PastelKpi
+          title="Placements"
+          value={ov?.total_placements ?? 0}
+          subtitle={`${ov?.total_vacancies ?? 0} wakatów łącznie`}
+          icon={Target}
+          color="amber"
+        />
+        <PastelKpi
+          title="Średni Hit Ratio"
+          value={`${(ov?.avg_hit_ratio ?? 0).toFixed(1)}%`}
+          subtitle={`cel: ${targetPct}%`}
+          icon={TrendingUp}
+          color="purple"
+        />
+        <PastelKpi
+          title={`Osiąga target (${targetPct}%)`}
+          value={
+            <>
+              {ov?.target_count ?? 0}
+              <span className="text-[hsl(var(--text-muted))] text-2xl">
+                /{ov?.dl_count ?? 0}
               </span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {clientsCount === 0 ? (
-              <p className="text-sm text-[hsl(var(--text-muted))] py-4">
-                Nie masz przypisanych klientów. Skontaktuj się z Head of
-                Recruitment żeby dopisać Cię w panelu macierzy.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {myRow?.clients.map((c) => (
-                  <Badge key={c} variant="soft">
-                    {c}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </>
+          }
+          subtitle={`Fill Rate śr.: ${(ov?.avg_fill_rate ?? 0).toFixed(1)}%`}
+          icon={Users}
+          color="emerald"
+        />
+      </div>
 
+      {/* Hero Liga Mistrzów DL */}
+      {champions && (
+        <HeroLigaMistrzow
+          title="Liga Mistrzów DL"
+          period={champions.period}
+          daysRemaining={champions.days_remaining ?? 0}
+          top3={champions.top3}
+          fullRanking={champions.full_ranking}
+          quarterlyPrizes={
+            champions.quarterly_prizes_pln
+              ? Object.fromEntries(
+                  Object.entries(champions.quarterly_prizes_pln).map(
+                    ([k, v]) => [Number(k), v],
+                  ),
+                )
+              : { 1: 5000, 2: 3000, 3: 2000 }
+          }
+          metricLabel="placementów"
+          metricUnit=""
+          requirement={champions.requirement}
+          highlightUserId={isMeDl ? user?.id : null}
+        />
+      )}
+
+      {/* Historia zespołu */}
+      {isMeDl && trendAll?.trend && trendAll.trend.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Otwarty pipeline</CardTitle>
-            <CardDescription>pokazuje potencjał do zrealizowania</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm text-[hsl(var(--text-body))]">
-                Otwarte requesty
-              </span>
-              <span className="font-display text-2xl font-extrabold text-[hsl(var(--text-title))]">
-                {myRow?.open_requests ?? 0}
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm text-[hsl(var(--text-body))]">
-                Otwarte vacancy
-              </span>
-              <span className="font-display text-2xl font-extrabold text-[hsl(var(--accent))]">
-                {myRow?.open_vacancies ?? 0}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      {/* Trend 6M + Podium */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          <CardHeader>
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-[hsl(var(--accent))]" />
-              <CardTitle>Mój trend 6 miesięcy</CardTitle>
+              <LineIcon className="h-4 w-4 text-[hsl(var(--accent))]" />
+              <CardTitle>Moja historia 6 miesięcy</CardTitle>
+              <div className="ml-auto flex gap-1">
+                <Button
+                  variant={chartType === "line" ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setChartType("line")}
+                >
+                  Liniowy
+                </Button>
+                <Button
+                  variant={chartType === "bar" ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setChartType("bar")}
+                >
+                  Słupkowy
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
-            {trend && trend.trend.length > 0 ? (
-              <TrendChart trend={trend.trend} />
-            ) : (
-              <p className="text-sm text-[hsl(var(--text-muted))] py-8 text-center">
-                Brak danych historycznych.
-              </p>
-            )}
+            <TeamHistoryChart trend={trendAll.trend} type={chartType} />
+            <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-2 text-[11px] text-[hsl(var(--text-muted))]">
+              <div>• Zapytania — lewa oś</div>
+              <div>• Wakaty — lewa oś</div>
+              <div>• Placements — lewa oś</div>
+              <div>• Hit Ratio % — prawa oś</div>
+              <div>• Fill Rate % — prawa oś</div>
+            </div>
           </CardContent>
         </Card>
+      )}
 
-        <ChampionsPodium
-          title="Liga Mistrzów DL"
-          subtitle="Kwartalny ranking"
-          period={champions?.period ?? ""}
-          top3={champions?.top3 ?? []}
-          metricLabel="placementów"
-          targetPct={champions?.target_pct ?? 30}
-          highlightUserId={user.id}
-        />
-      </section>
-
-      {/* Ranking DL zespołu */}
+      {/* Ranking Delivery Leadów */}
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-[hsl(var(--accent))]" />
-            <CardTitle>Ranking zespołu Delivery Leadów</CardTitle>
-            <Badge variant="soft" size="sm" className="ml-auto">
-              bieżący miesiąc
-            </Badge>
-          </div>
+          <CardTitle>Ranking Delivery Leadów</CardTitle>
+          <CardDescription>
+            Kliknij nagłówek kolumny aby posortować. Korona oznacza osiągnięcie
+            progu {targetPct}% hit ratio.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <DlRankingTable
+          <DlRanking
             rows={teamReport?.per_dl ?? []}
-            highlightUserId={user.id}
+            highlightUserId={user?.id}
             targetPct={targetPct}
           />
         </CardContent>
       </Card>
+
+      {/* Teal gradient DL → Clients */}
+      <div className="rounded-v2-m overflow-hidden border border-[hsl(var(--border-subtle))] shadow-v2-s">
+        <div className="bg-gradient-to-r from-teal-500 via-cyan-600 to-teal-600 px-4 py-3 text-white flex items-center gap-2">
+          <Crown className="h-5 w-5" />
+          <div>
+            <div className="font-display font-bold text-lg">
+              Delivery Lead · Przypisani Klienci
+            </div>
+            <div className="text-xs text-white/70">
+              ⭐ = Head (główny opiekun klienta)
+            </div>
+          </div>
+        </div>
+        <div className="bg-[hsl(var(--bg-surface))]">
+          <table className="w-full text-sm">
+            <thead className="border-b border-[hsl(var(--border-subtle))]">
+              <tr>
+                <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-4 py-2 w-48">
+                  Delivery Lead
+                </th>
+                <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-4 py-2">
+                  Klienci
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+              {(dlClients ?? []).map((row) => {
+                const initials = row.delivery_lead.name
+                  .split(" ")
+                  .map((p) => p[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()
+                return (
+                  <tr key={row.delivery_lead.id}>
+                    <td className="px-4 py-3 align-top">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-teal-100 text-teal-800 text-xs font-bold">
+                          {initials}
+                        </span>
+                        <span className="font-medium text-[hsl(var(--text-title))]">
+                          {row.delivery_lead.name}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.clients.length === 0 && (
+                        <span className="text-xs text-[hsl(var(--text-muted))]">
+                          —
+                        </span>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {row.clients.map((c) => (
+                          <span
+                            key={c.id}
+                            className={cn(
+                              "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium",
+                              c.is_head
+                                ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300"
+                                : "bg-amber-50 text-amber-800",
+                            )}
+                          >
+                            {c.is_head && "⭐"}
+                            {c.name}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {(dlClients ?? []).length === 0 && (
+            <p className="text-center text-sm text-[hsl(var(--text-muted))] py-6">
+              Brak przypisań DL → klient. Dodaj w /admin/team-structure.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

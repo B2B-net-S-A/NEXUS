@@ -4,6 +4,7 @@
 Dostęp: GET dla wszystkich zalogowanych; POST /freeze tylko admin.
 """
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -43,7 +44,8 @@ async def get_current(
         "Domyślnie: bieżący kwartał/miesiąc.",
     ),
 ):
-    """Live ranking (bez zapisu do DB). Pokazuje TOP 10 + meta."""
+    """Live ranking (bez zapisu do DB). Pokazuje TOP 10 + meta (countdown,
+    system punktowy, pula nagród, warunek udziału)."""
     ctype = _parse_type(type)
     if period is None:
         if ctype in (
@@ -72,6 +74,38 @@ async def get_current(
         for idx, r in enumerate(top3)
     ]
 
+    # Meta fields (gamifikacja jak w InfraReporterze).
+    today = date.today()
+    days_remaining: Optional[int] = None
+    prize_pool: Optional[int] = None
+    requirement: Optional[str] = None
+    points_formula: Optional[dict] = None
+
+    if ctype in (
+        CompetitionType.quarterly_champions_dl,
+        CompetitionType.quarterly_champions_recruiter,
+    ):
+        days_remaining = comp_service.days_left_in_quarter(today)
+        prize_pool = sum(comp_service.QUARTERLY_PRIZES_PLN.values())
+        if ctype == CompetitionType.quarterly_champions_dl:
+            requirement = (
+                f"Wymagane hit ratio ≥ {int(comp_service.HIT_RATIO_TARGET)}% "
+                f"oraz minimum {comp_service.QUARTERLY_MIN_PLACEMENTS} placementy "
+                "w kwartale."
+            )
+        else:
+            requirement = (
+                f"Wymagane minimum {comp_service.QUARTERLY_MIN_PLACEMENTS} "
+                "placementów w kwartale (łącznie 1 miesięcznie)."
+            )
+            points_formula = comp_service.POINTS_FORMULA
+    elif ctype in (
+        CompetitionType.monthly_recommendations,
+        CompetitionType.monthly_placements,
+    ):
+        days_remaining = comp_service.days_left_in_month(today)
+        prize_pool = comp_service.MONTHLY_RACE_PRIZE_PLN
+
     return {
         "type": ctype.value,
         "period": period,
@@ -82,6 +116,95 @@ async def get_current(
             comp_service.HIT_RATIO_TARGET
             if ctype == CompetitionType.quarterly_champions_dl
             else None
+        ),
+        "days_remaining": days_remaining,
+        "prize_pool_pln": prize_pool,
+        "requirement": requirement,
+        "points_formula": points_formula,
+        "quarterly_prizes_pln": (
+            comp_service.QUARTERLY_PRIZES_PLN
+            if ctype
+            in (
+                CompetitionType.quarterly_champions_dl,
+                CompetitionType.quarterly_champions_recruiter,
+            )
+            else None
+        ),
+    }
+
+
+@router.get("/monthly-races")
+async def monthly_races(
+    _user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: Optional[str] = None,
+):
+    """Dwa wyścigi miesięczne w jednym response (dla hero dashboard):
+    Wyścig Rekomendacji + Wyścig Placementów. Każdy z warunkami kwal +
+    oznaczeniem czyją nagrodę wyklucza lider kwartału.
+    """
+    month_period = period or comp_service.current_month_period()
+    quarter_period = comp_service.current_quarter_period()
+
+    rec_ranked = await comp_service.monthly_most_recommendations(db, month_period)
+    pl_ranked = await comp_service.monthly_most_placements(db, month_period)
+
+    # Wykluczenie: lider kwartalny (rank 1 w quarterly_champions_recruiter)
+    # nie może wygrać wyścigu miesięcznego — tylko z ranking nie wypadamy.
+    quarterly = await comp_service.quarterly_champions_recruiter(db, quarter_period)
+    excluded_ids = {quarterly[0].user_id} if quarterly else set()
+
+    days_left = comp_service.days_left_in_month(date.today())
+
+    def _format(ranked, extra_reqs: list[str]) -> dict:
+        ranking = [
+            {
+                **r.to_dict(),
+                "rank": idx + 1,
+                "excluded": r.user_id in excluded_ids,
+            }
+            for idx, r in enumerate(ranked)
+        ]
+        # Zakwalifikowany lider = pierwszy niewykluczony.
+        qualified = next(
+            (entry for entry in ranking if not entry["excluded"]), None
+        )
+        return {
+            "period": month_period,
+            "days_remaining": days_left,
+            "prize": {
+                "amount_pln": comp_service.MONTHLY_RACE_PRIZE_PLN,
+                "name": comp_service.MONTHLY_RACE_PRIZE_NAME,
+            },
+            "requirements": extra_reqs
+            + ["Lider kwartalny wykluczony z nagrody miesięcznej"],
+            "ranking": ranking,
+            "excluded_user_ids": list(excluded_ids),
+            "qualified_leader": qualified,
+        }
+
+    return {
+        "recommendations": _format(
+            rec_ranked,
+            [
+                (
+                    f"Wymóg: min. {comp_service.MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY} "
+                    "weryfikacji/dzień roboczy w tym miesiącu"
+                ),
+                (
+                    f"Wymóg: min. {int(comp_service.MONTHLY_RACE_MIN_PRECISION_PCT)}% "
+                    "precision rate (rekomendacje / weryfikacje)"
+                ),
+            ],
+        ),
+        "placements": _format(
+            pl_ranked,
+            [
+                (
+                    f"Minimum {comp_service.MONTHLY_RACE_MIN_PLACEMENTS} "
+                    "placementy do kwalifikacji"
+                )
+            ],
         ),
     }
 

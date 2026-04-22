@@ -1,13 +1,15 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Filter, Linkedin, Send, Target, Trophy, Users } from "lucide-react"
+import { CheckCircle2, Filter, Linkedin, RefreshCw, Send, Target, Users } from "lucide-react"
 
 import api from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ChampionsPodium } from "@/components/v2/gamification/ChampionsPodium"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { HeroLigaMistrzow, type HeroPodiumEntry } from "@/components/v2/gamification/HeroLigaMistrzow"
+import { RaceCard } from "@/components/v2/gamification/RaceCard"
 import { ROLE_LABELS, useAuthStore } from "@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -40,39 +42,37 @@ interface RecruitmentReport {
 interface CompetitionResponse {
   type: string
   period: string
-  top3: Array<{
-    rank: number
-    user_id: number
-    name: string
-    metric_value: number
-    hit_ratio?: number | null
-    prize_pln?: number
-  }>
-  target_pct?: number | null
+  top3: HeroPodiumEntry[]
+  full_ranking: HeroPodiumEntry[]
+  days_remaining: number | null
+  prize_pool_pln: number | null
+  requirement: string | null
+  points_formula: { placement: number; interview: number; recommendation: number } | null
+  quarterly_prizes_pln: Record<string, number> | null
 }
 
-interface MyPositionResponse {
-  type: string
+interface MonthlyRacesResponse {
+  recommendations: RaceSection
+  placements: RaceSection
+}
+
+interface RaceSection {
   period: string
-  rank: number | null
-  me: {
-    user_id: number
-    name: string
-    metric_value: number
-  } | null
-  context: Array<{
+  days_remaining: number
+  prize: { amount_pln: number; name: string }
+  requirements: string[]
+  ranking: Array<{
     rank: number
     user_id: number
     name: string
     metric_value: number
+    role?: string
+    excluded: boolean
   }>
-  total: number
 }
 
 interface LinkedInMySummary {
   period: string
-  date_from: string
-  date_to: string
   me: {
     cv_added: number
     messages_sent: number
@@ -81,50 +81,99 @@ interface LinkedInMySummary {
     cv_response_rate: number
     days_reported: number
   } | null
-  trend_14d: Array<{
-    date: string
-    cv_added: number
-    messages_sent: number
-    responses_received: number
-  }>
 }
 
-// ── KPI card (copy z DL panel) ──────────────────────────────────────────
+// ── Pastel KPI card ─────────────────────────────────────────────────────
 
-function KpiCard({
+const KPI_COLORS = {
+  blue: {
+    bg: "bg-sky-50 border-sky-200",
+    icon: "bg-sky-100 text-sky-700",
+    title: "text-sky-900",
+    value: "text-sky-950",
+  },
+  purple: {
+    bg: "bg-purple-50 border-purple-200",
+    icon: "bg-purple-100 text-purple-700",
+    title: "text-purple-900",
+    value: "text-purple-950",
+  },
+  amber: {
+    bg: "bg-amber-50 border-amber-200",
+    icon: "bg-amber-100 text-amber-700",
+    title: "text-amber-900",
+    value: "text-amber-950",
+  },
+  emerald: {
+    bg: "bg-emerald-50 border-emerald-200",
+    icon: "bg-emerald-100 text-emerald-700",
+    title: "text-emerald-900",
+    value: "text-emerald-950",
+  },
+} as const
+
+function PastelKpi({
   title,
   value,
   subtitle,
   icon: Icon,
-  accent,
+  color,
 }: {
   title: string
   value: React.ReactNode
   subtitle?: string
   icon: React.ComponentType<{ className?: string }>
-  accent?: "green" | "amber" | "default"
+  color: keyof typeof KPI_COLORS
 }) {
-  const accentClass =
-    accent === "green"
-      ? "text-[#1d5e31]"
-      : accent === "amber"
-      ? "text-amber-600"
-      : "text-[hsl(var(--text-title))]"
+  const c = KPI_COLORS[color]
   return (
-    <Card>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-          {title}
-        </p>
-        <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+    <div className={cn("rounded-v2-m border px-4 py-3", c.bg)}>
+      <div className="flex items-center gap-2 mb-2">
+        <span
+          className={cn(
+            "inline-flex items-center justify-center h-7 w-7 rounded-full",
+            c.icon,
+          )}
+        >
           <Icon className="h-4 w-4" />
         </span>
+        <span className={cn("text-[11px] font-semibold uppercase tracking-wide", c.title)}>
+          {title}
+        </span>
       </div>
-      <div className={cn("font-display text-3xl font-extrabold tracking-[-0.02em] leading-none", accentClass)}>
+      <div className={cn("font-display text-3xl font-extrabold leading-none", c.value)}>
         {value}
       </div>
-      {subtitle && <p className="text-xs text-[hsl(var(--text-muted))] mt-2">{subtitle}</p>}
-    </Card>
+      {subtitle && (
+        <div className={cn("text-xs mt-1.5 opacity-80", c.title)}>{subtitle}</div>
+      )}
+    </div>
+  )
+}
+
+// ── Funnel efficiency bar ────────────────────────────────────────────────
+
+function FunnelBar({
+  fromLabel,
+  toLabel,
+  pct,
+  color,
+}: {
+  fromLabel: string
+  toLabel: string
+  pct: number
+  color: keyof typeof KPI_COLORS
+}) {
+  const c = KPI_COLORS[color]
+  return (
+    <div className={cn("rounded-v2-s border-l-4 bg-white/50 px-3 py-2", `border-${color}-400`)}>
+      <div className={cn("text-[10px] uppercase tracking-wide", c.title)}>
+        {fromLabel} → {toLabel}
+      </div>
+      <div className={cn("font-display text-xl font-extrabold mt-0.5", c.value)}>
+        {pct.toFixed(1)}%
+      </div>
+    </div>
   )
 }
 
@@ -137,7 +186,7 @@ export default function RecruiterDashboard() {
   const allowedRoles = ["sourcer", "tac", "recruiter"] as const
   const isAllowed = !!user && (allowedRoles as readonly string[]).includes(user.role)
 
-  const { data: report } = useQuery<RecruitmentReport>({
+  const { data: report, refetch: refetchReport } = useQuery<RecruitmentReport>({
     queryKey: ["report-recruitment", "month"],
     queryFn: () =>
       api.get("/api/reports/recruitment?period=month").then((r) => r.data),
@@ -147,12 +196,20 @@ export default function RecruiterDashboard() {
 
   const myStats = report?.per_recruiter.find((r) => r.user_id === user?.id)
 
-  const { data: quarterChampions } = useQuery<CompetitionResponse>({
+  const { data: quarterChampions, refetch: refetchQ } = useQuery<CompetitionResponse>({
     queryKey: ["competitions-current", "quarterly_champions_recruiter"],
     queryFn: () =>
       api
         .get("/api/competitions/current?type=quarterly_champions_recruiter")
         .then((r) => r.data),
+    enabled: hydrated && isAllowed,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: races, refetch: refetchRaces } = useQuery<MonthlyRacesResponse>({
+    queryKey: ["monthly-races", "current"],
+    queryFn: () =>
+      api.get("/api/competitions/monthly-races").then((r) => r.data),
     enabled: hydrated && isAllowed,
     staleTime: 5 * 60 * 1000,
   })
@@ -163,26 +220,6 @@ export default function RecruiterDashboard() {
       api.get("/api/competitions/current?type=hall_of_fame").then((r) => r.data),
     enabled: hydrated && isAllowed,
     staleTime: 30 * 60 * 1000,
-  })
-
-  const { data: myPlacementsPosition } = useQuery<MyPositionResponse>({
-    queryKey: ["my-competition-position", "monthly_placements"],
-    queryFn: () =>
-      api
-        .get("/api/competitions/my-position?type=monthly_placements")
-        .then((r) => r.data),
-    enabled: hydrated && isAllowed,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const { data: myRecPosition } = useQuery<MyPositionResponse>({
-    queryKey: ["my-competition-position", "monthly_recommendations"],
-    queryFn: () =>
-      api
-        .get("/api/competitions/my-position?type=monthly_recommendations")
-        .then((r) => r.data),
-    enabled: hydrated && isAllowed,
-    staleTime: 5 * 60 * 1000,
   })
 
   const { data: linkedinMy } = useQuery<LinkedInMySummary>({
@@ -215,270 +252,243 @@ export default function RecruiterDashboard() {
     )
   }
 
-  const qualityScore =
-    myStats && myStats.rekomendacje
-      ? ((myStats.interviews / myStats.rekomendacje) * 100).toFixed(1)
-      : "0.0"
-  const placementConv =
-    myStats && myStats.interviews
-      ? ((myStats.placements / myStats.interviews) * 100).toFixed(1)
-      : "0.0"
+  const funnel = report?.funnel
+  const eff = report?.funnel_efficiency
+  const overallPct =
+    funnel && funnel.weryfikacje_count
+      ? (funnel.placements_count / funnel.weryfikacje_count) * 100
+      : 0
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-6 p-4 md:p-6">
-      {/* Hero */}
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
-          Panel {ROLE_LABELS[user.role]} · bieżący miesiąc
-        </p>
-        <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] mt-1">
-          Cześć, {user.name.split(" ")[0]}
-        </h1>
-        <p className="text-sm text-[hsl(var(--text-muted))] mt-1">
-          Twoje KPI body leasing + pozycja w konkursach.
-        </p>
+    <div className="max-w-[1400px] mx-auto space-y-5 p-4 md:p-6">
+      {/* Hero header with period filter */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
+            Panel {ROLE_LABELS[user.role]} · Rekrutacja
+          </p>
+          <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] mt-1">
+            Cześć, {user.name.split(" ")[0]}
+          </h1>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            refetchReport()
+            refetchQ()
+            refetchRaces()
+          }}
+        >
+          <RefreshCw className="h-4 w-4" />
+          Odśwież
+        </Button>
       </div>
 
-      {/* KPI cards */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
+      {/* KPI row — pastel cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <PastelKpi
           title="Weryfikacje"
-          value={myStats?.weryfikacje ?? 0}
-          subtitle="CV przesortowane"
+          value={funnel?.weryfikacje_count ?? 0}
+          subtitle={`Ja: ${myStats?.weryfikacje ?? 0}`}
           icon={Filter}
+          color="blue"
         />
-        <KpiCard
+        <PastelKpi
           title="Rekomendacje"
-          value={myStats?.rekomendacje ?? 0}
-          subtitle="do klienta"
+          value={funnel?.rekomendacje_count ?? 0}
+          subtitle={`Ja: ${myStats?.rekomendacje ?? 0}`}
           icon={Users}
+          color="purple"
         />
-        <KpiCard
-          title="Interviews (klient)"
-          value={myStats?.interviews ?? 0}
-          subtitle={`quality score: ${qualityScore}%`}
+        <PastelKpi
+          title="Interviews"
+          value={funnel?.interviews_count ?? 0}
+          subtitle={`Ja: ${myStats?.interviews ?? 0}`}
           icon={CheckCircle2}
+          color="amber"
         />
-        <KpiCard
+        <PastelKpi
           title="Placements"
-          value={myStats?.placements ?? 0}
-          subtitle={`hit ratio: ${(myStats?.hit_ratio ?? 0).toFixed(1)}%`}
+          value={funnel?.placements_count ?? 0}
+          subtitle={`Ja: ${myStats?.placements ?? 0}`}
           icon={Target}
-          accent="green"
+          color="emerald"
         />
-      </section>
+      </div>
 
-      {/* Lejek konwersji */}
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader>
-            <CardDescription>Weryfikacja → Rekomendacja</CardDescription>
-            <CardTitle className="font-display text-2xl">
-              {qualityScore}%
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Rekomendacja → Interview u klienta</CardDescription>
-            <CardTitle className="font-display text-2xl">
-              {myStats && myStats.rekomendacje
-                ? ((myStats.interviews / myStats.rekomendacje) * 100).toFixed(1)
-                : "0.0"}
-              %
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Interview → Placement</CardDescription>
-            <CardTitle className="font-display text-2xl">
-              {placementConv}%
-            </CardTitle>
-          </CardHeader>
-        </Card>
-      </section>
+      {/* Efektywność lejka — 4 pasy */}
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] mb-2">
+          Efektywność lejka
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <FunnelBar
+            fromLabel="Weryfikacje"
+            toLabel="Rekomendacje"
+            pct={eff?.weryfikacje_to_rekomendacje ?? 0}
+            color="blue"
+          />
+          <FunnelBar
+            fromLabel="Rekomendacje"
+            toLabel="Interviews"
+            pct={eff?.rekomendacje_to_interviews ?? 0}
+            color="purple"
+          />
+          <FunnelBar
+            fromLabel="Interviews"
+            toLabel="Placements"
+            pct={eff?.interviews_to_placements ?? 0}
+            color="amber"
+          />
+          <FunnelBar
+            fromLabel="Overall (Wer"
+            toLabel="Plac)"
+            pct={overallPct}
+            color="emerald"
+          />
+        </div>
+      </div>
 
-      {/* Moja pozycja w wyścigach + Liga Mistrzów */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              <CardTitle>Wyścig: placements</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
-              #{myPlacementsPosition?.rank ?? "—"}
-            </p>
-            <p className="text-xs text-[hsl(var(--text-muted))] mt-1">
-              {myPlacementsPosition?.me?.metric_value ?? 0} placementów ·{" "}
-              {myPlacementsPosition?.total ?? 0} osób w rankingu
-            </p>
-            {myPlacementsPosition?.context && myPlacementsPosition.context.length > 0 && (
-              <div className="mt-4 space-y-1.5 text-sm">
-                {myPlacementsPosition.context.map((c) => (
-                  <div
-                    key={c.user_id}
-                    className={cn(
-                      "flex items-center justify-between py-1 px-2 rounded-v2-s",
-                      c.user_id === user.id &&
-                        "bg-[hsl(var(--accent-soft))] font-semibold",
-                    )}
-                  >
-                    <span>
-                      #{c.rank} {c.name}
-                    </span>
-                    <span className="tabular-nums">{c.metric_value}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              <CardTitle>Wyścig: rekomendacje</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
-              #{myRecPosition?.rank ?? "—"}
-            </p>
-            <p className="text-xs text-[hsl(var(--text-muted))] mt-1">
-              {myRecPosition?.me?.metric_value ?? 0} rekomendacji ·{" "}
-              {myRecPosition?.total ?? 0} osób w rankingu
-            </p>
-            {myRecPosition?.context && myRecPosition.context.length > 0 && (
-              <div className="mt-4 space-y-1.5 text-sm">
-                {myRecPosition.context.map((c) => (
-                  <div
-                    key={c.user_id}
-                    className={cn(
-                      "flex items-center justify-between py-1 px-2 rounded-v2-s",
-                      c.user_id === user.id &&
-                        "bg-[hsl(var(--accent-soft))] font-semibold",
-                    )}
-                  >
-                    <span>
-                      #{c.rank} {c.name}
-                    </span>
-                    <span className="tabular-nums">{c.metric_value}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <ChampionsPodium
-          title="Liga Mistrzów Q"
-          subtitle="Kwartalni zwycięzcy (rekrutacja)"
-          period={quarterChampions?.period ?? ""}
-          top3={quarterChampions?.top3 ?? []}
-          metricLabel="placementów"
+      {/* Hero Liga Mistrzów */}
+      {quarterChampions && (
+        <HeroLigaMistrzow
+          title="Liga Mistrzów"
+          period={quarterChampions.period}
+          daysRemaining={quarterChampions.days_remaining ?? 0}
+          top3={quarterChampions.top3}
+          fullRanking={quarterChampions.full_ranking}
+          quarterlyPrizes={
+            quarterChampions.quarterly_prizes_pln
+              ? Object.fromEntries(
+                  Object.entries(quarterChampions.quarterly_prizes_pln).map(
+                    ([k, v]) => [Number(k), v],
+                  ),
+                )
+              : { 1: 5000, 2: 3000, 3: 2000 }
+          }
+          metricLabel="pkt"
+          metricUnit="pkt"
+          pointsFormula={quarterChampions.points_formula}
+          requirement={quarterChampions.requirement}
           highlightUserId={user.id}
         />
-      </section>
+      )}
 
-      {/* Hall of Fame */}
-      {hallOfFame?.top3 && hallOfFame.top3.length > 0 && (
-        <section>
-          <ChampionsPodium
-            title="Hall of Fame"
-            subtitle="Wszech czasów TOP 3 po placementach"
-            period="all time"
-            top3={hallOfFame.top3}
-            metricLabel="placementów all-time"
+      {/* 2 wyścigi miesięczne side-by-side */}
+      {races && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <RaceCard
+            title="Wyścig Rekomendacji"
+            period={races.recommendations.period}
+            daysRemaining={races.recommendations.days_remaining}
+            variant="blue"
+            prize={races.recommendations.prize}
+            requirements={races.recommendations.requirements}
+            ranking={races.recommendations.ranking}
+            metricSuffix="rek."
             highlightUserId={user.id}
           />
-        </section>
+          <RaceCard
+            title="Wyścig Placementów"
+            period={races.placements.period}
+            daysRemaining={races.placements.days_remaining}
+            variant="green"
+            prize={races.placements.prize}
+            requirements={races.placements.requirements}
+            ranking={races.placements.ranking}
+            metricSuffix="plac."
+            highlightUserId={user.id}
+          />
+        </div>
+      )}
+
+      {/* Hall of Fame (mały) */}
+      {hallOfFame?.top3 && hallOfFame.top3.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <span className="text-amber-500">🏆</span>
+              Hall of Fame — all time
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-5 gap-3 text-sm">
+              {hallOfFame.top3.slice(0, 5).map((h, idx) => (
+                <div
+                  key={h.user_id}
+                  className={cn(
+                    "rounded-v2-s px-3 py-2 bg-[hsl(var(--accent-soft))]/40",
+                    h.user_id === user.id &&
+                      "ring-2 ring-[hsl(var(--accent))]",
+                  )}
+                >
+                  <div className="text-[10px] text-[hsl(var(--text-muted))] uppercase">
+                    #{idx + 1}
+                  </div>
+                  <div className="font-semibold truncate">{h.name}</div>
+                  <div className="font-display text-lg font-bold text-[hsl(var(--text-title))]">
+                    {h.metric_value}
+                  </div>
+                  <div className="text-[10px] text-[hsl(var(--text-muted))]">
+                    placementów
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* LinkedIn metrics (manual) */}
-      <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <Card>
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-              LinkedIn · CV dodane
-            </p>
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
-              <Linkedin className="h-4 w-4" />
-            </span>
-          </div>
-          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
-            {linkedinMy?.me?.cv_added ?? 0}
-          </div>
-          <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
-            w tym miesiącu ({linkedinMy?.me?.days_reported ?? 0} dni zaraportowanych)
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Linkedin className="h-4 w-4 text-[hsl(var(--accent))]" />
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))]">
+            Moje LinkedIn (ten miesiąc)
           </p>
-        </Card>
-        <Card>
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-              Wiadomości wysłane
-            </p>
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
-              <Send className="h-4 w-4" />
-            </span>
-          </div>
-          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
-            {linkedinMy?.me?.messages_sent ?? 0}
-          </div>
-        </Card>
-        <Card>
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-              Odpowiedzi
-            </p>
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
-              <CheckCircle2 className="h-4 w-4" />
-            </span>
-          </div>
-          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
-            {linkedinMy?.me?.responses_received ?? 0}
-          </div>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <PastelKpi
+            title="CV dodane"
+            value={linkedinMy?.me?.cv_added ?? 0}
+            subtitle={`${linkedinMy?.me?.days_reported ?? 0} dni raportu`}
+            icon={Linkedin}
+            color="blue"
+          />
+          <PastelKpi
+            title="Wiadomości wysłane"
+            value={linkedinMy?.me?.messages_sent ?? 0}
+            icon={Send}
+            color="purple"
+          />
+          <PastelKpi
+            title="Odpowiedzi"
+            value={linkedinMy?.me?.responses_received ?? 0}
+            subtitle={`${linkedinMy?.me?.response_rate ?? 0}% response rate`}
+            icon={CheckCircle2}
+            color="amber"
+          />
+          <PastelKpi
+            title="Quality ratio"
+            value={`${linkedinMy?.me?.cv_response_rate ?? 0}%`}
+            subtitle="odpowiedzi / CV dodane"
+            icon={Target}
+            color="emerald"
+          />
+        </div>
+        {(!linkedinMy?.me || !linkedinMy.me.days_reported) && (
           <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
-            {linkedinMy?.me?.response_rate ?? 0}% response rate
-          </p>
-        </Card>
-        <Card>
-          <div className="flex items-start justify-between gap-2 mb-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
-              Quality ratio
-            </p>
-            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
-              <Target className="h-4 w-4" />
-            </span>
-          </div>
-          <div className="font-display text-3xl font-extrabold text-[#1d5e31]">
-            {linkedinMy?.me?.cv_response_rate ?? 0}%
-          </div>
-          <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
-            odpowiedzi / CV dodane
-          </p>
-        </Card>
-      </section>
-
-      {(linkedinMy?.me === null || !linkedinMy?.me?.days_reported) && (
-        <Card>
-          <CardContent className="py-4 text-sm text-[hsl(var(--text-muted))]">
-            <Linkedin className="inline h-4 w-4 mr-1.5" />
-            Brak raportowanych metryk LinkedIn dla Ciebie w tym miesiącu. Poproś
-            admina o wpisanie Twoich dziennych liczb w panelu{" "}
-            <code className="font-mono text-xs bg-[hsl(var(--accent-soft))] px-1 py-0.5 rounded">
+            Brak raportowanych metryk LinkedIn. Admin wpisuje je w{" "}
+            <code className="font-mono bg-[hsl(var(--accent-soft))] px-1 py-0.5 rounded">
               /admin/linkedin-metrics
             </code>
             .
-          </CardContent>
-        </Card>
-      )}
+          </p>
+        )}
+      </div>
 
-      {/* Moja tabela vs zespół */}
+      {/* Team leaderboard */}
       <Card>
         <CardHeader>
           <CardTitle>Zespół (bieżący miesiąc)</CardTitle>
@@ -496,16 +506,16 @@ export default function RecruiterDashboard() {
                     Rekruter
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
-                    Weryfikacje
+                    Wer
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
-                    Rekomendacje
+                    Rek
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
-                    Interviews
+                    Int
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
-                    Placements
+                    Plac
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
                     Hit %
@@ -519,7 +529,7 @@ export default function RecruiterDashboard() {
                     <tr
                       key={r.user_id}
                       className={cn(
-                        "hover:bg-[hsl(var(--accent-soft))]/40 transition-colors",
+                        "hover:bg-[hsl(var(--accent-soft))]/40",
                         isMe && "bg-[hsl(var(--accent-soft))]/60 font-semibold",
                       )}
                     >

@@ -38,6 +38,23 @@ MONTHLY_RACE_MIN_PLACEMENTS = 2
 
 QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
+MONTHLY_RACE_PRIZE_NAME = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
+
+# System punktowy Liga Mistrzów Rekrutacja (port z InfraReportera).
+# Marlena 5P/8I/22R = 5·150 + 8·15 + 22·5 = 980 pkt ✓
+POINTS_PER_PLACEMENT = 150
+POINTS_PER_INTERVIEW = 15
+POINTS_PER_RECOMMENDATION = 5
+
+POINTS_FORMULA = {
+    "placement": POINTS_PER_PLACEMENT,
+    "interview": POINTS_PER_INTERVIEW,
+    "recommendation": POINTS_PER_RECOMMENDATION,
+}
+
+# Wymóg tygodniowej aktywności dla Wyścigu Rekomendacji.
+MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY = 4
+MONTHLY_RACE_MIN_PRECISION_PCT = 75.0
 
 
 @dataclass
@@ -138,6 +155,7 @@ async def _rank_recruiters_by_stage(
         select(
             User.id,
             User.name,
+            User.role,
             func.count(CandidateStage.id).label("cnt"),
         )
         .join(CandidateStage, User.id == CandidateStage.moved_by)
@@ -150,7 +168,7 @@ async def _rank_recruiters_by_stage(
             ),
             User.is_active == True,  # noqa: E712
         )
-        .group_by(User.id, User.name)
+        .group_by(User.id, User.name, User.role)
         .having(func.count(CandidateStage.id) >= min_value)
         .order_by(func.count(CandidateStage.id).desc())
     )
@@ -158,8 +176,126 @@ async def _rank_recruiters_by_stage(
         q = q.limit(limit)
     rows = (await db.execute(q)).all()
     return [
-        RankedUser(user_id=r.id, name=r.name, metric_value=int(r.cnt)) for r in rows
+        RankedUser(
+            user_id=r.id,
+            name=r.name,
+            metric_value=int(r.cnt),
+            extras={"role": r.role.value if hasattr(r.role, "value") else str(r.role)},
+        )
+        for r in rows
     ]
+
+
+async def _rank_recruiters_by_points(
+    db: AsyncSession,
+    *,
+    start: datetime,
+    end: datetime,
+    min_placements: int = 0,
+    limit: Optional[int] = None,
+) -> list[RankedUser]:
+    """Ranking po systemie punktowym (placement=150, interview=15, rekomendacja=5).
+
+    Zwraca RankedUser z metric_value=points i extras={placements, interviews,
+    recommendations, verifications, role}."""
+    # Liczymy count per stage per user w okresie.
+    q = (
+        select(
+            User.id,
+            User.name,
+            User.role,
+            CandidateStage.stage,
+            func.count(CandidateStage.id).label("cnt"),
+        )
+        .join(CandidateStage, User.id == CandidateStage.moved_by)
+        .where(
+            CandidateStage.moved_at >= start,
+            CandidateStage.moved_at < end,
+            User.role.in_(
+                [UserRole.sourcer, UserRole.tac, UserRole.recruiter]
+            ),
+            User.is_active == True,  # noqa: E712
+        )
+        .group_by(User.id, User.name, User.role, CandidateStage.stage)
+    )
+    rows = (await db.execute(q)).all()
+
+    per_user: dict[int, dict] = {}
+    for r in rows:
+        bucket = per_user.setdefault(
+            r.id,
+            {
+                "name": r.name,
+                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "placements": 0,
+                "interviews": 0,
+                "client_interviews": 0,
+                "recommendations": 0,
+                "verifications": 0,
+            },
+        )
+        cnt = int(r.cnt)
+        if r.stage == PipelineStage.hired:
+            bucket["placements"] += cnt
+        elif r.stage == PipelineStage.client_interview:
+            bucket["client_interviews"] += cnt
+        elif r.stage == PipelineStage.interview:
+            # Nexus stage "interview" = rekomendacja w słowniku InfraReporter.
+            bucket["recommendations"] += cnt
+        elif r.stage in (PipelineStage.new, PipelineStage.screening):
+            bucket["verifications"] += cnt
+
+    ranked: list[RankedUser] = []
+    for user_id, data in per_user.items():
+        if data["placements"] < min_placements:
+            continue
+        points = (
+            data["placements"] * POINTS_PER_PLACEMENT
+            + data["client_interviews"] * POINTS_PER_INTERVIEW
+            + data["recommendations"] * POINTS_PER_RECOMMENDATION
+        )
+        ranked.append(
+            RankedUser(
+                user_id=user_id,
+                name=data["name"],
+                metric_value=points,
+                extras={
+                    "role": data["role"],
+                    "placements": data["placements"],
+                    "interviews": data["client_interviews"],
+                    "recommendations": data["recommendations"],
+                    "verifications": data["verifications"],
+                },
+            )
+        )
+
+    ranked.sort(key=lambda r: r.metric_value, reverse=True)
+    if limit:
+        ranked = ranked[:limit]
+    return ranked
+
+
+# ── Countdown helpers ───────────────────────────────────────────────────
+
+
+def days_left_in_quarter(today: Optional[date] = None) -> int:
+    today = today or date.today()
+    q = (today.month - 1) // 3 + 1
+    end_month = q * 3
+    if end_month == 12:
+        end = date(today.year + 1, 1, 1)
+    else:
+        end = date(today.year, end_month + 1, 1)
+    return max((end - today).days, 0)
+
+
+def days_left_in_month(today: Optional[date] = None) -> int:
+    today = today or date.today()
+    if today.month == 12:
+        end = date(today.year + 1, 1, 1)
+    else:
+        end = date(today.year, today.month + 1, 1)
+    return max((end - today).days, 0)
 
 
 async def _rank_dls_by_placements(
@@ -276,14 +412,15 @@ async def quarterly_champions_dl(
 async def quarterly_champions_recruiter(
     db: AsyncSession, period: str
 ) -> list[RankedUser]:
+    """Liga Mistrzów Rekrutacja — ranking po PUNKTACH (placement=150 + interview=15
+    + rekomendacja=5), min 3 placementy jako warunek udziału."""
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
-    return await _rank_recruiters_by_stage(
+    return await _rank_recruiters_by_points(
         db,
-        stage=PipelineStage.hired,
         start=start,
         end=end,
-        min_value=QUARTERLY_MIN_PLACEMENTS,
+        min_placements=QUARTERLY_MIN_PLACEMENTS,
         limit=10,
     )
 
