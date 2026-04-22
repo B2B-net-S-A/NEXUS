@@ -228,14 +228,28 @@ async def admin_debug_fire_nudge(
         deadline_hours_left=0.0,
     )
 
-    ok = await _try_emit_nudge(
-        db,
-        user=user,
-        kpi_result=fake_result,
-        nudge_type=nudge_enum,
-        now=now,
-    )
-    await db.commit()
+    try:
+        ok = await _try_emit_nudge(
+            db,
+            user=user,
+            kpi_result=fake_result,
+            nudge_type=nudge_enum,
+            now=now,
+        )
+        await db.commit()
+    except Exception as exc:
+        import traceback
+
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "step": "_try_emit_nudge",
+                "exc_type": type(exc).__name__,
+                "exc_repr": repr(exc),
+                "traceback": traceback.format_exc().splitlines()[-10:],
+            },
+        )
 
     return DebugFireNudgeResponse(
         emitted=bool(ok),
