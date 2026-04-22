@@ -18,9 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
 from app.core.database import get_db
-from app.models.user import UserRole
+from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType
+from app.models.user import User, UserRole
+from app.services.kpi_catalog import KpiPeriod, get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
-from app.services.kpi_engine import evaluate_user_kpis
+from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
+from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
 
 router = APIRouter()
 
@@ -137,3 +140,108 @@ async def admin_trigger_kpi_coach_sweep(
     )
     await db.commit()
     return SweepCountersSchema(**counters)
+
+
+class DebugFireNudgeResponse(BaseModel):
+    emitted: bool
+    user_id: int
+    kpi_id: str
+    nudge_type: str
+    period_bucket: str
+    notice: str
+
+
+@router.post("/admin/debug-fire-nudge", response_model=DebugFireNudgeResponse)
+async def admin_debug_fire_nudge(
+    _: AdminUser,
+    target_user_id: int,
+    db: AsyncSession = Depends(get_db),
+    kpi_id: str = "daily_new_candidates",
+    nudge_type: str = "praise_hit",
+    current: int = 3,
+    target: int = 3,
+) -> DebugFireNudgeResponse:
+    """**SMOKE TEST ONLY** — wymusza emisję jednego nudge'a end-to-end
+    (kpi_nudge_log + Notification + WS event) dla `target_user_id`.
+
+    Pomija normalną ewaluację KPI (żeby działało po 17:30 gdy stan==missed)
+    i czyści istniejący log dedup'u dla (user, kpi, type, bucket) aby
+    pozwolić re-fire w tym samym dniu.
+
+    Args:
+      target_user_id: komu emitować.
+      kpi_id: musi być w KPI_CATALOG (np. daily_new_candidates, weekly_cvs_sent).
+      nudge_type: praise_hit | remind_behind | eod_summary | streak_bonus.
+      current, target: wartości do renderowania szablonu (body będzie mieć "{current}/{target}").
+    """
+    from datetime import datetime
+    from sqlalchemy import and_, delete, select
+
+    from app.services.kpi_coach_service import WARSAW
+
+    user = await db.scalar(select(User).where(User.id == target_user_id))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
+        )
+
+    kpi_def = get_kpi(kpi_id)
+    if kpi_def is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown kpi_id '{kpi_id}'",
+        )
+
+    try:
+        nudge_enum = KpiNudgeType(nudge_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"unknown nudge_type '{nudge_type}'",
+        )
+
+    now = datetime.now(WARSAW)
+    bucket = period_bucket_label(kpi_def.period, now)
+
+    # Purge prior log entry to sidestep the dedup UniqueConstraint.
+    await db.execute(
+        delete(KpiNudgeLog).where(
+            and_(
+                KpiNudgeLog.user_id == user.id,
+                KpiNudgeLog.kpi_id == kpi_id,
+                KpiNudgeLog.nudge_type == nudge_enum,
+                KpiNudgeLog.period_bucket == bucket,
+            )
+        )
+    )
+    await db.flush()
+
+    fake_result = KpiResult(
+        kpi_id=kpi_id,
+        period=kpi_def.period,
+        title_pl=kpi_def.title_pl,
+        description_pl=kpi_def.description_pl,
+        target=target,
+        current=current,
+        progress_pct=(100.0 * current / target) if target > 0 else 0.0,
+        state="hit" if current >= target else "behind",
+        deadline_hours_left=0.0,
+    )
+
+    ok = await _try_emit_nudge(
+        db,
+        user=user,
+        kpi_result=fake_result,
+        nudge_type=nudge_enum,
+        now=now,
+    )
+    await db.commit()
+
+    return DebugFireNudgeResponse(
+        emitted=bool(ok),
+        user_id=user.id,
+        kpi_id=kpi_id,
+        nudge_type=nudge_type,
+        period_bucket=bucket,
+        notice="SMOKE TEST — forged KpiResult, dedup row purged before emit.",
+    )
