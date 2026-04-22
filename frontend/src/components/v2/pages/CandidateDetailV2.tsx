@@ -52,8 +52,6 @@ import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget"
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { FirefliesTranscriptsWidget } from "@/components/FirefliesTranscriptsWidget";
-import EmailThreadList from "@/components/emails/EmailThreadList";
-import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
 import {
   AtOurClientBanner,
   CandidateHighlights,
@@ -108,7 +106,6 @@ export function CandidateDetailV2({
   const [screeningStage, setScreeningStage] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const { data: candidate, isLoading } = useQuery({
     queryKey: ["candidate", id],
@@ -350,20 +347,6 @@ export function CandidateDetailV2({
               <Mail className="h-4 w-4" />
               Email
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setScheduleOpen(true)}
-              disabled={!candidate.email}
-              title={
-                candidate.email
-                  ? "Zaplanuj interview w Outlook (Microsoft 365)"
-                  : "Kandydat nie ma adresu email"
-              }
-            >
-              <Calendar className="h-4 w-4" />
-              Zaplanuj interview
-            </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
               <PencilLine className="h-4 w-4" />
               Edytuj
@@ -466,10 +449,6 @@ export function CandidateDetailV2({
               <PhoneCall className="h-3.5 w-3.5" />
               Rozmowy
             </TabsTrigger>
-            <TabsTrigger value="email">
-              <Mail className="h-3.5 w-3.5" />
-              Email
-            </TabsTrigger>
             <TabsTrigger value="notatki">
               <MessageSquare className="h-3.5 w-3.5" />
               Notatki
@@ -504,13 +483,6 @@ export function CandidateDetailV2({
                 <RozmowyTab calls={calls} />
                 <FirefliesTranscriptsWidget candidateId={Number(id)} />
               </div>
-            </TabsContent>
-            <TabsContent value="email" className="mt-0">
-              <EmailThreadList
-                candidateId={Number(id)}
-                candidateName={fullName}
-                candidateEmail={candidate.email ?? null}
-              />
             </TabsContent>
             <TabsContent value="notatki" className="mt-0">
               <NotatkiTab
@@ -574,13 +546,6 @@ export function CandidateDetailV2({
           queryClient.invalidateQueries({ queryKey: ["candidate-screenings", id] });
           setScreeningStage(null);
         }}
-      />
-      <ScheduleInterviewModal
-        open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
-        candidateId={Number(id)}
-        candidateName={fullName}
-        candidateEmail={candidate.email ?? null}
       />
     </div>
   );
