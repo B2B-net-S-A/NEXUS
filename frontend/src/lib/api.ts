@@ -441,10 +441,62 @@ export const contractsApi = {
     `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  activate: (id: number) => api.post(`/api/contracts/${id}/activate`, {}),
   benchmark: (id: number) =>
     api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
   notesTimeline: (id: number) =>
     api.get<ContractTimelineItem[]>(`/api/contracts/${id}/notes`),
+};
+
+// ── Contractors (Delivery module) ───────────────────────────────────────────
+
+export type ContractorStatus = "draft" | "active" | "ending";
+
+export interface ContractorCandidateRef {
+  id: number;
+  name: string;
+  lastname: string;
+  email?: string | null;
+}
+
+export interface ContractorListItem {
+  contract_id: number;
+  candidate: ContractorCandidateRef;
+  client_name?: string | null;
+  job_title?: string | null;
+  status: ContractorStatus;
+  start_date: string;
+  end_date?: string | null;
+  rate_candidate?: number | null;
+  rate_client?: number | null;
+  rate_unit: "hourly" | "daily" | "monthly";
+  margin?: number | null;
+  contract_type: "b2b" | "uop" | "uzlecenie";
+  work_mode?: "remote" | "hybrid" | "onsite" | null;
+  missing_fields: string[];
+}
+
+export interface ContractorList {
+  items: ContractorListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ContractorStats {
+  draft: number;
+  drafts_incomplete: number;
+  active: number;
+  ending: number;
+}
+
+export const contractorsApi = {
+  list: (params?: {
+    status?: ContractorStatus;
+    page?: number;
+    page_size?: number;
+  }) => api.get<ContractorList>("/api/contractors", { params }),
+  stats: () => api.get<ContractorStats>("/api/contractors/stats"),
 };
 
 export const contractEquipmentApi = {

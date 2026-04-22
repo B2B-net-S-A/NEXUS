@@ -11,6 +11,7 @@ import {
   Star,
   Calendar,
   UserSquare2,
+  UserCog,
   BarChart3,
   FileBarChart,
   GitBranch,
@@ -79,6 +80,12 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/clients", label: "Klienci", icon: Building2 },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
+      {
+        href: "/contractors",
+        label: "Kontraktorzy",
+        icon: UserCog,
+        roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
+      },
       {
         href: "/manager",
         label: "Panel Managera",

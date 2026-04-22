@@ -20,7 +20,7 @@ import {
   Users,
   Video,
 } from "lucide-react";
-import api, { postingsApi } from "@/lib/api";
+import api, { contractorsApi, postingsApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { MyJobsWidget } from "@/components/v2/pages/dashboard/MyJobsWidget";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { UserCog } from "lucide-react";
 
 /**
  * DashboardV2 — Dynaminds redesign. Uses the same TanStack queries as v1
@@ -374,6 +376,49 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
   );
 }
 
+// ── Contractor drafts widget ───────────────────────────────────────────
+function ContractorDraftsWidget() {
+  const { user } = useAuthStore();
+  const { data } = useQuery({
+    queryKey: ["contractor-stats-widget"],
+    queryFn: () => contractorsApi.stats().then((r) => r.data),
+    staleTime: 60 * 1000,
+  });
+
+  // Gate visibility to roles that actually fill in contracts; recruiters
+  // and sourcers don't own the draft completion step.
+  if (!hasRole(user, "admin", "delivery_lead", "tac", "head_of_recruitment")) {
+    return null;
+  }
+
+  const incomplete = data?.drafts_incomplete ?? 0;
+  if (incomplete === 0) return null;
+
+  return (
+    <Link
+      href="/contractors?tab=draft"
+      className="block group"
+      aria-label={`${incomplete} draftów do uzupełnienia`}
+    >
+      <Card className="border-amber-200 bg-amber-50 !p-4 flex items-center gap-3 transition-colors group-hover:bg-amber-100">
+        <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+          <UserCog className="h-5 w-5 text-amber-700" />
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-amber-900">
+            Drafty do uzupełnienia: {incomplete}
+          </p>
+          <p className="text-xs text-amber-800">
+            Kontraktorzy czekają na uzupełnienie stawek i dat — kliknij, żeby
+            otworzyć listę.
+          </p>
+        </div>
+        <ArrowRight className="h-4 w-4 text-amber-800" />
+      </Card>
+    </Link>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────
 export function DashboardV2() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -521,6 +566,9 @@ export function DashboardV2() {
           )}
         </div>
       </section>
+
+      {/* Contractor drafts — only visible when count > 0 and role qualifies */}
+      <ContractorDraftsWidget />
 
       {/* My projects (Recruiter Ownership) */}
       <MyJobsWidget />

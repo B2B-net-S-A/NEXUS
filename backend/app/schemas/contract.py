@@ -182,3 +182,63 @@ class ContractRateHistoryEntry(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Contractor module ────────────────────────────────────────────────────────
+# These schemas back the `/api/contractors` router and the new draft→active
+# activation endpoint. The contractor view aggregates Contracts with status
+# IN (draft, active, ending); drafts are exposed separately as "do uzupełnienia".
+
+
+class ContractActivateRequest(BaseModel):
+    """Payload for POST /api/contracts/{id}/activate.
+
+    Empty body — the assumption is that the client has already PATCH-ed the
+    contract with the required fields. The activation endpoint only validates
+    and flips the status. A future iteration may accept inline field updates
+    here to collapse PATCH+activate into one call.
+    """
+
+
+class ContractorCandidateRef(BaseModel):
+    id: int
+    name: str
+    lastname: str
+    email: Optional[str] = None
+
+
+class ContractorListItem(BaseModel):
+    """Single row in the Contractors list view."""
+
+    contract_id: int
+    candidate: ContractorCandidateRef
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    status: ContractStatus
+    start_date: date
+    end_date: Optional[date] = None
+    rate_candidate: Optional[int] = None
+    rate_client: Optional[int] = None
+    rate_unit: RateUnit
+    margin: Optional[int] = None
+    contract_type: ContractType
+    work_mode: Optional[ContractWorkMode] = None
+    # Only populated for drafts — lists the required fields still missing
+    # so the UI can badge the row ("3 braki") and skip the full detail fetch.
+    missing_fields: list[str] = []
+
+
+class ContractorList(BaseModel):
+    items: list[ContractorListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class ContractorStats(BaseModel):
+    """Counts for the admin dashboard widget + tab headers."""
+
+    draft: int = 0
+    drafts_incomplete: int = 0
+    active: int = 0
+    ending: int = 0

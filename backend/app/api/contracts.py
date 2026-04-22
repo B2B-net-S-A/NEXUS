@@ -36,6 +36,7 @@ from app.models.rate_benchmark import RateBenchmark
 from app.models.rate_history import RateHistory
 from app.models.user import User
 from app.schemas.contract import (
+    ContractActivateRequest,
     ContractActivityEntry,
     ContractBenchmarkComparison,
     ContractCreate,
@@ -66,6 +67,7 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import storage_service
+from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, CurrentUser, TacPlus
 
@@ -444,6 +446,70 @@ async def update_contract(
             },
         )
     )
+    await db.flush()
+    await db.refresh(contract)
+    return _to_detail(contract)
+
+
+@router.post("/{contract_id}/activate", response_model=ContractDetailResponse)
+async def activate_contract(
+    contract_id: int,
+    _: ContractActivateRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Flip a draft contract to `active` after validating required fields.
+
+    Contractor module — called from the DraftCompletionModal after the client
+    has PATCH-ed the draft with start_date / end_date / rates / type / mode.
+    Returns 409 with the list of missing fields if anything is still blank,
+    so the UI can re-render the form without losing filled data.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    if contract.status != ContractStatus.draft:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Contract is already {contract.status.value}, cannot activate",
+        )
+
+    missing = validate_ready_for_activation(contract)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Missing required fields", "missing": missing},
+        )
+
+    contract.status = ContractStatus.active
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="contract_activated",
+            user_id=current_user.id,
+            details={"from_status": "draft", "to_status": "active"},
+        )
+    )
+
+    # Deliberately no Notification row here — the auto-draft hook in
+    # pipeline.py already fired a `contract_activated` notification for this
+    # contract on the same day when the candidate moved to `hired`. The
+    # per-day dedup index (user_id, notification_type, related_entity_id,
+    # day) would collide. Activation is a routine follow-up to a draft
+    # that admins were already alerted about, so re-notifying adds no
+    # value. The Activity row above provides the audit trail.
+
     await db.flush()
     await db.refresh(contract)
     return _to_detail(contract)
