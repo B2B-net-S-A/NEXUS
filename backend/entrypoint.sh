@@ -209,6 +209,32 @@ _DATA_STATEMENTS = [
               profile_completed_at = COALESCE(profile_completed_at, NOW())
         WHERE profile_completed = FALSE
           AND role::text NOT IN ('delivery_lead', 'recruiter')""",
+    # Seed 5 Competence Categories (migration 0033_cc_entities). Idempotent:
+    # ON CONFLICT (slug) pomija duplikaty. Nie re-update'uje, bo Head of
+    # Recruitment mógł zmodyfikować opis/keywords w UI.
+    """INSERT INTO competence_categories (slug, name_pl, name_en, description, keywords, display_order, is_active)
+       VALUES
+         ('infrastructure_operations', 'Infrastruktura i Operacje', 'Infrastructure & Operations',
+          'Zespoły odpowiedzialne za infrastrukturę, cloud, DevOps, SRE, platformę, sieć, bezpieczeństwo systemów, CI/CD oraz niezawodność.',
+          '["devops","sre","site reliability","kubernetes","k8s","docker","terraform","ansible","jenkins","gitlab ci","github actions","aws","azure","gcp","cloud","linux","sysadmin","platform","networking","ci/cd","helm","prometheus","grafana","istio","observability","infrastructure"]'::jsonb,
+          1, true),
+         ('software_development', 'Rozwój Oprogramowania', 'Software Development',
+          'Rozwój aplikacji frontend, backend, mobile, embedded. Frameworki webowe, języki programowania, architektura aplikacyjna.',
+          '["frontend","backend","fullstack","full stack","full-stack","react","vue","angular","typescript","javascript","nextjs","next.js","nuxt","java","spring","spring boot","python","django","fastapi","flask","node","nodejs","node.js","go","golang","rust",".net","dotnet","c#","csharp","php","laravel","symfony","ruby","rails","mobile","ios","swift","android","kotlin","flutter","react native","embedded"]'::jsonb,
+          2, true),
+         ('data_ai', 'Dane i AI', 'Data & AI',
+          'Inżynieria danych, data science, machine learning, analityka, BI.',
+          '["data engineer","data scientist","ml engineer","machine learning","deep learning","ai","nlp","computer vision","llm","gpt","tensorflow","pytorch","spark","airflow","dbt","snowflake","bigquery","redshift","databricks","kafka","analytics","bi","tableau","power bi","looker","etl","elt","mlops","feature store","vector database"]'::jsonb,
+          3, true),
+         ('security_quality', 'Bezpieczeństwo i Jakość', 'Security & Quality',
+          'Zapewnienie jakości, automatyzacja testów, cyberbezpieczeństwo, pentesting, compliance.',
+          '["qa","quality assurance","tester","test automation","selenium","cypress","playwright","junit","pytest","security","pentester","appsec","application security","owasp","soc","siem","iso 27001","sast","dast","red team","blue team","penetration testing","vulnerability","cybersecurity","security engineer"]'::jsonb,
+          4, true),
+         ('management_delivery', 'Zarządzanie i Dostarczanie', 'Management & Delivery',
+          'Zarządzanie produktem, projektami, zespołami, delivery.',
+          '["pm","product manager","project manager","delivery lead","delivery manager","scrum master","agile coach","product owner","po","business analyst","ba","engineering manager","tech lead","team lead","cto","director","head of"]'::jsonb,
+          5, true)
+       ON CONFLICT (slug) DO NOTHING""",
 ]
 
 
