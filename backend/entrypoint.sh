@@ -34,32 +34,75 @@ cd /app
 # Production should never hit this path (clean single-head chain on main).
 alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
 
-# Safety net: alembic upgrade sometimes bails halfway through a multi-head
-# graph (see project_alembic_state memory). The ORM expects several columns
-# that 0035_onboarding_and_job_sourcing ships; backfill them idempotently
-# so the login SELECT doesn't crash with UndefinedColumnError. Non-fatal.
-echo "Backfilling critical columns (idempotent)..."
+# Safety net: alembic upgrade sometimes bails halfway through the Phase 8
+# multi-head graph (see project_alembic_state memory). The ORM expects
+# several columns that those migrations ship; backfill them idempotently
+# so ORM queries don't crash with UndefinedColumnError. Non-fatal — bail
+# back to alembic-only behavior if anything unexpected happens.
+echo "Backfilling critical Phase 8 columns (idempotent)..."
 python - <<'PY' || echo "column backfill failed; continuing"
 import asyncio, os
 import asyncpg
 
+# Every statement here is idempotent. Order matters for enum ADD VALUE
+# (must run outside transaction) vs column adds (can run in tx).
+_ENUM_STATEMENTS = [
+    # userrole: head_of_recruitment (migration 0029_notifications_triggers)
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
+    # notificationtype: 5 trigger types + champion_profile_updated
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'powercalling_kpi'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_feedback_1h'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'stage_stuck_7d'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_profile_updated'",
+]
+
+_COLUMN_STATEMENTS = [
+    # users (migration 0035_onboarding_and_job_sourcing)
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ",
+    # jobs (migration 0035_onboarding_and_job_sourcing + 0029_notifications_triggers)
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS needs_sourcing BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    # candidates (migration 0030_candidate_created_by)
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    # notifications (migration 0029_notifications_triggers)
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(50)",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_id INTEGER",
+]
+
+_DATA_STATEMENTS = [
+    # Pre-flag roles that don't need onboarding (mirrors migration 0035 step)
+    """UPDATE users
+          SET profile_completed = TRUE,
+              profile_completed_at = COALESCE(profile_completed_at, NOW())
+        WHERE profile_completed = FALSE
+          AND role::text NOT IN ('delivery_lead', 'recruiter')""",
+]
+
+
 async def backfill():
     url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
     url = url.replace("postgresql+asyncpg://", "postgresql://")
+    # Enum ADD VALUE must run in autocommit mode.
     conn = await asyncpg.connect(url)
     try:
-        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE")
-        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ")
-        await conn.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS needs_sourcing BOOLEAN NOT NULL DEFAULT FALSE")
-        # Backfill pre-existing users so non-onboarded roles are not blocked
-        # by the first-login gate. Mirrors the data step in migration 0035.
-        await conn.execute("""
-            UPDATE users
-               SET profile_completed = TRUE,
-                   profile_completed_at = COALESCE(profile_completed_at, NOW())
-             WHERE profile_completed = FALSE
-               AND role::text NOT IN ('delivery_lead', 'recruiter')
-        """)
+        for stmt in _ENUM_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                print(f"backfill enum skip: {stmt!r} -> {e!r}")
+        for stmt in _COLUMN_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                print(f"backfill column skip: {stmt!r} -> {e!r}")
+        for stmt in _DATA_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as e:
+                print(f"backfill data skip: {stmt!r} -> {e!r}")
         print("backfill: ok")
     finally:
         await conn.close()
