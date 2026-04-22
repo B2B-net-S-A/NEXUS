@@ -29,11 +29,13 @@ import {
   ExternalLink,
   DollarSign,
   FolderOpen,
+  LayoutDashboard,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
+import { ProfileTab } from "./ProfileTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
@@ -693,11 +695,11 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "info" | "projekty" | "wiedza" | "kontakty" | "kontrakty" | "materialy" | "cennik";
+type Tab = "profil" | "info" | "projekty" | "wiedza" | "kontakty" | "kontrakty" | "materialy" | "cennik";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState<Tab>("info");
+  const [activeTab, setActiveTab] = useState<Tab>("profil");
   const openTab = useTabsStore((s) => s.openTab);
 
   const { data: client, isLoading } = useQuery({
@@ -722,6 +724,7 @@ export default function ClientDetailPage() {
     return <div className="p-6 text-red-500">Nie znaleziono klienta</div>;
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
@@ -834,17 +837,21 @@ export default function ClientDetailPage() {
 
         {/* Tab content */}
         <div className="p-6">
+          {activeTab === "profil" && <ProfileTab clientId={Number(id)} />}
+
           {activeTab === "info" && (
-            <div className="space-y-4">
-              {client.notes && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Notatki</p>
+            <div className="space-y-6">
+              <CooperationStatsSection clientId={Number(id)} />
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  Notatki
+                </p>
+                {client.notes ? (
                   <p className="text-sm text-gray-700 whitespace-pre-line">{client.notes}</p>
-                </div>
-              )}
-              {!client.notes && (
-                <p className="text-sm text-gray-400 italic">Brak dodatkowych notatek.</p>
-              )}
+                ) : (
+                  <p className="text-sm text-gray-400 italic">Brak dodatkowych notatek.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -857,5 +864,192 @@ export default function ClientDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Cooperation stats widget ─────────────────────────────────────────────────
+//
+// Surfaces /api/reports/clients hit-ratio + /clients/{id}/trend for a single
+// client. 4 KPI cards (closed, hires, hit ratio, active) + 6-month sparkline.
+// Silently returns null on 403 (recruiter/sourcer have no access) or when
+// client has zero data in the selected period.
+
+interface CoopStatsRow {
+  client_id: number;
+  closed_jobs: number;
+  filled_jobs: number;
+  placements: number;
+  total_vacancies: number;
+  hit_ratio: number;
+  fill_rate: number;
+  active_jobs: number;
+  target_achieved: boolean;
+}
+
+interface CoopStatsResponse {
+  clients: CoopStatsRow[];
+  overall: { hit_ratio_target_pct: number };
+}
+
+interface CoopTrendPoint {
+  month: string;
+  month_label: string;
+  closed_jobs: number;
+  filled_jobs: number;
+  hit_ratio: number;
+}
+
+interface CoopTrendResponse {
+  client_id: number;
+  months: number;
+  trend: CoopTrendPoint[];
+}
+
+function CooperationStatsSection({ clientId }: { clientId: number }) {
+  const { data: hitData, isLoading, isError } = useQuery<CoopStatsResponse>({
+    queryKey: ["client-coop-stats", clientId, "year"],
+    queryFn: () =>
+      api
+        .get("/api/reports/clients", {
+          params: { period: "year", min_closed: 0 },
+        })
+        .then((r) => r.data),
+    retry: false,
+  });
+
+  const { data: trendData } = useQuery<CoopTrendResponse>({
+    queryKey: ["client-coop-trend", clientId, 6],
+    queryFn: () =>
+      api
+        .get(`/api/reports/clients/${clientId}/trend`, { params: { months: 6 } })
+        .then((r) => r.data),
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="text-sm text-gray-400">Ładowanie statystyk…</div>
+    );
+  }
+
+  // 403 for recruiter/sourcer → hide section entirely (graceful degradation).
+  if (isError) return null;
+
+  const row = hitData?.clients.find((c) => c.client_id === clientId);
+
+  // Empty state — new client, no data yet. Still show the header + placeholder.
+  const hasData = row && (row.closed_jobs > 0 || row.active_jobs > 0);
+  const tonePill = row && row.closed_jobs >= 3
+    ? row.hit_ratio >= 50
+      ? "bg-green-100 text-green-800"
+      : row.hit_ratio >= 20
+        ? "bg-amber-100 text-amber-800"
+        : "bg-red-100 text-red-800"
+    : "bg-gray-100 text-gray-700";
+
+  const trendValues = trendData?.trend.map((p) => p.hit_ratio) ?? [];
+  const trendMax = Math.max(...trendValues, 1);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          Statystyki współpracy
+        </p>
+        <span className="text-xs text-gray-400">Ostatnie 12 mies.</span>
+      </div>
+
+      {!hasData ? (
+        <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500">
+          Brak zamkniętych zapytań w ostatnich 12 miesiącach.
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+              <div className="text-xs text-gray-500 mb-1">Zamknięte zapytania</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {row!.closed_jobs}
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                {row!.filled_jobs} obsadzonych · {row!.closed_jobs - row!.filled_jobs} przegranych
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+              <div className="text-xs text-gray-500 mb-1">Zatrudnienia</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {row!.placements}
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                {row!.total_vacancies > 0
+                  ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
+                  : "—"}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+              <div className="text-xs text-gray-500 mb-1">Hit ratio</div>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-2xl font-bold px-2 py-0.5 rounded ${tonePill}`}>
+                  {row!.closed_jobs >= 3 ? `${row!.hit_ratio.toFixed(1)}%` : `${row!.filled_jobs} / ${row!.closed_jobs}`}
+                </span>
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">
+                {row!.closed_jobs >= 3
+                  ? row!.target_achieved
+                    ? `cel ≥${hitData!.overall.hit_ratio_target_pct}% ✓`
+                    : `cel ≥${hitData!.overall.hit_ratio_target_pct}%`
+                  : "Za mało danych (min. 3)"}
+              </div>
+            </div>
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+              <div className="text-xs text-gray-500 mb-1">Aktywne projekty</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                {row!.active_jobs}
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">opublikowane</div>
+            </div>
+          </div>
+
+          {trendValues.length > 0 && (
+            <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-500">Trend hit ratio · 6M</p>
+                <span className="text-xs text-gray-400">
+                  max {Math.round(trendMax)}% · min {Math.round(Math.min(...trendValues))}%
+                </span>
+              </div>
+              <div className="flex items-end gap-1 h-16">
+                {trendData!.trend.map((p) => {
+                  const tone =
+                    p.hit_ratio >= 50
+                      ? "bg-green-500"
+                      : p.hit_ratio >= 20
+                        ? "bg-amber-500"
+                        : p.hit_ratio > 0
+                          ? "bg-red-500"
+                          : "bg-gray-200";
+                  const heightPct = trendMax > 0 ? Math.max((p.hit_ratio / trendMax) * 100, 4) : 4;
+                  return (
+                    <div
+                      key={p.month}
+                      className="flex-1 flex flex-col items-center justify-end gap-1"
+                      title={`${p.month_label}: ${p.hit_ratio.toFixed(1)}% (${p.filled_jobs}/${p.closed_jobs})`}
+                    >
+                      <div
+                        className={`w-full rounded-t ${tone}`}
+                        style={{ height: `${heightPct}%` }}
+                      />
+                      <span className="text-[10px] text-gray-400">
+                        {p.month_label.split(" ")[0]}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }

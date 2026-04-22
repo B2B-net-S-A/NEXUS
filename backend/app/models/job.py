@@ -49,6 +49,18 @@ class WorkMode(str, enum.Enum):
     contract = "contract"
 
 
+class JobCloseReason(str, enum.Enum):
+    """Powód zamknięcia oferty bez placementu (dla sekcji 'Przegrane rekrutacje')."""
+
+    budget = "budget"
+    internal_hire = "internal_hire"
+    competitor = "competitor"
+    paused = "paused"
+    filled_by_us = "filled_by_us"
+    client_ghosted = "client_ghosted"
+    other = "other"
+
+
 class Job(Base, TimestampMixin):
     """
     Oferta pracy / zlecenie rekrutacyjne.
@@ -135,6 +147,21 @@ class Job(Base, TimestampMixin):
     criteria_generated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Timestamp zamknięcia zapytania — ustawiany przy zmianie statusu na `closed`.
+    # Używany przez /api/reports/clients (hit ratio per client) do filtra okresu.
+    # Historycznie backfillowany z `updated_at` w migracji 0047_job_closed_at.
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
+    # Close reason metadata (migracja 0048_job_close_reason). Populated by
+    # POST /jobs/{id}/close when status flips to `closed`. NULL for legacy
+    # closed rows — UI shows "Nie określono" as fallback.
+    close_reason: Mapped[Optional[JobCloseReason]] = mapped_column(
+        Enum(JobCloseReason, name="jobclosereason"), nullable=True
+    )
+    close_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Foreign keys
     client_id: Mapped[Optional[int]] = mapped_column(

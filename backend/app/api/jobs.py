@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import func, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_invalidate
 from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
@@ -16,6 +17,7 @@ from app.schemas.job import (
     CcOverrideRequest,
     CcSuggestion,
     CcSuggestionsResponse,
+    JobCloseRequest,
     JobCollaboratorAdd,
     JobCreate,
     JobOwnerAssignment,
@@ -335,8 +337,20 @@ async def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     updates = data.model_dump(exclude_unset=True)
+    prev_status = job.status
     for k, v in updates.items():
         setattr(job, k, v)
+
+    # Track closed_at transitions so `/api/reports/clients` can filter by
+    # real close date (not updated_at). See migration 0047_job_closed_at.
+    new_status = job.status
+    status_flipped = "status" in updates and prev_status != new_status
+    if status_flipped:
+        if new_status == JobStatus.closed:
+            job.closed_at = datetime.now(timezone.utc)
+        elif prev_status == JobStatus.closed:
+            job.closed_at = None
+
     db.add(
         Activity(
             entity_type="job",
@@ -348,6 +362,10 @@ async def update_job(
     )
     await db.commit()
     await db.refresh(job)
+
+    # Invalidate client hit-ratio cache on status changes (affects aggregates).
+    if status_flipped:
+        await cache_invalidate("reports:clients")
 
     # Phase 2: re-embed if any embed-relevant field changed
     changed = set(updates.keys())
@@ -381,6 +399,49 @@ async def delete_job(
         )
     )
     await db.delete(job)
+
+
+@router.post("/{job_id}/close", response_model=JobResponse)
+async def close_job(
+    job_id: int,
+    data: JobCloseRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Close a job with a structured reason.
+
+    Atomically: status → closed, closed_at = now, close_reason + close_notes
+    persisted. Invalidates `reports:clients` cache so hit ratio reflects the
+    change. For unstructured close (legacy) use PATCH /jobs/{id} with
+    `status=closed` — setter still writes `closed_at` but leaves reason NULL.
+    """
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job.status = JobStatus.closed
+    job.closed_at = datetime.now(timezone.utc)
+    job.close_reason = data.reason
+    job.close_notes = data.notes
+
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="closed",
+            user_id=current_user.id,
+            details={
+                "reason": data.reason.value,
+                "notes": data.notes,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+
+    await cache_invalidate("reports:clients")
+    return job
 
 
 @router.post("/{job_id}/publish")

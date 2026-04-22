@@ -69,6 +69,11 @@ _ENUM_STATEMENTS = [
     # notificationtype. Bez tego insert Notification(notification_type='kpi_coach')
     # crashuje z InvalidTextRepresentationError (DB enum nie zna wartości).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'kpi_coach'",
+    # Contractor module (migration 0046_backfill_contractor_drafts): auto-draft
+    # + POST /api/contracts/{id}/activate oba używają 'contract_activated' jako
+    # notification_type. Safety-net chroni prod przed crash-loopem gdyby alembic
+    # head był wolniejszy niż restart aplikacji.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_activated'",
     # Phase 14 dedicated enums for interview_feedback table
     """DO $$
     BEGIN
@@ -131,6 +136,19 @@ _ENUM_STATEMENTS = [
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'candidatecccategorysource') THEN
             CREATE TYPE candidatecccategorysource AS ENUM (
                 'ai_auto', 'ai_suggested', 'manual'
+            );
+        END IF;
+    END $$""",
+    # Client Profile tab (migration 0048_job_close_reason): structured close
+    # reason for "Przegrane rekrutacje". Safety-net bo prod może wyjść na live
+    # przed ukończeniem upgrade'u alembica, a POST /jobs/{id}/close crashuje
+    # bez tego enum + kolumny.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'jobclosereason') THEN
+            CREATE TYPE jobclosereason AS ENUM (
+                'budget', 'internal_hire', 'competitor', 'paused',
+                'filled_by_us', 'client_ghosted', 'other'
             );
         END IF;
     END $$""",
@@ -232,6 +250,10 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_series_master_id VARCHAR(255)",
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_change_key VARCHAR(100)",
     "CREATE INDEX IF NOT EXISTS ix_calendar_events_m365_series_master_id ON calendar_events (m365_series_master_id)",
+    # Client Profile tab (migration 0048_job_close_reason). jobs.closed_at
+    # ships via 0047 — these two complete the metadata tuple.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
 ]
 
 _DATA_STATEMENTS = [

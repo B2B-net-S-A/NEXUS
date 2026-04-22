@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, field_validator
 
 from app.models.job import (
+    JobCloseReason,
     JobPriority,
     JobStatus,
     RecruitmentType,
@@ -153,6 +154,9 @@ class JobResponse(BaseModel):
     criteria_generated_at: Optional[datetime] = None
     pipeline_template_id: Optional[int] = None
     competence_category_id: Optional[int] = None
+    closed_at: Optional[datetime] = None
+    close_reason: Optional[JobCloseReason] = None
+    close_notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -197,3 +201,10 @@ class JobCollaboratorAdd(BaseModel):
     """Add a collaborator (read-only participant) to a job."""
 
     user_id: int
+
+
+class JobCloseRequest(BaseModel):
+    """Payload for POST /jobs/{id}/close — records why the job was closed."""
+
+    reason: JobCloseReason
+    notes: Optional[str] = None
