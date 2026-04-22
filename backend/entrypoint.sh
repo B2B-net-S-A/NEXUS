@@ -38,6 +38,12 @@ alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade faile
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
 
+# Ensure the dedicated Claude E2E admin account exists on every startup.
+# Idempotent upsert — rotates password to the bootstrap value each boot unless
+# CLAUDE_ADMIN_BOOTSTRAP_PWD is set in env. Non-fatal.
+echo "Ensuring Claude admin account..."
+python scripts/ensure_claude_admin.py || echo "ensure_claude_admin failed; continuing"
+
 # Start the application
 echo "Starting uvicorn..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
