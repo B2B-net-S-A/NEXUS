@@ -79,6 +79,12 @@ class PreviewResponse(BaseModel):
 
 # ── Default Templates ──────────────────────────────────────────────────────
 
+# Stable name used by `rejection_email_scheduler._resolve_template` to find
+# the auto-rejection template. Changing this string requires coordinated
+# update of the scheduler lookup.
+REJECTION_EXTERNAL_TEMPLATE_NAME = "Auto-odrzucenie (po widoczności u klienta)"
+
+
 DEFAULT_TEMPLATES = [
     {
         "name": "Potwierdzenie otrzymania aplikacji",
@@ -200,6 +206,26 @@ Jeśli zaszły jakieś zmiany w Twojej sytuacji zawodowej lub dostępności, pro
 Z wyrazami szacunku,
 Zespół Rekrutacji
 {{company_name}}""",
+        "is_default": False,
+    },
+    # 0045_rejection_emails — auto-notification template used by the
+    # rejection_email_scheduler. Name is load-bearing: the scheduler looks
+    # it up by this exact string before falling back to any default
+    # rejection template. Supports `{{#if other_processes}}` for the
+    # conditional "still in X processes" block.
+    {
+        "name": REJECTION_EXTERNAL_TEMPLATE_NAME,
+        "category": EmailCategory.rejection,
+        "subject": "Informacja zwrotna — {{job_title}}",
+        "body": """<p>Cześć {{candidate_name}},</p>
+<p>Dziękujemy za zaangażowanie w proces rekrutacyjny na stanowisko <strong>{{job_title}}</strong>.
+Po analizie zebranych informacji zwrotnych podjęliśmy decyzję o zakończeniu współpracy
+przy tym konkretnym procesie.</p>
+{{#if other_processes}}<p>Nadal rozważamy Cię w <strong>{{other_processes_count}}</strong>
+innych otwartych procesach: {{other_processes_list}}. Jeśli pojawią się nowe informacje,
+dam znać.</p>{{/if}}
+<p>Bardzo dziękuję za poświęcony czas i życzę powodzenia w dalszych poszukiwaniach.</p>
+<p>Pozdrawiam,<br>{{recruiter_name}}</p>""",
         "is_default": False,
     },
 ]

@@ -772,6 +772,15 @@ const TIMELINE_LABEL: Record<string, string> = {
   user_activity: "Akcja użytkownika",
 };
 
+// 0045_rejection_emails — map scheduler activity actions to Polish labels.
+const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
+  rejection_email_scheduled: "Zaplanowano email odrzucenia (wyśle się za 15 min)",
+  rejection_email_sent: "Wysłano email odrzucenia do kandydata",
+  rejection_email_cancelled: "Anulowano wysyłkę email odrzucenia",
+  rejection_email_skipped: "Email odrzucenia pominięty — brak skrzynki MS365",
+  rejection_email_failed: "Email odrzucenia — błąd wysyłki",
+};
+
 function timelineItemLabel(item: any): string {
   if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` : ""}`;
   if (item.type === "stage_change")
@@ -784,6 +793,8 @@ function timelineItemLabel(item: any): string {
         ? `Przejęto opiekę: ${prev} → ${owner} (apply przez link)`
         : `Aplikacja przez link (${owner})`;
     }
+    const rejectionLabel = REJECTION_EMAIL_ACTION_LABELS[item.action];
+    if (rejectionLabel) return rejectionLabel;
     return item.action ?? "Aktywność";
   }
   if (item.type === "user_activity") return item.action_type ?? "Akcja";

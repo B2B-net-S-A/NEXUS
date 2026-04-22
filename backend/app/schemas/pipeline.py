@@ -23,6 +23,16 @@ class StageMove(BaseModel):
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
 
+    # Automatic rejection-email scheduling (0045_rejection_emails):
+    # None → let the server decide based on previous_stage (default: on for
+    #        client-visible stages, off otherwise).
+    # True  → attempt scheduling (still gated by server-side eligibility).
+    # False → do NOT schedule, even if eligible.
+    send_rejection_email: Optional[bool] = None
+    # Optional override — use a specific EmailTemplate.id instead of the
+    # default rejection template.
+    rejection_email_template_id: Optional[int] = None
+
 
 class CandidateStageResponse(BaseModel):
     id: int
@@ -37,6 +47,9 @@ class CandidateStageResponse(BaseModel):
     rating: Optional[int]
     created_at: datetime
     days_in_stage: Optional[int] = None
+    # Set when this move caused a rejection email to be queued; lets the FE
+    # show a "Cofnij wysyłkę" toast and anchor the cancel link.
+    scheduled_rejection_email_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

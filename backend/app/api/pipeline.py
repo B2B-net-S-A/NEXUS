@@ -410,14 +410,39 @@ async def move_candidate(
                             f"Kandydat #{data.candidate_id} został zatrudniony "
                             f"na ofertę #{job.id}. Uzupełnij stawki i daty kontraktu."
                         ),
-                        link=f"/contracts/{draft.id}",
-                        notification_type=NotificationType.contract_ending,
+                        link=f"/contractors?tab=drafts",
+                        notification_type=NotificationType.contract_activated,
+                        related_entity_type="contract",
+                        related_entity_id=draft.id,
                     )
                 )
+
+    # Automatic rejection-email scheduling (0045_rejection_emails).
+    # Runs when the current move is a rejection AND the caller didn't
+    # explicitly opt out. `maybe_schedule` is idempotent for non-eligible
+    # moves (returns None for internal-only rejections, missing email, etc.)
+    # so we can call it unconditionally when the flag allows.
+    scheduled_rejection_email_id: Optional[int] = None
+    if (
+        legacy_enum == PipelineStage.rejected
+        and data.send_rejection_email is not False
+    ):
+        from app.services.rejection_email_scheduler import maybe_schedule
+
+        scheduled = await maybe_schedule(
+            db,
+            stage=stage,
+            job=job,
+            recruiter_id=job.recruiter_id,
+            template_override_id=data.rejection_email_template_id,
+        )
+        if scheduled is not None:
+            scheduled_rejection_email_id = scheduled.id
 
     await db.commit()
     await db.refresh(stage)
     resp = _stage_response(stage)
+    resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     return CandidateStageResponse(**resp)
 
 

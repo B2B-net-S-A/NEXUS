@@ -1,30 +1,42 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, useRef } from "react";
-import { X, CheckCircle, AlertCircle } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type ToastType = "success" | "error";
+type ToastType = "success" | "error" | "action";
+
+interface ActionToastOptions {
+  actionLabel: string;
+  onAction: () => void | Promise<void>;
+  // Visible window for the action button. Defaults to 10 seconds — matches
+  // the "Cofnij wysyłkę emaila" use case (the full undo window server-side
+  // is 15 minutes, but the toast only prompts for the first few seconds).
+  durationMs?: number;
+}
 
 interface Toast {
   id: number;
   message: string;
   type: ToastType;
+  actionLabel?: string;
+  onAction?: () => void | Promise<void>;
 }
 
 interface ToastContextValue {
   showToast: (message: string, type?: ToastType) => void;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
+  showActionToast: (message: string, options: ActionToastOptions) => void;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-export function useToast() {
+export function useToast(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used inside ToastProvider");
   return ctx;
@@ -47,10 +59,40 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const showSuccess = useCallback((message: string) => showToast(message, "success"), [showToast]);
   const showError = useCallback((message: string) => showToast(message, "error"), [showToast]);
 
+  const showActionToast = useCallback(
+    (message: string, options: ActionToastOptions) => {
+      const id = ++counterRef.current;
+      const durationMs = options.durationMs ?? 10_000;
+      setToasts((prev) => [
+        ...prev,
+        {
+          id,
+          message,
+          type: "action",
+          actionLabel: options.actionLabel,
+          onAction: options.onAction,
+        },
+      ]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, durationMs);
+    },
+    []
+  );
+
   const dismiss = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
+  const handleAction = async (toast: Toast) => {
+    if (!toast.onAction) return;
+    try {
+      await toast.onAction();
+    } finally {
+      dismiss(toast.id);
+    }
+  };
+
   return (
-    <ToastContext.Provider value={{ showToast, showSuccess, showError }}>
+    <ToastContext.Provider value={{ showToast, showSuccess, showError, showActionToast }}>
       {children}
 
       {/* Toast container */}
@@ -61,17 +103,32 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             className={cn(
               "flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium pointer-events-auto",
               "animate-in slide-in-from-right-5 fade-in-0 duration-200",
-              toast.type === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-200"
-                : "bg-red-50 border-red-200 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200"
+              toast.type === "success" &&
+                "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-200",
+              toast.type === "error" &&
+                "bg-red-50 border-red-200 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200",
+              toast.type === "action" &&
+                "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100"
             )}
           >
-            {toast.type === "success" ? (
+            {toast.type === "success" && (
               <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-            ) : (
+            )}
+            {toast.type === "error" && (
               <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
             )}
+            {toast.type === "action" && (
+              <Undo2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            )}
             <span className="flex-1">{toast.message}</span>
+            {toast.type === "action" && toast.actionLabel && (
+              <button
+                onClick={() => handleAction(toast)}
+                className="text-blue-700 dark:text-blue-100 font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity whitespace-nowrap"
+              >
+                {toast.actionLabel}
+              </button>
+            )}
             <button
               onClick={() => dismiss(toast.id)}
               className="text-current opacity-50 hover:opacity-100 transition-opacity ml-1"

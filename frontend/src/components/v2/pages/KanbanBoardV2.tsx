@@ -43,6 +43,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 import { ScorecardV2 } from "@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from "@/components/v2/modals/ScreeningSheet";
+import { useToast } from "@/components/Toast";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -323,6 +324,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
   const density = useUiStore((s) => s.density);
   const setDensity = useUiStore((s) => s.setDensity);
+  const { showActionToast, showSuccess, showError } = useToast();
   const [cols, setCols] = useState(columns);
   const [activeTab, setActiveTab] = useState<"all" | "internal" | "external" | "terminal">("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -413,15 +415,46 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
   );
 
   const sendMove = useCallback(
-    async (item: KanbanItem, dst: KanbanColumn, reason?: { id: string; notes: string }) => {
+    async (
+      item: KanbanItem,
+      dst: KanbanColumn,
+      reason?: { id: string; notes: string; sendRejectionEmail?: boolean | null }
+    ) => {
       try {
-        await api.post("/api/pipeline/move", {
+        const response = await api.post<{
+          scheduled_rejection_email_id?: number | null;
+        }>("/api/pipeline/move", {
           candidate_stage_id: item.id,
           to_stage: dst.stage,
           to_stage_def_id: dst.stage_def_id ?? undefined,
           rejection_reason_id: reason?.id,
           notes: reason?.notes,
+          send_rejection_email: reason?.sendRejectionEmail ?? undefined,
         });
+
+        // 0045_rejection_emails — if the backend scheduled an auto-email,
+        // offer a 10-second "Cofnij wysyłkę" toast so the recruiter can
+        // abort before the 15-minute countdown elapses.
+        const scheduledId = response?.data?.scheduled_rejection_email_id;
+        if (scheduledId) {
+          showActionToast(
+            "Email odrzucenia zostanie wysłany za 15 minut.",
+            {
+              actionLabel: "Cofnij wysyłkę",
+              onAction: async () => {
+                try {
+                  await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
+                  showSuccess("Anulowano wysyłkę emaila.");
+                } catch (err) {
+                  console.error("rejection email cancel failed", err);
+                  showError("Nie udało się anulować wysyłki.");
+                }
+              },
+              durationMs: 10_000,
+            }
+          );
+        }
+
         // Prompt screening if moved to external-visible stage
         if (EXTERNAL_STAGES_FOR_SCREENING.has(dst.stage)) {
           setScreeningPrompt({
@@ -440,10 +473,11 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
         }
       } catch (e) {
         console.error("Move failed", e);
+        showError("Nie udało się zmienić etapu.");
         // TODO: revert optimistic on error
       }
     },
-    [stagesWithScorecard]
+    [stagesWithScorecard, showActionToast, showSuccess, showError]
   );
 
   const onDragEnd = useCallback(
@@ -665,9 +699,19 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
         onOpenChange={(v) => !v && setPendingRejection(null)}
         terminalType={pendingRejection?.terminalType ?? "rejected"}
         reasons={rejectionReasons}
-        onConfirm={(reasonId, notes) => {
+        previousStageCategory={(() => {
+          if (!pendingRejection) return null;
+          const cat = cols.find((c) => colId(c) === pendingRejection.srcColId)
+            ?.category;
+          return cat === "external" ? "external" : cat === "internal" ? "internal" : null;
+        })()}
+        onConfirm={(reasonId, notes, sendRejectionEmail) => {
           if (!pendingRejection) return;
-          sendMove(pendingRejection.item, pendingRejection.destCol, { id: reasonId, notes });
+          sendMove(pendingRejection.item, pendingRejection.destCol, {
+            id: reasonId,
+            notes,
+            sendRejectionEmail,
+          });
           setPendingRejection(null);
         }}
       />

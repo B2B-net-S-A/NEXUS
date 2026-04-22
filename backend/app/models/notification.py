@@ -35,6 +35,18 @@ class NotificationType(str, enum.Enum):
     # `kpi_coach` dodany w migracji 0034_kpi_coach). Konkretny nudge_type
     # żyje w `kpi_nudge_log.nudge_type`; tu mamy wspólny bucket.
     kpi_coach = "kpi_coach"
+    # Contractor module — fires when pipeline auto-drafts a contract on
+    # `hired` OR when a draft is manually activated via
+    # POST /api/contracts/{id}/activate (DB enum value added in 0045).
+    contract_activated = "contract_activated"
+    # Automatic candidate-rejection email (0045_rejection_emails). Five
+    # lifecycle states for the scheduled email:
+    #   scheduled → sent | cancelled | skipped (no M365) | failed (retries exhausted)
+    rejection_email_scheduled = "rejection_email_scheduled"
+    rejection_email_sent = "rejection_email_sent"
+    rejection_email_cancelled = "rejection_email_cancelled"
+    rejection_email_skipped = "rejection_email_skipped"
+    rejection_email_failed = "rejection_email_failed"
 
 
 class Notification(Base, TimestampMixin):

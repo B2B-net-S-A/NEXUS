@@ -11,6 +11,14 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
+
+# Eager-import the models package so every ORM class is registered in the
+# SQLAlchemy registry before lifespan's create_all / configure_mappers runs.
+# Without this, cross-file relationship("X", ...) strings (e.g. rejection_email
+# → Email from m365) fail to resolve when no imported router pulled in the
+# target class.
+import app.models  # noqa: F401
+
 from app.api import (
     auth,
     candidates,
@@ -19,6 +27,7 @@ from app.api import (
     pipeline,
     notes,
     contracts,
+    contractors,
     contract_analytics,
     contract_templates,
     fx,
@@ -71,6 +80,14 @@ from app.api import linkedin_metrics as linkedin_metrics_api
 from app.api import competence_categories as competence_categories_api
 from app.api import interview_questions as interview_questions_api
 from app.api import interview_feedback as interview_feedback_api
+from app.api import rejection_emails as rejection_emails_api
+
+# Force-load every SQLAlchemy model into Base.metadata so FKs across tables
+# (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
+# resolve during `Base.metadata.create_all()` in DEBUG lifespan. Without
+# this, not-yet-routed models (m365.Email — no api route wired up yet)
+# never register their table and startup crashes with NoReferencedTableError.
+import app.models as _models  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +181,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
+    from app.tasks.rejection_email_loop import rejection_email_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -175,6 +193,7 @@ async def lifespan(app: FastAPI):
     cc_centroid_task = asyncio.create_task(cc_centroid_sync_loop())
     kpi_coach_task = asyncio.create_task(kpi_coach_nudger_loop())
     notif_triggers_task = asyncio.create_task(notification_triggers_loop())
+    rejection_email_task = asyncio.create_task(rejection_email_loop())
 
     yield
 
@@ -189,6 +208,7 @@ async def lifespan(app: FastAPI):
         cc_centroid_task,
         kpi_coach_task,
         notif_triggers_task,
+        rejection_email_task,
     )
     for t in tasks:
         t.cancel()
@@ -228,8 +248,16 @@ app.include_router(candidates.router, prefix="/api/candidates", tags=["candidate
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(
+    rejection_emails_api.router,
+    prefix="/api/rejection-emails",
+    tags=["rejection-emails"],
+)
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
+app.include_router(
+    contractors.router, prefix="/api/contractors", tags=["contractors"]
+)
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 app.include_router(
     contract_analytics.router,

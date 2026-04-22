@@ -88,6 +88,18 @@ from app.models.interview_feedback import (
     InterviewFeedback,
     NextStepPreference,
 )
+from app.models.m365 import (
+    Email,
+    EmailAttachment,
+    EmailDirection,
+    EmailMatchMethod,
+    M365Connection,
+    M365SyncStatus,
+)
+from app.models.rejection_email import (
+    RejectionEmailStatus,
+    ScheduledRejectionEmail,
+)
 
 __all__ = [
     "User",
@@ -180,4 +192,12 @@ __all__ = [
     "InterestLevel",
     "NextStepPreference",
     "InterviewDecision",
+    "RejectionEmailStatus",
+    "ScheduledRejectionEmail",
+    "Email",
+    "EmailAttachment",
+    "EmailDirection",
+    "EmailMatchMethod",
+    "M365Connection",
+    "M365SyncStatus",
 ]
