@@ -13,6 +13,7 @@ interface ActiveFilterChipsProps {
   onUpdate: (next: Partial<CandidateFilters>) => void;
   poolsById?: Map<number, string>;
   usersById?: Map<number, string>;
+  clientsById?: Map<number, string>;
 }
 
 const REMOTE_LABELS: Record<string, string> = {
@@ -31,7 +32,8 @@ function collectChips(
   filters: CandidateFilters,
   onUpdate: (next: Partial<CandidateFilters>) => void,
   poolsById?: Map<number, string>,
-  usersById?: Map<number, string>
+  usersById?: Map<number, string>,
+  clientsById?: Map<number, string>
 ): Chip[] {
   const chips: Chip[] = [];
 
@@ -105,6 +107,51 @@ function collectChips(
         }),
     });
   });
+  filters.currentCompany.forEach((name) => {
+    chips.push({
+      key: `cur_co:${name}`,
+      label: `Obecna firma: ${name}`,
+      clear: () =>
+        onUpdate({
+          currentCompany: filters.currentCompany.filter((x) => x !== name),
+          page: 1,
+        }),
+    });
+  });
+  filters.pastCompany.forEach((name) => {
+    chips.push({
+      key: `past_co:${name}`,
+      label: `Poprz. firma: ${name}`,
+      clear: () =>
+        onUpdate({
+          pastCompany: filters.pastCompany.filter((x) => x !== name),
+          page: 1,
+        }),
+    });
+  });
+  filters.currentTitle.forEach((role) => {
+    chips.push({
+      key: `title:${role}`,
+      label: `Stanowisko: ${role}`,
+      clear: () =>
+        onUpdate({
+          currentTitle: filters.currentTitle.filter((x) => x !== role),
+          page: 1,
+        }),
+    });
+  });
+  filters.workedAtClientIds.forEach((id) => {
+    const name = clientsById?.get(id) ?? `Klient #${id}`;
+    chips.push({
+      key: `client_hist:${id}`,
+      label: `Klient: ${name}`,
+      clear: () =>
+        onUpdate({
+          workedAtClientIds: filters.workedAtClientIds.filter((x) => x !== id),
+          page: 1,
+        }),
+    });
+  });
   return chips;
 }
 
@@ -113,8 +160,9 @@ export function ActiveFilterChips({
   onUpdate,
   poolsById,
   usersById,
+  clientsById,
 }: ActiveFilterChipsProps) {
-  const chips = collectChips(filters, onUpdate, poolsById, usersById);
+  const chips = collectChips(filters, onUpdate, poolsById, usersById, clientsById);
   if (chips.length === 0) return null;
 
   const clearAll = () =>
@@ -126,6 +174,10 @@ export function ActiveFilterChips({
       skills: [],
       poolIds: [],
       addedByIds: [],
+      currentCompany: [],
+      pastCompany: [],
+      currentTitle: [],
+      workedAtClientIds: [],
       page: 1,
     });
 

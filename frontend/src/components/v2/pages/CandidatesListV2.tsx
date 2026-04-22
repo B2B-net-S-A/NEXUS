@@ -70,6 +70,8 @@ import { useAuthStore } from "@/store/auth";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from "@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
+import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
+import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import { decodeFilters, encodeFilters, type CandidateFilters } from "@/lib/url-filters";
 import { CandidatesTiles } from "@/components/v2/pages/CandidatesTiles";
@@ -261,6 +263,22 @@ export function CandidatesListV2() {
       .map((x) => Number.parseInt(x, 10))
       .filter((n) => Number.isFinite(n))
   );
+  // LinkedIn-Recruiter-style filters — pipe-separated to allow commas in company names
+  const [currentCompanyFilter, setCurrentCompanyFilter] = useState<string[]>(
+    (searchParams.get("cur_co") ?? "").split("|").filter(Boolean)
+  );
+  const [pastCompanyFilter, setPastCompanyFilter] = useState<string[]>(
+    (searchParams.get("past_co") ?? "").split("|").filter(Boolean)
+  );
+  const [currentTitleFilter, setCurrentTitleFilter] = useState<string[]>(
+    (searchParams.get("title") ?? "").split("|").filter(Boolean)
+  );
+  const [workedAtClientIds, setWorkedAtClientIds] = useState<number[]>(
+    (searchParams.get("client_hist") ?? "")
+      .split(",")
+      .map((x) => Number.parseInt(x, 10))
+      .filter((n) => Number.isFinite(n))
+  );
   const currentUser = useAuthStore((s) => s.user);
 
   // Sync URL -----------------------------------------------------
@@ -277,6 +295,10 @@ export function CandidatesListV2() {
     if (locationFilter) params.set("loc", locationFilter);
     if (poolIds.length) params.set("pool", poolIds.join(","));
     if (addedByIds.length) params.set("added_by", addedByIds.join(","));
+    if (currentCompanyFilter.length) params.set("cur_co", currentCompanyFilter.join("|"));
+    if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
+    if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
+    if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `/candidates?${qs}` : "/candidates");
   }, [
@@ -291,6 +313,10 @@ export function CandidatesListV2() {
     locationFilter,
     poolIds,
     addedByIds,
+    currentCompanyFilter,
+    pastCompanyFilter,
+    currentTitleFilter,
+    workedAtClientIds,
   ]);
 
   // Data --------------------------------------------------------
@@ -308,6 +334,10 @@ export function CandidatesListV2() {
       locationFilter,
       poolIds,
       addedByIds,
+      currentCompanyFilter,
+      pastCompanyFilter,
+      currentTitleFilter,
+      workedAtClientIds,
     ],
     queryFn: () =>
       api
@@ -326,6 +356,10 @@ export function CandidatesListV2() {
             location: locationFilter || undefined,
             talent_pool_id: poolIds.length ? poolIds : undefined,
             added_by_user_id: addedByIds.length ? addedByIds : undefined,
+            current_company: currentCompanyFilter.length ? currentCompanyFilter : undefined,
+            past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
+            current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
+            worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
           },
           paramsSerializer: { indexes: null },
         })
@@ -438,7 +472,11 @@ export function CandidatesListV2() {
     (skillsFilter.length > 0 ? 1 : 0) +
     (locationFilter ? 1 : 0) +
     (poolIds.length > 0 ? 1 : 0) +
-    (addedByIds.length > 0 ? 1 : 0);
+    (addedByIds.length > 0 ? 1 : 0) +
+    (currentCompanyFilter.length > 0 ? 1 : 0) +
+    (pastCompanyFilter.length > 0 ? 1 : 0) +
+    (currentTitleFilter.length > 0 ? 1 : 0) +
+    (workedAtClientIds.length > 0 ? 1 : 0);
 
   // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
   const filtersSnapshot: CandidateFilters = useMemo(
@@ -453,6 +491,10 @@ export function CandidatesListV2() {
       location: locationFilter,
       poolIds,
       addedByIds,
+      currentCompany: currentCompanyFilter,
+      pastCompany: pastCompanyFilter,
+      currentTitle: currentTitleFilter,
+      workedAtClientIds,
       view: "list",
       savedSearchId: null,
     }),
@@ -466,6 +508,10 @@ export function CandidatesListV2() {
       locationFilter,
       poolIds,
       addedByIds,
+      currentCompanyFilter,
+      pastCompanyFilter,
+      currentTitleFilter,
+      workedAtClientIds,
     ]
   );
   const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
@@ -478,6 +524,11 @@ export function CandidatesListV2() {
     if (patch.location !== undefined) setLocationFilter(patch.location);
     if (patch.poolIds !== undefined) setPoolIds(patch.poolIds);
     if (patch.addedByIds !== undefined) setAddedByIds(patch.addedByIds);
+    if (patch.currentCompany !== undefined) setCurrentCompanyFilter(patch.currentCompany);
+    if (patch.pastCompany !== undefined) setPastCompanyFilter(patch.pastCompany);
+    if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
+    if (patch.workedAtClientIds !== undefined)
+      setWorkedAtClientIds(patch.workedAtClientIds);
   };
 
   return (
@@ -629,7 +680,60 @@ export function CandidatesListV2() {
               )}
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 space-y-3">
+          <PopoverContent align="end" className="w-80 space-y-3 max-h-[80vh] overflow-y-auto">
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Obecna firma
+              </h3>
+              <CompanyAutocomplete
+                value={currentCompanyFilter}
+                onChange={(v) => {
+                  setCurrentCompanyFilter(v);
+                  setPage(1);
+                }}
+                placeholder="np. Google, Allegro"
+                suggestEndpoint="/api/candidates/companies/suggest"
+              />
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Poprzednia firma
+              </h3>
+              <CompanyAutocomplete
+                value={pastCompanyFilter}
+                onChange={(v) => {
+                  setPastCompanyFilter(v);
+                  setPage(1);
+                }}
+                placeholder="np. IBM, Accenture"
+                suggestEndpoint="/api/candidates/companies/suggest"
+              />
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Obecne stanowisko
+              </h3>
+              <CompanyAutocomplete
+                value={currentTitleFilter}
+                onChange={(v) => {
+                  setCurrentTitleFilter(v);
+                  setPage(1);
+                }}
+                placeholder="np. Senior Engineer, PM"
+              />
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Pracował u klienta
+              </h3>
+              <ClientMultiSelect
+                value={workedAtClientIds}
+                onChange={(ids) => {
+                  setWorkedAtClientIds(ids);
+                  setPage(1);
+                }}
+              />
+            </div>
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
                 Lokalizacja
@@ -734,6 +838,10 @@ export function CandidatesListV2() {
                   setLocationFilter("");
                   setPoolIds([]);
                   setAddedByIds([]);
+                  setCurrentCompanyFilter([]);
+                  setPastCompanyFilter([]);
+                  setCurrentTitleFilter([]);
+                  setWorkedAtClientIds([]);
                   setPage(1);
                 }}
                 className="text-xs text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))]"
@@ -781,6 +889,10 @@ export function CandidatesListV2() {
               location: decoded.location,
               poolIds: decoded.poolIds,
               addedByIds: decoded.addedByIds,
+              currentCompany: decoded.currentCompany,
+              pastCompany: decoded.pastCompany,
+              currentTitle: decoded.currentTitle,
+              workedAtClientIds: decoded.workedAtClientIds,
             });
           }}
         />

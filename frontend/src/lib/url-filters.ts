@@ -23,6 +23,10 @@ export interface CandidateFilters {
   location: string;
   poolIds: number[];
   addedByIds: number[];
+  currentCompany: string[];
+  pastCompany: string[];
+  currentTitle: string[];
+  workedAtClientIds: number[];
   view: CandidatesView;
   savedSearchId: number | null;
 }
@@ -38,6 +42,10 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   location: "",
   poolIds: [],
   addedByIds: [],
+  currentCompany: [],
+  pastCompany: [],
+  currentTitle: [],
+  workedAtClientIds: [],
   view: "list",
   savedSearchId: null,
 };
@@ -49,6 +57,12 @@ const parseCsvInt = (raw: string | null): number[] =>
   parseCsv(raw)
     .map((x) => Number.parseInt(x, 10))
     .filter((n) => Number.isFinite(n));
+
+// Pipe-separated list — used for company/title values that may contain commas
+// (e.g. "Intel, Inc."). Safer than comma for free-text inputs.
+const PIPE = (xs: string[]): string => xs.join("|");
+const parsePipe = (raw: string | null): string[] =>
+  raw ? raw.split("|").map((x) => x.trim()).filter(Boolean) : [];
 
 export function encodeFilters(f: CandidateFilters): URLSearchParams {
   const p = new URLSearchParams();
@@ -62,6 +76,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
   if (f.addedByIds.length) p.set("added_by", CSV(f.addedByIds));
+  if (f.currentCompany.length) p.set("cur_co", PIPE(f.currentCompany));
+  if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
+  if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
+  if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
   return p;
@@ -94,6 +112,10 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
     addedByIds: parseCsvInt(sp.get("added_by")),
+    currentCompany: parsePipe(sp.get("cur_co")),
+    pastCompany: parsePipe(sp.get("past_co")),
+    currentTitle: parsePipe(sp.get("title")),
+    workedAtClientIds: parseCsvInt(sp.get("client_hist")),
     view,
     savedSearchId,
   };

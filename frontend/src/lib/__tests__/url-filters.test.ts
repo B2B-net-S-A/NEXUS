@@ -30,11 +30,24 @@ describe("url-filters", () => {
       location: "Warszawa",
       poolIds: [3, 5],
       addedByIds: [12, 0],
+      currentCompany: ["Google", "Intel, Inc."],
+      pastCompany: ["Allegro"],
+      currentTitle: ["Senior Engineer"],
+      workedAtClientIds: [10, 11],
       view: "tiles",
       savedSearchId: 7,
     };
     const encoded = encodeFilters(full);
     expect(decodeFilters(encoded)).toEqual(full);
+  });
+
+  it("pipe-separator survives commas in company names", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      currentCompany: ["Intel, Inc.", "Microsoft"],
+    };
+    const roundtrip = decodeFilters(encodeFilters(filters));
+    expect(roundtrip.currentCompany).toEqual(["Intel, Inc.", "Microsoft"]);
   });
 
   it("ignores unknown params (forward-compat for saved searches)", () => {
