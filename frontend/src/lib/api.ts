@@ -285,6 +285,103 @@ export const contactsApi = {
 };
 
 // ── Contracts ─────────────────────────────────────────────────────────────────
+export interface ContractTerminateRequest {
+  termination_reason: ContractTerminationReason;
+  termination_lessons?: string | null;
+  terminated_at?: string | null;
+}
+
+export type ContractTerminationReason =
+  | "poached_by_client"
+  | "project_ended"
+  | "client_budget_cut"
+  | "performance_issue"
+  | "consultant_resigned"
+  | "better_offer"
+  | "personal_reasons"
+  | "contract_breach"
+  | "mutual_agreement"
+  | "other";
+
+export const CONTRACT_TERMINATION_REASONS: {
+  value: ContractTerminationReason;
+  label: string;
+}[] = [
+  { value: "project_ended", label: "Koniec projektu" },
+  { value: "poached_by_client", label: "Przejście do klienta" },
+  { value: "client_budget_cut", label: "Cięcie budżetu klienta" },
+  { value: "consultant_resigned", label: "Konsultant zrezygnował" },
+  { value: "better_offer", label: "Dostał lepszą ofertę" },
+  { value: "performance_issue", label: "Problem jakościowy" },
+  { value: "contract_breach", label: "Naruszenie umowy" },
+  { value: "personal_reasons", label: "Powody osobiste" },
+  { value: "mutual_agreement", label: "Porozumienie stron" },
+  { value: "other", label: "Inny" },
+];
+
+export type EquipmentItemType =
+  | "laptop"
+  | "phone"
+  | "monitor"
+  | "headset"
+  | "docking_station"
+  | "security_token"
+  | "keycard"
+  | "sim_card"
+  | "other";
+export type EquipmentOwner = "ours" | "client";
+export type EquipmentReturnStatus =
+  | "pending"
+  | "returned"
+  | "lost"
+  | "written_off";
+
+export interface ContractEquipmentItem {
+  id: number;
+  contract_id: number;
+  item_type: EquipmentItemType;
+  owner: EquipmentOwner;
+  brand_model: string | null;
+  serial_number: string | null;
+  description: string | null;
+  deposit_amount: number | null;
+  deposit_currency: string | null;
+  handed_over_date: string | null;
+  return_due_date: string | null;
+  returned_date: string | null;
+  return_status: EquipmentReturnStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContractBenchmarkComparison {
+  contract_rate_monthly: number | null;
+  internal_avg_monthly: number | null;
+  internal_median_monthly: number | null;
+  internal_sample_size: number;
+  market_min: number | null;
+  market_median: number | null;
+  market_max: number | null;
+  market_source: string | null;
+  market_source_date: string | null;
+  role_used: string | null;
+  currency: string;
+}
+
+export interface ContractTimelineItem {
+  id: number;
+  kind: "note" | "call";
+  at: string;
+  summary: string | null;
+  content: string | null;
+  sub_type: string | null;
+  status: string | null;
+  author_id: number | null;
+  author_name: string | null;
+  duration_seconds: number | null;
+}
+
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
@@ -303,6 +400,180 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   documentDownloadUrl: (contractId: number, documentId: number) =>
     `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
+  terminate: (id: number, payload: ContractTerminateRequest) =>
+    api.post(`/api/contracts/${id}/terminate`, payload),
+  benchmark: (id: number) =>
+    api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
+  notesTimeline: (id: number) =>
+    api.get<ContractTimelineItem[]>(`/api/contracts/${id}/notes`),
+};
+
+export const contractEquipmentApi = {
+  list: (contractId: number) =>
+    api.get<ContractEquipmentItem[]>(`/api/contracts/${contractId}/equipment`),
+  create: (contractId: number, data: Partial<ContractEquipmentItem>) =>
+    api.post<ContractEquipmentItem>(
+      `/api/contracts/${contractId}/equipment`,
+      data,
+    ),
+  update: (
+    contractId: number,
+    equipmentId: number,
+    data: Partial<ContractEquipmentItem>,
+  ) =>
+    api.patch<ContractEquipmentItem>(
+      `/api/contracts/${contractId}/equipment/${equipmentId}`,
+      data,
+    ),
+  delete: (contractId: number, equipmentId: number) =>
+    api.delete(`/api/contracts/${contractId}/equipment/${equipmentId}`),
+};
+
+// ── Candidate engagement + location ─────────────────────────────────────────
+export interface CandidateEngagementPayload {
+  is_ambassador?: boolean;
+  wants_to_verify_candidates?: boolean;
+  open_to_side_projects?: boolean;
+  open_to_sales_support?: boolean;
+  open_to_expert_consult?: boolean;
+  engagement_notes?: string | null;
+}
+
+export interface CandidateLocationPayload {
+  city?: string | null;
+  country?: string | null;
+  region?: string | null;
+  hub_city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+export const candidateProfileApi = {
+  updateEngagement: (candidateId: number, data: CandidateEngagementPayload) =>
+    api.patch(`/api/candidates/${candidateId}/engagement`, data),
+  updateLocation: (candidateId: number, data: CandidateLocationPayload) =>
+    api.patch(`/api/candidates/${candidateId}/location`, data),
+};
+
+// ── Rate benchmarks ─────────────────────────────────────────────────────────
+export type SeniorityLevel =
+  | "junior"
+  | "mid"
+  | "senior"
+  | "expert"
+  | "principal";
+
+export interface RateBenchmarkRow {
+  id: number;
+  role: string;
+  seniority: SeniorityLevel | null;
+  currency: string;
+  rate_unit: "hourly" | "daily" | "monthly";
+  market_min: number | null;
+  market_median: number;
+  market_max: number | null;
+  source: string;
+  source_date: string;
+  location: string | null;
+  notes: string | null;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RateBenchmarkImportResult {
+  created: number;
+  skipped: number;
+  errors: string[];
+}
+
+export const rateBenchmarksApi = {
+  list: (params?: Record<string, unknown>) =>
+    api.get<RateBenchmarkRow[]>("/api/rate-benchmarks", { params }),
+  create: (data: Partial<RateBenchmarkRow>) =>
+    api.post<RateBenchmarkRow>("/api/rate-benchmarks", data),
+  update: (id: number, data: Partial<RateBenchmarkRow>) =>
+    api.patch<RateBenchmarkRow>(`/api/rate-benchmarks/${id}`, data),
+  delete: (id: number) => api.delete(`/api/rate-benchmarks/${id}`),
+  importCsv: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<RateBenchmarkImportResult>(
+      "/api/rate-benchmarks/import",
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
+};
+
+// ── Contract analytics expansion ────────────────────────────────────────────
+export interface RoleClientCell {
+  role: string;
+  client_id: number;
+  client_name: string;
+  active_count: number;
+  pct_of_total: number;
+}
+
+export interface RoleClientMix {
+  total_active: number;
+  rows: RoleClientCell[];
+  roles: string[];
+  clients: { id: number; name: string }[];
+}
+
+export interface HubDistribution {
+  hub_city: string | null;
+  count: number;
+}
+
+export interface RegionDistribution {
+  region: string | null;
+  count: number;
+}
+
+export interface LocationDistribution {
+  total: number;
+  total_with_hub: number;
+  hubs: HubDistribution[];
+  regions: RegionDistribution[];
+}
+
+export interface TerminationReasonBucket {
+  reason: string;
+  count: number;
+  avg_contract_days: number | null;
+}
+
+export interface ClientRetention {
+  client_id: number;
+  client_name: string;
+  total_ended: number;
+  kept_to_end: number;
+  ended_early: number;
+  retention_pct: number;
+}
+
+export interface TerminationAnalysis {
+  window_months: number;
+  total_terminated: number;
+  by_reason: TerminationReasonBucket[];
+  client_retention: ClientRetention[];
+}
+
+export const contractAnalyticsExpansionApi = {
+  roleClientMix: () =>
+    api.get<RoleClientMix>("/api/contract-analytics/role-client-mix"),
+  locationDistribution: (activeOnly = true) =>
+    api.get<LocationDistribution>(
+      "/api/contract-analytics/location-distribution",
+      { params: { active_only: activeOnly } },
+    ),
+  terminationAnalysis: (windowMonths = 12) =>
+    api.get<TerminationAnalysis>(
+      "/api/contract-analytics/termination-analysis",
+      { params: { window_months: windowMonths } },
+    ),
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────
@@ -1035,5 +1306,105 @@ export interface SavedSearch {
   created_at: string;
   updated_at: string;
 }
+
+// ── Microsoft 365 integration (Phase M365.1) ─────────────────────────────────
+
+export interface M365ConnectionStatus {
+  connected: boolean;
+  mailbox_upn?: string | null;
+  last_sync_at?: string | null;
+  synced_through?: string | null;
+  last_sync_status?: string | null;
+  last_error?: string | null;
+  backfill_in_progress?: boolean;
+  max_attachment_mb?: number;
+}
+
+export interface EmailAttachmentPreview {
+  id: number;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  is_inline: boolean;
+}
+
+export interface EmailMessage {
+  id: number;
+  m365_message_id: string;
+  m365_conversation_id: string;
+  subject: string | null;
+  from_address: string;
+  from_name: string | null;
+  to_addresses: Array<{ address: string; name?: string | null }>;
+  cc_addresses: Array<{ address: string; name?: string | null }>;
+  body_html: string | null;
+  body_text: string | null;
+  body_preview: string | null;
+  sent_at: string | null;
+  received_at: string;
+  direction: "sent" | "received" | "draft";
+  has_attachments: boolean;
+  is_read: boolean;
+  is_private_filtered: boolean;
+  match_method:
+    | "strict"
+    | "smart_domain"
+    | "smart_thread"
+    | "smart_name"
+    | "manual"
+    | "unmatched";
+  match_confidence: number | null;
+  attachments?: EmailAttachmentPreview[];
+}
+
+export interface EmailThreadPreview {
+  conversation_id: string;
+  subject: string | null;
+  latest: EmailMessage;
+  message_count: number;
+  unread_count: number;
+}
+
+export const microsoft365Api = {
+  getConnection: () =>
+    api.get<M365ConnectionStatus>("/api/microsoft365/connection"),
+  getAuthorizeUrl: () =>
+    api.get<{ authorize_url: string }>("/api/microsoft365/authorize"),
+  disconnect: () => api.delete("/api/microsoft365/connection"),
+  triggerSync: () => api.post("/api/microsoft365/sync/trigger"),
+
+  listCandidateThreads: (candidateId: number) =>
+    api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  getEmail: (emailId: number) =>
+    api.get<EmailMessage>(`/api/emails/${emailId}`),
+  compose: (
+    candidateId: number,
+    payload: { to: string[]; cc?: string[]; subject: string; body_html: string },
+  ) =>
+    api.post<EmailMessage>(
+      `/api/candidates/${candidateId}/emails/compose`,
+      payload,
+    ),
+  reply: (
+    candidateId: number,
+    payload: { email_id: number; body_html: string },
+  ) =>
+    api.post<EmailMessage>(
+      `/api/candidates/${candidateId}/emails/reply`,
+      payload,
+    ),
+  downloadAttachmentUrl: (emailId: number, attachmentId: number) =>
+    `${API_BASE}/api/emails/${emailId}/attachments/${attachmentId}/download`,
+  createInvite: (payload: {
+    candidate_id: number;
+    title: string;
+    description?: string;
+    start: string;
+    end: string;
+    event_type?: string;
+    extra_attendees?: string[];
+    invite_candidate?: boolean;
+  }) => api.post("/api/calendar/events/m365-invite", payload),
+};
 
 export default api;

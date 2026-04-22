@@ -10,6 +10,11 @@ import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
+import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
+import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
+import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
+import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
@@ -45,8 +50,11 @@ interface ContractDetail {
   job_title: string | null;
   start_date: string;
   end_date: string | null;
+  client_order_end_date: string | null;
   rate_candidate: number | null;
   rate_client: number | null;
+  target_rate_min: number | null;
+  target_rate_max: number | null;
   currency: string;
   rate_unit: "hourly" | "daily" | "monthly";
   billing_hours_per_month: number;
@@ -61,6 +69,12 @@ interface ContractDetail {
   team_name: string | null;
   project_name: string | null;
   handover_notes: string | null;
+  termination_reason: ContractTerminationReason | null;
+  termination_lessons: string | null;
+  terminated_at: string | null;
+  monthly_rate_candidate: number | null;
+  monthly_rate_client: number | null;
+  monthly_margin: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -202,7 +216,16 @@ function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): 
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabKey = "details" | "documents" | "amendments" | "onboarding" | "invoices" | "rateHistory" | "timeline";
+type TabKey =
+  | "details"
+  | "documents"
+  | "amendments"
+  | "onboarding"
+  | "equipment"
+  | "notes"
+  | "invoices"
+  | "rateHistory"
+  | "timeline";
 
 interface Tab {
   key: TabKey;
@@ -215,6 +238,8 @@ const TABS: Tab[] = [
   { key: "documents", label: "Dokumenty", icon: FileText },
   { key: "amendments", label: "Aneksy", icon: FileEdit },
   { key: "onboarding", label: "Onboarding", icon: FileText },
+  { key: "equipment", label: "Sprzęt", icon: Briefcase },
+  { key: "notes", label: "Notatki / Rozmowy", icon: ActivityIcon },
   { key: "invoices", label: "Faktury", icon: Banknote },
   { key: "rateHistory", label: "Historia stawek", icon: History },
   { key: "timeline", label: "Timeline", icon: ActivityIcon },
@@ -255,8 +280,11 @@ function InfoRow({
 interface EditForm {
   start_date: string;
   end_date: string;
+  client_order_end_date: string;
   rate_candidate: string;
   rate_client: string;
+  target_rate_min: string;
+  target_rate_max: string;
   currency: string;
   rate_unit: string;
   billing_hours_per_month: string;
@@ -275,8 +303,11 @@ function contractToForm(c: ContractDetail): EditForm {
   return {
     start_date: c.start_date ?? "",
     end_date: c.end_date ?? "",
+    client_order_end_date: c.client_order_end_date ?? "",
     rate_candidate: c.rate_candidate?.toString() ?? "",
     rate_client: c.rate_client?.toString() ?? "",
+    target_rate_min: c.target_rate_min?.toString() ?? "",
+    target_rate_max: c.target_rate_max?.toString() ?? "",
     currency: c.currency,
     rate_unit: c.rate_unit ?? "monthly",
     billing_hours_per_month: (c.billing_hours_per_month ?? 160).toString(),
@@ -371,14 +402,27 @@ export default function ContractDetailPage() {
     setError("");
   };
 
+  const [showTerminationDialog, setShowTerminationDialog] = useState(false);
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form) return;
+    if (!form || !contract) return;
+    // Transitioning to "ended" — collect structured reason via dialog rather
+    // than silently flipping status. Revert the form value so the save below
+    // doesn't double-fire.
+    if (form.status === "ended" && contract.status !== "ended") {
+      setShowTerminationDialog(true);
+      setForm({ ...form, status: contract.status });
+      return;
+    }
     const payload: Record<string, unknown> = {
       start_date: form.start_date || null,
       end_date: form.end_date || null,
+      client_order_end_date: form.client_order_end_date || null,
       rate_candidate: form.rate_candidate ? Number(form.rate_candidate) : null,
       rate_client: form.rate_client ? Number(form.rate_client) : null,
+      target_rate_min: form.target_rate_min ? Number(form.target_rate_min) : null,
+      target_rate_max: form.target_rate_max ? Number(form.target_rate_max) : null,
       currency: form.currency,
       rate_unit: form.rate_unit,
       billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
@@ -596,9 +640,60 @@ export default function ContractDetailPage() {
                     <span className="italic text-gray-500">bezterminowo</span>
                   )}
                 </InfoRow>
+                {contract.client_order_end_date && (
+                  <InfoRow icon={Calendar} label="Koniec zamówienia u klienta">
+                    {formatDate(contract.client_order_end_date)}
+                  </InfoRow>
+                )}
                 <InfoRow icon={FileEdit} label="Typ kontraktu">
                   {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
                 </InfoRow>
+                {(contract.target_rate_min || contract.target_rate_max) && (
+                  <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
+                    {contract.target_rate_min != null
+                      ? formatCurrency(contract.target_rate_min, contract.currency)
+                      : "—"}
+                    {" / "}
+                    {contract.target_rate_max != null
+                      ? formatCurrency(contract.target_rate_max, contract.currency)
+                      : "—"}
+                  </InfoRow>
+                )}
+              </div>
+            )}
+
+            {/* Rate benchmark card — compare vs internal avg + market */}
+            {!editing && (
+              <ContractRateBenchmarkCard
+                contractId={id}
+                currency={contract.currency}
+              />
+            )}
+
+            {/* Termination info — visible only after the contract is ended */}
+            {!editing && contract.status === "ended" && contract.termination_reason && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-2xl p-5">
+                <h2 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
+                  Zakończenie współpracy
+                </h2>
+                <p className="text-sm">
+                  <span className="text-gray-500">Powód: </span>
+                  {CONTRACT_TERMINATION_REASONS.find(
+                    (r) => r.value === contract.termination_reason,
+                  )?.label ?? contract.termination_reason}
+                </p>
+                {contract.terminated_at && (
+                  <p className="text-sm">
+                    <span className="text-gray-500">Data: </span>
+                    {formatDate(contract.terminated_at)}
+                  </p>
+                )}
+                {contract.termination_lessons && (
+                  <p className="text-sm mt-2 whitespace-pre-wrap">
+                    <span className="text-gray-500 block">Wnioski:</span>
+                    {contract.termination_lessons}
+                  </p>
+                )}
               </div>
             )}
 
@@ -694,6 +789,21 @@ export default function ContractDetailPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Koniec zamówienia u klienta
+                    </label>
+                    <input
+                      type="date"
+                      value={form.client_order_end_date}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, client_order_end_date: e.target.value } : f,
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       Typ kontraktu
                     </label>
                     <select
@@ -754,6 +864,40 @@ export default function ContractDetailPage() {
                       value={form.rate_client}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_client: e.target.value } : f))
+                      }
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Widełki docelowe (min)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={form.target_rate_min}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, target_rate_min: e.target.value } : f,
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Widełki docelowe (max)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={form.target_rate_max}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, target_rate_max: e.target.value } : f,
+                        )
                       }
                       className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
                     />
@@ -1021,6 +1165,20 @@ export default function ContractDetailPage() {
       {/* Tab: Onboarding */}
       {activeTab === "onboarding" && <ContractOnboardingTab contractId={id} />}
 
+      {/* Tab: Sprzęt */}
+      {activeTab === "equipment" && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <ContractEquipmentTab contractId={id} />
+        </div>
+      )}
+
+      {/* Tab: Notatki / rozmowy */}
+      {activeTab === "notes" && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+          <ContractNotesTab contractId={id} />
+        </div>
+      )}
+
       {/* Tab: Faktury */}
       {activeTab === "invoices" && <ContractInvoicesTab contractId={id} />}
 
@@ -1103,6 +1261,18 @@ export default function ContractDetailPage() {
             </ol>
           )}
         </div>
+      )}
+
+      {showTerminationDialog && (
+        <ContractTerminationDialog
+          contractId={id}
+          defaultDate={contract.end_date ?? undefined}
+          onClose={() => setShowTerminationDialog(false)}
+          onSuccess={() => {
+            setShowTerminationDialog(false);
+            setEditing(false);
+          }}
+        />
       )}
     </div>
   );

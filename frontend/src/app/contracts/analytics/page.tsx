@@ -2,7 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import api from "@/lib/api";
+import api, {
+  contractAnalyticsExpansionApi,
+  CONTRACT_TERMINATION_REASONS,
+  type RoleClientMix,
+  type LocationDistribution,
+  type TerminationAnalysis,
+} from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { RequireRole } from "@/components/RequireRole";
 import {
@@ -12,6 +18,9 @@ import {
   LineChart,
   ArrowLeft,
   Loader2,
+  MapPin,
+  AlertTriangle,
+  Target,
 } from "lucide-react";
 
 interface MarginRow {
@@ -299,7 +308,281 @@ export default function ContractAnalyticsPage() {
             linkPrefix="/clients/"
           />
         </div>
+
+        <RoleClientMixCard />
+        <LocationDistributionCard />
+        <TerminationAnalysisCard />
       </div>
     </RequireRole>
+  );
+}
+
+// ── Role × Client heatmap ───────────────────────────────────────────────────
+
+
+function RoleClientMixCard() {
+  const { data, isLoading } = useQuery<RoleClientMix>({
+    queryKey: ["contract-analytics-role-client-mix"],
+    queryFn: async () =>
+      (await contractAnalyticsExpansionApi.roleClientMix()).data,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola × klient…
+      </div>
+    );
+  }
+  if (!data || data.rows.length === 0) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+        <div className="flex items-center gap-2 mb-2">
+          <Target className="w-4 h-4" />
+          <h3 className="font-semibold">Rola × Klient</h3>
+        </div>
+        Brak aktywnych kontraktów do analizy.
+      </div>
+    );
+  }
+
+  // Build a matrix map: role → clientId → count.
+  const matrix: Record<string, Record<number, number>> = {};
+  for (const row of data.rows) {
+    matrix[row.role] ??= {};
+    matrix[row.role][row.client_id] = row.active_count;
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Target className="w-4 h-4" />
+        <h3 className="font-semibold">Rola × Klient ({data.total_active} aktywnych)</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-xs">
+          <thead className="text-left text-gray-500">
+            <tr>
+              <th className="px-2 py-1 sticky left-0 bg-white dark:bg-gray-800">Rola</th>
+              {data.clients.map((c) => (
+                <th key={c.id} className="px-2 py-1 whitespace-nowrap">
+                  {c.name}
+                </th>
+              ))}
+              <th className="px-2 py-1">Σ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.roles.map((role) => {
+              const rowSum = data.clients.reduce(
+                (acc, c) => acc + (matrix[role]?.[c.id] ?? 0),
+                0,
+              );
+              return (
+                <tr
+                  key={role}
+                  className="border-t border-gray-100 dark:border-gray-700"
+                >
+                  <td className="px-2 py-1 font-medium sticky left-0 bg-white dark:bg-gray-800">
+                    {role}
+                  </td>
+                  {data.clients.map((c) => {
+                    const cnt = matrix[role]?.[c.id] ?? 0;
+                    const intensity = rowSum
+                      ? Math.min(1, cnt / rowSum)
+                      : 0;
+                    return (
+                      <td
+                        key={c.id}
+                        className="px-2 py-1 text-center"
+                        style={{
+                          backgroundColor:
+                            cnt > 0
+                              ? `rgba(37, 99, 235, ${0.1 + intensity * 0.4})`
+                              : undefined,
+                        }}
+                      >
+                        {cnt || "·"}
+                      </td>
+                    );
+                  })}
+                  <td className="px-2 py-1 text-center font-medium">{rowSum}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Consultant location distribution ────────────────────────────────────────
+
+
+function LocationDistributionCard() {
+  const { data, isLoading } = useQuery<LocationDistribution>({
+    queryKey: ["contract-analytics-location-distribution"],
+    queryFn: async () =>
+      (await contractAnalyticsExpansionApi.locationDistribution()).data,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie lokalizacji…
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-3">
+        <MapPin className="w-4 h-4 text-blue-500" />
+        <h3 className="font-semibold">
+          Lokalizacja konsultantów ({data.total_with_hub}/{data.total} z hubem)
+        </h3>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 mb-2">Huby</h4>
+          <ul className="space-y-1 text-sm">
+            {data.hubs.map((h) => (
+              <li
+                key={h.hub_city ?? "unknown"}
+                className="flex items-center justify-between"
+              >
+                <span className="text-gray-700 dark:text-gray-200">
+                  {h.hub_city ?? <em className="text-gray-400">Brak hubu</em>}
+                </span>
+                <span className="font-medium">{h.count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 mb-2">Regiony</h4>
+          <ul className="space-y-1 text-sm">
+            {data.regions.map((r) => (
+              <li
+                key={r.region ?? "unknown"}
+                className="flex items-center justify-between"
+              >
+                <span className="text-gray-700 dark:text-gray-200">
+                  {r.region ?? <em className="text-gray-400">Brak regionu</em>}
+                </span>
+                <span className="font-medium">{r.count}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Termination analysis ────────────────────────────────────────────────────
+
+
+function TerminationAnalysisCard() {
+  const { data, isLoading } = useQuery<TerminationAnalysis>({
+    queryKey: ["contract-analytics-termination-analysis"],
+    queryFn: async () =>
+      (await contractAnalyticsExpansionApi.terminationAnalysis(12)).data,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
+        zakończeń…
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const reasonLabel = (v: string) =>
+    CONTRACT_TERMINATION_REASONS.find((r) => r.value === v)?.label ?? v;
+  const maxCount = Math.max(1, ...data.by_reason.map((r) => r.count));
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-3">
+        <AlertTriangle className="w-4 h-4 text-amber-500" />
+        <h3 className="font-semibold">
+          Analiza zakończeń ({data.total_terminated} w ostatnich{" "}
+          {data.window_months} mies.)
+        </h3>
+      </div>
+
+      {data.by_reason.length === 0 ? (
+        <p className="text-sm text-gray-500">Brak zakończeń w oknie.</p>
+      ) : (
+        <>
+          <h4 className="text-xs font-semibold text-gray-500 mt-2 mb-2">
+            Powody
+          </h4>
+          <ul className="space-y-1 mb-5">
+            {data.by_reason.map((r) => (
+              <li key={r.reason} className="text-sm">
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>{reasonLabel(r.reason)}</span>
+                  <span>
+                    {r.count}
+                    {r.avg_contract_days != null && (
+                      <> · śr. {Math.round(r.avg_contract_days)} dni</>
+                    )}
+                  </span>
+                </div>
+                <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-amber-500"
+                    style={{ width: `${(r.count / maxCount) * 100}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <h4 className="text-xs font-semibold text-gray-500 mb-2">
+            Retencja per klient
+          </h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-left text-gray-500">
+                <tr>
+                  <th className="px-2 py-1">Klient</th>
+                  <th className="px-2 py-1 text-right">Zakończone</th>
+                  <th className="px-2 py-1 text-right">Do końca</th>
+                  <th className="px-2 py-1 text-right">Przedwczesne</th>
+                  <th className="px-2 py-1 text-right">Retencja</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.client_retention.map((c) => (
+                  <tr
+                    key={c.client_id}
+                    className="border-t border-gray-100 dark:border-gray-700"
+                  >
+                    <td className="px-2 py-1">{c.client_name}</td>
+                    <td className="px-2 py-1 text-right">{c.total_ended}</td>
+                    <td className="px-2 py-1 text-right text-green-600">
+                      {c.kept_to_end}
+                    </td>
+                    <td className="px-2 py-1 text-right text-red-600">
+                      {c.ended_early}
+                    </td>
+                    <td className="px-2 py-1 text-right font-medium">
+                      {c.retention_pct}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

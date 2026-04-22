@@ -31,6 +31,8 @@ import {
   X,
 } from "lucide-react";
 import api from "@/lib/api";
+import { CandidateEngagementPanel } from "@/components/candidates/CandidateEngagementPanel";
+import { CandidateLocationPanel } from "@/components/candidates/CandidateLocationPanel";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -50,6 +52,8 @@ import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget"
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { FirefliesTranscriptsWidget } from "@/components/FirefliesTranscriptsWidget";
+import EmailThreadList from "@/components/emails/EmailThreadList";
+import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
 import {
   AtOurClientBanner,
   CandidateHighlights,
@@ -104,6 +108,7 @@ export function CandidateDetailV2({
   const [screeningStage, setScreeningStage] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const { data: candidate, isLoading } = useQuery({
     queryKey: ["candidate", id],
@@ -345,6 +350,20 @@ export function CandidateDetailV2({
               <Mail className="h-4 w-4" />
               Email
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setScheduleOpen(true)}
+              disabled={!candidate.email}
+              title={
+                candidate.email
+                  ? "Zaplanuj interview w Outlook (Microsoft 365)"
+                  : "Kandydat nie ma adresu email"
+              }
+            >
+              <Calendar className="h-4 w-4" />
+              Zaplanuj interview
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
               <PencilLine className="h-4 w-4" />
               Edytuj
@@ -447,6 +466,10 @@ export function CandidateDetailV2({
               <PhoneCall className="h-3.5 w-3.5" />
               Rozmowy
             </TabsTrigger>
+            <TabsTrigger value="email">
+              <Mail className="h-3.5 w-3.5" />
+              Email
+            </TabsTrigger>
             <TabsTrigger value="notatki">
               <MessageSquare className="h-3.5 w-3.5" />
               Notatki
@@ -481,6 +504,13 @@ export function CandidateDetailV2({
                 <RozmowyTab calls={calls} />
                 <FirefliesTranscriptsWidget candidateId={Number(id)} />
               </div>
+            </TabsContent>
+            <TabsContent value="email" className="mt-0">
+              <EmailThreadList
+                candidateId={Number(id)}
+                candidateName={fullName}
+                candidateEmail={candidate.email ?? null}
+              />
             </TabsContent>
             <TabsContent value="notatki" className="mt-0">
               <NotatkiTab
@@ -545,6 +575,13 @@ export function CandidateDetailV2({
           setScreeningStage(null);
         }}
       />
+      <ScheduleInterviewModal
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        candidateId={Number(id)}
+        candidateName={fullName}
+        candidateEmail={candidate.email ?? null}
+      />
     </div>
   );
 }
@@ -574,6 +611,29 @@ function ProfilTab({ candidate }: { candidate: any }) {
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <CandidateEngagementPanel
+          candidateId={candidate.id}
+          initial={{
+            is_ambassador: candidate.is_ambassador,
+            wants_to_verify_candidates: candidate.wants_to_verify_candidates,
+            open_to_side_projects: candidate.open_to_side_projects,
+            open_to_sales_support: candidate.open_to_sales_support,
+            open_to_expert_consult: candidate.open_to_expert_consult,
+            engagement_notes: candidate.engagement_notes,
+          }}
+        />
+        <CandidateLocationPanel
+          candidateId={candidate.id}
+          initial={{
+            city: candidate.city,
+            country: candidate.country,
+            region: candidate.region,
+            hub_city: candidate.hub_city,
+          }}
+        />
+      </div>
+
       {aiSummary && (
         <section>
           <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2 flex items-center gap-2">
