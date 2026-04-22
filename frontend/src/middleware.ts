@@ -44,7 +44,7 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 ]
 
 // Ścieżki nigdy nieobjęte middleware (publiczne, assety, API).
-const PUBLIC_PATHS = ["/login", "/403", "/_next", "/favicon", "/public", "/share"]
+const PUBLIC_PATHS = ["/login", "/403", "/_next", "/favicon", "/public", "/share", "/apply"]
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p))

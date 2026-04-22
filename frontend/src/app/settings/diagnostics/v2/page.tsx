@@ -25,7 +25,6 @@ import {
   Users,
 } from "lucide-react";
 import { RequireRole } from "@/components/RequireRole";
-import { readUiFlagClient, setUiFlagClient } from "@/lib/ui-flag";
 import {
   Avatar,
   AvatarFallback,
@@ -103,17 +102,7 @@ import {
 } from "@/components/ui";
 
 export default function V2ShowcasePage() {
-  const [ui, setUi] = useState<"v1" | "v2" | "loading">("loading");
   const [cmdkOpen, setCmdkOpen] = useState(false);
-
-  useEffect(() => {
-    setUi(readUiFlagClient());
-  }, []);
-
-  const flipTo = (next: "v1" | "v2") => {
-    setUiFlagClient(next);
-    window.location.reload();
-  };
 
   return (
     <RequireRole
@@ -122,7 +111,7 @@ export default function V2ShowcasePage() {
     >
       <TooltipProvider delayDuration={200}>
         <div className="mx-auto max-w-7xl p-8 space-y-14">
-          <Header ui={ui} flipTo={flipTo} />
+          <Header />
 
           <ColorsSection />
           <TypographySection />
@@ -150,38 +139,23 @@ export default function V2ShowcasePage() {
 }
 
 // ── Header ─────────────────────────────────────────────────────────────
-function Header({
-  ui,
-  flipTo,
-}: {
-  ui: "v1" | "v2" | "loading";
-  flipTo: (n: "v1" | "v2") => void;
-}) {
+function Header() {
   return (
     <header className="space-y-2">
       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
-        Dynaminds · Nexus v2
+        Dynaminds · Nexus
       </p>
       <h1 className="text-3xl font-extrabold tracking-[-0.02em] text-[hsl(var(--text-title))] font-[var(--font-poppins)]">
         UI Showcase
       </h1>
       <p className="text-sm text-[hsl(var(--text-body))] max-w-2xl">
-        Single-scroll render of every primitive and page fragment in the v2 redesign.
-        Current phase: <strong>1 — Primitywy</strong>.
+        Single-scroll render of every primitive and page fragment in the Dynaminds
+        design system. Visual regression target for Playwright.
       </p>
       <div className="mt-4 flex items-center gap-3 text-sm">
         <Badge variant="soft" uppercase size="sm">
-          Active flag: {ui}
+          Dynaminds v2 — live
         </Badge>
-        {ui !== "loading" && (
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => flipTo(ui === "v2" ? "v1" : "v2")}
-          >
-            Flip to {ui === "v2" ? "v1" : "v2"}
-          </Button>
-        )}
         <Link
           href="/settings"
           className="text-xs text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))]"

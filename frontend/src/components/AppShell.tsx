@@ -1,21 +1,20 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
-import Link from "next/link";
-import { Sidebar } from "@/components/Sidebar";
-import { GlobalSearchBar } from "@/components/GlobalSearchBar";
-import { OpenTabs } from "@/components/OpenTabs";
-import { NotificationsDropdown } from "@/components/NotificationsDropdown";
-import { useState, useRef, useEffect, useCallback } from "react";
+/**
+ * Legacy modal bundle — housed in AppShell.tsx historically; after Phase 11
+ * decommission this file keeps only the Add/Edit modals used across the app
+ * (AddCandidate, EditCandidate, AddJob, EditJob, AddClient, AddMeeting) plus
+ * their internal helpers. The old `<AppShell>` wrapper was replaced by
+ * `<AppShellV2>` in `components/v2/shell/`.
+ */
+
+import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Plus, UserPlus, Briefcase, Building2, CalendarPlus,
-  ChevronRight, X, Loader2, Menu, Sparkles,
+  X, Loader2, Sparkles,
 } from "lucide-react";
 import api, { aiWriterApi, phase5Api, pipelineTemplatesApi } from "@/lib/api";
-import { useAuthStore } from "@/store/auth";
-import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
-import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -235,6 +234,7 @@ interface CandidateFormData {
   availability_date: string;
   notice_period: string;
   status: string;
+  availability_status: string;
   tags: string;
   notes: string;
   // Structured (Phase 1 – Sprint 3)
@@ -254,7 +254,7 @@ interface CandidateFormData {
 const EMPTY_CANDIDATE: CandidateFormData = {
   name: "", lastname: "", email: "", phone: "", location: "",
   source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
-  availability_date: "", notice_period: "", status: "active", tags: "", notes: "",
+  availability_date: "", notice_period: "", status: "active", availability_status: "unknown", tags: "", notes: "",
   years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
   pref_remote_modes: [], pref_rate_min: "", pref_rate_max: "",
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
@@ -290,6 +290,7 @@ function candidateToForm(c: any): CandidateFormData {
     availability_date: c.availability_date ? c.availability_date.slice(0, 10) : "",
     notice_period: c.notice_period != null ? String(c.notice_period) : "",
     status: c.status ?? "active",
+    availability_status: c.availability_status ?? "unknown",
     tags: Array.isArray(c.tags) ? c.tags.join(", ") : (c.tags ?? ""),
     notes: "",
     years_it_experience: c.years_it_experience != null ? String(c.years_it_experience) : "",
@@ -345,6 +346,7 @@ function candidateFormToPayload(form: CandidateFormData) {
     availability_date: form.availability_date || undefined,
     notice_period: form.notice_period ? Number(form.notice_period) : undefined,
     status: form.status,
+    availability_status: form.availability_status || undefined,
     tags: tags.length ? tags : undefined,
     years_it_experience: form.years_it_experience ? Number(form.years_it_experience) : undefined,
     champion: form.champion,
@@ -450,6 +452,26 @@ function CandidateFormFields({
             <option value="passive">Pasywny</option>
             <option value="blacklisted">Zablokowany</option>
           </Select>
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Dyspozycyjność">
+          <Select
+            value={form.availability_status}
+            onChange={e => onChange("availability_status", e.target.value)}
+          >
+            <option value="unknown">Nie wiemy</option>
+            <option value="actively_looking">Aktywnie szuka pracy</option>
+            <option value="open_to_offers">Otwarty na dodatkowe projekty</option>
+            <option value="not_looking">Nie szuka</option>
+          </Select>
+        </FieldGroup>
+        <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
+          <div className="text-xs text-gray-500 dark:text-gray-400 px-3 py-2 bg-gray-50 dark:bg-gray-900/40 rounded-lg">
+            Oznacz w zakładce <strong>Konflikty</strong> w profilu —
+            typ <code>current_employment</code>. Dzięki temu karta dostanie
+            burgundowy alert „U KLIENTA”.
+          </div>
         </FieldGroup>
       </div>
       <FieldGroup label="Tagi (rozdzielone przecinkami)">
@@ -597,7 +619,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
-    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+    queryFn: () => api.get("/api/users").then(r => r.data),
   });
   const { data: clientsData } = useQuery({
     queryKey: ["clients-lookup-for-candidate"],
@@ -720,7 +742,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
-    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+    queryFn: () => api.get("/api/users").then(r => r.data),
   });
   const { data: clientsData } = useQuery({
     queryKey: ["clients-lookup-for-candidate"],
@@ -895,10 +917,15 @@ function JobFormFields({ form, onChange, clients, users, templates }: {
           <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
         </FieldGroup>
       </div>
-      <FieldGroup label="Rekruter">
+      <FieldGroup label="Rekruter (primary owner)">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
-          <option value="">— przypisz rekrutera —</option>
-          {users.map((u: any) => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+          <option value="">— nieprzypisany —</option>
+          {users.map((u: any) => (
+            <option key={u.id} value={u.id}>
+              {u.name || u.full_name || u.email}
+              {u.role ? ` (${u.role})` : ""}
+            </option>
+          ))}
         </Select>
       </FieldGroup>
       <FieldGroup label="Szablon procesu rekrutacyjnego">
@@ -928,6 +955,7 @@ function JobFormFields({ form, onChange, clients, users, templates }: {
 }
 
 export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const router = useRouter();
   const [form, setForm] = useState<JobFormData>(EMPTY_JOB);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -940,7 +968,7 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   });
   const { data: usersData } = useQuery({
     queryKey: ["users-list-qa"],
-    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+    queryFn: () => api.get("/api/users").then(r => r.data),
   });
   const { data: templatesData } = useQuery({
     queryKey: ["pipeline-templates-list"],
@@ -986,7 +1014,7 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
     setSaving(true); setError("");
     try {
-      await api.post("/api/jobs", {
+      const { data: newJob } = await api.post<{ id: number }>("/api/jobs", {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
         recruitment_type: form.recruitment_type,
@@ -1002,8 +1030,13 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
       });
-      onSuccess("Oferta dodana pomyślnie");
+      onSuccess("Projekt utworzony — AI szuka kandydatów…");
       onClose();
+      // Phase 13: redirect to the job detail page with AI proposals section
+      // highlighted so the recruiter sees the snapshot load progress.
+      if (newJob?.id) {
+        router.push(`/jobs/${newJob.id}?highlight=ai-proposals`);
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
     } finally { setSaving(false); }
@@ -1051,7 +1084,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
   });
   const { data: usersData } = useQuery({
     queryKey: ["users-list-qa"],
-    queryFn: () => api.get("/api/admin/users").then(r => r.data),
+    queryFn: () => api.get("/api/users").then(r => r.data),
   });
   const { data: templatesData } = useQuery({
     queryKey: ["pipeline-templates-list"],
@@ -1415,138 +1448,5 @@ function QuickActionsButton({
       {/* Toast */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </>
-  );
-}
-
-// ── AppShell ─────────────────────────────────────────────────────────────────
-
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
-
-  // Phase 12: public-share routes are rendered without the authenticated
-  // shell (no sidebar, no onboarding overlay, no breadcrumbs). Recruiters
-  // email these links to external clients.
-  if (pathname?.startsWith("/share/")) {
-    return <>{children}</>;
-  }
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [pendingModal, setPendingModal] = useState<ModalType>(null);
-
-  // Hydrate auth state from localStorage after mount (SSR-safe).
-  // Unika React hydration mismatch (#418) — initial render ma user=null na
-  // server i client, a Zustand wypełnia stan dopiero w useEffect.
-  const hydrateAuth = useAuthStore((s) => s.hydrate);
-  const hydrated = useAuthStore((s) => s.hydrated);
-  useEffect(() => {
-    if (!hydrated) hydrateAuth();
-  }, [hydrated, hydrateAuth]);
-
-  // Close mobile sidebar on route change
-  useEffect(() => {
-    setMobileSidebarOpen(false);
-  }, [pathname]);
-
-  const focusSearch = useCallback(() => {
-    const input = document.querySelector<HTMLInputElement>("input[data-global-search]");
-    if (input) {
-      input.focus();
-      input.select();
-    }
-  }, []);
-
-  // Global Cmd+K / Ctrl+K shortcut → focus global search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        focusSearch();
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [focusSearch]);
-
-  // Keyboard shortcuts
-  const { showHelp, setShowHelp } = useKeyboardShortcuts({
-    onNewCandidate: useCallback(() => setPendingModal("candidate"), []),
-    onNewJob: useCallback(() => setPendingModal("job"), []),
-    onFocusSearch: focusSearch,
-  });
-
-  const { shouldShow: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
-
-  if (isLoginPage) {
-    return <>{children}</>;
-  }
-
-  return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
-      {/* Mobile overlay */}
-      {mobileSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex h-full">
-        <Sidebar />
-      </div>
-
-      {/* Mobile sidebar drawer */}
-      {mobileSidebarOpen && (
-        <div className="fixed inset-y-0 left-0 z-50 md:hidden">
-          <Sidebar mobileOpen onClose={() => setMobileSidebarOpen(false)} />
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Top bar */}
-        <header className="flex-shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm px-4 md:px-5 py-2.5 flex items-center gap-3">
-          {/* Mobile hamburger */}
-          <button
-            className="md:hidden p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            onClick={() => setMobileSidebarOpen(true)}
-            title="Otwórz menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          {/* Left: breadcrumb (desktop only) */}
-          <div className="hidden md:flex min-w-0 max-w-[220px]">
-            <Breadcrumb />
-          </div>
-
-          {/* Center: global search */}
-          <div className="flex-1">
-            <GlobalSearchBar />
-          </div>
-
-          {/* Right: notifications + quick actions */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <NotificationsDropdown />
-            <QuickActionsButton
-              externalModal={pendingModal}
-              onExternalModalClear={() => setPendingModal(null)}
-            />
-          </div>
-        </header>
-
-        {/* Open tabs bar */}
-        <OpenTabs />
-
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
-        </main>
-      </div>
-
-      {/* Keyboard shortcuts help modal */}
-      {showHelp && <ShortcutsModal onClose={() => setShowHelp(false)} />}
-
-      {/* Onboarding walkthrough */}
-      {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
-    </div>
   );
 }

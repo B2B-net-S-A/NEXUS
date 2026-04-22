@@ -24,6 +24,25 @@
   animation: fadeIn 200ms ease-out both;
 }
 
+/*
+ * Alert pulse — used by burgundy "U KLIENTA" badges & profile banner.
+ * Breathes a soft ring around the element without changing its color, so
+ * multiple alerts next to each other don't overwhelm the page. Respect
+ * `prefers-reduced-motion` to avoid triggering vestibular issues.
+ */
+@keyframes pulse-subtle {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0.45); }
+  50%      { box-shadow: 0 0 0 4px hsl(var(--accent) / 0); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-subtle { animation: none; }
+}
+
 @layer base {
   :root {
     /* ── V1 tokens (generic SaaS blue) — untouched ─────────────────────── */

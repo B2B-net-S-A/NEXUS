@@ -1,6 +1,11 @@
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+from app.models.competence_category import (
+    CompetenceCategory,
+    UserCompetenceCategory,
+)
 from app.models.client import Client
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
@@ -38,6 +43,14 @@ from app.models.pipeline_template import (
     TerminalType,
 )
 from app.models.saved_search import SavedSearch, MatchHistory
+from app.models.procedure import Procedure
+from app.models.proposal_snapshot import ProposalSnapshot
+from app.models.champion_suggestion import (
+    ChampionProfileSuggestion,
+    SuggestionSource,
+    SuggestionStatus,
+)
+from app.models.app_setting import AppSetting
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
 
@@ -45,6 +58,10 @@ __all__ = [
     "User",
     "Candidate",
     "Job",
+    "JobCollaborator",
+    "JobCollaboratorSource",
+    "CompetenceCategory",
+    "UserCompetenceCategory",
     "Client",
     "CandidateStage",
     "Note",
@@ -86,6 +103,12 @@ __all__ = [
     "TerminalType",
     "SavedSearch",
     "MatchHistory",
+    "Procedure",
+    "ProposalSnapshot",
+    "ChampionProfileSuggestion",
+    "SuggestionSource",
+    "SuggestionStatus",
+    "AppSetting",
     "KpiRoleDefault",
     "UserKpiTarget",
     "KpiNudgeLog",

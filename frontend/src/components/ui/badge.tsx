@@ -21,6 +21,10 @@ const badgeVariants = cva(
         danger: "bg-[#f4e0e3] text-[#6b1120]",
         info: "bg-[#e3dfe5] text-[hsl(var(--text-title))]",
         outline: "border border-[hsl(var(--border-subtle))] text-[hsl(var(--text-body))]",
+        alert:
+          "bg-[hsl(var(--accent))] text-white border border-[hsl(var(--accent-strong))] animate-pulse-subtle font-semibold",
+        "alert-dark":
+          "bg-[hsl(var(--bg-chrome))] text-white border border-[hsl(var(--bg-chrome))] font-semibold",
       },
       size: {
         sm: "px-2 py-0 text-[10px] h-4",

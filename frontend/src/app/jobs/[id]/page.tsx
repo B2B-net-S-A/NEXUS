@@ -1,17 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
-import { KanbanBoard } from "@/components/KanbanBoard";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
-import { readUiFlagClient } from "@/lib/ui-flag";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { CriteriaPreviewModal } from "@/components/CriteriaPreviewModal";
+import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
+import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -577,17 +576,15 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
         <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{last}</div>
       )}
 
-      {showPreview && (
-        <CriteriaPreviewModal
-          jobId={jobId}
-          onClose={() => setShowPreview(false)}
-          onSaved={() => {
-            setShowPreview(false);
-            setLast("Kryteria zaktualizowane. Uruchom 'Przelicz scoring' aby odświeżyć wyniki.");
-            onDone();
-          }}
-        />
-      )}
+      <CriteriaPreviewModal
+        open={showPreview}
+        onOpenChange={setShowPreview}
+        jobId={jobId}
+        onSaved={() => {
+          setLast("Kryteria zaktualizowane. Uruchom 'Przelicz scoring' aby odświeżyć wyniki.");
+          onDone();
+        }}
+      />
     </div>
   );
 }
@@ -852,11 +849,38 @@ type PageTab = "pipeline" | "ai-matching" | "portals" | "champion";
 
 export default function JobDetailPage() {
   const { id } = useParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
+  const [proposalsHighlight, setProposalsHighlight] = useState(false);
+
+  // Phase 13: when redirected from AddJobModal with ?highlight=ai-proposals,
+  // switch to the AI matching tab, scroll to the widget, and glow the panel
+  // briefly so the recruiter sees AI has taken over.
+  useEffect(() => {
+    if (searchParams?.get("highlight") !== "ai-proposals") return;
+    setActiveTab("ai-matching");
+    setProposalsHighlight(true);
+    // Let React paint the new tab before scrolling.
+    const scrollTimer = window.setTimeout(() => {
+      const el = document.getElementById("ai-proposals-section");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    const glowTimer = window.setTimeout(() => setProposalsHighlight(false), 3000);
+    const cleanupTimer = window.setTimeout(() => {
+      if (pathname) router.replace(pathname, { scroll: false });
+    }, 3200);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(glowTimer);
+      window.clearTimeout(cleanupTimer);
+    };
+  }, [searchParams, pathname, router]);
 
   const { data: job, isLoading: jobLoading } = useQuery({
     queryKey: ["job", id],
@@ -945,6 +969,15 @@ export default function JobDetailPage() {
           </div>
         </div>
 
+        <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <JobOwnershipPanel
+            jobId={Number(id)}
+            jobTitle={job.title}
+            primaryOwner={job.primary_owner ?? null}
+            collaborators={job.collaborators ?? []}
+          />
+        </div>
+
         {job.description && (
           <div className="mt-4 text-sm text-gray-600 whitespace-pre-line">{job.description}</div>
         )}
@@ -1029,17 +1062,23 @@ export default function JobDetailPage() {
         <div>
           {kanbanLoading ? (
             <div className="text-gray-400">Ładowanie pipeline...</div>
-          ) : readUiFlagClient() === "v2" ? (
-            <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
           ) : (
-            <KanbanBoard columns={kanban?.columns ?? []} jobId={Number(id)} />
+            <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
           )}
         </div>
       )}
 
       {activeTab === "ai-matching" && (
         <div className="space-y-4">
-          <SuggestedCandidatesWidget jobId={Number(id)} />
+          <div
+            className={cn(
+              "rounded-lg transition-shadow",
+              proposalsHighlight &&
+                "ring-2 ring-violet-400 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 shadow-lg",
+            )}
+          >
+            <SuggestedCandidatesWidget jobId={Number(id)} />
+          </div>
           <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center gap-2 mb-6">
               <Sparkles className="w-5 h-5 text-blue-500" />

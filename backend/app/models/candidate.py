@@ -26,6 +26,19 @@ class CandidateStatus(str, enum.Enum):
     blacklisted = "blacklisted"
 
 
+class AvailabilityStatus(str, enum.Enum):
+    """
+    Postawa konsultanta wobec sourcingu (ortogonalna do `status` i stanu
+    zatrudnienia). `status` mówi czym jest kandydat w bazie, a
+    `availability_status` czy interesują go nowe projekty.
+    """
+
+    actively_looking = "actively_looking"  # Aktywnie szuka pracy
+    open_to_offers = "open_to_offers"  # Otwarty na dodatkowe projekty
+    not_looking = "not_looking"  # Nie szuka — spokojnie siedzi
+    unknown = "unknown"  # Default — nie wiemy
+
+
 class CandidateSource(str, enum.Enum):
     linkedin = "linkedin"
     pracuj = "pracuj"
@@ -68,8 +81,13 @@ class Candidate(Base, TimestampMixin):
         Enum(CandidateSource, name="candidatesource"), nullable=True
     )
 
-    # Competence category (e.g. Frontend, Backend, DevOps, QA)
+    # Competence category — legacy string field (Frontend/Backend/DevOps/QA/...).
+    # Being replaced by `competence_category_id` FK (below). Kept for backfill
+    # safety; drop in a follow-up migration after audit.
     competence_category: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    competence_category_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("competence_categories.id"), nullable=True, index=True
+    )
 
     # Structured IT experience in years (dedicated column; supplements `experience` JSONB)
     years_it_experience: Mapped[Optional[int]] = mapped_column(Integer)
@@ -96,6 +114,14 @@ class Candidate(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=True
     )
 
+    # Who added this candidate (recruiter ownership).
+    # Nullable because imported rows (Traffit, talent-radar, CSV) pre-date the
+    # column — the list filter exposes a `0` sentinel that maps these to
+    # "System import".
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # List of technologies verified during screening — structured tag list
     # Shape: [{"name": str, "level": "expert|senior|mid|junior", "years": int}, ...]
     verified_tech: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
@@ -104,6 +130,15 @@ class Candidate(Base, TimestampMixin):
     status: Mapped[CandidateStatus] = mapped_column(
         Enum(CandidateStatus),
         default=CandidateStatus.active,
+        nullable=False,
+        index=True,
+    )
+
+    # Postawa wobec sourcingu — niezależna od statusu w bazie (Phase: Wyróżnienia).
+    availability_status: Mapped[AvailabilityStatus] = mapped_column(
+        Enum(AvailabilityStatus, name="availabilitystatus"),
+        default=AvailabilityStatus.unknown,
+        server_default="unknown",
         nullable=False,
         index=True,
     )
@@ -166,6 +201,10 @@ class Candidate(Base, TimestampMixin):
         "CandidateConflict", back_populates="candidate", cascade="all, delete-orphan"
     )
     verifier = relationship("User", foreign_keys=[verifier_id])
+    creator = relationship("User", foreign_keys=[created_by])
+    competence_category_ref = relationship(
+        "CompetenceCategory", foreign_keys=[competence_category_id]
+    )
 
     def __repr__(self) -> str:
         return f"<Candidate id={self.id} name={self.name} {self.lastname}>"

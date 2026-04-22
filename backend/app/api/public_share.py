@@ -1,25 +1,43 @@
-"""Public (no-auth) endpoints for externally shareable artifacts (Phase 12).
+"""Public (no-auth) endpoints for externally shareable artifacts.
 
 Only routes registered here should be exempt from auth. Each route validates
-its own unguessable token and honours `revoked` + `expires_at`.
+its own unguessable token and honours `revoked` + `expires_at`. Sensitive
+fields (emails of internal users, private labels, internal ids) are never
+exposed on these endpoints.
 """
 
-from __future__ import annotations
-
+import asyncio
+import logging
+import os
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+import aiofiles
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from pydantic import EmailStr
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.models.candidate import Candidate
+from app.core.rate_limit import limiter
+from app.models.activity import Activity
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.champion_share import ChampionCardShareToken
+from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user import User
+from app.models.user_activity import UserActionType, UserActivity
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ── Champion Card share (legacy Phase 12) ──────────────────────────────────
 
 
 @router.get("/champion-card/{token}")
@@ -67,3 +85,262 @@ async def get_public_champion_card(
         "screening_answers": stage.screening_answers or None,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
+
+
+# ── Candidate invite links (self-service apply) ────────────────────────────
+
+_MAX_CV_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+_ALLOWED_CV_MIME = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_ALLOWED_CV_EXT = {".pdf", ".doc", ".docx"}
+_PHONE_RE = re.compile(r"^\+?[0-9 ()\-]{6,30}$")
+
+
+async def _load_valid_link(
+    token: str, db: AsyncSession
+) -> CandidateInviteLink:
+    """Fetch an invite link and raise 404 if missing/revoked/expired.
+
+    Shared by both GET and POST so failure modes stay consistent.
+    """
+    link = await db.scalar(
+        select(CandidateInviteLink).where(CandidateInviteLink.token == token)
+    )
+    if link is None or link.revoked:
+        raise HTTPException(status_code=404, detail="Invite link not found or revoked")
+    if link.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Invite link expired")
+    return link
+
+
+@router.get("/apply/{token}")
+@limiter.limit("30/minute")
+async def get_public_apply_meta(
+    request: Request,
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Preview metadata shown on the public /apply/{token} landing page.
+
+    Exposes only what the candidate needs to decide whether to apply: who
+    invited them (first name), which role, and when the link expires.
+    Internal state — label, use_count, recruiter email — is never returned.
+    """
+    link = await _load_valid_link(token, db)
+
+    job = await db.scalar(select(Job).where(Job.id == link.job_id))
+    recruiter = await db.scalar(select(User).where(User.id == link.created_by))
+    if job is None or recruiter is None:
+        raise HTTPException(status_code=404, detail="Invite link no longer valid")
+
+    # Use only the first name of the recruiter for the hero line.
+    recruiter_first_name = (recruiter.name or "").strip().split(" ", 1)[0]
+
+    return {
+        "recruiter": {"first_name": recruiter_first_name or "Zespół"},
+        "job": {
+            "title": job.title,
+            "location": job.location,
+            "seniority": job.seniority.value if job.seniority else None,
+            "remote_policy": (
+                job.remote_policy.value if job.remote_policy else None
+            ),
+        },
+        "expires_at": link.expires_at.isoformat(),
+    }
+
+
+def _validate_cv_file(upload: UploadFile, content: bytes) -> None:
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="CV file is empty")
+    if len(content) > _MAX_CV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CV file too large (max {settings.MAX_UPLOAD_SIZE_MB} MB)",
+        )
+    filename = (upload.filename or "").lower()
+    _, ext = os.path.splitext(filename)
+    mime_ok = (upload.content_type or "") in _ALLOWED_CV_MIME
+    ext_ok = ext in _ALLOWED_CV_EXT
+    if not (mime_ok or ext_ok):
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported CV format. Use PDF, DOC, or DOCX.",
+        )
+
+
+async def _persist_cv(
+    candidate_id: int, upload: UploadFile, content: bytes
+) -> tuple[str, Optional[str]]:
+    """Write the CV bytes to disk and return (stored_filename, extracted_text).
+
+    Mirrors backend/app/api/candidates.py::upload_cv so the rest of the
+    product (download, enrichment, embedding) keeps working.
+    """
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    filename = upload.filename or "cv.pdf"
+    file_path = os.path.join(
+        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{filename}"
+    )
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(content)
+
+    raw_text: Optional[str] = None
+    try:
+        from app.services import cv_text_extractor
+
+        raw_text = await asyncio.to_thread(
+            cv_text_extractor.extract_text, file_path, filename
+        )
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "[apply] CV text extraction failed candidate=%s: %s", candidate_id, e
+        )
+    return filename, raw_text
+
+
+@router.post(
+    "/apply/{token}",
+    status_code=status.HTTP_201_CREATED,
+    response_model=None,
+)
+@limiter.limit("5/minute; 30/hour")
+async def submit_public_apply(
+    request: Request,
+    token: str,
+    first_name: str = Form(..., min_length=1, max_length=100),
+    last_name: str = Form(..., min_length=1, max_length=100),
+    email: EmailStr = Form(...),
+    phone: Optional[str] = Form(None, max_length=30),
+    linkedin: Optional[str] = Form(None, max_length=500),
+    message: Optional[str] = Form(None, max_length=2000),
+    cv: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Accept a public application via an invite link.
+
+    Creates a new candidate (branch A) or merges into an existing one by
+    email (branch B, per user decision: "Zaktualizuj istniejący rekord").
+    Ownership (`created_by`) is reassigned to the inviting recruiter so the
+    candidate appears under their name in the list.
+    """
+    link = await _load_valid_link(token, db)
+
+    if phone and not _PHONE_RE.match(phone.strip()):
+        raise HTTPException(status_code=422, detail="Invalid phone format")
+
+    content = await cv.read()
+    _validate_cv_file(cv, content)
+
+    # Duplicate-by-email — case-insensitive match.
+    normalized_email = str(email).strip().lower()
+    existing = await db.scalar(
+        select(Candidate).where(func.lower(Candidate.email) == normalized_email)
+    )
+
+    branch: str  # "created" or "updated"
+    previous_created_by: Optional[int] = None
+    previous_cv_filename: Optional[str] = None
+
+    if existing is None:
+        candidate = Candidate(
+            name=first_name.strip(),
+            lastname=last_name.strip(),
+            email=str(email),
+            phone=phone.strip() if phone else None,
+            linkedin=linkedin.strip() if linkedin else None,
+            source=f"invite_link:{token[:8]}",
+            status=CandidateStatus.active,
+            created_by=link.created_by,
+            ai_summary=message.strip() if message else None,
+        )
+        db.add(candidate)
+        await db.flush()
+        branch = "created"
+    else:
+        candidate = existing
+        previous_created_by = candidate.created_by
+        previous_cv_filename = candidate.cv_filename
+        # Name: always refresh to whatever the candidate just typed.
+        candidate.name = first_name.strip()
+        candidate.lastname = last_name.strip()
+        # Optional fields: only write when the existing value is empty.
+        if not candidate.phone and phone:
+            candidate.phone = phone.strip()
+        if not candidate.linkedin and linkedin:
+            candidate.linkedin = linkedin.strip()
+        if message:
+            # Append applicant message to ai_summary without destroying prior notes.
+            prefix = candidate.ai_summary.strip() + "\n\n" if candidate.ai_summary else ""
+            candidate.ai_summary = f"{prefix}[{datetime.now(timezone.utc).date().isoformat()}] {message.strip()}"
+        # Ownership: reassign to the recruiter who posted the link.
+        candidate.created_by = link.created_by
+        branch = "updated"
+
+    # Persist CV (always — both branches).
+    stored_filename, raw_text = await _persist_cv(candidate.id, cv, content)
+    candidate.cv_filename = stored_filename
+    if raw_text:
+        candidate.raw_cv_text = raw_text
+
+    # Ensure CandidateStage for (candidate, link.job_id) exists at stage="new".
+    stage_exists = await db.scalar(
+        select(CandidateStage).where(
+            CandidateStage.candidate_id == candidate.id,
+            CandidateStage.job_id == link.job_id,
+        )
+    )
+    if stage_exists is None:
+        db.add(
+            CandidateStage(
+                candidate_id=candidate.id,
+                job_id=link.job_id,
+                stage=PipelineStage.new,
+                moved_by=link.created_by,
+                notes="Aplikacja przez invite link",
+            )
+        )
+
+    # Audit trail — link the Activity to the inviting recruiter.
+    activity_details: dict = {
+        "invite_token": token[:8],
+        "job_id": link.job_id,
+        "was_duplicate": branch == "updated",
+    }
+    if previous_created_by and previous_created_by != link.created_by:
+        activity_details["previous_created_by"] = previous_created_by
+    if previous_cv_filename and previous_cv_filename != stored_filename:
+        activity_details["previous_cv_filename"] = previous_cv_filename
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate.id,
+            action="applied_via_invite",
+            user_id=link.created_by,
+            details=activity_details,
+        )
+    )
+    db.add(
+        UserActivity(
+            user_id=link.created_by,
+            action_type=UserActionType.candidate_added,
+            entity_type="candidate",
+            entity_id=candidate.id,
+            details={
+                "name": f"{candidate.name} {candidate.lastname}",
+                "source": "invite_link",
+                "invite_token": token[:8],
+                "was_duplicate": branch == "updated",
+            },
+        )
+    )
+
+    # Increment usage counters on the link.
+    link.use_count += 1
+    link.last_used_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    return {"ok": True, "status": branch}

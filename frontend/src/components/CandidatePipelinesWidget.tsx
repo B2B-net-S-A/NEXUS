@@ -5,9 +5,11 @@ import { useEffect, useState } from "react";
 import { Briefcase, Clock, Loader2, Star } from "lucide-react";
 import { phase3Api, CandidatePipelineRow } from "@/lib/api";
 import { ChampionCard } from "./ChampionCard";
+import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
 
 interface Props {
   candidateId: number;
+  employment?: EmploymentInfo;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -16,7 +18,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   terminal: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
-export function CandidatePipelinesWidget({ candidateId }: Props) {
+export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
   const [rows, setRows] = useState<CandidatePipelineRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -60,7 +62,7 @@ export function CandidatePipelinesWidget({ candidateId }: Props) {
           </div>
           <ul className="space-y-1.5 mb-3">
             {active.map((p) => (
-              <PipelineRow key={p.candidate_stage_id} row={p} />
+              <PipelineRow key={p.candidate_stage_id} row={p} employment={employment} />
             ))}
           </ul>
         </>
@@ -72,7 +74,7 @@ export function CandidatePipelinesWidget({ candidateId }: Props) {
           </div>
           <ul className="space-y-1.5">
             {closed.map((p) => (
-              <PipelineRow key={p.candidate_stage_id} row={p} muted />
+              <PipelineRow key={p.candidate_stage_id} row={p} muted employment={employment} />
             ))}
           </ul>
         </>
@@ -84,9 +86,11 @@ export function CandidatePipelinesWidget({ candidateId }: Props) {
 function PipelineRow({
   row,
   muted,
+  employment,
 }: {
   row: CandidatePipelineRow;
   muted?: boolean;
+  employment?: EmploymentInfo;
 }) {
   // Show Champion card once the candidate advances to an external stage —
   // recruiter should have filled screening before moving into cv_sent+.
@@ -127,7 +131,9 @@ function PipelineRow({
         </span>
       </div>
 
-      {showChampion && <ChampionCard stageId={row.candidate_stage_id} />}
+      {showChampion && (
+        <ChampionCard stageId={row.candidate_stage_id} employment={employment} />
+      )}
     </li>
   );
 }

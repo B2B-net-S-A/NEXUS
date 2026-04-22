@@ -19,7 +19,6 @@ import {
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
-import { UiVersionToggle } from "@/components/v2/UiVersionToggle";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
@@ -209,9 +208,6 @@ export default function SettingsPage() {
           Zarządzaj integracjami i konfiguracją systemu
         </p>
       </div>
-
-      {/* UI version (v1 ↔ v2) toggle */}
-      <UiVersionToggle />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">

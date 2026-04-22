@@ -9,7 +9,7 @@ from app.models.note import Note
 from app.models.candidate import Candidate
 from app.models.user_activity import UserActivity, UserActionType
 from app.schemas.note import NoteCreate, NoteList, NoteResponse, NoteUpdate
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, DeliveryLeadPlus
 
 router = APIRouter()
 
@@ -109,3 +109,54 @@ async def delete_note(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     await db.delete(note)
+
+
+@router.post("/{note_id}/link-job")
+async def link_note_to_job(
+    note_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+):
+    """Manually attach a Fireflies (or other) meeting Note to a Job and
+    trigger LLM enrichment of the Job's Champion Profile.
+
+    Used from the "Sugerowane meetingi" / "Wszystkie meetingi bez powiązania"
+    panels on the Job detail view (Phase 14).
+    """
+    from app.models.job import Job
+    from app.schemas.champion_suggestion import (
+        ChampionProfileSuggestionOut,
+        LinkNoteJobPayload,
+        patches_from_payload,
+    )
+    from app.services.champion_draft_service import enrich_from_meeting
+
+    body = LinkNoteJobPayload.model_validate(payload or {})
+
+    note = await db.scalar(select(Note).where(Note.id == note_id))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    job = await db.scalar(select(Job).where(Job.id == body.job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    note.job_id = body.job_id
+    await db.commit()
+    await db.refresh(note)
+
+    # Enrichment uses the full note.content — which already contains the
+    # summary and transcript as formatted by fireflies_sync.py.
+    title_line = note.content.split("\n", 1)[0].lstrip("# ").strip() if note.content else ""
+    suggestion = await enrich_from_meeting(
+        db,
+        job_id=body.job_id,
+        meeting_title=title_line or f"Meeting #{note.id}",
+        meeting_summary="",
+        meeting_transcript=note.content or "",
+        source_ref=f"note:{note.id}",
+        user_id=current_user.id,
+    )
+    out = ChampionProfileSuggestionOut.model_validate(suggestion)
+    out.patches = patches_from_payload(suggestion.payload or {})
+    return {"note_id": note.id, "job_id": body.job_id, "suggestion": out}

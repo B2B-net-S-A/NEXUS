@@ -1,15 +1,36 @@
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
+from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
-from app.schemas.job import JobCreate, JobResponse, JobUpdate
+from app.models.notification import Notification, NotificationType
+from app.models.user import User, UserRole
+from app.schemas.job import (
+    JobCollaboratorAdd,
+    JobCreate,
+    JobOwnerAssignment,
+    JobResponse,
+    JobUpdate,
+    UserBrief,
+)
 from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
+from app.api.notifications import create_notification
+from app.api.ws import manager as ws_manager
+from app.services.champion_profile_events import (
+    diff_champion_profile,
+    summarize_sections,
+)
+from app.tasks.compute_proposals import (
+    compute_proposal_for_job,
+    create_pending_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +60,63 @@ async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
         logger.warning(f"[Job] embedding failed for job {job_id}: {e}")
 
 
+# ── Recruiter ownership helpers ─────────────────────────────────────────────
+# Primary owner lives on `jobs.recruiter_id` (nullable FK). Collaborators are
+# rows in `job_collaborators` — same semantics for the "Moje projekty" filter
+# but no write rights on the job itself.
+
+_OWNERSHIP_ELIGIBLE_ROLES = {
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+}
+
+
+async def _hydrate_owner_map(
+    db: AsyncSession, user_ids: set[int]
+) -> dict[int, UserBrief]:
+    """Batch-load UserBrief objects keyed by id for owner/collaborator embedding."""
+    if not user_ids:
+        return {}
+    result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    return {u.id: UserBrief.model_validate(u) for u in result.scalars().all()}
+
+
+async def _load_collaborator_map(
+    db: AsyncSession, job_ids: list[int]
+) -> dict[int, list[int]]:
+    """Return {job_id: [user_id, ...]} for the given job ids."""
+    if not job_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobCollaborator.job_id, JobCollaborator.user_id).where(
+                JobCollaborator.job_id.in_(job_ids)
+            )
+        )
+    ).all()
+    out: dict[int, list[int]] = {}
+    for job_id, user_id in rows:
+        out.setdefault(job_id, []).append(user_id)
+    return out
+
+
+async def _require_manage_ownership(
+    job: Job, current_user: User
+) -> None:
+    """Gate for collaborator add/remove: admin, delivery_lead, or primary owner."""
+    if current_user.role in (UserRole.admin, UserRole.delivery_lead):
+        return
+    if job.recruiter_id is not None and job.recruiter_id == current_user.id:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Requires admin, delivery_lead, or primary owner of this job",
+    )
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -49,6 +127,15 @@ async def list_jobs(
     recruitment_type: Optional[RecruitmentType] = None,
     client_id: Optional[int] = None,
     q: Optional[str] = None,
+    owner_id: Optional[int] = Query(
+        None, description="Filter by primary_owner user id (recruiter_id)."
+    ),
+    mine: bool = Query(
+        False,
+        description=(
+            "Limit to jobs where current user is primary owner or collaborator."
+        ),
+    ),
 ):
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -61,6 +148,15 @@ async def list_jobs(
         query = query.where(Job.client_id == client_id)
     if q:
         query = query.where(Job.title.ilike(f"%{q}%"))
+    if owner_id is not None:
+        query = query.where(Job.recruiter_id == owner_id)
+    if mine:
+        collab_subq = select(JobCollaborator.job_id).where(
+            JobCollaborator.user_id == current_user.id
+        )
+        query = query.where(
+            or_(Job.recruiter_id == current_user.id, Job.id.in_(collab_subq))
+        )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
@@ -81,10 +177,31 @@ async def list_jobs(
         )
         counts = dict(count_result.all())
 
+    # Hydrate primary_owner + collaborators in one pass (avoid N+1).
+    collab_map = await _load_collaborator_map(db, job_ids)
+    user_ids: set[int] = set()
+    for j in jobs:
+        if j.recruiter_id is not None:
+            user_ids.add(j.recruiter_id)
+    for ids in collab_map.values():
+        user_ids.update(ids)
+    user_brief_map = await _hydrate_owner_map(db, user_ids)
+
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
         d["candidate_count"] = counts.get(j.id, 0)
+        d["primary_owner"] = (
+            user_brief_map.get(j.recruiter_id) if j.recruiter_id is not None else None
+        )
+        if d["primary_owner"] is not None:
+            d["primary_owner"] = d["primary_owner"].model_dump()
+        collab_ids = collab_map.get(j.id, [])
+        d["collaborators"] = [
+            user_brief_map[uid].model_dump()
+            for uid in collab_ids
+            if uid in user_brief_map
+        ]
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -92,7 +209,10 @@ async def list_jobs(
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
-    data: JobCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    data: JobCreate,
+    current_user: TacPlus,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     job = Job(**data.model_dump(), created_by=current_user.id)
     db.add(job)
@@ -110,6 +230,24 @@ async def create_job(
 
     # Phase 2: embed the job so reverse matching picks it up.
     await _maybe_embed_job(job.id, db)
+
+    # Phase 13: kick off AI candidate proposals for the freshly-created job.
+    # Snapshot is created synchronously (so the UI can start polling), and the
+    # expensive scoring pass runs in the background.
+    try:
+        snapshot_id = await create_pending_snapshot(
+            job.id,
+            top_k=20,
+            source="create",
+            created_by=current_user.id,
+        )
+        background_tasks.add_task(
+            compute_proposal_for_job, snapshot_id, job.id, top_k=20
+        )
+    except Exception as e:  # pragma: no cover — never block job creation
+        logger.warning(
+            "[Job] proposal snapshot dispatch failed for job %s: %s", job.id, e
+        )
     return job
 
 
@@ -121,7 +259,24 @@ async def get_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+
+    collab_map = await _load_collaborator_map(db, [job.id])
+    collab_ids = collab_map.get(job.id, [])
+    user_ids: set[int] = set(collab_ids)
+    if job.recruiter_id is not None:
+        user_ids.add(job.recruiter_id)
+    user_brief_map = await _hydrate_owner_map(db, user_ids)
+
+    payload = JobResponse.model_validate(job).model_dump()
+    payload["primary_owner"] = (
+        user_brief_map[job.recruiter_id].model_dump()
+        if job.recruiter_id in user_brief_map
+        else None
+    )
+    payload["collaborators"] = [
+        user_brief_map[uid].model_dump() for uid in collab_ids if uid in user_brief_map
+    ]
+    return payload
 
 
 @router.patch("/{job_id}", response_model=JobResponse)
@@ -212,15 +367,56 @@ async def publish_job(
 async def get_champion_profile(
     job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Return the Delivery Lead's Champion Profile for this job (or {})."""
+    """Return the Delivery Lead's Champion Profile for this job (or {}).
+
+    Side effect: any unread ``champion_profile_updated`` notifications
+    addressed to the caller for this specific job are marked as read —
+    this implements "powiadomienie znika jak Rekruter otworzy" regardless
+    of whether the user arrived via the notification dropdown, a direct
+    URL, or an internal link.
+    """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    await db.execute(
+        sql_update(Notification)
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.notification_type
+            == NotificationType.champion_profile_updated,
+            Notification.related_entity_type == "job",
+            Notification.related_entity_id == job_id,
+            Notification.is_read.is_(False),
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
+
     return {
         "job_id": job.id,
         "job_title": job.title,
         "champion_profile": job.champion_profile or {},
     }
+
+
+async def _champion_profile_recipients(
+    db: AsyncSession, job: Job, exclude_user_id: int
+) -> list[int]:
+    """Return the distinct user ids that should be notified of a CP edit.
+
+    The set is the primary ``recruiter_id`` plus everyone in
+    ``job_collaborators`` — minus the editor themselves. Nulls are
+    filtered out.
+    """
+    rows = await db.execute(
+        select(JobCollaborator.user_id).where(JobCollaborator.job_id == job.id)
+    )
+    collaborator_ids = {uid for (uid,) in rows.all() if uid is not None}
+    if job.recruiter_id is not None:
+        collaborator_ids.add(job.recruiter_id)
+    collaborator_ids.discard(exclude_user_id)
+    return sorted(collaborator_ids)
 
 
 @router.put("/{job_id}/champion-profile")
@@ -230,15 +426,29 @@ async def update_champion_profile(
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ) -> dict:
-    """Upsert Champion Profile (Delivery Lead / admin only)."""
+    """Upsert Champion Profile (Delivery Lead / admin only).
+
+    On a content change, notifies everyone assigned to the job
+    (``recruiter_id`` + ``job_collaborators``) minus the editor. Emits
+    both the standard ``notification`` WS event (for the bell badge) and
+    a dedicated ``champion_profile_changed`` event so any open editor
+    can refetch and show an inline "someone just updated this" banner.
+    """
     from app.schemas.champion import ChampionProfile
 
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    old_profile = dict(job.champion_profile) if job.champion_profile else {}
     profile = ChampionProfile.model_validate(payload or {})
-    job.champion_profile = profile.model_dump()
+    new_profile = profile.model_dump()
+
+    fields_changed = diff_champion_profile(old_profile, new_profile)
+    if not fields_changed:
+        return {"job_id": job.id, "champion_profile": job.champion_profile or {}}
+
+    job.champion_profile = new_profile
     db.add(
         Activity(
             entity_type="job",
@@ -247,19 +457,374 @@ async def update_champion_profile(
             user_id=current_user.id,
         )
     )
+
+    recipients = await _champion_profile_recipients(
+        db, job, exclude_user_id=current_user.id
+    )
+    editor_name = (current_user.name or "Ktoś").strip() or "Ktoś"
+    sections_pl = summarize_sections(fields_changed)
+    title = "Profil Championa zaktualizowany"
+    message_text = (
+        f"{editor_name} zmienił {sections_pl} dla: {job.title}"
+        if sections_pl
+        else f"{editor_name} zaktualizował profil dla: {job.title}"
+    )
+    link = f"/jobs/{job.id}?tab=champion-profile"
+
+    for recipient_id in recipients:
+        await create_notification(
+            db=db,
+            user_id=recipient_id,
+            title=title,
+            message=message_text,
+            notification_type=NotificationType.champion_profile_updated,
+            link=link,
+            related_entity_type="job",
+            related_entity_id=job.id,
+            dedupe_resurface=True,
+        )
+
     await db.commit()
     await db.refresh(job)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    bell_event = {
+        "type": "notification",
+        "data": {
+            "title": title,
+            "message": message_text,
+            "link": link,
+            "notification_type": NotificationType.champion_profile_updated.value,
+            "related_entity_type": "job",
+            "related_entity_id": job.id,
+            "created_at": now_iso,
+        },
+    }
+    live_event = {
+        "type": "champion_profile_changed",
+        "data": {
+            "job_id": job.id,
+            "updated_by_user_id": current_user.id,
+            "updated_by_name": editor_name,
+            "updated_at": now_iso,
+            "fields_changed": fields_changed,
+        },
+    }
+    for recipient_id in recipients:
+        try:
+            await ws_manager.notify_user(recipient_id, bell_event)
+            await ws_manager.notify_user(recipient_id, live_event)
+        except Exception as e:  # pragma: no cover — WS push must never 500 the write
+            logger.warning(
+                "[Champion Profile] WS notify failed user=%s job=%s: %s",
+                recipient_id,
+                job.id,
+                e,
+            )
+
     return {"job_id": job.id, "champion_profile": job.champion_profile}
 
 
-@router.get("/{job_id}/match-candidates")
-async def match_candidates(
-    job_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+# ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────
+
+
+@router.post("/{job_id}/champion-profile/generate-from-jd")
+async def generate_champion_from_jd(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
 ):
-    """Placeholder: semantic match of candidates to job (Qdrant + Voyage)."""
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
+    """Kick off LLM-based Champion Profile draft from a raw job description.
+
+    Returns the newly-created `ChampionProfileSuggestion` (status=pending,
+    unless the LLM / validation fails — then status=rejected).
+    """
+    from app.schemas.champion_suggestion import (
+        ChampionProfileSuggestionOut,
+        GenerateFromJdPayload,
+        patches_from_payload,
+    )
+    from app.services.champion_draft_service import generate_from_jd
+
+    body = GenerateFromJdPayload.model_validate(payload or {})
+    suggestion = await generate_from_jd(
+        db,
+        job_id=job_id,
+        raw_description=body.raw_description,
+        user_id=current_user.id,
+    )
+    out = ChampionProfileSuggestionOut.model_validate(suggestion)
+    out.patches = patches_from_payload(suggestion.payload or {})
+    return out
+
+
+@router.get("/{job_id}/champion-profile/suggestions")
+async def list_champion_suggestions(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """List Champion Profile suggestions for a job, newest first."""
+    from app.models.champion_suggestion import ChampionProfileSuggestion, SuggestionStatus
+    from app.schemas.champion_suggestion import (
+        ChampionProfileSuggestionListOut,
+        ChampionProfileSuggestionOut,
+        patches_from_payload,
+    )
+
+    stmt = select(ChampionProfileSuggestion).where(
+        ChampionProfileSuggestion.job_id == job_id
+    )
+    if status_filter:
+        try:
+            status_enum = SuggestionStatus(status_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid status filter")
+        stmt = stmt.where(ChampionProfileSuggestion.status == status_enum)
+    stmt = stmt.order_by(ChampionProfileSuggestion.created_at.desc()).limit(limit)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    items = []
+    for row in rows:
+        out = ChampionProfileSuggestionOut.model_validate(row)
+        out.patches = patches_from_payload(row.payload or {})
+        items.append(out)
+    return ChampionProfileSuggestionListOut(items=items, total=len(items))
+
+
+# ── Recruiter ownership endpoints ───────────────────────────────────────────
+# Primary owner (`recruiter_id`) is changed by Admin + Delivery Lead only.
+# "Claim" is self-assign on an unassigned job — open to anyone who can write
+# to jobs (admin/DL/TAC/recruiter/sourcer). The `user` read-only role is
+# blocked.
+
+
+@router.post("/{job_id}/owner", response_model=JobResponse)
+async def assign_owner(
+    job_id: int,
+    payload: JobOwnerAssignment,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Set/change the primary owner (recruiter_id). Admin + Delivery Lead only."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    # TODO: embed job requirements -> query Qdrant -> return ranked candidates
-    return {"job_id": job_id, "matches": [], "message": "Semantic matching coming soon"}
+
+    target = await db.scalar(select(User).where(User.id == payload.user_id))
+    if not target or not target.is_active:
+        raise HTTPException(status_code=409, detail="Target user not found or inactive")
+    if target.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Role {target.role.value} cannot own a job",
+        )
+
+    job.recruiter_id = target.id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="owner_assigned",
+            user_id=current_user.id,
+            details={"new_owner_id": target.id},
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return await get_job(job_id, current_user, db)
+
+
+@router.delete("/{job_id}/owner", response_model=JobResponse)
+async def release_owner(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Unassign the primary owner (sets recruiter_id = NULL). Admin + DL only."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    previous = job.recruiter_id
+    job.recruiter_id = None
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="owner_released",
+            user_id=current_user.id,
+            details={"previous_owner_id": previous},
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return await get_job(job_id, current_user, db)
+
+
+@router.post("/{job_id}/claim", response_model=JobResponse)
+async def claim_job(
+    job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-assign an unassigned job to the current user.
+
+    Rejects if the job already has a primary owner (409) or the current user
+    is a read-only viewer (403). Any user in the ownership-eligible role set
+    can claim.
+    """
+    if current_user.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read-only viewers cannot claim jobs",
+        )
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.recruiter_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Job already has a primary owner",
+        )
+
+    job.recruiter_id = current_user.id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="claimed",
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return await get_job(job_id, current_user, db)
+
+
+@router.get("/{job_id}/collaborators", response_model=list[UserBrief])
+async def list_collaborators(
+    job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """List collaborators (read-only participants) on a job."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    rows = (
+        await db.execute(
+            select(User)
+            .join(JobCollaborator, JobCollaborator.user_id == User.id)
+            .where(JobCollaborator.job_id == job_id)
+            .order_by(User.name)
+        )
+    ).scalars().all()
+    return [UserBrief.model_validate(u) for u in rows]
+
+
+@router.post(
+    "/{job_id}/collaborators",
+    response_model=UserBrief,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_collaborator(
+    job_id: int,
+    payload: JobCollaboratorAdd,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a collaborator. Admin/DL always; otherwise primary owner only.
+
+    Idempotent at the DB layer via UNIQUE(job_id, user_id) — duplicate inserts
+    return the existing row instead of raising.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    await _require_manage_ownership(job, current_user)
+
+    target = await db.scalar(select(User).where(User.id == payload.user_id))
+    if not target or not target.is_active:
+        raise HTTPException(status_code=409, detail="Target user not found or inactive")
+    if target.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Role {target.role.value} cannot be a collaborator",
+        )
+    if job.recruiter_id == target.id:
+        raise HTTPException(
+            status_code=409,
+            detail="User is already the primary owner of this job",
+        )
+
+    existing = await db.scalar(
+        select(JobCollaborator).where(
+            JobCollaborator.job_id == job_id,
+            JobCollaborator.user_id == target.id,
+        )
+    )
+    if existing is None:
+        db.add(
+            JobCollaborator(
+                job_id=job_id,
+                user_id=target.id,
+                added_by=current_user.id,
+            )
+        )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="collaborator_added",
+                user_id=current_user.id,
+                details={"collaborator_id": target.id},
+            )
+        )
+        await db.commit()
+    return UserBrief.model_validate(target)
+
+
+@router.delete(
+    "/{job_id}/collaborators/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_collaborator(
+    job_id: int,
+    user_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a collaborator. Admin/DL always; otherwise primary owner only."""
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    await _require_manage_ownership(job, current_user)
+
+    link = await db.scalar(
+        select(JobCollaborator).where(
+            JobCollaborator.job_id == job_id,
+            JobCollaborator.user_id == user_id,
+        )
+    )
+    if link is None:
+        # Idempotent: deleting a missing link is a success (204).
+        return
+    await db.delete(link)
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="collaborator_removed",
+            user_id=current_user.id,
+            details={"collaborator_id": user_id},
+        )
+    )
+    await db.commit()
