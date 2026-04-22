@@ -137,7 +137,7 @@ export function GenerateInviteLinkV2({
     queryKey: ["jobs", "published"],
     queryFn: async () => {
       const res = await api.get("/api/jobs", {
-        params: { status: "published", page_size: 200 },
+        params: { status: "published", page_size: 100 },
       });
       const data = res.data;
       // jobs endpoint can return either {items: [...]} or raw array — normalize.
