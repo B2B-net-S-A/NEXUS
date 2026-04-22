@@ -17,6 +17,20 @@ export interface WsNotification {
   created_at: string;
 }
 
+export interface ChampionProfileChangedEventDetail {
+  job_id: number;
+  updated_by_user_id: number;
+  updated_by_name: string;
+  updated_at: string;
+  fields_changed: string[];
+}
+
+// Event name used to broadcast champion-profile live refresh signals from
+// the WS hook to any mounted editor. Components listen via
+// `window.addEventListener('nexus:cp-changed', ...)` so the hook stays
+// decoupled from editor internals.
+export const CHAMPION_PROFILE_CHANGED_EVENT = "nexus:cp-changed";
+
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
 }
@@ -88,6 +102,18 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)
           onNotification?.(notif);
+        } else if (msg.type === "champion_profile_changed" && msg.data) {
+          // Re-broadcast to any mounted CP editor. The editor decides
+          // whether the event is relevant (matching job_id, different
+          // editor user id) and invalidates its own React Query key.
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent<ChampionProfileChangedEventDetail>(
+                CHAMPION_PROFILE_CHANGED_EVENT,
+                { detail: msg.data },
+              ),
+            );
+          }
         } else if (msg.type === "ping") {
           ws.send("ping");
         }

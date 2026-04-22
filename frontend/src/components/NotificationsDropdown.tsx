@@ -3,7 +3,21 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCheck, X, Calendar, FileText, UserPlus, GitBranch, Inbox } from "lucide-react";
+import {
+  Bell,
+  CheckCheck,
+  X,
+  Calendar,
+  FileText,
+  UserPlus,
+  GitBranch,
+  Inbox,
+  ClockAlert,
+  MessageSquareWarning,
+  PhoneOff,
+  StickyNote,
+  Hourglass,
+} from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
@@ -47,6 +61,32 @@ const TYPE_CONFIG: Record<
     icon: <Inbox className="w-3.5 h-3.5" />,
     color: "text-cyan-600",
     bgColor: "bg-cyan-100",
+  },
+  // Phase 13 — automatyczne triggery
+  dl_stage_stale_6h: {
+    icon: <ClockAlert className="w-3.5 h-3.5" />,
+    color: "text-amber-600",
+    bgColor: "bg-amber-100",
+  },
+  client_feedback_eobd: {
+    icon: <MessageSquareWarning className="w-3.5 h-3.5" />,
+    color: "text-rose-600",
+    bgColor: "bg-rose-100",
+  },
+  powercalling_kpi: {
+    icon: <PhoneOff className="w-3.5 h-3.5" />,
+    color: "text-red-600",
+    bgColor: "bg-red-100",
+  },
+  candidate_feedback_1h: {
+    icon: <StickyNote className="w-3.5 h-3.5" />,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-100",
+  },
+  stage_stuck_7d: {
+    icon: <Hourglass className="w-3.5 h-3.5" />,
+    color: "text-gray-600",
+    bgColor: "bg-gray-100",
   },
 };
 

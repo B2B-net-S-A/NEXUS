@@ -167,8 +167,51 @@ async def create_notification(
     message: str,
     notification_type: NotificationType,
     link: Optional[str] = None,
+    related_entity_type: Optional[str] = None,
+    related_entity_id: Optional[int] = None,
+    dedupe_resurface: bool = False,
 ) -> Notification:
-    """Helper to create a notification. Call from other API endpoints."""
+    """Helper to create a notification. Call from other API endpoints.
+
+    When ``dedupe_resurface`` is True and an entity reference is supplied,
+    an existing notification for the same (user, type, entity) that was
+    created today is updated in place instead of inserting a new row —
+    the notification is re-surfaced as unread and its message/created_at
+    are refreshed. This keeps bursts of edits from piling up multiple
+    unread rows while still re-notifying a user who already read today's
+    alert when a new change arrives.
+
+    Works with the partial unique index ``ix_notif_dedup_daily`` added in
+    migration 0029_notifications_triggers — that index guarantees at most
+    one row per (user, type, entity, day).
+
+    Note: caller is responsible for ``db.commit()``.
+    """
+    if dedupe_resurface and related_entity_id is not None:
+        from sqlalchemy import and_
+        existing = await db.scalar(
+            select(Notification)
+            .where(
+                and_(
+                    Notification.user_id == user_id,
+                    Notification.notification_type == notification_type,
+                    Notification.related_entity_id == related_entity_id,
+                    Notification.related_entity_type == related_entity_type,
+                    func.date_trunc("day", Notification.created_at)
+                    == func.date_trunc("day", func.now()),
+                )
+            )
+            .order_by(Notification.created_at.desc())
+            .limit(1)
+        )
+        if existing is not None:
+            existing.title = title
+            existing.message = message
+            existing.link = link
+            existing.is_read = False
+            existing.created_at = func.now()
+            return existing
+
     notif = Notification(
         user_id=user_id,
         title=title,
@@ -176,7 +219,8 @@ async def create_notification(
         link=link,
         notification_type=notification_type,
         is_read=False,
+        related_entity_type=related_entity_type,
+        related_entity_id=related_entity_id,
     )
     db.add(notif)
-    # Note: caller must commit
     return notif

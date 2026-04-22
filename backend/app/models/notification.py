@@ -14,6 +14,14 @@ class NotificationType(str, enum.Enum):
     candidate_added = "candidate_added"
     stage_changed = "stage_changed"
     new_application = "new_application"
+    # Phase 13 — automated trigger alerts
+    dl_stage_stale_6h = "dl_stage_stale_6h"
+    client_feedback_eobd = "client_feedback_eobd"
+    powercalling_kpi = "powercalling_kpi"
+    candidate_feedback_1h = "candidate_feedback_1h"
+    stage_stuck_7d = "stage_stuck_7d"
+    # Phase 11 — realtime Champion Profile edits
+    champion_profile_updated = "champion_profile_updated"
 
 
 class Notification(Base, TimestampMixin):
@@ -44,6 +52,12 @@ class Notification(Base, TimestampMixin):
     is_read: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, index=True
     )
+
+    # Phase 13 — polymorphic dedup key. Pair (type, related_entity_id) + lokalny
+    # dzień Warsaw tworzy unique index `ix_notif_dedup_daily`. Nie dodajemy FK
+    # bo entity może być candidate_stage, call, candidate albo job.
+    related_entity_type: Mapped[Optional[str]] = mapped_column(String(50))
+    related_entity_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
