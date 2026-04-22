@@ -330,38 +330,49 @@ async def update_job(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    updates = data.model_dump(exclude_unset=True)
-    for k, v in updates.items():
-        setattr(job, k, v)
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="updated",
-            user_id=current_user.id,
-            details=updates,
+    try:
+        result = await db.execute(select(Job).where(Job.id == job_id))
+        job = result.scalar_one_or_none()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        updates = data.model_dump(exclude_unset=True)
+        for k, v in updates.items():
+            setattr(job, k, v)
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="updated",
+                user_id=current_user.id,
+                details=updates,
+            )
         )
-    )
-    await db.commit()
-    await db.refresh(job)
-
-    # Phase 2: re-embed if any embed-relevant field changed
-    changed = set(updates.keys())
-    if _EMBED_TRIGGER_FIELDS & changed:
-        await _maybe_embed_job(job_id, db)
-
-    # Phase C1: invalidate cached (*, job) match scores when any scoring input
-    # changes (_EMBED_TRIGGER_FIELDS covers must/nice, seniority, salary, etc.)
-    if _EMBED_TRIGGER_FIELDS & changed:
-        from app.services.match_score_cache import mark_stale_for_job
-
-        await mark_stale_for_job(db, job_id)
         await db.commit()
-    return job
+        await db.refresh(job)
+
+        # Phase 2: re-embed if any embed-relevant field changed
+        changed = set(updates.keys())
+        if _EMBED_TRIGGER_FIELDS & changed:
+            await _maybe_embed_job(job_id, db)
+
+        # Phase C1: invalidate cached (*, job) match scores when any scoring
+        # input changes (_EMBED_TRIGGER_FIELDS covers must/nice, seniority,
+        # salary, etc.)
+        if _EMBED_TRIGGER_FIELDS & changed:
+            from app.services.match_score_cache import mark_stale_for_job
+
+            await mark_stale_for_job(db, job_id)
+            await db.commit()
+        return job
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}",
+        )
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
