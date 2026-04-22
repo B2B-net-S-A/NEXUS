@@ -183,6 +183,9 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS competence_category_id INTEGER REFERENCES competence_categories(id) ON DELETE SET NULL",
     "ALTER TABLE job_collaborators ADD COLUMN IF NOT EXISTS removed_from_auto_cc BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE job_collaborators ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ",
+    # KPI coach (bundled WIP, migration 0043_kpi_coach_nudger): bez tej kolumny
+    # users.kpi_coach_enabled crashuje login query (ORM leci na nią).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS kpi_coach_enabled BOOLEAN NOT NULL DEFAULT TRUE",
     # Sourcer priority per CC (introduced by team_structure model for Head of
     # Recruitment matrix). Legacy deployments may be missing it.
     "ALTER TABLE user_competence_categories ADD COLUMN IF NOT EXISTS priority SMALLINT",
