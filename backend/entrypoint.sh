@@ -250,13 +250,20 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_series_master_id VARCHAR(255)",
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_change_key VARCHAR(100)",
     "CREATE INDEX IF NOT EXISTS ix_calendar_events_m365_series_master_id ON calendar_events (m365_series_master_id)",
-    # Client Profile tab (migration 0048_job_close_reason). jobs.closed_at
-    # ships via 0047 — these two complete the metadata tuple.
+    # Client Profile tab + hit-ratio (migrations 0047_job_closed_at +
+    # 0048_job_close_reason). Alembic was bailing on multi-head in prod, so
+    # these never landed — safety-net avoids UndefinedColumnError on the
+    # jobs SELECT and backend crash-loop.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
 ]
 
 _DATA_STATEMENTS = [
+    # Backfill closed_at for historical closed rows so reports sort by "real
+    # close date" instead of NULL. Safe because only touches NULL rows.
+    "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
     # Pre-flag roles that don't need onboarding (mirrors migration 0035 step)
     """UPDATE users
           SET profile_completed = TRUE,
