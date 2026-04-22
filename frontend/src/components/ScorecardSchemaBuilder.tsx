@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ClipboardList, Loader2, Plus, Trash2, X, GripVertical, Save } from "lucide-react";
 import { phase3Api, type ScorecardQuestion, type ScorecardSchema } from "@/lib/api";
-import { ScorecardModal } from "./ScorecardModal";
+import { ScorecardV2 } from "./v2/modals/ScorecardV2";
 
 interface Props {
   stageDefId: number;
@@ -365,16 +365,15 @@ export function ScorecardSchemaBuilder({
         </div>
       </div>
 
-      {preview && (
-        <ScorecardModal
-          candidateStageId={0}
-          stageId={0}
-          stageDefId={stageDefId}
-          stageName={title || stageName}
-          onClose={() => setPreview(false)}
-          onSaved={() => setPreview(false)}
-        />
-      )}
+      <ScorecardV2
+        open={preview}
+        onOpenChange={setPreview}
+        candidateStageId={0}
+        stageId={0}
+        stageDefId={stageDefId}
+        stageName={title || stageName}
+        onSaved={() => setPreview(false)}
+      />
     </div>
   );
 }
