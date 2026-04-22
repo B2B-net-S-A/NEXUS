@@ -65,8 +65,10 @@ _COLUMN_STATEMENTS = [
     # jobs (migration 0035_onboarding_and_job_sourcing + 0029_notifications_triggers)
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS needs_sourcing BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
-    # candidates (migration 0030_candidate_created_by)
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS competence_category_id INTEGER",
+    # candidates (migration 0030_candidate_created_by + 0033_cc_entities)
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS competence_category_id INTEGER",
     # notifications (migration 0029_notifications_triggers)
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_type VARCHAR(50)",
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS related_entity_id INTEGER",
@@ -108,6 +110,27 @@ async def backfill():
         await conn.close()
 
 asyncio.run(backfill())
+PY
+
+# Second safety net: create any tables that alembic failed to create.
+# Uses SQLAlchemy Base.metadata.create_all — idempotent, skips existing
+# tables. Handles the Phase 8 tables (competence_categories,
+# user_competence_categories, candidate_invite_links, procedures,
+# proposal_snapshots, champion_profile_suggestions, app_settings, etc.)
+# that migrations 0029_*/0031_*/0032_*/0033_* would have created.
+echo "Creating missing tables from SQLAlchemy metadata..."
+python - <<'PY' || echo "metadata create_all failed; continuing"
+import asyncio
+from app.core.database import engine, Base
+# Import all model modules so Base.metadata is fully populated.
+import app.models  # noqa: F401
+
+async def create_all():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    print("metadata create_all: ok")
+
+asyncio.run(create_all())
 PY
 
 # Run seed (idempotent - skips if already seeded)
