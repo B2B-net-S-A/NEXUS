@@ -13,6 +13,7 @@ import {
   ChevronUp,
   FileText,
   Gauge,
+  Link2,
   Linkedin,
   Mail,
   MapPin,
@@ -48,6 +49,7 @@ import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { CVGeneratorV2 } from "@/components/v2/modals/CVGeneratorV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
+import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
 import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
@@ -246,6 +248,23 @@ export function CandidateDetailV2({
                     LinkedIn
                   </Badge>
                 )}
+                {candidate.invite_source && (
+                  <Badge
+                    variant="soft"
+                    size="sm"
+                    title={
+                      candidate.invite_source.previous_created_by_name
+                        ? `Przejęty: ${candidate.invite_source.previous_created_by_name} → ${candidate.invite_source.created_by_name} (${formatDate(candidate.invite_source.applied_at)})`
+                        : `Dodany przez ${candidate.invite_source.created_by_name} (${formatDate(candidate.invite_source.applied_at)})`
+                    }
+                  >
+                    <Link2 className="h-3 w-3" />
+                    Przez link
+                    {candidate.invite_source.label
+                      ? ` · ${candidate.invite_source.label}`
+                      : ""}
+                  </Badge>
+                )}
               </div>
               {candidate.current_role && (
                 <p className="text-sm text-[hsl(var(--text-body))] mt-0.5">
@@ -414,6 +433,9 @@ export function CandidateDetailV2({
 
       {/* Suggested jobs (reuse v1 widget) */}
       <SuggestedJobsWidget candidateId={Number(id)} />
+
+      {/* AI-suggested talent pools (migracja 0041) */}
+      <SuggestedPoolsWidget candidateId={Number(id)} />
 
       {/* Tabs */}
       <Card variant="default" size="md" className="!p-0">
@@ -754,7 +776,16 @@ function timelineItemLabel(item: any): string {
   if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` : ""}`;
   if (item.type === "stage_change")
     return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` : ""}`;
-  if (item.type === "activity") return item.action ?? "Aktywność";
+  if (item.type === "activity") {
+    if (item.action === "applied_via_invite") {
+      const owner = item.user_name ?? "rekruter";
+      const prev = item.previous_created_by_name;
+      return prev
+        ? `Przejęto opiekę: ${prev} → ${owner} (apply przez link)`
+        : `Aplikacja przez link (${owner})`;
+    }
+    return item.action ?? "Aktywność";
+  }
   if (item.type === "user_activity") return item.action_type ?? "Akcja";
   return TIMELINE_LABEL[item.type] ?? item.type ?? "Zdarzenie";
 }

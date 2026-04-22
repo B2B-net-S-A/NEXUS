@@ -68,6 +68,9 @@ from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
 from app.api import competitions as competitions_api
 from app.api import linkedin_metrics as linkedin_metrics_api
+from app.api import competence_categories as competence_categories_api
+from app.api import interview_questions as interview_questions_api
+from app.api import interview_feedback as interview_feedback_api
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +161,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
     from app.tasks.contract_alerts import contract_alerts_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
+    from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
+    from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
+    from app.tasks.triggers_loop import notification_triggers_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -166,6 +172,9 @@ async def lifespan(app: FastAPI):
     contract_task = asyncio.create_task(contract_alerts_loop())
     fx_task = asyncio.create_task(fx_refresh_loop())
     competition_freeze_task = asyncio.create_task(competition_autofreeze_loop())
+    cc_centroid_task = asyncio.create_task(cc_centroid_sync_loop())
+    kpi_coach_task = asyncio.create_task(kpi_coach_nudger_loop())
+    notif_triggers_task = asyncio.create_task(notification_triggers_loop())
 
     yield
 
@@ -177,6 +186,9 @@ async def lifespan(app: FastAPI):
         contract_task,
         fx_task,
         competition_freeze_task,
+        cc_centroid_task,
+        kpi_coach_task,
+        notif_triggers_task,
     )
     for t in tasks:
         t.cancel()
@@ -244,6 +256,9 @@ app.include_router(client_materials.router, prefix="/api", tags=["client-materia
 app.include_router(screenings.router, prefix="/api", tags=["screenings"])
 app.include_router(contacts.router, prefix="/api", tags=["contacts"])
 app.include_router(prep_kit.router, prefix="/api", tags=["prep-kit"])
+app.include_router(
+    interview_questions_api.router, prefix="/api", tags=["interview-questions"]
+)
 app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
 app.include_router(talent_pools.router, prefix="/api", tags=["talent-pools"])
 app.include_router(cv_generator.router, prefix="/api", tags=["cv-generator"])
@@ -305,9 +320,17 @@ app.include_router(
     prefix="/api/linkedin-metrics",
     tags=["linkedin-metrics"],
 )
+app.include_router(
+    competence_categories_api.router,
+    prefix="/api/competence-categories",
+    tags=["competence-categories"],
+)
 # champion_suggestions.router already declares its own `/champion-suggestions`
 # prefix, so we mount it under `/api`.
 app.include_router(champion_suggestions_api.router, prefix="/api")
+app.include_router(
+    interview_feedback_api.router, prefix="/api", tags=["interview-feedback"]
+)
 
 
 @app.get("/health")

@@ -184,12 +184,36 @@ export const reportsApi = {
   tenders: (params: { period?: string }) =>
     api.get("/api/reports/tenders", { params }),
   board: () => api.get("/api/reports/board"),
+  inviteLinks: (params: { period?: string }) =>
+    api.get("/api/reports/invite-links", { params }),
 };
 
 // ── Prep Kit ──────────────────────────────────────────────────────────────────
+
+export interface PrepKitResponse {
+  client_overview: string;
+  likely_questions: string[];
+  likely_questions_meta: Array<{
+    text: string;
+    source_tier: string;
+    question_id: number | null;
+    source_job_id: number | null;
+    ideal_answer: string | null;
+    deal_breaker: boolean;
+    seniority: string | null;
+    question_type: string | null;
+    skill_tags: string[];
+    cosine_score: number | null;
+  }>;
+  candidate_strengths: string[];
+  candidate_gaps: string[];
+  selling_points: string[];
+  recommended_strategy: string;
+}
+
 export const prepKitApi = {
   generate: (job_id: number, candidate_id: number) =>
-    api.post("/api/prep-kit/generate", { job_id, candidate_id }),
+    api.post<PrepKitResponse>("/api/prep-kit/generate", { job_id, candidate_id }),
 };
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
@@ -1405,6 +1429,156 @@ export const microsoft365Api = {
     extra_attendees?: string[];
     invite_candidate?: boolean;
   }) => api.post("/api/calendar/events/m365-invite", payload),
+};
+
+// ── Interview Questions (feature "Prepy") ───────────────────────────────────
+
+export type InterviewQuestionSource =
+  | "manual"
+  | "auto_generated"
+  | "imported_from_champion";
+
+export type InterviewQuestionTypeLiteral =
+  | "technical"
+  | "behavioral"
+  | "motivation"
+  | "experience";
+
+export type InterviewQuestionSeniority =
+  | "junior"
+  | "mid"
+  | "senior"
+  | "lead"
+  | "architect";
+
+export type JobQuestionAddedBySource =
+  | "manual"
+  | "auto_from_similar"
+  | "auto_generated";
+
+export type QuestionRating = "up" | "down";
+
+export type SuggestionTier =
+  | "pinned"
+  | "legacy_champion"
+  | "tier_1_same_cc"
+  | "tier_2_secondary_cc"
+  | "tier_3_client_knowledge"
+  | "tier_4_auto_generated";
+
+export interface InterviewQuestion {
+  id: number;
+  text: string;
+  ideal_answer: string | null;
+  deal_breaker: boolean;
+  competence_category_id: number | null;
+  skill_tags: string[];
+  seniority: InterviewQuestionSeniority | null;
+  question_type: InterviewQuestionTypeLiteral | null;
+  source: InterviewQuestionSource;
+  client_id: number | null;
+  created_by: number | null;
+  up_votes: number;
+  down_votes: number;
+}
+
+export interface JobQuestionLink {
+  id: number;
+  question: InterviewQuestion;
+  is_pinned: boolean;
+  added_by_source: JobQuestionAddedBySource;
+  order_index: number;
+}
+
+export interface SuggestedQuestion {
+  text: string;
+  source_tier: SuggestionTier;
+  question_id: number | null;
+  source_job_id: number | null;
+  ideal_answer: string | null;
+  deal_breaker: boolean;
+  seniority: InterviewQuestionSeniority | null;
+  question_type: InterviewQuestionTypeLiteral | null;
+  skill_tags: string[];
+  cosine_score: number | null;
+}
+
+export interface CreateInterviewQuestionPayload {
+  text: string;
+  ideal_answer?: string | null;
+  deal_breaker?: boolean;
+  competence_category_id?: number | null;
+  skill_tags?: string[];
+  seniority?: InterviewQuestionSeniority | null;
+  question_type?: InterviewQuestionTypeLiteral | null;
+  client_id?: number | null;
+  job_id?: number | null;
+}
+
+export interface ListInterviewQuestionsParams {
+  cc_id?: number;
+  skill_tag?: string;
+  seniority?: InterviewQuestionSeniority;
+  question_type?: InterviewQuestionTypeLiteral;
+  client_id?: number;
+  q?: string;
+  limit?: number;
+}
+
+export const interviewQuestionsApi = {
+  create: (payload: CreateInterviewQuestionPayload) =>
+    api.post<InterviewQuestion>("/api/interview-questions", payload),
+
+  list: (params?: ListInterviewQuestionsParams) =>
+    api.get<InterviewQuestion[]>("/api/interview-questions", { params }),
+
+  get: (id: number) =>
+    api.get<InterviewQuestion>(`/api/interview-questions/${id}`),
+
+  update: (id: number, payload: Partial<CreateInterviewQuestionPayload>) =>
+    api.put<InterviewQuestion>(`/api/interview-questions/${id}`, payload),
+
+  delete: (id: number) => api.delete(`/api/interview-questions/${id}`),
+
+  rate: (
+    id: number,
+    payload: {
+      rating: QuestionRating;
+      job_id?: number;
+      candidate_id?: number;
+      notes?: string;
+    },
+  ) =>
+    api.post<{ id: number; up_votes: number; down_votes: number }>(
+      `/api/interview-questions/${id}/rate`,
+      payload,
+    ),
+
+  listForJob: (jobId: number) =>
+    api.get<JobQuestionLink[]>(`/api/jobs/${jobId}/questions`),
+
+  pinToJob: (jobId: number, payload: { question_id: number; order_index?: number }) =>
+    api.post<JobQuestionLink>(`/api/jobs/${jobId}/questions/pin`, payload),
+
+  unpinFromJob: (jobId: number, questionId: number) =>
+    api.delete(`/api/jobs/${jobId}/questions/${questionId}`),
+
+  reorder: (
+    jobId: number,
+    items: { question_id: number; order_index: number }[],
+  ) =>
+    api.patch<JobQuestionLink[]>(
+      `/api/jobs/${jobId}/questions/reorder`,
+      { items },
+    ),
+
+  suggestedForJob: (
+    jobId: number,
+    params?: { candidate_id?: number; target_count?: number },
+  ) =>
+    api.get<SuggestedQuestion[]>(`/api/jobs/${jobId}/suggested-questions`, {
+      params,
+    }),
 };
 
 export default api;

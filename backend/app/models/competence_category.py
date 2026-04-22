@@ -2,11 +2,14 @@
 
 CC to pełnoprawny byt: każdy projekt (Job) należy do jednej CC, a rekruterzy
 są przypisywani do jednej lub wielu CC (tabela `user_competence_categories`).
-Podczas tworzenia projektu system sugeruje CC (embedding + keywords) i
-automatycznie dopisuje rekruterów z danej CC jako `JobCollaborator` z
-`source="auto_cc"`.
+Kandydat może mieć wiele CC (M2M `candidate_competence_categories`), z jedną
+oznaczoną jako `is_primary` — źródło oznaczeń to AI (auto/suggested) albo
+manual override. Podczas tworzenia projektu system sugeruje CC (embedding +
+keywords) i automatycznie dopisuje rekruterów z danej CC jako
+`JobCollaborator` z `source="auto_cc"`.
 """
 
+import enum
 from datetime import datetime
 from typing import Optional
 
@@ -14,6 +17,8 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Enum,
+    Float,
     ForeignKey,
     Integer,
     SmallInteger,
@@ -26,6 +31,14 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+class CandidateCcCategorySource(str, enum.Enum):
+    """Skąd pochodzi przypisanie CC do kandydata."""
+
+    ai_auto = "ai_auto"  # embedding similarity ≥ 0.80 — auto-add
+    ai_suggested = "ai_suggested"  # 0.60–0.80 — sugestia do akceptacji
+    manual = "manual"  # ręczny override (recruiter/admin)
 
 
 class CompetenceCategory(Base):
@@ -102,4 +115,61 @@ class UserCompetenceCategory(Base):
         return (
             f"<UserCompetenceCategory user={self.user_id} "
             f"cc={self.competence_category_id} primary={self.is_primary}>"
+        )
+
+
+class CandidateCompetenceCategory(Base):
+    """Przypisanie kandydat↔CC (M2M). `is_primary` = główna CC kandydata.
+
+    Kandydat może mieć do 3 CC (1 primary + 2 secondary). Źródło oznaczenia
+    (`source`) pozwala odróżnić auto-assignmenty od ręcznych override'ów —
+    ręczne nigdy nie są nadpisywane przez re-klasyfikację AI.
+    """
+
+    __tablename__ = "candidate_competence_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "candidate_id", "competence_category_id", name="uq_candidate_cc"
+        ),
+        CheckConstraint(
+            "confidence_score >= 0.0 AND confidence_score <= 1.0",
+            name="ck_candidate_cc_confidence",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    candidate_id: Mapped[int] = mapped_column(
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    competence_category_id: Mapped[int] = mapped_column(
+        ForeignKey("competence_categories.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    source: Mapped[CandidateCcCategorySource] = mapped_column(
+        Enum(
+            CandidateCcCategorySource,
+            name="candidatecccategorysource",
+            create_type=False,
+        ),
+        default=CandidateCcCategorySource.manual,
+        server_default=CandidateCcCategorySource.manual.value,
+        nullable=False,
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    candidate = relationship("Candidate", back_populates="competence_categories")
+    competence_category = relationship(
+        "CompetenceCategory", foreign_keys=[competence_category_id]
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<CandidateCompetenceCategory candidate={self.candidate_id} "
+            f"cc={self.competence_category_id} primary={self.is_primary} "
+            f"score={self.confidence_score:.2f}>"
         )

@@ -40,6 +40,12 @@ import { Badge } from "@/components/ui/badge";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Optional pre-selected job ID. When passed, the job select is initialised
+   * with this value (e.g. when the modal is opened from a job detail page).
+   * Users can still change it before generating the link.
+   */
+  defaultJobId?: number;
 }
 
 interface JobLite {
@@ -95,12 +101,18 @@ function formatDate(iso: string) {
   });
 }
 
-export function GenerateInviteLinkV2({ open, onOpenChange }: Props) {
+export function GenerateInviteLinkV2({
+  open,
+  onOpenChange,
+  defaultJobId,
+}: Props) {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"create" | "history">("create");
 
   // Create-tab state
-  const [jobId, setJobId] = useState<string>("");
+  const [jobId, setJobId] = useState<string>(
+    defaultJobId ? String(defaultJobId) : ""
+  );
   const [label, setLabel] = useState("");
   const [expiresInDays, setExpiresInDays] = useState<7 | 14 | 30 | 90>(30);
   const [result, setResult] = useState<InviteLink | null>(null);
@@ -109,15 +121,17 @@ export function GenerateInviteLinkV2({ open, onOpenChange }: Props) {
 
   useEffect(() => {
     if (!open) {
-      setJobId("");
+      setJobId(defaultJobId ? String(defaultJobId) : "");
       setLabel("");
       setExpiresInDays(30);
       setResult(null);
       setCopied(false);
       setFormError(null);
       setActiveTab("create");
+    } else if (defaultJobId) {
+      setJobId(String(defaultJobId));
     }
-  }, [open]);
+  }, [open, defaultJobId]);
 
   const jobsQuery = useQuery<JobLite[]>({
     queryKey: ["jobs", "published"],

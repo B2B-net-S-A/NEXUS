@@ -40,9 +40,19 @@ class TalentPool(Base):
     centroid_updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Pula należy do jednej CC (migracja 0041_ai_cc_matching). NULL = "ogólna"
+    # pula bez przypisania do kategorii (backward-compat dla istniejących pul).
+    competence_category_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("competence_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
+    competence_category = relationship(
+        "CompetenceCategory", foreign_keys=[competence_category_id]
+    )
     memberships = relationship(
         "TalentPoolMembership", back_populates="pool", cascade="all, delete-orphan"
     )

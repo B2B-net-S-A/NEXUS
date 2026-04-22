@@ -489,3 +489,82 @@ async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
     except Exception as e:
         logger.error(f"[Search] Qdrant jobs search error: {e}")
         return []
+
+
+async def search_similar_jobs_by_job_id(
+    job_id: int, top_k: int = 20, exclude_self: bool = True
+) -> list[dict]:
+    """Find jobs semantically similar to *job_id* using its stored vector.
+
+    Flow:
+      1. Retrieve job vector from `nexus_jobs` collection.
+      2. Run vector search limit=top_k+1 (to drop self).
+      3. Optionally exclude *job_id* itself from results.
+
+    Returns: `[{"job_id": int, "score": float, "payload": dict}]` sorted desc.
+    Empty list on any failure (Qdrant offline, job not embedded, collection
+    missing). Callers must handle empty gracefully.
+    """
+
+    def _run() -> list[dict]:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+
+        try:
+            points = client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=[job_id],
+                with_vectors=True,
+            )
+        except Exception as e:
+            logger.debug(
+                "[Search] retrieve vector for job %s failed: %s", job_id, e
+            )
+            return []
+
+        if not points:
+            logger.debug("[Search] job %s has no vector in nexus_jobs", job_id)
+            return []
+
+        vector = getattr(points[0], "vector", None)
+        if isinstance(vector, dict):
+            vector = next(iter(vector.values()), None)
+        if not vector:
+            return []
+
+        limit = top_k + 1 if exclude_self else top_k
+        try:
+            hits = client.search(
+                collection_name=_jobs_collection(),
+                query_vector=list(vector),
+                limit=limit,
+                with_payload=True,
+            )
+        except Exception as e:
+            logger.error(
+                "[Search] similar-jobs search for job %s failed: %s", job_id, e
+            )
+            return []
+
+        results: list[dict] = []
+        for hit in hits:
+            hit_id = int(hit.id)
+            if exclude_self and hit_id == job_id:
+                continue
+            results.append(
+                {
+                    "job_id": hit_id,
+                    "score": round(float(hit.score), 4),
+                    "payload": hit.payload or {},
+                }
+            )
+            if len(results) >= top_k:
+                break
+        return results
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
+        return []

@@ -35,11 +35,13 @@ from app.core.scheduling import (
 )
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.call import Call, CallStatus
+from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User, UserRole
+from app.services.calendar_auto_complete import mark_ended_interviews_completed
 
 logger = logging.getLogger(__name__)
 
@@ -489,17 +491,246 @@ async def check_stage_stuck_7d(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
+# ── Trigger 6-8: POST_INTERVIEW reminders (T+15, T+45, T+2h) ─────────────────
+#
+# Wzorzec: sprawdzamy interview eventy, których `end_time` wypada w okienku
+# [T - half_window, T + half_window] minut temu (half_window=7.5 min przy
+# loopie 5 min). Rozróżnienie candidate_side / client_side idzie przez
+# najnowszy CandidateStage (jak w `check_client_feedback_eobd`).
+#
+# Pomijamy eventy z już zapisanym feedbackiem tej samej strony (candidate/
+# client). Dedupe 1-alert-na-typ-na-dzień daje `ix_notif_dedup_daily`.
+#
+# Dla client-side (stage=client_interview): alert leci do rekrutera + DL.
+# Dla candidate-side (pozostałe nieterminalne etapy): alert leci tylko do
+# rekrutera. T+2h zawsze eskaluje do DL i flaguje event `needs_attention`.
+
+_POST_INTERVIEW_WINDOW_MINUTES = 7.5  # half-window przy 5-min loopie
+
+
+async def _events_in_post_interview_window(
+    db: AsyncSession, now: datetime, offset_minutes: int
+) -> list[CalendarEvent]:
+    now_utc = now.astimezone(timezone.utc)
+    upper = now_utc - timedelta(
+        minutes=offset_minutes - _POST_INTERVIEW_WINDOW_MINUTES
+    )
+    lower = now_utc - timedelta(
+        minutes=offset_minutes + _POST_INTERVIEW_WINDOW_MINUTES
+    )
+    rows = await db.execute(
+        select(CalendarEvent).where(
+            CalendarEvent.event_type == EventType.interview,
+            CalendarEvent.status == EventStatus.completed,
+            CalendarEvent.end_time.isnot(None),
+            CalendarEvent.end_time >= lower,
+            CalendarEvent.end_time <= upper,
+            CalendarEvent.candidate_id.isnot(None),
+        )
+    )
+    return list(rows.scalars().all())
+
+
+async def _feedback_exists(
+    db: AsyncSession, event_id: int, source: FeedbackSource
+) -> bool:
+    res = await db.execute(
+        select(func.count())
+        .select_from(InterviewFeedback)
+        .where(
+            InterviewFeedback.calendar_event_id == event_id,
+            InterviewFeedback.feedback_source == source,
+        )
+    )
+    return (res.scalar() or 0) > 0
+
+
+def _is_client_side(stage: CandidateStage | None) -> bool:
+    return stage is not None and stage.stage == PipelineStage.client_interview
+
+
+async def _post_interview_emit(
+    db: AsyncSession,
+    *,
+    event: CalendarEvent,
+    recipients: list[int],
+    ntype: NotificationType,
+    title: str,
+    message: str,
+) -> int:
+    emitted = 0
+    for uid in recipients:
+        if uid is None:
+            continue
+        result = await emit(
+            db,
+            user_id=uid,
+            title=title,
+            message=message,
+            link=f"/calendar?event={event.id}&action=feedback",
+            ntype=ntype,
+            related_entity_type="calendar_event",
+            related_entity_id=event.id,
+        )
+        if result is not None:
+            emitted += 1
+    return emitted
+
+
+async def check_post_interview_t15(db: AsyncSession, now: datetime) -> int:
+    """15 min po interview bez feedbacku → ping rekruterowi (+ DL dla client-side)."""
+    events = await _events_in_post_interview_window(
+        db, now, settings.POST_INTERVIEW_T15_MINUTES
+    )
+    if not events:
+        return 0
+
+    latest = await _latest_stage_per_pair(db)
+    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    emitted = 0
+    for event in events:
+        stage = latest.get((event.candidate_id, event.job_id))
+        client_side = _is_client_side(stage)
+        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        if await _feedback_exists(db, event.id, source):
+            continue
+
+        job = jobs.get(event.job_id) if event.job_id else None
+        recipients: list[int] = []
+        if job and job.recruiter_id:
+            recipients.append(job.recruiter_id)
+        if client_side and job and job.delivery_lead_id:
+            recipients.append(job.delivery_lead_id)
+        if not recipients and event.created_by:
+            # Fallback: twórca eventu, jeśli nie ma job.recruiter_id
+            recipients.append(event.created_by)
+
+        side_label = "klienta" if client_side else "kandydata"
+        emitted += await _post_interview_emit(
+            db,
+            event=event,
+            recipients=recipients,
+            ntype=NotificationType.post_interview_t15,
+            title="Zadzwoń i zbierz feedback",
+            message=(
+                f"15 min temu skończył się interview z kandydatem #{event.candidate_id}. "
+                f"Zadzwoń do {side_label} i zbierz feedback + pytania."
+            ),
+        )
+    return emitted
+
+
+async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
+    """45 min po interview bez feedbacku → drugi ping do tych samych adresatów."""
+    events = await _events_in_post_interview_window(
+        db, now, settings.POST_INTERVIEW_T45_MINUTES
+    )
+    if not events:
+        return 0
+
+    latest = await _latest_stage_per_pair(db)
+    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    emitted = 0
+    for event in events:
+        stage = latest.get((event.candidate_id, event.job_id))
+        client_side = _is_client_side(stage)
+        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        if await _feedback_exists(db, event.id, source):
+            continue
+
+        job = jobs.get(event.job_id) if event.job_id else None
+        recipients: list[int] = []
+        if job and job.recruiter_id:
+            recipients.append(job.recruiter_id)
+        if client_side and job and job.delivery_lead_id:
+            recipients.append(job.delivery_lead_id)
+        if not recipients and event.created_by:
+            recipients.append(event.created_by)
+
+        side_label = "klienta" if client_side else "kandydata"
+        emitted += await _post_interview_emit(
+            db,
+            event=event,
+            recipients=recipients,
+            ntype=NotificationType.post_interview_t45,
+            title="Przypomnienie: feedback po interview",
+            message=(
+                f"Mija 45 min od rozmowy z kandydatem #{event.candidate_id}. "
+                f"Daj znać jak poszło — zadzwoń do {side_label} i zanotuj feedback."
+            ),
+        )
+    return emitted
+
+
+async def check_post_interview_t2h_escalation(
+    db: AsyncSession, now: datetime
+) -> int:
+    """2h po interview bez feedbacku → eskalacja do DL + czerwona flaga na evencie."""
+    events = await _events_in_post_interview_window(
+        db, now, settings.POST_INTERVIEW_T2H_MINUTES
+    )
+    if not events:
+        return 0
+
+    latest = await _latest_stage_per_pair(db)
+    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    emitted = 0
+    for event in events:
+        stage = latest.get((event.candidate_id, event.job_id))
+        client_side = _is_client_side(stage)
+        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        if await _feedback_exists(db, event.id, source):
+            continue
+
+        job = jobs.get(event.job_id) if event.job_id else None
+        # Flag event (nawet jeśli nie ma DL do notyfikacji — UI zobaczy).
+        if not event.needs_attention:
+            event.needs_attention = True
+            await db.flush()
+
+        targets: list[int] = []
+        if job is not None:
+            targets = await _delivery_lead_targets(db, job)
+        if not targets and event.created_by:
+            targets = [event.created_by]
+
+        side_label = "klienta" if client_side else "kandydata"
+        emitted += await _post_interview_emit(
+            db,
+            event=event,
+            recipients=targets,
+            ntype=NotificationType.post_interview_t2h_escalation,
+            title="Eskalacja: brak feedbacku po 2h",
+            message=(
+                f"Minęły 2 godziny od interview z kandydatem #{event.candidate_id} "
+                f"— nadal brakuje feedbacku od {side_label}. "
+                "Zajrzyj do karty kandydata i przyciśnij rekrutera."
+            ),
+        )
+    return emitted
+
+
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
 
 async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
     """Jeden przebieg wszystkich triggerów. Zwraca słownik `{trigger_name: emitted}`."""
+    # Auto-promote ended interviews scheduled→completed before post-interview
+    # triggers read them. Liczymy ile zmieniliśmy do loggingu ale nie raportujemy
+    # w output (bo to nie emission).
+    await mark_ended_interviews_completed(db, now)
+
     return {
         "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now),
         "stage_stuck_7d": await check_stage_stuck_7d(db, now),
         "candidate_feedback_1h": await check_candidate_feedback_1h(db, now),
         "powercalling_kpi": await check_powercalling_kpi(db, now),
         "client_feedback_eobd": await check_client_feedback_eobd(db, now),
+        "post_interview_t15": await check_post_interview_t15(db, now),
+        "post_interview_t45": await check_post_interview_t45(db, now),
+        "post_interview_t2h_escalation": await check_post_interview_t2h_escalation(
+            db, now
+        ),
     }
 
 
@@ -507,6 +738,9 @@ __all__ = [
     "check_candidate_feedback_1h",
     "check_client_feedback_eobd",
     "check_dl_stage_stale_6h",
+    "check_post_interview_t15",
+    "check_post_interview_t45",
+    "check_post_interview_t2h_escalation",
     "check_powercalling_kpi",
     "check_stage_stuck_7d",
     "emit",

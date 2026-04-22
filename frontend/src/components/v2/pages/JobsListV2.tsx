@@ -7,6 +7,7 @@ import {
   Briefcase,
   Building2,
   DollarSign,
+  Link2,
   MapPin,
   Plus,
   Search,
@@ -16,6 +17,7 @@ import {
 import api from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { AddJobModal } from "@/components/AppShell";
+import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { RequireRole } from "@/components/RequireRole";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +85,7 @@ export function JobsListV2() {
   const [ownerId, setOwnerId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
+  const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   // Directory of owner-eligible users for the "Rekruter" filter dropdown.
@@ -286,9 +289,26 @@ export function JobsListV2() {
                         </p>
                       )}
                     </div>
-                    <Badge size="sm" variant={statusVariant}>
-                      {statusLabel}
-                    </Badge>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {job.status === "published" && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setInviteModalForJob(job.id);
+                          }}
+                          className="p-1 rounded-md text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent-soft))] transition-colors"
+                          title="Wygeneruj link aplikacyjny"
+                          aria-label="Wygeneruj link aplikacyjny"
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <Badge size="sm" variant={statusVariant}>
+                        {statusLabel}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className="mb-2">
@@ -369,6 +389,14 @@ export function JobsListV2() {
           }}
         />
       )}
+
+      <GenerateInviteLinkV2
+        open={inviteModalForJob !== null}
+        onOpenChange={(v) => {
+          if (!v) setInviteModalForJob(null);
+        }}
+        defaultJobId={inviteModalForJob ?? undefined}
+      />
     </div>
   );
 }

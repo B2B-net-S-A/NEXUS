@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Briefcase, Building2, CalendarPlus, Plus, UserPlus } from "lucide-react";
+import { Briefcase, Building2, CalendarPlus, Link2, Plus, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,8 +16,15 @@ import {
   AddJobModal,
   AddMeetingModal,
 } from "@/components/AppShell";
+import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 
-export type QuickActionModal = "candidate" | "job" | "client" | "meeting" | null;
+export type QuickActionModal =
+  | "candidate"
+  | "job"
+  | "client"
+  | "meeting"
+  | "invite_link"
+  | null;
 
 interface Props {
   externalModal?: QuickActionModal;
@@ -77,6 +84,10 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
             <CalendarPlus className="h-4 w-4" />
             Zaplanuj spotkanie
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setModal("invite_link")}>
+            <Link2 className="h-4 w-4" />
+            Wygeneruj link aplikacyjny
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -84,6 +95,13 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
       {modal === "job" && <AddJobModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}
+
+      <GenerateInviteLinkV2
+        open={modal === "invite_link"}
+        onOpenChange={(v) => {
+          if (!v) setModal(null);
+        }}
+      />
 
       {toast && (
         <div

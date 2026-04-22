@@ -3,9 +3,12 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.competence_category import (
+    CandidateCcCategorySource,
+    CandidateCompetenceCategory,
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
 from app.models.client import Client
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
@@ -67,6 +70,23 @@ from app.models.team_structure import (
 )
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.linkedin_metric import LinkedInDailyMetric
+from app.models.interview_question import (
+    InterviewQuestion,
+    InterviewQuestionRating,
+    InterviewQuestionSeniority,
+    InterviewQuestionSource,
+    InterviewQuestionType,
+    JobQuestion,
+    JobQuestionAddedBySource,
+    QuestionRatingValue,
+)
+from app.models.interview_feedback import (
+    FeedbackSource,
+    InterestLevel,
+    InterviewDecision,
+    InterviewFeedback,
+    NextStepPreference,
+)
 
 __all__ = [
     "User",
@@ -76,6 +96,10 @@ __all__ = [
     "JobCollaboratorSource",
     "CompetenceCategory",
     "UserCompetenceCategory",
+    "CandidateCompetenceCategory",
+    "CandidateCcCategorySource",
+    "CcSuggestionOverride",
+    "JobSecondaryCc",
     "Client",
     "CandidateStage",
     "Note",
@@ -141,4 +165,17 @@ __all__ = [
     "CompetitionType",
     "CompetitionWinner",
     "LinkedInDailyMetric",
+    "InterviewQuestion",
+    "InterviewQuestionRating",
+    "InterviewQuestionSeniority",
+    "InterviewQuestionSource",
+    "InterviewQuestionType",
+    "JobQuestion",
+    "JobQuestionAddedBySource",
+    "QuestionRatingValue",
+    "InterviewFeedback",
+    "FeedbackSource",
+    "InterestLevel",
+    "NextStepPreference",
+    "InterviewDecision",
 ]

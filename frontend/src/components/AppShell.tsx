@@ -15,6 +15,8 @@ import {
   X, Loader2, Sparkles,
 } from "lucide-react";
 import api, { aiWriterApi, phase5Api, pipelineTemplatesApi } from "@/lib/api";
+import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
+import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -815,13 +817,15 @@ interface JobFormData {
   deadline: string;
   recruiter_id: string;
   pipeline_template_id: string;
+  // AI CC matching (migracja 0041)
+  competence_category_id: string;
 }
 
 const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
   salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
-  pipeline_template_id: "",
+  pipeline_template_id: "", competence_category_id: "",
 };
 
 function jobToForm(j: any): JobFormData {
@@ -840,16 +844,28 @@ function jobToForm(j: any): JobFormData {
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
+    competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
   };
 }
 
-function JobFormFields({ form, onChange, clients, users, templates }: {
+function JobFormFields({
+  form,
+  onChange,
+  clients,
+  users,
+  templates,
+  autoCollaboratorIds,
+  onAutoCollaboratorsChange,
+}: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
   templates: { id: number; name: string; is_default?: boolean; archived?: boolean }[];
+  autoCollaboratorIds?: number[];
+  onAutoCollaboratorsChange?: (ids: number[]) => void;
 }) {
+  const ccId = form.competence_category_id ? Number(form.competence_category_id) : null;
   return (
     <>
       <FieldGroup label="Tytuł stanowiska" required>
@@ -950,6 +966,20 @@ function JobFormFields({ form, onChange, clients, users, templates }: {
           </a>
         </p>
       </FieldGroup>
+      <CompetenceCategoryPicker
+        value={ccId}
+        onChange={(v) => onChange("competence_category_id", v !== null ? String(v) : "")}
+        jobTitle={form.title}
+        description={form.description}
+        requirements={form.requirements}
+      />
+      {autoCollaboratorIds !== undefined && onAutoCollaboratorsChange && (
+        <AutoAssignedCollaborators
+          competenceCategoryId={ccId}
+          selectedUserIds={autoCollaboratorIds}
+          onChange={onAutoCollaboratorsChange}
+        />
+      )}
     </>
   );
 }
@@ -961,6 +991,9 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const [error, setError] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState("");
+  // auto_cc collaborators: undefined = not initialised (all auto-add), otherwise
+  // the explicit set user chose (may exclude some backend would add).
+  const [autoCollaboratorIds, setAutoCollaboratorIds] = useState<number[] | null>(null);
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
@@ -1014,7 +1047,7 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
     setSaving(true); setError("");
     try {
-      const { data: newJob } = await api.post<{ id: number }>("/api/jobs", {
+      const { data: newJob } = await api.post<{ id: number; competence_category_id?: number }>("/api/jobs", {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
         recruitment_type: form.recruitment_type,
@@ -1029,7 +1062,30 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
+        competence_category_id: form.competence_category_id
+          ? Number(form.competence_category_id)
+          : undefined,
+        auto_suggest_cc: !form.competence_category_id,
       });
+      // Reconcile auto_cc collaborators: if user de-selected any after backend
+      // already auto-added, we DELETE them here. Hits the same endpoint the
+      // JobOwnershipPanel uses post-creation (idempotent soft-delete).
+      if (newJob?.id && autoCollaboratorIds !== null) {
+        try {
+          const { data: jobDetail } = await api.get<{ collaborators?: Array<{ id: number }> }>(
+            `/api/jobs/${newJob.id}`,
+          );
+          const current = (jobDetail.collaborators ?? []).map((c) => c.id);
+          const toRemove = current.filter((uid) => !autoCollaboratorIds.includes(uid));
+          await Promise.all(
+            toRemove.map((uid) =>
+              api.delete(`/api/jobs/${newJob.id}/collaborators/${uid}`),
+            ),
+          );
+        } catch (e) {
+          // Non-fatal: user can still edit collaborators on the job page.
+        }
+      }
       onSuccess("Projekt utworzony — AI szuka kandydatów…");
       onClose();
       // Phase 13: redirect to the job detail page with AI proposals section
@@ -1063,7 +1119,15 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           <span className="text-xs text-gray-400">Wypełni opis i wymagania automatycznie</span>
         </div>
         {aiError && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{aiError}</div>}
-        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} templates={templates} />
+        <JobFormFields
+          form={form}
+          onChange={onChange}
+          clients={clients}
+          users={users}
+          templates={templates}
+          autoCollaboratorIds={autoCollaboratorIds ?? []}
+          onAutoCollaboratorsChange={setAutoCollaboratorIds}
+        />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj ofertę" />
@@ -1116,6 +1180,9 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : null,
+        competence_category_id: form.competence_category_id
+          ? Number(form.competence_category_id)
+          : null,
       });
       onSuccess("Oferta zaktualizowana");
       onClose();

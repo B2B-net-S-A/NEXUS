@@ -26,6 +26,15 @@ class NotificationType(str, enum.Enum):
     contract_ending_90d = "contract_ending_90d"
     equipment_return_due_14d = "equipment_return_due_14d"
     client_order_ending_30d = "client_order_ending_30d"
+    # Phase 14 — post-interview feedback chain
+    post_interview_t15 = "post_interview_t15"
+    post_interview_t45 = "post_interview_t45"
+    post_interview_t2h_escalation = "post_interview_t2h_escalation"
+    suggest_next_step = "suggest_next_step"
+    # KPI Coach — in-app praise / remind / eod_summary (DB enum value
+    # `kpi_coach` dodany w migracji 0034_kpi_coach). Konkretny nudge_type
+    # żyje w `kpi_nudge_log.nudge_type`; tu mamy wspólny bucket.
+    kpi_coach = "kpi_coach"
 
 
 class Notification(Base, TimestampMixin):

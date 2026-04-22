@@ -9,6 +9,7 @@ read-only (`user` role) viewers — neither is a legitimate job owner.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,23 @@ from app.api.deps import CurrentUser
 from app.schemas.job import UserBrief
 
 router = APIRouter()
+
+
+# ── Preferences schemas ────────────────────────────────────────────────────
+
+
+class UserPreferencesUpdate(BaseModel):
+    """Patch body for `/me/preferences`. All fields optional — pass only the
+    ones you want to change."""
+
+    kpi_coach_enabled: Optional[bool] = Field(
+        default=None,
+        description="Włącza/wyłącza in-app coaching KPI (praise + remind + EOD).",
+    )
+
+
+class UserPreferencesResponse(BaseModel):
+    kpi_coach_enabled: bool
 
 
 # Roles that can meaningfully own or collaborate on a job. `user` (viewer)
@@ -58,3 +76,35 @@ async def list_users(
         query = query.where((User.name.ilike(needle)) | (User.email.ilike(needle)))
     result = await db.execute(query)
     return [UserBrief.model_validate(u) for u in result.scalars().all()]
+
+
+# ── Preferences ────────────────────────────────────────────────────────────
+
+
+@router.get("/me/preferences", response_model=UserPreferencesResponse)
+async def get_my_preferences(current_user: CurrentUser):
+    """Zwraca aktualne preferencje bieżącego użytkownika."""
+    return UserPreferencesResponse(kpi_coach_enabled=current_user.kpi_coach_enabled)
+
+
+@router.patch("/me/preferences", response_model=UserPreferencesResponse)
+async def update_my_preferences(
+    payload: UserPreferencesUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Częściowa aktualizacja preferencji bieżącego użytkownika.
+
+    Obsługuje dziś tylko `kpi_coach_enabled`. W przyszłości rozszerzymy o
+    kolejne toggle (slack_channel, email_digest itp.).
+    """
+    changed = False
+    if payload.kpi_coach_enabled is not None:
+        current_user.kpi_coach_enabled = payload.kpi_coach_enabled
+        changed = True
+
+    if changed:
+        await db.commit()
+        await db.refresh(current_user)
+
+    return UserPreferencesResponse(kpi_coach_enabled=current_user.kpi_coach_enabled)

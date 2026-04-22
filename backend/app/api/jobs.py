@@ -8,11 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
-from app.models.job_collaborator import JobCollaborator
+from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.schemas.job import (
+    CcOverrideRequest,
+    CcSuggestion,
+    CcSuggestionsResponse,
     JobCollaboratorAdd,
     JobCreate,
     JobOwnerAssignment,
@@ -214,9 +217,27 @@ async def create_job(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    job = Job(**data.model_dump(), created_by=current_user.id)
+    # AI CC matching (migracja 0041). If the caller didn't specify a CC and
+    # opted into auto-suggest, we run the classifier *after* the embedding
+    # has been generated (needs job text). For create we must persist first
+    # to get `job.id`; classifier will be called below post-embed.
+    payload = data.model_dump(
+        exclude={"auto_suggest_cc", "secondary_cc_ids"}
+    )
+    secondary_cc_ids = data.secondary_cc_ids or []
+    auto_suggest = data.auto_suggest_cc
+
+    job = Job(**payload, created_by=current_user.id)
     db.add(job)
     await db.flush()
+
+    # Persist secondary CC links (manual from caller, if any)
+    if secondary_cc_ids:
+        from app.models.cc_feedback import JobSecondaryCc
+
+        for cc_id in secondary_cc_ids[:2]:  # cap at 2
+            db.add(JobSecondaryCc(job_id=job.id, competence_category_id=cc_id))
+
     db.add(
         Activity(
             entity_type="job",
@@ -230,6 +251,29 @@ async def create_job(
 
     # Phase 2: embed the job so reverse matching picks it up.
     await _maybe_embed_job(job.id, db)
+
+    # AI CC classification + auto-add collaborators (post-embed so classifier
+    # has both keyword + embedding signal). Any failure is non-fatal.
+    try:
+        if job.competence_category_id is None and auto_suggest:
+            from app.services.cc_classifier import classify_job_to_cc
+
+            result = await classify_job_to_cc(job, db)
+            if result.top and not result.tie:
+                job.competence_category_id = result.top.cc_id
+                await db.commit()
+                await db.refresh(job)
+        if job.competence_category_id is not None:
+            from app.services.auto_cc_collaborators import auto_add_cc_collaborators
+
+            await auto_add_cc_collaborators(
+                db,
+                job_id=job.id,
+                competence_category_id=job.competence_category_id,
+                added_by=current_user.id,
+            )
+    except Exception as e:  # pragma: no cover — never block job creation
+        logger.warning("[Job] CC auto-assignment failed for job %s: %s", job.id, e)
 
     # Phase 13: kick off AI candidate proposals for the freshly-created job.
     # Snapshot is created synchronously (so the UI can start polling), and the
@@ -817,14 +861,92 @@ async def remove_collaborator(
     if link is None:
         # Idempotent: deleting a missing link is a success (204).
         return
+    removed_source = link.source.value if link.source else "manual"
     await db.delete(link)
+    # Feedback loop: when an auto_cc collaborator is removed we log to Activity
+    # so Head of Recruitment can spot patterns (e.g. one sourcer removed 10×
+    # from the same CC → revise user↔CC mapping). Stored on the Activity row
+    # rather than the deleted row for queryability.
     db.add(
         Activity(
             entity_type="job",
             entity_id=job_id,
-            action="collaborator_removed",
+            action=(
+                "collaborator_removed_auto_cc"
+                if removed_source == "auto_cc"
+                else "collaborator_removed"
+            ),
             user_id=current_user.id,
-            details={"collaborator_id": user_id},
+            details={
+                "collaborator_id": user_id,
+                "source": removed_source,
+            },
         )
     )
     await db.commit()
+
+
+# ── AI CC classification (migracja 0041) ────────────────────────────────────
+
+
+def _cc_score_to_schema(score) -> CcSuggestion:
+    """Map `cc_classifier.CcScore` → `CcSuggestion` pydantic schema."""
+    return CcSuggestion(
+        competence_category_id=score.cc_id,
+        slug=score.slug,
+        name_pl=score.name_pl,
+        score=score.score,
+        confidence_band=score.confidence_band,
+        keywords_matched=score.keywords_matched,
+    )
+
+
+@router.post("/{job_id}/classify-cc", response_model=CcSuggestionsResponse)
+async def classify_job_cc(
+    job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> CcSuggestionsResponse:
+    """Return top-3 CC suggestions for a job (current state, no DB write)."""
+    from app.services.cc_classifier import classify_job_to_cc
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    result = await classify_job_to_cc(job, db)
+    top_schema = _cc_score_to_schema(result.top) if result.top else None
+    alternatives = [_cc_score_to_schema(s) for s in result.alternatives]
+    return CcSuggestionsResponse(top=top_schema, alternatives=alternatives, tie=result.tie)
+
+
+@router.post("/{job_id}/cc-override", status_code=status.HTTP_201_CREATED)
+async def log_cc_override(
+    job_id: int,
+    body: CcOverrideRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Log that a DL changed the AI-suggested CC. Used for feedback loop."""
+    from app.models.cc_feedback import CcSuggestionOverride
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    override = CcSuggestionOverride(
+        job_id=job_id,
+        suggested_cc_id=body.suggested_cc_id,
+        final_cc_id=body.final_cc_id,
+        suggested_score=body.suggested_score,
+        user_id=current_user.id,
+    )
+    db.add(override)
+    await db.commit()
+    await db.refresh(override)
+    return {
+        "id": override.id,
+        "job_id": job_id,
+        "suggested_cc_id": body.suggested_cc_id,
+        "final_cc_id": body.final_cc_id,
+    }

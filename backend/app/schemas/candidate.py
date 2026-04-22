@@ -214,6 +214,28 @@ class CandidateCreatorBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TalentPoolBrief(BaseModel):
+    """Minimal pool info for the candidate tile/list chips."""
+
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
+class InviteSourceBrief(BaseModel):
+    """Surfaces that a candidate entered through an invite link — so the
+    profile view can show a badge and Timeline can render an ownership
+    transfer event. Populated via a server-side join (latest
+    `applied_via_invite` Activity + matching CandidateInviteLink).
+    """
+
+    label: Optional[str] = None
+    created_by_name: str
+    applied_at: datetime
+    previous_created_by_name: Optional[str] = None
+
+
 class CandidateResponse(BaseModel):
     id: int
     name: str
@@ -276,6 +298,12 @@ class CandidateResponse(BaseModel):
     updated_at: datetime
     # Phase A1: populated only when list endpoint is called with include_match_stats=true
     match_stats: Optional[MatchStats] = None
+    # Talent pools the candidate belongs to. Populated when the list endpoint
+    # eager-loads `pool_memberships → pool` (see `_candidate_list_options`).
+    talent_pools: list[TalentPoolBrief] = Field(default_factory=list)
+    # Populated only by GET /candidates/{id} — latest invite-link apply event
+    # resolved to label + recruiter name (+ previous owner if transferred).
+    invite_source: Optional[InviteSourceBrief] = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 

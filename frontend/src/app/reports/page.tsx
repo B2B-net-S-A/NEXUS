@@ -21,6 +21,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Link2,
 } from "lucide-react";
 import { reportsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -1236,6 +1237,142 @@ function ZarzadTab() {
   );
 }
 
+// ── Tab: Invite Links ─────────────────────────────────────────────────────────
+
+interface InviteLinksReportChannel {
+  channel: string;
+  links_count: number;
+  applications: number;
+  conversion_pct: number;
+  last_used_at: string | null;
+}
+
+interface InviteLinksReportData {
+  period: Period | "all";
+  channels: InviteLinksReportChannel[];
+  totals: {
+    links: number;
+    applications: number;
+    candidates: number;
+    conversion_pct: number;
+  };
+}
+
+function InviteLinksTab({ period }: { period: Period }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["reports", "invite-links", period],
+    queryFn: () =>
+      reportsApi
+        .inviteLinks({ period })
+        .then((r) => r.data as InviteLinksReportData),
+  });
+
+  if (isLoading) return <LoadingSpinner />;
+  if (!data) return null;
+
+  const hasData = data.channels.length > 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Totals */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KpiCard
+          label="Linki"
+          value={data.totals.links}
+          icon={Link2}
+          color="blue"
+        />
+        <KpiCard
+          label="Aplikacje"
+          value={data.totals.applications}
+          icon={Users}
+          color="green"
+        />
+        <KpiCard
+          label="Unikalni kandydaci"
+          value={data.totals.candidates}
+          icon={Users}
+          color="purple"
+        />
+        <KpiCard
+          label="Konwersja"
+          value={`${data.totals.conversion_pct}%`}
+          icon={Target}
+          color="orange"
+        />
+      </div>
+
+      {/* Channel table */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            Skuteczność kanałów
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Linki aplikacyjne grupowane po etykiecie (np. „LinkedIn post
+            04/26"). Linki bez etykiety trafiają do „Bez etykiety".
+          </p>
+        </div>
+        {hasData ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase tracking-wider text-gray-500 bg-gray-50 dark:bg-gray-900/30">
+                <tr>
+                  {[
+                    "Kanał",
+                    "Linki",
+                    "Aplikacje",
+                    "Konwersja",
+                    "Ostatnio użyty",
+                  ].map((h) => (
+                    <th key={h} className="text-left px-6 py-3 font-medium">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.channels.map((ch) => (
+                  <tr
+                    key={ch.channel}
+                    className="border-t border-gray-100 dark:border-gray-700/50 hover:bg-gray-50/60 dark:hover:bg-gray-700/30"
+                  >
+                    <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">
+                      {ch.channel}
+                    </td>
+                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                      {ch.links_count}
+                    </td>
+                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                      {ch.applications}
+                    </td>
+                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                      {ch.conversion_pct}%
+                    </td>
+                    <td className="px-6 py-3 text-gray-500 dark:text-gray-400">
+                      {ch.last_used_at
+                        ? new Date(ch.last_used_at).toLocaleDateString("pl-PL", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+            Nie wygenerowano jeszcze żadnych linków w tym okresie.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1243,6 +1380,7 @@ const TABS = [
   { id: "sales", label: "Sprzedaż" },
   { id: "delivery", label: "Delivery Lead" },
   { id: "przetargi", label: "Przetargi" },
+  { id: "invite_links", label: "Linki aplikacyjne" },
   { id: "board", label: "Zarząd" },
 ] as const;
 
@@ -1252,7 +1390,12 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("rekrutacja");
   const [period, setPeriod] = useState<Period>("month");
 
-  const showPeriod = ["rekrutacja", "delivery", "przetargi"].includes(activeTab);
+  const showPeriod = [
+    "rekrutacja",
+    "delivery",
+    "przetargi",
+    "invite_links",
+  ].includes(activeTab);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -1291,6 +1434,9 @@ export default function ReportsPage() {
         {activeTab === "sales" && <SalesTab />}
         {activeTab === "delivery" && <DeliveryLeadTab period={period} />}
         {activeTab === "przetargi" && <PrzetargiTab period={period} />}
+        {activeTab === "invite_links" && (
+          <InviteLinksTab period={period} />
+        )}
         {activeTab === "board" && <ZarzadTab />}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { AppShellV2 } from "@/components/v2/shell/AppShellV2";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ToastProvider>
               <TooltipProvider delayDuration={200} skipDelayDuration={100}>
                 <AppShellV2>{children}</AppShellV2>
+                <KpiNudgeToaster />
               </TooltipProvider>
             </ToastProvider>
           </ThemeProvider>

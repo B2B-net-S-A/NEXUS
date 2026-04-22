@@ -9,9 +9,11 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
+import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2 } from "lucide-react";
+import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import Link from "next/link";
@@ -845,7 +847,12 @@ const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> 
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type PageTab = "pipeline" | "ai-matching" | "portals" | "champion";
+type PageTab =
+  | "pipeline"
+  | "ai-matching"
+  | "portals"
+  | "champion"
+  | "questions";
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -856,6 +863,7 @@ export default function JobDetailPage() {
   const queryClient = useQueryClient();
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
+  const [showInviteLink, setShowInviteLink] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
 
@@ -955,6 +963,16 @@ export default function JobDetailPage() {
               <Wand2 className="w-3.5 h-3.5" />
               AI Ogłoszenie
             </button>
+            {job.status === "published" && (
+              <button
+                onClick={() => setShowInviteLink(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+                title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
+              >
+                <Link2 className="w-3.5 h-3.5 text-blue-500" />
+                Wygeneruj link
+              </button>
+            )}
             {job.recruitment_type && RECRUITMENT_TYPE_CONFIG[job.recruitment_type] && (
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${RECRUITMENT_TYPE_CONFIG[job.recruitment_type].color}`}>
                 {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
@@ -1003,6 +1021,13 @@ export default function JobDetailPage() {
           onUse={handleUseDescription}
         />
       )}
+
+      {/* Invite Link Modal — pre-selected current job */}
+      <GenerateInviteLinkV2
+        open={showInviteLink}
+        onOpenChange={setShowInviteLink}
+        defaultJobId={Number(id)}
+      />
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700">
@@ -1054,6 +1079,18 @@ export default function JobDetailPage() {
             <Sparkles className="w-4 h-4" />
             Profil Championa
           </button>
+          <button
+            onClick={() => setActiveTab("questions")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "questions"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            )}
+            data-testid="tab-questions"
+          >
+            Baza pytań
+          </button>
         </div>
       </div>
 
@@ -1096,6 +1133,13 @@ export default function JobDetailPage() {
 
       {activeTab === "champion" && (
         <ChampionProfileEditor jobId={Number(id)} />
+      )}
+
+      {activeTab === "questions" && (
+        <QuestionBankTab
+          jobId={Number(id)}
+          clientId={job?.client_id ?? null}
+        />
       )}
     </div>
   );

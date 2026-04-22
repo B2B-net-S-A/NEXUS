@@ -86,6 +86,24 @@ async def inv_client() -> AsyncClient:
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _stub_external_services(monkeypatch):
+    """Prevent invite-link tests from calling Voyage/Qdrant.
+
+    `submit_public_apply` does an inline `embed_candidate` call. In CI Voyage
+    isn't configured, so we replace it with an inert no-op. The background
+    pipeline (`_invite_post_apply_task`) is NOT stubbed here — individual
+    tests decide whether to capture/stub it, so we don't accidentally hide
+    the behaviour a test is trying to verify.
+    """
+    async def _noop_embed(candidate_id, db):
+        return True
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.embed_candidate", _noop_embed
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_invite_link_happy_path(inv_client: AsyncClient):
     uid, email, password = await _seed_user(UserRole.recruiter)
@@ -340,3 +358,236 @@ async def test_public_apply_rejects_expired_link(inv_client: AsyncClient):
 
     meta = await inv_client.get(f"/api/public/apply/{token}")
     assert meta.status_code == 404
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Invite-source badge (#2a), ownership-transfer audit (#4), post-apply
+# pipeline (#5) — tests added alongside feature work.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_public_apply_schedules_enrichment(
+    inv_client: AsyncClient, monkeypatch
+):
+    """Successful apply schedules the post-apply pipeline for the new candidate."""
+    scheduled: list[int] = []
+
+    async def _capture(candidate_id: int) -> None:
+        scheduled.append(candidate_id)
+
+    monkeypatch.setattr(
+        "app.api.public_share._invite_post_apply_task", _capture
+    )
+
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job()
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={"job_id": job_id, "expires_in_days": 7},
+            headers=headers,
+        )
+    ).json()["token"]
+
+    resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "first_name": "Ewa",
+            "last_name": "Nowak",
+            "email": f"ewa-{uuid.uuid4().hex[:6]}@example.com",
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+    # BackgroundTasks execute after the response is sent but inside the
+    # ASGITransport lifecycle, so the captured list is ready by the time
+    # we inspect it here.
+    assert len(scheduled) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
+    """GET /candidates/{id} surfaces label + recruiter name after invite apply."""
+    _, recruiter_email, recruiter_password = await _seed_user(
+        UserRole.recruiter, "src"
+    )
+    headers = await _login(inv_client, recruiter_email, recruiter_password)
+    job_id = await _seed_job()
+
+    # Separate admin account to read the private candidate endpoint.
+    _, admin_email, admin_pass = await _seed_user(UserRole.admin, "src-admin")
+    admin_headers = await _login(inv_client, admin_email, admin_pass)
+
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={
+                "job_id": job_id,
+                "label": "LI kwiecień",
+                "expires_in_days": 30,
+            },
+            headers=headers,
+        )
+    ).json()["token"]
+
+    applicant_email = f"src-{uuid.uuid4().hex[:6]}@example.com"
+    apply_resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "first_name": "Anna",
+            "last_name": "Linkowa",
+            "email": applicant_email,
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert apply_resp.status_code == 201
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.email == applicant_email)
+        )
+        assert cand is not None
+        cand_id = cand.id
+
+    detail = await inv_client.get(
+        f"/api/candidates/{cand_id}", headers=admin_headers
+    )
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body.get("invite_source") is not None
+    assert body["invite_source"]["label"] == "LI kwiecień"
+    assert body["invite_source"]["created_by_name"]  # recruiter name filled
+    assert body["invite_source"]["previous_created_by_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_reapply_records_previous_owner_in_activity(
+    inv_client: AsyncClient,
+):
+    """Re-applying through a different link records the prior owner on Activity.details."""
+    from app.models.activity import Activity
+
+    uid_x, _, _ = await _seed_user(UserRole.recruiter, "prev-x")
+    uid_y, email_y, pass_y = await _seed_user(UserRole.recruiter, "prev-y")
+    job_id = await _seed_job()
+    applicant_email = f"reapply-{uuid.uuid4().hex[:6]}@example.com"
+
+    # Seed existing candidate owned by X.
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Old",
+            lastname="Name",
+            email=applicant_email,
+            created_by=uid_x,
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+        cand_id = cand.id
+
+    headers_y = await _login(inv_client, email_y, pass_y)
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={"job_id": job_id, "expires_in_days": 30},
+            headers=headers_y,
+        )
+    ).json()["token"]
+
+    resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "first_name": "Old",
+            "last_name": "Name",
+            "email": applicant_email,
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        act = await db.scalar(
+            select(Activity)
+            .where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == cand_id,
+                Activity.action == "applied_via_invite",
+            )
+            .order_by(Activity.created_at.desc())
+        )
+        assert act is not None
+        assert act.user_id == uid_y
+        assert (act.details or {}).get("previous_created_by") == uid_x
+
+
+@pytest.mark.asyncio
+async def test_post_apply_task_auto_assigns_competence_category(
+    monkeypatch,
+):
+    """When the classifier scores ≥ 0.30, the background task fills competence_category.
+
+    Seeds a real CompetenceCategory row so the FK (`competence_category_id`)
+    is satisfied — production classifier always returns real CC ids, and we
+    mimic that in the fake.
+    """
+    from dataclasses import dataclass
+
+    from app.api.public_share import _invite_post_apply_task
+    from app.models.competence_category import CompetenceCategory
+
+    # Stub the authenticated-flow enrichment helper so it doesn't touch
+    # Voyage/LLM in CI. The task just needs the candidate to exist.
+    async def _noop_cv_enrich(candidate_id: int) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "app.api.candidates._enrich_candidate_cv_task", _noop_cv_enrich
+    )
+
+    # Seed a CompetenceCategory the fake classifier can point at.
+    cc_slug = f"backend-dev-{uuid.uuid4().hex[:6]}"
+    async with AsyncSessionLocal() as db:
+        cc = CompetenceCategory(
+            slug=cc_slug,
+            name_pl="Backend",
+            name_en="Backend",
+            is_active=True,
+        )
+        db.add(cc)
+        await db.commit()
+        await db.refresh(cc)
+        cc_id = cc.id
+
+    @dataclass
+    class _FakeScore:
+        cc_id: int
+        slug: str
+        score: float
+
+    async def _fake_classify(candidate, db):
+        return [_FakeScore(cc_id=cc_id, slug=cc_slug, score=0.45)]
+
+    monkeypatch.setattr(
+        "app.services.cc_classifier.classify_candidate_to_cc", _fake_classify
+    )
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Auto",
+            lastname="CC",
+            email=f"autocc-{uuid.uuid4().hex[:6]}@example.com",
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+        cand_id = cand.id
+
+    await _invite_post_apply_task(cand_id)
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+        assert cand is not None
+        assert cand.competence_category == cc_slug
+        assert cand.competence_category_id == cc_id

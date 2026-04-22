@@ -13,7 +13,16 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -36,6 +45,15 @@ class KpiNudgeLog(Base):
     """Pojedynczy wysłany nudge. Append-only, brak updated_at."""
 
     __tablename__ = "kpi_nudge_log"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "kpi_id",
+            "nudge_type",
+            "period_bucket",
+            name="uq_kpi_nudge_log_dedup",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(

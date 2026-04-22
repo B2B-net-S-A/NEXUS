@@ -31,6 +31,11 @@ export interface ChampionProfileChangedEventDetail {
 // decoupled from editor internals.
 export const CHAMPION_PROFILE_CHANGED_EVENT = "nexus:cp-changed";
 
+// Event name for KPI Coach nudges (praise / remind / eod_summary).
+// `KpiNudgeToaster` listens and renders the in-app toast. Keeping the
+// constant in sync with frontend/src/components/v2/kpi/KpiNudgeToaster.tsx.
+export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
+
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
 }
@@ -112,6 +117,17 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
                 CHAMPION_PROFILE_CHANGED_EVENT,
                 { detail: msg.data },
               ),
+            );
+          }
+        } else if (msg.type === "kpi_nudge" && msg.data) {
+          // KPI Coach: update cached KPI snapshot + bell counter, then
+          // broadcast to the KpiNudgeToaster for the in-app toast.
+          queryClient.invalidateQueries({ queryKey: ["kpis", "me", "today"] });
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          setUnreadCount((c) => c + 1);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent(KPI_NUDGE_EVENT, { detail: msg.data }),
             );
           }
         } else if (msg.type === "ping") {

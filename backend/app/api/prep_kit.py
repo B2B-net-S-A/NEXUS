@@ -17,6 +17,7 @@ from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
+from app.services.question_suggestions import suggest_questions_for_prep
 
 router = APIRouter()
 
@@ -29,6 +30,9 @@ class PrepKitRequest(BaseModel):
 class PrepKitResponse(BaseModel):
     client_overview: str
     likely_questions: list[str]
+    # Rozszerzone pytania z metadata (source_tier, cosine_score, ideal_answer...).
+    # Non-breaking: stare frontendy używają `likely_questions` (list[str]).
+    likely_questions_meta: list[dict] = []
     candidate_strengths: list[str]
     candidate_gaps: list[str]
     selling_points: list[str]
@@ -153,43 +157,11 @@ async def generate_prep_kit(
 
     client_overview = "\n".join(overview_lines)
 
-    # 2. LIKELY QUESTIONS
-    likely_questions = []
-    for entry in knowledge_entries:
-        if entry.category == KnowledgeCategory.interview_questions:
-            likely_questions.extend(_parse_list_content(entry.content))
-
-    # Add auto-generated questions from requirements
-    if job.requirements:
-        req_lines = [
-            line.strip().lstrip("•-–*").strip()
-            for line in job.requirements.splitlines()
-            if line.strip()
-        ]
-        for req in req_lines[:5]:
-            if len(req) > 10:
-                likely_questions.append(f"Opisz swoje doświadczenie z: {req}")
-
-    # Add tech stack questions
-    for tech in tech_parts[:3]:
-        if tech:
-            likely_questions.append(f"Jakie masz doświadczenie z {tech}?")
-
-    if not likely_questions:
-        likely_questions = [
-            "Opisz swoje ostatnie doświadczenie projektowe.",
-            "Jakie są Twoje oczekiwania względem nowego miejsca pracy?",
-            "Jak radzisz sobie z pracą w zespole?",
-        ]
-
-    # Deduplicate, keep max 10
-    seen = set()
-    unique_questions = []
-    for q in likely_questions:
-        if q not in seen:
-            seen.add(q)
-            unique_questions.append(q)
-    likely_questions = unique_questions[:10]
+    # 2. LIKELY QUESTIONS — 4-tier waterfall (pinned → legacy → similar jobs →
+    # client knowledge → auto-gen). Dokumentacja: question_suggestions.py.
+    suggestions = await suggest_questions_for_prep(db=db, job=job, target_count=10)
+    likely_questions_meta = [s.to_dict() for s in suggestions[:10]]
+    likely_questions = [s["text"] for s in likely_questions_meta]
 
     # 3. CANDIDATE STRENGTHS
     strengths = []
@@ -375,6 +347,7 @@ async def generate_prep_kit(
     return PrepKitResponse(
         client_overview=client_overview,
         likely_questions=likely_questions,
+        likely_questions_meta=likely_questions_meta,
         candidate_strengths=strengths,
         candidate_gaps=gaps,
         selling_points=selling_points,

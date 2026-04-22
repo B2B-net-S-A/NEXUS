@@ -75,6 +75,7 @@ import { decodeFilters, encodeFilters, type CandidateFilters } from "@/lib/url-f
 import { CandidatesTiles } from "@/components/v2/pages/CandidatesTiles";
 import { RequireRole } from "@/components/RequireRole";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
+import { ROLE_LABELS, type UserRole } from "@/store/auth";
 
 const STATUS_LABELS: Record<string, string> = {
   active: "Aktywny",
@@ -109,7 +110,21 @@ interface Candidate {
   created_at?: string;
   created_by_user?: { id: number; name: string } | null;
   match_stats?: { open_count: number; total_open: number; top_score: number };
+  talent_pools?: Array<{ id: number; name: string }>;
 }
+
+// Role scopes the admin can target when saving candidates-columns as default.
+// Order matches the user hierarchy (admin → user).
+const SAVE_ROLE_OPTIONS: Array<{ value: UserRole | "_global"; label: string }> = [
+  { value: "_global", label: "Dla wszystkich (domyślne)" },
+  { value: "admin", label: `Dla: ${ROLE_LABELS.admin}` },
+  { value: "head_of_recruitment", label: `Dla: ${ROLE_LABELS.head_of_recruitment}` },
+  { value: "delivery_lead", label: `Dla: ${ROLE_LABELS.delivery_lead}` },
+  { value: "tac", label: `Dla: ${ROLE_LABELS.tac}` },
+  { value: "recruiter", label: `Dla: ${ROLE_LABELS.recruiter}` },
+  { value: "sourcer", label: `Dla: ${ROLE_LABELS.sourcer}` },
+  { value: "user", label: `Dla: ${ROLE_LABELS.user}` },
+];
 
 function sourceIcon(source?: string) {
   if (source === "linkedin")
@@ -148,6 +163,7 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
   "status",
   "match",
   "created",
+  "added_by",
 ];
 
 export function CandidatesListV2() {
@@ -184,16 +200,29 @@ export function CandidatesListV2() {
   );
   const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
 
-  const saveAsGlobalDefault = useMutation({
-    mutationFn: (visibleIds: ColumnId[]) =>
+  // Admin scope for the "Zapisz jako domyślne" action. `"_global"` means save
+  // the baseline that applies to every role without a specific override.
+  const [saveTargetRole, setSaveTargetRole] = useState<UserRole | "_global">(
+    "_global"
+  );
+
+  const saveColumnDefault = useMutation({
+    mutationFn: (args: { columns: ColumnId[]; role: UserRole | "_global" }) =>
       api
-        .put("/api/settings/candidates-columns", { columns: visibleIds })
+        .put("/api/settings/candidates-columns", {
+          columns: args.columns,
+          role: args.role === "_global" ? null : args.role,
+        })
         .then((r) => r.data),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["settings", "candidates-columns"],
       });
-      setToast?.("Zapisano jako domyślne dla wszystkich.");
+      const label =
+        variables.role === "_global"
+          ? "dla wszystkich"
+          : `dla roli: ${ROLE_LABELS[variables.role]}`;
+      setToast?.(`Zapisano jako domyślne ${label}.`);
     },
   });
   const resetToGlobalDefault = () =>
@@ -819,22 +848,49 @@ export function CandidatesListV2() {
                   </button>
                 )}
                 <RequireRole roles={["admin"]}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const visibleIds = ALL_COLUMNS.filter(
-                        (c) => !hiddenColumns.has(c.id)
-                      ).map((c) => c.id as ColumnId);
-                      saveAsGlobalDefault.mutate(visibleIds);
-                    }}
-                    disabled={saveAsGlobalDefault.isPending}
-                    className="text-xs text-[hsl(var(--accent))] hover:underline text-left disabled:opacity-50"
-                    title="Zapisz bieżący układ jako domyślny dla wszystkich użytkowników"
-                  >
-                    {saveAsGlobalDefault.isPending
-                      ? "Zapisywanie…"
-                      : "💾 Zapisz jako domyślne (admin)"}
-                  </button>
+                  <div className="flex flex-col gap-1.5">
+                    <label
+                      htmlFor="candidates-columns-save-scope"
+                      className="text-[10px] uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]"
+                    >
+                      Zakres zapisu (admin)
+                    </label>
+                    <select
+                      id="candidates-columns-save-scope"
+                      value={saveTargetRole}
+                      onChange={(e) =>
+                        setSaveTargetRole(
+                          e.target.value as UserRole | "_global"
+                        )
+                      }
+                      className="text-xs rounded-v2-s border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-surface))] px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent))]"
+                    >
+                      {SAVE_ROLE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const visibleIds = ALL_COLUMNS.filter(
+                          (c) => !hiddenColumns.has(c.id)
+                        ).map((c) => c.id as ColumnId);
+                        saveColumnDefault.mutate({
+                          columns: visibleIds,
+                          role: saveTargetRole,
+                        });
+                      }}
+                      disabled={saveColumnDefault.isPending}
+                      className="text-xs text-[hsl(var(--accent))] hover:underline text-left disabled:opacity-50"
+                      title="Zapisz bieżący układ jako domyślny dla wybranego zakresu"
+                    >
+                      {saveColumnDefault.isPending
+                        ? "Zapisywanie…"
+                        : "💾 Zapisz jako domyślne"}
+                    </button>
+                  </div>
                 </RequireRole>
               </div>
             </PopoverContent>

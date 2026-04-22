@@ -56,6 +56,14 @@ class User(Base, TimestampMixin):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # KPI Coach opt-in flag. Default True → every operational recruiter gets
+    # the in-app coaching (praise/remind/eod summary). User can disable in
+    # Settings → Coaching. Non-operational roles (admin, head_of_recruitment,
+    # delivery_lead, user) are filtered out at API/service layer regardless.
+    kpi_coach_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+
     # First-login onboarding gate.
     # `delivery_lead` and `recruiter` must complete a role-specific onboarding
     # flow (see backend/app/api/onboarding.py) before accessing the app.

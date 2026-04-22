@@ -140,6 +140,12 @@ class Job(Base, TimestampMixin):
     client_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("clients.id"), index=True
     )
+    # Primary Competence Category (migracja 0033_cc_entities + 0041_ai_cc_matching).
+    # Kolumna istnieje w DB od 0033, ale dopiero 0041 domyka mapping w ORM —
+    # wcześniej dostęp był tylko przez raw SQL / osobne entity queries.
+    competence_category_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("competence_categories.id"), nullable=True, index=True
+    )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     # Delivery Lead odpowiedzialny za realizację requesta (body leasing).
     # NULL dla sales_project/tender lub gdy nieprzypisany. Fallback przy
@@ -155,6 +161,12 @@ class Job(Base, TimestampMixin):
 
     # Relationships
     client = relationship("Client", back_populates="jobs")
+    competence_category = relationship(
+        "CompetenceCategory", foreign_keys=[competence_category_id]
+    )
+    secondary_cc_links = relationship(
+        "JobSecondaryCc", foreign_keys="JobSecondaryCc.job_id", cascade="all, delete-orphan"
+    )
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     delivery_lead = relationship("User", foreign_keys=[delivery_lead_id])
     creator = relationship("User", foreign_keys=[created_by])
@@ -166,6 +178,9 @@ class Job(Base, TimestampMixin):
     contracts = relationship("Contract", back_populates="job")
     postings = relationship(
         "JobPosting", back_populates="job", cascade="all, delete-orphan"
+    )
+    question_links = relationship(
+        "JobQuestion", back_populates="job", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

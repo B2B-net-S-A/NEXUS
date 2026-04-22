@@ -6,6 +6,7 @@ import { Briefcase, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 
 interface TileCandidate {
   id: number;
@@ -14,6 +15,13 @@ interface TileCandidate {
   position?: string;
   current_role?: string;
   location?: string;
+  created_by_user?: { id: number; name: string } | null;
+  match_stats?: {
+    open_count: number;
+    total_open: number;
+    top_score: number;
+  } | null;
+  talent_pools?: Array<{ id: number; name: string }>;
 }
 
 interface CandidatesTilesProps {
@@ -26,7 +34,16 @@ interface CandidatesTilesProps {
 
 const TILE_MIN_WIDTH = 240;
 const TILE_GAP = 12;
-const ROW_HEIGHT = 200;
+const ROW_HEIGHT = 260;
+const MAX_POOL_CHIPS = 2;
+
+function matchBadgeVariant(
+  topScore: number
+): "success" | "soft" | "neutral" | "outline" {
+  if (topScore >= 75) return "success";
+  if (topScore >= 50) return "soft";
+  return "neutral";
+}
 
 export function CandidatesTiles({
   items,
@@ -111,8 +128,15 @@ export function CandidatesTiles({
                   .slice(0, 2)
                   .join("")
                   .toUpperCase();
-                const position = candidate.position ?? candidate.current_role ?? "";
+                const position =
+                  candidate.position ?? candidate.current_role ?? "";
                 const isSelected = selectedIds.has(candidate.id);
+                const pools = candidate.talent_pools ?? [];
+                const visiblePools = pools.slice(0, MAX_POOL_CHIPS);
+                const overflowPools = pools.length - visiblePools.length;
+                const topScore = candidate.match_stats?.top_score ?? 0;
+                const showMatch = (candidate.match_stats?.open_count ?? 0) > 0;
+                const creatorName = candidate.created_by_user?.name ?? null;
                 return (
                   <div
                     key={candidate.id}
@@ -165,6 +189,46 @@ export function CandidatesTiles({
                         )}
                       </div>
                     </button>
+                    {(visiblePools.length > 0 || showMatch) && (
+                      <div className="flex flex-wrap items-center justify-center gap-1 w-full min-h-[20px]">
+                        {showMatch && (
+                          <Badge
+                            variant={matchBadgeVariant(topScore)}
+                            className="text-[10px] px-1.5 py-0"
+                            title={`Match: ${Math.round(topScore)}% — ${candidate.match_stats?.open_count ?? 0}/${candidate.match_stats?.total_open ?? 0} otwartych ofert`}
+                          >
+                            {Math.round(topScore)}%
+                          </Badge>
+                        )}
+                        {visiblePools.map((pool) => (
+                          <Badge
+                            key={pool.id}
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 max-w-[120px] truncate"
+                            title={pool.name}
+                          >
+                            {pool.name}
+                          </Badge>
+                        ))}
+                        {overflowPools > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0"
+                            title={pools
+                              .slice(MAX_POOL_CHIPS)
+                              .map((p) => p.name)
+                              .join(", ")}
+                          >
+                            +{overflowPools}
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+                    {creatorName && (
+                      <div className="text-[10px] text-[hsl(var(--text-muted))] truncate w-full">
+                        Dodał: {creatorName}
+                      </div>
+                    )}
                   </div>
                 );
               })}

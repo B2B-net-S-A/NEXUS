@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -211,6 +211,7 @@ async def _persist_cv(
 async def submit_public_apply(
     request: Request,
     token: str,
+    background_tasks: BackgroundTasks,
     first_name: str = Form(..., min_length=1, max_length=100),
     last_name: str = Form(..., min_length=1, max_length=100),
     email: EmailStr = Form(...),
@@ -343,4 +344,76 @@ async def submit_public_apply(
     link.last_used_at = datetime.now(timezone.utc)
 
     await db.commit()
+
+    # ── Post-apply enrichment pipeline ────────────────────────────────────
+    # Inline: embedding so the candidate is immediately matchable against
+    # other open jobs. Failures are logged but don't break the apply flow.
+    try:
+        from app.services.embedding_service import embed_candidate
+
+        await embed_candidate(candidate.id, db)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "[apply] embed_candidate failed candidate=%s: %s", candidate.id, e
+        )
+
+    # Background: CV parse (companies, skills, ai_summary) + CC auto-classify.
+    # Runs in a fresh DB session after the response has been sent, so the
+    # candidate sees a fast 201.
+    background_tasks.add_task(_invite_post_apply_task, candidate.id)
+
     return {"ok": True, "status": branch}
+
+
+async def _invite_post_apply_task(candidate_id: int) -> None:
+    """After-response pipeline for invite-link applications.
+
+    Steps:
+    1. Run the same CV enrichment used by authenticated `POST /candidates/{id}/cv`
+       (parse companies/skills, flag `cv_parsed_at`, invalidate match cache).
+    2. Classify the candidate into Competence Categories. When the top-1
+       score is ≥ 0.30 and `competence_category` is still empty, auto-assign
+       it so the candidate shows up in matching right away.
+
+    Never raises — every failure is logged so the original apply response
+    stays successful.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    # (1) Reuse the authenticated-flow enrichment task — it already runs in
+    # a fresh session and is the single source of truth for CV parsing.
+    try:
+        from app.api.candidates import _enrich_candidate_cv_task
+
+        await _enrich_candidate_cv_task(candidate_id)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "[apply] CV enrichment failed candidate=%s: %s", candidate_id, e
+        )
+
+    # (2) CC classification + auto-assign. Needs its own session because the
+    # previous task committed and closed its session.
+    try:
+        from app.services.cc_classifier import classify_candidate_to_cc
+
+        async with AsyncSessionLocal() as db:
+            candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if candidate is None:
+                return
+            scores = await classify_candidate_to_cc(candidate, db)
+            if scores and scores[0].score >= 0.30 and not candidate.competence_category:
+                candidate.competence_category = scores[0].slug
+                candidate.competence_category_id = scores[0].cc_id
+                await db.commit()
+                logger.info(
+                    "[apply] auto-assigned CC candidate=%s slug=%s score=%.3f",
+                    candidate_id,
+                    scores[0].slug,
+                    scores[0].score,
+                )
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "[apply] CC classify failed candidate=%s: %s", candidate_id, e
+        )

@@ -60,6 +60,27 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_ending_90d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_due_14d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_order_ending_30d'",
+    # Phase 14 (migration 0043_interview_feedback) post-interview reminders
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'post_interview_t15'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'post_interview_t45'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'post_interview_t2h_escalation'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'suggest_next_step'",
+    # Phase 14 dedicated enums for interview_feedback table
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'feedbacksource') THEN
+            CREATE TYPE feedbacksource AS ENUM ('candidate_side', 'client_side');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'interestlevel') THEN
+            CREATE TYPE interestlevel AS ENUM ('hot', 'warm', 'cold', 'dead');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'nextsteppreference') THEN
+            CREATE TYPE nextsteppreference AS ENUM ('ready_for_next', 'need_info', 'pass');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'interviewdecision') THEN
+            CREATE TYPE interviewdecision AS ENUM ('advance', 'reject', 'on_hold');
+        END IF;
+    END $$""",
     # availabilitystatus (migration wyroznienia_availability) — CREATE TYPE
     # must be gated with DO $$ because PG lacks CREATE TYPE IF NOT EXISTS.
     """DO $$
@@ -167,6 +188,15 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE user_competence_categories ADD COLUMN IF NOT EXISTS priority SMALLINT",
     "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_priority",
     "ALTER TABLE user_competence_categories ADD CONSTRAINT ck_user_cc_priority CHECK (priority IS NULL OR priority IN (1, 2))",
+    # Phase 14 (migration 0043_interview_feedback) needs_attention flag
+    "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS needs_attention BOOLEAN NOT NULL DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS ix_calendar_events_needs_attention ON calendar_events (needs_attention) WHERE needs_attention = true",
+    # Phase M365.1 drift: model ma kolumny od migracji 0036_microsoft365 ale
+    # multi-head w dev skasowało ich auto-tworzenie. Bez tego SQLAlchemy fetche
+    # eventów leci z UndefinedColumnError.
+    "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_series_master_id VARCHAR(255)",
+    "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_change_key VARCHAR(100)",
+    "CREATE INDEX IF NOT EXISTS ix_calendar_events_m365_series_master_id ON calendar_events (m365_series_master_id)",
 ]
 
 _DATA_STATEMENTS = [

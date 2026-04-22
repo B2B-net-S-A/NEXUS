@@ -13,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TacPlus
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
+from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -971,6 +973,108 @@ async def report_board(
             "total_candidates": total_candidates,
         },
         "trends": trends,
+    }
+    await cache_set(cache_key, result_data, ttl_seconds=300)
+    return result_data
+
+
+# ── Invite-link channel report ─────────────────────────────────────────────
+#
+# Aggregates candidate applications per invite-link `label` (recruiter-
+# defined channel tag, e.g. "LinkedIn post 04/26") so decision-makers can
+# see which sourcing channels actually deliver. Links without a label fall
+# into the "Bez etykiety" bucket so nothing gets silently dropped.
+#
+# Access: admin + delivery_lead + head_of_recruitment. Recruiters see only
+# their own links in the existing "Moje linki" modal — a team/org report is
+# leadership-level insight.
+
+from app.api.deps import require_roles  # noqa: E402
+
+
+@router.get("/invite-links")
+async def report_invite_links(
+    current_user: User = Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.head_of_recruitment,
+        )
+    ),
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(week|month|quarter|year|all)$"),
+):
+    """Invite-link performance grouped by channel label."""
+    cache_key = f"reports:invite-links:{period}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    start = _period_start(period)
+    created_at_filter = (
+        [CandidateInviteLink.created_at >= start] if period != "all" else []
+    )
+
+    # Per-channel rollup straight from the invite-link table. `use_count`
+    # is incremented on every successful apply (see public_share.py), so
+    # sum(use_count) == total applications through that label.
+    rollup_stmt = (
+        select(
+            func.coalesce(CandidateInviteLink.label, "Bez etykiety").label("channel"),
+            func.count(CandidateInviteLink.token).label("links_count"),
+            func.coalesce(
+                func.sum(CandidateInviteLink.use_count), 0
+            ).label("applications"),
+            func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
+        )
+        .where(*created_at_filter)
+        .group_by(func.coalesce(CandidateInviteLink.label, "Bez etykiety"))
+        .order_by(func.coalesce(func.sum(CandidateInviteLink.use_count), 0).desc())
+    )
+    rollup_rows = (await db.execute(rollup_stmt)).all()
+
+    channels: list[dict] = []
+    totals_links = 0
+    totals_applications = 0
+    for channel, links_count, applications, last_used_at in rollup_rows:
+        links_count = int(links_count or 0)
+        applications = int(applications or 0)
+        totals_links += links_count
+        totals_applications += applications
+        channels.append(
+            {
+                "channel": channel,
+                "links_count": links_count,
+                "applications": applications,
+                "conversion_pct": _safe_pct(applications, links_count),
+                "last_used_at": last_used_at.isoformat() if last_used_at else None,
+            }
+        )
+
+    # Distinct candidates — best-effort. `Candidate.source` uses the
+    # `invite_link:<prefix>` convention from public_share.py; a LIKE over
+    # the indexed `source` column is cheap and good enough to surface the
+    # "unique applicants" KPI without another JSON lookup.
+    candidate_source_filter = [Candidate.source.like("invite_link:%")]
+    if period != "all":
+        candidate_source_filter.append(Candidate.created_at >= start)
+    distinct_candidates = (
+        await db.execute(
+            select(func.count(func.distinct(Candidate.id))).where(
+                *candidate_source_filter
+            )
+        )
+    ).scalar() or 0
+
+    result_data = {
+        "period": period,
+        "channels": channels,
+        "totals": {
+            "links": totals_links,
+            "applications": totals_applications,
+            "candidates": int(distinct_candidates),
+            "conversion_pct": _safe_pct(totals_applications, totals_links),
+        },
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data

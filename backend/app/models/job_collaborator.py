@@ -14,7 +14,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -52,6 +52,15 @@ class JobCollaborator(Base):
         server_default=JobCollaboratorSource.manual.value,
         nullable=False,
     )
+    # Feedback loop dla auto_cc: gdy DL usuwa auto-dodanego członka, zamiast
+    # hard delete flagujemy wiersz — Head of Recruitment widzi wzorce (np.
+    # "ten sourcer 10× odznaczany dla tej CC" → rewiduj mapowanie user↔CC).
+    removed_from_auto_cc: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    removed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user = relationship("User", foreign_keys=[user_id])
     adder = relationship("User", foreign_keys=[added_by])
@@ -59,5 +68,5 @@ class JobCollaborator(Base):
     def __repr__(self) -> str:
         return (
             f"<JobCollaborator job={self.job_id} user={self.user_id} "
-            f"source={self.source}>"
+            f"source={self.source} removed={self.removed_from_auto_cc}>"
         )

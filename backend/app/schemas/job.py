@@ -43,6 +43,14 @@ class JobCreate(BaseModel):
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
 
+    # AI CC matching (migracja 0041). Jeśli `competence_category_id` podane —
+    # używamy jawnie; jeśli None + `auto_suggest_cc=true` — classifier wybiera
+    # top-1 (albo zostawia None gdy remis <0.10). `secondary_cc_ids` do wider
+    # matchingu (max 2, validated w endpointzie).
+    competence_category_id: Optional[int] = None
+    secondary_cc_ids: Optional[List[int]] = None
+    auto_suggest_cc: bool = True
+
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
@@ -77,11 +85,40 @@ class JobUpdate(BaseModel):
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
+    competence_category_id: Optional[int] = None
+    secondary_cc_ids: Optional[List[int]] = None
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+
+class CcSuggestion(BaseModel):
+    """Pojedyncza sugestia CC z wyjaśnieniem decyzji."""
+
+    competence_category_id: int
+    slug: str
+    name_pl: str
+    score: float  # 0..1
+    confidence_band: str  # "high" | "medium" | "low"
+    keywords_matched: List[str] = []
+
+
+class CcSuggestionsResponse(BaseModel):
+    """Zwracana z POST /jobs (response) i POST /jobs/{id}/classify-cc."""
+
+    top: Optional[CcSuggestion] = None
+    alternatives: List[CcSuggestion] = []
+    tie: bool = False  # True gdy |top-1 − top-2| < 0.10
+
+
+class CcOverrideRequest(BaseModel):
+    """Log override gdy DL zmienia sugerowaną CC."""
+
+    suggested_cc_id: Optional[int] = None
+    final_cc_id: Optional[int] = None
+    suggested_score: Optional[float] = None
 
 
 class JobResponse(BaseModel):
@@ -115,6 +152,7 @@ class JobResponse(BaseModel):
     embedding_id: Optional[str] = None
     criteria_generated_at: Optional[datetime] = None
     pipeline_template_id: Optional[int] = None
+    competence_category_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

@@ -238,6 +238,13 @@ class Candidate(Base, TimestampMixin):
     competence_category_ref = relationship(
         "CompetenceCategory", foreign_keys=[competence_category_id]
     )
+    # Multi-CC assignment (migracja 0041_ai_cc_matching). Kandydat może mieć
+    # 1 primary + 2 secondary CC, z różnym source (ai_auto/ai_suggested/manual).
+    competence_categories = relationship(
+        "CandidateCompetenceCategory",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Candidate id={self.id} name={self.name} {self.lastname}>"

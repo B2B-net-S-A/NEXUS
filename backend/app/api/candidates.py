@@ -10,7 +10,7 @@ import os
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, func, not_, or_, select
+from sqlalchemy import Text, and_, false, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +20,7 @@ from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
 from app.models.activity import Activity
+from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
@@ -37,6 +38,7 @@ from app.schemas.candidate import (
     EmploymentInfo,
     EmploymentState,
     MatchStats,
+    TalentPoolBrief,
 )
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
@@ -79,6 +81,11 @@ def _candidate_list_options():
         selectinload(Candidate.contracts).selectinload(Contract.client),
         selectinload(Candidate.conflicts).selectinload(CandidateConflict.client),
         selectinload(Candidate.creator),
+        # Pool membership + pool name for the `talent_pools` field on
+        # CandidateResponse (used by the tile view and the "Puli" chips).
+        selectinload(Candidate.pool_memberships).selectinload(
+            TalentPoolMembership.pool
+        ),
     )
 
 
@@ -109,6 +116,125 @@ def _at_client_predicate():
         .exists()
     )
     return or_(contract_exists, conflict_exists)
+
+
+def _current_company_predicate(values: list[str]):
+    """Match candidates whose experience[0].company ILIKE any of values (OR)."""
+    clauses = []
+    for v in values:
+        v = (v or "").strip()
+        if not v:
+            continue
+        pat = f"%{v.lower()}%"
+        clauses.append(
+            func.lower(
+                func.coalesce(Candidate.experience.op("->")(0).op("->>")("company"), "")
+            ).like(pat)
+        )
+    return or_(*clauses) if clauses else false()
+
+
+def _current_title_predicate(values: list[str]):
+    """Match candidates whose experience[0].role ILIKE any of values (OR)."""
+    clauses = []
+    for v in values:
+        v = (v or "").strip()
+        if not v:
+            continue
+        pat = f"%{v.lower()}%"
+        clauses.append(
+            func.lower(
+                func.coalesce(Candidate.experience.op("->")(0).op("->>")("role"), "")
+            ).like(pat)
+        )
+    return or_(*clauses) if clauses else false()
+
+
+def _past_company_predicate(values: list[str]):
+    """Match candidates with any NON-current experience at company matching value.
+
+    Uses jsonb_array_elements WITH ORDINALITY; `ordinality > 1` skips the
+    current job (index 0 in SQL ordinality terms). OR-combined across values.
+    """
+    clauses = []
+    for i, v in enumerate(values):
+        v = (v or "").strip()
+        if not v:
+            continue
+        pat = f"%{v.lower()}%"
+        clauses.append(
+            text(
+                "EXISTS ("
+                "SELECT 1 FROM jsonb_array_elements("
+                "coalesce(candidates.experience, '[]'::jsonb)"
+                ") WITH ORDINALITY AS e(elem, idx) "
+                f"WHERE idx > 1 AND lower(elem->>'company') LIKE :past_co_{i}"
+                ")"
+            ).bindparams(**{f"past_co_{i}": pat})
+        )
+    return or_(*clauses) if clauses else false()
+
+
+def _worked_at_client_predicate(client_ids: list[int]):
+    """Candidates who had ANY historical contract with, or a current_employment
+    conflict flag for, one of these client ids.
+
+    Intentionally ignores `Contract.status` and `CandidateConflict.active` — the
+    filter means "ever worked at this client of ours". Current-only semantics
+    are available via `employment=at_client`.
+    """
+    contract_any_exists = (
+        select(1)
+        .where(
+            and_(
+                Contract.candidate_id == Candidate.id,
+                Contract.client_id.in_(client_ids),
+            )
+        )
+        .exists()
+    )
+    conflict_any_exists = (
+        select(1)
+        .where(
+            and_(
+                CandidateConflict.candidate_id == Candidate.id,
+                CandidateConflict.client_id.in_(client_ids),
+                CandidateConflict.type == ConflictType.current_employment,
+            )
+        )
+        .exists()
+    )
+    return or_(contract_any_exists, conflict_any_exists)
+
+
+def _talent_pools_for(candidate: Candidate) -> list[TalentPoolBrief]:
+    """Flatten eager-loaded pool_memberships into TalentPoolBrief list.
+
+    Safe to call only when `pool_memberships.pool` is eager-loaded via
+    `_candidate_list_options()` (otherwise raises MissingGreenlet in async).
+    """
+    return [
+        TalentPoolBrief(id=m.pool.id, name=m.pool.name)
+        for m in (candidate.pool_memberships or [])
+        if m.pool is not None
+    ]
+
+
+def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
+    """Build CandidateResponse with derived employment + talent pools.
+
+    Single-candidate endpoints (POST, PATCH /engagement, PATCH /location, etc.)
+    use this helper so the response shape stays consistent with the list
+    endpoint and Pydantic doesn't trip on the missing `talent_pools` attribute
+    on the ORM model.
+    """
+    payload = CandidateResponse.model_validate(candidate)
+    return payload.model_copy(
+        update={
+            "employment": _derive_employment(candidate),
+            "talent_pools": _talent_pools_for(candidate),
+        }
+    )
 
 
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
@@ -239,6 +365,35 @@ async def list_candidates(
             "Filter by talent pool membership — one or more pool ids, OR-combined."
         ),
     ),
+    current_company: Optional[list[str]] = Query(
+        None,
+        description=(
+            "LinkedIn-Recruiter style. Match candidates whose CURRENT job "
+            "(`experience[0].company`) ILIKE any of the values. OR-combined."
+        ),
+    ),
+    past_company: Optional[list[str]] = Query(
+        None,
+        description=(
+            "LinkedIn-Recruiter style. Match candidates who had any NON-current "
+            "experience entry with a company ILIKE any of the values. OR-combined."
+        ),
+    ),
+    current_title: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Match candidates whose CURRENT role (`experience[0].role`) ILIKE "
+            "any of the values. OR-combined."
+        ),
+    ),
+    worked_at_client_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Candidates who at any point had a contract with, or were flagged "
+            "as current_employment at, one of these client ids. OR-combined. "
+            "Historical (ignores contract status / conflict active flag)."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
@@ -358,6 +513,16 @@ async def list_candidates(
         )
         query = query.where(pool_exists)
 
+    # LinkedIn-Recruiter-style position/company filters (reads Candidate.experience JSONB)
+    if current_company:
+        query = query.where(_current_company_predicate(current_company))
+    if past_company:
+        query = query.where(_past_company_predicate(past_company))
+    if current_title:
+        query = query.where(_current_title_predicate(current_title))
+    if worked_at_client_id:
+        query = query.where(_worked_at_client_predicate(worked_at_client_id))
+
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -405,12 +570,10 @@ async def list_candidates(
 
     response_items: list[CandidateResponse] = []
     for cand in items:
-        payload = CandidateResponse.model_validate(cand)
-        updates: dict = {"employment": _derive_employment(cand)}
+        payload = _candidate_to_response(cand)
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
-            updates["match_stats"] = stats
-        payload = payload.model_copy(update=updates)
+            payload = payload.model_copy(update={"match_stats": stats})
         response_items.append(payload)
 
     return CandidateList(
@@ -621,8 +784,69 @@ async def create_candidate(
         .where(Candidate.id == candidate.id)
     )
     full = reloaded.scalar_one()
-    payload = CandidateResponse.model_validate(full)
-    return payload.model_copy(update={"employment": _derive_employment(full)})
+    return _candidate_to_response(full)
+
+
+async def _resolve_invite_source(
+    candidate_id: int, db: AsyncSession
+) -> Optional[dict]:
+    """Resolve the most recent `applied_via_invite` event into badge data.
+
+    Returns None when the candidate never applied via an invite link (the
+    common case). Picks the latest Activity so a re-apply shows the current
+    recruiter/channel, and surfaces `previous_created_by_name` when the
+    apply transferred ownership (see #4).
+    """
+    stmt = (
+        select(Activity)
+        .where(
+            Activity.entity_type == "candidate",
+            Activity.entity_id == candidate_id,
+            Activity.action == "applied_via_invite",
+        )
+        .order_by(Activity.created_at.desc())
+        .limit(1)
+    )
+    activity = (await db.execute(stmt)).scalar_one_or_none()
+    if activity is None:
+        return None
+
+    details = activity.details or {}
+    token_prefix = details.get("invite_token")  # first 8 chars only
+
+    # Best-effort label lookup from the invite link record. Prefix LIKE
+    # query; 48-bit entropy makes collisions a non-issue in practice.
+    label: Optional[str] = None
+    if isinstance(token_prefix, str) and token_prefix:
+        link = await db.scalar(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.token.like(f"{token_prefix}%")
+            )
+        )
+        if link is not None:
+            label = link.label
+
+    # Recruiter names — activity.user_id is the new owner; previous_created_by
+    # (if any) is the recruiter replaced by this apply.
+    created_by_name = "—"
+    if activity.user_id is not None:
+        creator = await db.scalar(select(User).where(User.id == activity.user_id))
+        if creator is not None:
+            created_by_name = creator.name
+
+    previous_created_by_name: Optional[str] = None
+    prev_id = details.get("previous_created_by")
+    if isinstance(prev_id, int):
+        prev_user = await db.scalar(select(User).where(User.id == prev_id))
+        if prev_user is not None:
+            previous_created_by_name = prev_user.name
+
+    return {
+        "label": label,
+        "created_by_name": created_by_name,
+        "applied_at": activity.created_at,
+        "previous_created_by_name": previous_created_by_name,
+    }
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
@@ -637,8 +861,9 @@ async def get_candidate(
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    payload = CandidateResponse.model_validate(candidate)
-    return payload.model_copy(update={"employment": _derive_employment(candidate)})
+    payload = _candidate_to_response(candidate)
+    invite_source = await _resolve_invite_source(candidate_id, db)
+    return payload.model_copy(update={"invite_source": invite_source})
 
 
 @router.get("/{candidate_id}/timeline")
@@ -711,17 +936,42 @@ async def get_candidate_timeline(
         .order_by(Activity.created_at.desc())
         .limit(limit)
     )
-    for act in activities_result.scalars().all():
-        timeline.append(
-            {
-                "type": "activity",
-                "id": act.id,
-                "timestamp": act.created_at.isoformat() if act.created_at else None,
-                "action": act.action,
-                "user_id": act.user_id,
-                "details": act.details,
-            }
+    activities = list(activities_result.scalars().all())
+
+    # Resolve user names for `applied_via_invite` events so the UI can
+    # render "Przejęto opiekę: X → Y" without a second round-trip. Pulls
+    # both the activity author and any `previous_created_by` in one query.
+    invite_user_ids: set[int] = set()
+    for act in activities:
+        if act.action == "applied_via_invite":
+            if act.user_id is not None:
+                invite_user_ids.add(act.user_id)
+            prev = (act.details or {}).get("previous_created_by")
+            if isinstance(prev, int):
+                invite_user_ids.add(prev)
+    user_names: dict[int, str] = {}
+    if invite_user_ids:
+        names_result = await db.execute(
+            select(User.id, User.name).where(User.id.in_(invite_user_ids))
         )
+        user_names = {uid: name for uid, name in names_result.all()}
+
+    for act in activities:
+        item: dict = {
+            "type": "activity",
+            "id": act.id,
+            "timestamp": act.created_at.isoformat() if act.created_at else None,
+            "action": act.action,
+            "user_id": act.user_id,
+            "details": act.details,
+        }
+        if act.action == "applied_via_invite":
+            if act.user_id is not None and act.user_id in user_names:
+                item["user_name"] = user_names[act.user_id]
+            prev = (act.details or {}).get("previous_created_by")
+            if isinstance(prev, int) and prev in user_names:
+                item["previous_created_by_name"] = user_names[prev]
+        timeline.append(item)
 
     # User activities
     user_acts_result = await db.execute(
@@ -911,8 +1161,7 @@ async def update_candidate(
         .where(Candidate.id == candidate.id)
     )
     full = reloaded.scalar_one()
-    payload = CandidateResponse.model_validate(full)
-    return payload.model_copy(update={"employment": _derive_employment(full)})
+    return _candidate_to_response(full)
 
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1128,8 +1377,7 @@ async def upload_cv(
         .where(Candidate.id == candidate_id)
     )
     full = reloaded.scalar_one()
-    payload = CandidateResponse.model_validate(full)
-    return payload.model_copy(update={"employment": _derive_employment(full)})
+    return _candidate_to_response(full)
 
 
 @router.get("/{candidate_id}/cv-download")
@@ -1331,7 +1579,9 @@ async def update_candidate_engagement(
 ):
     """Update consultant engagement flags (ambassador, verifier, side projects…)."""
     candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == candidate_id)
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate_id)
     )
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -1353,7 +1603,7 @@ async def update_candidate_engagement(
     )
     await db.flush()
     await db.refresh(candidate)
-    return candidate
+    return _candidate_to_response(candidate)
 
 
 @router.patch(
@@ -1368,7 +1618,9 @@ async def update_candidate_location(
 ):
     """Update consultant structured location (city / country / hub)."""
     candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == candidate_id)
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate_id)
     )
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -1390,4 +1642,202 @@ async def update_candidate_location(
     )
     await db.flush()
     await db.refresh(candidate)
-    return candidate
+    return _candidate_to_response(candidate)
+
+
+# ── AI CC matching + suggested pools (migracja 0041) ───────────────────────
+
+
+class SuggestedPoolOut(BaseModel):
+    pool_id: int
+    pool_name: str
+    score: float
+    band: str  # "auto" | "suggest"
+    already_member: bool
+
+
+class CandidateCcOut(BaseModel):
+    competence_category_id: int
+    slug: str
+    name_pl: str
+    is_primary: bool
+    confidence_score: float
+    source: str
+
+
+class CandidateCcAssign(BaseModel):
+    competence_category_id: int
+    is_primary: bool = False
+
+
+@router.get(
+    "/{candidate_id}/suggested-pools",
+    response_model=list[SuggestedPoolOut],
+)
+async def get_suggested_pools(
+    candidate_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return talent pools ranked by centroid similarity to this candidate."""
+    from app.services.pool_suggester import suggest_pools_for_candidate
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    suggestions = await suggest_pools_for_candidate(db, candidate_id)
+    return [SuggestedPoolOut(**s.to_dict()) for s in suggestions]
+
+
+@router.get(
+    "/{candidate_id}/competence-categories",
+    response_model=list[CandidateCcOut],
+)
+async def list_candidate_ccs(
+    candidate_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all CC assignments (primary + secondary) for a candidate."""
+    from app.models.competence_category import (
+        CandidateCompetenceCategory,
+        CompetenceCategory,
+    )
+
+    rows = (
+        await db.execute(
+            select(CandidateCompetenceCategory, CompetenceCategory)
+            .join(
+                CompetenceCategory,
+                CandidateCompetenceCategory.competence_category_id
+                == CompetenceCategory.id,
+            )
+            .where(CandidateCompetenceCategory.candidate_id == candidate_id)
+            .order_by(
+                CandidateCompetenceCategory.is_primary.desc(),
+                CandidateCompetenceCategory.confidence_score.desc(),
+            )
+        )
+    ).all()
+    return [
+        CandidateCcOut(
+            competence_category_id=cc.id,
+            slug=cc.slug,
+            name_pl=cc.name_pl,
+            is_primary=ccc.is_primary,
+            confidence_score=ccc.confidence_score,
+            source=ccc.source.value if hasattr(ccc.source, "value") else str(ccc.source),
+        )
+        for ccc, cc in rows
+    ]
+
+
+@router.post(
+    "/{candidate_id}/competence-categories",
+    response_model=CandidateCcOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def assign_candidate_cc(
+    candidate_id: int,
+    body: CandidateCcAssign,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually assign (or upsert) a CC to a candidate with `source='manual'`."""
+    from app.models.competence_category import (
+        CandidateCcCategorySource,
+        CandidateCompetenceCategory,
+        CompetenceCategory,
+    )
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    cc = await db.scalar(
+        select(CompetenceCategory).where(
+            CompetenceCategory.id == body.competence_category_id
+        )
+    )
+    if not cc:
+        raise HTTPException(status_code=404, detail="Competence Category not found")
+
+    # If assigning as primary: clear previous primary for this candidate
+    if body.is_primary:
+        await db.execute(
+            CandidateCompetenceCategory.__table__.update()
+            .where(CandidateCompetenceCategory.candidate_id == candidate_id)
+            .values(is_primary=False)
+        )
+
+    # Upsert
+    stmt = (
+        pg_insert(CandidateCompetenceCategory)
+        .values(
+            candidate_id=candidate_id,
+            competence_category_id=body.competence_category_id,
+            is_primary=body.is_primary,
+            confidence_score=1.0,
+            source=CandidateCcCategorySource.manual.value,
+        )
+        .on_conflict_do_update(
+            index_elements=["candidate_id", "competence_category_id"],
+            set_={
+                "is_primary": body.is_primary,
+                "confidence_score": 1.0,
+                "source": CandidateCcCategorySource.manual.value,
+            },
+        )
+    )
+    await db.execute(stmt)
+
+    # Backwards-compat: keep legacy single FK in sync when primary flagged
+    if body.is_primary:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id)
+        )
+        if candidate:
+            candidate.competence_category_id = body.competence_category_id
+    await db.commit()
+
+    return CandidateCcOut(
+        competence_category_id=cc.id,
+        slug=cc.slug,
+        name_pl=cc.name_pl,
+        is_primary=body.is_primary,
+        confidence_score=1.0,
+        source="manual",
+    )
+
+
+@router.delete(
+    "/{candidate_id}/competence-categories/{cc_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def unassign_candidate_cc(
+    candidate_id: int,
+    cc_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a CC assignment from a candidate."""
+    from app.models.competence_category import CandidateCompetenceCategory
+
+    link = await db.scalar(
+        select(CandidateCompetenceCategory).where(
+            CandidateCompetenceCategory.candidate_id == candidate_id,
+            CandidateCompetenceCategory.competence_category_id == cc_id,
+        )
+    )
+    if link is None:
+        return  # idempotent
+    was_primary = link.is_primary
+    await db.delete(link)
+    if was_primary:
+        # Clear legacy FK too; next classifier run may repopulate
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == candidate_id)
+        )
+        if candidate and candidate.competence_category_id == cc_id:
+            candidate.competence_category_id = None
+    await db.commit()
