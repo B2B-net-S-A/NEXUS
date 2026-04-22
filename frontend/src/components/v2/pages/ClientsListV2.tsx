@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Plus, Search, Shield, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2, Plus, Search, Shield, ShieldCheck } from "lucide-react";
 import api from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import { AddClientModal } from "@/components/AppShell";
@@ -32,17 +32,71 @@ interface ClientRow {
   created_at?: string;
 }
 
+interface HitRatioRow {
+  client_id: number;
+  closed_jobs: number;
+  filled_jobs: number;
+  lost_jobs: number;
+  hit_ratio: number; // 0..100
+  fill_rate: number;
+  placements: number;
+  active_jobs: number;
+  target_achieved: boolean;
+}
+
+interface HitRatioResponse {
+  period: string;
+  clients: HitRatioRow[];
+  overall: { avg_hit_ratio: number; hit_ratio_target_pct: number };
+}
+
 const STATUS_VARIANT: Record<string, "success" | "neutral" | "soft"> = {
   active: "success",
   inactive: "neutral",
   prospect: "soft",
 };
 
+const MIN_CLOSED_FOR_RATIO = 3;
+
+type HitSortDir = "asc" | "desc" | null;
+
+function HitRatioCell({ row }: { row: HitRatioRow | undefined }) {
+  if (!row || row.closed_jobs === 0) {
+    return <span className="text-xs text-[hsl(var(--text-muted))]">—</span>;
+  }
+  if (row.closed_jobs < MIN_CLOSED_FOR_RATIO) {
+    return (
+      <span
+        className="text-xs text-[hsl(var(--text-muted))]"
+        title={`Za mało danych (min. ${MIN_CLOSED_FOR_RATIO} zamkniętych). ${row.filled_jobs} z ${row.closed_jobs}.`}
+      >
+        {row.filled_jobs} / {row.closed_jobs}
+      </span>
+    );
+  }
+  // Color bands — >=50% zielony, 20-49% amber, <20% czerwony
+  const tone =
+    row.hit_ratio >= 50
+      ? "bg-[#dcfce7] text-[#166534]"
+      : row.hit_ratio >= 20
+        ? "bg-[#fef3c7] text-[#92400e]"
+        : "bg-[#fee2e2] text-[#991b1b]";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}
+      title={`${row.filled_jobs} z ${row.closed_jobs} zamkniętych · ${row.placements} zatrudnień`}
+    >
+      {row.hit_ratio.toFixed(1)}%
+    </span>
+  );
+}
+
 export function ClientsListV2() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [hitSort, setHitSort] = useState<HitSortDir>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["clients-v2", search, page],
@@ -54,10 +108,49 @@ export function ClientsListV2() {
         .then((r) => r.data),
   });
 
-  const items: ClientRow[] = data?.items ?? [];
+  // Hit ratio per client (12m) — joined by client_id on render.
+  // RBAC: admin/delivery_lead/tac/HoR. Recruiter/sourcer see undefined → "—".
+  const { data: ratioData } = useQuery<HitRatioResponse>({
+    queryKey: ["clients-hit-ratio", "year"],
+    queryFn: () =>
+      api
+        .get("/api/reports/clients", { params: { period: "year", min_closed: 0 } })
+        .then((r) => r.data),
+    staleTime: 5 * 60 * 1000, // backend cache is 5min, match it
+    retry: false, // 403 for recruiters — just hide the column data
+  });
+
+  const ratioByClient = useMemo(() => {
+    const map = new Map<number, HitRatioRow>();
+    ratioData?.clients.forEach((r) => map.set(r.client_id, r));
+    return map;
+  }, [ratioData]);
+
+  const rawItems: ClientRow[] = data?.items ?? [];
+  const items = useMemo(() => {
+    if (!hitSort) return rawItems;
+    // Client-side sort by hit_ratio. Clients without data go to the end.
+    const withRatio: Array<{ c: ClientRow; r?: HitRatioRow }> = rawItems.map((c) => ({
+      c,
+      r: ratioByClient.get(c.id),
+    }));
+    withRatio.sort((a, b) => {
+      const aHas = a.r && a.r.closed_jobs >= MIN_CLOSED_FOR_RATIO;
+      const bHas = b.r && b.r.closed_jobs >= MIN_CLOSED_FOR_RATIO;
+      if (!aHas && !bHas) return 0;
+      if (!aHas) return 1;
+      if (!bHas) return -1;
+      const diff = (a.r!.hit_ratio ?? 0) - (b.r!.hit_ratio ?? 0);
+      return hitSort === "asc" ? diff : -diff;
+    });
+    return withRatio.map((x) => x.c);
+  }, [rawItems, hitSort, ratioByClient]);
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const toggleHitSort = () =>
+    setHitSort((prev) => (prev === "desc" ? "asc" : prev === "asc" ? null : "desc"));
 
   const onAdded = (msg: string) => {
     setShowAdd(false);
@@ -108,6 +201,17 @@ export function ClientsListV2() {
             <TableHead>Branża</TableHead>
             <TableHead>Kontakt</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>
+              <button
+                onClick={toggleHitSort}
+                className="inline-flex items-center gap-1 text-inherit font-inherit cursor-pointer select-none hover:opacity-80"
+                title="Hit ratio = % zamkniętych zapytań z co najmniej jednym zatrudnieniem (ostatnie 12 mies.)"
+              >
+                Hit ratio
+                {hitSort === "desc" && <ArrowDown className="h-3.5 w-3.5" />}
+                {hitSort === "asc" && <ArrowUp className="h-3.5 w-3.5" />}
+              </button>
+            </TableHead>
             <TableHead>NDA</TableHead>
             <TableHead>Dodano</TableHead>
           </TableRow>
@@ -115,13 +219,13 @@ export function ClientsListV2() {
         <TableBody>
           {isLoading ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center py-10 text-[hsl(var(--text-muted))]">
+              <TableCell colSpan={7} className="text-center py-10 text-[hsl(var(--text-muted))]">
                 Ładowanie…
               </TableCell>
             </TableRow>
           ) : items.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="text-center py-10">
+              <TableCell colSpan={7} className="text-center py-10">
                 <Building2 className="h-10 w-10 mx-auto text-[hsl(var(--text-muted))] mb-2 opacity-40" />
                 <p className="text-sm text-[hsl(var(--text-muted))]">
                   Brak klientów.{" "}
@@ -168,6 +272,9 @@ export function ClientsListV2() {
                     ) : (
                       <span className="text-xs text-[hsl(var(--text-muted))]">—</span>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <HitRatioCell row={ratioByClient.get(c.id)} />
                   </TableCell>
                   <TableCell>
                     {c.nda_signed ? (

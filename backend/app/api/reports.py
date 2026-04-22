@@ -4,13 +4,13 @@ Generates live reports from ATS data (recruitment, sales, delivery, tenders, boa
 """
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser, TacPlus, require_roles
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.activity import Activity
@@ -22,7 +22,7 @@ from app.models.competence_category import (
 )
 from app.models.contract import Contract, ContractStatus
 from app.models.invite_link import CandidateInviteLink
-from app.models.job import Job, JobStatus, RecruitmentType
+from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -756,6 +756,462 @@ async def report_my_delivery_lead(
         "team_overall": overall,
         "leaderboard_top5": per_dl[:5],
     }
+
+
+# ── Clients Hit Ratio Report ───────────────────────────────────────────────────
+#
+# RBAC: admin + delivery_lead + tac + head_of_recruitment. Mirrors the
+# invite-links report — HoR sees per-client effectiveness to calibrate team
+# targets. Recruiters/sourcers are intentionally excluded.
+
+_ClientsReportViewer = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.head_of_recruitment,
+        )
+    ),
+]
+#
+# "Hit ratio per client" = skuteczność rekrutacji na poziomie klienta.
+#   - Denominator: liczba zapytań (Job.status=closed) zamkniętych w okresie
+#     (po `closed_at`, dodanym w migracji 0047_job_closed_at).
+#   - Numerator (hit_ratio): liczba tych zapytań z co najmniej jednym `hired`
+#     stage kandydata.
+#   - Numerator (fill_rate): suma hired stages / suma headcount zamkniętych
+#     zapytań (obsługuje joby wielostanowiskowe).
+#
+# Źródło "hire" to `CandidateStage.stage = hired` — konsystencja z raportami
+# delivery-leads / recruitment. Contracts są pochodną hired stage (patrz
+# migracja 0046_backfill_contractor_drafts).
+
+
+async def _compute_client_hit_ratio(
+    db: AsyncSession,
+    *,
+    period_start: Optional[datetime],
+    period_end: Optional[datetime] = None,
+    only_client_id: Optional[int] = None,
+    exclude_reasons: Optional[set[JobCloseReason]] = None,
+) -> tuple[list[dict], dict]:
+    """Zwraca (per_client_rows, overall_totals) dla klientów z zamkniętymi zapytaniami.
+
+    - `closed_jobs` = Job.status=closed AND closed_at ∈ [period_start, period_end)
+    - `placements` = CandidateStage.stage=hired dla tych jobów (wszystkie stages,
+      niezależnie kiedy ruch się odbył — hire zamyka joba, nie odwrotnie)
+    - `filled_jobs` = DISTINCT job_id z hired stages
+    - `active_jobs` = snapshot published dla klienta (nie filtrowane po okresie)
+    - `close_reasons` = dict {reason_value: count} per klient (legacy NULL → "unknown")
+    - `exclude_reasons` — opcjonalny set powodów do wykluczenia z denominatora
+      (np. {paused, client_ghosted} gdy chcemy pominąć "nie nasza wina")
+    """
+    # 1. Zamknięte joby w okresie — per klient.
+    jobs_q = (
+        select(
+            Job.id,
+            Job.client_id,
+            Job.headcount,
+            Job.close_reason,
+            Client.name.label("client_name"),
+            Client.status.label("client_status"),
+        )
+        .join(Client, Job.client_id == Client.id)
+        .where(Job.status == JobStatus.closed, Job.closed_at.isnot(None))
+    )
+    if period_start is not None:
+        jobs_q = jobs_q.where(Job.closed_at >= period_start)
+    if period_end is not None:
+        jobs_q = jobs_q.where(Job.closed_at < period_end)
+    if only_client_id is not None:
+        jobs_q = jobs_q.where(Job.client_id == only_client_id)
+    if exclude_reasons:
+        jobs_q = jobs_q.where(
+            (Job.close_reason.is_(None))
+            | (Job.close_reason.notin_(exclude_reasons))
+        )
+    jobs_rows = (await db.execute(jobs_q)).all()
+
+    # Index: client_id → bucket
+    per_client: dict[int, dict] = {}
+    closed_job_ids: list[int] = []
+    for r in jobs_rows:
+        closed_job_ids.append(r.id)
+        bucket = per_client.setdefault(
+            r.client_id,
+            {
+                "client_id": r.client_id,
+                "client_name": r.client_name,
+                "client_status": (
+                    r.client_status.value
+                    if hasattr(r.client_status, "value")
+                    else str(r.client_status)
+                ),
+                "closed_jobs": 0,
+                "total_vacancies": 0,
+                "filled_job_ids": set(),
+                "placements": 0,
+                "active_jobs": 0,
+                "close_reasons": {},
+            },
+        )
+        bucket["closed_jobs"] += 1
+        bucket["total_vacancies"] += int(r.headcount or 1)
+        reason_key = (
+            r.close_reason.value
+            if r.close_reason is not None and hasattr(r.close_reason, "value")
+            else (str(r.close_reason) if r.close_reason is not None else "unknown")
+        )
+        bucket["close_reasons"][reason_key] = (
+            bucket["close_reasons"].get(reason_key, 0) + 1
+        )
+
+    # 2. Hired stages dla zamkniętych jobów — zliczamy placements + distinct filled jobs.
+    if closed_job_ids:
+        hired_q = (
+            select(
+                Job.client_id,
+                Job.id.label("job_id"),
+                func.count(CandidateStage.id).label("cnt"),
+            )
+            .join(CandidateStage, CandidateStage.job_id == Job.id)
+            .where(
+                Job.id.in_(closed_job_ids),
+                CandidateStage.stage == PipelineStage.hired,
+            )
+            .group_by(Job.client_id, Job.id)
+        )
+        for r in (await db.execute(hired_q)).all():
+            if r.client_id not in per_client:
+                continue
+            per_client[r.client_id]["filled_job_ids"].add(r.job_id)
+            per_client[r.client_id]["placements"] += int(r.cnt)
+
+    # 3. Active (published) jobs per client — snapshot, bez filtra okresu.
+    active_q = (
+        select(Job.client_id, func.count(Job.id).label("cnt"))
+        .where(
+            Job.status == JobStatus.published,
+            Job.client_id.isnot(None),
+        )
+        .group_by(Job.client_id)
+    )
+    if only_client_id is not None:
+        active_q = active_q.where(Job.client_id == only_client_id)
+    for r in (await db.execute(active_q)).all():
+        if r.client_id in per_client:
+            per_client[r.client_id]["active_jobs"] = int(r.cnt)
+        elif only_client_id is not None and r.client_id == only_client_id:
+            # Klient bez closed jobs, ale z active — dodajemy shell z zerami.
+            client_meta = (
+                await db.execute(
+                    select(Client.name, Client.status).where(Client.id == r.client_id)
+                )
+            ).first()
+            if client_meta is not None:
+                per_client[r.client_id] = {
+                    "client_id": r.client_id,
+                    "client_name": client_meta.name,
+                    "client_status": (
+                        client_meta.status.value
+                        if hasattr(client_meta.status, "value")
+                        else str(client_meta.status)
+                    ),
+                    "closed_jobs": 0,
+                    "total_vacancies": 0,
+                    "filled_job_ids": set(),
+                    "placements": 0,
+                    "active_jobs": int(r.cnt),
+                }
+
+    # 4. Materialize per-client output.
+    per_client_out: list[dict] = []
+    for bucket in per_client.values():
+        closed = bucket["closed_jobs"]
+        filled = len(bucket["filled_job_ids"])
+        placements = bucket["placements"]
+        vacancies = bucket["total_vacancies"]
+        hit_ratio = _safe_pct(filled, closed)
+        fill_rate = _safe_pct(placements, vacancies)
+        per_client_out.append(
+            {
+                "client_id": bucket["client_id"],
+                "client_name": bucket["client_name"],
+                "client_status": bucket["client_status"],
+                "closed_jobs": closed,
+                "filled_jobs": filled,
+                "lost_jobs": max(closed - filled, 0),
+                "total_vacancies": vacancies,
+                "placements": placements,
+                "hit_ratio": hit_ratio,
+                "fill_rate": fill_rate,
+                "active_jobs": bucket["active_jobs"],
+                "target_achieved": hit_ratio >= HIT_RATIO_TARGET_PCT,
+                "close_reasons": bucket["close_reasons"],
+            }
+        )
+
+    # 5. Overall totals.
+    total_closed = sum(d["closed_jobs"] for d in per_client_out)
+    total_filled = sum(d["filled_jobs"] for d in per_client_out)
+    total_placements = sum(d["placements"] for d in per_client_out)
+    total_vacancies = sum(d["total_vacancies"] for d in per_client_out)
+    global_hit_ratio = _safe_pct(total_filled, total_closed)
+    global_fill_rate = _safe_pct(total_placements, total_vacancies)
+    # Avg ratios: średnia z klientów z ≥1 closed job.
+    clients_with_jobs = [d for d in per_client_out if d["closed_jobs"] > 0]
+    avg_hit = (
+        round(
+            sum(d["hit_ratio"] for d in clients_with_jobs)
+            / max(len(clients_with_jobs), 1),
+            1,
+        )
+        if clients_with_jobs
+        else 0.0
+    )
+    avg_fill = (
+        round(
+            sum(d["fill_rate"] for d in clients_with_jobs)
+            / max(len(clients_with_jobs), 1),
+            1,
+        )
+        if clients_with_jobs
+        else 0.0
+    )
+    target_count = sum(1 for d in clients_with_jobs if d["target_achieved"])
+
+    overall = {
+        "total_clients": len(per_client_out),
+        "clients_with_closed_jobs": len(clients_with_jobs),
+        "total_closed_jobs": total_closed,
+        "total_filled_jobs": total_filled,
+        "total_lost_jobs": max(total_closed - total_filled, 0),
+        "total_vacancies": total_vacancies,
+        "total_placements": total_placements,
+        "global_hit_ratio": global_hit_ratio,
+        "global_fill_rate": global_fill_rate,
+        "avg_hit_ratio": avg_hit,
+        "avg_fill_rate": avg_fill,
+        "target_count": target_count,
+        "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
+    }
+
+    return per_client_out, overall
+
+
+def _sort_clients(
+    rows: list[dict], sort: str, min_closed: int
+) -> list[dict]:
+    """Sort + optional min_closed filter (applied server-side for `volume`-type
+    leaderboards; frontend decides how to render low-sample clients)."""
+    filtered = [r for r in rows if r["closed_jobs"] >= min_closed]
+    if sort == "hit_ratio":
+        filtered.sort(
+            key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True
+        )
+    elif sort == "volume":
+        filtered.sort(key=lambda r: r["closed_jobs"], reverse=True)
+    elif sort == "name":
+        filtered.sort(key=lambda r: r["client_name"].lower())
+    else:
+        filtered.sort(
+            key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True
+        )
+    return filtered
+
+
+def _parse_exclude_reasons(raw: Optional[str]) -> Optional[set[JobCloseReason]]:
+    """Parse comma-separated close-reason strings into a set of enum members.
+
+    Silently drops unknown values rather than 400-ing — keeps the endpoint
+    forgiving for evolving frontends.
+    """
+    if not raw:
+        return None
+    out: set[JobCloseReason] = set()
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            out.add(JobCloseReason(token))
+        except ValueError:
+            continue
+    return out or None
+
+
+@router.get("/clients")
+async def report_clients_hit_ratio(
+    current_user: _ClientsReportViewer,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("year", enum=["week", "month", "quarter", "year", "all"]),
+    min_closed: int = Query(0, ge=0, le=100),
+    sort: str = Query("hit_ratio", enum=["hit_ratio", "volume", "name"]),
+    exclude_reasons: Optional[str] = Query(
+        None,
+        description="CSV close_reason values to exclude (e.g. 'paused,client_ghosted')",
+    ),
+):
+    """Hit ratio per client — skuteczność rekrutacji na poziomie klienta.
+
+    - `hit_ratio` = filled_jobs / closed_jobs * 100 (% zapytań z ≥1 hire)
+    - `fill_rate` = placements / total_vacancies * 100 (obsługuje wielostanowiskowe)
+    - `target_achieved` = hit_ratio >= HIT_RATIO_TARGET_PCT (30%)
+    - `min_closed` = backend-side filter (minimum zamkniętych jobów w okresie)
+    - `exclude_reasons` = CSV close_reason values wykluczone z denominatora
+      (np. `paused,client_ghosted` gdy chcemy pominąć "nie nasza wina")
+
+    Cached for 5 minutes.
+    """
+    cache_key = f"reports:clients:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    start = _period_start(period) if period != "all" else None
+    excluded = _parse_exclude_reasons(exclude_reasons)
+    per_client_all, overall = await _compute_client_hit_ratio(
+        db, period_start=start, exclude_reasons=excluded
+    )
+    per_client = _sort_clients(per_client_all, sort, min_closed)
+
+    result_data = {
+        "period": period,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "sort": sort,
+        "min_closed": min_closed,
+        "excluded_reasons": sorted(
+            (r.value for r in excluded), key=lambda x: x
+        )
+        if excluded
+        else [],
+        "clients": per_client,
+        "overall": overall,
+    }
+    await cache_set(cache_key, result_data, ttl_seconds=300)
+    return result_data
+
+
+@router.get("/clients/at-risk")
+async def report_clients_at_risk(
+    current_user: _ClientsReportViewer,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("quarter", enum=["month", "quarter", "year"]),
+    drop_pp: float = Query(20.0, ge=5.0, le=100.0),
+    min_closed: int = Query(3, ge=1, le=100),
+):
+    """Klienci at-risk — hit_ratio spadł > `drop_pp` pp vs. poprzedni okres.
+
+    Porównuje `period` (current) z takim samym okresem wstecz (prev).
+    Zwraca listę klientów gdzie: current.hit_ratio - prev.hit_ratio < -drop_pp
+    AND current.closed_jobs >= min_closed.
+    Cached for 5 minutes.
+    """
+    cache_key = f"reports:clients:at_risk:{period}:{drop_pp}:{min_closed}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    now = datetime.now(timezone.utc)
+    if period == "month":
+        span = timedelta(days=30)
+    elif period == "quarter":
+        span = timedelta(days=90)
+    else:
+        span = timedelta(days=365)
+
+    current_start = now - span
+    prev_start = now - 2 * span
+    prev_end = current_start
+
+    current_rows, _ = await _compute_client_hit_ratio(
+        db, period_start=current_start
+    )
+    prev_rows, _ = await _compute_client_hit_ratio(
+        db, period_start=prev_start, period_end=prev_end
+    )
+    prev_by_client = {r["client_id"]: r for r in prev_rows}
+
+    at_risk: list[dict] = []
+    for curr in current_rows:
+        if curr["closed_jobs"] < min_closed:
+            continue
+        prev = prev_by_client.get(curr["client_id"])
+        prev_ratio = prev["hit_ratio"] if prev and prev["closed_jobs"] > 0 else 0.0
+        delta_pp = round(curr["hit_ratio"] - prev_ratio, 1)
+        if delta_pp < -drop_pp:
+            at_risk.append(
+                {
+                    **curr,
+                    "prev_hit_ratio": prev_ratio,
+                    "prev_closed_jobs": prev["closed_jobs"] if prev else 0,
+                    "delta_pp": delta_pp,
+                }
+            )
+    at_risk.sort(key=lambda r: r["delta_pp"])  # największy spadek u góry
+
+    result_data = {
+        "period": period,
+        "drop_threshold_pp": drop_pp,
+        "min_closed": min_closed,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "clients": at_risk,
+    }
+    await cache_set(cache_key, result_data, ttl_seconds=300)
+    return result_data
+
+
+@router.get("/clients/{client_id}/trend")
+async def report_client_trend(
+    client_id: int,
+    current_user: _ClientsReportViewer,
+    db: AsyncSession = Depends(get_db),
+    months: int = Query(6, ge=1, le=24),
+):
+    """Trend miesiąc-po-miesiącu dla konkretnego klienta. 6M default, max 24M."""
+    # Existence check — daje 404 zamiast pustej tablicy dla nieznanego klienta.
+    exists = (
+        await db.execute(select(Client.id).where(Client.id == client_id))
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    today = datetime.now(timezone.utc).date()
+    trend: list[dict] = []
+    for i in range(months - 1, -1, -1):
+        year = today.year
+        month = today.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        rows, _ = await _compute_client_hit_ratio(
+            db,
+            period_start=month_start,
+            period_end=month_end,
+            only_client_id=client_id,
+        )
+        row = rows[0] if rows else None
+        trend.append(
+            {
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
+                "closed_jobs": row["closed_jobs"] if row else 0,
+                "filled_jobs": row["filled_jobs"] if row else 0,
+                "placements": row["placements"] if row else 0,
+                "hit_ratio": row["hit_ratio"] if row else 0.0,
+                "fill_rate": row["fill_rate"] if row else 0.0,
+            }
+        )
+
+    return {"client_id": client_id, "months": months, "trend": trend}
 
 
 # ── Tenders Report ─────────────────────────────────────────────────────────────
