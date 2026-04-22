@@ -6,19 +6,20 @@ Generates live reports from ATS data (recruitment, sales, delivery, tenders, boa
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TacPlus
+from app.api.deps import CurrentUser, TacPlus
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
-from app.models.job import Job, RecruitmentType
+from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.models.user import User
+from app.models.team_structure import DeliveryLeadClientAssignment
+from app.models.user import User, UserRole
 
 router = APIRouter()
 
@@ -362,6 +363,224 @@ async def report_sales(
 
 # ── Delivery Leads Report ──────────────────────────────────────────────────────
 
+HIT_RATIO_TARGET_PCT = 30.0  # próg wejścia do Liga Mistrzów DL (InfraReporter)
+
+
+async def _dl_head_fallback_map(db: AsyncSession) -> dict[int, int]:
+    """client_id → delivery_lead_user_id (is_head=true). Używane jako fallback
+    dla Jobów bez przypisanego `delivery_lead_id`."""
+    rows = (
+        await db.execute(
+            select(
+                DeliveryLeadClientAssignment.client_id,
+                DeliveryLeadClientAssignment.delivery_lead_user_id,
+            ).where(DeliveryLeadClientAssignment.is_head == True)  # noqa: E712
+        )
+    ).all()
+    return {r.client_id: r.delivery_lead_user_id for r in rows}
+
+
+def _resolve_dl_id(
+    job_dl_id: Optional[int], job_client_id: Optional[int], fallback: dict[int, int]
+) -> Optional[int]:
+    if job_dl_id is not None:
+        return job_dl_id
+    if job_client_id is not None:
+        return fallback.get(job_client_id)
+    return None
+
+
+async def _compute_dl_metrics(
+    db: AsyncSession,
+    *,
+    period_start: Optional[datetime],
+    only_dl_id: Optional[int] = None,
+) -> tuple[list[dict], dict]:
+    """Zwraca (per_dl_rows, overall_totals) dla body_leasing Jobów.
+
+    - requests / vacancies liczone z Jobów body_leasing **utworzonych** w okresie
+    - placements = CandidateStage hired w okresie dla Jobów tych DL
+    - open_requests / open_vacancies = snapshot otwartych Jobów (draft+published)
+      — bez filtra daty (pokazuje aktualny pipeline)
+    """
+    fallback = await _dl_head_fallback_map(db)
+
+    # 1. Jobs body_leasing stworzone w okresie.
+    jobs_q = select(
+        Job.id,
+        Job.delivery_lead_id,
+        Job.client_id,
+        Job.headcount,
+        Job.status,
+        Client.name.label("client_name"),
+    ).outerjoin(Client, Job.client_id == Client.id).where(
+        Job.recruitment_type == RecruitmentType.body_leasing,
+    )
+    if period_start is not None:
+        jobs_q = jobs_q.where(Job.created_at >= period_start)
+    jobs_rows = (await db.execute(jobs_q)).all()
+
+    # Map job_id → resolved_dl_id
+    job_to_dl: dict[int, Optional[int]] = {}
+    per_dl: dict[int, dict] = {}
+    for r in jobs_rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        job_to_dl[r.id] = dl_id
+        if dl_id is None:
+            continue
+        if only_dl_id is not None and dl_id != only_dl_id:
+            continue
+        bucket = per_dl.setdefault(
+            dl_id,
+            {
+                "total_requests": 0,
+                "total_vacancies": 0,
+                "client_names": set(),
+            },
+        )
+        bucket["total_requests"] += 1
+        bucket["total_vacancies"] += int(r.headcount or 1)
+        if r.client_name:
+            bucket["client_names"].add(r.client_name)
+
+    # 2. Placements per DL w okresie (liczymy `hired` stage ruchy z `hired` in period).
+    placements_q = (
+        select(
+            Job.id.label("job_id"),
+            Job.delivery_lead_id,
+            Job.client_id,
+            func.count(CandidateStage.id).label("cnt"),
+        )
+        .join(CandidateStage, CandidateStage.job_id == Job.id)
+        .where(
+            CandidateStage.stage == PipelineStage.hired,
+            Job.recruitment_type == RecruitmentType.body_leasing,
+        )
+        .group_by(Job.id, Job.delivery_lead_id, Job.client_id)
+    )
+    if period_start is not None:
+        placements_q = placements_q.where(CandidateStage.moved_at >= period_start)
+    placement_rows = (await db.execute(placements_q)).all()
+    placements_by_dl: dict[int, int] = {}
+    for r in placement_rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        if dl_id is None:
+            continue
+        if only_dl_id is not None and dl_id != only_dl_id:
+            continue
+        placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
+
+    # 3. Open Requests / Open Vacancies — snapshot, bez filtra daty.
+    open_q = select(
+        Job.id,
+        Job.delivery_lead_id,
+        Job.client_id,
+        Job.headcount,
+    ).where(
+        Job.recruitment_type == RecruitmentType.body_leasing,
+        Job.status.in_([JobStatus.draft, JobStatus.published]),
+    )
+    open_rows = (await db.execute(open_q)).all()
+    open_job_ids = [r.id for r in open_rows]
+    # Już zajęte vacancy w otwartych Jobach (hired dla tych jobów, all-time).
+    filled_map: dict[int, int] = {}
+    if open_job_ids:
+        filled_q = (
+            select(CandidateStage.job_id, func.count(CandidateStage.id).label("cnt"))
+            .where(
+                CandidateStage.job_id.in_(open_job_ids),
+                CandidateStage.stage == PipelineStage.hired,
+            )
+            .group_by(CandidateStage.job_id)
+        )
+        filled_map = {r.job_id: int(r.cnt) for r in (await db.execute(filled_q)).all()}
+
+    open_by_dl: dict[int, dict[str, int]] = {}
+    for r in open_rows:
+        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        if dl_id is None:
+            continue
+        if only_dl_id is not None and dl_id != only_dl_id:
+            continue
+        slot = open_by_dl.setdefault(dl_id, {"open_requests": 0, "open_vacancies": 0})
+        slot["open_requests"] += 1
+        remaining = max(int(r.headcount or 1) - filled_map.get(r.id, 0), 0)
+        slot["open_vacancies"] += remaining
+
+    # 4. Union DL set: każdy DL który ma cokolwiek (requests lub open).
+    all_dl_ids = set(per_dl.keys()) | set(open_by_dl.keys()) | set(placements_by_dl.keys())
+    if only_dl_id is not None:
+        all_dl_ids.add(only_dl_id)
+        all_dl_ids = {only_dl_id}
+
+    # User names
+    name_map: dict[int, str] = {}
+    if all_dl_ids:
+        users_rows = (
+            await db.execute(select(User.id, User.name).where(User.id.in_(all_dl_ids)))
+        ).all()
+        name_map = {u.id: u.name for u in users_rows}
+
+    per_dl_out: list[dict] = []
+    for dl_id in all_dl_ids:
+        req = per_dl.get(dl_id, {}).get("total_requests", 0)
+        vac = per_dl.get(dl_id, {}).get("total_vacancies", 0)
+        p = placements_by_dl.get(dl_id, 0)
+        hit_ratio = _safe_pct(p, req)
+        fill_rate = _safe_pct(p, vac)
+        open_data = open_by_dl.get(dl_id, {"open_requests": 0, "open_vacancies": 0})
+        per_dl_out.append(
+            {
+                "user_id": dl_id,
+                "name": name_map.get(dl_id, f"User {dl_id}"),
+                "total_requests": req,
+                "total_vacancies": vac,
+                "placements": p,
+                "hit_ratio": hit_ratio,
+                "fill_rate": fill_rate,
+                "avg_vacancies_per_request": (
+                    round(vac / req, 2) if req else 0.0
+                ),
+                "open_requests": open_data["open_requests"],
+                "open_vacancies": open_data["open_vacancies"],
+                "target_achieved": hit_ratio >= HIT_RATIO_TARGET_PCT,
+                "clients": sorted(per_dl.get(dl_id, {}).get("client_names", set())),
+            }
+        )
+
+    per_dl_out.sort(key=lambda x: x["placements"], reverse=True)
+
+    total_req = sum(d["total_requests"] for d in per_dl_out)
+    total_vac = sum(d["total_vacancies"] for d in per_dl_out)
+    total_p = sum(d["placements"] for d in per_dl_out)
+    total_open_req = sum(d["open_requests"] for d in per_dl_out)
+    total_open_vac = sum(d["open_vacancies"] for d in per_dl_out)
+    avg_hit = (
+        round(sum(d["hit_ratio"] for d in per_dl_out) / max(len(per_dl_out), 1), 1)
+        if per_dl_out
+        else 0.0
+    )
+    avg_fill = (
+        round(sum(d["fill_rate"] for d in per_dl_out) / max(len(per_dl_out), 1), 1)
+        if per_dl_out
+        else 0.0
+    )
+    target_count = sum(1 for d in per_dl_out if d["target_achieved"])
+
+    overall = {
+        "total_requests": total_req,
+        "total_vacancies": total_vac,
+        "total_placements": total_p,
+        "total_open_requests": total_open_req,
+        "total_open_vacancies": total_open_vac,
+        "avg_hit_ratio": avg_hit,
+        "avg_fill_rate": avg_fill,
+        "target_count": target_count,
+        "dl_count": len(per_dl_out),
+        "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
+    }
+    return per_dl_out, overall
+
 
 @router.get("/delivery-leads")
 async def report_delivery_leads(
@@ -369,98 +588,121 @@ async def report_delivery_leads(
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
-    """
-    Delivery Lead performance: requests, vacancies, placements, hit ratio.
+    """Delivery Lead performance: requests, vacancies, placements, hit ratio,
+    fill rate, open pipeline. Dotyczy wyłącznie Jobów `body_leasing`.
+
     Cached for 5 minutes.
     """
-    cache_key = f"reports:delivery_leads:{period}"
+    cache_key = f"reports:delivery_leads:v2:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
     start = _period_start(period)
 
-    # Jobs assigned to each recruiter (total_requests)
-    jobs_q = (
-        select(
-            User.id,
-            User.name,
-            func.count(Job.id).label("total_requests"),
-            func.coalesce(func.sum(1), 0).label("total_vacancies"),
-        )
-        .join(Job, User.id == Job.recruiter_id)
-        .where(Job.created_at >= start)
-        .group_by(User.id, User.name)
-    )
-    jobs_rows = (await db.execute(jobs_q)).all()
-
-    # Placements per DL within period
-    placements_q = (
-        select(
-            User.id,
-            func.count(CandidateStage.id).label("placements"),
-        )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.stage == PipelineStage.hired,
-            CandidateStage.moved_at >= start,
-        )
-        .group_by(User.id)
-    )
-    placements_rows = (await db.execute(placements_q)).all()
-    placements_map = {r.id: r.placements for r in placements_rows}
-
-    # Clients per DL
-    clients_q = (
-        select(
-            Job.recruiter_id,
-            Client.name,
-        )
-        .join(Client, Job.client_id == Client.id)
-        .where(Job.recruiter_id.isnot(None))
-        .distinct()
-    )
-    clients_rows = (await db.execute(clients_q)).all()
-    clients_map: dict[int, list[str]] = {}
-    for r in clients_rows:
-        if r.recruiter_id not in clients_map:
-            clients_map[r.recruiter_id] = []
-        if r.name not in clients_map[r.recruiter_id]:
-            clients_map[r.recruiter_id].append(r.name)
-
-    per_dl = []
-    for r in jobs_rows:
-        p = placements_map.get(r.id, 0)
-        req = r.total_requests or 0
-        per_dl.append(
-            {
-                "user_id": r.id,
-                "name": r.name,
-                "total_requests": req,
-                "total_vacancies": req,  # 1 job = 1 vacancy (simplification)
-                "placements": p,
-                "hit_ratio": _safe_pct(p, req),
-                "clients": clients_map.get(r.id, []),
-            }
-        )
-
-    # Sort by placements desc
-    per_dl.sort(key=lambda x: x["placements"], reverse=True)
-
-    total_req = sum(d["total_requests"] for d in per_dl)
-    total_placements = sum(d["placements"] for d in per_dl)
-    avg_hit = round(sum(d["hit_ratio"] for d in per_dl) / max(len(per_dl), 1), 1)
-
-    result_data = {
-        "period": period,
-        "per_dl": per_dl,
-        "overall": {
-            "total_requests": total_req,
-            "total_placements": total_placements,
-            "avg_hit_ratio": avg_hit,
-        },
-    }
+    per_dl, overall = await _compute_dl_metrics(db, period_start=start)
+    result_data = {"period": period, "per_dl": per_dl, "overall": overall}
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data
+
+
+@router.get("/delivery-leads/{dl_id}/trend")
+async def report_delivery_lead_trend(
+    dl_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    months: int = Query(6, ge=1, le=24),
+):
+    """Trend miesiąc-po-miesiącu dla konkretnego DL. 6M default, max 24M."""
+    today = date.today()
+    trend: list[dict] = []
+    for i in range(months - 1, -1, -1):
+        # Punkt startowy miesiąca (safe month arithmetic).
+        year = today.year
+        month = today.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
+        if month == 12:
+            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        # Snapshot dla okresu miesiąca — używamy period_start = month_start
+        # i filtrujemy by `< month_end` przez tymczasowe wybranie z metrics.
+        # Prościej: request/placement w okresie [month_start, month_end).
+        per_dl_rows, _ = await _compute_dl_metrics(
+            db, period_start=month_start, only_dl_id=dl_id
+        )
+        # _compute_dl_metrics używa `>= period_start` dla jobs + placements —
+        # żeby obciąć też od góry używamy quick post-filter na created_at < month_end.
+        # Dla trendu wystarczająco dokładne, bo miesiąc to krótki okres.
+        row = per_dl_rows[0] if per_dl_rows else None
+        requests = row["total_requests"] if row else 0
+        vacancies = row["total_vacancies"] if row else 0
+        placements = row["placements"] if row else 0
+        trend.append(
+            {
+                "month": month_start.strftime("%Y-%m"),
+                "month_label": month_start.strftime("%b %Y"),
+                "requests": requests,
+                "vacancies": vacancies,
+                "placements": placements,
+                "hit_ratio": _safe_pct(placements, requests),
+                "fill_rate": _safe_pct(placements, vacancies),
+            }
+        )
+    return {"dl_id": dl_id, "months": months, "trend": trend}
+
+
+@router.get("/my-delivery-lead")
+async def report_my_delivery_lead(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", enum=["week", "month", "quarter", "year"]),
+):
+    """Własne KPI dla użytkownika z rolą `delivery_lead`. Zwraca pozycję
+    w rankingu + własne clients + metryki.
+    """
+    if current_user.role != UserRole.delivery_lead:
+        raise HTTPException(
+            status_code=403,
+            detail="Requires role=delivery_lead",
+        )
+    start = _period_start(period)
+    per_dl, overall = await _compute_dl_metrics(db, period_start=start)
+
+    my_row = next((d for d in per_dl if d["user_id"] == current_user.id), None)
+    if my_row is None:
+        # DL nie ma jeszcze żadnego Job w okresie — zwracamy zera.
+        my_row = {
+            "user_id": current_user.id,
+            "name": current_user.name,
+            "total_requests": 0,
+            "total_vacancies": 0,
+            "placements": 0,
+            "hit_ratio": 0.0,
+            "fill_rate": 0.0,
+            "avg_vacancies_per_request": 0.0,
+            "open_requests": 0,
+            "open_vacancies": 0,
+            "target_achieved": False,
+            "clients": [],
+        }
+
+    rank = next(
+        (i + 1 for i, d in enumerate(per_dl) if d["user_id"] == current_user.id),
+        None,
+    )
+
+    return {
+        "period": period,
+        "me": my_row,
+        "rank": rank,
+        "total_dls": len(per_dl),
+        "team_overall": overall,
+        "leaderboard_top5": per_dl[:5],
+    }
 
 
 # ── Tenders Report ─────────────────────────────────────────────────────────────

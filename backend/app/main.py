@@ -65,6 +65,8 @@ from app.api import users as users_api
 from app.api import settings as app_settings_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
+from app.api import team_structure as team_structure_api
+from app.api import competitions as competitions_api
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +279,16 @@ app.include_router(
     rate_benchmarks_api.router,
     prefix="/api/rate-benchmarks",
     tags=["rate-benchmarks"],
+)
+app.include_router(
+    team_structure_api.router,
+    prefix="/api/team-structure",
+    tags=["team-structure"],
+)
+app.include_router(
+    competitions_api.router,
+    prefix="/api/competitions",
+    tags=["competitions"],
 )
 # champion_suggestions.router already declares its own `/champion-suggestions`
 # prefix, so we mount it under `/api`.

@@ -71,6 +71,14 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
+# Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji
+# (macierze sourcer×kategoria, TAC→DL, DL→klienci), edycja targetów KPI,
+# zamykanie kwartałów Liga Mistrzów.
+HeadOfRecruitmentPlus = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.head_of_recruitment)),
+]
+
 TacPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),

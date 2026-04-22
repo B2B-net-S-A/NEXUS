@@ -60,6 +60,12 @@ from app.models.champion_suggestion import (
 from app.models.app_setting import AppSetting
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
+from app.models.team_structure import (
+    DeliveryLeadClientAssignment,
+    TacDeliveryLeadAssignment,
+    TacLinkedInFarming,
+)
+from app.models.competition_winner import CompetitionType, CompetitionWinner
 
 __all__ = [
     "User",
@@ -128,4 +134,9 @@ __all__ = [
     "KpiNudgeLog",
     "KpiNudgeType",
     "KpiNudgeChannel",
+    "TacDeliveryLeadAssignment",
+    "TacLinkedInFarming",
+    "DeliveryLeadClientAssignment",
+    "CompetitionType",
+    "CompetitionWinner",
 ]

@@ -141,6 +141,13 @@ class Job(Base, TimestampMixin):
         ForeignKey("clients.id"), index=True
     )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    # Delivery Lead odpowiedzialny za realizację requesta (body leasing).
+    # NULL dla sales_project/tender lub gdy nieprzypisany. Fallback przy
+    # raportowaniu: `delivery_lead_client_assignments.is_head=true` dla
+    # client_id.
+    delivery_lead_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     pipeline_template_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("pipeline_templates.id"), nullable=True, index=True
@@ -149,6 +156,7 @@ class Job(Base, TimestampMixin):
     # Relationships
     client = relationship("Client", back_populates="jobs")
     recruiter = relationship("User", foreign_keys=[recruiter_id])
+    delivery_lead = relationship("User", foreign_keys=[delivery_lead_id])
     creator = relationship("User", foreign_keys=[created_by])
     pipeline_template = relationship("PipelineTemplate")
     pipeline_stages = relationship(

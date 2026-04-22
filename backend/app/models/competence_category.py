@@ -12,9 +12,11 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -68,6 +70,9 @@ class UserCompetenceCategory(Base):
     __tablename__ = "user_competence_categories"
     __table_args__ = (
         UniqueConstraint("user_id", "competence_category_id", name="uq_user_cc"),
+        CheckConstraint(
+            "priority IS NULL OR priority IN (1, 2)", name="ck_user_cc_priority"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -80,6 +85,10 @@ class UserCompetenceCategory(Base):
         index=True,
     )
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Sourcer priority w kategorii: 1 = 1st priority, 2 = 2nd priority,
+    # NULL = nieokreślony (backward-compat). Używane w macierzy
+    # "Sourcerzy × Kategoria" na panelu Head of Recruitment.
+    priority: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

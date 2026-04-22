@@ -7,6 +7,7 @@ import { create } from "zustand"
 
 export type UserRole =
   | "admin"
+  | "head_of_recruitment"
   | "delivery_lead"
   | "tac"
   | "recruiter"
@@ -14,11 +15,12 @@ export type UserRole =
   | "user"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
-// admin > delivery_lead > tac > recruiter/sourcer > user
-// recruiter i sourcer są na tej samej randze (2): różnią się kompetencją
-// operacyjną, nie poziomem uprawnień.
+// admin > head_of_recruitment > delivery_lead > tac > recruiter/sourcer > user
+// head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
+// admina — wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
   admin: 5,
+  head_of_recruitment: 4.5,
   delivery_lead: 4,
   tac: 3,
   recruiter: 2,
@@ -28,6 +30,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
+  head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
   tac: "TAC",
   recruiter: "Rekruter",
