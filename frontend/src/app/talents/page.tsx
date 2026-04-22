@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { talentPoolsApi } from "@/lib/api";
 import {
@@ -378,7 +378,27 @@ function PoolDetailView({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+/**
+ * Client-only gate — Next.js 15 + React 19 streaming SSR wiesza hydrację
+ * list z React Query (patrz commit b133403 dla /contracts, /jobs, /clients).
+ * Pierwszy render placeholder, dopiero po mount renderujemy content.
+ */
 export default function TalentsPage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  if (!mounted) {
+    return (
+      <div className="p-8 text-sm text-[hsl(var(--text-muted))]">
+        Ładowanie pul talentów…
+      </div>
+    );
+  }
+  return <TalentsPageContent />;
+}
+
+function TalentsPageContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedPool, setSelectedPool] = useState<TalentPool | null>(null);
 
