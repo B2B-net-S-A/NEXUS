@@ -9,6 +9,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
+from app.models.invite_link import CandidateInviteLink
 from app.models.client import Client
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
@@ -100,6 +101,7 @@ __all__ = [
     "CandidateCcCategorySource",
     "CcSuggestionOverride",
     "JobSecondaryCc",
+    "CandidateInviteLink",
     "Client",
     "CandidateStage",
     "Note",

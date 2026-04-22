@@ -1005,18 +1005,6 @@ async def report_invite_links(
     period: str = Query("month", pattern="^(week|month|quarter|year|all)$"),
 ):
     """Invite-link performance grouped by channel label."""
-    import traceback as _tb
-
-    try:
-        return await _report_invite_links_impl(db, period)
-    except Exception as exc:  # TEMP debug — revert after diagnosis
-        raise HTTPException(
-            status_code=500,
-            detail={"type": type(exc).__name__, "msg": str(exc), "tb": _tb.format_exc().splitlines()[-20:]},
-        )
-
-
-async def _report_invite_links_impl(db: AsyncSession, period: str):
     cache_key = f"reports:invite-links:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
