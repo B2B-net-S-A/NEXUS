@@ -13,15 +13,22 @@ class UserRole(str, enum.Enum):
     """
     Jedna, skonsolidowana hierarchia ról dla procesu B2B.net:
 
-    - admin         — zarządzanie systemem i userami
-    - delivery_lead — kierownik procesu, rate cards, konflikty, pipeline templates
-    - tac           — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
-    - recruiter     — 100% LinkedIn, dodaje kandydatów
-    - sourcer       — 100% ATS + ogłoszenia
-    - user          — read-only viewer (także Quality Control / klient)
+    - admin               — zarządzanie systemem i userami
+    - head_of_recruitment — Olaf-type manager; odbiorca HR-owych agregatów
+                            (PowerCalling, daily rollup) z notification_triggers
+    - delivery_lead       — kierownik procesu, rate cards, konflikty,
+                            pipeline templates
+    - tac                 — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
+    - recruiter           — 100% LinkedIn, dodaje kandydatów
+    - sourcer             — 100% ATS + ogłoszenia
+    - user                — read-only viewer (także Quality Control / klient)
+
+    Enum value `head_of_recruitment` is added at the DB level by migration
+    `0029_notifications_triggers`; the Python enum must stay in sync.
     """
 
     admin = "admin"
+    head_of_recruitment = "head_of_recruitment"
     delivery_lead = "delivery_lead"
     tac = "tac"
     recruiter = "recruiter"
