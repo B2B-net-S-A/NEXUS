@@ -31,6 +31,7 @@ from app.models.interview_feedback import (
     NextStepPreference,
 )
 from app.models.user import User, UserRole
+from app.services.interview_feedback_actions import apply_post_feedback_actions
 
 router = APIRouter()
 
@@ -193,6 +194,15 @@ async def create_feedback(
         )
 
     await _clear_needs_attention(db, payload.calendar_event_id)
+    # Auto-akcje (advance → suggest_next_step, reject/dead → zamknij + pool)
+    try:
+        await apply_post_feedback_actions(db, fb)
+    except Exception:  # noqa: BLE001
+        # Auto-akcje są best-effort — log i jedziemy dalej z zapisem feedbacku.
+        import logging
+        logging.getLogger(__name__).exception(
+            "apply_post_feedback_actions failed for feedback id=%s", fb.id
+        )
     await db.commit()
     await db.refresh(fb)
     return _to_out(fb)
@@ -260,6 +270,13 @@ async def update_feedback(
 
     await db.flush()
     await _clear_needs_attention(db, fb.calendar_event_id)
+    try:
+        await apply_post_feedback_actions(db, fb)
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).exception(
+            "apply_post_feedback_actions failed for feedback id=%s", fb.id
+        )
     await db.commit()
     await db.refresh(fb)
     return _to_out(fb)

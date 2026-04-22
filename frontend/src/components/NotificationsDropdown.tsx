@@ -17,10 +17,15 @@ import {
   PhoneOff,
   StickyNote,
   Hourglass,
+  Phone,
+  PhoneCall,
+  AlertTriangle,
+  ChevronRight,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
+import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 
 type Notification = {
   id: number;
@@ -88,7 +93,43 @@ const TYPE_CONFIG: Record<
     color: "text-gray-600",
     bgColor: "bg-gray-100",
   },
+  // Phase 14 — post-interview feedback chain
+  post_interview_t15: {
+    icon: <Phone className="w-3.5 h-3.5" />,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-100",
+  },
+  post_interview_t45: {
+    icon: <PhoneCall className="w-3.5 h-3.5" />,
+    color: "text-amber-600",
+    bgColor: "bg-amber-100",
+  },
+  post_interview_t2h_escalation: {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: "text-red-600",
+    bgColor: "bg-red-100",
+  },
+  suggest_next_step: {
+    icon: <ChevronRight className="w-3.5 h-3.5" />,
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-100",
+  },
 };
+
+const POST_INTERVIEW_TYPES = new Set([
+  "post_interview_t15",
+  "post_interview_t45",
+  "post_interview_t2h_escalation",
+]);
+
+/** Parse calendar_event id from notif.link like "/calendar?event=11&action=feedback". */
+function parseEventIdFromLink(link?: string): number | null {
+  if (!link) return null;
+  const match = /[?&]event=(\d+)/.exec(link);
+  if (!match) return null;
+  const id = Number(match[1]);
+  return Number.isFinite(id) ? id : null;
+}
 
 function timeAgo(iso?: string): string {
   if (!iso) return "";
@@ -122,6 +163,9 @@ export function NotificationsDropdown() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [toastNotif, setToastNotif] = useState<WsNotification | null>(null);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    eventId: number;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -175,6 +219,16 @@ export function NotificationsDropdown() {
   const handleNotificationClick = (notif: Notification) => {
     if (!notif.is_read) {
       markReadMutation.mutate(notif.id);
+    }
+    // Phase 14 — post-interview notifications open feedback modal in-place
+    // instead of navigating, so the user can collect feedback right after the call.
+    if (POST_INTERVIEW_TYPES.has(notif.notification_type)) {
+      const eventId = parseEventIdFromLink(notif.link);
+      if (eventId) {
+        setFeedbackModal({ eventId });
+        setOpen(false);
+        return;
+      }
     }
     if (notif.link) {
       router.push(notif.link);
@@ -309,6 +363,15 @@ export function NotificationsDropdown() {
       {/* Real-time toast notification */}
       {toastNotif && (
         <NotifToast notif={toastNotif} onClose={() => setToastNotif(null)} />
+      )}
+
+      {/* Phase 14 — Feedback modal triggered by post_interview_* notifications */}
+      {feedbackModal && (
+        <InterviewFeedbackModal
+          open={true}
+          onOpenChange={(o) => !o && setFeedbackModal(null)}
+          calendarEventId={feedbackModal.eventId}
+        />
       )}
     </>
   );
