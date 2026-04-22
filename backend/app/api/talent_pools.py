@@ -82,33 +82,25 @@ async def list_talent_pools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    try:
-        result = await db.execute(
-            select(TalentPool)
-            .options(selectinload(TalentPool.memberships))
-            .order_by(TalentPool.created_at.desc())
-        )
-        pools = result.scalars().all()
+    result = await db.execute(
+        select(TalentPool)
+        .options(selectinload(TalentPool.memberships))
+        .order_by(TalentPool.created_at.desc())
+    )
+    pools = result.scalars().all()
 
-        return [
-            TalentPoolOut(
-                id=p.id,
-                name=p.name,
-                description=p.description,
-                criteria=p.criteria,
-                created_by=p.created_by,
-                created_at=p.created_at,
-                candidate_count=len(p.memberships),
-            )
-            for p in pools
-        ]
-    except Exception as e:
-        import traceback
-
-        raise HTTPException(
-            status_code=500,
-            detail=f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1200:]}",
+    return [
+        TalentPoolOut(
+            id=p.id,
+            name=p.name,
+            description=p.description,
+            criteria=p.criteria,
+            created_by=p.created_by,
+            created_at=p.created_at,
+            candidate_count=len(p.memberships),
         )
+        for p in pools
+    ]
 
 
 @router.post("/talent-pools", response_model=TalentPoolOut, status_code=201)

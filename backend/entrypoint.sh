@@ -100,6 +100,15 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
+    # AI CC matching (migration 0041_ai_cc_matching): enum for candidate→CC source
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'candidatecccategorysource') THEN
+            CREATE TYPE candidatecccategorysource AS ENUM (
+                'ai_auto', 'ai_suggested', 'manual'
+            );
+        END IF;
+    END $$""",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -142,10 +151,22 @@ _COLUMN_STATEMENTS = [
     # notes + calls contract_id FK (migration 0037_contracts_expansion)
     "ALTER TABLE notes ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    # talent_pools centroid cache (pre-existing model fields — no dedicated migration)
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_vector_id VARCHAR(100)",
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS centroid_updated_at TIMESTAMPTZ",
     # talent_pool_memberships source tracking (migration 0040_talent_pool_source_event)
     "ALTER TABLE talent_pool_memberships ADD COLUMN IF NOT EXISTS source_event VARCHAR(50)",
     "ALTER TABLE talent_pool_memberships ADD COLUMN IF NOT EXISTS source_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_tpm_source_job_id ON talent_pool_memberships (source_job_id)",
+    # AI CC matching (migration 0041_ai_cc_matching): columns on existing tables
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS competence_category_id INTEGER REFERENCES competence_categories(id) ON DELETE SET NULL",
+    "ALTER TABLE job_collaborators ADD COLUMN IF NOT EXISTS removed_from_auto_cc BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE job_collaborators ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ",
+    # Sourcer priority per CC (introduced by team_structure model for Head of
+    # Recruitment matrix). Legacy deployments may be missing it.
+    "ALTER TABLE user_competence_categories ADD COLUMN IF NOT EXISTS priority SMALLINT",
+    "ALTER TABLE user_competence_categories DROP CONSTRAINT IF EXISTS ck_user_cc_priority",
+    "ALTER TABLE user_competence_categories ADD CONSTRAINT ck_user_cc_priority CHECK (priority IS NULL OR priority IN (1, 2))",
 ]
 
 _DATA_STATEMENTS = [
