@@ -31,6 +31,15 @@ class TalentPool(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Cached member-centroid vector for pool suggestion (Qdrant collection
+    # `nexus_pool_centroids`). Invalidated by setting `centroid_updated_at` to
+    # NULL on membership changes; recomputed lazily on next suggestion call.
+    centroid_vector_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    centroid_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])

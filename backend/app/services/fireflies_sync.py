@@ -147,6 +147,10 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
     synced = 0
     linked = 0
     errors = 0
+    # Collected per-note enrichment jobs — processed after commit so each
+    # suggestion lives in its own transaction and one failing call doesn't
+    # abort the whole sync.
+    enrichment_jobs: list[dict] = []
 
     try:
         since = _last_sync_state.get("last_synced_at")
@@ -183,10 +187,38 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                 # Try to link to a candidate
                 candidate = await _find_candidate_by_emails(db, participants)
 
+                # Phase 14: match the meeting to an open Job.
+                # Only auto-attach when the top candidate is unambiguous AND
+                # scores above the auto threshold — otherwise we leave job_id
+                # null and the DL can pick from the "Sugerowane meetingi"
+                # panel in the Job detail view.
+                from app.services.fireflies_job_matcher import (
+                    SCORE_AUTO,
+                    match_meeting_to_jobs,
+                )
+
+                matches = await match_meeting_to_jobs(
+                    db,
+                    meeting_title=title,
+                    participant_emails=participants,
+                )
+                auto_job_id: Optional[int] = None
+                if (
+                    len(matches) == 1
+                    or (
+                        len(matches) >= 2
+                        and matches[0].score >= SCORE_AUTO
+                        and matches[0].score - matches[1].score >= 0.1
+                    )
+                ):
+                    if matches[0].score >= SCORE_AUTO:
+                        auto_job_id = matches[0].job_id
+
                 note = Note(
                     content=content,
                     note_type=NoteType.meeting,
                     candidate_id=candidate.id if candidate else None,
+                    job_id=auto_job_id,
                     author_id=None,  # system-generated
                 )
                 db.add(note)
@@ -200,6 +232,23 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                     logger.info(
                         f"Fireflies: imported transcript '{title}' (no candidate match)"
                     )
+                if auto_job_id:
+                    logger.info(
+                        "Fireflies: auto-attached meeting '%s' to job %d (score=%.2f)",
+                        title,
+                        auto_job_id,
+                        matches[0].score,
+                    )
+                    # Defer enrichment — we need the committed Note + source_ref.
+                    enrichment_jobs.append(
+                        {
+                            "job_id": auto_job_id,
+                            "meeting_title": title,
+                            "meeting_summary": summary_text,
+                            "meeting_transcript": transcript_text,
+                            "source_ref": transcript.get("id"),
+                        }
+                    )
 
             except Exception as exc:
                 errors += 1
@@ -208,6 +257,31 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                 )
 
         await db.commit()
+
+        # Phase 14: fire LLM enrichment for each auto-attached meeting.
+        # Done in-sequence to stay inside Claude API rate limits; each call is
+        # best-effort and cannot fail the sync.
+        enriched = 0
+        for ej in enrichment_jobs:
+            try:
+                from app.services.champion_draft_service import enrich_from_meeting
+
+                await enrich_from_meeting(
+                    db,
+                    job_id=ej["job_id"],
+                    meeting_title=ej["meeting_title"],
+                    meeting_summary=ej["meeting_summary"],
+                    meeting_transcript=ej["meeting_transcript"],
+                    source_ref=ej["source_ref"],
+                    user_id=None,
+                )
+                enriched += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Fireflies: enrichment for job %s failed: %s",
+                    ej["job_id"],
+                    exc,
+                )
 
         now = datetime.now(timezone.utc)
         _last_sync_state = {
@@ -219,6 +293,7 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
         return {
             "synced": synced,
             "linked": linked,
+            "enriched": enriched,
             "errors": errors,
             "last_synced_at": now.isoformat(),
         }

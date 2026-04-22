@@ -6,7 +6,7 @@ Integracja z CloudTalk: PLACEHOLDER — webhooks w przygotowaniu po uzyskaniu kl
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -196,24 +196,153 @@ async def cloudtalk_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Placeholder dla webhooków CloudTalk.
-    Integracja z CloudTalk w przygotowaniu — po uzyskaniu klucza API zostanie aktywowany.
-    Na razie przyjmuje i loguje payload.
-    """
-    try:
-        payload: Any = await request.json()
-    except Exception:
-        payload = {}
+    """CloudTalk webhook (Phase 14).
 
-    # TODO: Zaimplementować po uzyskaniu klucza API CloudTalk
-    # 1. Weryfikacja sygnatury webhook (HMAC)
-    # 2. Mapowanie pól CloudTalk → Call model
-    # 3. Deduplikacja po cloudtalk_call_id
-    # 4. Powiązanie z kandydatem po numerze telefonu
+    Flow:
+      1. When `CLOUDTALK_WEBHOOK_ENABLED=false` — runs in DRY-RUN mode: returns
+         204 and logs payload keys only (no DB writes, no HMAC check).
+      2. When enabled — verifies `X-CloudTalk-Signature` HMAC using
+         `CLOUDTALK_WEBHOOK_SECRET`. Rejects with 401 on mismatch.
+      3. Parses payload defensively; failures to decode JSON return 204.
+      4. Upserts `Call` by `cloudtalk_call_id`.
+      5. If a transcript is present and the call maps to a Candidate with an
+         active Job, dispatches LLM enrichment (Champion Profile suggestion).
+    """
+    import hashlib
+    import hmac
+    import logging
+    import os
+
+    logger = logging.getLogger(__name__)
+
+    enabled = os.environ.get("CLOUDTALK_WEBHOOK_ENABLED", "false").lower() == "true"
+    secret = os.environ.get("CLOUDTALK_WEBHOOK_SECRET", "")
+
+    raw_body = await request.body()
+
+    # Dry-run mode — don't touch DB, don't require HMAC.
+    if not enabled:
+        try:
+            payload_preview = await _safe_parse_json(raw_body)
+        except Exception:
+            payload_preview = {}
+        logger.info(
+            "CloudTalk webhook (DRY-RUN): received %d bytes, keys=%s",
+            len(raw_body or b""),
+            list(payload_preview.keys())[:10]
+            if isinstance(payload_preview, dict)
+            else [],
+        )
+        return {"status": "dry-run", "enabled": False}
+
+    # HMAC verification (enabled path).
+    signature_header = request.headers.get("X-CloudTalk-Signature", "")
+    if not secret:
+        logger.warning(
+            "CloudTalk webhook: CLOUDTALK_WEBHOOK_SECRET empty while enabled; rejecting"
+        )
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    expected = hmac.new(
+        secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature_header):
+        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        payload = await _safe_parse_json(raw_body)
+    except Exception:
+        logger.warning("CloudTalk webhook: non-JSON payload, ignoring")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    call_info = payload.get("call") if isinstance(payload, dict) else {}
+    if not isinstance(call_info, dict):
+        call_info = {}
+
+    ct_id = str(call_info.get("id") or "").strip() or None
+    phone = str(call_info.get("phone") or call_info.get("caller_number") or "").strip()
+    transcript = str(call_info.get("transcript") or "").strip()
+    summary = str(call_info.get("summary") or "").strip()
+    recording_url = str(call_info.get("recording_url") or "").strip() or None
+
+    # Dedup by cloudtalk_call_id.
+    from app.models.candidate import Candidate
+
+    call_row: Optional[Call] = None
+    if ct_id:
+        call_row = await db.scalar(
+            select(Call).where(Call.cloudtalk_call_id == ct_id)
+        )
+
+    # Find candidate by phone (lookup once).
+    candidate: Optional[Candidate] = None
+    if phone:
+        normalized = "".join(c for c in phone if c.isdigit() or c == "+")
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.phone == normalized)
+        )
+
+    if call_row is None and candidate is not None:
+        call_row = Call(
+            candidate_id=candidate.id,
+            direction=CallDirection.outbound,
+            status=CallStatus.completed,
+            transcript=transcript or None,
+            summary=summary or None,
+            recording_url=recording_url,
+            cloudtalk_call_id=ct_id,
+        )
+        db.add(call_row)
+    elif call_row is not None:
+        # Update transcript / summary if webhook arrives late with AI fields.
+        if transcript:
+            call_row.transcript = transcript
+        if summary:
+            call_row.summary = summary
+        if recording_url:
+            call_row.recording_url = recording_url
+
+    await db.commit()
+    if call_row is not None:
+        await db.refresh(call_row)
+
+    # Enrichment — find a plausible Job for this candidate and trigger LLM.
+    if transcript and candidate is not None:
+        from app.models.recruitment_pipeline import CandidateStage
+        from app.services.champion_draft_service import enrich_from_call
+
+        # Pick the candidate's most recent active pipeline stage → job_id
+        stage_res = await db.execute(
+            select(CandidateStage)
+            .where(CandidateStage.candidate_id == candidate.id)
+            .order_by(CandidateStage.updated_at.desc())
+            .limit(1)
+        )
+        stage = stage_res.scalar_one_or_none()
+        if stage and stage.job_id:
+            try:
+                await enrich_from_call(
+                    db,
+                    job_id=stage.job_id,
+                    call_participants=phone or "?",
+                    call_summary=summary,
+                    call_transcript=transcript,
+                    source_ref=ct_id,
+                    user_id=None,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("CloudTalk webhook enrichment failed: %s", exc)
 
     return {
-        "status": "received",
-        "message": "Integracja z CloudTalk w przygotowaniu. Webhook zarejestrowany.",
-        "payload_keys": list(payload.keys()) if isinstance(payload, dict) else [],
+        "status": "ok",
+        "call_id": call_row.id if call_row else None,
+        "enriched": bool(transcript and candidate),
     }
+
+
+async def _safe_parse_json(raw_body: bytes) -> Any:
+    """Parse JSON, accepting empty bytes as empty dict."""
+    import json
+
+    if not raw_body:
+        return {}
+    return json.loads(raw_body.decode("utf-8"))
