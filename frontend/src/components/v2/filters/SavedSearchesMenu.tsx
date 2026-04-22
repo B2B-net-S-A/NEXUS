@@ -26,7 +26,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
 
   const { data: searches = [] } = useQuery<SavedSearch[]>({
     queryKey: ["saved-searches", "candidates"],
-    queryFn: () => savedSearchesApi.list("candidates"),
+    queryFn: () => savedSearchesApi.list("candidates").then((r) => r.data),
     staleTime: 30_000,
   });
 
