@@ -1,7 +1,10 @@
-"use client";
-
+import { Suspense } from "react";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 
 export default function ContractsPage() {
-  return <ContractsListV2 />;
+  return (
+    <Suspense>
+      <ContractsListV2 />
+    </Suspense>
+  );
 }
