@@ -65,6 +65,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'post_interview_t45'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'post_interview_t2h_escalation'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'suggest_next_step'",
+    # KPI Coach (migration 0034_kpi_coach): dodaje value 'kpi_coach' do enum
+    # notificationtype. Bez tego insert Notification(notification_type='kpi_coach')
+    # crashuje z InvalidTextRepresentationError (DB enum nie zna wartości).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'kpi_coach'",
     # Phase 14 dedicated enums for interview_feedback table
     """DO $$
     BEGIN
