@@ -198,6 +198,34 @@ _COLUMN_STATEMENTS = [
     # Phase 14 (migration 0043_interview_feedback) needs_attention flag
     "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS needs_attention BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_calendar_events_needs_attention ON calendar_events (needs_attention) WHERE needs_attention = true",
+    # Phase 14 interview_feedback table (migration 0043_interview_feedback).
+    # Prod DEBUG=false → Base.metadata.create_all nie leci, alembic multi-head
+    # często pada w dev → tabela musi być stworzona explicite idempotent tutaj.
+    """CREATE TABLE IF NOT EXISTS interview_feedback (
+        id SERIAL PRIMARY KEY,
+        calendar_event_id INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        feedback_source feedbacksource NOT NULL,
+        overall_impression SMALLINT CHECK (overall_impression IS NULL OR overall_impression BETWEEN 1 AND 5),
+        interest_level interestlevel,
+        candidate_questions TEXT,
+        concerns TEXT,
+        next_step_preference nextsteppreference,
+        technical_fit SMALLINT CHECK (technical_fit IS NULL OR technical_fit BETWEEN 1 AND 5),
+        soft_fit SMALLINT CHECK (soft_fit IS NULL OR soft_fit BETWEEN 1 AND 5),
+        overall_fit SMALLINT CHECK (overall_fit IS NULL OR overall_fit BETWEEN 1 AND 5),
+        decision interviewdecision,
+        client_questions TEXT,
+        feedback_summary TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_interview_feedback_event_source UNIQUE (calendar_event_id, feedback_source)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_interview_feedback_calendar_event_id ON interview_feedback (calendar_event_id)",
+    "CREATE INDEX IF NOT EXISTS ix_interview_feedback_candidate_id ON interview_feedback (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_interview_feedback_job_id ON interview_feedback (job_id)",
     # Phase M365.1 drift: model ma kolumny od migracji 0036_microsoft365 ale
     # multi-head w dev skasowało ich auto-tworzenie. Bez tego SQLAlchemy fetche
     # eventów leci z UndefinedColumnError.
