@@ -16,6 +16,10 @@ from app.core.cache import cache_get, cache_set
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.competence_category import (
+    CompetenceCategory,
+    UserCompetenceCategory,
+)
 from app.models.contract import Contract, ContractStatus
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus, RecruitmentType
@@ -185,6 +189,51 @@ async def report_recruitment(
     )
     rows = (await db.execute(per_recruiter_q)).all()
 
+    # Wzbogacenie: rola + primary competence category (priority=1 lub is_primary)
+    user_ids = [r.id for r in rows]
+    role_map: dict[int, str] = {}
+    category_map: dict[int, dict | None] = {}
+    if user_ids:
+        user_rows = (
+            await db.execute(
+                select(User.id, User.role).where(User.id.in_(user_ids))
+            )
+        ).all()
+        role_map = {
+            u.id: (u.role.value if hasattr(u.role, "value") else str(u.role))
+            for u in user_rows
+        }
+        cc_rows = (
+            await db.execute(
+                select(
+                    UserCompetenceCategory.user_id,
+                    UserCompetenceCategory.priority,
+                    UserCompetenceCategory.is_primary,
+                    CompetenceCategory.id,
+                    CompetenceCategory.slug,
+                    CompetenceCategory.name_pl,
+                )
+                .join(
+                    CompetenceCategory,
+                    UserCompetenceCategory.competence_category_id
+                    == CompetenceCategory.id,
+                )
+                .where(UserCompetenceCategory.user_id.in_(user_ids))
+            )
+        ).all()
+        # Preferuj priority=1, potem is_primary=True, potem dowolny.
+        best: dict[int, tuple] = {}
+        for cc in cc_rows:
+            score = (
+                3 if cc.priority == 1 else 2 if cc.is_primary else 1 if cc.priority == 2 else 0
+            )
+            if cc.user_id not in best or score > best[cc.user_id][0]:
+                best[cc.user_id] = (
+                    score,
+                    {"id": cc.id, "slug": cc.slug, "name_pl": cc.name_pl},
+                )
+        category_map = {uid: payload[1] for uid, payload in best.items()}
+
     per_recruiter = []
     for r in rows:
         w = r.weryfikacje or 0
@@ -193,6 +242,8 @@ async def report_recruitment(
             {
                 "user_id": r.id,
                 "user_name": r.name,
+                "role": role_map.get(r.id),
+                "primary_category": category_map.get(r.id),
                 "weryfikacje": w,
                 "rekomendacje": r.rekomendacje or 0,
                 "interviews": r.interviews or 0,
@@ -1017,7 +1068,8 @@ async def report_invite_links(
 
     # Per-channel rollup straight from the invite-link table. `use_count`
     # is incremented on every successful apply (see public_share.py), so
-    # sum(use_count) == total applications through that label.
+    # sum(use_count) == total applications through that label. Revoked links
+    # are excluded — they're "cofnięte" and shouldn't dilute channel KPIs.
     rollup_stmt = (
         select(
             CandidateInviteLink.label.label("channel"),
@@ -1027,7 +1079,10 @@ async def report_invite_links(
             ).label("applications"),
             func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
         )
-        .where(*created_at_filter)
+        .where(
+            CandidateInviteLink.revoked.is_(False),
+            *created_at_filter,
+        )
         .group_by(CandidateInviteLink.label)
         .order_by(func.coalesce(func.sum(CandidateInviteLink.use_count), 0).desc())
     )
@@ -1080,3 +1135,144 @@ async def report_invite_links(
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data
+
+
+# ── Power Calling (cotygodniowy wymóg 3 wer/dzień roboczy) ─────────────────
+
+POWER_CALLING_TARGET_PER_DAY = 3
+POWER_CALLING_WORKDAYS = 5
+
+
+def _iso_week_bounds(
+    offset_weeks: int = 1,
+) -> tuple[datetime, datetime, int, int]:
+    """Zwraca (start_utc, end_utc_exclusive, iso_week, iso_year) dla tygodnia
+    sprzed `offset_weeks` (1 = poprzedni tydzień). Tydzień = pon-niedz UTC."""
+    now = datetime.now(timezone.utc)
+    monday_this_week = (now - timedelta(days=now.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    target_monday = monday_this_week - timedelta(weeks=offset_weeks)
+    target_next_monday = target_monday + timedelta(days=7)
+    iso = target_monday.isocalendar()
+    return target_monday, target_next_monday, iso.week, iso.year
+
+
+@router.get("/power-calling")
+async def report_power_calling(
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    offset_weeks: int = Query(
+        1,
+        ge=0,
+        le=12,
+        description="0 = bieżący tydzień, 1 = poprzedni (InfraReporter default)",
+    ),
+):
+    """Power Calling — wymóg: min. 3 weryfikacji/dzień roboczy (15/tydzień).
+
+    Zwraca listę sourcerów/TAC/rekruterów z sumą weryfikacji (CandidateStage
+    new + screening + prep_call) w tygodniu, obliczonym rate per dzień i
+    flagą meets_target."""
+    start, end, iso_week, iso_year = _iso_week_bounds(offset_weeks)
+
+    # Count weryfikacji per user w tygodniu.
+    stages = [PipelineStage.new, PipelineStage.screening, PipelineStage.prep_call]
+    q = (
+        select(
+            User.id,
+            User.name,
+            User.role,
+            func.count(CandidateStage.id).label("cnt"),
+        )
+        .join(CandidateStage, User.id == CandidateStage.moved_by)
+        .where(
+            CandidateStage.stage.in_(stages),
+            CandidateStage.moved_at >= start,
+            CandidateStage.moved_at < end,
+            User.is_active == True,  # noqa: E712
+            User.role.in_(
+                [UserRole.sourcer, UserRole.tac, UserRole.recruiter]
+            ),
+        )
+        .group_by(User.id, User.name, User.role)
+        .order_by(func.count(CandidateStage.id).desc())
+    )
+    rows = (await db.execute(q)).all()
+
+    # Competence category per user (primary).
+    user_ids = [r.id for r in rows]
+    cat_map: dict[int, dict] = {}
+    if user_ids:
+        cc_rows = (
+            await db.execute(
+                select(
+                    UserCompetenceCategory.user_id,
+                    UserCompetenceCategory.priority,
+                    UserCompetenceCategory.is_primary,
+                    CompetenceCategory.id,
+                    CompetenceCategory.slug,
+                    CompetenceCategory.name_pl,
+                )
+                .join(
+                    CompetenceCategory,
+                    UserCompetenceCategory.competence_category_id
+                    == CompetenceCategory.id,
+                )
+                .where(UserCompetenceCategory.user_id.in_(user_ids))
+            )
+        ).all()
+        best: dict[int, tuple] = {}
+        for cc in cc_rows:
+            score = (
+                3 if cc.priority == 1 else 2 if cc.is_primary else 1 if cc.priority == 2 else 0
+            )
+            if cc.user_id not in best or score > best[cc.user_id][0]:
+                best[cc.user_id] = (
+                    score,
+                    {"id": cc.id, "slug": cc.slug, "name_pl": cc.name_pl},
+                )
+        cat_map = {uid: payload[1] for uid, payload in best.items()}
+
+    entries = []
+    for r in rows:
+        cnt = int(r.cnt)
+        per_day = round(cnt / POWER_CALLING_WORKDAYS, 2)
+        entries.append(
+            {
+                "user_id": r.id,
+                "name": r.name,
+                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "primary_category": cat_map.get(r.id),
+                "verifications_week": cnt,
+                "per_day": per_day,
+                "workdays": POWER_CALLING_WORKDAYS,
+                "meets_target": per_day >= POWER_CALLING_TARGET_PER_DAY,
+                "progress_pct": min(
+                    100,
+                    round(
+                        (per_day / POWER_CALLING_TARGET_PER_DAY) * 100
+                        if POWER_CALLING_TARGET_PER_DAY
+                        else 0,
+                        0,
+                    ),
+                ),
+            }
+        )
+
+    return {
+        "week_label": f"Tydz. {iso_week}/{iso_year}",
+        "iso_week": iso_week,
+        "iso_year": iso_year,
+        "date_from": start.date().isoformat(),
+        "date_to": (end - timedelta(days=1)).date().isoformat(),
+        "target_per_day": POWER_CALLING_TARGET_PER_DAY,
+        "workdays": POWER_CALLING_WORKDAYS,
+        "requirement_text": (
+            f"Wymóg: min. {POWER_CALLING_TARGET_PER_DAY} weryfikacji / "
+            "dzień roboczy w poprzednim tygodniu"
+        ),
+        "entries": entries,
+        "meets_target_count": sum(1 for e in entries if e["meets_target"]),
+        "total_count": len(entries),
+    }

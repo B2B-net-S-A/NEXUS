@@ -9,10 +9,23 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { HeroLigaMistrzow, type HeroPodiumEntry } from "@/components/v2/gamification/HeroLigaMistrzow"
+import { PowerCallingSection } from "@/components/v2/gamification/PowerCallingSection"
 import { RaceCard } from "@/components/v2/gamification/RaceCard"
 import { ROLE_LABELS, useAuthStore } from "@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
+
+interface RecruiterRow {
+  user_id: number
+  user_name: string
+  role?: string | null
+  primary_category?: { id: number; slug: string; name_pl: string } | null
+  weryfikacje: number
+  rekomendacje: number
+  interviews: number
+  placements: number
+  hit_ratio: number
+}
 
 interface RecruitmentReport {
   period: string
@@ -27,16 +40,30 @@ interface RecruitmentReport {
     rekomendacje_to_interviews: number
     interviews_to_placements: number
   }
-  per_recruiter: Array<{
+  per_recruiter: RecruiterRow[]
+  top3_liga_mistrzow: RecruiterRow[]
+}
+
+interface PowerCallingResponse {
+  week_label: string
+  iso_week: number
+  iso_year: number
+  target_per_day: number
+  workdays: number
+  requirement_text: string
+  entries: Array<{
     user_id: number
-    user_name: string
-    weryfikacje: number
-    rekomendacje: number
-    interviews: number
-    placements: number
-    hit_ratio: number
+    name: string
+    role: string
+    primary_category: { id: number; slug: string; name_pl: string } | null
+    verifications_week: number
+    per_day: number
+    workdays: number
+    meets_target: boolean
+    progress_pct: number
   }>
-  top3_liga_mistrzow: RecruitmentReport["per_recruiter"]
+  meets_target_count: number
+  total_count: number
 }
 
 interface CompetitionResponse {
@@ -234,6 +261,14 @@ export default function RecruiterDashboard() {
     staleTime: 60 * 1000,
   })
 
+  const { data: powerCalling } = useQuery<PowerCallingResponse>({
+    queryKey: ["power-calling", "prev-week"],
+    queryFn: () =>
+      api.get("/api/reports/power-calling?offset_weeks=1").then((r) => r.data),
+    enabled: hydrated && isAllowed,
+    staleTime: 5 * 60 * 1000,
+  })
+
   if (!hydrated) {
     return <div className="p-6 text-[hsl(var(--text-muted))]">Ładowanie…</div>
   }
@@ -405,6 +440,19 @@ export default function RecruiterDashboard() {
         </div>
       )}
 
+      {/* Power Calling — pomarańczowy gradient, weryfikacje/dzień w ubiegłym tygodniu */}
+      {powerCalling && (
+        <PowerCallingSection
+          weekLabel={powerCalling.week_label}
+          requirementText={powerCalling.requirement_text}
+          entries={powerCalling.entries}
+          targetPerDay={powerCalling.target_per_day}
+          meetsTargetCount={powerCalling.meets_target_count}
+          totalCount={powerCalling.total_count}
+          highlightUserId={isMeRecruiter ? user?.id : null}
+        />
+      )}
+
       {/* Hall of Fame (mały) */}
       {hallOfFame?.top3 && hallOfFame.top3.length > 0 && (
         <Card>
@@ -507,7 +555,13 @@ export default function RecruiterDashboard() {
                     #
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
-                    Rekruter
+                    Osoba
+                  </th>
+                  <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
+                    Rola
+                  </th>
+                  <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
+                    Kategoria
                   </th>
                   <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-[hsl(var(--text-muted))] px-3 py-2">
                     Wer
@@ -546,6 +600,39 @@ export default function RecruiterDashboard() {
                           <Badge variant="soft" size="sm" className="ml-2">
                             Ja
                           </Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.role ? (
+                          <span
+                            className={cn(
+                              "inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide",
+                              r.role === "sourcer"
+                                ? "bg-sky-100 text-sky-900"
+                                : r.role === "tac"
+                                  ? "bg-teal-100 text-teal-900"
+                                  : r.role === "recruiter"
+                                    ? "bg-purple-100 text-purple-900"
+                                    : "bg-slate-100 text-slate-900",
+                            )}
+                          >
+                            {r.role}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[hsl(var(--text-muted))]">
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {r.primary_category ? (
+                          <span className="text-xs text-[hsl(var(--text-body))]">
+                            {r.primary_category.name_pl}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[hsl(var(--text-muted))]">
+                            —
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2 tabular-nums">{r.weryfikacje}</td>
