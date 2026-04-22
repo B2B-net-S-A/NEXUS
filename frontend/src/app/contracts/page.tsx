@@ -1,30 +1,47 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Component, ErrorInfo, ReactNode, useEffect, useState } from "react";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[ContractsPage] ErrorBoundary:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <pre className="m-4 p-3 text-xs bg-red-100 text-red-900 rounded whitespace-pre-wrap">
+          ERROR: {this.state.error.message}
+          {"\n\n"}
+          {this.state.error.stack}
+        </pre>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function ContractsPage() {
-  const [err, setErr] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    console.log("[ContractsPage] mounted");
-    const handler = (e: ErrorEvent) => {
-      console.error("[ContractsPage] error:", e.message, e.error);
-      setErr(e.message + " — " + (e.error?.stack?.slice(0, 300) || ""));
-    };
-    window.addEventListener("error", handler);
-    return () => window.removeEventListener("error", handler);
+    console.log("[ContractsPage] outer mounted");
+    setMounted(true);
   }, []);
 
+  if (!mounted) {
+    return <div className="p-8 text-sm text-gray-500">Ładowanie kontraktów…</div>;
+  }
+
   return (
-    <>
-      {err && (
-        <pre className="text-xs bg-red-100 text-red-900 p-3 rounded whitespace-pre-wrap">
-          {err}
-        </pre>
-      )}
-      <Suspense fallback={<div className="p-8 text-sm text-gray-500">Ładowanie listy kontraktów…</div>}>
-        <ContractsListV2 />
-      </Suspense>
-    </>
+    <ErrorBoundary>
+      <ContractsListV2 />
+    </ErrorBoundary>
   );
 }
