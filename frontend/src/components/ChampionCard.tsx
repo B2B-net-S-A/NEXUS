@@ -22,11 +22,18 @@ import {
 } from "lucide-react";
 import { screeningApi, type ScreeningQuestion } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
 
 interface ChampionCardProps {
   stageId: number;
   /** Optional override for heading — defaults to "Profil Championa". */
   title?: string;
+  /**
+   * When the candidate is currently employed at one of our clients, the
+   * widget shows a warning above the "Share" button so the recruiter pauses
+   * before sending the profile externally.
+   */
+  employment?: EmploymentInfo;
 }
 
 const FIT_LABEL: Record<string, { label: string; color: string }> = {
@@ -35,7 +42,11 @@ const FIT_LABEL: Record<string, { label: string; color: string }> = {
   miss: { label: "Nie pasuje", color: "bg-red-100 text-red-700 border-red-200" },
 };
 
-export function ChampionCard({ stageId, title = "Profil Championa" }: ChampionCardProps) {
+export function ChampionCard({
+  stageId,
+  title = "Profil Championa",
+  employment,
+}: ChampionCardProps) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["stage-screening", stageId],
     queryFn: () => screeningApi.getForStage(stageId).then((r) => r.data),
@@ -136,11 +147,27 @@ export function ChampionCard({ stageId, title = "Profil Championa" }: ChampionCa
           {!shareUrl ? (
             <button
               type="button"
-              onClick={() => shareMut.mutate()}
+              onClick={() => {
+                if (employment?.state === "employed_at_client") {
+                  const clientLabel = employment.client_name
+                    ? ` (${employment.client_name})`
+                    : "";
+                  const ok = window.confirm(
+                    `Uwaga: konsultant jest obecnie zatrudniony u naszego klienta${clientLabel}. ` +
+                      "Tworzysz link share — upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować?"
+                  );
+                  if (!ok) return;
+                }
+                shareMut.mutate();
+              }}
               disabled={shareMut.isPending}
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-300 text-purple-700 hover:bg-purple-100 bg-white dark:bg-gray-900 font-medium"
               data-testid="share-champion-card"
-              title="Utwórz link do udostępnienia klientowi (ważny 30 dni)"
+              title={
+                employment?.state === "employed_at_client"
+                  ? `Ostrzeżenie: konsultant u klienta ${employment.client_name ?? ""}`
+                  : "Utwórz link do udostępnienia klientowi (ważny 30 dni)"
+              }
             >
               <Share2 className="w-3 h-3" />
               {shareMut.isPending ? "…" : "Udostępnij"}

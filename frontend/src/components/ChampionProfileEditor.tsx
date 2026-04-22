@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ChevronDown,
+  ChevronRight,
   Loader2,
   Plus,
   Save,
@@ -19,14 +21,25 @@ import {
   Trash2,
   AlertTriangle,
   CheckCircle2,
+  RefreshCw,
+  Wand2,
 } from "lucide-react";
 import {
   championApi,
+  championSuggestionsApi,
   EMPTY_CHAMPION_PROFILE,
   type ChampionProfile,
+  type ChampionProfileSuggestion,
   type ScreeningQuestion,
 } from "@/lib/api";
+import {
+  CHAMPION_PROFILE_CHANGED_EVENT,
+  type ChampionProfileChangedEventDetail,
+} from "@/hooks/useNotifications";
+import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
+import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
+import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 
 const SOURCES: Array<{
   value: ChampionProfile["sourcing"]["sources"][number];
@@ -60,6 +73,31 @@ export function ChampionProfileEditor({
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [remoteChange, setRemoteChange] = useState<{
+    by: string;
+    at: number;
+  } | null>(null);
+  const currentUserId = useAuthStore((s) => s.user?.id);
+
+  // AI Intake (Phase 14)
+  const [showIntake, setShowIntake] = useState(false);
+  const [jdText, setJdText] = useState("");
+  const [activeSuggestion, setActiveSuggestion] =
+    useState<ChampionProfileSuggestion | null>(null);
+
+  const generateMutation = useMutation({
+    mutationFn: async (rawDescription: string) => {
+      const res = await championSuggestionsApi.generateFromJd(jobId, rawDescription);
+      return res.data;
+    },
+    onSuccess: (suggestion) => {
+      if (suggestion.status === "rejected") {
+        // LLM failure already captured server-side — surface the error but
+        // still open the modal so the DL can see what went wrong.
+      }
+      setActiveSuggestion(suggestion);
+    },
+  });
 
   useEffect(() => {
     if (data) {
@@ -67,6 +105,35 @@ export function ChampionProfileEditor({
       setDraft({ ...EMPTY_CHAMPION_PROFILE, ...loaded });
     }
   }, [data]);
+
+  // Live refresh when another user edits this job's Champion Profile.
+  // The WS hook dispatches CHAMPION_PROFILE_CHANGED_EVENT on the window;
+  // we invalidate the query and show a subtle banner so the Delivery
+  // Lead / recruiter knows their view is no longer stale.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<ChampionProfileChangedEventDetail>;
+      const detail = custom.detail;
+      if (!detail || detail.job_id !== jobId) return;
+      if (
+        currentUserId !== undefined &&
+        detail.updated_by_user_id === currentUserId
+      ) {
+        return;
+      }
+      setRemoteChange({ by: detail.updated_by_name || "Ktoś", at: Date.now() });
+      qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+    };
+    window.addEventListener(CHAMPION_PROFILE_CHANGED_EVENT, handler);
+    return () =>
+      window.removeEventListener(CHAMPION_PROFILE_CHANGED_EVENT, handler);
+  }, [jobId, currentUserId, qc]);
+
+  useEffect(() => {
+    if (!remoteChange) return;
+    const t = setTimeout(() => setRemoteChange(null), 6000);
+    return () => clearTimeout(t);
+  }, [remoteChange]);
 
   const mutation = useMutation({
     mutationFn: (p: ChampionProfile) => championApi.put(jobId, p),
@@ -159,6 +226,92 @@ export function ChampionProfileEditor({
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
           <CheckCircle2 className="w-4 h-4" /> Zapisano
         </div>
+      )}
+
+      {remoteChange && (
+        <div
+          className="text-xs px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 inline-flex items-center gap-1.5"
+          role="status"
+          data-testid="champion-profile-remote-update"
+        >
+          <RefreshCw className="w-4 h-4" />
+          {remoteChange.by} zaktualizował profil — odświeżono
+        </div>
+      )}
+
+      {/* AI Intake (Phase 14): paste JD → draft Championa */}
+      {canEdit && (
+        <div className="rounded-xl border border-purple-200 dark:border-purple-900 bg-purple-50/50 dark:bg-purple-950/20">
+          <button
+            type="button"
+            onClick={() => setShowIntake((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+            data-testid="toggle-ai-intake"
+          >
+            <span className="inline-flex items-center gap-2 font-medium text-sm text-purple-900 dark:text-purple-200">
+              <Wand2 className="w-4 h-4" />
+              Wygeneruj Profil Championa z opisu klienta (AI)
+            </span>
+            {showIntake ? (
+              <ChevronDown className="w-4 h-4 text-purple-600" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-purple-600" />
+            )}
+          </button>
+          {showIntake && (
+            <div className="px-4 pb-4 space-y-2">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Wklej opis stanowiska otrzymany od klienta. AI wypełni sekcje
+                Profilu Championa jako draft do Twojej akceptacji.
+              </p>
+              <textarea
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                placeholder="Wklej opis od klienta (min. 50 znaków)…"
+                className="w-full min-h-[140px] text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 font-mono"
+                data-testid="jd-intake-textarea"
+              />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] text-gray-500">
+                  {jdText.length} znaków
+                </span>
+                <button
+                  type="button"
+                  onClick={() => generateMutation.mutate(jdText)}
+                  disabled={
+                    generateMutation.isPending || jdText.trim().length < 50
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-60"
+                  data-testid="generate-champion-from-jd"
+                >
+                  {generateMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  {generateMutation.isPending
+                    ? "Generuję draft…"
+                    : "Generuj draft"}
+                </button>
+              </div>
+              {generateMutation.error && (
+                <div className="text-xs px-2 py-1 rounded bg-red-50 border border-red-200 text-red-700 inline-flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Nie udało się wygenerować draftu.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeSuggestion && (
+        <ChampionProfileSuggestionReview
+          jobId={jobId}
+          suggestion={activeSuggestion}
+          currentProfile={draft}
+          onClose={() => setActiveSuggestion(null)}
+        />
       )}
 
       {/* 1. Podstawy */}
@@ -453,6 +606,13 @@ export function ChampionProfileEditor({
         <div className="text-xs text-gray-500 inline-flex items-center gap-1.5">
           <AlertTriangle className="w-4 h-4" />
           Podgląd — edycja wymaga roli Delivery Lead lub Admin.
+        </div>
+      )}
+
+      {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
+      {canEdit && (
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-6 mt-6">
+          <ChampionProfileSourcesPanel jobId={jobId} currentProfile={draft} />
         </div>
       )}
     </div>
