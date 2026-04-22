@@ -76,11 +76,20 @@ class TalentPoolMembership(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Skąd kandydat trafił do poola. NULL = legacy/manual przed wdrożeniem
+    # auto-triggerów. Obecne wartości: "cv_sent", "manual", "imported".
+    source_event: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Z którego JO kandydat przyszedł (dla source_event="cv_sent" zawsze
+    # ustawione). NULL gdy źródło nie jest powiązane z konkretnym JO.
+    source_job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relationships
     pool = relationship("TalentPool", back_populates="memberships")
     candidate = relationship("Candidate", backref="pool_memberships")
     added_by_user = relationship("User", foreign_keys=[added_by])
+    source_job = relationship("Job", foreign_keys=[source_job_id])
 
     def __repr__(self) -> str:
         return f"<TalentPoolMembership pool={self.talent_pool_id} candidate={self.candidate_id}>"

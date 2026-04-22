@@ -232,6 +232,8 @@ async def list_pool_candidates(
                 if hasattr(candidate.status, "value")
                 else candidate.status,
                 "added_at": membership.added_at.isoformat(),
+                "source_event": membership.source_event,
+                "source_job_id": membership.source_job_id,
             }
         )
 

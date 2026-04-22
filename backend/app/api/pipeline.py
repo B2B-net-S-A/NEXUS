@@ -329,6 +329,30 @@ async def move_candidate(
             },
         )
 
+    # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
+    # the client. Pool is derived from JO subcategory + seniority (see
+    # services/talent_pool_auto_add.py). Best-effort — pool-add failure
+    # must NOT block the stage change, so errors are swallowed and logged.
+    if legacy_enum == PipelineStage.cv_sent:
+        import logging
+
+        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
+        try:
+            await auto_add_on_cv_sent(
+                db=db,
+                candidate_id=data.candidate_id,
+                job=job,
+                user_id=current_user.id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "auto_add_on_cv_sent failed for candidate=%s job=%s: %s",
+                data.candidate_id,
+                job.id,
+                e,
+            )
+
     # Phase 9 A2: auto-create a draft Contract when the candidate is hired.
     # Staff fills in the rates + dates afterwards — this just removes the
     # "go to Contracts → create" click.

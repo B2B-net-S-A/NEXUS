@@ -75,6 +75,8 @@ interface CandidateInPool {
   skills: Array<{ name: string; level?: string; years?: number } | string> | null;
   status: string;
   added_at: string;
+  source_event: string | null;
+  source_job_id: number | null;
 }
 
 // ── Pool Card Colors ──────────────────────────────────────────────────────────
@@ -328,6 +330,24 @@ function PoolDetailView({
                   </div>
 
                   <div className="flex items-center gap-3 flex-shrink-0">
+                    {c.source_event === "cv_sent" && (
+                      c.source_job_id ? (
+                        <Link
+                          href={`/jobs/${c.source_job_id}`}
+                          title="Kandydat dodany automatycznie po wysłaniu CV do klienta"
+                          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700"
+                        >
+                          <Briefcase className="w-3 h-3" /> Z CV → Klient
+                        </Link>
+                      ) : (
+                        <span
+                          title="Kandydat dodany automatycznie po wysłaniu CV do klienta"
+                          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700"
+                        >
+                          <Briefcase className="w-3 h-3" /> Z CV → Klient
+                        </span>
+                      )
+                    )}
                     <span
                       className={cn(
                         "text-xs px-2 py-0.5 rounded-full font-medium",
