@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import {
   Settings,
@@ -15,6 +15,7 @@ import {
   Mic,
   Clock,
   HelpCircle,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -22,11 +23,12 @@ import Link from "next/link";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
-type Tab = "integracje" | "szablony" | "onboarding";
+type Tab = "integracje" | "szablony" | "coaching" | "onboarding";
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: "integracje", label: "Integracje", icon: <Plug className="w-4 h-4" /> },
   { id: "szablony", label: "Szablony email", icon: <Mail className="w-4 h-4" /> },
+  { id: "coaching", label: "Coaching KPI", icon: <Sparkles className="w-4 h-4" /> },
   { id: "onboarding", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
 ];
 
@@ -257,8 +259,98 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {activeTab === "coaching" && (
+        <CoachingSettings />
+      )}
+
       {activeTab === "onboarding" && (
         <OnboardingSettings />
+      )}
+    </div>
+  );
+}
+
+function CoachingSettings() {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["user-preferences", "me"],
+    queryFn: () =>
+      api.get("/api/users/me/preferences").then((r) => r.data as { kpi_coach_enabled: boolean }),
+    staleTime: 60 * 1000,
+  });
+
+  const { mutate: update, isPending } = useMutation({
+    mutationFn: (kpi_coach_enabled: boolean) =>
+      api
+        .patch("/api/users/me/preferences", { kpi_coach_enabled })
+        .then((r) => r.data as { kpi_coach_enabled: boolean }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["user-preferences", "me"], next);
+    },
+  });
+
+  const enabled = data?.kpi_coach_enabled ?? true;
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="flex items-start gap-4 mb-6">
+        <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+          <Sparkles className="w-6 h-6 text-emerald-500" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+            Coaching KPI
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            System na bieżąco chwali gdy wyrobisz target i przypomina gdy idzie
+            za wolno. Działa w godzinach 09:00–17:30 (pon–pt).
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-xl">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            Włącz coaching
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Toast + powiadomienie w dzwonku. Bez spamu — dedup per KPI / okres,
+            max 3 przypomnienia dziennie per wskaźnik.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          disabled={isLoading || isPending}
+          onClick={() => update(!enabled)}
+          className={cn(
+            "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors",
+            "focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2",
+            enabled
+              ? "bg-emerald-500"
+              : "bg-gray-200 dark:bg-gray-600",
+            (isLoading || isPending) && "opacity-60 cursor-wait",
+          )}
+        >
+          <span
+            className={cn(
+              "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform mt-0.5",
+              enabled ? "translate-x-5" : "translate-x-0.5",
+            )}
+          />
+        </button>
+      </div>
+
+      {!isLoading && !enabled && (
+        <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mt-4">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            Coaching wyłączony — nie będziesz dostawać toastów ani powiadomień z
+            KPI Coach. Sam widget KPI w dashboardzie pozostaje widoczny.
+          </span>
+        </div>
       )}
     </div>
   );
