@@ -34,6 +34,39 @@ cd /app
 # Production should never hit this path (clean single-head chain on main).
 alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
 
+# Safety net: alembic upgrade sometimes bails halfway through a multi-head
+# graph (see project_alembic_state memory). The ORM expects several columns
+# that 0035_onboarding_and_job_sourcing ships; backfill them idempotently
+# so the login SELECT doesn't crash with UndefinedColumnError. Non-fatal.
+echo "Backfilling critical columns (idempotent)..."
+python - <<'PY' || echo "column backfill failed; continuing"
+import asyncio, os
+import asyncpg
+
+async def backfill():
+    url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
+    url = url.replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(url)
+    try:
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ")
+        await conn.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS needs_sourcing BOOLEAN NOT NULL DEFAULT FALSE")
+        # Backfill pre-existing users so non-onboarded roles are not blocked
+        # by the first-login gate. Mirrors the data step in migration 0035.
+        await conn.execute("""
+            UPDATE users
+               SET profile_completed = TRUE,
+                   profile_completed_at = COALESCE(profile_completed_at, NOW())
+             WHERE profile_completed = FALSE
+               AND role::text NOT IN ('delivery_lead', 'recruiter')
+        """)
+        print("backfill: ok")
+    finally:
+        await conn.close()
+
+asyncio.run(backfill())
+PY
+
 # Run seed (idempotent - skips if already seeded)
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
