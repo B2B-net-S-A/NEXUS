@@ -58,6 +58,12 @@ from app.api import phase5
 from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import onboarding as onboarding_api
+from app.api import procedures as procedures_api
+from app.api import proposals as proposals_api
+from app.api import invite_links as invite_links_api
+from app.api import users as users_api
+from app.api import settings as app_settings_api
+from app.api import champion_suggestions as champion_suggestions_api
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +263,18 @@ app.include_router(phase5.router, prefix="/api", tags=["phase5"])
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
+app.include_router(users_api.router, prefix="/api/users", tags=["users"])
+app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
+app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
+app.include_router(
+    invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
+)
+app.include_router(
+    app_settings_api.router, prefix="/api/settings", tags=["settings"]
+)
+# champion_suggestions.router already declares its own `/champion-suggestions`
+# prefix, so we mount it under `/api`.
+app.include_router(champion_suggestions_api.router, prefix="/api")
 
 
 @app.get("/health")
