@@ -126,3 +126,36 @@ class JobList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class UserBrief(BaseModel):
+    """Minimal user projection embedded in job owner/collaborator responses."""
+
+    id: int
+    email: str
+    name: str
+    role: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _role_to_str(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return getattr(v, "value", str(v))
+
+
+class JobOwnerAssignment(BaseModel):
+    """Set, change, or clear the primary owner (recruiter_id).
+
+    Admin + Delivery Lead only. `recruiter_id = None` clears the assignment.
+    """
+
+    recruiter_id: Optional[int] = None
+
+
+class JobCollaboratorAdd(BaseModel):
+    """Add a collaborator (read-only participant) to a job."""
+
+    user_id: int
