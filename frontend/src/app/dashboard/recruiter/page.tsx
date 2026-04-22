@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Filter, Target, Trophy, Users } from "lucide-react"
+import { CheckCircle2, Filter, Linkedin, Send, Target, Trophy, Users } from "lucide-react"
 
 import api from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -67,6 +67,26 @@ interface MyPositionResponse {
     metric_value: number
   }>
   total: number
+}
+
+interface LinkedInMySummary {
+  period: string
+  date_from: string
+  date_to: string
+  me: {
+    cv_added: number
+    messages_sent: number
+    responses_received: number
+    response_rate: number
+    cv_response_rate: number
+    days_reported: number
+  } | null
+  trend_14d: Array<{
+    date: string
+    cv_added: number
+    messages_sent: number
+    responses_received: number
+  }>
 }
 
 // ── KPI card (copy z DL panel) ──────────────────────────────────────────
@@ -163,6 +183,16 @@ export default function RecruiterDashboard() {
         .then((r) => r.data),
     enabled: hydrated && isAllowed,
     staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: linkedinMy } = useQuery<LinkedInMySummary>({
+    queryKey: ["linkedin-my-summary", "month"],
+    queryFn: () =>
+      api
+        .get("/api/linkedin-metrics/my-summary?period=month")
+        .then((r) => r.data),
+    enabled: hydrated && isAllowed,
+    staleTime: 60 * 1000,
   })
 
   if (!hydrated) {
@@ -367,6 +397,85 @@ export default function RecruiterDashboard() {
             highlightUserId={user.id}
           />
         </section>
+      )}
+
+      {/* LinkedIn metrics (manual) */}
+      <section className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <Card>
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
+              LinkedIn · CV dodane
+            </p>
+            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+              <Linkedin className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
+            {linkedinMy?.me?.cv_added ?? 0}
+          </div>
+          <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
+            w tym miesiącu ({linkedinMy?.me?.days_reported ?? 0} dni zaraportowanych)
+          </p>
+        </Card>
+        <Card>
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
+              Wiadomości wysłane
+            </p>
+            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+              <Send className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
+            {linkedinMy?.me?.messages_sent ?? 0}
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
+              Odpowiedzi
+            </p>
+            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+              <CheckCircle2 className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="font-display text-3xl font-extrabold text-[hsl(var(--text-title))]">
+            {linkedinMy?.me?.responses_received ?? 0}
+          </div>
+          <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
+            {linkedinMy?.me?.response_rate ?? 0}% response rate
+          </p>
+        </Card>
+        <Card>
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))]">
+              Quality ratio
+            </p>
+            <span className="inline-flex items-center justify-center h-8 w-8 rounded-v2-s bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))]">
+              <Target className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="font-display text-3xl font-extrabold text-[#1d5e31]">
+            {linkedinMy?.me?.cv_response_rate ?? 0}%
+          </div>
+          <p className="text-xs text-[hsl(var(--text-muted))] mt-2">
+            odpowiedzi / CV dodane
+          </p>
+        </Card>
+      </section>
+
+      {(linkedinMy?.me === null || !linkedinMy?.me?.days_reported) && (
+        <Card>
+          <CardContent className="py-4 text-sm text-[hsl(var(--text-muted))]">
+            <Linkedin className="inline h-4 w-4 mr-1.5" />
+            Brak raportowanych metryk LinkedIn dla Ciebie w tym miesiącu. Poproś
+            admina o wpisanie Twoich dziennych liczb w panelu{" "}
+            <code className="font-mono text-xs bg-[hsl(var(--accent-soft))] px-1 py-0.5 rounded">
+              /admin/linkedin-metrics
+            </code>
+            .
+          </CardContent>
+        </Card>
       )}
 
       {/* Moja tabela vs zespół */}

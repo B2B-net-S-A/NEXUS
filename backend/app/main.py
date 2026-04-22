@@ -67,6 +67,7 @@ from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
 from app.api import competitions as competitions_api
+from app.api import linkedin_metrics as linkedin_metrics_api
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
     from app.tasks.contract_alerts import contract_alerts_loop
+    from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -163,11 +165,19 @@ async def lifespan(app: FastAPI):
     slack_task = asyncio.create_task(slack_sla_alerts_loop())
     contract_task = asyncio.create_task(contract_alerts_loop())
     fx_task = asyncio.create_task(fx_refresh_loop())
+    competition_freeze_task = asyncio.create_task(competition_autofreeze_loop())
 
     yield
 
     # Shutdown
-    tasks = (reminder_task, ttl_task, slack_task, contract_task, fx_task)
+    tasks = (
+        reminder_task,
+        ttl_task,
+        slack_task,
+        contract_task,
+        fx_task,
+        competition_freeze_task,
+    )
     for t in tasks:
         t.cancel()
     for t in tasks:
@@ -289,6 +299,11 @@ app.include_router(
     competitions_api.router,
     prefix="/api/competitions",
     tags=["competitions"],
+)
+app.include_router(
+    linkedin_metrics_api.router,
+    prefix="/api/linkedin-metrics",
+    tags=["linkedin-metrics"],
 )
 # champion_suggestions.router already declares its own `/champion-suggestions`
 # prefix, so we mount it under `/api`.

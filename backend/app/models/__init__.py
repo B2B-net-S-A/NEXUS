@@ -66,6 +66,7 @@ from app.models.team_structure import (
     TacLinkedInFarming,
 )
 from app.models.competition_winner import CompetitionType, CompetitionWinner
+from app.models.linkedin_metric import LinkedInDailyMetric
 
 __all__ = [
     "User",
@@ -139,4 +140,5 @@ __all__ = [
     "DeliveryLeadClientAssignment",
     "CompetitionType",
     "CompetitionWinner",
+    "LinkedInDailyMetric",
 ]

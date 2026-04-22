@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import api from "@/lib/api";
+import { ChampionsPodium } from "@/components/v2/gamification/ChampionsPodium";
 import {
   TrendingUp,
   TrendingDown,
@@ -1047,6 +1049,24 @@ function ZarzadTab() {
     queryFn: () => reportsApi.board().then((r) => r.data as BoardData),
   });
 
+  const { data: dlChampions } = useQuery({
+    queryKey: ["competitions-current", "quarterly_champions_dl"],
+    queryFn: () =>
+      api
+        .get("/api/competitions/current?type=quarterly_champions_dl")
+        .then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: recruiterChampions } = useQuery({
+    queryKey: ["competitions-current", "quarterly_champions_recruiter"],
+    queryFn: () =>
+      api
+        .get("/api/competitions/current?type=quarterly_champions_recruiter")
+        .then((r) => r.data),
+    staleTime: 5 * 60 * 1000,
+  });
+
   if (isLoading) return <LoadingSpinner />;
   if (!data) return null;
 
@@ -1174,6 +1194,25 @@ function ZarzadTab() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Liga Mistrzów — DL + Recruiter */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ChampionsPodium
+          title="Liga Mistrzów DL"
+          subtitle="Kwartalny podium Delivery Leadów"
+          period={dlChampions?.period ?? ""}
+          top3={dlChampions?.top3 ?? []}
+          metricLabel="placementów"
+          targetPct={dlChampions?.target_pct ?? 30}
+        />
+        <ChampionsPodium
+          title="Liga Mistrzów Rekrutacja"
+          subtitle="Kwartalni top placerzy"
+          period={recruiterChampions?.period ?? ""}
+          top3={recruiterChampions?.top3 ?? []}
+          metricLabel="placementów"
+        />
       </div>
 
       {/* Key risks */}
