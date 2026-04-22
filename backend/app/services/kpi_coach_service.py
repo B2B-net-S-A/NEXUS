@@ -92,12 +92,25 @@ def is_in_quiet_hours(now: datetime) -> bool:
 
 
 async def run_scheduled_sweep(
-    db: AsyncSession, now: Optional[datetime] = None
+    db: AsyncSession,
+    now: Optional[datetime] = None,
+    *,
+    force: bool = False,
+    target_user_id: Optional[int] = None,
 ) -> dict[str, int]:
     """Jeden cykl scheduler'a: ocena wszystkich operacyjnych rekruterów
     + emisja odpowiednich nudge'y.
 
-    Zwraca counters: {"users": N, "praise": N, "remind": N, "eod": N, "skipped_dedup": N}.
+    Args:
+        db: async session
+        now: punkt w czasie (default: teraz w Europe/Warsaw)
+        force: bypass `is_in_quiet_hours` gate — używane przez admin
+            endpoint `POST /api/kpis/admin/trigger-sweep` do smoke-testów
+            po godzinach pracy (np. wieczorem, żeby zweryfikować end-to-end).
+        target_user_id: zawęź sweep do tego konkretnego user_id (też admin-only).
+            Gdy None — sweep leci po wszystkich uprawnionych userach.
+
+    Zwraca counters: {"users", "praise", "remind", "eod", "skipped_dedup", "skipped_optout"}.
     """
     if now is None:
         now = datetime.now(WARSAW)
@@ -112,11 +125,13 @@ async def run_scheduled_sweep(
         "skipped_optout": 0,
     }
 
-    if not is_in_quiet_hours(now_w):
+    if not force and not is_in_quiet_hours(now_w):
         logger.debug("kpi_coach sweep: outside quiet hours, skipping")
         return counters
 
     users = await _fetch_eligible_users(db)
+    if target_user_id is not None:
+        users = [u for u in users if u.id == target_user_id]
     counters["users"] = len(users)
 
     is_eod_window = _EOD_HOUR_START <= now_w.time() <= _EOD_HOUR_END

@@ -16,9 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.user import UserRole
+from app.services.kpi_coach_service import run_scheduled_sweep
 from app.services.kpi_engine import evaluate_user_kpis
 
 router = APIRouter()
@@ -100,3 +101,39 @@ async def get_user_kpis_today(
         )
     results = await evaluate_user_kpis(db, user=user)
     return [_to_schema(r) for r in results if r.target > 0]
+
+
+# ── Admin: manual trigger for E2E smoke-tests ──────────────────────────────
+
+
+class SweepCountersSchema(BaseModel):
+    users: int
+    praise: int
+    remind: int
+    eod: int
+    skipped_dedup: int
+    skipped_optout: int
+
+
+@router.post("/admin/trigger-sweep", response_model=SweepCountersSchema)
+async def admin_trigger_kpi_coach_sweep(
+    _: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    force: bool = True,
+    target_user_id: int | None = None,
+) -> SweepCountersSchema:
+    """Admin-only: ręcznie odpala jeden cykl `run_scheduled_sweep`.
+
+    Przydatne do:
+    - Smoke-testów po godzinach pracy (domyślnie `force=true` obchodzi
+      gate quiet hours 09:00–17:30 Warsaw).
+    - Targetowanego testu per user (`target_user_id=N`) — emituje nudge'e
+      tylko dla wskazanego usera, np. dla smoke-test account'u Marta.
+
+    Zwraca counters (users processed, praise/remind/eod emitted, skipped).
+    """
+    counters = await run_scheduled_sweep(
+        db, force=force, target_user_id=target_user_id
+    )
+    await db.commit()
+    return SweepCountersSchema(**counters)
