@@ -23,7 +23,8 @@ from app.api.deps import DeliveryLeadPlus
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, ContractTerminationReason
+from app.models.job import Job
 from app.services.fx_service import convert_to_pln
 
 router = APIRouter()
@@ -284,3 +285,264 @@ async def revenue_forecast(
     # Reference to silence unused-arg warning in future linters
     _ = timedelta
     return RevenueForecast(horizon_months=horizon_months, months=months)
+
+
+# ── Role × Client mix (headcount analytics) ──────────────────────────────────
+
+
+class RoleClientCell(BaseModel):
+    role: str
+    client_id: int
+    client_name: str
+    active_count: int
+    pct_of_total: float
+
+
+class RoleClientMix(BaseModel):
+    total_active: int
+    rows: List[RoleClientCell]
+    roles: List[str]
+    clients: List[dict]  # [{id, name}]
+
+
+@router.get("/role-client-mix", response_model=RoleClientMix)
+async def role_client_mix(
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Count active contracts bucketed by role × client.
+
+    Role is `job.title` when a job is linked; otherwise we fall back to
+    `candidate.competence_category`. Contracts without either are grouped
+    under `Unknown`.
+    """
+    role_expr = func.coalesce(Job.title, Candidate.competence_category, "Unknown")
+    res = await db.execute(
+        select(
+            role_expr.label("role"),
+            Client.id.label("client_id"),
+            Client.name.label("client_name"),
+            func.count(Contract.id).label("cnt"),
+        )
+        .select_from(Contract)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .join(Client, Client.id == Contract.client_id)
+        .outerjoin(Job, Job.id == Contract.job_id)
+        .where(Contract.status == ContractStatus.active)
+        .group_by(role_expr, Client.id, Client.name)
+        .order_by(func.count(Contract.id).desc())
+    )
+    raw = res.all()
+    total_active = sum(r.cnt for r in raw)
+    rows = [
+        RoleClientCell(
+            role=r.role,
+            client_id=r.client_id,
+            client_name=r.client_name,
+            active_count=int(r.cnt),
+            pct_of_total=round((r.cnt / total_active) * 100, 1) if total_active else 0.0,
+        )
+        for r in raw
+    ]
+    roles = sorted({r.role for r in rows})
+    clients_seen: dict[int, str] = {}
+    for r in rows:
+        clients_seen.setdefault(r.client_id, r.client_name)
+    clients = [{"id": cid, "name": name} for cid, name in clients_seen.items()]
+    return RoleClientMix(
+        total_active=total_active, rows=rows, roles=roles, clients=clients
+    )
+
+
+# ── Consultant location distribution ─────────────────────────────────────────
+
+
+class HubDistribution(BaseModel):
+    hub_city: Optional[str]
+    count: int
+
+
+class RegionDistribution(BaseModel):
+    region: Optional[str]
+    count: int
+
+
+class LocationDistribution(BaseModel):
+    total: int
+    total_with_hub: int
+    hubs: List[HubDistribution]
+    regions: List[RegionDistribution]
+
+
+@router.get("/location-distribution", response_model=LocationDistribution)
+async def location_distribution(
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    active_only: bool = Query(
+        True, description="If true, only count candidates with an active contract"
+    ),
+):
+    """Bucket consultants by hub_city and region for heat-map visualization."""
+    base_q = select(Candidate.id, Candidate.hub_city, Candidate.region)
+    if active_only:
+        base_q = base_q.join(Contract, Contract.candidate_id == Candidate.id).where(
+            Contract.status == ContractStatus.active
+        )
+    rows = (await db.execute(base_q.distinct())).all()
+    total = len(rows)
+    hub_map: dict[Optional[str], int] = {}
+    region_map: dict[Optional[str], int] = {}
+    for _, hub, region in rows:
+        hub_map[hub] = hub_map.get(hub, 0) + 1
+        region_map[region] = region_map.get(region, 0) + 1
+
+    hubs = [
+        HubDistribution(hub_city=k, count=v)
+        for k, v in sorted(hub_map.items(), key=lambda kv: (kv[0] is None, -kv[1]))
+    ]
+    regions = [
+        RegionDistribution(region=k, count=v)
+        for k, v in sorted(region_map.items(), key=lambda kv: (kv[0] is None, -kv[1]))
+    ]
+    total_with_hub = total - hub_map.get(None, 0)
+    return LocationDistribution(
+        total=total, total_with_hub=total_with_hub, hubs=hubs, regions=regions
+    )
+
+
+# ── Termination analytics (attrition + retention) ────────────────────────────
+
+
+class TerminationReasonBucket(BaseModel):
+    reason: str
+    count: int
+    avg_contract_days: Optional[float]
+
+
+class ClientRetention(BaseModel):
+    client_id: int
+    client_name: str
+    total_ended: int
+    kept_to_end: int
+    ended_early: int
+    retention_pct: float
+
+
+class TerminationAnalysis(BaseModel):
+    window_months: int
+    total_terminated: int
+    by_reason: List[TerminationReasonBucket]
+    client_retention: List[ClientRetention]
+
+
+@router.get("/termination-analysis", response_model=TerminationAnalysis)
+async def termination_analysis(
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    window_months: int = Query(
+        12, ge=1, le=36, description="Look-back window in months"
+    ),
+):
+    """Attrition rollup: reasons × clients, with retention percentage."""
+    today = date.today()
+    window_start_month = today.month - window_months
+    window_start_year = today.year
+    while window_start_month <= 0:
+        window_start_month += 12
+        window_start_year -= 1
+    window_start = date(window_start_year, window_start_month, 1)
+
+    # All ended contracts in window.
+    ended_q = (
+        select(Contract, Client.name.label("client_name"))
+        .join(Client, Client.id == Contract.client_id)
+        .where(
+            Contract.status == ContractStatus.ended,
+            func.coalesce(Contract.terminated_at, Contract.end_date) >= window_start,
+        )
+    )
+    rows = (await db.execute(ended_q)).all()
+    total_terminated = len(rows)
+
+    reason_counts: dict[str, int] = {}
+    reason_durations: dict[str, list[int]] = {}
+    for contract, _ in rows:
+        reason = (
+            contract.termination_reason.value
+            if contract.termination_reason
+            else "unspecified"
+        )
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        duration_end = contract.terminated_at or contract.end_date
+        if duration_end and contract.start_date:
+            reason_durations.setdefault(reason, []).append(
+                (duration_end - contract.start_date).days
+            )
+
+    by_reason = [
+        TerminationReasonBucket(
+            reason=reason,
+            count=cnt,
+            avg_contract_days=(
+                round(sum(reason_durations[reason]) / len(reason_durations[reason]), 1)
+                if reason_durations.get(reason)
+                else None
+            ),
+        )
+        for reason, cnt in sorted(reason_counts.items(), key=lambda kv: -kv[1])
+    ]
+
+    # Client retention: how often does a contract reach its planned end?
+    # "Ended early" = terminated_at < end_date OR termination_reason in
+    # (poached_by_client, consultant_resigned, better_offer, contract_breach).
+    early_reasons = {
+        ContractTerminationReason.poached_by_client.value,
+        ContractTerminationReason.consultant_resigned.value,
+        ContractTerminationReason.better_offer.value,
+        ContractTerminationReason.contract_breach.value,
+        ContractTerminationReason.performance_issue.value,
+    }
+    retention_map: dict[int, dict] = {}
+    for contract, client_name in rows:
+        bucket = retention_map.setdefault(
+            contract.client_id,
+            {"name": client_name, "total": 0, "kept": 0, "early": 0},
+        )
+        bucket["total"] += 1
+        reason_val = (
+            contract.termination_reason.value
+            if contract.termination_reason
+            else None
+        )
+        is_early = False
+        if contract.terminated_at and contract.end_date and contract.terminated_at < contract.end_date:
+            is_early = True
+        elif reason_val in early_reasons:
+            is_early = True
+        if is_early:
+            bucket["early"] += 1
+        else:
+            bucket["kept"] += 1
+
+    retention = [
+        ClientRetention(
+            client_id=cid,
+            client_name=info["name"],
+            total_ended=info["total"],
+            kept_to_end=info["kept"],
+            ended_early=info["early"],
+            retention_pct=round((info["kept"] / info["total"]) * 100, 1)
+            if info["total"]
+            else 0.0,
+        )
+        for cid, info in sorted(
+            retention_map.items(), key=lambda kv: -kv[1]["total"]
+        )
+    ]
+
+    return TerminationAnalysis(
+        window_months=window_months,
+        total_terminated=total_terminated,
+        by_reason=by_reason,
+        client_retention=retention,
+    )

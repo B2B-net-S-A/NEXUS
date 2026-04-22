@@ -25,12 +25,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
-THRESHOLDS_DAYS = (60, 30, 14, 7)
+# 90d is a "heads-up, start the extension conversation" ping; tighter
+# thresholds stay as urgent reminders.
+THRESHOLDS_DAYS = (90, 60, 30, 14, 7)
+EQUIPMENT_RETURN_THRESHOLD_DAYS = 14
+CLIENT_ORDER_THRESHOLD_DAYS = 30
 COMPLIANCE_THRESHOLD_DAYS = 30
 _COMPLIANCE_DOC_TYPES = (
     ContractDocumentType.nip,
@@ -175,6 +180,53 @@ async def _compliance_already_notified(db: AsyncSession) -> set[int]:
     return ids
 
 
+async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]:
+    today = date.today()
+    cutoff = today + timedelta(days=EQUIPMENT_RETURN_THRESHOLD_DAYS)
+    res = await db.execute(
+        select(ContractEquipment).where(
+            ContractEquipment.return_status == EquipmentReturnStatus.pending,
+            ContractEquipment.return_due_date.isnot(None),
+            ContractEquipment.return_due_date <= cutoff,
+        )
+    )
+    return list(res.scalars().all())
+
+
+async def _equipment_already_notified(db: AsyncSession) -> set[int]:
+    res = await db.execute(
+        select(Notification.related_entity_id).where(
+            Notification.notification_type == NotificationType.equipment_return_due_14d,
+            Notification.related_entity_type == "contract_equipment",
+        )
+    )
+    return {row[0] for row in res.all() if row[0] is not None}
+
+
+async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
+    today = date.today()
+    cutoff = today + timedelta(days=CLIENT_ORDER_THRESHOLD_DAYS)
+    res = await db.execute(
+        select(Contract).where(
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+            Contract.client_order_end_date.isnot(None),
+            Contract.client_order_end_date <= cutoff,
+            Contract.client_order_end_date >= today,
+        )
+    )
+    return list(res.scalars().all())
+
+
+async def _client_order_already_notified(db: AsyncSession) -> set[int]:
+    res = await db.execute(
+        select(Notification.related_entity_id).where(
+            Notification.notification_type == NotificationType.client_order_ending_30d,
+            Notification.related_entity_type == "contract",
+        )
+    )
+    return {row[0] for row in res.all() if row[0] is not None}
+
+
 async def run_contract_alerts_cycle() -> dict:
     """One pass: promote statuses + create notifications + post Slack summary."""
     stats = {
@@ -182,6 +234,8 @@ async def run_contract_alerts_cycle() -> dict:
         "promoted_ended": 0,
         "notifications_created": 0,
         "compliance_alerts": 0,
+        "equipment_return_alerts": 0,
+        "client_order_alerts": 0,
         "slack_sent": 0,
     }
     async with AsyncSessionLocal() as db:
@@ -200,6 +254,11 @@ async def run_contract_alerts_cycle() -> dict:
             already = await _contract_ids_already_notified(db, threshold)
             contracts = await _contracts_at_threshold(db, threshold)
             fresh = [c for c in contracts if c.id not in already]
+            notif_type = (
+                NotificationType.contract_ending_90d
+                if threshold == 90
+                else NotificationType.contract_ending
+            )
             for c in fresh:
                 title = f"[{threshold}d] Kontrakt #{c.id} wygasa"
                 message = (
@@ -214,7 +273,9 @@ async def run_contract_alerts_cycle() -> dict:
                             title=title,
                             message=message,
                             link=link,
-                            notification_type=NotificationType.contract_ending,
+                            notification_type=notif_type,
+                            related_entity_type="contract",
+                            related_entity_id=c.id,
                         )
                     )
                     stats["notifications_created"] += 1
@@ -249,6 +310,77 @@ async def run_contract_alerts_cycle() -> dict:
                         )
                     )
                 stats["compliance_alerts"] += 1
+        await db.commit()
+
+    # Equipment returns due within 14 days.
+    async with AsyncSessionLocal() as db:
+        staff_ids_res = await db.execute(
+            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
+        )
+        staff_ids = [row[0] for row in staff_ids_res.all()]
+        if staff_ids:
+            due = await _equipment_due_for_return(db)
+            already = await _equipment_already_notified(db)
+            fresh = [item for item in due if item.id not in already]
+            for item in fresh:
+                days_left = (item.return_due_date - date.today()).days if item.return_due_date else None
+                title = f"[eq_ret] Sprzęt do zwrotu — item #{item.id}"
+                message = (
+                    f"Sprzęt {item.item_type.value} "
+                    f"(serial={item.serial_number or '—'}) z kontraktu "
+                    f"#{item.contract_id} ma być zwrócony "
+                    f"{item.return_due_date} ({days_left} dni)."
+                )
+                for uid in staff_ids:
+                    db.add(
+                        Notification(
+                            user_id=uid,
+                            title=title,
+                            message=message,
+                            link=f"/contracts/{item.contract_id}",
+                            notification_type=NotificationType.equipment_return_due_14d,
+                            related_entity_type="contract_equipment",
+                            related_entity_id=item.id,
+                        )
+                    )
+                stats["equipment_return_alerts"] += 1
+        await db.commit()
+
+    # Client orders expiring in 30 days (often earlier than the consultant contract).
+    async with AsyncSessionLocal() as db:
+        staff_ids_res = await db.execute(
+            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
+        )
+        staff_ids = [row[0] for row in staff_ids_res.all()]
+        if staff_ids:
+            orders = await _client_orders_ending(db)
+            already = await _client_order_already_notified(db)
+            fresh = [c for c in orders if c.id not in already]
+            for c in fresh:
+                days_left = (
+                    (c.client_order_end_date - date.today()).days
+                    if c.client_order_end_date
+                    else None
+                )
+                title = f"[client_order] Kontrakt #{c.id} — zamówienie klienta kończy się"
+                message = (
+                    f"Zamówienie klienta dla kontraktu #{c.id} wygasa "
+                    f"{c.client_order_end_date} ({days_left} dni). "
+                    f"Skontaktuj się z klientem w sprawie przedłużenia."
+                )
+                for uid in staff_ids:
+                    db.add(
+                        Notification(
+                            user_id=uid,
+                            title=title,
+                            message=message,
+                            link=f"/contracts/{c.id}",
+                            notification_type=NotificationType.client_order_ending_30d,
+                            related_entity_type="contract",
+                            related_entity_id=c.id,
+                        )
+                    )
+                stats["client_order_alerts"] += 1
         await db.commit()
 
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()

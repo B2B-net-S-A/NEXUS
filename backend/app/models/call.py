@@ -37,6 +37,10 @@ class Call(Base, TimestampMixin):
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Optional link to a contract — set when the call was about an active angaż.
+    contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Dane rozmowy
     direction: Mapped[CallDirection] = mapped_column(
@@ -64,6 +68,9 @@ class Call(Base, TimestampMixin):
     # Relationships
     candidate = relationship("Candidate", back_populates="calls")
     user = relationship("User", foreign_keys=[user_id])
+    contract = relationship(
+        "Contract", back_populates="contract_calls", foreign_keys=[contract_id]
+    )
 
     def __repr__(self) -> str:
         return f"<Call id={self.id} candidate_id={self.candidate_id} direction={self.direction} status={self.status}>"

@@ -22,6 +22,10 @@ class NotificationType(str, enum.Enum):
     stage_stuck_7d = "stage_stuck_7d"
     # Phase 11 — realtime Champion Profile edits
     champion_profile_updated = "champion_profile_updated"
+    # Kontrakty expansion — proactive contract/equipment/order reminders
+    contract_ending_90d = "contract_ending_90d"
+    equipment_return_due_14d = "equipment_return_due_14d"
+    client_order_ending_30d = "client_order_ending_30d"
 
 
 class Notification(Base, TimestampMixin):

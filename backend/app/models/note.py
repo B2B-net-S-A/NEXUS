@@ -30,16 +30,23 @@ class Note(Base, TimestampMixin):
         Enum(NoteType), default=NoteType.general, nullable=False
     )
 
-    # Powiązania — notatka może być przy kandydacie, ofercie lub obu
+    # Powiązania — notatka może być przy kandydacie, ofercie, kontrakcie lub
+    # ich kombinacji. Wszystkie FK są nullable + ON DELETE SET NULL.
     candidate_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("candidates.id"), index=True
     )
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
+    contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")
     job = relationship("Job", back_populates="notes")
+    contract = relationship(
+        "Contract", back_populates="contract_notes", foreign_keys=[contract_id]
+    )
     author = relationship(
         "User", back_populates="authored_notes", foreign_keys=[author_id]
     )

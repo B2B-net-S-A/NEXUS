@@ -29,7 +29,9 @@ from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
+    CandidateEngagementUpdate,
     CandidateList,
+    CandidateLocationUpdate,
     CandidateResponse,
     CandidateUpdate,
     EmploymentInfo,
@@ -1312,3 +1314,80 @@ async def check_duplicates(
         lastname=payload.lastname,
         exclude_candidate_id=payload.exclude_candidate_id,
     )
+
+
+# ── Engagement + location (Kontrakty expansion) ─────────────────────────────
+
+
+@router.patch(
+    "/{candidate_id}/engagement",
+    response_model=CandidateResponse,
+)
+async def update_candidate_engagement(
+    candidate_id: int,
+    data: CandidateEngagementUpdate,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update consultant engagement flags (ambassador, verifier, side projects…)."""
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No engagement fields provided")
+    for k, v in updates.items():
+        setattr(candidate, k, v)
+
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="engagement_updated",
+            user_id=current_user.id,
+            details=updates,
+        )
+    )
+    await db.flush()
+    await db.refresh(candidate)
+    return candidate
+
+
+@router.patch(
+    "/{candidate_id}/location",
+    response_model=CandidateResponse,
+)
+async def update_candidate_location(
+    candidate_id: int,
+    data: CandidateLocationUpdate,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update consultant structured location (city / country / hub)."""
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    updates = data.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No location fields provided")
+    for k, v in updates.items():
+        setattr(candidate, k, v)
+
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="location_updated",
+            user_id=current_user.id,
+            details=updates,
+        )
+    )
+    await db.flush()
+    await db.refresh(candidate)
+    return candidate

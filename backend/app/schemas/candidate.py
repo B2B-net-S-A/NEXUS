@@ -140,11 +140,61 @@ class CandidateUpdate(BaseModel):
     champion: Optional[bool] = None
     verifier_id: Optional[int] = None
     verified_tech: Optional[List[Any]] = None
+    # Engagement flags — consultant-level cues for extra value.
+    is_ambassador: Optional[bool] = None
+    wants_to_verify_candidates: Optional[bool] = None
+    open_to_side_projects: Optional[bool] = None
+    open_to_sales_support: Optional[bool] = None
+    open_to_expert_consult: Optional[bool] = None
+    engagement_notes: Optional[str] = None
+    # Structured location.
+    city: Optional[str] = None
+    country: Optional[str] = Field(default=None, max_length=2)
+    region: Optional[str] = None
+    hub_city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     @field_validator("skills", "verified_tech", mode="before")
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def _uppercase_country(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().upper() or None
+        return v
+
+
+class CandidateEngagementUpdate(BaseModel):
+    """Convenience schema for PATCH /{id}/engagement."""
+
+    is_ambassador: Optional[bool] = None
+    wants_to_verify_candidates: Optional[bool] = None
+    open_to_side_projects: Optional[bool] = None
+    open_to_sales_support: Optional[bool] = None
+    open_to_expert_consult: Optional[bool] = None
+    engagement_notes: Optional[str] = None
+
+
+class CandidateLocationUpdate(BaseModel):
+    """Convenience schema for PATCH /{id}/location."""
+
+    city: Optional[str] = None
+    country: Optional[str] = Field(default=None, max_length=2)
+    region: Optional[str] = None
+    hub_city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def _uppercase_country(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().upper() or None
+        return v
 
 
 class MatchStats(BaseModel):
@@ -193,6 +243,20 @@ class CandidateResponse(BaseModel):
     champion: bool = False
     verifier_id: Optional[int] = None
     verified_tech: Optional[Any] = None
+    # Engagement flags (Kontrakty expansion)
+    is_ambassador: bool = False
+    wants_to_verify_candidates: bool = False
+    open_to_side_projects: bool = False
+    open_to_sales_support: bool = False
+    open_to_expert_consult: bool = False
+    engagement_notes: Optional[str] = None
+    # Structured location (Kontrakty expansion)
+    city: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    hub_city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     cv_filename: Optional[str]
     cv_parsed_at: Optional[datetime]
     # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,

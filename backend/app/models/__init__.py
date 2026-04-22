@@ -9,8 +9,15 @@ from app.models.competence_category import (
 from app.models.client import Client
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractTerminationReason
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_equipment import (
+    ContractEquipment,
+    EquipmentItemType,
+    EquipmentOwner,
+    EquipmentReturnStatus,
+)
+from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
 from app.models.rate_card import RateCard
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_onboarding import (
@@ -66,8 +73,15 @@ __all__ = [
     "CandidateStage",
     "Note",
     "Contract",
+    "ContractTerminationReason",
     "ContractDocument",
     "ContractDocumentType",
+    "ContractEquipment",
+    "EquipmentItemType",
+    "EquipmentOwner",
+    "EquipmentReturnStatus",
+    "RateBenchmark",
+    "SeniorityLevel",
     "RateCard",
     "ContractAmendment",
     "ContractAmendmentType",

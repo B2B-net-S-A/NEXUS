@@ -35,6 +35,21 @@ class ContractWorkMode(str, enum.Enum):
     onsite = "onsite"
 
 
+class ContractTerminationReason(str, enum.Enum):
+    """Structured reasons for ending cooperation — drives attrition analytics."""
+
+    poached_by_client = "poached_by_client"
+    project_ended = "project_ended"
+    client_budget_cut = "client_budget_cut"
+    performance_issue = "performance_issue"
+    consultant_resigned = "consultant_resigned"
+    better_offer = "better_offer"
+    personal_reasons = "personal_reasons"
+    contract_breach = "contract_breach"
+    mutual_agreement = "mutual_agreement"
+    other = "other"
+
+
 class Contract(Base, TimestampMixin):
     """
     Kontrakt body-leasingowy — łączy kandydata z klientem przez ofertę.
@@ -101,6 +116,29 @@ class Contract(Base, TimestampMixin):
     # Free-form internal handover notes (C6) — widoczne tylko dla TAC/delivery.
     handover_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Structured termination metadata — populated when status flips to `ended`.
+    # `terminated_at` may differ from `end_date` (e.g. early termination).
+    # `termination_lessons` is a TAC-only free-form "what would we do differently".
+    termination_reason: Mapped[Optional[ContractTerminationReason]] = mapped_column(
+        Enum(ContractTerminationReason, name="contractterminationreason"),
+        nullable=True,
+        index=True,
+    )
+    termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    # Desired rate range we want to achieve on this contract (used by benchmark
+    # comparison and by sales during renegotiation).
+    target_rate_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    target_rate_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # End of the client's purchase order — often earlier than our contract with
+    # the consultant. Drives proactive reminders so we can react before the
+    # order lapses.
+    client_order_end_date: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True, index=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="contracts")
     client = relationship("Client", back_populates="contracts")
@@ -110,6 +148,23 @@ class Contract(Base, TimestampMixin):
         back_populates="contract",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    equipment = relationship(
+        "ContractEquipment",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ContractEquipment.created_at.desc()",
+    )
+    contract_notes = relationship(
+        "Note",
+        back_populates="contract",
+        foreign_keys="Note.contract_id",
+    )
+    contract_calls = relationship(
+        "Call",
+        back_populates="contract",
+        foreign_keys="Call.contract_id",
     )
     amendments = relationship(
         "ContractAmendment",

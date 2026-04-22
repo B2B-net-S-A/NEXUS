@@ -12,25 +12,39 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.activity import Activity
-from app.models.contract import Contract, ContractStatus
+from app.models.call import Call
+from app.models.candidate import Candidate
+from app.models.contract import (
+    Contract,
+    ContractStatus,
+    ContractTerminationReason,
+    RateUnit,
+)
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
+from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.job import Job
+from app.models.note import Note
+from app.models.rate_benchmark import RateBenchmark
 from app.models.rate_history import RateHistory
 from app.models.user import User
 from app.schemas.contract import (
     ContractActivityEntry,
+    ContractBenchmarkComparison,
     ContractCreate,
     ContractDetailResponse,
     ContractList,
     ContractRateHistoryEntry,
     ContractResponse,
+    ContractTerminateRequest,
+    ContractTimelineItem,
     ContractUpdate,
 )
 from app.schemas.contract_amendment import (
@@ -40,6 +54,11 @@ from app.schemas.contract_amendment import (
 from app.schemas.contract_document import (
     ContractDocumentResponse,
     ContractDocumentUpdate,
+)
+from app.schemas.contract_equipment import (
+    ContractEquipmentCreate,
+    ContractEquipmentResponse,
+    ContractEquipmentUpdate,
 )
 from app.schemas.contract_onboarding import (
     OnboardingItemCreate,
@@ -67,8 +86,11 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "job_id": contract.job_id,
         "start_date": contract.start_date,
         "end_date": contract.end_date,
+        "client_order_end_date": contract.client_order_end_date,
         "rate_candidate": contract.rate_candidate,
         "rate_client": contract.rate_client,
+        "target_rate_min": contract.target_rate_min,
+        "target_rate_max": contract.target_rate_max,
         "currency": contract.currency,
         "rate_unit": contract.rate_unit,
         "billing_hours_per_month": contract.billing_hours_per_month,
@@ -83,6 +105,12 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "team_name": contract.team_name,
         "project_name": contract.project_name,
         "handover_notes": contract.handover_notes,
+        "termination_reason": contract.termination_reason,
+        "termination_lessons": contract.termination_lessons,
+        "terminated_at": contract.terminated_at,
+        "monthly_rate_candidate": contract.monthly_rate_candidate,
+        "monthly_rate_client": contract.monthly_rate_client,
+        "monthly_margin": contract.monthly_margin,
         "created_at": contract.created_at,
         "updated_at": contract.updated_at,
         "candidate_name": (
@@ -883,3 +911,427 @@ async def delete_onboarding_item(
     if not item:
         raise HTTPException(status_code=404, detail="Onboarding item not found")
     await db.delete(item)
+
+
+# ── Equipment (Kontrakty expansion: ewidencja sprzętu) ──────────────────────
+
+
+@router.get(
+    "/{contract_id}/equipment",
+    response_model=List[ContractEquipmentResponse],
+)
+async def list_contract_equipment(
+    contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    await _assert_contract(db, contract_id)
+    result = await db.execute(
+        select(ContractEquipment)
+        .where(ContractEquipment.contract_id == contract_id)
+        .order_by(ContractEquipment.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.post(
+    "/{contract_id}/equipment",
+    response_model=ContractEquipmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_equipment(
+    contract_id: int,
+    data: ContractEquipmentCreate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    contract_res = await db.execute(select(Contract).where(Contract.id == contract_id))
+    contract = contract_res.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    payload = data.model_dump()
+    # If the caller didn't supply a return_due_date, default to the contract's
+    # end_date so the alert task picks it up automatically.
+    if payload.get("return_due_date") is None and contract.end_date is not None:
+        payload["return_due_date"] = contract.end_date
+
+    item = ContractEquipment(contract_id=contract_id, **payload)
+    db.add(item)
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="equipment_added",
+            user_id=current_user.id,
+            details={
+                "item_type": item.item_type.value
+                if hasattr(item.item_type, "value")
+                else str(item.item_type),
+                "serial_number": item.serial_number,
+                "owner": item.owner.value
+                if hasattr(item.owner, "value")
+                else str(item.owner),
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.patch(
+    "/{contract_id}/equipment/{equipment_id}",
+    response_model=ContractEquipmentResponse,
+)
+async def update_contract_equipment(
+    contract_id: int,
+    equipment_id: int,
+    data: ContractEquipmentUpdate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    item = await db.scalar(
+        select(ContractEquipment).where(
+            ContractEquipment.id == equipment_id,
+            ContractEquipment.contract_id == contract_id,
+        )
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    updates = data.model_dump(exclude_unset=True)
+    for k, v in updates.items():
+        setattr(item, k, v)
+    # Guard: returned_date requires return_status=returned (mark as returned).
+    if item.returned_date is not None and item.return_status != EquipmentReturnStatus.returned:
+        item.return_status = EquipmentReturnStatus.returned
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="equipment_updated",
+            user_id=current_user.id,
+            details={k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                     for k, v in updates.items()},
+        )
+    )
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.delete(
+    "/{contract_id}/equipment/{equipment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_contract_equipment(
+    contract_id: int,
+    equipment_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_contract(db, contract_id)
+    item = await db.scalar(
+        select(ContractEquipment).where(
+            ContractEquipment.id == equipment_id,
+            ContractEquipment.contract_id == contract_id,
+        )
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Equipment item not found")
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="equipment_removed",
+            user_id=current_user.id,
+            details={"equipment_id": equipment_id},
+        )
+    )
+    await db.delete(item)
+
+
+# ── Termination (dedicated endpoint with structured reason) ──────────────────
+
+
+@router.post(
+    "/{contract_id}/terminate",
+    response_model=ContractDetailResponse,
+)
+async def terminate_contract(
+    contract_id: int,
+    data: ContractTerminateRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark the contract as ended with a structured reason and optional lessons.
+
+    If the effective date is earlier than the current end_date, an
+    `early_termination` amendment is also recorded for audit.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    when = data.terminated_at or date.today()
+    previous_end_date = contract.end_date
+
+    contract.status = ContractStatus.ended
+    contract.terminated_at = when
+    contract.termination_reason = data.termination_reason
+    contract.termination_lessons = data.termination_lessons
+    # Keep end_date coherent — never let it lag the termination date.
+    if contract.end_date is None or contract.end_date > when:
+        contract.end_date = when
+
+    # Audit amendment if the contract was cut short.
+    if previous_end_date is not None and when < previous_end_date:
+        db.add(
+            ContractAmendment(
+                contract_id=contract_id,
+                amendment_type=ContractAmendmentType.early_termination,
+                old_values={
+                    "end_date": previous_end_date.isoformat(),
+                    "status": "active",
+                },
+                new_values={"end_date": when.isoformat(), "status": "ended"},
+                effective_date=when,
+                reason=(
+                    f"{data.termination_reason.value}: {data.termination_lessons}"
+                    if data.termination_lessons
+                    else data.termination_reason.value
+                ),
+                created_by=current_user.id,
+            )
+        )
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="terminated",
+            user_id=current_user.id,
+            details={
+                "termination_reason": data.termination_reason.value,
+                "terminated_at": when.isoformat(),
+                "early": previous_end_date is not None and when < previous_end_date,
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(contract)
+    return _to_detail(contract)
+
+
+# ── Notes + Calls timeline per contract ──────────────────────────────────────
+
+
+@router.get(
+    "/{contract_id}/notes",
+    response_model=List[ContractTimelineItem],
+)
+async def contract_timeline(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Chronological merge of notes + calls attached to this contract."""
+    await _assert_contract(db, contract_id)
+
+    notes_res = await db.execute(
+        select(Note, User.email)
+        .outerjoin(User, Note.author_id == User.id)
+        .where(Note.contract_id == contract_id)
+        .order_by(Note.created_at.desc())
+        .limit(limit)
+    )
+    calls_res = await db.execute(
+        select(Call, User.email)
+        .outerjoin(User, Call.user_id == User.id)
+        .where(Call.contract_id == contract_id)
+        .order_by(Call.created_at.desc())
+        .limit(limit)
+    )
+
+    items: list[ContractTimelineItem] = []
+
+    for note, author_email in notes_res.all():
+        items.append(
+            ContractTimelineItem(
+                id=note.id,
+                kind="note",
+                at=note.created_at,
+                content=note.content,
+                sub_type=note.note_type.value
+                if hasattr(note.note_type, "value")
+                else str(note.note_type),
+                author_id=note.author_id,
+                author_name=author_email,
+            )
+        )
+
+    for call, author_email in calls_res.all():
+        items.append(
+            ContractTimelineItem(
+                id=call.id,
+                kind="call",
+                at=call.created_at,
+                summary=call.summary,
+                content=call.transcript,
+                sub_type=call.direction.value
+                if hasattr(call.direction, "value")
+                else str(call.direction),
+                status=call.status.value
+                if hasattr(call.status, "value")
+                else str(call.status),
+                author_id=call.user_id,
+                author_name=author_email,
+                duration_seconds=call.duration_seconds,
+            )
+        )
+
+    items.sort(key=lambda i: i.at, reverse=True)
+    return items[:limit]
+
+
+# ── Benchmark comparison (rate vs internal avg vs market) ────────────────────
+
+
+def _monthly_equivalent(rate: Optional[int], unit: RateUnit, hours: int) -> Optional[int]:
+    if rate is None:
+        return None
+    if unit == RateUnit.monthly:
+        return rate
+    if unit == RateUnit.daily:
+        return rate * 22
+    if unit == RateUnit.hourly:
+        return rate * (hours or 160)
+    return rate
+
+
+async def _resolve_role_for_contract(db: AsyncSession, contract: Contract) -> Optional[str]:
+    """Best-effort role extraction: job.title → candidate.competence_category."""
+    if contract.job_id:
+        title = await db.scalar(select(Job.title).where(Job.id == contract.job_id))
+        if title:
+            return title
+    cc = await db.scalar(
+        select(Candidate.competence_category).where(Candidate.id == contract.candidate_id)
+    )
+    return cc
+
+
+@router.get(
+    "/{contract_id}/benchmark",
+    response_model=ContractBenchmarkComparison,
+)
+async def contract_benchmark(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(selectinload(Contract.candidate))
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    role = await _resolve_role_for_contract(db, contract)
+    contract_rate_monthly = _monthly_equivalent(
+        contract.rate_client, contract.rate_unit, contract.billing_hours_per_month
+    )
+
+    # Internal average: other active contracts for the same role.
+    internal_avg_monthly: Optional[int] = None
+    internal_median_monthly: Optional[int] = None
+    internal_sample_size = 0
+    if role:
+        peer_q = (
+            select(Contract, Job.title, Candidate.competence_category)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .outerjoin(Job, Job.id == Contract.job_id)
+            .where(
+                Contract.id != contract_id,
+                Contract.status == ContractStatus.active,
+                Contract.rate_client.isnot(None),
+                or_(Job.title == role, Candidate.competence_category == role),
+            )
+        )
+        rows = (await db.execute(peer_q)).all()
+        monthly_values: list[int] = []
+        for peer, _, _ in rows:
+            peer_monthly = _monthly_equivalent(
+                peer.rate_client, peer.rate_unit, peer.billing_hours_per_month
+            )
+            if peer_monthly is not None:
+                monthly_values.append(peer_monthly)
+        if monthly_values:
+            internal_sample_size = len(monthly_values)
+            internal_avg_monthly = int(sum(monthly_values) / internal_sample_size)
+            sorted_v = sorted(monthly_values)
+            mid = internal_sample_size // 2
+            internal_median_monthly = (
+                sorted_v[mid]
+                if internal_sample_size % 2 == 1
+                else (sorted_v[mid - 1] + sorted_v[mid]) // 2
+            )
+
+    # Market benchmark: pick the most recent entry for the role in same currency.
+    market_row = None
+    if role:
+        market_q = (
+            select(RateBenchmark)
+            .where(
+                RateBenchmark.role.ilike(role),
+                RateBenchmark.currency == contract.currency,
+            )
+            .order_by(RateBenchmark.source_date.desc())
+            .limit(1)
+        )
+        market_row = (await db.execute(market_q)).scalar_one_or_none()
+
+    market_min_monthly: Optional[int] = None
+    market_median_monthly: Optional[int] = None
+    market_max_monthly: Optional[int] = None
+    market_source = None
+    market_source_date = None
+    if market_row is not None:
+        market_min_monthly = _monthly_equivalent(
+            market_row.market_min, market_row.rate_unit, contract.billing_hours_per_month
+        )
+        market_median_monthly = _monthly_equivalent(
+            market_row.market_median,
+            market_row.rate_unit,
+            contract.billing_hours_per_month,
+        )
+        market_max_monthly = _monthly_equivalent(
+            market_row.market_max, market_row.rate_unit, contract.billing_hours_per_month
+        )
+        market_source = market_row.source
+        market_source_date = market_row.source_date
+
+    return ContractBenchmarkComparison(
+        contract_rate_monthly=contract_rate_monthly,
+        internal_avg_monthly=internal_avg_monthly,
+        internal_median_monthly=internal_median_monthly,
+        internal_sample_size=internal_sample_size,
+        market_min=market_min_monthly,
+        market_median=market_median_monthly,
+        market_max=market_max_monthly,
+        market_source=market_source,
+        market_source_date=market_source_date,
+        role_used=role,
+        currency=contract.currency,
+    )

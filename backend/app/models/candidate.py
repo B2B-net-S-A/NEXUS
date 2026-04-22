@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     LargeBinary,
+    Numeric,
     String,
     Text,
 )
@@ -108,6 +109,38 @@ class Candidate(Base, TimestampMixin):
 
     # "Champion" flag — top performer (verified high quality)
     champion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # ── Engagement flags (Phase: Kontrakty expansion) ────────────────────
+    # Boolean cues used by TAC/delivery to match a consultant to extra value
+    # beyond their current engagement: referrals, screening help, expert
+    # consultations, sales support, etc. Stored on candidate (cecha stała,
+    # przenosi się między kontraktami).
+    is_ambassador: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    wants_to_verify_candidates: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    open_to_side_projects: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    open_to_sales_support: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    open_to_expert_consult: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    engagement_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Structured location (Phase: Kontrakty expansion) ─────────────────
+    # Legacy free-text `location` above is kept for compatibility; these
+    # fields enable heat-maps, regional meetups, hub-based project teams.
+    city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    region: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    hub_city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
 
     # Who verified / last screened this candidate
     verifier_id: Mapped[Optional[int]] = mapped_column(
