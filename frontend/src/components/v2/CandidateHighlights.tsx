@@ -1,0 +1,186 @@
+"use client";
+
+import { AlertTriangle, Circle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+export type EmploymentState =
+  | "employed_at_client"
+  | "on_bench"
+  | "external"
+  | "unknown";
+
+export type AvailabilityStatus =
+  | "actively_looking"
+  | "open_to_offers"
+  | "not_looking"
+  | "unknown";
+
+export type CandidateStatus = "active" | "passive" | "blacklisted";
+
+export interface EmploymentInfo {
+  state: EmploymentState;
+  client_id?: number | null;
+  client_name?: string | null;
+  contract_end_date?: string | null;
+  source?: "contract" | "conflict" | "none";
+}
+
+export interface HighlightableCandidate {
+  status?: CandidateStatus;
+  availability_status?: AvailabilityStatus;
+  employment?: EmploymentInfo;
+}
+
+interface Props {
+  candidate: HighlightableCandidate;
+  /**
+   * compact — only tier 1/2 highlights (for dense lists).
+   * full    — every applicable tier plus "not_looking" pill (for profile cards).
+   */
+  variant?: "compact" | "full";
+  className?: string;
+}
+
+/**
+ * Central renderer for consultant status highlights.
+ *
+ * Covers the 6 scenarios from the brief by combining two orthogonal axes
+ * (employment / availability). Tier 1 badges are the "must-see" alerts that
+ * should make the recruiter pause before acting.
+ */
+export function CandidateHighlights({
+  candidate,
+  variant = "compact",
+  className,
+}: Props) {
+  const { status, availability_status, employment } = candidate;
+  const employmentState = employment?.state ?? "unknown";
+  const isEmployedAtClient = employmentState === "employed_at_client";
+  const isBlacklisted = status === "blacklisted";
+
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+      {/* ── Tier 1: must-see alerts ─────────────────────────────────── */}
+      {isEmployedAtClient && (
+        <Badge
+          variant="alert"
+          size="sm"
+          uppercase
+          title={
+            employment?.source === "conflict"
+              ? "Oznaczone ręcznie jako zatrudniony u tego klienta"
+              : "Aktywny kontrakt z naszym klientem"
+          }
+        >
+          <AlertTriangle className="h-3 w-3" />
+          U KLIENTA{employment?.client_name ? `: ${employment.client_name}` : ""}
+        </Badge>
+      )}
+
+      {isBlacklisted && (
+        <Badge variant="alert-dark" size="sm" uppercase>
+          Black list
+        </Badge>
+      )}
+
+      {/* ── Tier 2: employment state (informational) ─────────────────── */}
+      {employmentState === "on_bench" && (
+        <Badge variant="success" size="sm">
+          Bez projektu
+        </Badge>
+      )}
+      {variant === "full" && employmentState === "external" && (
+        <Badge variant="soft" size="sm">
+          Zewnętrzny
+        </Badge>
+      )}
+
+      {/* ── Tier 3: availability (postawa) ───────────────────────────── */}
+      {availability_status === "actively_looking" && (
+        <Badge variant="success" size="sm">
+          <Circle className="h-1.5 w-1.5 fill-current" />
+          {isEmployedAtClient ? "Rozgląda się" : "Aktywnie szuka"}
+        </Badge>
+      )}
+      {availability_status === "open_to_offers" && (
+        <Badge variant="info" size="sm">
+          {isEmployedAtClient ? "Otwarty na dodatkowe" : "Otwarty na projekty"}
+        </Badge>
+      )}
+      {variant === "full" && availability_status === "not_looking" && (
+        <Badge variant="neutral" size="sm">
+          Nie szuka
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+/** Polish label for a raw availability value. Used by filter dropdowns + edit form. */
+export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  actively_looking: "Aktywnie szuka",
+  open_to_offers: "Otwarty na projekty",
+  not_looking: "Nie szuka",
+  unknown: "Nie wiemy",
+};
+
+export const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] =
+  [
+    { value: "actively_looking", label: "Aktywnie szuka" },
+    { value: "open_to_offers", label: "Otwarty na projekty" },
+    { value: "not_looking", label: "Nie szuka" },
+    { value: "unknown", label: "Nie wiemy" },
+  ];
+
+export const EMPLOYMENT_FILTER_OPTIONS: {
+  value: "all" | "at_client" | "available";
+  label: string;
+}[] = [
+  { value: "all", label: "Dowolne" },
+  { value: "at_client", label: "U naszego klienta" },
+  { value: "available", label: "Dostępni (bez projektu)" },
+];
+
+/**
+ * Full-width banner shown on top of a consultant profile when they're
+ * currently employed at one of our clients. Intentionally loud — this is the
+ * "do not send profile to the wrong client" guardrail.
+ */
+export function AtOurClientBanner({
+  employment,
+  className,
+}: {
+  employment: EmploymentInfo;
+  className?: string;
+}) {
+  if (employment.state !== "employed_at_client") return null;
+  const endText = employment.contract_end_date
+    ? `Kontrakt do: ${employment.contract_end_date}`
+    : "Ręcznie oznaczony jako zatrudniony u klienta";
+  const clientLabel = employment.client_name
+    ? `: ${employment.client_name.toUpperCase()}`
+    : "";
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "rounded-v2-m border border-[hsl(var(--accent-strong))] bg-[hsl(var(--accent))] text-white shadow-v2-s",
+        "animate-pulse-subtle px-4 py-3",
+        className
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold uppercase tracking-[0.12em]">
+            Konsultant zatrudniony u naszego klienta{clientLabel}
+          </p>
+          <p className="text-sm text-white/90 mt-1">
+            {endText} · Nie wysyłaj profilu bez konsultacji z delivery.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

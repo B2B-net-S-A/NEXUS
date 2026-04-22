@@ -12,14 +12,20 @@ import {
 import {
   AlertCircle,
   Clock,
+  FileArchive,
   Flag,
   LayoutGrid,
+  Loader2,
   MoveRight,
   Rows3,
   Sparkles,
   Star,
 } from "lucide-react";
 import api, { pipelineTemplatesApi } from "@/lib/api";
+import {
+  BulkCvDownloadError,
+  downloadBulkCvs,
+} from "@/lib/bulk-cv-download";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui";
 import { Badge } from "@/components/ui/badge";
@@ -321,6 +327,12 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
   const [activeTab, setActiveTab] = useState<"all" | "internal" | "external" | "terminal">("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const showStatus = useCallback((msg: string) => {
+    setStatusMessage(msg);
+    setTimeout(() => setStatusMessage(null), 4000);
+  }, []);
   const [rejectionReasons, setRejectionReasons] = useState<
     { id: string; label: string; applies_to: ("rejected" | "withdrawn")[] }[]
   >([]);
@@ -486,6 +498,37 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
     }
   };
 
+  const bulkDownloadCvs = async () => {
+    if (selected.size === 0 || bulkDownloadBusy) return;
+    const candidateIds = Array.from(
+      new Set(
+        cols
+          .flatMap((c) => c.items)
+          .filter((i) => selected.has(i.id))
+          .map((i) => i.candidate_id)
+      )
+    );
+    if (candidateIds.length === 0) return;
+    setBulkDownloadBusy(true);
+    showStatus("Przygotowywanie ZIP…");
+    try {
+      const { includedCount, skippedCount } = await downloadBulkCvs(candidateIds);
+      showStatus(
+        skippedCount > 0
+          ? `Pobrano ${includedCount} CV. Pominięto: ${skippedCount} (brak CV).`
+          : `Pobrano ${includedCount} CV.`
+      );
+    } catch (e) {
+      showStatus(
+        e instanceof BulkCvDownloadError
+          ? e.message
+          : "Pobieranie nie powiodło się."
+      );
+    } finally {
+      setBulkDownloadBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {/* Toolbar */}
@@ -559,14 +602,36 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
               </SelectContent>
             </Select>
           </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={bulkDownloadCvs}
+            disabled={bulkDownloadBusy || bulkBusy}
+          >
+            {bulkDownloadBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileArchive className="h-3.5 w-3.5" />
+            )}{" "}
+            Pobierz CV (ZIP)
+          </Button>
           <button
             onClick={() => setSelected(new Set())}
-            disabled={bulkBusy}
+            disabled={bulkBusy || bulkDownloadBusy}
             className="ml-auto text-xs text-[hsl(var(--text-onchrome))]/70 hover:text-[hsl(var(--text-onchrome))]"
           >
             Wyczyść
           </button>
         </Card>
+      )}
+
+      {statusMessage && (
+        <div
+          role="status"
+          className="text-xs rounded-v2-s px-3 py-2 bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] border border-[hsl(var(--accent))]/20"
+        >
+          {statusMessage}
+        </div>
       )}
 
       {/* Board */}

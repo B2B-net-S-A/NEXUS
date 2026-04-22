@@ -28,6 +28,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
+import type { UserBrief } from "@/components/v2/jobs/ownership-types";
+import { ROLE_LABELS } from "@/store/auth";
 
 type JobType = "all" | "body_leasing" | "sales" | "tenders";
 
@@ -76,12 +79,29 @@ export function JobsListV2() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState<JobType>("all");
+  const [mine, setMine] = useState(false);
+  const [ownerId, setOwnerId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const queryClient = useQueryClient();
 
+  // Directory of owner-eligible users for the "Rekruter" filter dropdown.
+  const { data: userDirectory } = useQuery<UserBrief[]>({
+    queryKey: ["users", "directory", "ownership"],
+    queryFn: () => api.get("/api/users").then((r) => r.data as UserBrief[]),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ["jobs-v2", search, statusFilter, typeFilter, page],
+    queryKey: [
+      "jobs-v2",
+      search,
+      statusFilter,
+      typeFilter,
+      mine ? 1 : 0,
+      ownerId ?? 0,
+      page,
+    ],
     queryFn: () =>
       api
         .get("/api/jobs", {
@@ -89,6 +109,8 @@ export function JobsListV2() {
             q: search || undefined,
             status: statusFilter || undefined,
             recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
+            mine: mine ? true : undefined,
+            owner_id: ownerId ?? undefined,
             page,
           },
         })
@@ -141,7 +163,7 @@ export function JobsListV2() {
         ))}
       </div>
 
-      {/* Search + status */}
+      {/* Search + status + ownership filters */}
       <div className="flex gap-2 flex-wrap">
         <div className="flex-1 min-w-[260px] max-w-lg">
           <Input
@@ -173,6 +195,44 @@ export function JobsListV2() {
             <SelectItem value="draft">Draft</SelectItem>
           </SelectContent>
         </Select>
+        <Select
+          value={ownerId != null ? String(ownerId) : "any"}
+          onValueChange={(v) => {
+            setOwnerId(v === "any" ? null : Number(v));
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Rekruter: dowolny" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Rekruter: dowolny</SelectItem>
+            {(userDirectory ?? []).map((u) => (
+              <SelectItem key={u.id} value={String(u.id)}>
+                {u.name}
+                <span className="text-[hsl(var(--text-muted))] text-xs ml-2">
+                  {ROLE_LABELS[u.role]}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <button
+          type="button"
+          onClick={() => {
+            setMine((prev) => !prev);
+            setPage(1);
+          }}
+          aria-pressed={mine}
+          className={cn(
+            "px-3 h-9 rounded-v2-m text-sm font-medium transition-all border",
+            mine
+              ? "bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))] shadow-v2-s"
+              : "bg-[hsl(var(--bg-surface))] text-[hsl(var(--text-body))] border-[hsl(var(--border-subtle))] hover:text-[hsl(var(--text-title))]"
+          )}
+        >
+          Moje projekty
+        </button>
       </div>
 
       {/* Grid of job cards */}
@@ -229,6 +289,10 @@ export function JobsListV2() {
                     <Badge size="sm" variant={statusVariant}>
                       {statusLabel}
                     </Badge>
+                  </div>
+
+                  <div className="mb-2">
+                    <OwnerBadge user={job.primary_owner ?? null} size="sm" />
                   </div>
 
                   {(job.location || job.seniority) && (

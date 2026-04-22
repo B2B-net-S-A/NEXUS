@@ -15,6 +15,7 @@ import {
   FileBarChart,
   GitBranch,
   Handshake,
+  HelpCircle,
   Lightbulb,
   Settings,
   Shield,
@@ -109,6 +110,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "System",
     icon: Settings,
     items: [
+      { href: "/help", label: "Pomoc", icon: HelpCircle },
       { href: "/settings", label: "Ustawienia", icon: Settings },
       {
         href: "/settings/pipeline-templates",

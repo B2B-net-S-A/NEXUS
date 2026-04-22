@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { MyJobsWidget } from "@/components/v2/pages/dashboard/MyJobsWidget";
 
 /**
  * DashboardV2 — Dynaminds redesign. Uses the same TanStack queries as v1
@@ -520,6 +521,9 @@ export function DashboardV2() {
           )}
         </div>
       </section>
+
+      {/* My projects (Recruiter Ownership) */}
+      <MyJobsWidget />
 
       {/* Pipeline + Hires */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
