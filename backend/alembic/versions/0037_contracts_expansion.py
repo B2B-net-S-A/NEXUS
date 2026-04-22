@@ -45,7 +45,10 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "0037_contracts_expansion"
-down_revision = "0036_microsoft365"
+# 0036_microsoft365 lives in a separate, not-yet-shipped branch (uncommitted
+# locally during the Kontrakty expansion work). This migration chains on top
+# of the current production head so it can deploy independently.
+down_revision = "0034_merge_phase8_heads"
 branch_labels = None
 depends_on = None
 

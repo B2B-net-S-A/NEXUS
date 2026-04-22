@@ -64,8 +64,6 @@ from app.api import invite_links as invite_links_api
 from app.api import users as users_api
 from app.api import settings as app_settings_api
 from app.api import champion_suggestions as champion_suggestions_api
-from app.api import microsoft365 as microsoft365_api
-from app.api import email_threads as email_threads_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 
 logger = logging.getLogger(__name__)
@@ -164,15 +162,10 @@ async def lifespan(app: FastAPI):
     contract_task = asyncio.create_task(contract_alerts_loop())
     fx_task = asyncio.create_task(fx_refresh_loop())
 
-    # Phase M365.1: Microsoft 365 inbox/calendar sync
-    from app.tasks.microsoft365_sync import microsoft365_sync_loop
-
-    m365_task = asyncio.create_task(microsoft365_sync_loop())
-
     yield
 
     # Shutdown
-    tasks = (reminder_task, ttl_task, slack_task, contract_task, fx_task, m365_task)
+    tasks = (reminder_task, ttl_task, slack_task, contract_task, fx_task)
     for t in tasks:
         t.cancel()
     for t in tasks:
@@ -288,13 +281,6 @@ app.include_router(
 # champion_suggestions.router already declares its own `/champion-suggestions`
 # prefix, so we mount it under `/api`.
 app.include_router(champion_suggestions_api.router, prefix="/api")
-
-# Phase M365.1 — Microsoft 365 integration (OAuth + inbox threads)
-if settings.M365_INTEGRATION_ENABLED:
-    app.include_router(
-        microsoft365_api.router, prefix="/api/microsoft365", tags=["microsoft365"]
-    )
-    app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
 
 
 @app.get("/health")
