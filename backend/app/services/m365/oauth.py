@@ -1,34 +1,42 @@
 """Microsoft 365 OAuth 2.0 authorization code flow (with PKCE).
 
-Uses MSAL's `ConfidentialClientApplication` for the token dance. We wrap it
-because:
-- MSAL is sync — we offload to threads where needed.
-- We need a richer `TokenBundle` shape than MSAL's raw dict.
-- State is a signed JWT (10-min TTL) containing `user_id` + `pkce_verifier`,
-  so the unauthenticated `/callback` can reconstruct session-less context.
+We talk to the Azure AD v2.0 endpoints directly (via httpx) instead of using
+MSAL's ConfidentialClientApplication — MSAL 1.31's
+`get_authorization_request_url` silently dropped our `code_challenge` kwarg,
+so Azure generated its own PKCE challenge under the hood and then rejected
+our verifier at the token exchange with AADSTS501481.
+
+Flow:
+- /authorize generates (verifier, challenge) locally, signs a state JWT that
+  carries the verifier + user_id, and builds the authorize URL by hand.
+- /callback decodes state → verifier, posts the authorization_code grant to
+  /token with code + code_verifier in the form body.
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
+import httpx
 from jose import JWTError, jwt
-from msal import ConfidentialClientApplication
 
 from app.core.config import settings
 from app.services.m365.provider import TokenBundle
 
 logger = logging.getLogger(__name__)
 
-# JWT algo matches the app's main SECRET_KEY flow so ops have one thing to know.
 _STATE_ALGORITHM = "HS256"
 _STATE_TTL_SECONDS = 600  # 10 minutes
+# Scopes we always request on top of the configured M365_SCOPES.
+# offline_access → refresh token; openid/profile → id_token with upn claim.
+_EXTRA_SCOPES = ("offline_access", "openid", "profile")
 
 
 class M365ReauthRequired(RuntimeError):
@@ -43,18 +51,22 @@ class M365NotConfigured(RuntimeError):
 
 
 def generate_pkce_pair() -> tuple[str, str]:
-    """Return (verifier, challenge). Verifier is 43-128 chars, URL-safe base64."""
+    """Return (verifier, challenge). Verifier 43-128 chars URL-safe base64;
+    challenge is S256(verifier) URL-safe base64 without padding."""
     verifier = base64.urlsafe_b64encode(os.urandom(64)).rstrip(b"=").decode("ascii")
-    digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    challenge = _derive_challenge(verifier)
     return verifier, challenge
+
+
+def _derive_challenge(verifier: str) -> str:
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 # ── State JWT ────────────────────────────────────────────────────────────────
 
 
 def _state_signing_key() -> str:
-    """Use dedicated key if set, else fall back to main SECRET_KEY."""
     return settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY
 
 
@@ -71,7 +83,7 @@ def sign_state(user_id: int, pkce_verifier: str) -> str:
 
 
 def verify_state(token: str) -> tuple[int, str]:
-    """Return (user_id, pkce_verifier) or raise JWTError on invalid/expired."""
+    """Return (user_id, pkce_verifier) or raise JWTError."""
     try:
         payload = jwt.decode(token, _state_signing_key(), algorithms=[_STATE_ALGORITHM])
     except JWTError as exc:
@@ -79,72 +91,116 @@ def verify_state(token: str) -> tuple[int, str]:
         raise
     if payload.get("purpose") != "m365_oauth_state":
         raise JWTError("wrong purpose")
-    user_id = int(payload["sub"])
-    pkce = str(payload["pkce"])
-    return user_id, pkce
+    return int(payload["sub"]), str(payload["pkce"])
 
 
-# ── MSAL client + authorize URL ──────────────────────────────────────────────
+# ── Endpoint builders ────────────────────────────────────────────────────────
 
 
-def _require_client() -> ConfidentialClientApplication:
+def _require_config() -> None:
     if not settings.M365_CLIENT_ID or not settings.M365_CLIENT_SECRET:
         raise M365NotConfigured(
             "M365_CLIENT_ID / M365_CLIENT_SECRET are empty. IT Admin must register "
-            "the Azure AD app and provide these (see plan §1)."
+            "the Azure AD app and provide these."
         )
-    authority = f"https://login.microsoftonline.com/{settings.M365_TENANT_ID}"
-    return ConfidentialClientApplication(
-        client_id=settings.M365_CLIENT_ID,
-        client_credential=settings.M365_CLIENT_SECRET,
-        authority=authority,
-    )
+
+
+def _tenant_url_fragment() -> str:
+    # For authorize/token endpoints we always hit the tenant-specific URL
+    # because we know it from admin creds. "common" works too but tenant-
+    # specific gives better error messages.
+    return settings.M365_TENANT_ID or "common"
+
+
+def _scope_string() -> str:
+    return " ".join([*settings.M365_SCOPES, *_EXTRA_SCOPES])
+
+
+def _authorize_endpoint() -> str:
+    return f"https://login.microsoftonline.com/{_tenant_url_fragment()}/oauth2/v2.0/authorize"
+
+
+def _token_endpoint() -> str:
+    return f"https://login.microsoftonline.com/{_tenant_url_fragment()}/oauth2/v2.0/token"
+
+
+# ── Authorize URL ────────────────────────────────────────────────────────────
 
 
 def build_authorize_url(state: str, pkce_verifier: str) -> str:
     """Return the Microsoft login URL the user is redirected to."""
-    _, challenge = _derive_challenge(pkce_verifier)
-    client = _require_client()
-    # MSAL returns str; we trust the library to URL-encode correctly.
-    return client.get_authorization_request_url(
-        scopes=settings.M365_SCOPES,
-        redirect_uri=settings.M365_REDIRECT_URI,
-        state=state,
-        code_challenge=challenge,
-        code_challenge_method="S256",
-        prompt="select_account",  # always show account picker — recruiters may have multiple
-    )
-
-
-def _derive_challenge(verifier: str) -> tuple[str, str]:
-    digest = hashlib.sha256(verifier.encode("ascii")).digest()
-    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-    return verifier, challenge
+    _require_config()
+    challenge = _derive_challenge(pkce_verifier)
+    params = {
+        "client_id": settings.M365_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": settings.M365_REDIRECT_URI,
+        "response_mode": "query",
+        "scope": _scope_string(),
+        "state": state,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "prompt": "select_account",
+    }
+    return f"{_authorize_endpoint()}?{urlencode(params)}"
 
 
 # ── Token exchange + refresh ─────────────────────────────────────────────────
 
 
+async def _post_token(data: dict) -> dict:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            _token_endpoint(),
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {"error": "invalid_response", "raw": resp.text}
+    if resp.status_code >= 400 or "error" in body:
+        err = body.get("error") or f"http_{resp.status_code}"
+        desc = body.get("error_description") or body.get("raw") or "no details"
+        # Re-raise with the raw payload so caller can branch on invalid_grant.
+        raise RuntimeError(f"Microsoft OAuth error: {err}: {desc}")
+    return body
+
+
+def _decode_id_token(id_token: Optional[str]) -> dict:
+    """Base64-decode the claims section without signature verification.
+
+    Safe because we received the token over HTTPS from the Microsoft token
+    endpoint; we only use its claims for display (mailbox UPN, tenant id).
+    """
+    if not id_token:
+        return {}
+    parts = id_token.split(".")
+    if len(parts) < 2:
+        return {}
+    body = parts[1]
+    # pad to multiple of 4
+    body += "=" * (-len(body) % 4)
+    try:
+        return json.loads(base64.urlsafe_b64decode(body).decode("utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def _parse_token_response(raw: dict) -> TokenBundle:
-    """MSAL's dict → TokenBundle. Raises KeyError on missing fields."""
-    if "error" in raw:
-        # Raise a generic exception; caller decides how to surface.
-        desc = raw.get("error_description") or raw.get("error")
-        raise RuntimeError(f"Microsoft OAuth error: {desc}")
-    access_token = raw["access_token"]
-    # MSAL exposes refresh tokens via a private claim; the library's own token
-    # cache holds them, but we need the string for delayed refresh. The public
-    # surface is `raw["refresh_token"]` for confidential clients.
+    access_token = raw.get("access_token")
+    if not access_token:
+        raise RuntimeError(f"Token response missing access_token: {raw}")
     refresh_token = raw.get("refresh_token")
     if not refresh_token:
-        # offline_access scope must be granted.
         raise RuntimeError(
             "No refresh_token in response. Did the user grant 'offline_access'?"
         )
     expires_in = int(raw.get("expires_in", 3600))
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-    scopes = raw.get("scope", "").split() if raw.get("scope") else []
-    id_claims = raw.get("id_token_claims") or {}
+    scope_raw = raw.get("scope", "")
+    scopes = scope_raw.split() if scope_raw else []
+    id_claims = _decode_id_token(raw.get("id_token"))
     tenant_id = id_claims.get("tid") or settings.M365_TENANT_ID
     mailbox_upn = (
         id_claims.get("preferred_username")
@@ -163,41 +219,42 @@ def _parse_token_response(raw: dict) -> TokenBundle:
 
 
 async def exchange_code(code: str, pkce_verifier: str) -> TokenBundle:
-    client = _require_client()
-
-    def _call() -> dict:
-        # MSAL 1.31 doesn't accept `code_verifier` as a keyword; it forwards
-        # everything from `data={}` to the token endpoint form body.
-        return client.acquire_token_by_authorization_code(
-            code=code,
-            scopes=settings.M365_SCOPES,
-            redirect_uri=settings.M365_REDIRECT_URI,
-            data={"code_verifier": pkce_verifier},
-        )
-
-    raw = await asyncio.to_thread(_call)
+    _require_config()
+    data = {
+        "client_id": settings.M365_CLIENT_ID,
+        "client_secret": settings.M365_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": settings.M365_REDIRECT_URI,
+        "code_verifier": pkce_verifier,
+        "scope": _scope_string(),
+    }
+    raw = await _post_token(data)
     return _parse_token_response(raw)
 
 
 async def refresh_tokens(refresh_token: str) -> TokenBundle:
-    client = _require_client()
-
-    def _call() -> dict:
-        return client.acquire_token_by_refresh_token(
-            refresh_token=refresh_token,
-            scopes=settings.M365_SCOPES,
-        )
-
-    raw = await asyncio.to_thread(_call)
-    if raw.get("error") == "invalid_grant":
-        raise M365ReauthRequired(raw.get("error_description", "invalid_grant"))
+    _require_config()
+    data = {
+        "client_id": settings.M365_CLIENT_ID,
+        "client_secret": settings.M365_CLIENT_SECRET,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "scope": _scope_string(),
+    }
+    try:
+        raw = await _post_token(data)
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "invalid_grant" in msg:
+            raise M365ReauthRequired(msg) from exc
+        raise
     return _parse_token_response(raw)
 
 
 async def revoke(refresh_token: Optional[str]) -> None:
-    """Best-effort revoke. Graph's /me/revokeSignInSessions needs admin scope,
-    so for Phase 1 we simply drop the DB row and let the refresh_token rot.
-    Future: call Graph revoke endpoint when we add admin-consent scopes."""
+    """Best-effort revoke — Graph's /me/revokeSignInSessions needs admin scope,
+    so Phase 1 just drops the DB row and lets the refresh_token rot."""
     if not refresh_token:
         return
     logger.info("m365 revoke: soft-revoke (DB row delete) — Graph call TBD")
