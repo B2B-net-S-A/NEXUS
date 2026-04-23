@@ -20,6 +20,7 @@ import { useToast } from "@/components/Toast";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
+import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -950,6 +951,11 @@ export default function JobDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <ActiveViewers
+              resourceType="job"
+              resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
+              className="mr-1"
+            />
             <button
               onClick={() => setShowEditJob(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors shadow-sm"

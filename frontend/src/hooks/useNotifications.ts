@@ -3,6 +3,13 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useAuthStore } from "@/store/auth";
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  PRESENCE_EVENT,
+  WS_OPEN_EVENT,
+  activePresenceKeys,
+  clearWsSender,
+  setWsSender,
+} from "@/lib/wsBus";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -94,6 +101,31 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       reconnectAttemptsRef.current = 0;
       setWsConnected(true);
       stopPolling(); // WS is up — no need to poll
+
+      // Expose a sender to `usePresence` without it needing the ws ref.
+      setWsSender((msg) => ws.send(JSON.stringify(msg)));
+
+      // Replay any presence subscriptions that were active before reconnect.
+      for (const key of activePresenceKeys) {
+        const [resource_type, rid] = key.split(":");
+        const resource_id = Number(rid);
+        if (!resource_type || Number.isNaN(resource_id)) continue;
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "presence:subscribe",
+              resource_type,
+              resource_id,
+            }),
+          );
+        } catch {
+          // ignore; reconnect loop will retry
+        }
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(WS_OPEN_EVENT));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -132,6 +164,13 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           }
         } else if (msg.type === "ping") {
           ws.send("ping");
+        } else if (
+          typeof msg.type === "string" &&
+          msg.type.startsWith("presence:")
+        ) {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent(PRESENCE_EVENT, { detail: msg }));
+          }
         }
       } catch {
         // ignore malformed messages
@@ -146,6 +185,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       if (!mountedRef.current) return;
       setWsConnected(false);
       wsRef.current = null;
+      clearWsSender();
 
       // Start polling as fallback
       startPolling();

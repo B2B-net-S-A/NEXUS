@@ -72,6 +72,9 @@ import {
   CandidateHighlights,
 } from "@/components/v2/CandidateHighlights";
 import { LinkedinSyncPanel } from "@/components/v2/LinkedinSyncPanel";
+import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
+import { usePresence, type PresenceViewer } from "@/hooks/usePresence";
+import { useAuthStore } from "@/store/auth";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   active: "success",
@@ -123,6 +126,13 @@ export function CandidateDetailV2({
   const [screeningStage, setScreeningStage] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
+
+  // Presence: one subscription per candidate page; viewers + setEditing are
+  // passed into children so the NotatkiTab can emit edit signals without
+  // mounting a second hook instance.
+  const currentUser = useAuthStore((s) => s.user);
+  const { viewers: presenceViewers, setEditing: setPresenceEditing } =
+    usePresence("candidate", Number.isFinite(Number(id)) ? Number(id) : null);
 
   const { data: candidate, isLoading } = useQuery({
     queryKey: ["candidate", id],
@@ -353,6 +363,13 @@ export function CandidateDetailV2({
               )}
             </div>
 
+            {/* Active viewers (presence) — other users currently on this candidate */}
+            <ActiveViewers
+              resourceType="candidate"
+              resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
+              viewers={presenceViewers}
+            />
+
             {/* Close button (embedded) */}
             {embedded && onClose && (
               <button
@@ -578,6 +595,9 @@ export function CandidateDetailV2({
                 setNoteText={setNoteText}
                 onAdd={handleAddNote}
                 saving={noteSaving}
+                viewers={presenceViewers}
+                currentUserId={currentUser?.id}
+                setEditing={setPresenceEditing}
               />
             </TabsContent>
             <TabsContent value="umowa" className="mt-0">
@@ -1822,15 +1842,25 @@ function NotatkiTab({
   setNoteText,
   onAdd,
   saving,
+  viewers = [],
+  currentUserId,
+  setEditing,
 }: {
   timeline: any[];
   noteText: string;
   setNoteText: (v: string) => void;
   onAdd: () => void;
   saving: boolean;
+  viewers?: PresenceViewer[];
+  currentUserId?: number;
+  setEditing?: (field: string, active: boolean) => void;
 }) {
   const items = Array.isArray(timeline) ? timeline : [];
   const notes = items.filter((t: any) => t.type === "note");
+
+  const othersEditingNotes = viewers.filter(
+    (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
+  );
 
   return (
     <div className="space-y-4">
@@ -1838,9 +1868,19 @@ function NotatkiTab({
         <Textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
+          onFocus={() => setEditing?.("notes", true)}
+          onBlur={() => setEditing?.("notes", false)}
           placeholder="Nowa notatka…"
           rows={3}
         />
+        {othersEditingNotes.length > 0 ? (
+          <div className="text-xs text-[#F59E0B] flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#F59E0B] animate-pulse" />
+            {othersEditingNotes.length === 1
+              ? `${othersEditingNotes[0].name} edytuje notatki`
+              : `${othersEditingNotes.map((v) => v.name).join(", ")} edytują notatki`}
+          </div>
+        ) : null}
         <div className="flex justify-end">
           <Button
             size="sm"
