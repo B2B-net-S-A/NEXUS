@@ -1209,7 +1209,113 @@ export const recommendationsApi = {
     api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
   assignToJob: (candidateId: number, jobId: number) =>
     api.post(`/api/candidates/${candidateId}/assign-to-job/${jobId}`),
+  seekingContractors: (params?: SeekingContractorsParams) =>
+    api.get<SeekingContractorsResponse>(
+      "/api/recommendations/seeking-contractors",
+      { params },
+    ),
+  cvUploadPreview: (file: File, params?: CvUploadPreviewParams) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (params?.location) fd.append("location", params.location);
+    if (params?.salary_min !== undefined && params.salary_min !== null) {
+      fd.append("salary_min", String(params.salary_min));
+    }
+    if (params?.salary_max !== undefined && params.salary_max !== null) {
+      fd.append("salary_max", String(params.salary_max));
+    }
+    if (params?.competence_category) {
+      fd.append("competence_category", params.competence_category);
+    }
+    return api.post<CvUploadPreviewResponse>(
+      "/api/recommendations/cv-upload-preview",
+      fd,
+      {
+        params: {
+          top_k: params?.top_k,
+          threshold: params?.threshold,
+        },
+      },
+    );
+  },
 };
+
+export interface SeekingContractorsParams {
+  horizon_days?: number;
+  top_k?: number;
+  threshold?: number;
+  location?: string;
+  salary_min?: number;
+  salary_max?: number;
+  competence_category?: string;
+  industry_blocklist?: boolean;
+  page_size?: number;
+}
+
+export interface SeekingContractorRow {
+  candidate: {
+    id: number;
+    name: string;
+    lastname: string;
+    email: string | null;
+    location: string | null;
+    competence_category: string | null;
+    years_it_experience: number | null;
+    salary_expectation: number | null;
+    salary_currency: string | null;
+    availability_status: string | null;
+    champion: boolean;
+    avatar_url: string | null;
+  };
+  source: "ending_contract" | "availability_status";
+  contract_end_date: string | null;
+  current_client_id: number | null;
+  top_matches: Array<{
+    job: JobMatch["job"];
+    total_score: number;
+    breakdown?: ScoreBreakdown;
+    warning: string | null;
+  }>;
+  below_threshold_count: number;
+}
+
+export interface SeekingContractorsResponse {
+  horizon_days: number;
+  total: number;
+  items: SeekingContractorRow[];
+}
+
+export interface CvUploadPreviewParams {
+  top_k?: number;
+  threshold?: number;
+  location?: string;
+  salary_min?: number;
+  salary_max?: number;
+  competence_category?: string;
+}
+
+export interface CvUploadPreviewResponse {
+  parsed_summary: {
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    phone: string | null;
+    city: string | null;
+    current_position: string | null;
+    years_it_experience: number | null;
+    skills: Array<{ name?: string; level?: string | null; years?: number | null }>;
+    languages: Array<{ name?: string; level?: string | null }>;
+    linkedin_url: string | null;
+    source: string | null;
+  };
+  matches: Array<{
+    job: JobMatch["job"];
+    total_score: number;
+    breakdown?: ScoreBreakdown;
+    warning: string | null;
+  }>;
+  search_type: "semantic" | "fallback";
+}
 
 // ── Proposal snapshots (Phase 13) ───────────────────────────────────────────
 

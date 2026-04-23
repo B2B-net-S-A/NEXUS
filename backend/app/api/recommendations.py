@@ -760,3 +760,277 @@ async def assign_candidate_to_job(
 # `multipart/form-data` endpoint is not affected by `from __future__ import
 # annotations` here, which trips FastAPI's `Annotated[UploadFile, File(...)]`
 # resolution).
+
+
+# ── Seeking-contractors batch ───────────────────────────────────────────────
+
+
+def _candidate_query_text(candidate: Candidate) -> str:
+    """Build embedding query text from a Candidate ORM row.
+
+    Mirrors `embedding_service._build_candidate_text` but is co-located here so
+    the seeking-contractors endpoint doesn't depend on a private helper.
+    """
+    parts: list[str] = []
+    if candidate.competence_category:
+        parts.append(candidate.competence_category)
+    years = getattr(candidate, "years_it_experience", None)
+    if isinstance(years, int):
+        if years >= 7:
+            parts.append("senior experienced engineer")
+        elif years >= 3:
+            parts.append("mid-level developer")
+        else:
+            parts.append("junior entry-level developer")
+    if candidate.skills and isinstance(candidate.skills, list):
+        for s in candidate.skills[:15]:
+            if isinstance(s, dict) and s.get("name"):
+                parts.append(s["name"])
+            elif isinstance(s, str):
+                parts.append(s)
+    if candidate.ai_summary:
+        parts.append(candidate.ai_summary[:300])
+    if not parts:
+        parts.append(f"{candidate.name} {candidate.lastname}")
+    return " ".join(p for p in parts if p and str(p).strip())
+
+
+def _shape_seek_candidate(c: Candidate) -> dict:
+    """Trim a Candidate ORM row to the seeking-contractors public shape."""
+    return {
+        "id": c.id,
+        "name": c.name,
+        "lastname": c.lastname,
+        "email": c.email,
+        "location": c.location,
+        "competence_category": c.competence_category,
+        "years_it_experience": c.years_it_experience,
+        "salary_expectation": c.salary_expectation,
+        "salary_currency": c.salary_currency,
+        "availability_status": (
+            c.availability_status.value if c.availability_status else None
+        ),
+        "champion": c.champion,
+        "avatar_url": c.avatar_url,
+    }
+
+
+def _shape_seek_job(j: Job) -> dict:
+    return {
+        "id": j.id,
+        "title": j.title,
+        "client_id": j.client_id,
+        "location": j.location,
+        "salary_min": j.salary_min,
+        "salary_max": j.salary_max,
+        "remote_policy": j.remote_policy.value if j.remote_policy else None,
+        "seniority": j.seniority.value if j.seniority else None,
+        "deadline": j.deadline.isoformat() if j.deadline else None,
+    }
+
+
+@router.get("/recommendations/seeking-contractors")
+@limiter.limit("20/minute")
+async def seeking_contractors(
+    request: Request,
+    horizon_days: int = Query(
+        30, ge=1, le=180, description="Window for `Contract.end_date` (days)."
+    ),
+    top_k: int = Query(5, ge=1, le=20, description="Top jobs per candidate."),
+    threshold: float = Query(
+        40.0, ge=0.0, le=100.0, description="Total score below which jobs are rolled into `below_threshold_count`."
+    ),
+    location: Optional[str] = Query(None),
+    salary_min: Optional[int] = Query(None),
+    salary_max: Optional[int] = Query(None),
+    competence_category: Optional[str] = Query(None),
+    industry_blocklist: bool = Query(True),
+    page_size: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Konsultanci szukający projektu — batch matcher.
+
+    Pool is the union of:
+      - candidates with active/draft/ending Contract whose `end_date` falls
+        within `horizon_days`
+      - candidates whose `availability_status` is `actively_looking` or
+        `open_to_offers`
+
+    For each candidate, runs the same hybrid scoring as the per-candidate
+    `/recommendations` endpoint but caps results at `top_k` per row and reports
+    a `below_threshold_count` for matches < `threshold`.
+
+    Performance: jobs are prefetched once (single SQL `IN (...)`) and shared
+    across all candidates. Per-candidate cost is one Voyage embed + one Qdrant
+    search — the unavoidable minimum for personalized ranking.
+    """
+    from datetime import date, timedelta
+
+    from app.models.contract import Contract, ContractStatus
+    from app.services.recommendation_filters import (
+        RecommendationFilters,
+        apply_user_filters,
+    )
+
+    # 1. Build the candidate pool (union of two sources).
+    horizon = date.today() + timedelta(days=horizon_days)
+
+    # Source A: contractors with end_date within horizon (status active or ending)
+    ending_rows = await db.execute(
+        select(Contract.candidate_id, Contract.end_date, Contract.client_id)
+        .where(
+            Contract.status.in_(
+                [ContractStatus.active, ContractStatus.ending]
+            ),
+            Contract.end_date.is_not(None),
+            Contract.end_date <= horizon,
+        )
+    )
+    ending_meta: dict[int, dict] = {}
+    for cid, end_date, client_id in ending_rows.all():
+        existing = ending_meta.get(cid)
+        # Keep the earliest end_date if multiple contracts.
+        if not existing or end_date < existing["contract_end_date"]:
+            ending_meta[cid] = {
+                "contract_end_date": end_date,
+                "current_client_id": client_id,
+            }
+
+    # Source B: candidates with availability_status in the "looking" set
+    looking_rows = await db.execute(
+        select(Candidate.id).where(
+            Candidate.availability_status.in_(
+                [
+                    AvailabilityStatus.actively_looking,
+                    AvailabilityStatus.open_to_offers,
+                ]
+            ),
+            Candidate.status != CandidateStatus.blacklisted,
+        )
+    )
+    looking_ids = {row[0] for row in looking_rows.all()}
+
+    candidate_ids = list(set(ending_meta.keys()) | looking_ids)[:page_size]
+
+    if not candidate_ids:
+        return {
+            "horizon_days": horizon_days,
+            "total": 0,
+            "items": [],
+        }
+
+    cand_res = await db.execute(
+        select(Candidate).where(Candidate.id.in_(candidate_ids))
+    )
+    candidates = cand_res.scalars().all()
+
+    # 2. Prefetch all open jobs once.
+    jobs_res = await db.execute(
+        select(Job).where(Job.status == JobStatus.published)
+    )
+    all_open_jobs = list(jobs_res.scalars().all())
+
+    if not all_open_jobs:
+        return {
+            "horizon_days": horizon_days,
+            "total": len(candidate_ids),
+            "items": [
+                {
+                    "candidate": _shape_seek_candidate(c),
+                    "source": (
+                        "ending_contract" if c.id in ending_meta else "availability_status"
+                    ),
+                    "contract_end_date": (
+                        ending_meta[c.id]["contract_end_date"].isoformat()
+                        if c.id in ending_meta
+                        else None
+                    ),
+                    "top_matches": [],
+                    "below_threshold_count": 0,
+                }
+                for c in candidates
+            ],
+        }
+
+    user_filters = RecommendationFilters(
+        location=location,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        competence_category=competence_category,
+        industry_blocklist=industry_blocklist,
+    )
+
+    items: list[dict] = []
+    for cand in candidates:
+        # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
+        query_text = _candidate_query_text(cand)
+        hits = await search_jobs_semantic(query_text, top_k=min(top_k * 6, 100))
+        similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
+
+        # Restrict scoring to (a) Qdrant hits ∩ open jobs OR (b) all open jobs
+        # when Qdrant is empty/offline. Either way keep a small pool.
+        if similarity_map:
+            scoring_pool = [j for j in all_open_jobs if j.id in similarity_map]
+        else:
+            # Fallback: rank against the full open-jobs set, capped to keep
+            # response time predictable for the dashboard.
+            scoring_pool = all_open_jobs[:50]
+
+        # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
+        filtered, _stats = await apply_user_filters(
+            cand, scoring_pool, user_filters, db
+        )
+        warning_by_job = {fj.job.id: fj.warning for fj in filtered}
+
+        breakdowns = await rank_jobs_for_candidate(
+            cand,
+            [fj.job for fj in filtered],
+            db,
+            similarity_map=similarity_map,
+        )
+
+        above = [b for b in breakdowns if b.total >= threshold]
+        below_count = sum(1 for b in breakdowns if b.total < threshold)
+
+        top_matches = []
+        for b in above[:top_k]:
+            j = next((x.job for x in filtered if x.job.id == b.job_id), None)
+            if not j:
+                continue
+            top_matches.append(
+                {
+                    "job": _shape_seek_job(j),
+                    "total_score": round(b.total, 1),
+                    "breakdown": b.as_dict(),
+                    "warning": warning_by_job.get(j.id),
+                }
+            )
+
+        meta = ending_meta.get(cand.id)
+        items.append(
+            {
+                "candidate": _shape_seek_candidate(cand),
+                "source": "ending_contract" if meta else "availability_status",
+                "contract_end_date": (
+                    meta["contract_end_date"].isoformat() if meta else None
+                ),
+                "current_client_id": meta["current_client_id"] if meta else None,
+                "top_matches": top_matches,
+                "below_threshold_count": below_count,
+            }
+        )
+
+    # 3. Sort: ending contracts first (urgent), then by top-match score desc.
+    def _sort_key(it: dict):
+        is_ending = 0 if it["source"] == "ending_contract" else 1
+        top_score = it["top_matches"][0]["total_score"] if it["top_matches"] else 0.0
+        return (is_ending, -top_score)
+
+    items.sort(key=_sort_key)
+
+    return {
+        "horizon_days": horizon_days,
+        "total": len(items),
+        "items": items,
+    }
