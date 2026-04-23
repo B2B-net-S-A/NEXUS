@@ -126,9 +126,11 @@ class Settings(BaseSettings):
     # the main SECRET_KEY. Defaults to SECRET_KEY when empty — acceptable for dev,
     # override in prod.
     M365_STATE_SIGNING_KEY: str = ""
-    # Scopes requested during authorize. `offline_access` is mandatory for refresh tokens.
+    # Scopes requested during authorize. MSAL adds `offline_access`, `openid`,
+    # and `profile` automatically (they are reserved — passing them raises
+    # ValueError). Refresh token is still returned because MSAL injects
+    # `offline_access` at the token endpoint under the hood.
     M365_SCOPES: List[str] = [
-        "offline_access",
         "Mail.ReadWrite",
         "Mail.Send",
         "Calendars.ReadWrite",
