@@ -254,6 +254,26 @@ export const talentPoolsApi = {
     api.get(`/api/talent-pools/for-candidate/${candidateId}`),
 };
 
+// ── Competence Categories (5 CC) ──────────────────────────────────────────────
+export interface CompetenceCategoryOut {
+  id: number;
+  slug: string;
+  name_pl: string;
+  name_en: string;
+  description: string;
+  keywords: string[];
+  display_order: number;
+}
+
+export const competenceCategoriesApi = {
+  list: (activeOnly = true) =>
+    api
+      .get<CompetenceCategoryOut[]>("/api/competence-categories", {
+        params: { active_only: activeOnly },
+      })
+      .then((r) => r.data),
+};
+
 // ── Targ kandydatów (Candidate Marketplace) ───────────────────────────────────
 
 export interface MarketplaceOwner {

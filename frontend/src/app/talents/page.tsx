@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { talentPoolsApi } from "@/lib/api";
+import { talentPoolsApi, competenceCategoriesApi } from "@/lib/api";
 import {
   Star,
   Users,
@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DeleteButton } from "@/components/ConfirmDialog";
+import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,61 @@ interface TalentPool {
   candidate_count: number;
   created_at: string;
   criteria: Record<string, unknown> | null;
+  // Phase 10 A2
+  competence_category_id: number | null;
+  competence_category_slug: string | null;
+}
+
+// ── Pool-name parser (for grouping) ───────────────────────────────────────────
+
+const SENIORITY_LABELS = ["Junior", "Mid", "Senior", "Lead", "Architect"] as const;
+type SeniorityLabel = (typeof SENIORITY_LABELS)[number];
+const SENIORITY_ORDER: Record<SeniorityLabel, number> = {
+  Junior: 1,
+  Mid: 2,
+  Senior: 3,
+  Lead: 4,
+  Architect: 5,
+};
+
+interface ParsedPoolName {
+  subcategory: string;
+  seniority: SeniorityLabel | null;
+}
+
+/**
+ * Parse auto-generated pool names back into (subcategory, seniority).
+ *
+ * Patterns produced by `talent_pool_auto_add.py`:
+ *   "{subcategory} {Seniority}"  → e.g. "DevOps Senior"
+ *   "{subcategory}"              → e.g. "DevOps"
+ *   "{Seniority} — Inne"         → e.g. "Senior — Inne"
+ *
+ * Legacy/manual pools get `subcategory=name, seniority=null` → grouped under
+ * the original name as a one-item group (sorted alphabetically near the
+ * bottom; the "Pozostałe" bucket from explicit conventions stays last).
+ */
+function parsePoolName(name: string): ParsedPoolName {
+  // "{Seniority} — Inne" → seniority-only legacy bucket, render as "Inne"
+  if (name.endsWith(" — Inne")) {
+    const maybeSeniority = name.replace(" — Inne", "") as SeniorityLabel;
+    if ((SENIORITY_LABELS as readonly string[]).includes(maybeSeniority)) {
+      return { subcategory: "Inne", seniority: maybeSeniority };
+    }
+  }
+
+  const words = name.trim().split(/\s+/);
+  const last = words[words.length - 1];
+  if (
+    (SENIORITY_LABELS as readonly string[]).includes(last) &&
+    words.length > 1
+  ) {
+    return {
+      subcategory: words.slice(0, -1).join(" "),
+      seniority: last as SeniorityLabel,
+    };
+  }
+  return { subcategory: name, seniority: null };
 }
 
 // Derive pool type badge from name keywords
@@ -401,11 +457,59 @@ export default function TalentsPage() {
 function TalentsPageContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedPool, setSelectedPool] = useState<TalentPool | null>(null);
+  const [selectedCcIds, setSelectedCcIds] = useState<number[]>([]);
 
   const { data: pools = [], isLoading } = useQuery<TalentPool[]>({
     queryKey: ["talent-pools"],
     queryFn: () => talentPoolsApi.list().then((r) => r.data),
   });
+
+  const { data: ccList = [] } = useQuery({
+    queryKey: ["competence-categories"],
+    queryFn: () => competenceCategoriesApi.list(true),
+    staleTime: 1000 * 60 * 60, // 1h — CC list is stable
+  });
+
+  // Filter by CC (empty selection = all)
+  const filteredPools = useMemo(() => {
+    if (selectedCcIds.length === 0) return pools;
+    return pools.filter(
+      (p) =>
+        p.competence_category_id !== null &&
+        selectedCcIds.includes(p.competence_category_id),
+    );
+  }, [pools, selectedCcIds]);
+
+  // Group by subcategory (parsed from pool name), sort groups + pools-in-group
+  const groupedPools = useMemo(() => {
+    const groups = new Map<string, TalentPool[]>();
+    for (const pool of filteredPools) {
+      const { subcategory } = parsePoolName(pool.name);
+      const existing = groups.get(subcategory) ?? [];
+      groups.set(subcategory, [...existing, pool]);
+    }
+
+    // Sort pools within each group by seniority; no-seniority goes last
+    for (const [key, arr] of groups) {
+      const sorted = [...arr].sort((a, b) => {
+        const pa = parsePoolName(a.name);
+        const pb = parsePoolName(b.name);
+        const oa = pa.seniority ? SENIORITY_ORDER[pa.seniority] : 99;
+        const ob = pb.seniority ? SENIORITY_ORDER[pb.seniority] : 99;
+        if (oa !== ob) return oa - ob;
+        return a.name.localeCompare(b.name, "pl");
+      });
+      groups.set(key, sorted);
+    }
+
+    // Sort group keys alphabetically (pl); "Inne" stays last
+    const entries = Array.from(groups.entries()).sort(([a], [b]) => {
+      if (a === "Inne") return 1;
+      if (b === "Inne") return -1;
+      return a.localeCompare(b, "pl");
+    });
+    return entries;
+  }, [filteredPools]);
 
   if (selectedPool) {
     return (
@@ -419,7 +523,7 @@ function TalentsPageContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Star className="w-6 h-6 text-amber-500 fill-amber-500" />
@@ -429,16 +533,34 @@ function TalentsPageContent() {
             Zarządzaj grupami kandydatów według technologii i specjalizacji
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Nowa pula
-        </button>
+        <div className="flex items-center gap-2">
+          <MultiSelectFilter<number>
+            value={selectedCcIds}
+            onChange={setSelectedCcIds}
+            options={ccList.map((cc) => ({ value: cc.id, label: cc.name_pl }))}
+            placeholder="Wszystkie kategorie"
+            searchPlaceholder="Szukaj kategorii…"
+            triggerLabel={(count) =>
+              count === 0
+                ? "Wszystkie kategorie"
+                : count === 1
+                  ? (ccList.find((cc) => cc.id === selectedCcIds[0])?.name_pl ??
+                    "1 kategoria")
+                  : `${count} kategorii`
+            }
+            triggerWidthClass="w-[220px]"
+          />
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Nowa pula
+          </button>
+        </div>
       </div>
 
-      {/* Pools Grid */}
+      {/* Pools — grouped by subcategory */}
       {isLoading ? (
         <div className="flex items-center justify-center py-20 text-gray-400 gap-2">
           <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
@@ -461,72 +583,110 @@ function TalentsPageContent() {
             Utwórz pierwszą pulę
           </button>
         </div>
+      ) : filteredPools.length === 0 ? (
+        <div className="text-center py-16">
+          <Tag className="w-10 h-10 mx-auto mb-3 text-gray-200" />
+          <p className="text-sm text-gray-400 mb-2">
+            Brak pul w wybranych kategoriach
+          </p>
+          <button
+            onClick={() => setSelectedCcIds([])}
+            className="text-xs text-blue-600 hover:text-blue-700 underline"
+          >
+            Wyczyść filtr
+          </button>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {pools.map((pool) => {
-            const color = getPoolColor(pool.name);
-            return (
-              <button
-                key={pool.id}
-                onClick={() => setSelectedPool(pool)}
-                className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all overflow-hidden group"
-              >
-                {/* Color bar */}
-                <div className={cn("h-1.5 bg-gradient-to-r", color)} />
+        <div className="space-y-8">
+          {groupedPools.map(([subcategory, groupPools]) => (
+            <section key={subcategory}>
+              <div className="flex items-baseline gap-3 mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {subcategory}
+                </h2>
+                <span className="text-xs text-gray-400">
+                  {groupPools.length} {groupPools.length === 1 ? "pula" : "puli"}
+                </span>
+              </div>
 
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div
-                      className={cn(
-                        "w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center flex-shrink-0",
-                        color
-                      )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {groupPools.map((pool) => {
+                  const color = getPoolColor(pool.name);
+                  return (
+                    <button
+                      key={pool.id}
+                      onClick={() => setSelectedPool(pool)}
+                      className="text-left bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md hover:border-gray-300 transition-all overflow-hidden group"
                     >
-                      <Star className="w-5 h-5 text-white fill-white" />
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                        {pool.candidate_count}
-                      </p>
-                      <p className="text-xs text-gray-400">kandydatów</p>
-                    </div>
-                  </div>
+                      {/* Color bar */}
+                      <div className={cn("h-1.5 bg-gradient-to-r", color)} />
 
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base group-hover:text-blue-600 transition-colors flex-1">
-                      {pool.name}
-                    </h3>
-                    {(() => {
-                      const badge = getPoolTypeBadge(pool.name);
-                      return (
-                        <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 flex items-center gap-1", badge.color)}>
-                          <Tag className="w-2.5 h-2.5" />
-                          {badge.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div
+                            className={cn(
+                              "w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center flex-shrink-0",
+                              color,
+                            )}
+                          >
+                            <Star className="w-5 h-5 text-white fill-white" />
+                          </div>
+                          <div className="text-right">
+                            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                              {pool.candidate_count}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              kandydatów
+                            </p>
+                          </div>
+                        </div>
 
-                  {pool.description && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                      {pool.description}
-                    </p>
-                  )}
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base group-hover:text-blue-600 transition-colors flex-1">
+                            {pool.name}
+                          </h3>
+                          {(() => {
+                            const badge = getPoolTypeBadge(pool.name);
+                            return (
+                              <span
+                                className={cn(
+                                  "text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 flex items-center gap-1",
+                                  badge.color,
+                                )}
+                              >
+                                <Tag className="w-2.5 h-2.5" />
+                                {badge.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
 
-                  <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-xs text-gray-400">
-                    <div className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" />
-                      <span>{pool.candidate_count} kandydatów</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>Zaktualizowano {formatRelativeDate(pool.created_at)}</span>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+                        {pool.description && (
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                            {pool.description}
+                          </p>
+                        )}
+
+                        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-xs text-gray-400">
+                          <div className="flex items-center gap-1">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>{pool.candidate_count} kandydatów</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>
+                              Zaktualizowano{" "}
+                              {formatRelativeDate(pool.created_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
 
