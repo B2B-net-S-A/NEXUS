@@ -166,11 +166,13 @@ async def exchange_code(code: str, pkce_verifier: str) -> TokenBundle:
     client = _require_client()
 
     def _call() -> dict:
+        # MSAL 1.31 doesn't accept `code_verifier` as a keyword; it forwards
+        # everything from `data={}` to the token endpoint form body.
         return client.acquire_token_by_authorization_code(
             code=code,
             scopes=settings.M365_SCOPES,
             redirect_uri=settings.M365_REDIRECT_URI,
-            code_verifier=pkce_verifier,
+            data={"code_verifier": pkce_verifier},
         )
 
     raw = await asyncio.to_thread(_call)
