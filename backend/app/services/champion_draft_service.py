@@ -495,11 +495,17 @@ async def generate_from_historical_jobs(
     client_name = await _client_name(db, job.client_id)
     effective_description = raw_description or (job.description or "")
 
+    # Phase D: pass train_name through so retrieval can prefer same-train
+    # closed jobs. The extractor runs in the Job create/update path — we
+    # only read the stored value here.
+    job_train_name = getattr(job, "train_name", None)
+
     matches = await find_similar_historical_jobs(
         db,
         client_id=job.client_id,
         title=job.title or "",
         raw_description=effective_description,
+        train_name=job_train_name,
         top_k=top_k,
         cross_client=cross_client,
         exclude_job_id=job.id,
@@ -528,7 +534,7 @@ async def generate_from_historical_jobs(
         template_vars = {
             "job_title": job.title or "bez tytułu",
             "client_name": client_name,
-            "train_name": "brak danych",
+            "train_name": job_train_name or "brak danych",
             "raw_description": effective_description or "brak opisu",
             "historical_profiles_json": json.dumps(compact, ensure_ascii=False),
             "skill_frequency_json": json.dumps(freq, ensure_ascii=False),

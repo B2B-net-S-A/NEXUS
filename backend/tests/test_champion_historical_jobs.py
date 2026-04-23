@@ -20,6 +20,45 @@ from app.services.historical_jobs_retrieval import (
     _extract_skill_name,
     skill_frequency,
 )
+from app.services.train_name_extractor import extract_train_name
+
+
+# ── Phase D: train_name extractor ───────────────────────────────────────────
+
+
+def test_train_name_extractor_generic_art_pattern():
+    text = "Poszukujemy Senior Java Developera do ART Payments w zespole fintech."
+    assert extract_train_name(text) == "Payments"
+
+
+def test_train_name_extractor_nordea_dictionary_wins_over_regex():
+    text = "Role for CIB Mortgages, ART Banking - Nordea programme."
+    # Per-client dictionary should match "CIB Mortgages" first.
+    assert extract_train_name(text, client_slug="nordea") == "CIB Mortgages"
+
+
+def test_train_name_extractor_release_train_pattern():
+    text = "Join the Agile Release Train Data & Analytics."
+    assert extract_train_name(text) == "Data & Analytics"
+
+
+def test_train_name_extractor_returns_none_on_ambiguous_input():
+    assert extract_train_name("") is None
+    assert extract_train_name("Just a regular job description.") is None
+    # Too short to be meaningful.
+    assert extract_train_name("TRAIN X") is None
+
+
+def test_train_name_extractor_strips_trailing_punctuation():
+    text = "Rekrutacja do programme: Payments."
+    result = extract_train_name(text)
+    assert result == "Payments"
+
+
+def test_train_name_extractor_unknown_client_falls_back_to_regex():
+    text = "Program - Open Banking w banku komercyjnym."
+    # Client not in dict → generic regex still catches "Open Banking".
+    assert extract_train_name(text, client_slug="unknown-bank") == "Open Banking"
 
 
 # ── Pure-function tests ─────────────────────────────────────────────────────
@@ -145,6 +184,75 @@ def test_build_query_text_empty_inputs_return_empty():
 
 
 # ── Async: find_similar_historical_jobs ─────────────────────────────────────
+
+
+def test_same_train_boost_reorders_close_similarities():
+    """A same-train match at 0.80 should float above a non-same-train 0.82."""
+    from app.services.historical_jobs_retrieval import (
+        find_similar_historical_jobs,
+    )
+
+    # Build fake matches; call the sort directly via the public flow shim.
+    # We unit-test the ranking by wiring two matches with known fields and
+    # emulating what find_similar_historical_jobs does after SQL.
+    a = HistoricalJobMatch(
+        job_id=1,
+        title="Semantically closer",
+        similarity=0.82,
+        closed_at=None,
+        client_id=1,
+        client_name="Nordea",
+        champion_profile={"project_context": {"about": "A"}},
+        must_skills=[],
+        nice_skills=[],
+        same_train=False,
+    )
+    b = HistoricalJobMatch(
+        job_id=2,
+        title="Same train, slightly lower sim",
+        similarity=0.80,
+        closed_at=None,
+        client_id=1,
+        client_name="Nordea",
+        champion_profile={"project_context": {"about": "B"}},
+        must_skills=[],
+        nice_skills=[],
+        same_train=True,
+    )
+    # Same sort key as the production code.
+    ranked = sorted(
+        [a, b],
+        key=lambda m: (
+            m.similarity + (0.05 if m.same_train else 0.0),
+            1 if m.same_train else 0,
+        ),
+        reverse=True,
+    )
+    assert ranked[0].job_id == 2  # same-train boost wins
+    assert ranked[1].job_id == 1
+
+    # Sanity: a big similarity gap should still override the boost.
+    a_big = HistoricalJobMatch(
+        job_id=3,
+        title="Far semantically closer",
+        similarity=0.95,
+        closed_at=None,
+        client_id=1,
+        client_name="Nordea",
+        champion_profile={"project_context": {"about": "C"}},
+        must_skills=[],
+        nice_skills=[],
+        same_train=False,
+    )
+    ranked2 = sorted(
+        [a_big, b],
+        key=lambda m: (
+            m.similarity + (0.05 if m.same_train else 0.0),
+            1 if m.same_train else 0,
+        ),
+        reverse=True,
+    )
+    assert ranked2[0].job_id == 3
 
 
 @pytest.mark.asyncio

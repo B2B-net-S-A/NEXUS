@@ -43,6 +43,9 @@ class JobCreate(BaseModel):
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
+    # Phase 15 / Phase D: programme / ART tag — free-text, optional.
+    # Auto-populated by `extract_train_name` when left empty.
+    train_name: Optional[str] = None
 
     # AI CC matching (migracja 0041). Jeśli `competence_category_id` podane —
     # używamy jawnie; jeśli None + `auto_suggest_cc=true` — classifier wybiera
@@ -88,6 +91,8 @@ class JobUpdate(BaseModel):
     pipeline_template_id: Optional[int] = None
     competence_category_id: Optional[int] = None
     secondary_cc_ids: Optional[List[int]] = None
+    # Phase 15 / Phase D: allow DL to set/override train_name explicitly.
+    train_name: Optional[str] = None
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod
@@ -157,6 +162,8 @@ class JobResponse(BaseModel):
     closed_at: Optional[datetime] = None
     close_reason: Optional[JobCloseReason] = None
     close_notes: Optional[str] = None
+    # Phase 15 / Phase D: programme tag surfaced to UI for autocomplete.
+    train_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

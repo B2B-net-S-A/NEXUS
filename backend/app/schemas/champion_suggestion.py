@@ -69,6 +69,10 @@ class HistoricalMatchPreview(BaseModel):
     client_id: Optional[int] = None
     client_name: Optional[str] = None
     seniority: Optional[str] = None
+    # Phase 15 / Phase D: programme tag on the historical role — not the
+    # current role's train. Exposed so the UI can render it next to the
+    # `same_train` badge. `None` when the closed job was never tagged.
+    train_name: Optional[str] = None
     same_train: bool = False
     has_champion_profile: bool = True
     must_skills_count: int = 0

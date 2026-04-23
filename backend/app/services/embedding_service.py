@@ -388,6 +388,11 @@ def _build_job_text(job) -> str:
         parts.append(job.subcategory)
     if getattr(job, "industry", None):
         parts.append(f"branża {job.industry}")
+    # Phase 15: train/programme tag — strong same-client similarity signal
+    # captured in the embedding so cross-client searches also benefit.
+    train_name = getattr(job, "train_name", None)
+    if train_name:
+        parts.append(f"train {train_name}")
 
     # Must / nice skills names
     for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):

@@ -1690,6 +1690,9 @@ export interface HistoricalMatchPreview {
   client_id: number | null;
   client_name: string | null;
   seniority: string | null;
+  /** Phase 15 / Phase D: programme tag of the historical role (not the
+   *  current role). `null` when the closed job was never tagged. */
+  train_name: string | null;
   same_train: boolean;
   has_champion_profile: boolean;
   must_skills_count: number;

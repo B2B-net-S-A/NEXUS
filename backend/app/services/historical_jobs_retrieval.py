@@ -73,8 +73,9 @@ class HistoricalJobMatch:
     must_skills: list[dict]
     nice_skills: list[dict]
     seniority: Optional[str] = None
-    # Phase D extension — filled by UI when the hit came from the same-train
-    # search variant. MVP leaves this False.
+    # Phase 15 / Phase D: programme tag of the historical job. Used to mark
+    # `same_train` relative to the current role's train_name.
+    train_name: Optional[str] = None
     same_train: bool = False
 
 
@@ -87,6 +88,7 @@ async def find_similar_historical_jobs(
     client_id: Optional[int],
     title: str,
     raw_description: Optional[str] = None,
+    train_name: Optional[str] = None,
     top_k: int = 5,
     cross_client: bool = False,
     exclude_job_id: Optional[int] = None,
@@ -153,9 +155,17 @@ async def find_similar_historical_jobs(
     if not rows:
         return []
 
+    target_train = train_name.strip().lower() if train_name else None
+
     matches: list[HistoricalJobMatch] = []
     for job, client_name in rows:
         similarity = similarity_by_id.get(job.id, 0.0)
+        job_train = getattr(job, "train_name", None)
+        same_train = bool(
+            target_train
+            and job_train
+            and job_train.strip().lower() == target_train
+        )
         matches.append(
             HistoricalJobMatch(
                 job_id=job.id,
@@ -168,11 +178,21 @@ async def find_similar_historical_jobs(
                 must_skills=list(job.must_skills or []),
                 nice_skills=list(job.nice_skills or []),
                 seniority=(job.seniority.value if job.seniority else None),
+                train_name=job_train,
+                same_train=same_train,
             )
         )
 
-    # Preserve Qdrant's similarity ranking (SQL WHERE-IN returns in index order)
-    matches.sort(key=lambda m: m.similarity, reverse=True)
+    # Primary sort: similarity. Same-train hits get a small deterministic
+    # boost so they float above near-ties but don't override hard-better
+    # semantic matches.
+    matches.sort(
+        key=lambda m: (
+            m.similarity + (0.05 if m.same_train else 0.0),
+            1 if m.same_train else 0,
+        ),
+        reverse=True,
+    )
     return matches[:top_k]
 
 

@@ -80,6 +80,18 @@ _ENUM_STATEMENTS = [
     # tej wartości w INSERT, więc brak w enum => InvalidTextRepresentationError
     # i crash-loop feature'a dla DL-i.
     "ALTER TYPE champion_suggestion_source ADD VALUE IF NOT EXISTS 'historical_jobs'",
+    # Phase 15 / Phase D (migration 0055_job_train_name): train_name column
+    # na jobs + partial index. Safety-net: /api/jobs create/update oraz
+    # /champion-profile/historical-matches czytają/piszą tę kolumnę; brak
+    # kolumny => UndefinedColumnError przy INSERT/UPDATE jobs.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS train_name VARCHAR(128) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_train_name_partial "
+    "ON jobs (client_id, train_name) WHERE train_name IS NOT NULL",
+    # Poszerzenie alembic_version.version_num — nowsze nazwy rewizji (np.
+    # 0054_marketplace_notification_type, 34 znaki) nie mieściły się w
+    # pierwotnym VARCHAR(32) i blokowały upgrade na prod. VARCHAR(128) jest
+    # bezpiecznym górnym limitem dla nazewnictwa w tym repo.
+    "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)",
     # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
     # powiadomień dla dopasowań z puli marketplace. Bez tego insert
     # Notification(notification_type='marketplace_match') crashuje z

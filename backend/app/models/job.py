@@ -131,6 +131,14 @@ class Job(Base, TimestampMixin):
     )
     subcategory: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    # Phase 15 (migration 0055): Programme / Agile Release Train identifier.
+    # Free-text (np. "ART Payments", "CIB Mortgages", "TRAIN-X") used by the
+    # historical-jobs suggestion source as a same-train boost when retrieving
+    # similar closed roles for Champion Profile pre-fill.
+    train_name: Mapped[Optional[str]] = mapped_column(
+        String(128), nullable=True, index=True
+    )
+
     # Freeform custom fields — Faza 4 will replace with dedicated engine
     custom_fields: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 

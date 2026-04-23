@@ -70,6 +70,38 @@ async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
         logger.warning(f"[Job] embedding failed for job {job_id}: {e}")
 
 
+async def _auto_extract_train_name(
+    *,
+    db: AsyncSession,
+    title: str,
+    description: str,
+    client_id: Optional[int],
+) -> Optional[str]:
+    """Phase 15 / Phase D: best-effort train-name extraction.
+
+    Loads the client name (lowercased → slug-like key) so the per-client
+    dictionary can kick in. Falls back to regex-only when the client is
+    unknown. Never raises; returns None on any error.
+    """
+    try:
+        from app.services.train_name_extractor import extract_train_name
+        from app.models.client import Client
+
+        client_slug: Optional[str] = None
+        if client_id is not None:
+            client = (
+                await db.execute(select(Client).where(Client.id == client_id))
+            ).scalar_one_or_none()
+            if client and client.name:
+                client_slug = client.name.strip().lower()
+
+        combined = f"{title}\n{description}".strip()
+        return extract_train_name(combined, client_slug=client_slug)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("[Job] train_name extraction failed: %s", exc)
+        return None
+
+
 # ── Recruiter ownership helpers ─────────────────────────────────────────────
 # Primary owner lives on `jobs.recruiter_id` (nullable FK). Collaborators are
 # rows in `job_collaborators` — same semantics for the "Moje projekty" filter
@@ -244,6 +276,16 @@ async def create_job(
     secondary_cc_ids = data.secondary_cc_ids or []
     auto_suggest = data.auto_suggest_cc
 
+    # Phase 15 / Phase D: auto-extract train_name if the caller didn't set it.
+    # Best-effort — never blocks save. Regex + per-client dictionary.
+    if not payload.get("train_name"):
+        payload["train_name"] = await _auto_extract_train_name(
+            db=db,
+            title=payload.get("title") or "",
+            description=payload.get("description") or "",
+            client_id=payload.get("client_id"),
+        )
+
     job = Job(**payload, created_by=current_user.id)
     db.add(job)
     await db.flush()
@@ -375,6 +417,21 @@ async def update_job(
     _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
     for k, v in updates.items():
         setattr(job, k, v)
+
+    # Phase 15 / Phase D: re-extract train_name if title/description changed
+    # and the DL hasn't set one manually. Never overrides a DL-provided tag.
+    train_fields_touched = bool(
+        {"title", "description"} & updates.keys()
+    ) and "train_name" not in updates
+    if train_fields_touched and not job.train_name:
+        extracted = await _auto_extract_train_name(
+            db=db,
+            title=job.title or "",
+            description=job.description or "",
+            client_id=job.client_id,
+        )
+        if extracted:
+            job.train_name = extracted
 
     # Track closed_at transitions so `/api/reports/clients` can filter by
     # real close date (not updated_at). See migration 0047_job_closed_at.
@@ -774,6 +831,7 @@ async def get_champion_historical_matches(
         client_id=job.client_id,
         title=job.title or "",
         raw_description=job.description or "",
+        train_name=getattr(job, "train_name", None),
         top_k=top_k,
         cross_client=cross_client,
         exclude_job_id=job.id,
@@ -788,6 +846,7 @@ async def get_champion_historical_matches(
             client_id=m.client_id,
             client_name=m.client_name,
             seniority=m.seniority,
+            train_name=m.train_name,
             same_train=m.same_train,
             has_champion_profile=bool(m.champion_profile),
             must_skills_count=len(m.must_skills or []),
@@ -830,6 +889,7 @@ async def preview_historical_matches_for_new_role(
         client_id=body.client_id,
         title=body.title,
         raw_description=body.raw_description,
+        train_name=body.train_name,
         top_k=body.top_k,
         cross_client=body.cross_client,
     )
@@ -843,6 +903,7 @@ async def preview_historical_matches_for_new_role(
             client_id=m.client_id,
             client_name=m.client_name,
             seniority=m.seniority,
+            train_name=m.train_name,
             same_train=m.same_train,
             has_champion_profile=bool(m.champion_profile),
             must_skills_count=len(m.must_skills or []),
