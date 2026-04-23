@@ -206,6 +206,63 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
+    # Pending verification flow (migracja 0056_pending_verification).
+    # Dodaje stage 'verified' + VerificationStatus enum + 9 kolumn audit na
+    # candidate_stages. Bez tego ORM CandidateStage wywala UndefinedColumnError
+    # przy każdym select'cie (GET /pipeline/kanban/{id} — crash-loop backendu).
+    "ALTER TYPE pipelinestage ADD VALUE IF NOT EXISTS 'verified'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'pending_verification'",
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verificationstatus') THEN
+            CREATE TYPE verificationstatus AS ENUM ('active', 'pending', 'rejected');
+        END IF;
+    END $$""",
+    """ALTER TABLE candidate_stages
+        ADD COLUMN IF NOT EXISTS verification_status verificationstatus
+            NOT NULL DEFAULT 'active'""",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS expected_rate_value NUMERIC(10, 2) NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS expected_rate_unit rateunit NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS expected_rate_currency VARCHAR(3) NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS budget_max_at_move INTEGER NULL",
+    """ALTER TABLE candidate_stages
+        ADD COLUMN IF NOT EXISTS approved_by INTEGER NULL REFERENCES users(id)""",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE NULL",
+    """ALTER TABLE candidate_stages
+        ADD COLUMN IF NOT EXISTS rejected_by INTEGER NULL REFERENCES users(id)""",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP WITH TIME ZONE NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS rejection_note TEXT NULL",
+    """CREATE INDEX IF NOT EXISTS ix_candidate_stages_pending_verification
+        ON candidate_stages (job_id, verification_status)
+        WHERE verification_status = 'pending'""",
+    # Seed 'verified' do wszystkich istniejących pipeline_templates —
+    # bez tego kanban template-driven nie ma kolumny "Zweryfikowany".
+    # 2-step shift trick bo uq_stage_order_in_template jest UNIQUE (nie DEFERRABLE).
+    """DO $$
+    DECLARE
+        tpl_id INTEGER;
+    BEGIN
+        FOR tpl_id IN SELECT id FROM pipeline_templates LOOP
+            IF NOT EXISTS (
+                SELECT 1 FROM pipeline_stage_defs
+                WHERE template_id = tpl_id AND legacy_enum_value = 'verified'
+            ) THEN
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" + 1000
+                 WHERE template_id = tpl_id AND "order" >= 3;
+                INSERT INTO pipeline_stage_defs (
+                    template_id, name, "order", category,
+                    is_terminal, terminal_type, legacy_enum_value
+                ) VALUES (
+                    tpl_id, 'Zweryfikowany', 3, 'internal',
+                    FALSE, NULL, 'verified'
+                );
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" - 999
+                 WHERE template_id = tpl_id AND "order" >= 1003;
+            END IF;
+        END LOOP;
+    END $$""",
 ]
 
 _COLUMN_STATEMENTS = [
