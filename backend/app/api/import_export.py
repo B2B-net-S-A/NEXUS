@@ -223,6 +223,9 @@ async def export_candidates(
             "skills",
             "salary_expectation",
             "created_at",
+            "open_to_side_projects",
+            "open_to_sales_support",
+            "open_to_expert_consult",
         ]
     )
 
@@ -251,6 +254,9 @@ async def export_candidates(
                 skills_str,
                 c.salary_expectation or "",
                 created,
+                "tak" if c.open_to_side_projects else "",
+                "tak" if c.open_to_sales_support else "",
+                "tak" if c.open_to_expert_consult else "",
             ]
         )
 
