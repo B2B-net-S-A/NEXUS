@@ -1,6 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { CVDropzoneMatch } from "@/components/sourcing/CVDropzoneMatch";
 import { SeekingContractorsBoard } from "@/components/sourcing/SeekingContractorsBoard";
 
 export default function SeekingContractorsPage() {
@@ -19,9 +20,12 @@ export default function SeekingContractorsPage() {
           Lista konsultantów z kontraktami kończącymi się w najbliższym czasie
           oraz tych, którzy zaznaczyli &ldquo;aktywnie szuka&rdquo; lub &ldquo;otwarty
           na oferty&rdquo;. Dla każdego AI dobiera top dopasowania z otwartych
-          rekrutacji.
+          rekrutacji. Dodatkowo poniżej możesz wrzucić CV osoby spoza bazy —
+          AI dopasuje aktualne projekty bez tworzenia kandydata.
         </p>
       </header>
+
+      <CVDropzoneMatch />
 
       <SeekingContractorsBoard />
     </main>

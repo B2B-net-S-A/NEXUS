@@ -17,6 +17,15 @@ interface Props {
   variant?: "full" | "compact";
   /** Optional callback to jump to the full matches view (e.g. switch tabs). */
   onShowAll?: () => void;
+  /**
+   * Optional pre-computed matches. When provided the widget renders these
+   * directly instead of fetching `/api/candidates/{id}/recommendations`.
+   * Used by the CV-upload-preview flow on /sourcing/seeking-contractors —
+   * the candidate is ephemeral, so there is no candidateId-driven fetch path.
+   * The "Przypisz do rekrutacji" action is hidden when no candidateId exists
+   * (candidateId === 0 acts as a sentinel for the ephemeral case).
+   */
+  matches?: JobMatch[];
 }
 
 function ScoreChip({ score }: { score: number }) {
@@ -42,15 +51,24 @@ export function SuggestedJobsWidget({
   maxItems = 10,
   variant = "full",
   onShowAll,
+  matches: externalMatches,
 }: Props) {
-  const [matches, setMatches] = useState<JobMatch[]>([]);
-  const [loading, setLoading] = useState(true);
+  const usingExternal = externalMatches !== undefined;
+  const [matches, setMatches] = useState<JobMatch[]>(
+    usingExternal ? externalMatches.slice(0, maxItems) : [],
+  );
+  const [loading, setLoading] = useState(!usingExternal);
   const [error, setError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
   const compact = variant === "compact";
 
   const load = async () => {
+    if (usingExternal) {
+      setMatches(externalMatches.slice(0, maxItems));
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -72,7 +90,7 @@ export function SuggestedJobsWidget({
 
   useEffect(() => {
     load();
-  }, [candidateId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [candidateId, usingExternal, externalMatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAssign = async (jobId: number) => {
     setAssigning(jobId);
@@ -181,6 +199,7 @@ export function SuggestedJobsWidget({
               {m.breakdown && (
                 <ScoreBreakdownTooltip breakdown={m.breakdown} compact />
               )}
+              {candidateId === 0 ? null : (
               <button
                 onClick={() => handleAssign(j.id)}
                 disabled={assigning === j.id || assigned}
@@ -197,6 +216,7 @@ export function SuggestedJobsWidget({
                     ? "…"
                     : "Przypisz do rekrutacji"}
               </button>
+              )}
             </li>
           );
         })}

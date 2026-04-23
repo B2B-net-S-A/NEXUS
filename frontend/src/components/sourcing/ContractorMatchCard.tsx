@@ -9,15 +9,27 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  Mail,
   MapPin,
+  MoreVertical,
+  Send,
   Sparkles,
   TrendingDown,
   User,
 } from "lucide-react";
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
+import { EmailDraftDialog } from "./EmailDraftDialog";
 
 interface Props {
   row: SeekingContractorRow;
+}
+
+interface DraftState {
+  title: string;
+  to?: string;
+  subject: string;
+  textBody: string;
+  htmlBody?: string;
 }
 
 function ScoreChip({ score }: { score: number }) {
@@ -74,6 +86,65 @@ export function ContractorMatchCard({ row }: Props) {
   const c = row.candidate;
   const [assigningJobId, setAssigningJobId] = useState<number | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [draft, setDraft] = useState<DraftState | null>(null);
+
+  const handleProposal = async (jobId: number) => {
+    setActionLoading(`proposal-${jobId}`);
+    setOpenMenuJobId(null);
+    try {
+      const res = await recommendationsApi.prepareClientProposal({
+        candidate_id: c.id,
+        job_id: jobId,
+      });
+      setDraft({
+        title: "Propozycja kandydata dla klienta",
+        subject: res.data.draft_email.subject,
+        textBody: res.data.draft_email.text_body,
+        htmlBody: res.data.draft_email.html_body,
+      });
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
+              ?.detail ?? "Błąd")
+          : "Błąd";
+      alert(`Nie udało się wygenerować propozycji: ${msg}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleShortlist = async () => {
+    if (row.top_matches.length === 0) {
+      alert("Brak ofert do wysłania w shortliście.");
+      return;
+    }
+    setActionLoading("shortlist");
+    try {
+      const res = await recommendationsApi.sendCandidateShortlistEmail({
+        candidate_id: c.id,
+        job_ids: row.top_matches.map((m) => m.job.id),
+      });
+      setDraft({
+        title: "Shortlist mailem do kandydata",
+        to: res.data.to,
+        subject: res.data.subject,
+        textBody: res.data.text_body,
+        htmlBody: res.data.html_body,
+      });
+    } catch (e: unknown) {
+      const msg =
+        e && typeof e === "object" && "response" in e
+          ? ((e as { response?: { data?: { detail?: string } } }).response?.data
+              ?.detail ?? "Błąd")
+          : "Błąd";
+      alert(`Nie udało się wygenerować shortlistu: ${msg}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handleAssign = async (jobId: number) => {
     setAssigningJobId(jobId);
@@ -146,6 +217,21 @@ export function ContractorMatchCard({ row }: Props) {
         </div>
 
         <SourceBadge row={row} />
+
+        <button
+          onClick={handleShortlist}
+          disabled={actionLoading !== null}
+          title="Wyślij do kandydata maila z listą tych ofert"
+          className="ml-2 text-xs flex items-center gap-1 bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded-md disabled:opacity-50"
+          data-testid={`shortlist-${c.id}`}
+        >
+          {actionLoading === "shortlist" ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Send className="w-3 h-3" />
+          )}
+          Shortlist mailem
+        </button>
       </header>
 
       {/* Top matches */}
@@ -210,6 +296,35 @@ export function ContractorMatchCard({ row }: Props) {
                     "Przypisz"
                   )}
                 </button>
+                <div className="relative">
+                  <button
+                    onClick={() =>
+                      setOpenMenuJobId(openMenuJobId === j.id ? null : j.id)
+                    }
+                    aria-label="Więcej akcji"
+                    className="text-gray-400 hover:text-gray-700 p-1 rounded"
+                    data-testid={`actions-menu-${c.id}-${j.id}`}
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
+                  {openMenuJobId === j.id && (
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg w-56">
+                      <button
+                        onClick={() => handleProposal(j.id)}
+                        disabled={actionLoading === `proposal-${j.id}`}
+                        className="w-full text-left text-sm px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                        data-testid={`proposal-${c.id}-${j.id}`}
+                      >
+                        {actionLoading === `proposal-${j.id}` ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Mail className="w-3 h-3" />
+                        )}
+                        Wygeneruj propozycję dla klienta
+                      </button>
+                    </div>
+                  )}
+                </div>
               </li>
             );
           })}
@@ -219,6 +334,17 @@ export function ContractorMatchCard({ row }: Props) {
       {/* Below threshold */}
       {row.below_threshold_count > 0 && (
         <BelowThresholdSection count={row.below_threshold_count} />
+      )}
+
+      {draft && (
+        <EmailDraftDialog
+          title={draft.title}
+          to={draft.to}
+          subject={draft.subject}
+          textBody={draft.textBody}
+          htmlBody={draft.htmlBody}
+          onClose={() => setDraft(null)}
+        />
       )}
     </article>
   );

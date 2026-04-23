@@ -1214,6 +1214,16 @@ export const recommendationsApi = {
       "/api/recommendations/seeking-contractors",
       { params },
     ),
+  sendCandidateShortlistEmail: (payload: { candidate_id: number; job_ids: number[] }) =>
+    api.post<ShortlistEmailDraftResponse>(
+      "/api/recommendations/send-candidate-shortlist-email",
+      payload,
+    ),
+  prepareClientProposal: (payload: { candidate_id: number; job_id: number }) =>
+    api.post<ClientProposalResponse>(
+      "/api/recommendations/prepare-client-proposal",
+      payload,
+    ),
   cvUploadPreview: (file: File, params?: CvUploadPreviewParams) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -1283,6 +1293,34 @@ export interface SeekingContractorsResponse {
   horizon_days: number;
   total: number;
   items: SeekingContractorRow[];
+}
+
+export interface ShortlistEmailDraftResponse {
+  candidate_id: number;
+  to: string;
+  subject: string;
+  text_body: string;
+  html_body: string;
+  job_count: number;
+}
+
+export interface ClientProposalResponse {
+  candidate_id: number;
+  job_id: number;
+  client_id: number | null;
+  blind_summary: {
+    skills_summary: string[];
+    experience_years: number;
+    education_level: string;
+    languages: string[];
+    ai_summary: string | null;
+    competence_category: string | null;
+  };
+  draft_email: {
+    subject: string;
+    text_body: string;
+    html_body: string;
+  };
 }
 
 export interface CvUploadPreviewParams {

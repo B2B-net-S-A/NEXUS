@@ -59,6 +59,7 @@ from app.api import matching
 from app.api import pipeline_templates
 from app.api import recommendations
 from app.api import cv_match_preview
+from app.api import phase3_actions
 from app.api import skills as skills_api
 from app.api import scoring_weights as scoring_weights_api
 from app.api import public_share as public_share_api
@@ -326,6 +327,7 @@ app.include_router(
 )
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 app.include_router(cv_match_preview.router, prefix="/api", tags=["recommendations"])
+app.include_router(phase3_actions.router, prefix="/api", tags=["recommendations"])
 app.include_router(phase3.router, prefix="/api", tags=["phase3"])
 app.include_router(phase4.router, prefix="/api", tags=["phase4"])
 app.include_router(phase5.router, prefix="/api", tags=["phase5"])
