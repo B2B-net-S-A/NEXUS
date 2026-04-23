@@ -68,6 +68,12 @@ class CalendarEvent(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
 
+    # Phase M365.1 — Microsoft Graph specifics (recurring series link + etag).
+    m365_series_master_id: Mapped[Optional[str]] = mapped_column(
+        String(255), index=True
+    )
+    m365_change_key: Mapped[Optional[str]] = mapped_column(String(100))
+
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
     reminder_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
@@ -77,6 +83,11 @@ class CalendarEvent(Base, TimestampMixin):
         default=EventStatus.scheduled,
         nullable=False,
         index=True,
+    )
+
+    # Phase 14 — flagowany gdy T+2h eskalacja bez feedbacku; czyszczony po zapisie.
+    needs_attention: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
     )
 
     # Relationships

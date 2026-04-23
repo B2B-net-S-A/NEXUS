@@ -182,6 +182,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
+    from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -194,6 +195,7 @@ async def lifespan(app: FastAPI):
     kpi_coach_task = asyncio.create_task(kpi_coach_nudger_loop())
     notif_triggers_task = asyncio.create_task(notification_triggers_loop())
     rejection_email_task = asyncio.create_task(rejection_email_loop())
+    linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
 
     yield
 
@@ -209,6 +211,7 @@ async def lifespan(app: FastAPI):
         kpi_coach_task,
         notif_triggers_task,
         rejection_email_task,
+        linkedin_sync_task,
     )
     for t in tasks:
         t.cancel()

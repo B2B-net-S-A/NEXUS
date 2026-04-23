@@ -72,7 +72,7 @@ JOB_CRITERIA_FROM_DESCRIPTION = PromptTemplate(
 
 CV_ENRICHMENT = PromptTemplate(
     name="cv_enrichment",
-    version=2,
+    version=3,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -89,6 +89,9 @@ CV_ENRICHMENT = PromptTemplate(
         '  "languages": list of {{"name": "<language>", "level": "A1|A2|B1|B2|C1|C2|native"}}\n'
         '  "companies": list of strings — past employers in chronological order, '
         "most recent first, unique (max 15). Use official company names as they appear in the CV.\n"
+        '  "linkedin_url": the candidate\'s LinkedIn profile URL exactly as it '
+        "appears in the CV (e.g. 'linkedin.com/in/jane-doe' or 'https://www.linkedin.com/in/jane-doe'), "
+        "or null if no LinkedIn URL is present.\n"
         '  "career_summary": short Polish paragraph (3-4 zdania) describing the candidate\'s '
         "trajectory: years in IT, main stack, seniority progression and industries. "
         "Do not add knowledge that is not in the CV. Null if the CV is too short to summarize.\n\n"

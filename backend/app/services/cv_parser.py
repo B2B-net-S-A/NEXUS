@@ -47,6 +47,28 @@ _YEARS_PATTERN = re.compile(
     re.I,
 )
 
+# Matches standalone LinkedIn profile URLs embedded in CV text.
+# Examples caught: "https://linkedin.com/in/jane-doe", "www.linkedin.com/in/jane",
+# "pl.linkedin.com/in/jane-doe/", "linkedin.com/in/jane_doe?foo=bar".
+_LINKEDIN_URL_RE = re.compile(
+    r"(?:https?://)?(?:[a-z]{2,3}\.)?linkedin\.com/in/[\w\-%._]+/?",
+    re.IGNORECASE,
+)
+
+
+def _extract_linkedin_from_text(cv_text: str) -> Optional[str]:
+    """Find the first LinkedIn profile URL in the CV text, or None.
+
+    Used as a regex backstop when the LLM response lacks a `linkedin_url`
+    field. Returns the raw match; the caller normalizes via
+    `app.services.proxycurl.client.normalize_linkedin_url`.
+    """
+
+    if not cv_text:
+        return None
+    match = _LINKEDIN_URL_RE.search(cv_text)
+    return match.group(0) if match else None
+
 
 def _regex_fallback(cv_text: str) -> dict[str, Any]:
     """Deterministic heuristic — best-effort extraction without LLM."""
@@ -77,6 +99,7 @@ def _regex_fallback(cv_text: str) -> dict[str, Any]:
         # null lets UI tell "no data yet" from "legacy record, never enriched".
         "companies": [],
         "career_summary": None,
+        "linkedin_url": _extract_linkedin_from_text(cv_text),
         "_source": "regex",
     }
 
@@ -197,8 +220,28 @@ async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
     if prefer_llm:
         claude = await _parse_with_claude(cv_text)
         if claude is not None:
-            return claude
+            return _with_linkedin_fallback(claude, cv_text)
         ollama = await _parse_with_ollama(cv_text)
         if ollama is not None:
-            return ollama
+            return _with_linkedin_fallback(ollama, cv_text)
     return _regex_fallback(cv_text)
+
+
+def _with_linkedin_fallback(
+    parsed: dict[str, Any], cv_text: str
+) -> dict[str, Any]:
+    """Backstop: if the LLM missed `linkedin_url`, try the regex on raw text.
+
+    Mutates a shallow copy so callers that re-use the dict don't see the
+    fallback sneak in. Keeps the LLM's `_source` unchanged — the regex
+    backfill is transparent to downstream bookkeeping.
+    """
+
+    if parsed.get("linkedin_url"):
+        return parsed
+    found = _extract_linkedin_from_text(cv_text)
+    if not found:
+        return parsed
+    out = dict(parsed)
+    out["linkedin_url"] = found
+    return out

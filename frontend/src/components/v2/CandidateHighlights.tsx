@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Circle } from "lucide-react";
+import { AlertTriangle, Circle, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,32 @@ export interface HighlightableCandidate {
   status?: CandidateStatus;
   availability_status?: AvailabilityStatus;
   employment?: EmploymentInfo;
+  /** ISO datetime of last detected employer change — populated by Proxycurl sync. */
+  linkedin_employment_changed_at?: string | null;
+}
+
+/**
+ * Render "Nowa praca X" badge when a LinkedIn sync detected a new employer in
+ * the last 90 days. Color intensity follows recency (warning within a month,
+ * info within two, neutral within three).
+ */
+function formatLinkedinJobChange(days: number): {
+  label: string;
+  variant: "warning" | "info" | "neutral";
+} {
+  const variant: "warning" | "info" | "neutral" =
+    days < 30 ? "warning" : days < 60 ? "info" : "neutral";
+  let label: string;
+  if (days < 7) {
+    label = "Nowa praca (ten tydzień)";
+  } else if (days < 30) {
+    const weeks = Math.max(1, Math.round(days / 7));
+    label = `Nowa praca ${weeks} tyg`;
+  } else {
+    const months = Math.max(1, Math.round(days / 30));
+    label = `Nowa praca ${months} mies`;
+  }
+  return { label, variant };
 }
 
 interface Props {
@@ -58,6 +84,20 @@ export function CandidateHighlights({
   const employmentState = employment?.state ?? "unknown";
   const isEmployedAtClient = employmentState === "employed_at_client";
   const isBlacklisted = status === "blacklisted";
+
+  // LinkedIn job-change badge: show for changes detected within the last 90d.
+  let linkedinJobChange: { label: string; variant: "warning" | "info" | "neutral" } | null = null;
+  if (candidate.linkedin_employment_changed_at) {
+    const changedAt = new Date(candidate.linkedin_employment_changed_at);
+    if (!Number.isNaN(changedAt.getTime())) {
+      const days = Math.floor(
+        (Date.now() - changedAt.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (days >= 0 && days < 90) {
+        linkedinJobChange = formatLinkedinJobChange(days);
+      }
+    }
+  }
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
@@ -93,6 +133,18 @@ export function CandidateHighlights({
       {variant === "full" && employmentState === "external" && (
         <Badge variant="soft" size="sm">
           Zewnętrzny
+        </Badge>
+      )}
+
+      {/* ── Tier 2.5: LinkedIn-detected employer change ───────────────── */}
+      {linkedinJobChange && (
+        <Badge
+          variant={linkedinJobChange.variant}
+          size="sm"
+          title="Wykryto zmianę pracodawcy na podstawie profilu LinkedIn"
+        >
+          <RefreshCw className="h-3 w-3" />
+          {linkedinJobChange.label}
         </Badge>
       )}
 

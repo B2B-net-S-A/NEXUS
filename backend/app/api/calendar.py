@@ -407,6 +407,98 @@ async def import_ical(
     return res.as_dict()
 
 
+# ── Microsoft 365 calendar invites ────────────────────────────────────────────
+
+
+class M365InviteRequest(BaseModel):
+    candidate_id: int
+    title: str
+    description: Optional[str] = ""
+    start: datetime
+    end: datetime
+    event_type: EventType = EventType.interview
+    extra_attendees: list[str] = []
+    invite_candidate: bool = True
+
+
+@router.post(
+    "/calendar/events/m365-invite",
+    response_model=CalendarEventResponse,
+    status_code=201,
+)
+async def create_m365_invite(
+    body: M365InviteRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a Graph event in the user's Outlook calendar + auto-invite candidate.
+
+    Requires an active `M365Connection`. Falls through to 412 Precondition
+    Failed when the user has not connected their mailbox yet.
+    """
+    from app.models.m365 import M365Connection
+    from app.services.m365.calendar import create_event as m365_create_event
+
+    if body.end <= body.start:
+        raise HTTPException(status_code=422, detail="end must be after start")
+
+    conn = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == current_user.id)
+    )
+    if conn is None or not conn.is_active:
+        raise HTTPException(
+            status_code=412,
+            detail="No active Microsoft 365 connection — connect under /settings.",
+        )
+
+    candidate = await db.get(Candidate, body.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    if body.invite_candidate and not candidate.email:
+        raise HTTPException(
+            status_code=422,
+            detail="candidate has no email — cannot invite",
+        )
+
+    row = await m365_create_event(
+        db,
+        conn,
+        candidate=candidate,
+        title=body.title,
+        description=body.description or "",
+        start=body.start,
+        end=body.end,
+        event_type=body.event_type,
+        extra_attendees=body.extra_attendees,
+        invite_candidate=body.invite_candidate,
+    )
+    await db.commit()
+    await db.refresh(row)
+
+    return CalendarEventResponse(
+        id=row.id,
+        title=row.title,
+        description=row.description,
+        event_type=row.event_type.value if row.event_type else "meeting",
+        start_time=row.start_time,
+        end_time=row.end_time,
+        all_day=row.all_day,
+        candidate_id=row.candidate_id,
+        candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
+        job_id=row.job_id,
+        job_title=None,
+        client_id=row.client_id,
+        client_name=None,
+        attendees=row.attendees,
+        location=row.location,
+        teams_link=row.teams_link,
+        created_by=row.created_by,
+        reminder_minutes=row.reminder_minutes,
+        status=row.status.value if row.status else "scheduled",
+        created_at=row.created_at,
+    )
+
+
 # ── Background reminder task ──────────────────────────────────────────────────
 
 

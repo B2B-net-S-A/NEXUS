@@ -279,6 +279,10 @@ export function CandidatesListV2() {
       .map((x) => Number.parseInt(x, 10))
       .filter((n) => Number.isFinite(n))
   );
+  // LinkedIn-detected job change window — "1", "2", or "3" months. Empty = off.
+  const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
+    searchParams.get("rcj") ?? ""
+  );
   const currentUser = useAuthStore((s) => s.user);
 
   // Sync URL -----------------------------------------------------
@@ -299,6 +303,7 @@ export function CandidatesListV2() {
     if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
     if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
     if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
+    if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `/candidates?${qs}` : "/candidates");
   }, [
@@ -317,6 +322,7 @@ export function CandidatesListV2() {
     pastCompanyFilter,
     currentTitleFilter,
     workedAtClientIds,
+    recentlyChangedJobs,
   ]);
 
   // Data --------------------------------------------------------
@@ -338,6 +344,7 @@ export function CandidatesListV2() {
       pastCompanyFilter,
       currentTitleFilter,
       workedAtClientIds,
+      recentlyChangedJobs,
     ],
     queryFn: () =>
       api
@@ -360,6 +367,9 @@ export function CandidatesListV2() {
             past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
             current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
             worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
+            recently_changed_jobs: recentlyChangedJobs
+              ? Number(recentlyChangedJobs)
+              : undefined,
           },
           paramsSerializer: { indexes: null },
         })
@@ -476,7 +486,8 @@ export function CandidatesListV2() {
     (currentCompanyFilter.length > 0 ? 1 : 0) +
     (pastCompanyFilter.length > 0 ? 1 : 0) +
     (currentTitleFilter.length > 0 ? 1 : 0) +
-    (workedAtClientIds.length > 0 ? 1 : 0);
+    (workedAtClientIds.length > 0 ? 1 : 0) +
+    (recentlyChangedJobs ? 1 : 0);
 
   // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
   const filtersSnapshot: CandidateFilters = useMemo(
@@ -721,6 +732,40 @@ export function CandidatesListV2() {
                 }}
                 placeholder="np. Senior Engineer, PM"
               />
+            </div>
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+                Niedawno zmienił pracę (LinkedIn)
+              </h3>
+              <div className="flex gap-1.5 flex-wrap">
+                {(
+                  [
+                    { value: "", label: "Wszyscy" },
+                    { value: "1", label: "1 mies." },
+                    { value: "2", label: "2 mies." },
+                    { value: "3", label: "3 mies." },
+                  ] as const
+                ).map((opt) => {
+                  const active = recentlyChangedJobs === opt.value;
+                  return (
+                    <button
+                      key={opt.value || "all"}
+                      onClick={() => {
+                        setRecentlyChangedJobs(opt.value);
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "px-2.5 py-1 text-xs rounded-v2-s border transition-colors",
+                        active
+                          ? "bg-[hsl(var(--accent))] text-white border-[hsl(var(--accent))]"
+                          : "bg-[hsl(var(--bg-surface))] text-[hsl(var(--text-body))] border-[hsl(var(--border-subtle))] hover:border-[hsl(var(--accent))]"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">

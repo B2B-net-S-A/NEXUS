@@ -58,6 +58,7 @@ import {
   AtOurClientBanner,
   CandidateHighlights,
 } from "@/components/v2/CandidateHighlights";
+import { LinkedinSyncPanel } from "@/components/v2/LinkedinSyncPanel";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   active: "success",
@@ -705,6 +706,8 @@ function ProfilTab({ candidate }: { candidate: any }) {
           </div>
         </section>
       )}
+
+      <LinkedinSyncPanel candidate={candidate} />
 
       {experience.length > 0 && (
         <section>

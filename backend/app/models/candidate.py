@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.linkedin_snapshot import LinkedinSyncStatus
 
 
 class CandidateStatus(str, enum.Enum):
@@ -198,6 +199,35 @@ class Candidate(Base, TimestampMixin):
     cv_filename: Mapped[Optional[str]] = mapped_column(String(500))
     cv_parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
+    # ── LinkedIn employment tracking (Phase: LinkedIn sync) ──────────────
+    # Denormalized fast-path fields mirror the latest snapshot (stored in
+    # `candidate_linkedin_snapshots`). `linkedin_employment_changed_at` is set
+    # ONLY when the sync detects a new employer — drives the "recently changed
+    # jobs" filter and the candidate-card badge. Title-only changes (awans) are
+    # recorded in the snapshot but do not pollute this timestamp.
+    linkedin_current_company: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    linkedin_current_title: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    linkedin_current_started_at: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    linkedin_employment_changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    linkedin_synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    linkedin_sync_status: Mapped[LinkedinSyncStatus] = mapped_column(
+        Enum(LinkedinSyncStatus, name="linkedinsyncstatus"),
+        default=LinkedinSyncStatus.disabled,
+        server_default="disabled",
+        nullable=False,
+    )
+    linkedin_sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Sprint 7a — external sources (Traffit / talent-radar / CSV imports)
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
     external_source: Mapped[Optional[str]] = mapped_column(
@@ -244,6 +274,12 @@ class Candidate(Base, TimestampMixin):
         "CandidateCompetenceCategory",
         back_populates="candidate",
         cascade="all, delete-orphan",
+    )
+    linkedin_snapshots = relationship(
+        "CandidateLinkedinSnapshot",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+        order_by="desc(CandidateLinkedinSnapshot.fetched_at)",
     )
 
     def __repr__(self) -> str:

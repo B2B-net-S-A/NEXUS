@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 import io
 import logging
@@ -31,6 +31,7 @@ from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateEngagementUpdate,
+    CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationUpdate,
     CandidateResponse,
@@ -38,6 +39,7 @@ from app.schemas.candidate import (
     EmploymentInfo,
     EmploymentState,
     InviteSourceBrief,
+    LinkedinSnapshotSummary,
     MatchStats,
     TalentPoolBrief,
 )
@@ -78,6 +80,8 @@ _MATCH_STATS_DEFAULT_THRESHOLD = 50.0
 
 def _candidate_list_options():
     """Eager-load relations required to derive employment state without N+1 lazy loads."""
+    from app.models.linkedin_snapshot import CandidateLinkedinSnapshot  # noqa: F401
+
     return (
         selectinload(Candidate.contracts).selectinload(Contract.client),
         selectinload(Candidate.conflicts).selectinload(CandidateConflict.client),
@@ -87,6 +91,11 @@ def _candidate_list_options():
         selectinload(Candidate.pool_memberships).selectinload(
             TalentPoolMembership.pool
         ),
+        # LinkedIn snapshots must be eager-loaded so Pydantic's from_attributes
+        # validation does not trigger a lazy async load (MissingGreenlet). The
+        # list endpoint strips them via `model_copy` to keep responses small;
+        # the detail endpoint overrides with the top 5 via a separate query.
+        selectinload(Candidate.linkedin_snapshots),
     )
 
 
@@ -399,6 +408,16 @@ async def list_candidates(
             "Historical (ignores contract status / conflict active flag)."
         ),
     ),
+    recently_changed_jobs: Optional[int] = Query(
+        None,
+        ge=1,
+        le=3,
+        description=(
+            "Filter candidates whose LinkedIn profile indicated an employer "
+            "change in the last N months (1/2/3). Powered by the scheduled "
+            "Proxycurl sync — see `linkedin_employment_changed_at`."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
@@ -528,6 +547,14 @@ async def list_candidates(
     if worked_at_client_id:
         query = query.where(_worked_at_client_predicate(worked_at_client_id))
 
+    # Phase: LinkedIn sync — filter by detected employer change window.
+    # Uses ix_candidates_linkedin_employment_changed_at for fast planner path.
+    if recently_changed_jobs in (1, 2, 3):
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            days=30 * recently_changed_jobs
+        )
+        query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
+
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -576,6 +603,9 @@ async def list_candidates(
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
+        # Strip eagerly-loaded snapshots from the list response — they are
+        # only surfaced on the detail endpoint (trimmed to 5 there).
+        payload = payload.model_copy(update={"linkedin_snapshots": None})
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
@@ -911,7 +941,15 @@ async def get_candidate(
         raise HTTPException(status_code=404, detail="Candidate not found")
     payload = _candidate_to_response(candidate)
     invite_source = await _resolve_invite_source(candidate_id, db)
-    return payload.model_copy(update={"invite_source": invite_source})
+    # Snapshots are eager-loaded by _candidate_list_options (ordered desc by
+    # fetched_at); trim to the 5 most recent for the detail payload.
+    snapshots = [
+        LinkedinSnapshotSummary.model_validate(s)
+        for s in (candidate.linkedin_snapshots or [])[:5]
+    ]
+    return payload.model_copy(
+        update={"invite_source": invite_source, "linkedin_snapshots": snapshots}
+    )
 
 
 @router.get("/{candidate_id}/timeline")
@@ -1262,6 +1300,14 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
         candidate.languages = parsed["languages"]
     if parsed.get("career_summary"):
         candidate.ai_summary = parsed["career_summary"]
+    # Only backfill LinkedIn URL when the recruiter hasn't set one manually —
+    # we never want to clobber a curated value with a noisy regex hit.
+    if parsed.get("linkedin_url") and not candidate.linkedin:
+        from app.services.proxycurl import normalize_linkedin_url
+
+        canonical = normalize_linkedin_url(parsed["linkedin_url"])
+        if canonical:
+            candidate.linkedin = canonical
 
     next_extracted = dict(parsed)
     if manual_override:
@@ -1889,3 +1935,65 @@ async def unassign_candidate_cc(
         if candidate and candidate.competence_category_id == cc_id:
             candidate.competence_category_id = None
     await db.commit()
+
+
+@router.post(
+    "/{candidate_id}/sync-linkedin",
+    response_model=CandidateLinkedinSyncResponse,
+)
+async def sync_candidate_linkedin_now(
+    candidate_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Force an immediate Proxycurl sync for this candidate.
+
+    The scheduled `linkedin_sync_loop` picks candidates up every
+    `PROXYCURL_CANDIDATE_STALE_DAYS` days; this endpoint lets the recruiter
+    skip the queue. Inline (not background) so the UI gets the fresh
+    `linkedin_sync_status` in the response and can update the badge
+    without polling.
+    """
+
+    if not settings.PROXYCURL_ENABLED or not settings.PROXYCURL_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LinkedIn sync is not configured (PROXYCURL_API_KEY missing)",
+        )
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    if not candidate.linkedin:
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate has no LinkedIn URL on file",
+        )
+
+    from app.services.proxycurl import sync_candidate_linkedin
+
+    result = await sync_candidate_linkedin(db, candidate)
+
+    # Map sync result → response status literal the frontend switches on.
+    status_map = {
+        "ok": "ok",
+        "not_found": "not_found",
+        "error": "error",
+        "rate_limited": "error",
+        "disabled": "disabled",
+    }
+    mapped = status_map.get(result.status.value, "error")
+    message: Optional[str] = None
+    if result.error:
+        message = result.error
+    elif result.change_kind:
+        message = result.change_kind.value
+
+    return CandidateLinkedinSyncResponse(
+        status=mapped,
+        candidate_id=candidate_id,
+        message=message,
+    )

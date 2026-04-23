@@ -96,6 +96,11 @@ from app.models.m365 import (
     M365Connection,
     M365SyncStatus,
 )
+from app.models.linkedin_snapshot import (
+    CandidateLinkedinSnapshot,
+    LinkedinChangeKind,
+    LinkedinSyncStatus,
+)
 from app.models.rejection_email import (
     RejectionEmailStatus,
     ScheduledRejectionEmail,
@@ -200,4 +205,7 @@ __all__ = [
     "EmailMatchMethod",
     "M365Connection",
     "M365SyncStatus",
+    "CandidateLinkedinSnapshot",
+    "LinkedinChangeKind",
+    "LinkedinSyncStatus",
 ]

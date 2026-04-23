@@ -5,6 +5,7 @@ from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
+from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
 
 
 class EmploymentState(str, Enum):
@@ -223,6 +224,32 @@ class TalentPoolBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LinkedinSnapshotSummary(BaseModel):
+    """One LinkedIn profile snapshot surfaced in the candidate detail view.
+
+    Full `profile_json` stays on the server — the UI only needs the derived
+    fields (company/title/started_at) + the change_kind label.
+    """
+
+    id: int
+    fetched_at: datetime
+    current_company: Optional[str] = None
+    current_title: Optional[str] = None
+    current_started_at: Optional[date] = None
+    change_kind: LinkedinChangeKind
+    changed_from_previous: bool = False
+
+    model_config = {"from_attributes": True}
+
+
+class CandidateLinkedinSyncResponse(BaseModel):
+    """Response of POST /candidates/{id}/sync-linkedin."""
+
+    status: Literal["queued", "ok", "not_found", "error", "disabled"]
+    candidate_id: int
+    message: Optional[str] = None
+
+
 class InviteSourceBrief(BaseModel):
     """Surfaces that a candidate entered through an invite link — so the
     profile view can show a badge and Timeline can render an ownership
@@ -281,6 +308,18 @@ class CandidateResponse(BaseModel):
     longitude: Optional[float] = None
     cv_filename: Optional[str]
     cv_parsed_at: Optional[datetime]
+    # LinkedIn employment tracking (Phase: LinkedIn sync)
+    linkedin_current_company: Optional[str] = None
+    linkedin_current_title: Optional[str] = None
+    linkedin_current_started_at: Optional[date] = None
+    linkedin_employment_changed_at: Optional[datetime] = None
+    linkedin_synced_at: Optional[datetime] = None
+    linkedin_sync_status: LinkedinSyncStatus = LinkedinSyncStatus.disabled
+    linkedin_sync_error: Optional[str] = None
+    # Eager-loaded by `_candidate_list_options()` to avoid MissingGreenlet
+    # under Pydantic's from_attributes. Detail endpoint trims to the 5 most
+    # recent; list endpoint strips to None to keep list responses small.
+    linkedin_snapshots: Optional[List[LinkedinSnapshotSummary]] = None
     # Phase D4: AI-extracted CV data (companies, career_summary, _source tag,
     # manual-override flag). Surfaced to the frontend so the profile view can
     # render "Firmy z CV" / "Podsumowanie AI" sections without a second fetch.
