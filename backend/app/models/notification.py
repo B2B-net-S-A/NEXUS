@@ -47,6 +47,11 @@ class NotificationType(str, enum.Enum):
     rejection_email_cancelled = "rejection_email_cancelled"
     rejection_email_skipped = "rejection_email_skipped"
     rejection_email_failed = "rejection_email_failed"
+    # Targ kandydatów — nowy projekt (create lub significant update) dopasował
+    # się do kandydata w puli marketplace z score >= MARKETPLACE_SCORE_THRESHOLD.
+    # Wysyłane do candidate.created_by i job.recruiter_id; dedup per para
+    # (candidate_id, job_id) w marketplace_alert_log (migracja 0052).
+    marketplace_match = "marketplace_match"
 
 
 class Notification(Base, TimestampMixin):

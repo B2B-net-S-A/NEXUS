@@ -189,7 +189,7 @@ async def test_parse_with_claude_success(monkeypatch):
     assert out["companies"] == ["Acme Corp", "Globex"]
     assert out["career_summary"].startswith("7 lat")
     assert out["years_it_experience"] == 7
-    assert out["_source"] == "claude:cv_enrichment:v2"
+    assert out["_source"].startswith("claude:cv_enrichment:v")
 
 
 @pytest.mark.asyncio
@@ -250,7 +250,7 @@ async def test_parse_cv_prefers_claude_over_ollama(monkeypatch):
         "languages": [],
         "years_it_experience": 1,
         "current_position": None,
-        "_source": "claude:cv_enrichment:v2",
+        "_source": "claude:cv_enrichment:v4",
     }
 
     async def _claude_mock(_text):  # type: ignore[no-untyped-def]
@@ -264,7 +264,7 @@ async def test_parse_cv_prefers_claude_over_ollama(monkeypatch):
 
     out = await cvp.parse_cv("cv text")
     assert out["companies"] == ["ClaudeCorp"]
-    assert out["_source"] == "claude:cv_enrichment:v2"
+    assert out["_source"] == "claude:cv_enrichment:v4"
 
 
 @pytest.mark.asyncio
@@ -280,7 +280,7 @@ async def test_parse_cv_falls_back_to_ollama_when_claude_fails(monkeypatch):
         "languages": [],
         "years_it_experience": 2,
         "current_position": None,
-        "_source": "ollama:cv_enrichment:v2",
+        "_source": "ollama:cv_enrichment:v4",
     }
 
     async def _claude_mock(_text):  # type: ignore[no-untyped-def]
@@ -293,7 +293,7 @@ async def test_parse_cv_falls_back_to_ollama_when_claude_fails(monkeypatch):
     monkeypatch.setattr(cvp, "_parse_with_ollama", _ollama_mock)
 
     out = await cvp.parse_cv("cv text")
-    assert out["_source"] == "ollama:cv_enrichment:v2"
+    assert out["_source"] == "ollama:cv_enrichment:v4"
     assert out["companies"] == ["OllamaCorp"]
 
 
@@ -313,3 +313,116 @@ async def test_parse_with_claude_skips_when_kill_switch_off(monkeypatch):
     with patch.dict("sys.modules", {"anthropic": sentinel}):
         out = await cvp._parse_with_claude("Python Developer")
     assert out is None
+
+
+# ── v4: contact extraction (email / phone / name / city) ────────────────────
+
+
+def test_extract_email_from_text_finds_primary_email():
+    cv = "Jan Kowalski\nemail: jan.kowalski@example.com\nPython Developer"
+    assert cvp._extract_email_from_text(cv) == "jan.kowalski@example.com"
+
+
+def test_extract_email_lowercases_the_match():
+    cv = "Contact: JAN@FOO.PL"
+    assert cvp._extract_email_from_text(cv) == "jan@foo.pl"
+
+
+def test_extract_email_returns_none_on_empty():
+    assert cvp._extract_email_from_text("") is None
+    assert cvp._extract_email_from_text("no email here") is None
+
+
+def test_extract_phone_parses_polish_international():
+    cv = "Jan Kowalski\nTel: +48 600 123 456\nemail: j@example.com"
+    out = cvp._extract_phone_from_text(cv)
+    assert out is not None
+    # Digit count = 11 (48 + 9), raw match contains +48 prefix.
+    digits = "".join(c for c in out if c.isdigit())
+    assert len(digits) == 11
+    assert "600" in out
+
+
+def test_extract_phone_parses_polish_local_with_dashes():
+    cv = "Name\nPhone: 600-123-456\nMore text"
+    out = cvp._extract_phone_from_text(cv)
+    assert out is not None
+    digits = "".join(c for c in out if c.isdigit())
+    assert len(digits) == 9
+
+
+def test_extract_phone_rejects_short_numbers():
+    cv = "Postal code: 02-137"
+    # Postal code has only 5 digits — must NOT be detected as phone.
+    assert cvp._extract_phone_from_text(cv) is None
+
+
+def test_split_name_from_header_picks_first_nonempty_line():
+    cv = "Jan Kowalski\nSenior Python Developer\nj@x.com"
+    first, last = cvp._split_name_from_header(cv)
+    assert first == "Jan"
+    assert last == "Kowalski"
+
+
+def test_split_name_skips_role_heading_lines():
+    cv = "CURRICULUM VITAE\nJan Kowalski\n+48 600 000 000"
+    first, last = cvp._split_name_from_header(cv)
+    assert first == "Jan"
+    assert last == "Kowalski"
+
+
+def test_split_name_handles_polish_diacritics():
+    cv = "Łukasz Żółty\nSenior Developer"
+    first, last = cvp._split_name_from_header(cv)
+    assert first == "Łukasz"
+    assert last == "Żółty"
+
+
+def test_split_name_returns_none_when_no_capitalized_pair():
+    cv = "lorem ipsum\ndolor sit amet"
+    first, last = cvp._split_name_from_header(cv)
+    assert first is None
+    assert last is None
+
+
+def test_apply_contact_fallbacks_fills_only_missing_slots():
+    cv = "Jan Kowalski\n+48 600 123 456\njan@example.com"
+    parsed: dict = {
+        "first_name": "Janusz",   # LLM already set — must NOT be overridden
+        "last_name": None,
+        "email": None,
+        "phone": None,
+        "_confidence": {"first_name": 0.95},
+    }
+    out = cvp._apply_contact_fallbacks(parsed, cv)
+    # LLM value preserved
+    assert out["first_name"] == "Janusz"
+    # Regex filled the gaps
+    assert out["last_name"] == "Kowalski"
+    assert out["email"] == "jan@example.com"
+    assert out["phone"] is not None
+    # Confidence scores added for regex-filled fields
+    assert out["_confidence"]["first_name"] == 0.95  # LLM-provided preserved
+    assert out["_confidence"].get("last_name") == 0.6
+    assert out["_confidence"].get("email") == 0.9
+
+
+@pytest.mark.asyncio
+async def test_regex_fallback_extracts_contact_when_no_llm():
+    """End-to-end: parse_cv with no LLM finds email, phone, and name."""
+    cv = """Jan Kowalski
+Senior Python Developer
+email: jan.kowalski@example.com
+tel: +48 600 123 456
+Warszawa
+
+Experience: Python, FastAPI, Docker, Kubernetes, AWS. 8 lat doświadczenia."""
+    out = await cvp.parse_cv(cv, prefer_llm=False)
+    assert out["_source"] == "regex"
+    assert out["first_name"] == "Jan"
+    assert out["last_name"] == "Kowalski"
+    assert out["email"] == "jan.kowalski@example.com"
+    assert out["phone"] is not None
+    assert out["years_it_experience"] == 8
+    # Skills still extracted by the legacy tech regex
+    assert any(s["name"].lower() == "python" for s in out["skills"])

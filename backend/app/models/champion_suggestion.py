@@ -25,6 +25,9 @@ class SuggestionSource(str, enum.Enum):
     fireflies_meeting = "fireflies_meeting"
     cloudtalk_call = "cloudtalk_call"
     manual_consultant_note = "manual_consultant_note"
+    # Phase 15: draft generated from top-K semantically similar CLOSED jobs
+    # whose champion_profile is already populated (same-client preferred).
+    historical_jobs = "historical_jobs"
 
 
 class SuggestionStatus(str, enum.Enum):

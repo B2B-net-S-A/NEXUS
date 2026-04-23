@@ -36,6 +36,7 @@ import {
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { AddCandidateModal } from "@/components/AppShell";
 import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
+import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateDetailV2 } from "@/components/v2/pages/CandidateDetailV2";
@@ -408,6 +409,7 @@ export function CandidatesListV2() {
   // Modals + assigns -------------------------------------------
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showAddFromCV, setShowAddFromCV] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -562,6 +564,13 @@ export function CandidatesListV2() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
             <Upload className="h-4 w-4" /> Import CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAddFromCV(true)}
+          >
+            <Sparkles className="h-4 w-4" /> Dodaj z CV
           </Button>
           <Popover>
             <PopoverTrigger asChild>
@@ -1405,6 +1414,11 @@ export function CandidatesListV2() {
         open={showImport}
         onOpenChange={setShowImport}
         onImported={() => toastOnSuccess("Import zakończony.")}
+      />
+      <AddCandidateFromCVModal
+        open={showAddFromCV}
+        onOpenChange={setShowAddFromCV}
+        onAdded={() => toastOnSuccess("Kandydat dodany z CV.")}
       />
       <GenerateInviteLinkV2 open={showInvite} onOpenChange={setShowInvite} />
       <QuickAssignV2

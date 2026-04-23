@@ -55,9 +55,16 @@ from app.schemas.champion_suggestion import (
     VALID_SECTIONS,
     payload_from_profile,
 )
+from app.services.historical_jobs_retrieval import (
+    HistoricalJobMatch,
+    MIN_MATCHES_FOR_GENERATION,
+    find_similar_historical_jobs,
+    skill_frequency,
+)
 from app.services.llm_prompts import (
     CHAMPION_PROFILE_ENRICH_FROM_CALL,
     CHAMPION_PROFILE_ENRICH_FROM_MEETING,
+    CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
     CHAMPION_PROFILE_FROM_JD,
     PromptTemplate,
 )
@@ -391,6 +398,199 @@ async def enrich_from_call(
         source_ref=source_ref,
         user_id=user_id,
     )
+
+
+# ── Historical-jobs source (Phase 15) ───────────────────────────────────────
+
+
+_HISTORICAL_PROFILE_MAX_CHARS = int(
+    os.environ.get("CHAMPION_AI_HISTORICAL_MAX_CHARS", "12000")
+)
+
+
+def _compact_historical_profiles(
+    matches: list[HistoricalJobMatch],
+) -> list[dict[str, Any]]:
+    """Produce a compact, LLM-friendly view of the top-K matches.
+
+    We keep only the fields the prompt actually needs. Full raw profiles can
+    balloon prompt size; this compact form caps at ~12k chars for the whole
+    list via a character budget distributed per-match.
+    """
+    budget = _HISTORICAL_PROFILE_MAX_CHARS
+    per_match = max(budget // max(len(matches), 1), 800)
+
+    compact: list[dict[str, Any]] = []
+    for match in matches:
+        profile = match.champion_profile or {}
+        project_context = profile.get("project_context") or {}
+        sourcing = profile.get("sourcing") or {}
+        screening = profile.get("screening_questions") or []
+
+        def _cap(text: Any) -> str:
+            if not isinstance(text, str):
+                return ""
+            return text[:per_match]
+
+        compact.append(
+            {
+                "job_id": match.job_id,
+                "title": match.title,
+                "client_name": match.client_name,
+                "similarity": match.similarity,
+                "closed_at": (
+                    match.closed_at.isoformat() if match.closed_at else None
+                ),
+                "seniority": match.seniority,
+                "project_context": {
+                    "about": _cap(project_context.get("about")),
+                    "responsibilities": _cap(project_context.get("responsibilities")),
+                    "selling_points": _cap(project_context.get("selling_points")),
+                },
+                "screening_questions": screening[:8],
+                "sourcing": {
+                    "sources": sourcing.get("sources") or [],
+                    "keywords": _cap(sourcing.get("keywords")),
+                    "target_companies": _cap(sourcing.get("target_companies")),
+                },
+                "historical_client_questions": _cap(
+                    profile.get("historical_client_questions")
+                ),
+                "internal_consultant_insight": _cap(
+                    profile.get("internal_consultant_insight")
+                ),
+                "must_skills": [
+                    s for s in (match.must_skills or []) if isinstance(s, (dict, str))
+                ][:20],
+                "nice_skills": [
+                    s for s in (match.nice_skills or []) if isinstance(s, (dict, str))
+                ][:20],
+            }
+        )
+    return compact
+
+
+async def generate_from_historical_jobs(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    raw_description: Optional[str] = None,
+    top_k: int = 5,
+    cross_client: bool = False,
+    user_id: Optional[int],
+) -> ChampionProfileSuggestion:
+    """Generate a Champion Profile draft from top-K similar closed jobs.
+
+    Retrieval is semantic (Qdrant cosine on `nexus_jobs`) filtered to the
+    current job's `client_id` by default. The LLM is instructed to copy
+    narrative fields verbatim from the single best match (with source
+    attribution in `rationale`) and to union sourcing fields across matches.
+
+    If fewer than `MIN_MATCHES_FOR_GENERATION` viable historical jobs exist
+    for the client, we persist a `rejected` suggestion with an explanatory
+    `error_message` rather than silently returning nothing — the UI surfaces
+    the reason to the DL.
+    """
+    job = await _load_job_with_client(db, job_id)
+    client_name = await _client_name(db, job.client_id)
+    effective_description = raw_description or (job.description or "")
+
+    matches = await find_similar_historical_jobs(
+        db,
+        client_id=job.client_id,
+        title=job.title or "",
+        raw_description=effective_description,
+        top_k=top_k,
+        cross_client=cross_client,
+        exclude_job_id=job.id,
+    )
+
+    await _supersede_previous_pending(
+        db, job_id=job_id, source_type=SuggestionSource.historical_jobs
+    )
+
+    status_val: SuggestionStatus = SuggestionStatus.pending
+    error_message: Optional[str] = None
+    payload: dict[str, Any] = {}
+    source_ref: Optional[str] = None
+
+    if len(matches) < MIN_MATCHES_FOR_GENERATION:
+        status_val = SuggestionStatus.rejected
+        error_message = (
+            f"Za mało historycznych ofert do porównania "
+            f"(znaleziono {len(matches)}, wymagane co najmniej "
+            f"{MIN_MATCHES_FOR_GENERATION})."
+        )
+    else:
+        source_ref = ",".join(str(m.job_id) for m in matches[:3])
+        freq = skill_frequency(matches)
+        compact = _compact_historical_profiles(matches)
+        template_vars = {
+            "job_title": job.title or "bez tytułu",
+            "client_name": client_name,
+            "train_name": "brak danych",
+            "raw_description": effective_description or "brak opisu",
+            "historical_profiles_json": json.dumps(compact, ensure_ascii=False),
+            "skill_frequency_json": json.dumps(freq, ensure_ascii=False),
+        }
+
+        prompt = CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.render(**template_vars)
+
+        try:
+            raw = await _call_claude_json(
+                prompt=prompt,
+                system_prompt=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.system_prompt
+                or "",
+            )
+            payload = {}
+            for section in VALID_SECTIONS:
+                entry = raw.get(section)
+                if not isinstance(entry, dict):
+                    continue
+                value = entry.get("value")
+                if value is None:
+                    continue
+                payload[section] = {
+                    "value": value,
+                    "confidence": float(entry.get("confidence") or 0.0),
+                    "rationale": str(entry.get("rationale") or ""),
+                }
+            if not payload:
+                status_val = SuggestionStatus.rejected
+                error_message = (
+                    "LLM nie wygenerował żadnych sekcji z historii — "
+                    "podobne role nie dostarczyły wystarczającego sygnału."
+                )
+        except ValidationError as exc:
+            logger.warning(
+                "champion_draft: historical validation failed for job %s: %s",
+                job_id,
+                exc,
+            )
+            error_message = f"Walidacja schematu: {exc}"
+            status_val = SuggestionStatus.rejected
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "champion_draft: generate_from_historical_jobs failed: %s", exc
+            )
+            error_message = f"Błąd generowania: {exc}"
+            status_val = SuggestionStatus.rejected
+
+    suggestion = ChampionProfileSuggestion(
+        job_id=job_id,
+        source_type=SuggestionSource.historical_jobs,
+        source_ref=source_ref,
+        payload=payload,
+        status=status_val,
+        created_by_id=user_id,
+        model_name=DEFAULT_MODEL,
+        prompt_version=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.version,
+        error_message=error_message,
+    )
+    db.add(suggestion)
+    await db.commit()
+    await db.refresh(suggestion)
+    return suggestion
 
 
 # ── Merge logic for apply ───────────────────────────────────────────────────

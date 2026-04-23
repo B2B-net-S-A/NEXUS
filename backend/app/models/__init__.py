@@ -42,6 +42,7 @@ from app.models.client_contract_terms import ClientContractTerms
 from app.models.screening_note import ScreeningNote
 from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.calendar_event import CalendarEvent
 from app.models.notification import Notification
 from app.models.rate_history import RateHistory, ContractType
@@ -154,6 +155,7 @@ __all__ = [
     "Contact",
     "TalentPool",
     "TalentPoolMembership",
+    "MarketplaceAlertLog",
     "CalendarEvent",
     "Notification",
     "RateHistory",

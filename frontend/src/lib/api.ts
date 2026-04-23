@@ -1044,6 +1044,73 @@ export const matchHistoryApi = {
     api.post("/api/match-history", data),
 };
 
+// ── Historical candidates (Phase 14 — from similar past jobs) ──────────────
+
+export type HistoricalTier = "A" | "B";
+export type HistoricalTierUsed = "primary" | "extended" | "empty";
+export type HistoricalAvailability = "available" | "busy" | "unknown";
+
+export interface HistoricalSource {
+  job_id: number;
+  job_title: string;
+  stage: string;
+  similarity: number;
+  months_ago: number;
+  moved_at: string;
+  stage_weight: number;
+  contribution: number;
+}
+
+export interface HistoricalCandidate {
+  candidate_id: number;
+  name: string;
+  lastname: string;
+  avatar_url: string | null;
+  competence_category: string | null;
+  historical_score: number;
+  tier: HistoricalTier;
+  negative_signal: boolean;
+  recommended_count: number;
+  sources: HistoricalSource[];
+  current_availability: HistoricalAvailability;
+  current_status: string | null;
+}
+
+export interface HistoricalSimilarJob {
+  job_id: number;
+  title: string;
+  similarity: number;
+  tier: HistoricalTier;
+}
+
+export interface CandidatesFromSimilarResponse {
+  job_id: number;
+  tier_used: HistoricalTierUsed;
+  similar_jobs: HistoricalSimilarJob[];
+  candidates: HistoricalCandidate[];
+  meta: {
+    tier_a_count: number;
+    tier_b_count: number;
+    total_sources: number;
+    reason_if_empty: string | null;
+  };
+}
+
+export const historicalCandidatesApi = {
+  forJob: (
+    jobId: number,
+    opts?: {
+      tier?: "primary" | "extended" | "all";
+      limit?: number;
+      include_negative?: boolean;
+    },
+  ) =>
+    api.get<CandidatesFromSimilarResponse>(
+      `/api/jobs/${jobId}/candidates-from-similar`,
+      { params: opts },
+    ),
+};
+
 export const recommendationsApi = {
   forJob: (jobId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
     api.get<{ job_id: number; job_title: string; search_type: string; matches: CandidateMatch[] }>(

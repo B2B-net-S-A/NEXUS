@@ -72,16 +72,24 @@ JOB_CRITERIA_FROM_DESCRIPTION = PromptTemplate(
 
 CV_ENRICHMENT = PromptTemplate(
     name="cv_enrichment",
-    version=3,
+    version=4,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
         "for a Polish IT staffing ATS. Use canonical technology names "
         "(e.g. 'React' not 'ReactJS', 'Kubernetes' not 'K8s'). Never invent "
-        "information that is not in the CV."
+        "information that is not in the CV — when unsure, return null and "
+        "lower the confidence for that field."
     ),
     template=(
         "From the CV below, produce a JSON object with these fields:\n"
+        '  "first_name": candidate\'s first name as it appears in the CV, or null\n'
+        '  "last_name": candidate\'s last name (surname) as it appears in the CV, or null\n'
+        '  "email": candidate\'s contact email (primary), exactly as written, lowercase, or null\n'
+        '  "phone": candidate\'s contact phone number in international format when possible '
+        '(e.g. "+48 600 123 456"); keep raw digits/spaces/dashes otherwise. null if none.\n'
+        '  "city": candidate\'s city of residence (e.g. "Warszawa", "Kraków") or null. '
+        "Do NOT guess from employer address — use only if the CV explicitly states the candidate's location.\n"
         '  "years_it_experience": integer, best estimate of total IT experience\n'
         '  "current_position": short string (e.g. "Senior Python Developer") or null\n'
         '  "skills": list of {{"name": "<canonical>", "level": "expert|senior|mid|junior", "years": int|null}}\n'
@@ -94,7 +102,11 @@ CV_ENRICHMENT = PromptTemplate(
         "or null if no LinkedIn URL is present.\n"
         '  "career_summary": short Polish paragraph (3-4 zdania) describing the candidate\'s '
         "trajectory: years in IT, main stack, seniority progression and industries. "
-        "Do not add knowledge that is not in the CV. Null if the CV is too short to summarize.\n\n"
+        "Do not add knowledge that is not in the CV. Null if the CV is too short to summarize.\n"
+        '  "_confidence": object mapping each field name above to a float 0.0–1.0 '
+        "representing how certain you are. Use 0.95+ when the value is explicit and unambiguous; "
+        "0.60–0.85 when inferred from context (e.g. full name from an email signature); "
+        "0.0–0.4 when guessing or missing. Include keys for ALL top-level fields you filled in.\n\n"
         "Respond with ONLY the raw JSON, no prose.\n\n"
         "CV:\n{cv_text}\n"
     ),
@@ -269,6 +281,70 @@ CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
 )
 
 
+CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
+    name="champion_profile_from_historical_jobs",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT w polskiej agencji staffing. "
+        "Otrzymujesz listę PODOBNYCH historycznych ról (zamkniętych) z już "
+        "wypełnionymi Profilami Championa — Twoim zadaniem jest WYKORZYSTAĆ "
+        "tę historię, aby wygenerować DRAFT profilu dla nowej roli. "
+        "NAJWAŻNIEJSZE REGUŁY: "
+        "(1) PREFERUJ DOSŁOWNE KOPIOWANIE (verbatim) tekstu z najbliższego "
+        "matcha dla pól narracyjnych (project_context.about, selling_points, "
+        "responsibilities). Nie przepisuj — Delivery Lead musi rozpoznać "
+        "źródło. W `rationale` ZAWSZE wpisz: 'skopiowano z Job #<id> "
+        "(<klient> — <tytuł>, podobieństwo <score>)'. "
+        "(2) Dla `sourcing.keywords` i `sourcing.target_companies` zrób UNION "
+        "wartości z top-K matches + deduplikację. "
+        "(3) Dla `screening_questions` wybierz 3-5 pytań które pojawiają się "
+        "najczęściej (dosłownie lub bardzo podobnie) w historycznych rolach. "
+        "W `rationale` wpisz 'użyte w X/Y podobnych rolach'. "
+        "(4) Dla sekcji dla której historia nie daje jednoznacznego sygnału — "
+        "POMIŃ całkowicie (nie umieszczaj w output). NIE HALUCYNUJ. "
+        "(5) Skill frequency podany osobno (consistent_must / consistent_nice) "
+        "— używaj go do walidacji: jeśli jakiś skill pojawia się <60%, "
+        "nie wspominaj go w skopiowanym tekście. "
+        "(6) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+    ),
+    template=(
+        "Kontekst nowej roli:\n"
+        "  Tytuł stanowiska: {job_title}\n"
+        "  Klient: {client_name}\n"
+        "  Train/program (opcjonalne): {train_name}\n"
+        "  Opis od klienta (opcjonalnie):\n"
+        "---\n"
+        "{raw_description}\n"
+        "---\n\n"
+        "Top-K podobnych zamkniętych ról (z populated champion_profile):\n"
+        "---\n"
+        "{historical_profiles_json}\n"
+        "---\n\n"
+        "Frequency analysis skilli (across top-K):\n"
+        "---\n"
+        "{skill_frequency_json}\n"
+        "---\n\n"
+        "Zwróć delta-patch JSON — TYLKO sekcje dla których historia daje "
+        "jednoznaczny sygnał. Format identyczny jak dla enrichment:\n"
+        '{{\n'
+        '  "basics": {{ "value": {{...}}, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "project_context": {{ "value": {{...}}, "confidence": 0..1, "rationale": "skopiowano z Job #..." }},\n'
+        '  "screening_questions": {{ "value": [{{...}}], "confidence": 0..1, "rationale": "użyte w X/Y podobnych rolach" }},\n'
+        '  "historical_client_questions": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
+        '  "internal_consultant_insight": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
+        '  "sourcing": {{ "value": {{...}}, "confidence": 0..1, "rationale": "union top-K" }}\n'
+        '}}\n\n'
+        "Dla sekcji których NIE uzupełniasz — pomiń klucz całkowicie. "
+        "Confidence: 0.8-1.0 dla verbatim copy z pojedynczego matcha o "
+        "similarity >= 0.85; 0.5-0.8 dla kompozycji/unionu; 0.3-0.5 gdy "
+        "sygnał słaby (tylko 1-2 matches). "
+        "screening_questions.value: max 5 pozycji; jeśli historia nie pokrywa "
+        "pytania wystarczająco często (>=60% matches) — nie dodawaj go."
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -280,5 +356,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CHAMPION_PROFILE_FROM_JD,
         CHAMPION_PROFILE_ENRICH_FROM_MEETING,
         CHAMPION_PROFILE_ENRICH_FROM_CALL,
+        CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
     )
 }

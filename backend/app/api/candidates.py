@@ -31,6 +31,8 @@ from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateEngagementUpdate,
+    CandidateFromCVDuplicate,
+    CandidateFromCVResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationUpdate,
@@ -1270,6 +1272,67 @@ async def delete_candidate(
     await db.delete(candidate)
 
 
+_CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
+
+# Placeholder values written by `/from-cv` when the LLM returns no name.
+# `_apply_cv_contact_fields` treats these as "empty" so the next upload can
+# override them even though the column is NOT NULL.
+_CV_PLACEHOLDER_NAME = "Nieznane"
+
+
+def _apply_cv_contact_fields(
+    candidate: Candidate, parsed: dict, existing_extracted: dict
+) -> None:
+    """Backfill contact fields from a parse_cv() result.
+
+    Each field is written only when:
+      - the parsed value is truthy, AND
+      - the candidate has no value yet (empty string / None / placeholder), AND
+      - no `_manual_override_<field>` flag is set in `cv_extracted_data`.
+
+    The location mapping writes to BOTH `candidate.location` (legacy
+    free-text) and `candidate.city` (structured column) to keep the two
+    columns aligned for existing filters and heat-maps.
+    """
+
+    def _blank(value) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            stripped = value.strip()
+            return not stripped or stripped == _CV_PLACEHOLDER_NAME
+        return False
+
+    def _locked(field: str) -> bool:
+        return bool(existing_extracted.get(f"_manual_override_{field}"))
+
+    first_name = parsed.get("first_name")
+    if first_name and _blank(candidate.name) and not _locked("first_name"):
+        candidate.name = str(first_name).strip()[:100]
+
+    last_name = parsed.get("last_name")
+    if last_name and _blank(candidate.lastname) and not _locked("last_name"):
+        candidate.lastname = str(last_name).strip()[:100]
+
+    email = parsed.get("email")
+    if email and _blank(candidate.email) and not _locked("email"):
+        candidate.email = str(email).strip().lower()[:255]
+
+    phone = parsed.get("phone")
+    if phone and _blank(candidate.phone) and not _locked("phone"):
+        candidate.phone = str(phone).strip()[:30]
+
+    city = parsed.get("city")
+    if city and not _locked("city"):
+        city_value = str(city).strip()[:120]
+        if _blank(candidate.city):
+            candidate.city = city_value
+        if _blank(candidate.location):
+            # Legacy free-text column mirrors the structured city for filters
+            # that still read from `location`.
+            candidate.location = city_value[:255]
+
+
 def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
     """Pure function: mutate `candidate` fields from a `parse_cv()` result.
 
@@ -1279,11 +1342,15 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
     has zero DB or async concerns.
 
     Contract:
-      * Never clobbers recruiter-curated data (`_manual_override_experience`).
+      * Never clobbers recruiter-curated data (`_manual_override_experience`
+        for employment; `_manual_override_<field>` for scalar contact fields).
       * Never downgrades a rich `experience` record (with roles) to a flat
         company-name list — bulk imports from Traffit are protected.
       * Preserves the manual-override flag across writes so the guard
         survives future uploads.
+      * Contact fields (email/phone/first_name/last_name/city) are only
+        backfilled when the candidate row has them empty — the recruiter's
+        typed values always win.
     """
     existing_extracted = dict(candidate.cv_extracted_data or {})
     manual_override = bool(
@@ -1309,9 +1376,17 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
         if canonical:
             candidate.linkedin = canonical
 
+    # v4: contact fields — only backfill empty slots, honour manual overrides.
+    _apply_cv_contact_fields(candidate, parsed, existing_extracted)
+
     next_extracted = dict(parsed)
     if manual_override:
         next_extracted["_manual_override_experience"] = True
+    # Preserve any per-field manual overrides already recorded.
+    for field in _CV_CONTACT_FIELDS:
+        key = f"_manual_override_{field}"
+        if existing_extracted.get(key):
+            next_extracted[key] = True
     candidate.cv_extracted_data = next_extracted
 
     companies = parsed.get("companies") or []
@@ -1335,6 +1410,41 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
 
     candidate.cv_parsed_at = datetime.now(timezone.utc)
     return written
+
+
+async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> None:
+    """Run CC classifier and persist the top hit as the candidate's primary CC.
+
+    Mirrors the pattern used in `public_share.py` — only writes when the
+    candidate has no CC yet (recruiter-curated value wins). Score ≥ 0.30 is
+    required so very weak signals don't pollute the profile. Failures are
+    logged but never surface to the caller: CC is enrichment, not required
+    for the candidate record.
+    """
+    try:
+        from app.services.cc_classifier import classify_candidate_to_cc
+
+        scores = await classify_candidate_to_cc(candidate, db)
+        if not scores:
+            return
+        top = scores[0]
+        if top.score < 0.30:
+            return
+        if candidate.competence_category and candidate.competence_category_id:
+            # Already curated — leave it alone.
+            return
+        candidate.competence_category = top.slug
+        candidate.competence_category_id = top.cc_id
+        logger.info(
+            "[cv_cc] auto-assigned CC candidate=%s slug=%s score=%.3f",
+            candidate.id,
+            top.slug,
+            top.score,
+        )
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning(
+            "[cv_cc] classify failed candidate=%s: %s", candidate.id, e
+        )
 
 
 async def _enrich_candidate_cv_task(candidate_id: int) -> None:
@@ -1361,6 +1471,15 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
             written = _apply_cv_enrichment(candidate, parsed)
             await db.commit()
 
+            # v4: CC auto-classification after enrichment writes skills/summary.
+            # Needs a fresh read so the classifier sees the committed state.
+            refreshed = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if refreshed is not None:
+                await _auto_assign_primary_cc(refreshed, db)
+                await db.commit()
+
             await mark_stale_for_candidate(db, candidate_id)
             await db.commit()
 
@@ -1375,6 +1494,194 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
                 f"[cv_enrich] failed for candidate {candidate_id}: {e}"
             )
             await db.rollback()
+
+
+@router.post(
+    "/from-cv",
+    response_model=CandidateFromCVResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "A candidate that closely matches the parsed CV "
+            "already exists (by email, phone, LinkedIn, or name). The response "
+            "body carries `existing_candidate_id` + `matches` so the UI can "
+            "offer 'open existing' / 'save anyway' actions.",
+        }
+    },
+)
+async def create_candidate_from_cv(
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    force: bool = Query(
+        default=False,
+        description="When true, bypass dedup check and create the candidate "
+        "even if a close match exists. The duplicates array on the response "
+        "is still populated for audit.",
+    ),
+):
+    """One-shot onboarding: PDF/DOCX CV in → new Candidate out.
+
+    Flow:
+      1. Save upload to disk + extract raw text (PDF / DOCX / TXT).
+      2. Run `parse_cv()` to pull contact fields, skills, education, etc.
+      3. Scan for duplicates via `find_candidate_duplicates` — return 409
+         with `existing_candidate_id` unless `?force=true`.
+      4. Insert a Candidate, apply enrichment (contact fields, summary,
+         experience), and auto-assign a primary Competence Category.
+      5. Kick off embedding + match-cache invalidation in the background.
+
+    `name` / `lastname` default to the placeholder "Nieznane" when the LLM
+    could not extract them — they're NOT NULL columns, and the frontend flags
+    them as low confidence so the recruiter completes them before saving.
+    """
+    import asyncio
+
+    from app.services import cv_text_extractor
+    from app.services.cv_parser import parse_cv
+
+    # 1 — persist the upload and extract text
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    safe_name = (file.filename or "upload.pdf").replace("/", "_")
+    # Temporary path — we rename once we know the candidate id.
+    tmp_path = os.path.join(settings.UPLOAD_DIR, f"from_cv_tmp_{safe_name}")
+    async with aiofiles.open(tmp_path, "wb") as f:
+        content = await file.read()
+        await f.write(content)
+
+    raw_text: Optional[str] = None
+    try:
+        raw_text = await asyncio.to_thread(
+            cv_text_extractor.extract_text, tmp_path, file.filename or ""
+        )
+    except cv_text_extractor.UnsupportedCvFormat as e:
+        os.remove(tmp_path)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported CV format: {e}",
+        ) from e
+    except Exception as e:
+        logger.warning("[from-cv] text extraction failed: %s", e)
+
+    if not raw_text or not raw_text.strip():
+        os.remove(tmp_path)
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract any text from the uploaded CV file.",
+        )
+
+    # 2 — parse structured facts
+    parsed = await parse_cv(raw_text)
+
+    # 3 — dedup scan
+    dup_rows = await find_candidate_duplicates(
+        db,
+        email=parsed.get("email"),
+        phone=parsed.get("phone"),
+        linkedin=parsed.get("linkedin_url"),
+        name=parsed.get("first_name"),
+        lastname=parsed.get("last_name"),
+    )
+    duplicates = [
+        CandidateFromCVDuplicate(
+            candidate_id=row["candidate_id"],
+            name=row.get("name"),
+            lastname=row.get("lastname"),
+            email=row.get("email"),
+            match_score=float(row.get("match_score", 0.0)),
+            match_reasons=list(row.get("match_reasons") or []),
+        )
+        for row in dup_rows
+    ]
+    if duplicates and not force:
+        os.remove(tmp_path)
+        top = duplicates[0]
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "detail": "Kandydat wygląda na duplikat istniejącego rekordu.",
+                "existing_candidate_id": top.candidate_id,
+                "matches": [m.model_dump() for m in duplicates],
+            },
+        )
+
+    # 4 — insert and enrich
+    first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
+    candidate = Candidate(
+        name=first_name[:100],
+        lastname=last_name[:100],
+        raw_cv_text=raw_text,
+        cv_filename=file.filename,
+        source="cv_upload",
+        created_by=current_user.id,
+    )
+    db.add(candidate)
+    await db.flush()  # allocate id so we can rename the file
+
+    # Rename tmp upload to the permanent, candidate-scoped name.
+    final_path = os.path.join(
+        settings.UPLOAD_DIR, f"candidate_{candidate.id}_{safe_name}"
+    )
+    try:
+        os.replace(tmp_path, final_path)
+    except OSError as e:
+        logger.warning("[from-cv] rename failed: %s", e)
+    candidate.cv_filename = safe_name
+
+    _apply_cv_enrichment(candidate, parsed)
+
+    activity = Activity(
+        entity_type="candidate",
+        entity_id=candidate.id,
+        action="created_from_cv",
+        user_id=current_user.id,
+        details={
+            "filename": file.filename,
+            "source": parsed.get("_source"),
+        },
+    )
+    db.add(activity)
+    db.add(UserActivity(
+        user_id=current_user.id,
+        action_type=UserActionType.candidate_added,
+        entity_type="candidate",
+        entity_id=candidate.id,
+        details={
+            "filename": file.filename,
+            "source": "from_cv",
+        },
+    ))
+    await db.flush()
+
+    # 5 — best-effort enrichment: embedding + CC classification.
+    # Synchronous because the endpoint should return a fully-populated
+    # candidate for the preview screen.
+    try:
+        from app.services.embedding_service import embed_candidate
+
+        await embed_candidate(candidate.id, db)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("[from-cv] embedding failed id=%s: %s", candidate.id, e)
+
+    await _auto_assign_primary_cc(candidate, db)
+
+    await db.commit()
+
+    reloaded = await db.execute(
+        select(Candidate)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate.id)
+    )
+    full = reloaded.scalar_one()
+
+    confidence = dict(parsed.get("_confidence") or {})
+    return CandidateFromCVResponse(
+        candidate=_candidate_to_response(full),
+        confidence=confidence,
+        duplicates=duplicates,
+        source=parsed.get("_source"),
+    )
 
 
 @router.post("/{candidate_id}/cv", response_model=CandidateResponse)

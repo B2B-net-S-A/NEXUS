@@ -31,6 +31,57 @@ class GenerateFromJdPayload(BaseModel):
     raw_description: str = Field(min_length=50, max_length=50_000)
 
 
+class GenerateFromHistoryPayload(BaseModel):
+    """Request body for POST /jobs/{id}/champion-profile/generate-from-history.
+
+    All fields optional: if the DL did not paste fresh JD text, we fall back
+    to the Job's stored description. `top_k` caps the sample size; Claude
+    truncates narrative fields internally.
+    """
+
+    raw_description: Optional[str] = Field(default=None, max_length=50_000)
+    top_k: int = Field(default=5, ge=1, le=15)
+    cross_client: bool = False
+
+
+class HistoricalMatchesPreviewRequest(BaseModel):
+    """Request body for POST /jobs/champion-profile/historical-matches.
+
+    Used by the "new role" wizard BEFORE the job row exists. The saved-job
+    variant is a GET with `job_id` in the path and reads title/desc from DB.
+    """
+
+    title: str = Field(min_length=1, max_length=500)
+    client_id: Optional[int] = Field(default=None, gt=0)
+    raw_description: Optional[str] = Field(default=None, max_length=50_000)
+    train_name: Optional[str] = Field(default=None, max_length=128)
+    top_k: int = Field(default=5, ge=1, le=15)
+    cross_client: bool = False
+
+
+class HistoricalMatchPreview(BaseModel):
+    """One historical-job match rendered as a card in the DL's UI."""
+
+    job_id: int
+    title: str
+    similarity: float
+    closed_at: Optional[datetime] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
+    seniority: Optional[str] = None
+    same_train: bool = False
+    has_champion_profile: bool = True
+    must_skills_count: int = 0
+    nice_skills_count: int = 0
+
+
+class HistoricalMatchesResponse(BaseModel):
+    """Response for both historical-matches endpoints (saved + unsaved)."""
+
+    matches: List[HistoricalMatchPreview]
+    skill_frequency: dict[str, Any]
+
+
 class LinkNoteJobPayload(BaseModel):
     """Request body for POST /notes/{id}/link-job."""
 

@@ -8,6 +8,7 @@ import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsA
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
+import { HistoricalCandidatesSection } from "@/components/HistoricalCandidatesSection";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
@@ -1107,6 +1108,7 @@ export default function JobDetailPage() {
 
       {activeTab === "ai-matching" && (
         <div className="space-y-4">
+          <HistoricalCandidatesSection jobId={Number(id)} />
           <div
             className={cn(
               "rounded-lg transition-shadow",

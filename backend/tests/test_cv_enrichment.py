@@ -176,3 +176,158 @@ def test_apply_does_not_overwrite_skills_with_empty_list():
     }
     _apply_cv_enrichment(c, parsed)
     assert c.skills == [{"name": "Python", "level": "senior", "years": 5}]
+
+
+# ── v4: contact field backfill (email / phone / name / city) ───────────────
+
+
+def _blank_candidate() -> Candidate:
+    """A fresh candidate with empty contact fields — mirrors /from-cv insert."""
+    return Candidate(
+        id=42,
+        name="Nieznane",      # placeholder written by /from-cv when LLM returned null
+        lastname="Nieznane",
+        email=None,
+        phone=None,
+        location=None,
+        city=None,
+        raw_cv_text="whatever",
+        experience=[],
+        cv_extracted_data={},
+    )
+
+
+def test_apply_fills_empty_contact_fields():
+    c = _blank_candidate()
+    parsed = {
+        "first_name": "Anna",
+        "last_name": "Nowak",
+        "email": "anna.nowak@example.com",
+        "phone": "+48 600 123 456",
+        "city": "Warszawa",
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "companies": [],
+        "years_it_experience": None,
+        "current_position": None,
+        "career_summary": None,
+        "_source": "claude:cv_enrichment:v4",
+    }
+
+    _apply_cv_enrichment(c, parsed)
+
+    assert c.name == "Anna"
+    assert c.lastname == "Nowak"
+    assert c.email == "anna.nowak@example.com"
+    assert c.phone == "+48 600 123 456"
+    assert c.city == "Warszawa"
+    assert c.location == "Warszawa"  # legacy column mirrors city
+
+
+def test_apply_preserves_manually_typed_contact_fields():
+    """Recruiter-typed email/phone/name must NEVER be overwritten by CV re-parse."""
+    c = Candidate(
+        id=7,
+        name="Jan",
+        lastname="Kowalski",
+        email="jan@typed.pl",
+        phone="123456789",
+        city="Kraków",
+        location="Kraków",
+        raw_cv_text="x",
+        experience=[],
+        cv_extracted_data={},
+    )
+    parsed = {
+        "first_name": "Janusz",
+        "last_name": "Nowak",
+        "email": "janusz@cv.pl",
+        "phone": "+48 999 888 777",
+        "city": "Warszawa",
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "companies": [],
+        "years_it_experience": None,
+        "current_position": None,
+        "career_summary": None,
+        "_source": "claude:cv_enrichment:v4",
+    }
+
+    _apply_cv_enrichment(c, parsed)
+
+    assert c.name == "Jan"
+    assert c.lastname == "Kowalski"
+    assert c.email == "jan@typed.pl"
+    assert c.phone == "123456789"
+    assert c.city == "Kraków"
+
+
+def test_apply_respects_per_field_manual_override_flag():
+    """Explicit _manual_override_<field> blocks backfill even if value looks empty."""
+    c = Candidate(
+        id=9,
+        name="Nieznane",
+        lastname="Nieznane",
+        email=None,
+        phone=None,
+        raw_cv_text="x",
+        experience=[],
+        cv_extracted_data={
+            "_manual_override_email": True,
+            "_manual_override_first_name": True,
+        },
+    )
+    parsed = {
+        "first_name": "Ala",
+        "last_name": "Kot",
+        "email": "cv@cv.pl",
+        "phone": "+48 111 222 333",
+        "city": None,
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "companies": [],
+        "years_it_experience": None,
+        "current_position": None,
+        "career_summary": None,
+        "_source": "claude:cv_enrichment:v4",
+    }
+
+    _apply_cv_enrichment(c, parsed)
+
+    # Locked fields stay blank
+    assert c.name == "Nieznane"
+    assert c.email is None
+    # Unlocked fields get filled
+    assert c.lastname == "Kot"
+    assert c.phone == "+48 111 222 333"
+    # Flags survive into the next cv_extracted_data snapshot
+    assert c.cv_extracted_data["_manual_override_email"] is True
+    assert c.cv_extracted_data["_manual_override_first_name"] is True
+
+
+def test_apply_truncates_long_contact_values():
+    c = _blank_candidate()
+    parsed = {
+        "first_name": "A" * 200,     # name column is VARCHAR(100)
+        "last_name": "B" * 300,
+        "email": "x@" + "y" * 260 + ".pl",  # > 255
+        "phone": "+48 " + "9" * 100,        # > 30
+        "city": "C" * 200,                  # > 120
+        "skills": [],
+        "education": [],
+        "languages": [],
+        "companies": [],
+        "years_it_experience": None,
+        "current_position": None,
+        "career_summary": None,
+        "_source": "regex",
+    }
+    _apply_cv_enrichment(c, parsed)
+    assert len(c.name) == 100
+    assert len(c.lastname) == 100
+    assert len(c.email) <= 255
+    assert len(c.phone) <= 30
+    assert len(c.city) <= 120

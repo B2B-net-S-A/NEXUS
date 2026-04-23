@@ -1,7 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -48,6 +50,17 @@ class TalentPool(Base):
         index=True,
     )
 
+    # Targ kandydatów (migracja 0051). Flaga singletona — partial unique index
+    # `ux_talent_pools_marketplace_singleton` pilnuje że JEDEN rekord w systemie
+    # może mieć is_marketplace=true. Zarządzane przez marketplace_service.
+    is_marketplace: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        index=True,
+    )
+
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
     competence_category = relationship(
@@ -87,13 +100,19 @@ class TalentPoolMembership(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     # Skąd kandydat trafił do poola. NULL = legacy/manual przed wdrożeniem
-    # auto-triggerów. Obecne wartości: "cv_sent", "manual", "imported".
+    # auto-triggerów. Obecne wartości: "cv_sent", "manual", "imported",
+    # "auto_availability" (targ — wstawiony automatycznie po availability_status).
     source_event: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     # Z którego JO kandydat przyszedł (dla source_event="cv_sent" zawsze
     # ustawione). NULL gdy źródło nie jest powiązane z konkretnym JO.
     source_job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Targ kandydatów (migracja 0051). Data wygaśnięcia ręcznego wrzutu na targ.
+    # NULL dla auto-entry (source_event="auto_availability") — wtedy o zniknięciu
+    # decyduje zmiana availability_status na not_looking. Dla wpisów ręcznych
+    # (source_event="manual") default = dzisiaj + MARKETPLACE_DEFAULT_DURATION_DAYS.
+    marketplace_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     # Relationships
     pool = relationship("TalentPool", back_populates="memberships")

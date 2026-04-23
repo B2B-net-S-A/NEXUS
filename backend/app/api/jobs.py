@@ -28,9 +28,14 @@ from app.schemas.job import (
 from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
+from app.core.config import settings
 from app.services.champion_profile_events import (
     diff_champion_profile,
     summarize_sections,
+)
+from app.services.marketplace_service import (
+    is_significant_job_update,
+    run_marketplace_scan_safe,
 )
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
@@ -294,6 +299,13 @@ async def create_job(
         logger.warning(
             "[Job] proposal snapshot dispatch failed for job %s: %s", job.id, e
         )
+
+    # Targ kandydatów (migracja 0052-0054): jeśli enabled, rescan puli marketplace
+    # z tym nowym jobem i wygeneruj notyfikacje ≥ MARKETPLACE_SCORE_THRESHOLD.
+    # Dedup przez uq_marketplace_alert_pair — ten sam job nigdy nie wygeneruje
+    # drugiej notyfikacji dla tej samej pary (candidate_id, job_id).
+    if settings.MARKETPLACE_ENABLED:
+        background_tasks.add_task(run_marketplace_scan_safe, job.id)
     return job
 
 
@@ -330,6 +342,7 @@ async def update_job(
     job_id: int,
     data: JobUpdate,
     current_user: TacPlus,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -338,6 +351,18 @@ async def update_job(
         raise HTTPException(status_code=404, detail="Job not found")
     updates = data.model_dump(exclude_unset=True)
     prev_status = job.status
+    # Snapshot istotnych pól przed mutacją — potrzebne do marketplace diff.
+    # Trzymamy kolumny z _SIGNIFICANT_FIELDS, nawet gdy nie ma ich w `updates`
+    # (`is_significant_job_update` sam ignoruje niezmienione).
+    _marketplace_snapshot_fields = (
+        "must_skills",
+        "nice_skills",
+        "seniority",
+        "subcategory",
+        "industry",
+        "title",
+    )
+    _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
     for k, v in updates.items():
         setattr(job, k, v)
 
@@ -379,6 +404,13 @@ async def update_job(
 
         await mark_stale_for_job(db, job_id)
         await db.commit()
+
+    # Targ kandydatów: rescan tylko gdy zmieniły się pola wpływające na scoring
+    # (_SIGNIFICANT_FIELDS z marketplace_service). Ignoruje zwykłe edycje opisu.
+    if settings.MARKETPLACE_ENABLED:
+        _after = {f: getattr(job, f) for f in _before.keys()}
+        if is_significant_job_update(_before, _after):
+            background_tasks.add_task(run_marketplace_scan_safe, job_id)
     return job
 
 
@@ -662,6 +694,156 @@ async def generate_champion_from_jd(
     out = ChampionProfileSuggestionOut.model_validate(suggestion)
     out.patches = patches_from_payload(suggestion.payload or {})
     return out
+
+
+@router.post("/{job_id}/champion-profile/generate-from-history")
+async def generate_champion_from_history(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+):
+    """Generate a Champion Profile draft from top-K similar closed jobs (Phase 15).
+
+    Mirrors `generate-from-jd` but sources narrative + sourcing + screening
+    data from historical roles with populated `champion_profile`. When there
+    are too few matches for the job's client, returns a `rejected` suggestion
+    with an explanatory `error_message` so the UI can tell the DL why.
+    """
+    from app.schemas.champion_suggestion import (
+        ChampionProfileSuggestionOut,
+        GenerateFromHistoryPayload,
+        patches_from_payload,
+    )
+    from app.services.champion_draft_service import generate_from_historical_jobs
+
+    body = GenerateFromHistoryPayload.model_validate(payload or {})
+    suggestion = await generate_from_historical_jobs(
+        db,
+        job_id=job_id,
+        raw_description=body.raw_description,
+        top_k=body.top_k,
+        cross_client=body.cross_client,
+        user_id=current_user.id,
+    )
+    out = ChampionProfileSuggestionOut.model_validate(suggestion)
+    out.patches = patches_from_payload(suggestion.payload or {})
+    return out
+
+
+@router.get("/{job_id}/champion-profile/historical-matches")
+async def get_champion_historical_matches(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    top_k: int = Query(default=5, ge=1, le=15),
+    cross_client: bool = Query(default=False),
+):
+    """Preview the top-K historical matches for an existing Job (no LLM).
+
+    Powers the side-panel cards DLs see before deciding whether to trigger
+    generate-from-history. Cheap — only runs Voyage embed + Qdrant search +
+    one SQL round-trip. Does NOT persist anything.
+    """
+    from app.schemas.champion_suggestion import (
+        HistoricalMatchesResponse,
+        HistoricalMatchPreview,
+    )
+    from app.services.historical_jobs_retrieval import (
+        find_similar_historical_jobs,
+        skill_frequency,
+    )
+
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    matches = await find_similar_historical_jobs(
+        db,
+        client_id=job.client_id,
+        title=job.title or "",
+        raw_description=job.description or "",
+        top_k=top_k,
+        cross_client=cross_client,
+        exclude_job_id=job.id,
+    )
+
+    previews = [
+        HistoricalMatchPreview(
+            job_id=m.job_id,
+            title=m.title,
+            similarity=m.similarity,
+            closed_at=m.closed_at,
+            client_id=m.client_id,
+            client_name=m.client_name,
+            seniority=m.seniority,
+            same_train=m.same_train,
+            has_champion_profile=bool(m.champion_profile),
+            must_skills_count=len(m.must_skills or []),
+            nice_skills_count=len(m.nice_skills or []),
+        )
+        for m in matches
+    ]
+    return HistoricalMatchesResponse(
+        matches=previews,
+        skill_frequency=skill_frequency(matches),
+    )
+
+
+@router.post("/champion-profile/historical-matches")
+async def preview_historical_matches_for_new_role(
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+):
+    """Preview historical matches for an UNSAVED role (new-role wizard).
+
+    Takes title/client_id/raw_description straight from the form, so the DL
+    can see "you have 3 similar closed roles at this client" before even
+    saving a draft. No persistence, no LLM.
+    """
+    from app.schemas.champion_suggestion import (
+        HistoricalMatchesPreviewRequest,
+        HistoricalMatchesResponse,
+        HistoricalMatchPreview,
+    )
+    from app.services.historical_jobs_retrieval import (
+        find_similar_historical_jobs,
+        skill_frequency,
+    )
+
+    body = HistoricalMatchesPreviewRequest.model_validate(payload or {})
+
+    matches = await find_similar_historical_jobs(
+        db,
+        client_id=body.client_id,
+        title=body.title,
+        raw_description=body.raw_description,
+        top_k=body.top_k,
+        cross_client=body.cross_client,
+    )
+
+    previews = [
+        HistoricalMatchPreview(
+            job_id=m.job_id,
+            title=m.title,
+            similarity=m.similarity,
+            closed_at=m.closed_at,
+            client_id=m.client_id,
+            client_name=m.client_name,
+            seniority=m.seniority,
+            same_train=m.same_train,
+            has_champion_profile=bool(m.champion_profile),
+            must_skills_count=len(m.must_skills or []),
+            nice_skills_count=len(m.nice_skills or []),
+        )
+        for m in matches
+    ]
+    return HistoricalMatchesResponse(
+        matches=previews,
+        skill_frequency=skill_frequency(matches),
+    )
 
 
 @router.get("/{job_id}/champion-profile/suggestions")

@@ -77,6 +77,19 @@ class Settings(BaseSettings):
     # Interwał orkiestratora (wszystkie 5 triggerów w jednej pętli).
     TRIGGERS_LOOP_INTERVAL_SECONDS: int = 300
 
+    # ── Targ kandydatów (Candidate Marketplace) ──────────────────────────────
+    # Singleton pula + auto-sync + notyfikacje po score >= threshold.
+    # Kill-switch bez redeploya: MARKETPLACE_ENABLED=false wyłącza skany oraz
+    # loop, ale pozostawia endpointy API (UI może dalej listować kandydatów).
+    MARKETPLACE_ENABLED: bool = True
+    MARKETPLACE_SCORE_THRESHOLD: float = 70.0
+    MARKETPLACE_DEFAULT_DURATION_DAYS: int = 30
+    MARKETPLACE_SWEEP_INTERVAL_SECONDS: int = 1800  # 30 min safety net
+    MARKETPLACE_TOP_K_MATCHES_PER_CANDIDATE: int = 3
+    # Rate-limit: max notyfikacji na kandydata per owner per 24h. Powyżej →
+    # agregat "N nowych matchy ≥70" (Phase 2 feature; w MVP wyłączone przez 0).
+    MARKETPLACE_MAX_ALERTS_PER_CANDIDATE_PER_DAY: int = 0
+
     # ── Phase 14: post-interview feedback reminders ──────────────────────────
     # 3-stopniowy ping rekruterowi/DL po zakończonym interview.
     POST_INTERVIEW_T15_MINUTES: int = 15

@@ -28,7 +28,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
-from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.embedding_service import (
@@ -44,6 +44,18 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.match_score_cache import bulk_get_or_compute
+from app.services.similar_job_candidates import (
+    boost_points_for_sources,
+    fetch_historical_boost_map,
+    fetch_historical_candidates,
+)
+from app.schemas.similar_job_candidates import (
+    CandidatesFromSimilarOut,
+    HistoricalCandidateOut,
+    HistoricalCandidatesMeta,
+    HistoricalSourceOut,
+    SimilarJobOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +154,26 @@ async def recommend_candidates_for_job(
     breakdowns = await bulk_get_or_compute(
         job, candidates, db, similarity_map=similarity_map, profile=profile
     )
+
+    # Phase 14: apply historical-boost from semantically-similar past jobs.
+    # Computed fresh per request — not persisted in match-score cache because
+    # candidate pipeline state changes too often to invalidate reliably.
+    try:
+        boost_map = await fetch_historical_boost_map(db, job_id)
+    except Exception as e:  # pragma: no cover — best-effort
+        logger.warning("historical_boost lookup failed for job=%s: %s", job_id, e)
+        boost_map = {}
+    if boost_map:
+        for b in breakdowns:
+            count = boost_map.get(b.candidate_id, 0)
+            if count <= 0:
+                continue
+            bonus = boost_points_for_sources(count)
+            b.historical_boost = bonus
+            b.historical_sources_count = count
+            b.total = round(b.total + bonus, 2)
+        breakdowns.sort(key=lambda r: -r.total)
+
     breakdowns = breakdowns[:top_k]
 
     matches = []
@@ -181,6 +213,173 @@ async def recommend_candidates_for_job(
         "profile": {"id": profile.id, "name": profile.name},
         "matches": matches,
     }
+
+
+# ── Historical candidates from similar jobs (Phase 14) ───────────────────────
+
+
+def _derive_availability(candidate: Candidate) -> str:
+    """Map candidate availability state into a tri-value badge label."""
+    status = getattr(candidate, "availability_status", None)
+    if status == AvailabilityStatus.actively_looking:
+        return "available"
+    if status == AvailabilityStatus.open_to_offers:
+        return "available"
+    if status == AvailabilityStatus.not_looking:
+        return "busy"
+    return "unknown"
+
+
+@router.get(
+    "/jobs/{job_id}/candidates-from-similar",
+    response_model=CandidatesFromSimilarOut,
+)
+@limiter.limit("20/minute")
+async def candidates_from_similar_jobs(
+    request: Request,
+    job_id: int,
+    tier: str = Query(
+        "primary",
+        description=(
+            "`primary` uses only Tier A (cosine >= 0.70) similar jobs. "
+            "`extended` includes Tier B (>= 0.55). `all` is a synonym for "
+            "extended. Tier A is auto-promoted to extended when it returns "
+            "fewer than 5 candidates."
+        ),
+    ),
+    limit: int = Query(20, ge=1, le=100),
+    include_negative: bool = Query(
+        True,
+        description=(
+            "When false, candidates with only rejected/withdrawn history on "
+            "similar jobs are dropped. When true, they surface with a warning "
+            "badge (`negative_signal=True`)."
+        ),
+    ),
+    top_k_similar: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CandidatesFromSimilarOut:
+    """Return candidates who were active in semantically similar past jobs.
+
+    Implements the "pierwszy ogień" pattern: when a new job comes in, avoid
+    starting from zero by surfacing the people who were already vetted on
+    comparable roles. Every candidate carries the list of source jobs
+    (up to 5 most recent) so the recruiter can judge whether the historical
+    fit still applies.
+    """
+    if tier not in {"primary", "extended", "all"}:
+        raise HTTPException(status_code=400, detail="tier must be primary|extended|all")
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    ranked, similar_refs, tier_used = await fetch_historical_candidates(
+        db,
+        job_id=job_id,
+        tier=tier,  # type: ignore[arg-type]
+        limit=limit,
+        include_negative=include_negative,
+        top_k_similar=top_k_similar,
+    )
+
+    total_sources = sum(len(c.sources) for c in ranked)
+    tier_a_count = sum(1 for r in similar_refs if r.tier == "A")
+    tier_b_count = sum(1 for r in similar_refs if r.tier == "B")
+
+    if not similar_refs:
+        return CandidatesFromSimilarOut(
+            job_id=job_id,
+            tier_used="empty",
+            similar_jobs=[],
+            candidates=[],
+            meta=HistoricalCandidatesMeta(
+                tier_a_count=0,
+                tier_b_count=0,
+                total_sources=0,
+                reason_if_empty="no_similar_jobs_found",
+            ),
+        )
+
+    reason_empty: Optional[str] = None
+    if not ranked:
+        reason_empty = "no_pipeline_history_on_similar_jobs"
+
+    # Hydrate candidate records (name, avatar, availability) in a single query.
+    cand_ids = [c.candidate_id for c in ranked]
+    cand_rows: list[Candidate] = []
+    if cand_ids:
+        cand_res = await db.execute(
+            select(Candidate).where(Candidate.id.in_(cand_ids))
+        )
+        cand_rows = list(cand_res.scalars().all())
+    cand_by_id = {c.id: c for c in cand_rows}
+
+    def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
+        # 0 = available (show first), 1 = unknown, 2 = busy — within each
+        # bucket keep historical_score desc.
+        bucket = {"available": 0, "unknown": 1, "busy": 2}.get(
+            c.current_availability, 1
+        )
+        return (bucket, -c.historical_score)
+
+    out_candidates: list[HistoricalCandidateOut] = []
+    for hc in ranked:
+        c = cand_by_id.get(hc.candidate_id)
+        if c is None:
+            continue
+        out_candidates.append(
+            HistoricalCandidateOut(
+                candidate_id=hc.candidate_id,
+                name=c.name,
+                lastname=c.lastname,
+                avatar_url=c.avatar_url,
+                competence_category=c.competence_category,
+                historical_score=hc.historical_score,
+                tier=hc.tier,
+                negative_signal=hc.negative_signal,
+                recommended_count=len(hc.sources),
+                sources=[
+                    HistoricalSourceOut(
+                        job_id=s.job_id,
+                        job_title=s.job_title,
+                        stage=s.stage.value,
+                        similarity=s.similarity,
+                        months_ago=s.months_ago,
+                        moved_at=s.moved_at,
+                        stage_weight=s.stage_weight,
+                        contribution=s.contribution,
+                    )
+                    for s in hc.sources
+                ],
+                current_availability=_derive_availability(c),  # type: ignore[arg-type]
+                current_status=c.status.value if c.status else None,
+            )
+        )
+
+    out_candidates.sort(key=_availability_sort_key)
+
+    return CandidatesFromSimilarOut(
+        job_id=job_id,
+        tier_used=tier_used,
+        similar_jobs=[
+            SimilarJobOut(
+                job_id=r.job_id,
+                title=r.title,
+                similarity=r.similarity,
+                tier=r.tier,
+            )
+            for r in similar_refs
+        ],
+        candidates=out_candidates,
+        meta=HistoricalCandidatesMeta(
+            tier_a_count=tier_a_count,
+            tier_b_count=tier_b_count,
+            total_sources=total_sources,
+            reason_if_empty=reason_empty,
+        ),
+    )
 
 
 # ── Candidate → jobs (reverse direction) ────────────────────────────────────
@@ -554,4 +753,270 @@ async def assign_candidate_to_job(
         "job_id": job_id,
         "stage_id": stage.id,
         "stage_def_id": stage.stage_def_id,
+    }
+
+
+# ── CV → jobs preview (ad-hoc, no Candidate persisted) ──────────────────────
+
+
+_MAX_CV_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_CV_EXT = {".pdf", ".docx", ".doc", ".txt"}
+
+
+def _build_query_text_from_parsed(parsed: dict) -> str:
+    """Compose embedding query string from a parsed-CV dict.
+
+    Mirrors the spirit of `embedding_service._build_candidate_text` but reads
+    from the LLM-output dict (no ORM row available).
+    """
+    parts: list[str] = []
+    if parsed.get("current_position"):
+        parts.append(parsed["current_position"])
+    if parsed.get("career_summary"):
+        parts.append(parsed["career_summary"])
+
+    years = parsed.get("years_it_experience")
+    if isinstance(years, int):
+        if years >= 7:
+            parts.append("senior experienced engineer")
+        elif years >= 3:
+            parts.append("mid-level developer")
+        else:
+            parts.append("junior entry-level developer")
+
+    for s in parsed.get("skills") or []:
+        if isinstance(s, dict) and s.get("name"):
+            parts.append(s["name"])
+        elif isinstance(s, str):
+            parts.append(s)
+
+    for c in parsed.get("companies") or []:
+        if isinstance(c, str):
+            parts.append(c)
+
+    return " ".join(p for p in parts if p and str(p).strip())
+
+
+def _ephemeral_candidate_from_parsed(parsed: dict, raw_cv_text: str) -> SimpleNamespace:
+    """Build a Candidate-like SimpleNamespace for the scoring engine.
+
+    `id=0` keeps DB joins (`CandidateConflict`, `CandidateStage`) safe — they
+    return zero rows and the layers degrade to neutral defaults. All fields the
+    scoring engine reads (`scoring_service.score_candidate_job` chain) are
+    populated with permissive defaults so a missing field never fabricates points.
+    """
+    return SimpleNamespace(
+        id=0,
+        name=parsed.get("first_name") or "",
+        lastname=parsed.get("last_name") or "",
+        email=parsed.get("email"),
+        skills=parsed.get("skills") or [],
+        verified_tech=[],
+        tags=[],
+        experience=[],
+        location=parsed.get("city"),
+        availability_date=None,
+        availability_status=AvailabilityStatus.unknown,
+        salary_expectation=None,
+        salary_currency="PLN",
+        years_it_experience=parsed.get("years_it_experience"),
+        competence_category=None,
+        ai_summary=parsed.get("career_summary"),
+        raw_cv_text=raw_cv_text,
+        preferences={},
+        status=CandidateStatus.active,
+        champion=False,
+        avatar_url=None,
+    )
+
+
+@router.post("/recommendations/cv-upload-preview")
+@limiter.limit("10/minute")
+async def cv_upload_preview(
+    request: Request,
+    file: Annotated[UploadFile, File(description="CV file (PDF/DOCX/TXT)")],
+    top_k: Annotated[int, Query(ge=1, le=50)] = 10,
+    threshold: Annotated[float, Query(ge=0.0, le=100.0)] = 0.0,
+    location: Annotated[Optional[str], Form()] = None,
+    salary_min: Annotated[Optional[int], Form()] = None,
+    salary_max: Annotated[Optional[int], Form()] = None,
+    competence_category: Annotated[Optional[str], Form()] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview top jobs for a freshly uploaded CV — no Candidate is created.
+
+    Pipeline:
+      1. extract_text  (cv_text_extractor)
+      2. parse_cv       (Claude → Ollama → regex)
+      3. build query    (skills + summary + position + companies)
+      4. semantic search nexus_jobs (Qdrant)
+      5. rank with hybrid scoring (no DB-side conflicts; ephemeral candidate)
+      6. apply user filters (location/salary/competence). Industry-blocklist
+         is intentionally OFF for ad-hoc uploads — no candidate row to join.
+
+    Cache: TODO add SHA-256(text) → embedding cache (Redis) when cost matters.
+    For now each upload pays 1 Voyage embed. At expected volume that is fine.
+    """
+    filename = file.filename or "cv"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _ALLOWED_CV_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Nieobsługiwany format pliku: {ext or '(brak rozszerzenia)'}. "
+                "Akceptowane: PDF, DOCX, DOC, TXT."
+            ),
+        )
+
+    # Stream into a temp file with size cap.
+    payload = await file.read(_MAX_CV_BYTES + 1)
+    if len(payload) > _MAX_CV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Plik CV przekracza limit {_MAX_CV_BYTES // (1024 * 1024)} MB.",
+        )
+    if not payload:
+        raise HTTPException(status_code=400, detail="Pusty plik CV.")
+
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=ext, delete=False, prefix="nexus_cv_preview_"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+
+        try:
+            cv_text = extract_text(tmp_path, filename)
+        except UnsupportedCvFormat as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        if not cv_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Nie udało się odczytać tekstu z CV (plik uszkodzony lub zaszyfrowany?).",
+            )
+
+        parsed = await parse_cv(cv_text)
+
+        query_text = _build_query_text_from_parsed(parsed)
+        # Fall back to raw CV head when the LLM failed to extract anything useful.
+        if not query_text.strip():
+            query_text = cv_text[:2000]
+
+        # Confirm the embedding pipeline works before searching (failure ⇒ empty hits).
+        emb_ok = await generate_embedding(query_text) is not None
+        hits = (
+            await search_jobs_semantic(query_text, top_k=top_k * 4)
+            if emb_ok
+            else []
+        )
+        similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
+        job_ids: list[int] = list(similarity_map.keys())
+
+        # Fallback: surface published jobs even when Qdrant is empty.
+        if not job_ids:
+            fallback_rows = await db.execute(
+                select(Job.id).where(Job.status == JobStatus.published).limit(50)
+            )
+            job_ids = [j for (j,) in fallback_rows.all()]
+
+        if not job_ids:
+            return {
+                "parsed_summary": _shape_parsed_summary(parsed),
+                "matches": [],
+                "search_type": "semantic" if emb_ok else "fallback",
+            }
+
+        jobs_res = await db.execute(
+            select(Job).where(
+                Job.id.in_(job_ids), Job.status == JobStatus.published
+            )
+        )
+        jobs = jobs_res.scalars().all()
+
+        candidate = _ephemeral_candidate_from_parsed(parsed, cv_text)
+        filters = RecommendationFilters(
+            location=location,
+            salary_min=salary_min,
+            salary_max=salary_max,
+            competence_category=competence_category,
+            industry_blocklist=False,  # no candidate row → nothing to block
+        )
+        filtered, _stats = await apply_user_filters(candidate, jobs, filters, db)
+
+        breakdowns = await rank_jobs_for_candidate(
+            candidate,
+            [fj.job for fj in filtered],
+            db,
+            similarity_map=similarity_map,
+        )
+
+        # Re-attach optional warnings (currently unused in /preview because
+        # industry_blocklist=False, but keep parity with batch endpoint shape).
+        warning_by_job = {fj.job.id: fj.warning for fj in filtered}
+
+        matches = []
+        for b in breakdowns:
+            if b.total < threshold:
+                continue
+            j = next((x.job for x in filtered if x.job.id == b.job_id), None)
+            if not j:
+                continue
+            matches.append(
+                {
+                    "job": _shape_job(j),
+                    "total_score": round(b.total, 1),
+                    "breakdown": b.as_dict(),
+                    "warning": warning_by_job.get(j.id),
+                }
+            )
+            if len(matches) >= top_k:
+                break
+
+        return {
+            "parsed_summary": _shape_parsed_summary(parsed),
+            "matches": matches,
+            "search_type": "semantic" if emb_ok else "fallback",
+        }
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                logger.warning("[cv-upload-preview] failed to unlink %s", tmp_path)
+
+
+def _shape_parsed_summary(parsed: dict) -> dict:
+    """Trim parser output to the public preview shape."""
+    return {
+        "first_name": parsed.get("first_name"),
+        "last_name": parsed.get("last_name"),
+        "email": parsed.get("email"),
+        "phone": parsed.get("phone"),
+        "city": parsed.get("city"),
+        "current_position": parsed.get("current_position"),
+        "years_it_experience": parsed.get("years_it_experience"),
+        "skills": parsed.get("skills") or [],
+        "languages": parsed.get("languages") or [],
+        "linkedin_url": parsed.get("linkedin_url"),
+        "source": parsed.get("_source"),
+    }
+
+
+def _shape_job(j: Job) -> dict:
+    return {
+        "id": j.id,
+        "title": j.title,
+        "client_id": j.client_id,
+        "location": j.location,
+        "salary_min": j.salary_min,
+        "salary_max": j.salary_max,
+        "remote_policy": j.remote_policy.value if j.remote_policy else None,
+        "status": j.status.value if j.status else None,
+        "priority": j.priority.value if j.priority else None,
+        "seniority": j.seniority.value if j.seniority else None,
+        "industry": j.industry,
+        "deadline": j.deadline.isoformat() if j.deadline else None,
     }

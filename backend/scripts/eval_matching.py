@@ -61,6 +61,10 @@ from app.services.embedding_service import (  # noqa: E402
     search_candidates_semantic,
 )
 from app.services.scoring_service import rank_candidates_for_job  # noqa: E402
+from app.services.similar_job_candidates import (  # noqa: E402
+    boost_points_for_sources,
+    fetch_historical_boost_map,
+)
 
 logger = logging.getLogger("eval_matching")
 
@@ -131,6 +135,9 @@ class JobEval:
     mrr: float
     ndcg_at_10: float
     pool_size: int
+    # Phase 14: fraction of top-10 ranked candidates who were present in the
+    # pipeline of at least one semantically-similar historical job.
+    historical_hit_rate_at_10: float = 0.0
     notes: str = ""
 
 
@@ -138,6 +145,7 @@ class JobEval:
 class ProfileEval:
     profile: WeightProfile
     per_job: list[JobEval] = field(default_factory=list)
+    with_boost: bool = False
 
     @property
     def mean_precision_at_5(self) -> float:
@@ -154,6 +162,10 @@ class ProfileEval:
     @property
     def mean_ndcg_at_10(self) -> float:
         return _mean(j.ndcg_at_10 for j in self.per_job)
+
+    @property
+    def mean_historical_hit_rate_at_10(self) -> float:
+        return _mean(j.historical_hit_rate_at_10 for j in self.per_job)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -276,12 +288,16 @@ async def _score_job_candidates(
     db: AsyncSession,
     *,
     pool_cap: int = 200,
-) -> tuple[list[int], int]:
+    with_historical_boost: bool = False,
+) -> tuple[list[int], int, dict[int, int]]:
     """
     Reproduce the recommendations endpoint pipeline for one job:
       Qdrant pool -> re-rank with hybrid scoring.
 
-    Returns (ranked_candidate_ids desc by total score, pool_size).
+    Returns ``(ranked_candidate_ids desc by total score, pool_size, boost_map)``
+    where ``boost_map`` is ``{candidate_id -> source_count}`` from
+    similar-job history. When ``with_historical_boost`` is True, the map is
+    also folded into ranking as ``total += min(count, 3) * 5``.
     """
     query_text = _build_job_text(job)
 
@@ -304,7 +320,7 @@ async def _score_job_candidates(
 
     pool_size = len(candidate_ids)
     if not candidate_ids:
-        return [], 0
+        return [], 0, {}
 
     cand_res = await db.execute(
         select(Candidate).where(Candidate.id.in_(candidate_ids))
@@ -314,7 +330,22 @@ async def _score_job_candidates(
     breakdowns = await rank_candidates_for_job(
         job, candidates, db, similarity_map=similarity_map
     )
-    return [b.candidate_id for b in breakdowns], pool_size
+
+    try:
+        boost_map = await fetch_historical_boost_map(db, job.id)
+    except Exception as e:
+        logger.warning("boost_map lookup failed for job=%s: %s", job.id, e)
+        boost_map = {}
+
+    if with_historical_boost and boost_map:
+        for b in breakdowns:
+            count = boost_map.get(b.candidate_id, 0)
+            if count <= 0:
+                continue
+            b.total += boost_points_for_sources(count)
+        breakdowns.sort(key=lambda r: -r.total)
+
+    return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
 
 def _metrics(
@@ -356,12 +387,17 @@ async def evaluate_profile(
     profile: WeightProfile,
     job_records: list[tuple[Job, list[int], dict[int, float]]],
     db: AsyncSession,
+    *,
+    with_historical_boost: bool = False,
 ) -> ProfileEval:
     _apply_profile(profile)
-    result = ProfileEval(profile=profile)
+    result = ProfileEval(profile=profile, with_boost=with_historical_boost)
     for job, gt_ids, relevance in job_records:
-        ranked_ids, pool_size = await _score_job_candidates(job, db)
+        ranked_ids, pool_size, boost_map = await _score_job_candidates(
+            job, db, with_historical_boost=with_historical_boost
+        )
         p5, r20, mrr, ndcg = _metrics(ranked_ids, relevance)
+        hhr = _historical_hit_rate(ranked_ids, boost_map, k=10)
         result.per_job.append(
             JobEval(
                 job_id=job.id,
@@ -373,11 +409,30 @@ async def evaluate_profile(
                 recall_at_20=r20,
                 mrr=mrr,
                 ndcg_at_10=ndcg,
+                historical_hit_rate_at_10=hhr,
                 pool_size=pool_size,
                 notes=("no pool" if pool_size == 0 else ""),
             )
         )
     return result
+
+
+def _historical_hit_rate(
+    ranked_ids: list[int], boost_map: dict[int, int], *, k: int = 10
+) -> float:
+    """Fraction of the top-k ranked candidates who appear in the boost map.
+
+    Measures "would this candidate have been found by looking at similar
+    past jobs?" — a proxy for the feature's signal strength. When k is
+    larger than the ranked list, it caps to the list length.
+    """
+    if not ranked_ids or not boost_map:
+        return 0.0
+    top = ranked_ids[:k]
+    if not top:
+        return 0.0
+    hits = sum(1 for cid in top if boost_map.get(cid, 0) > 0)
+    return hits / len(top)
 
 
 def _go_no_go(
@@ -447,15 +502,19 @@ def _render_markdown(
     lines.append("")
     lines.append("## Summary")
     lines.append("")
-    lines.append("| Profile | Jobs | Precision@5 | Recall@20 | MRR | nDCG@10 |")
-    lines.append("|---|---:|---:|---:|---:|---:|")
+    lines.append(
+        "| Profile | Boost | Jobs | Precision@5 | Recall@20 | MRR | nDCG@10 | HistHit@10 |"
+    )
+    lines.append("|---|:---:|---:|---:|---:|---:|---:|---:|")
     for p in profile_results:
+        boost_flag = "✓" if p.with_boost else ""
         lines.append(
-            f"| `{p.profile.name}` | {len(p.per_job)} "
+            f"| `{p.profile.name}` | {boost_flag} | {len(p.per_job)} "
             f"| {p.mean_precision_at_5:.3f} "
             f"| {p.mean_recall_at_20:.3f} "
             f"| {p.mean_mrr:.3f} "
-            f"| {p.mean_ndcg_at_10:.3f} |"
+            f"| {p.mean_ndcg_at_10:.3f} "
+            f"| {p.mean_historical_hit_rate_at_10:.3f} |"
         )
     lines.append("")
 
@@ -603,8 +662,38 @@ async def _run(args: argparse.Namespace) -> int:
         profile_results: list[ProfileEval] = []
         for profile in profiles:
             logger.info("-> profile %s", profile.name)
-            res = await evaluate_profile(profile, job_records, db)
+            res = await evaluate_profile(
+                profile,
+                job_records,
+                db,
+                with_historical_boost=args.with_historical_boost,
+            )
             profile_results.append(res)
+
+        # Ablation mode additionally runs the default profile WITH boost so the
+        # markdown table shows the direct delta vs. baseline.
+        if args.ablation and not args.with_historical_boost:
+            logger.info("-> profile default + historical_boost (delta run)")
+            delta_res = await evaluate_profile(
+                DEFAULT_PROFILE,
+                job_records,
+                db,
+                with_historical_boost=True,
+            )
+            # Rename for unambiguous output.
+            delta_res = ProfileEval(
+                profile=WeightProfile(
+                    name=f"{DEFAULT_PROFILE.name}+boost",
+                    semantic=DEFAULT_PROFILE.semantic,
+                    skills=DEFAULT_PROFILE.skills,
+                    salary=DEFAULT_PROFILE.salary,
+                    location=DEFAULT_PROFILE.location,
+                    availability=DEFAULT_PROFILE.availability,
+                ),
+                per_job=delta_res.per_job,
+                with_boost=True,
+            )
+            profile_results.append(delta_res)
 
     # Always restore defaults after ablation so an import in-process sees them
     _apply_profile(DEFAULT_PROFILE)
@@ -630,10 +719,14 @@ async def _run(args: argparse.Namespace) -> int:
             "profiles": [
                 {
                     "profile": p.profile.as_dict(),
+                    "with_boost": p.with_boost,
                     "mean_precision_at_5": p.mean_precision_at_5,
                     "mean_recall_at_20": p.mean_recall_at_20,
                     "mean_mrr": p.mean_mrr,
                     "mean_ndcg_at_10": p.mean_ndcg_at_10,
+                    "mean_historical_hit_rate_at_10": (
+                        p.mean_historical_hit_rate_at_10
+                    ),
                     "per_job": [asdict(j) for j in p.per_job],
                 }
                 for p in profile_results
@@ -677,6 +770,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ablation",
         action="store_true",
         help="Run every profile in ABLATION_PROFILES instead of just default.",
+    )
+    parser.add_argument(
+        "--with-historical-boost",
+        action="store_true",
+        help=(
+            "Apply similar-job historical boost to rankings. When combined "
+            "with --ablation, a baseline (no boost) and boost variant are run "
+            "for the default profile so you can read the delta directly."
+        ),
     )
     parser.add_argument(
         "--json",

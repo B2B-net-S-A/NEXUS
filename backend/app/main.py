@@ -83,6 +83,7 @@ from app.api import interview_feedback as interview_feedback_api
 from app.api import rejection_emails as rejection_emails_api
 from app.api import microsoft365 as microsoft365_api
 from app.api import email_threads as email_threads_api
+from app.api import marketplace as marketplace_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -184,6 +185,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.microsoft365_sync import microsoft365_sync_loop
+    from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -198,6 +200,7 @@ async def lifespan(app: FastAPI):
     rejection_email_task = asyncio.create_task(rejection_email_loop())
     linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
     microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
+    marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
 
     yield
 
@@ -215,6 +218,7 @@ async def lifespan(app: FastAPI):
         rejection_email_task,
         linkedin_sync_task,
         microsoft365_sync_task,
+        marketplace_sweeper_task,
     )
     for t in tasks:
         t.cancel()
@@ -295,6 +299,7 @@ app.include_router(
 )
 app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
 app.include_router(talent_pools.router, prefix="/api", tags=["talent-pools"])
+app.include_router(marketplace_api.router, prefix="/api", tags=["marketplace"])
 app.include_router(cv_generator.router, prefix="/api", tags=["cv-generator"])
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])

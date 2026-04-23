@@ -183,6 +183,12 @@ class ScoreBreakdown:
             reason="brak screeningu",
         )
     )
+    # Post-processing adjustment layered on top of `total` when the candidate
+    # was present on semantically-similar historical jobs. NOT persisted in
+    # the match-score cache — recomputed per request because pipeline state
+    # changes too often to warrant explicit invalidation.
+    historical_boost: float = 0.0
+    historical_sources_count: int = 0
 
     def as_dict(self) -> dict:
         return {
@@ -224,6 +230,8 @@ class ScoreBreakdown:
             "matching_nice": self.matching_nice,
             "gap_nice": self.gap_nice,
             "penalties": self.penalties,
+            "historical_boost": round(self.historical_boost, 1),
+            "historical_sources_count": self.historical_sources_count,
         }
 
 

@@ -352,3 +352,39 @@ class CandidateList(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class CandidateFromCVDuplicate(BaseModel):
+    """One duplicate candidate found during /from-cv dedup scan."""
+
+    candidate_id: int
+    name: Optional[str] = None
+    lastname: Optional[str] = None
+    email: Optional[str] = None
+    match_score: float
+    match_reasons: list[str] = Field(default_factory=list)
+
+
+class CandidateFromCVResponse(BaseModel):
+    """Response for POST /candidates/from-cv.
+
+    The `candidate` field carries the newly-created profile exactly like the
+    standard CandidateResponse. `confidence` mirrors the LLM's per-field
+    certainty so the UI can flag low-confidence values for manual review.
+    `duplicates` is populated (non-empty) only when the endpoint is called
+    with `?force=true` despite existing matches — the default flow returns
+    HTTP 409 instead.
+    """
+
+    candidate: CandidateResponse
+    confidence: dict[str, float] = Field(default_factory=dict)
+    duplicates: list[CandidateFromCVDuplicate] = Field(default_factory=list)
+    source: Optional[str] = None  # e.g. "claude:cv_enrichment:v4"
+
+
+class CandidateFromCVConflictResponse(BaseModel):
+    """409 response when a duplicate is found during /from-cv."""
+
+    detail: str
+    existing_candidate_id: int
+    matches: list[CandidateFromCVDuplicate]
