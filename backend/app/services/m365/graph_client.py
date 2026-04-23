@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 _CONCURRENCY = 4
 _MAX_RETRIES_NETWORK = 2
+_MAX_RETRIES_THROTTLE = 4  # cap on consecutive 429/503s — prevents infinite loop
 _RETRY_AFTER_CAP_SECONDS = 60
 
 
@@ -91,6 +92,7 @@ class GraphClient:
         async with GraphClient._semaphore:
             refreshed_once = False
             network_tries = 0
+            throttle_tries = 0
             while True:
                 try:
                     resp = await self._client.request(
@@ -110,14 +112,22 @@ class GraphClient:
                     hdrs["Authorization"] = f"Bearer {self._access_token}"
                     continue
 
-                # 429 / 503 → honor Retry-After (clamped), then retry.
+                # 429 / 503 → honor Retry-After (clamped), then retry up to N times.
                 if resp.status_code in (429, 503):
+                    throttle_tries += 1
+                    if throttle_tries > _MAX_RETRIES_THROTTLE:
+                        # Give up rather than loop forever.
+                        raise GraphRequestError(
+                            resp.status_code,
+                            f"retry_after cap exceeded ({_MAX_RETRIES_THROTTLE}x)",
+                        )
                     retry_after = _parse_retry_after(
                         resp.headers.get("Retry-After")
                     )
                     sleep_s = min(retry_after, _RETRY_AFTER_CAP_SECONDS)
                     logger.warning(
-                        "Graph throttled %s — sleeping %ds", resp.status_code, sleep_s
+                        "Graph throttled %s (try %d/%d) — sleeping %ds",
+                        resp.status_code, throttle_tries, _MAX_RETRIES_THROTTLE, sleep_s,
                     )
                     await asyncio.sleep(sleep_s)
                     continue

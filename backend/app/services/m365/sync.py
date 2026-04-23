@@ -12,6 +12,7 @@ Strategy:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,10 @@ from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Hard ceiling on a single sync pass — guards against a hung Graph call
+# holding the DB connection and poisoning the pool.
+_SYNC_TIMEOUT_SECONDS = 8 * 60
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -64,20 +69,40 @@ class SyncResult:
 
 
 async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
-    """Run one full sync pass (messages + events) for the given connection."""
+    """Run one full sync pass (messages + events) for the given connection.
+
+    - Hard timeout (`_SYNC_TIMEOUT_SECONDS`) so a hung Graph call can't hold the
+      DB connection open indefinitely.
+    - `last_sync_at` is set on BOTH success and error so the scheduler's cutoff
+      test behaves correctly (otherwise a failing row keeps being picked up
+      every loop iteration).
+    """
     result = SyncResult(connection_id=conn.id)
     conn.last_sync_status = M365SyncStatus.running
     conn.last_error = None
     await db.commit()
 
     try:
-        async with GraphClient(conn, db) as gc:
-            await _sync_messages(db, gc, conn, result)
-            await _sync_events(db, gc, conn, result)
+        async def _run() -> None:
+            async with GraphClient(conn, db) as gc:
+                await _sync_messages(db, gc, conn, result)
+                await _sync_events(db, gc, conn, result)
+
+        await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("m365 sync_connection TIMEOUT for %s", conn.id)
+        conn.last_sync_status = M365SyncStatus.error
+        conn.last_error = f"timeout after {_SYNC_TIMEOUT_SECONDS}s"
+        conn.last_sync_at = datetime.now(timezone.utc)
+        result.errors += 1
+        result.error_samples.append("top: asyncio.TimeoutError")
+        await db.commit()
+        return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("m365 sync_connection failed for %s", conn.id)
         conn.last_sync_status = M365SyncStatus.error
         conn.last_error = f"{exc!r}"[:2000]
+        conn.last_sync_at = datetime.now(timezone.utc)
         result.errors += 1
         result.error_samples.append(f"top: {exc!r}")
         await db.commit()

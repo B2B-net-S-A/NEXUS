@@ -443,6 +443,37 @@ async def create_all():
 asyncio.run(create_all())
 PY
 
+# Reset any m365_connections stuck in 'running' from a killed sync task.
+# Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
+# pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
+# starting clean.
+echo "Resetting stuck m365 sync state (idempotent)..."
+python - <<'PY' || echo "m365 reset skipped (table may not exist yet); continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+
+async def reset():
+    async with engine.begin() as conn:
+        # Cheap existence check so this stays a no-op before migration 0036.
+        exists = await conn.scalar(text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_name='m365_connections' LIMIT 1"
+        ))
+        if not exists:
+            print("m365_connections: table missing, skipping reset")
+            return
+        result = await conn.execute(text(
+            "UPDATE m365_connections "
+            "SET last_sync_status='idle', "
+            "    last_error=COALESCE(last_error, 'reset after container restart') "
+            "WHERE last_sync_status='running'"
+        ))
+        print(f"m365 reset: rowcount={result.rowcount}")
+
+asyncio.run(reset())
+PY
+
 # Run seed (idempotent - skips if already seeded)
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
