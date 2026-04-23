@@ -44,7 +44,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useUiStore } from "@/store/ui";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -619,11 +619,12 @@ export function CandidatesListV2() {
           >
             <Sparkles className="h-4 w-4" /> Dodaj z CV
           </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link href="/candidates/bulk-import">
-              <FileArchive className="h-4 w-4" /> Bulk CV
-            </Link>
-          </Button>
+          <Link
+            href="/candidates/bulk-import"
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+          >
+            <FileArchive className="h-4 w-4" /> Bulk CV
+          </Link>
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="outline">
