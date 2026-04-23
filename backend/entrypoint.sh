@@ -80,6 +80,11 @@ _ENUM_STATEMENTS = [
     # tej wartości w INSERT, więc brak w enum => InvalidTextRepresentationError
     # i crash-loop feature'a dla DL-i.
     "ALTER TYPE champion_suggestion_source ADD VALUE IF NOT EXISTS 'historical_jobs'",
+    # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
+    # powiadomień dla dopasowań z puli marketplace. Bez tego insert
+    # Notification(notification_type='marketplace_match') crashuje z
+    # InvalidTextRepresentationError podczas scan_job_for_marketplace_matches.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'marketplace_match'",
     # Phase 14 dedicated enums for interview_feedback table
     """DO $$
     BEGIN
@@ -264,6 +269,31 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
+    # Targ kandydatów (migracja 0052_marketplace_pool_flag): is_marketplace
+    # flag na talent_pools + marketplace_until na membership. ORM leci na
+    # te kolumny z każdego listowania pul (łącznie z /api/talent-pools),
+    # więc brak w schemacie = crash-loop wszystkich endpointów TalentPool.
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS is_marketplace BOOLEAN NOT NULL DEFAULT FALSE",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_talent_pools_marketplace_singleton ON talent_pools ((1)) WHERE is_marketplace = TRUE",
+    "CREATE INDEX IF NOT EXISTS ix_talent_pools_is_marketplace ON talent_pools (is_marketplace)",
+    "ALTER TABLE talent_pool_memberships ADD COLUMN IF NOT EXISTS marketplace_until DATE",
+    "CREATE INDEX IF NOT EXISTS ix_tpm_marketplace_until ON talent_pool_memberships (marketplace_until) WHERE marketplace_until IS NOT NULL",
+    # Targ kandydatów (migracja 0053_marketplace_alert_log): append-only log
+    # dedupujący powiadomienia. Bez tabeli scan_job_for_marketplace_matches
+    # wywala się na ON CONFLICT INSERT → 500 na PATCH /api/jobs/{id}.
+    """CREATE TABLE IF NOT EXISTS marketplace_alert_log (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        score NUMERIC(5,2) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        notified_candidate_owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        notified_job_owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        CONSTRAINT uq_marketplace_alert_pair UNIQUE (candidate_id, job_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_mal_candidate ON marketplace_alert_log (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_mal_job ON marketplace_alert_log (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_mal_created ON marketplace_alert_log (created_at DESC)",
 ]
 
 _DATA_STATEMENTS = [
