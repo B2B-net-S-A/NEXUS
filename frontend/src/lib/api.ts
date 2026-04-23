@@ -1257,7 +1257,12 @@ export interface SeekingContractorsParams {
   location?: string;
   salary_min?: number;
   salary_max?: number;
-  competence_category?: string;
+  /**
+   * One or more competence categories — backend OR-combines them.
+   * Sent as repeated `competence_category=X&competence_category=Y` query
+   * params via axios's array serializer.
+   */
+  competence_category?: string[];
   industry_blocklist?: boolean;
   page_size?: number;
 }

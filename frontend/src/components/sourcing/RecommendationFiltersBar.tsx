@@ -34,12 +34,18 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
       ? String(initial.salary_max)
       : "",
   );
-  const [competenceCategory, setCompetenceCategory] = useState(
-    initial?.competence_category ?? "",
+  const [competenceCategories, setCompetenceCategories] = useState<string[]>(
+    initial?.competence_category ?? [],
   );
   const [industryBlocklist, setIndustryBlocklist] = useState(
     initial?.industry_blocklist ?? true,
   );
+
+  const toggleCategory = (cat: string) => {
+    setCompetenceCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
+    );
+  };
 
   const handleApply = () => {
     onApply({
@@ -47,7 +53,8 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
       location: location.trim() || undefined,
       salary_min: salaryMin ? Number(salaryMin) : undefined,
       salary_max: salaryMax ? Number(salaryMax) : undefined,
-      competence_category: competenceCategory || undefined,
+      competence_category:
+        competenceCategories.length > 0 ? competenceCategories : undefined,
       industry_blocklist: industryBlocklist,
     });
   };
@@ -57,7 +64,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
     setLocation("");
     setSalaryMin("");
     setSalaryMax("");
-    setCompetenceCategory("");
+    setCompetenceCategories([]);
     setIndustryBlocklist(true);
     onApply({ horizon_days: 30, industry_blocklist: true });
   };
@@ -99,23 +106,33 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
           />
         </label>
 
-        <label className="flex flex-col">
+        <div className="flex flex-col md:col-span-1">
           <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-            Kategoria kompetencji
+            Kategorie kompetencji{" "}
+            <span className="text-gray-400">(wiele · OR)</span>
           </span>
-          <select
-            value={competenceCategory}
-            onChange={(e) => setCompetenceCategory(e.target.value)}
-            className="border rounded px-2 py-1 text-sm"
-          >
-            <option value="">Dowolna</option>
-            {COMPETENCE_CATEGORIES.map((cc) => (
-              <option key={cc} value={cc}>
-                {cc}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="flex flex-wrap gap-1.5">
+            {COMPETENCE_CATEGORIES.map((cc) => {
+              const active = competenceCategories.includes(cc);
+              return (
+                <button
+                  key={cc}
+                  type="button"
+                  onClick={() => toggleCategory(cc)}
+                  className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                    active
+                      ? "bg-purple-600 text-white border-purple-600"
+                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 hover:border-purple-400"
+                  }`}
+                  data-testid={`cc-chip-${cc}`}
+                  aria-pressed={active}
+                >
+                  {cc}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <label className="flex flex-col">
           <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
