@@ -50,6 +50,8 @@ import { CVGeneratorV2 } from "@/components/v2/modals/CVGeneratorV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
+import EmailThreadList from "@/components/emails/EmailThreadList";
+import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
 import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
@@ -105,6 +107,7 @@ export function CandidateDetailV2({
   const [emailOpen, setEmailOpen] = useState(false);
   const [cvOpen, setCvOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [screeningStage, setScreeningStage] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
@@ -367,6 +370,16 @@ export function CandidateDetailV2({
               <Mail className="h-4 w-4" />
               Email
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setScheduleOpen(true)}
+              disabled={!candidate.email}
+              title={candidate.email ? "Zaplanuj interview w Outlook (M365)" : "Kandydat nie ma adresu email"}
+            >
+              <Calendar className="h-4 w-4" />
+              Zaplanuj interview
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
               <PencilLine className="h-4 w-4" />
               Edytuj
@@ -472,6 +485,10 @@ export function CandidateDetailV2({
               <PhoneCall className="h-3.5 w-3.5" />
               Rozmowy
             </TabsTrigger>
+            <TabsTrigger value="email">
+              <Mail className="h-3.5 w-3.5" />
+              Email
+            </TabsTrigger>
             <TabsTrigger value="notatki">
               <MessageSquare className="h-3.5 w-3.5" />
               Notatki
@@ -506,6 +523,13 @@ export function CandidateDetailV2({
                 <RozmowyTab calls={calls} />
                 <FirefliesTranscriptsWidget candidateId={Number(id)} />
               </div>
+            </TabsContent>
+            <TabsContent value="email" className="mt-0">
+              <EmailThreadList
+                candidateId={Number(id)}
+                candidateName={fullName}
+                candidateEmail={candidate.email ?? null}
+              />
             </TabsContent>
             <TabsContent value="notatki" className="mt-0">
               <NotatkiTab
@@ -569,6 +593,13 @@ export function CandidateDetailV2({
           queryClient.invalidateQueries({ queryKey: ["candidate-screenings", id] });
           setScreeningStage(null);
         }}
+      />
+      <ScheduleInterviewModal
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        candidateId={Number(id)}
+        candidateName={fullName}
+        candidateEmail={candidate.email ?? null}
       />
     </div>
   );

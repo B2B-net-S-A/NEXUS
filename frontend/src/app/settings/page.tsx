@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
+import Microsoft365Card from "@/components/settings/Microsoft365Card";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,7 @@ export default function SettingsPage() {
       {/* Tab content */}
       {activeTab === "integracje" && (
         <div className="space-y-4">
+          <Microsoft365Card />
           <FirefliesCard />
 
           {/* Placeholder for future integrations */}
