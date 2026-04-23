@@ -11,6 +11,15 @@ Pool category derivation (based on Job):
   - only seniority   → "{Seniority-label-PL} — Inne"
   - neither          → skip (logged via Activity as `pool_skip_no_category`)
 
+Competence Category assignment (Phase 10 A2):
+  - New pools inherit `competence_category_id` from `job.competence_category_id`
+    (no synchronous classifier call — that would add Qdrant latency to every
+    stage-move. Jobs since migration 0041 carry CC directly.)
+  - Existing pools with CC=NULL are *opportunistically healed* when a
+    CC-bearing job flows through the same pool. Idempotent: second healing
+    with the same value is a no-op.
+  - Existing pools with CC set are NEVER downgraded.
+
 Idempotency: DB-level UniqueConstraint `uq_pool_candidate` on
 (talent_pool_id, candidate_id). Re-trigger of cv_sent for the same pair
 results in `AutoAddResult(status="already_in_pool")` without duplication.
@@ -72,6 +81,18 @@ def _derive_pool_name(job: Job) -> Optional[str]:
     return None
 
 
+def _resolve_cc_id(job: Job) -> Optional[int]:
+    """Return CC id for a Job; None if Job lacks CC assignment.
+
+    No classifier fallback here — that would couple the hot pipeline path to
+    Qdrant I/O (see services/cc_classifier.py). Legacy jobs (pre migration
+    0041) without CC produce pools without CC; those are healed later by the
+    backfill script or opportunistically when a CC-bearing job reuses the
+    same pool.
+    """
+    return getattr(job, "competence_category_id", None)
+
+
 @dataclass(frozen=True)
 class AutoAddResult:
     """Outcome of auto_add_on_cv_sent."""
@@ -88,16 +109,24 @@ async def auto_add_on_cv_sent(
     candidate_id: int,
     job: Job,
     user_id: Optional[int],
+    extra_activity_details: Optional[dict] = None,
 ) -> AutoAddResult:
     """Idempotently add the candidate to a talent pool derived from the Job.
 
     Does NOT commit — the caller (move_candidate) commits the whole
     stage-change transaction.
 
+    Args:
+        extra_activity_details: Optional dict merged into every Activity row's
+            `details` JSONB. Used by the backfill script to tag historical
+            replays with ``{"backfill": True}`` so dashboards can filter.
+
     Raises exceptions on unexpected DB errors; the caller should wrap this
     in try/except to avoid blocking the core stage-change operation.
     """
     pool_name = _derive_pool_name(job)
+    extra = extra_activity_details or {}
+
     if pool_name is None:
         db.add(
             Activity(
@@ -110,10 +139,20 @@ async def auto_add_on_cv_sent(
                     "job_id": job.id,
                     "source_event": "cv_sent",
                     "reason": "job_has_no_subcategory_and_no_seniority",
+                    **extra,
                 },
             )
         )
         return AutoAddResult(status="skipped_no_category")
+
+    cc_id = _resolve_cc_id(job)
+    if cc_id is None:
+        logger.info(
+            "auto_add_on_cv_sent: job=%s has no competence_category_id "
+            "(pool=%r will be created/kept without CC)",
+            job.id,
+            pool_name,
+        )
 
     pool = await db.scalar(select(TalentPool).where(TalentPool.name == pool_name))
     pool_created = False
@@ -131,11 +170,16 @@ async def auto_add_on_cv_sent(
                 "subcategory": subcat,
                 "seniority": sen_value,
             },
+            competence_category_id=cc_id,
             created_by=user_id,
         )
         db.add(pool)
         await db.flush()
         pool_created = True
+    elif pool.competence_category_id is None and cc_id is not None:
+        # Opportunistic healing — legacy pool gains CC when a CC-bearing job
+        # flows through. Never downgrade a pool that already has CC set.
+        pool.competence_category_id = cc_id
 
     stmt = (
         pg_insert(TalentPoolMembership.__table__)
@@ -164,6 +208,7 @@ async def auto_add_on_cv_sent(
                     "job_id": job.id,
                     "source_event": "cv_sent",
                     "pool_name": pool.name,
+                    **extra,
                 },
             )
         )
@@ -188,6 +233,7 @@ async def auto_add_on_cv_sent(
                 "source_event": "cv_sent",
                 "pool_name": pool.name,
                 "pool_created": pool_created,
+                **extra,
             },
         )
     )
