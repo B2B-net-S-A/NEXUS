@@ -21,6 +21,7 @@ import {
   PhoneCall,
   AlertTriangle,
   ChevronRight,
+  Store,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -113,6 +114,12 @@ const TYPE_CONFIG: Record<
     icon: <ChevronRight className="w-3.5 h-3.5" />,
     color: "text-emerald-600",
     bgColor: "bg-emerald-100",
+  },
+  // Targ kandydatów — nowy projekt dopasował się do kandydata w puli marketplace
+  marketplace_match: {
+    icon: <Store className="w-3.5 h-3.5" />,
+    color: "text-teal-600",
+    bgColor: "bg-teal-100",
   },
 };
 

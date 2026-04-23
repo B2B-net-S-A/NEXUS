@@ -254,6 +254,76 @@ export const talentPoolsApi = {
     api.get(`/api/talent-pools/for-candidate/${candidateId}`),
 };
 
+// ── Targ kandydatów (Candidate Marketplace) ───────────────────────────────────
+
+export interface MarketplaceOwner {
+  id: number;
+  name: string;
+  email: string;
+}
+
+export interface MarketplaceCandidate {
+  id: number;
+  name: string;
+  lastname: string;
+  email?: string | null;
+  avatar_url?: string | null;
+  location?: string | null;
+  competence_category?: string | null;
+  availability_status: string;
+  skills?: unknown[] | null;
+  added_at: string;
+  marketplace_until?: string | null;
+  source_event?: string | null;
+  owner?: MarketplaceOwner | null;
+}
+
+export interface MarketplaceListResponse {
+  items: MarketplaceCandidate[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface MarketplaceMatch {
+  job_id: number;
+  title: string;
+  client_id?: number | null;
+  total_score: number;
+  seniority?: string | null;
+  matching_must: string[];
+  gap_must: string[];
+}
+
+export interface MarketplaceMatchesResponse {
+  candidate_id: number;
+  computed_at: string;
+  matches: MarketplaceMatch[];
+}
+
+export interface MarketplacePoolMeta {
+  id: number;
+  name: string;
+  description?: string | null;
+  candidate_count: number;
+  is_marketplace: boolean;
+  created_at: string;
+}
+
+export const marketplaceApi = {
+  getPool: () => api.get<MarketplacePoolMeta>("/api/marketplace/pool"),
+  list: (params?: { page?: number; page_size?: number; q?: string }) =>
+    api.get<MarketplaceListResponse>("/api/marketplace/candidates", { params }),
+  add: (candidateId: number, body: { marketplace_until?: string } = {}) =>
+    api.post(`/api/marketplace/candidates/${candidateId}/add`, body),
+  remove: (candidateId: number) =>
+    api.delete(`/api/marketplace/candidates/${candidateId}`),
+  matches: (candidateId: number) =>
+    api.get<MarketplaceMatchesResponse>(
+      `/api/marketplace/candidates/${candidateId}/matches`
+    ),
+};
+
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
@@ -1328,7 +1398,8 @@ export type ChampionSuggestionSource =
   | "jd_paste"
   | "fireflies_meeting"
   | "cloudtalk_call"
-  | "manual_consultant_note";
+  | "manual_consultant_note"
+  | "historical_jobs";
 
 export type ChampionSuggestionStatus =
   | "pending"
@@ -1405,7 +1476,96 @@ export const championSuggestionsApi = {
     api.post<ChampionProfileSuggestion>(
       `/api/champion-suggestions/${suggestionId}/reject`,
     ),
+  // Phase 15: generate draft from top-K similar closed jobs of the same
+  // client (or any client when crossClient=true). Emits the same
+  // ChampionProfileSuggestion shape as generateFromJd so the existing review
+  // modal works without changes.
+  generateFromHistory: (
+    jobId: number,
+    opts: { topK?: number; crossClient?: boolean; rawDescription?: string } = {},
+  ) =>
+    api.post<ChampionProfileSuggestion>(
+      `/api/jobs/${jobId}/champion-profile/generate-from-history`,
+      {
+        top_k: opts.topK ?? 5,
+        cross_client: opts.crossClient ?? false,
+        raw_description: opts.rawDescription,
+      },
+    ),
+  // Preview (no LLM): list up to top_k similar closed roles with a populated
+  // champion_profile + aggregated skill frequencies. Powers "podobne role z
+  // przeszłości" cards before the DL commits to an LLM round-trip.
+  fetchHistoricalMatches: (
+    jobId: number,
+    params: { topK?: number; crossClient?: boolean } = {},
+  ) =>
+    api.get<HistoricalMatchesResponse>(
+      `/api/jobs/${jobId}/champion-profile/historical-matches`,
+      {
+        params: {
+          top_k: params.topK ?? 5,
+          cross_client: params.crossClient ?? false,
+        },
+      },
+    ),
+  // Same preview but for a job that does NOT exist yet (new-role wizard).
+  // Takes title + client_id + free-text description straight from the form.
+  previewHistoricalMatchesUnsaved: (payload: {
+    title: string;
+    client_id?: number | null;
+    raw_description?: string | null;
+    train_name?: string | null;
+    top_k?: number;
+    cross_client?: boolean;
+  }) =>
+    api.post<HistoricalMatchesResponse>(
+      `/api/jobs/champion-profile/historical-matches`,
+      {
+        title: payload.title,
+        client_id: payload.client_id ?? null,
+        raw_description: payload.raw_description ?? null,
+        train_name: payload.train_name ?? null,
+        top_k: payload.top_k ?? 5,
+        cross_client: payload.cross_client ?? false,
+      },
+    ),
 };
+
+// ── Champion Profile: Historical matches preview (Phase 15) ─────────────────
+
+export interface HistoricalMatchPreview {
+  job_id: number;
+  title: string;
+  similarity: number;
+  closed_at: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  seniority: string | null;
+  same_train: boolean;
+  has_champion_profile: boolean;
+  must_skills_count: number;
+  nice_skills_count: number;
+}
+
+export interface SkillFrequencyEntry {
+  name: string;
+  count: number;
+  fraction: number;
+}
+
+export interface HistoricalSkillFrequency {
+  n: number;
+  must: SkillFrequencyEntry[];
+  nice: SkillFrequencyEntry[];
+  consistent_must: string[];
+  consistent_nice: string[];
+  threshold: number;
+}
+
+export interface HistoricalMatchesResponse {
+  matches: HistoricalMatchPreview[];
+  skill_frequency: HistoricalSkillFrequency;
+}
 
 // Screening answers
 

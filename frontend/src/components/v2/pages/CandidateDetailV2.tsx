@@ -56,6 +56,7 @@ import { CandidatePipelinesWidget } from "@/components/CandidatePipelinesWidget"
 import { RateHistoryWidget } from "@/components/RateHistoryWidget";
 import { ConflictsWidget } from "@/components/ConflictsWidget";
 import { FirefliesTranscriptsWidget } from "@/components/FirefliesTranscriptsWidget";
+import { AddToMarketplaceButton } from "@/components/marketplace/AddToMarketplaceButton";
 import {
   AtOurClientBanner,
   CandidateHighlights,
@@ -384,6 +385,12 @@ export function CandidateDetailV2({
               <PencilLine className="h-4 w-4" />
               Edytuj
             </Button>
+            {candidate && (
+              <AddToMarketplaceButton
+                candidateId={candidate.id}
+                candidateName={`${candidate.name} ${candidate.lastname}`}
+              />
+            )}
           </div>
 
           {/* Key stats */}
