@@ -132,10 +132,22 @@ async def list_contracts(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[ContractStatus] = None,
+    status: Optional[list[ContractStatus]] = Query(
+        None,
+        description=(
+            "Filter by `status` — one or more values. Repeat the param for "
+            "multi-select (e.g. `?status=active&status=ending`). OR-combined."
+        ),
+    ),
     client_id: Optional[int] = None,
     candidate_id: Optional[int] = None,
-    contract_type: Optional[str] = Query(None),
+    contract_type: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter by `contract_type` (engagement model: body_leasing / "
+            "fixed_price / t_and_m). Repeat the param for multi-select. OR-combined."
+        ),
+    ),
     start_from: Optional[date] = Query(None),
     start_to: Optional[date] = Query(None),
     end_from: Optional[date] = Query(None),
@@ -148,13 +160,13 @@ async def list_contracts(
     """List contracts with advanced filters (Phase 9 C5)."""
     query = select(Contract)
     if status:
-        query = query.where(Contract.status == status)
+        query = query.where(Contract.status.in_(status))
     if client_id:
         query = query.where(Contract.client_id == client_id)
     if candidate_id:
         query = query.where(Contract.candidate_id == candidate_id)
     if contract_type:
-        query = query.where(Contract.contract_type == contract_type)
+        query = query.where(Contract.contract_type.in_(contract_type))
     if start_from:
         query = query.where(Contract.start_date >= start_from)
     if start_to:

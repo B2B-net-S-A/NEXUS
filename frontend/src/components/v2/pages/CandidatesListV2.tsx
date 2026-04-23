@@ -61,9 +61,7 @@ import {
 } from "@/components/ui/select";
 import { Kbd } from "@/components/ui/kbd";
 import {
-  AVAILABILITY_OPTIONS,
   CandidateHighlights,
-  EMPLOYMENT_FILTER_OPTIONS,
   type AvailabilityStatus,
   type EmploymentInfo,
 } from "@/components/v2/CandidateHighlights";
@@ -74,7 +72,23 @@ import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
-import { decodeFilters, encodeFilters, type CandidateFilters } from "@/lib/url-filters";
+import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
+import {
+  AVAILABILITY_OPTIONS,
+  CANDIDATE_STATUS_OPTIONS,
+  EMPLOYMENT_OPTIONS,
+  type AvailabilityValue,
+  type CandidateStatusValue,
+  type EmploymentValue,
+} from "@/lib/filter-options";
+import {
+  decodeFilters,
+  encodeFilters,
+  type AvailabilityFilter,
+  type CandidateFilters,
+  type CandidateStatusFilter,
+  type EmploymentFilter,
+} from "@/lib/url-filters";
 import { CandidatesTiles } from "@/components/v2/pages/CandidatesTiles";
 import { RequireRole } from "@/components/RequireRole";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
@@ -97,6 +111,18 @@ const SORT_OPTIONS = [
   { value: "oldest", label: "Najstarsi" },
   { value: "name", label: "Nazwisko (A-Z)" },
 ];
+
+function parseEnumCsv<T extends string>(
+  raw: string | null | undefined,
+  allowed: ReadonlyArray<T>,
+): T[] {
+  if (!raw) return [];
+  const set = new Set<string>(allowed);
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is T => s.length > 0 && set.has(s));
+}
 
 interface Candidate {
   id: number;
@@ -233,7 +259,12 @@ export function CandidatesListV2() {
 
   // URL state ---------------------------------------------------
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
-  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") ?? "");
+  const [statusFilter, setStatusFilter] = useState<CandidateStatusFilter[]>(
+    parseEnumCsv(
+      searchParams.get("status"),
+      ["active", "passive", "blacklisted"] as const,
+    ),
+  );
   const [sortBy, setSortBy] = useState(searchParams.get("sort") ?? "newest");
   const [page, setPage] = useState(Number(searchParams.get("page") ?? "1"));
   const [remoteFilter, setRemoteFilter] = useState<string[]>(
@@ -243,11 +274,18 @@ export function CandidatesListV2() {
     searchParams.get("skills")?.split(",").filter(Boolean) ?? []
   );
   const [skillInput, setSkillInput] = useState("");
-  const [employmentFilter, setEmploymentFilter] = useState<string>(
-    searchParams.get("employment") ?? ""
+  const [employmentFilter, setEmploymentFilter] = useState<EmploymentFilter[]>(
+    parseEnumCsv(
+      searchParams.get("employment"),
+      ["at_client", "available"] as const,
+    ),
   );
-  const [availabilityFilter, setAvailabilityFilter] = useState<string>(
-    searchParams.get("avail") ?? ""
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter[]>(
+    parseEnumCsv(
+      // Backward-compat: legacy URLs used `avail`; new ones use `availability`.
+      searchParams.get("availability") ?? searchParams.get("avail"),
+      ["actively_looking", "open_to_offers", "not_looking", "unknown"] as const,
+    ),
   );
   const [locationFilter, setLocationFilter] = useState<string>(
     searchParams.get("loc") ?? ""
@@ -290,13 +328,13 @@ export function CandidatesListV2() {
   useEffect(() => {
     const params = new URLSearchParams();
     if (search) params.set("q", search);
-    if (statusFilter) params.set("status", statusFilter);
+    if (statusFilter.length) params.set("status", statusFilter.join(","));
     if (sortBy && sortBy !== "newest") params.set("sort", sortBy);
     if (page > 1) params.set("page", String(page));
     if (remoteFilter.length) params.set("remote", remoteFilter.join(","));
     if (skillsFilter.length) params.set("skills", skillsFilter.join(","));
-    if (employmentFilter) params.set("employment", employmentFilter);
-    if (availabilityFilter) params.set("avail", availabilityFilter);
+    if (employmentFilter.length) params.set("employment", employmentFilter.join(","));
+    if (availabilityFilter.length) params.set("availability", availabilityFilter.join(","));
     if (locationFilter) params.set("loc", locationFilter);
     if (poolIds.length) params.set("pool", poolIds.join(","));
     if (addedByIds.length) params.set("added_by", addedByIds.join(","));
@@ -352,15 +390,15 @@ export function CandidatesListV2() {
         .get("/api/candidates", {
           params: {
             q: search || undefined,
-            status: statusFilter || undefined,
+            status: statusFilter.length ? statusFilter : undefined,
             page,
             include_match_stats: true,
             match_threshold: 35,
             skills: skillsFilter.length ? skillsFilter : undefined,
             skill_combine: skillsFilter.length > 1 ? "AND" : undefined,
             remote_policy: remoteFilter.length ? remoteFilter : undefined,
-            employment: employmentFilter || undefined,
-            availability: availabilityFilter || undefined,
+            employment: employmentFilter.length ? employmentFilter : undefined,
+            availability: availabilityFilter.length ? availabilityFilter : undefined,
             location: locationFilter || undefined,
             talent_pool_id: poolIds.length ? poolIds : undefined,
             added_by_user_id: addedByIds.length ? addedByIds : undefined,
@@ -448,7 +486,10 @@ export function CandidatesListV2() {
   const doExport = async (format: "csv" | "xlsx") => {
     const params = new URLSearchParams();
     if (search) params.set("q", search);
-    if (statusFilter) params.set("status", statusFilter);
+    if (statusFilter.length) {
+      // Repeat the param so backend `Optional[list[CandidateStatus]]` parses it.
+      statusFilter.forEach((s) => params.append("status", s));
+    }
     params.set("format", format);
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
     const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
@@ -496,6 +537,8 @@ export function CandidatesListV2() {
     () => ({
       q: search,
       status: statusFilter,
+      employment: employmentFilter,
+      availability: availabilityFilter,
       sort: (sortBy as CandidateFilters["sort"]) || "newest",
       page,
       remote: remoteFilter as CandidateFilters["remote"],
@@ -514,6 +557,8 @@ export function CandidatesListV2() {
     [
       search,
       statusFilter,
+      employmentFilter,
+      availabilityFilter,
       sortBy,
       page,
       remoteFilter,
@@ -530,6 +575,8 @@ export function CandidatesListV2() {
   const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
     if (patch.q !== undefined) setSearch(patch.q);
     if (patch.status !== undefined) setStatusFilter(patch.status);
+    if (patch.employment !== undefined) setEmploymentFilter(patch.employment);
+    if (patch.availability !== undefined) setAvailabilityFilter(patch.availability);
     if (patch.sort !== undefined) setSortBy(patch.sort);
     if (patch.page !== undefined) setPage(patch.page);
     if (patch.remote !== undefined) setRemoteFilter(patch.remote);
@@ -620,62 +667,67 @@ export function CandidatesListV2() {
             }}
           />
         </div>
-        <Select value={statusFilter || "all"} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); setPage(1); }}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Wszystkie statusy" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Wszystkie statusy</SelectItem>
-            <SelectItem value="active">Aktywni</SelectItem>
-            <SelectItem value="passive">Pasywni</SelectItem>
-            <SelectItem value="blacklisted">Zablokowani</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={employmentFilter || "all"}
-          onValueChange={(v) => {
-            setEmploymentFilter(v === "all" ? "" : v);
+        <MultiSelectFilter<CandidateStatusValue>
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[180px]" title="Filtruj po stanie zatrudnienia">
-            <SelectValue placeholder="Zatrudnienie" />
-          </SelectTrigger>
-          <SelectContent>
-            {EMPLOYMENT_FILTER_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={availabilityFilter || "all"}
-          onValueChange={(v) => {
-            setAvailabilityFilter(v === "all" ? "" : v);
+          options={CANDIDATE_STATUS_OPTIONS}
+          placeholder="Wszystkie statusy"
+          searchPlaceholder="Szukaj statusu…"
+          triggerWidthClass="w-[180px]"
+          triggerLabel={(n) =>
+            n === 1
+              ? (CANDIDATE_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
+                  ?.label ?? "Status")
+              : `Status: ${n}`
+          }
+        />
+        <MultiSelectFilter<EmploymentValue>
+          value={employmentFilter}
+          onChange={(v) => {
+            setEmploymentFilter(v);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[170px]" title="Filtruj po dyspozycyjności">
-            <SelectValue placeholder="Dyspozycyjność" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Dowolna</SelectItem>
-            {AVAILABILITY_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          options={EMPLOYMENT_OPTIONS}
+          placeholder="Zatrudnienie"
+          searchPlaceholder="Szukaj…"
+          triggerWidthClass="w-[200px]"
+          title="Filtruj po stanie zatrudnienia"
+          triggerLabel={(n) =>
+            n === 1
+              ? (EMPLOYMENT_OPTIONS.find((o) => o.value === employmentFilter[0])
+                  ?.label ?? "Zatrudnienie")
+              : `Zatrudnienie: ${n}`
+          }
+        />
+        <MultiSelectFilter<AvailabilityValue>
+          value={availabilityFilter}
+          onChange={(v) => {
+            setAvailabilityFilter(v);
+            setPage(1);
+          }}
+          options={AVAILABILITY_OPTIONS}
+          placeholder="Dyspozycyjność"
+          searchPlaceholder="Szukaj…"
+          triggerWidthClass="w-[190px]"
+          title="Filtruj po dyspozycyjności"
+          triggerLabel={(n) =>
+            n === 1
+              ? (AVAILABILITY_OPTIONS.find((o) => o.value === availabilityFilter[0])
+                  ?.label ?? "Dyspozycyjność")
+              : `Dyspozycyjność: ${n}`
+          }
+        />
         <Button
           size="sm"
           variant="outline"
           onClick={() => {
             // Shortcut: show everyone who can realistically be sourced right now —
             // not at a client AND explicitly open to offers (or actively looking).
-            setEmploymentFilter("available");
-            setAvailabilityFilter("actively_looking");
+            setEmploymentFilter(["available"]);
+            setAvailabilityFilter(["actively_looking"]);
             setPage(1);
           }}
           title="Bez projektu + aktywnie szukający"

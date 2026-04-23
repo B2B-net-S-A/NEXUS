@@ -31,8 +31,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
-import type { UserBrief } from "@/components/v2/jobs/ownership-types";
-import { ROLE_LABELS } from "@/store/auth";
+import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
+import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
+import {
+  JOB_STATUS_OPTIONS,
+  type JobStatusValue,
+} from "@/lib/filter-options";
 
 type JobType = "all" | "body_leasing" | "sales" | "tenders";
 
@@ -79,21 +83,14 @@ function extractSkills(must: unknown): string[] {
 
 export function JobsListV2() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>([]);
   const [typeFilter, setTypeFilter] = useState<JobType>("all");
   const [mine, setMine] = useState(false);
-  const [ownerId, setOwnerId] = useState<number | null>(null);
+  const [ownerIds, setOwnerIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   const queryClient = useQueryClient();
-
-  // Directory of owner-eligible users for the "Rekruter" filter dropdown.
-  const { data: userDirectory } = useQuery<UserBrief[]>({
-    queryKey: ["users", "directory", "ownership"],
-    queryFn: () => api.get("/api/users").then((r) => r.data as UserBrief[]),
-    staleTime: 5 * 60 * 1000,
-  });
 
   const { data, isLoading } = useQuery({
     queryKey: [
@@ -102,7 +99,7 @@ export function JobsListV2() {
       statusFilter,
       typeFilter,
       mine ? 1 : 0,
-      ownerId ?? 0,
+      ownerIds,
       page,
     ],
     queryFn: () =>
@@ -110,12 +107,13 @@ export function JobsListV2() {
         .get("/api/jobs", {
           params: {
             q: search || undefined,
-            status: statusFilter || undefined,
+            status: statusFilter.length ? statusFilter : undefined,
             recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
             mine: mine ? true : undefined,
-            owner_id: ownerId ?? undefined,
+            owner_id: ownerIds.length ? ownerIds : undefined,
             page,
           },
+          paramsSerializer: { indexes: null },
         })
         .then((r) => r.data),
   });
@@ -179,47 +177,33 @@ export function JobsListV2() {
             }}
           />
         </div>
-        <Select
-          value={statusFilter || "all"}
-          onValueChange={(v) => {
-            setStatusFilter(v === "all" ? "" : v);
+        <MultiSelectFilter<JobStatusValue>
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Wszystkie statusy" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Wszystkie statusy</SelectItem>
-            <SelectItem value="open">Otwarte</SelectItem>
-            <SelectItem value="published">Opublikowane</SelectItem>
-            <SelectItem value="on_hold">Wstrzymane</SelectItem>
-            <SelectItem value="closed">Zamknięte</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={ownerId != null ? String(ownerId) : "any"}
-          onValueChange={(v) => {
-            setOwnerId(v === "any" ? null : Number(v));
+          options={JOB_STATUS_OPTIONS}
+          placeholder="Wszystkie statusy"
+          searchPlaceholder="Szukaj statusu…"
+          triggerWidthClass="w-[180px]"
+          triggerLabel={(n) =>
+            n === 1
+              ? (JOB_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
+                  ?.label ?? "Status")
+              : `Status: ${n}`
+          }
+        />
+        <UserMultiSelect
+          value={ownerIds}
+          onChange={(ids) => {
+            setOwnerIds(ids);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Rekruter: dowolny" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="any">Rekruter: dowolny</SelectItem>
-            {(userDirectory ?? []).map((u) => (
-              <SelectItem key={u.id} value={String(u.id)}>
-                {u.name}
-                <span className="text-[hsl(var(--text-muted))] text-xs ml-2">
-                  {ROLE_LABELS[u.role]}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          placeholder="Rekruter: dowolny"
+          searchPlaceholder="Szukaj rekrutera…"
+          triggerWidthClass="w-[220px]"
+        />
         <button
           type="button"
           onClick={() => {

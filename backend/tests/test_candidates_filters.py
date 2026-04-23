@@ -188,6 +188,129 @@ async def test_filter_by_location_ilike(
         await _cleanup([a, b], None, [])
 
 
+async def _seed_candidate_with_status(
+    *,
+    status: str,
+    availability: str | None = None,
+) -> int:
+    """Variant of _seed_candidate that lets us set status/availability."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import (
+        AvailabilityStatus,
+        Candidate,
+        CandidateStatus,
+    )
+
+    async with AsyncSessionLocal() as db:
+        c = Candidate(
+            name="Mst",
+            lastname=f"Status-{uuid.uuid4().hex[:6]}",
+            email=f"mst-{uuid.uuid4().hex[:8]}@example.com",
+            location="Warszawa",
+            status=CandidateStatus(status),
+            availability_status=(
+                AvailabilityStatus(availability) if availability else None
+            ),
+            created_by=None,
+        )
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        return c.id
+
+
+@pytest.mark.asyncio
+async def test_status_filter_accepts_multiple_values(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Repeating `?status=...` returns the OR-union of those statuses."""
+    a = await _seed_candidate_with_status(status="active")
+    p = await _seed_candidate_with_status(status="passive")
+    b = await _seed_candidate_with_status(status="blacklisted")
+    try:
+        r = await app_client.get(
+            "/api/candidates?status=active&status=passive&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert a in ids
+        assert p in ids
+        assert b not in ids
+    finally:
+        await _cleanup([a, p, b], None, [])
+
+
+@pytest.mark.asyncio
+async def test_status_filter_single_value_back_compat(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Single `?status=active` (legacy URL) still works after multi conversion."""
+    a = await _seed_candidate_with_status(status="active")
+    p = await _seed_candidate_with_status(status="passive")
+    try:
+        r = await app_client.get(
+            "/api/candidates?status=active&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert a in ids
+        assert p not in ids
+    finally:
+        await _cleanup([a, p], None, [])
+
+
+@pytest.mark.asyncio
+async def test_status_filter_invalid_value_returns_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.get(
+        "/api/candidates?status=bogus",
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_availability_filter_accepts_multiple_values(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    al = await _seed_candidate_with_status(
+        status="active", availability="actively_looking"
+    )
+    op = await _seed_candidate_with_status(
+        status="active", availability="open_to_offers"
+    )
+    nl = await _seed_candidate_with_status(
+        status="active", availability="not_looking"
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?availability=actively_looking"
+            "&availability=open_to_offers&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert al in ids
+        assert op in ids
+        assert nl not in ids
+    finally:
+        await _cleanup([al, op, nl], None, [])
+
+
+@pytest.mark.asyncio
+async def test_employment_filter_invalid_value_returns_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.get(
+        "/api/candidates?employment=bogus",
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_create_candidate_sets_created_by(
     app_client: AsyncClient, app_auth_headers: dict

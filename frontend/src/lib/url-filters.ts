@@ -12,9 +12,32 @@ export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
 export type CandidatesView = "list" | "tiles";
 
+export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
+export type EmploymentFilter = "at_client" | "available";
+export type AvailabilityFilter =
+  | "actively_looking"
+  | "open_to_offers"
+  | "not_looking"
+  | "unknown";
+
+const CANDIDATE_STATUS_VALUES: ReadonlySet<string> = new Set([
+  "active",
+  "passive",
+  "blacklisted",
+]);
+const EMPLOYMENT_VALUES: ReadonlySet<string> = new Set(["at_client", "available"]);
+const AVAILABILITY_VALUES: ReadonlySet<string> = new Set([
+  "actively_looking",
+  "open_to_offers",
+  "not_looking",
+  "unknown",
+]);
+
 export interface CandidateFilters {
   q: string;
-  status: string;
+  status: CandidateStatusFilter[];
+  employment: EmploymentFilter[];
+  availability: AvailabilityFilter[];
   sort: SortMode;
   page: number;
   remote: RemoteMode[];
@@ -33,7 +56,9 @@ export interface CandidateFilters {
 
 export const DEFAULT_FILTERS: CandidateFilters = {
   q: "",
-  status: "",
+  status: [],
+  employment: [],
+  availability: [],
   sort: "newest",
   page: 1,
   remote: [],
@@ -67,7 +92,9 @@ const parsePipe = (raw: string | null): string[] =>
 export function encodeFilters(f: CandidateFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set("q", f.q);
-  if (f.status) p.set("status", f.status);
+  if (f.status.length) p.set("status", CSV(f.status));
+  if (f.employment.length) p.set("employment", CSV(f.employment));
+  if (f.availability.length) p.set("availability", CSV(f.availability));
   if (f.sort !== "newest") p.set("sort", f.sort);
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
@@ -96,6 +123,17 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const remote = parseCsv(sp.get("remote")).filter(
     (v): v is RemoteMode => v === "remote" || v === "hybrid" || v === "onsite"
   );
+  // Backward-compat: legacy URLs persisted `status` as a single value (no CSV).
+  // `parseCsv` happily handles both — single value yields a 1-element array.
+  const status = parseCsv(sp.get("status")).filter(
+    (v): v is CandidateStatusFilter => CANDIDATE_STATUS_VALUES.has(v),
+  );
+  const employment = parseCsv(sp.get("employment")).filter(
+    (v): v is EmploymentFilter => EMPLOYMENT_VALUES.has(v),
+  );
+  const availability = parseCsv(sp.get("availability")).filter(
+    (v): v is AvailabilityFilter => AVAILABILITY_VALUES.has(v),
+  );
   const pageRaw = Number.parseInt(sp.get("page") ?? "1", 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
   const ssRaw = sp.get("ss");
@@ -103,7 +141,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const savedSearchId = Number.isFinite(ssNum) && ssNum > 0 ? ssNum : null;
   return {
     q: sp.get("q") ?? "",
-    status: sp.get("status") ?? "",
+    status,
+    employment,
+    availability,
     sort,
     page,
     remote,

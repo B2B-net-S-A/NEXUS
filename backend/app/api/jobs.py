@@ -133,12 +133,22 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[JobStatus] = None,
+    status: Optional[list[JobStatus]] = Query(
+        None,
+        description=(
+            "Filter by `status` — one or more values. Repeat the param for "
+            "multi-select (e.g. `?status=published&status=draft`). OR-combined."
+        ),
+    ),
     recruitment_type: Optional[RecruitmentType] = None,
     client_id: Optional[int] = None,
     q: Optional[str] = None,
-    owner_id: Optional[int] = Query(
-        None, description="Filter by primary_owner user id (recruiter_id)."
+    owner_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by primary_owner user id (recruiter_id) — one or more ids. "
+            "Repeat the param for multi-select. OR-combined."
+        ),
     ),
     mine: bool = Query(
         False,
@@ -151,15 +161,15 @@ async def list_jobs(
 
     query = select(Job)
     if status:
-        query = query.where(Job.status == status)
+        query = query.where(Job.status.in_(status))
     if recruitment_type:
         query = query.where(Job.recruitment_type == recruitment_type)
     if client_id:
         query = query.where(Job.client_id == client_id)
     if q:
         query = query.where(Job.title.ilike(f"%{q}%"))
-    if owner_id is not None:
-        query = query.where(Job.recruiter_id == owner_id)
+    if owner_id:
+        query = query.where(Job.recruiter_id.in_(owner_id))
     if mine:
         collab_subq = select(JobCollaborator.job_id).where(
             JobCollaborator.user_id == current_user.id

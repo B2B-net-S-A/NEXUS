@@ -52,7 +52,7 @@ class RecommendationFilters:
     salary_max: Optional[int] = None
     salary_tolerance: float = 0.20  # ±20%
     availability: Optional[Sequence[AvailabilityStatus]] = None
-    competence_category: Optional[str] = None
+    competence_category: Optional[Sequence[str]] = None
     industry_blocklist: bool = True
 
 
@@ -119,17 +119,22 @@ def _salary_in_window(
     return True
 
 
-def _competence_category_matches(job: Job, target: str) -> bool:
-    """Match job.subcategory or job.industry against target (case-insensitive)."""
-    needle = target.lower().strip()
-    if not needle:
+def _competence_category_matches(job: Job, targets: Sequence[str]) -> bool:
+    """Match job against any of the target categories (OR-combined, case-insensitive).
+
+    Each target is matched against job.subcategory / job.industry / job.title.
+    Empty `targets` (or empty strings only) → True (no filter).
+    """
+    needles = [t.lower().strip() for t in targets if t and t.strip()]
+    if not needles:
         return True
-    candidates = [
+    job_fields = [
         getattr(job, "subcategory", None),
         getattr(job, "industry", None),
         job.title or "",
     ]
-    return any(needle in (c or "").lower() for c in candidates if c)
+    haystack = " ".join((c or "").lower() for c in job_fields if c)
+    return any(needle in haystack for needle in needles)
 
 
 # ── Conflict resolution (industry blocklist) ────────────────────────────────
@@ -235,7 +240,7 @@ async def apply_user_filters(
                 continue
 
         if filters.competence_category and not _competence_category_matches(
-            j, filters.competence_category
+            j, list(filters.competence_category)
         ):
             # Treat as location-style soft criterion: drop without separate counter.
             continue

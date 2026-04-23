@@ -305,7 +305,13 @@ async def list_candidates(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[CandidateStatus] = None,
+    status: Optional[list[CandidateStatus]] = Query(
+        None,
+        description=(
+            "Filter by `status` — one or more values. Repeat the param for "
+            "multi-select (e.g. `?status=active&status=passive`). OR-combined."
+        ),
+    ),
     location: Optional[str] = None,
     q: Optional[str] = None,
     skills: Optional[list[str]] = Query(
@@ -352,20 +358,22 @@ async def list_candidates(
         None,
         description="Phase D1 scoring weight profile id. None = auto-resolve by user.",
     ),
-    employment: Optional[str] = Query(
+    employment: Optional[list[str]] = Query(
         None,
-        pattern="^(at_client|available)$",
         description=(
-            "Derived employment filter: 'at_client' = consultant is employed at one "
-            "of our clients (active contract OR active current_employment conflict); "
-            "'available' = the inverse (on bench or external). None = no filter."
+            "Derived employment filter — one or more of {'at_client', 'available'}. "
+            "Repeat the param for multi-select. 'at_client' = consultant is employed "
+            "at one of our clients (active contract OR active current_employment "
+            "conflict); 'available' = the inverse. Empty = no filter. Multiple "
+            "values OR-combined (effectively shows everyone if both selected)."
         ),
     ),
-    availability: Optional[AvailabilityStatus] = Query(
+    availability: Optional[list[AvailabilityStatus]] = Query(
         None,
         description=(
-            "Filter by `availability_status` — actively_looking / open_to_offers / "
-            "not_looking / unknown."
+            "Filter by `availability_status` — one or more of "
+            "{actively_looking, open_to_offers, not_looking, unknown}. "
+            "Repeat the param for multi-select. OR-combined."
         ),
     ),
     added_by_user_id: Optional[list[int]] = Query(
@@ -423,13 +431,26 @@ async def list_candidates(
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
-        query = query.where(Candidate.status == status)
-    if employment == "at_client":
-        query = query.where(_at_client_predicate())
-    elif employment == "available":
-        query = query.where(not_(_at_client_predicate()))
+        query = query.where(Candidate.status.in_(status))
+    if employment:
+        invalid = [e for e in employment if e not in {"at_client", "available"}]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid employment values: {invalid}. "
+                    "Allowed: 'at_client', 'available'."
+                ),
+            )
+        # Both selected = no-op (covers everyone). Otherwise apply the chosen side.
+        emp_set = set(employment)
+        if emp_set == {"at_client"}:
+            query = query.where(_at_client_predicate())
+        elif emp_set == {"available"}:
+            query = query.where(not_(_at_client_predicate()))
+        # emp_set == {"at_client", "available"} → no filter (all candidates)
     if availability:
-        query = query.where(Candidate.availability_status == availability)
+        query = query.where(Candidate.availability_status.in_(availability))
     if location:
         query = query.where(Candidate.location.ilike(f"%{location}%"))
     if q:

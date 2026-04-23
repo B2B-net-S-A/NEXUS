@@ -34,6 +34,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
+import {
+  CONTRACT_STATUS_OPTIONS,
+  CONTRACT_TYPE_OPTIONS,
+  type ContractStatusValue,
+  type ContractTypeValue,
+} from "@/lib/filter-options";
 
 interface ContractRow {
   id: number;
@@ -71,8 +78,8 @@ function marginColor(margin: number | undefined) {
 
 export function ContractsListV2() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
+  const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>([]);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [toast, setToast] = useState<string | null>(null);
@@ -94,10 +101,11 @@ export function ContractsListV2() {
         .get("/api/contracts", {
           params: {
             q: search || undefined,
-            status: statusFilter || undefined,
-            contract_type: typeFilter || undefined,
+            status: statusFilter.length ? statusFilter : undefined,
+            contract_type: typeFilter.length ? typeFilter : undefined,
             page,
           },
+          paramsSerializer: { indexes: null },
         })
         .then((r) => r.data),
   });
@@ -163,7 +171,9 @@ export function ContractsListV2() {
             size="sm"
             variant="outline"
             onClick={() => {
-              setStatusFilter("expiring");
+              // Backend ContractStatus enum uses `ending` (frontend banner reads
+              // "Kończące się"). Filter by that single status to surface them.
+              setStatusFilter(["ending"]);
               setPage(1);
             }}
           >
@@ -185,42 +195,40 @@ export function ContractsListV2() {
             }}
           />
         </div>
-        <Select
-          value={statusFilter || "all"}
-          onValueChange={(v) => {
-            setStatusFilter(v === "all" ? "" : v);
+        <MultiSelectFilter<ContractStatusValue>
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Wszystkie" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Wszystkie statusy</SelectItem>
-            <SelectItem value="active">Aktywne</SelectItem>
-            <SelectItem value="expiring">Kończące się</SelectItem>
-            <SelectItem value="ended">Zakończone</SelectItem>
-            <SelectItem value="terminated">Wypowiedziane</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select
-          value={typeFilter || "all"}
-          onValueChange={(v) => {
-            setTypeFilter(v === "all" ? "" : v);
+          options={CONTRACT_STATUS_OPTIONS}
+          placeholder="Wszystkie statusy"
+          searchPlaceholder="Szukaj statusu…"
+          triggerWidthClass="w-[180px]"
+          triggerLabel={(n) =>
+            n === 1
+              ? (CONTRACT_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
+                  ?.label ?? "Status")
+              : `Status: ${n}`
+          }
+        />
+        <MultiSelectFilter<ContractTypeValue>
+          value={typeFilter}
+          onChange={(v) => {
+            setTypeFilter(v);
             setPage(1);
           }}
-        >
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Typ" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Wszystkie typy</SelectItem>
-            <SelectItem value="body_leasing">Body leasing</SelectItem>
-            <SelectItem value="fixed_price">Fixed price</SelectItem>
-            <SelectItem value="t_and_m">T&amp;M</SelectItem>
-          </SelectContent>
-        </Select>
+          options={CONTRACT_TYPE_OPTIONS}
+          placeholder="Typ"
+          searchPlaceholder="Szukaj typu…"
+          triggerWidthClass="w-[180px]"
+          triggerLabel={(n) =>
+            n === 1
+              ? (CONTRACT_TYPE_OPTIONS.find((o) => o.value === typeFilter[0])
+                  ?.label ?? "Typ")
+              : `Typ: ${n}`
+          }
+        />
       </div>
 
       {/* Bulk actions bar */}

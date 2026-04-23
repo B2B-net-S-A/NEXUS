@@ -865,7 +865,14 @@ async def seeking_contractors(
     location: Optional[str] = Query(None),
     salary_min: Optional[int] = Query(None),
     salary_max: Optional[int] = Query(None),
-    competence_category: Optional[str] = Query(None),
+    competence_category: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter by competence category — one or more values. Repeat the "
+            "param for multi-select (e.g. `?competence_category=Backend"
+            "&competence_category=DevOps`). OR-combined (any match keeps the job)."
+        ),
+    ),
     industry_blocklist: bool = Query(True),
     page_size: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),

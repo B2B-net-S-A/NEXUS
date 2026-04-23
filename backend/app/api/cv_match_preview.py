@@ -254,7 +254,7 @@ async def cv_upload_preview(
             location=location,
             salary_min=salary_min,
             salary_max=salary_max,
-            competence_category=competence_category,
+            competence_category=[competence_category] if competence_category else None,
             industry_blocklist=False,  # no candidate row → nothing to block
         )
         filtered, _stats = await apply_user_filters(candidate, jobs, filters, db)

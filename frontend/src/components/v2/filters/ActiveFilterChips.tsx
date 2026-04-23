@@ -22,6 +22,24 @@ const REMOTE_LABELS: Record<string, string> = {
   onsite: "Stacjonarnie",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  active: "Aktywni",
+  passive: "Pasywni",
+  blacklisted: "Zablokowani",
+};
+
+const EMPLOYMENT_LABELS: Record<string, string> = {
+  at_client: "U klienta",
+  available: "Dostępni",
+};
+
+const AVAILABILITY_LABELS: Record<string, string> = {
+  actively_looking: "Aktywnie szuka",
+  open_to_offers: "Otwarty",
+  not_looking: "Nie szuka",
+  unknown: "Nie wiemy",
+};
+
 interface Chip {
   key: string;
   label: string;
@@ -44,13 +62,39 @@ function collectChips(
       clear: () => onUpdate({ q: "", page: 1 }),
     });
   }
-  if (filters.status) {
+  filters.status.forEach((s) => {
     chips.push({
-      key: "status",
-      label: `Status: ${filters.status}`,
-      clear: () => onUpdate({ status: "", page: 1 }),
+      key: `status:${s}`,
+      label: `Status: ${STATUS_LABELS[s] ?? s}`,
+      clear: () =>
+        onUpdate({
+          status: filters.status.filter((x) => x !== s),
+          page: 1,
+        }),
     });
-  }
+  });
+  filters.employment.forEach((e) => {
+    chips.push({
+      key: `employment:${e}`,
+      label: `Zatrudnienie: ${EMPLOYMENT_LABELS[e] ?? e}`,
+      clear: () =>
+        onUpdate({
+          employment: filters.employment.filter((x) => x !== e),
+          page: 1,
+        }),
+    });
+  });
+  filters.availability.forEach((a) => {
+    chips.push({
+      key: `availability:${a}`,
+      label: `Dyspozycyjność: ${AVAILABILITY_LABELS[a] ?? a}`,
+      clear: () =>
+        onUpdate({
+          availability: filters.availability.filter((x) => x !== a),
+          page: 1,
+        }),
+    });
+  });
   if (filters.location) {
     chips.push({
       key: "loc",
@@ -168,7 +212,9 @@ export function ActiveFilterChips({
   const clearAll = () =>
     onUpdate({
       q: "",
-      status: "",
+      status: [],
+      employment: [],
+      availability: [],
       location: "",
       remote: [],
       skills: [],

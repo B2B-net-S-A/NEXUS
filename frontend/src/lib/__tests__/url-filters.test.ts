@@ -21,7 +21,9 @@ describe("url-filters", () => {
   it("round-trips every field", () => {
     const full: CandidateFilters = {
       q: "python dev",
-      status: "active",
+      status: ["active", "passive"],
+      employment: ["available"],
+      availability: ["actively_looking", "open_to_offers"],
       sort: "name",
       page: 3,
       remote: ["remote", "hybrid"],
@@ -41,6 +43,25 @@ describe("url-filters", () => {
     expect(decodeFilters(encoded)).toEqual(full);
   });
 
+  it("status / employment / availability accept multiple CSV values", () => {
+    const decoded = decodeFilters(
+      sp("status=active,passive&employment=at_client,available&availability=actively_looking"),
+    );
+    expect(decoded.status).toEqual(["active", "passive"]);
+    expect(decoded.employment).toEqual(["at_client", "available"]);
+    expect(decoded.availability).toEqual(["actively_looking"]);
+  });
+
+  it("status filters out unknown values (forward-compat)", () => {
+    const decoded = decodeFilters(sp("status=active,bogus,blacklisted"));
+    expect(decoded.status).toEqual(["active", "blacklisted"]);
+  });
+
+  it("legacy single status string decodes as 1-element array", () => {
+    const decoded = decodeFilters(sp("status=active"));
+    expect(decoded.status).toEqual(["active"]);
+  });
+
   it("pipe-separator survives commas in company names", () => {
     const filters: CandidateFilters = {
       ...DEFAULT_FILTERS,
@@ -53,7 +74,7 @@ describe("url-filters", () => {
   it("ignores unknown params (forward-compat for saved searches)", () => {
     const decoded = decodeFilters(sp("q=foo&unknown=bar&future_filter=x"));
     expect(decoded.q).toBe("foo");
-    expect(decoded.status).toBe("");
+    expect(decoded.status).toEqual([]);
   });
 
   it("coerces bad sort/view/skillCombine/remote values to safe defaults", () => {
