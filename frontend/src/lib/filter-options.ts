@@ -45,6 +45,18 @@ export const AVAILABILITY_OPTIONS: ReadonlyArray<
   { value: "unknown", label: "Nie wiemy" },
 ];
 
+// Engagement openness — 3 flags kandydat może zadeklarować w panelu „Zaangażowanie".
+// Backend: OR-combined w GET /api/candidates?open_to=…
+export type OpenToValue = "side_projects" | "sales_support" | "expert_consult";
+
+export const OPEN_TO_OPTIONS: ReadonlyArray<
+  MultiSelectFilterOption<OpenToValue>
+> = [
+  { value: "side_projects", label: "Side-projekty" },
+  { value: "sales_support", label: "Wsparcie sprzedaży" },
+  { value: "expert_consult", label: "Konsultacje eksperckie" },
+];
+
 // ── Jobs ───────────────────────────────────────────────────────────────────
 
 export type JobStatusValue = "draft" | "published" | "closed";

@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Circle, RefreshCw } from "lucide-react";
+import { AlertTriangle, Circle, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +32,10 @@ export interface HighlightableCandidate {
   employment?: EmploymentInfo;
   /** ISO datetime of last detected employer change — populated by Proxycurl sync. */
   linkedin_employment_changed_at?: string | null;
+  /** Engagement openness flags (Phase „Otwartość na dodatkowe projekty"). */
+  open_to_side_projects?: boolean;
+  open_to_sales_support?: boolean;
+  open_to_expert_consult?: boolean;
 }
 
 /**
@@ -147,6 +151,26 @@ export function CandidateHighlights({
           {linkedinJobChange.label}
         </Badge>
       )}
+
+      {/* ── Tier 2.6: otwartość na dodatkowe zaangażowanie ─────────────── */}
+      {(() => {
+        const flags = [
+          candidate.open_to_side_projects && "Side-projekty",
+          candidate.open_to_sales_support && "Wsparcie sprzedaży",
+          candidate.open_to_expert_consult && "Konsultacje eksperckie",
+        ].filter(Boolean) as string[];
+        if (!flags.length) return null;
+        return (
+          <Badge
+            variant="info"
+            size="sm"
+            title={`Zadeklarowana otwartość: ${flags.join(", ")}`}
+          >
+            <Sparkles className="h-3 w-3" />
+            Otwarty na extra
+          </Badge>
+        );
+      })()}
 
       {/* ── Tier 3: availability (postawa) ───────────────────────────── */}
       {availability_status === "actively_looking" && (

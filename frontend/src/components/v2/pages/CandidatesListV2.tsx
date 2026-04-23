@@ -77,9 +77,11 @@ import {
   AVAILABILITY_OPTIONS,
   CANDIDATE_STATUS_OPTIONS,
   EMPLOYMENT_OPTIONS,
+  OPEN_TO_OPTIONS,
   type AvailabilityValue,
   type CandidateStatusValue,
   type EmploymentValue,
+  type OpenToValue,
 } from "@/lib/filter-options";
 import {
   decodeFilters,
@@ -140,6 +142,10 @@ interface Candidate {
   created_by_user?: { id: number; name: string } | null;
   match_stats?: { open_count: number; total_open: number; top_score: number };
   talent_pools?: Array<{ id: number; name: string }>;
+  linkedin_employment_changed_at?: string | null;
+  open_to_side_projects?: boolean;
+  open_to_sales_support?: boolean;
+  open_to_expert_consult?: boolean;
 }
 
 // Role scopes the admin can target when saving candidates-columns as default.
@@ -322,6 +328,14 @@ export function CandidatesListV2() {
   const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
     searchParams.get("rcj") ?? ""
   );
+  // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
+  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
+    (searchParams.get("open_to") ?? "")
+      .split(",")
+      .filter((v): v is OpenToValue =>
+        v === "side_projects" || v === "sales_support" || v === "expert_consult"
+      )
+  );
   const currentUser = useAuthStore((s) => s.user);
 
   // Sync URL -----------------------------------------------------
@@ -343,6 +357,7 @@ export function CandidatesListV2() {
     if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
     if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
     if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
+    if (openToFilter.length) params.set("open_to", openToFilter.join(","));
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `/candidates?${qs}` : "/candidates");
   }, [
@@ -362,6 +377,7 @@ export function CandidatesListV2() {
     currentTitleFilter,
     workedAtClientIds,
     recentlyChangedJobs,
+    openToFilter,
   ]);
 
   // Data --------------------------------------------------------
@@ -384,6 +400,7 @@ export function CandidatesListV2() {
       currentTitleFilter,
       workedAtClientIds,
       recentlyChangedJobs,
+      openToFilter,
     ],
     queryFn: () =>
       api
@@ -409,6 +426,7 @@ export function CandidatesListV2() {
             recently_changed_jobs: recentlyChangedJobs
               ? Number(recentlyChangedJobs)
               : undefined,
+            open_to: openToFilter.length ? openToFilter : undefined,
           },
           paramsSerializer: { indexes: null },
         })
@@ -721,6 +739,24 @@ export function CandidatesListV2() {
               : `Dyspozycyjność: ${n}`
           }
         />
+        <MultiSelectFilter<OpenToValue>
+          value={openToFilter}
+          onChange={(v) => {
+            setOpenToFilter(v);
+            setPage(1);
+          }}
+          options={OPEN_TO_OPTIONS}
+          placeholder="Otwartość"
+          searchPlaceholder="Szukaj…"
+          triggerWidthClass="w-[190px]"
+          title="Kandydaci otwarci na dodatkowe zaangażowanie"
+          triggerLabel={(n) =>
+            n === 1
+              ? (OPEN_TO_OPTIONS.find((o) => o.value === openToFilter[0])
+                  ?.label ?? "Otwartość")
+              : `Otwartość: ${n}`
+          }
+        />
         <Button
           size="sm"
           variant="outline"
@@ -734,6 +770,22 @@ export function CandidatesListV2() {
           title="Bez projektu + aktywnie szukający"
         >
           <Sparkles className="h-4 w-4" /> Dostępni do sourcingu
+        </Button>
+        <Button
+          size="sm"
+          variant={openToFilter.length === OPEN_TO_OPTIONS.length ? "secondary" : "outline"}
+          onClick={() => {
+            // Zakładka „Otwarci na extra": toggle ALL three flags at once.
+            if (openToFilter.length === OPEN_TO_OPTIONS.length) {
+              setOpenToFilter([]);
+            } else {
+              setOpenToFilter(OPEN_TO_OPTIONS.map((o) => o.value) as OpenToValue[]);
+            }
+            setPage(1);
+          }}
+          title="Kandydaci zadeklarowani jako otwarci na dodatkowe projekty / wsparcie / konsultacje"
+        >
+          <Sparkles className="h-4 w-4" /> Otwarci na extra
         </Button>
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-[160px]">
