@@ -189,6 +189,13 @@ class Job(Base, TimestampMixin):
     delivery_lead_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # TAC (Talent Acquisition Consultant) — osoba opiekująca się relacją z
+    # klientem. Auto-ustawiane przy POST /jobs z
+    # `client_tac_assignments.is_primary=true` (migracja 0060). Override:
+    # jawnie podany `tac_id` w request wygrywa.
+    tac_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     pipeline_template_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("pipeline_templates.id"), nullable=True, index=True
@@ -204,6 +211,7 @@ class Job(Base, TimestampMixin):
     )
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     delivery_lead = relationship("User", foreign_keys=[delivery_lead_id])
+    tac = relationship("User", foreign_keys=[tac_id])
     creator = relationship("User", foreign_keys=[created_by])
     pipeline_template = relationship("PipelineTemplate")
     pipeline_stages = relationship(

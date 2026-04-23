@@ -120,3 +120,43 @@ class DeliveryLeadClientAssignment(Base):
             f"<DeliveryLeadClientAssignment dl={self.delivery_lead_user_id} "
             f"client={self.client_id} head={self.is_head}>"
         )
+
+
+class ClientTacAssignment(Base):
+    """TAC × klient. `is_primary=True` = główny opiekun (max 1/klient).
+
+    Enforcement max-1-primary: partial unique index `uq_client_primary_tac`
+    na `(client_id) WHERE is_primary = TRUE` (migracja 0060). API musi
+    przed insertem z `is_primary=True` zrobić UPDATE poprzedniego primary
+    na `False` — wzorzec `toggle_dl_client_head`.
+    """
+
+    __tablename__ = "client_tac_assignments"
+    __table_args__ = (
+        UniqueConstraint("tac_user_id", "client_id", name="uq_client_tac"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tac_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    tac = relationship("User", foreign_keys=[tac_user_id])
+    client = relationship(
+        "Client", foreign_keys=[client_id], back_populates="tac_assignments"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ClientTacAssignment tac={self.tac_user_id} "
+            f"client={self.client_id} primary={self.is_primary}>"
+        )

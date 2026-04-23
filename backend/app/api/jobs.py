@@ -25,7 +25,9 @@ from app.schemas.job import (
     JobUpdate,
     UserBrief,
 )
+from app.api.clients_team import TAC_ASSIGNABLE_ROLES
 from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
+from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
@@ -61,6 +63,40 @@ _EMBED_TRIGGER_FIELDS = {
     # it must bump the embedding to keep same-train similarity consistent.
     "train_name",
 }
+
+
+async def _validate_owner_override(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    allowed_roles: set[UserRole],
+    field: str,
+) -> None:
+    """Ensure an explicit owner override references a valid, active user.
+
+    Raises 404 if the user doesn't exist, 400 for inactive users or roles
+    outside `allowed_roles`. Mirrors the validation in
+    `/api/team-structure/tac-delivery-leads` (`team_structure.py:277,285`)
+    so the caller sees the same UX on both surfaces.
+    """
+    user = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=f"{field}: user not found"
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"{field}: user is inactive",
+        )
+    if user.role not in allowed_roles:
+        allowed = "/".join(sorted(r.value for r in allowed_roles))
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"{field} must reference a user with role {allowed}",
+        )
 
 
 async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
@@ -279,6 +315,38 @@ async def create_job(
     secondary_cc_ids = data.secondary_cc_ids or []
     auto_suggest = data.auto_suggest_cc
 
+    # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
+    # hit `resolve_default_owners`. Override always wins, but only when it
+    # points to a real active user with an allowed role.
+    if data.tac_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.tac_id,
+            allowed_roles=TAC_ASSIGNABLE_ROLES,
+            field="tac_id",
+        )
+    if data.delivery_lead_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.delivery_lead_id,
+            allowed_roles={
+                UserRole.delivery_lead,
+                UserRole.admin,
+                UserRole.head_of_recruitment,
+            },
+            field="delivery_lead_id",
+        )
+
+    # Auto-assign from Client ↔ TAC/DL assignments when the caller left the
+    # field empty. Override semantics: if caller supplied the value, we
+    # never touch it here.
+    if payload.get("tac_id") is None or payload.get("delivery_lead_id") is None:
+        resolved = await resolve_default_owners(db, payload.get("client_id"))
+        if payload.get("tac_id") is None:
+            payload["tac_id"] = resolved.tac_id
+        if payload.get("delivery_lead_id") is None:
+            payload["delivery_lead_id"] = resolved.delivery_lead_id
+
     # Phase 15 / Phase D: auto-extract train_name if the caller didn't set it.
     # Best-effort — never blocks save. Regex + per-client dictionary.
     if not payload.get("train_name"):
@@ -446,6 +514,32 @@ async def update_job(
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Validate explicit owner overrides before applying any mutations.
+    # `model_fields_set` only contains fields the caller actually sent, so
+    # we never validate on an accidental `None`.
+    if "tac_id" in data.model_fields_set and data.tac_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.tac_id,
+            allowed_roles=TAC_ASSIGNABLE_ROLES,
+            field="tac_id",
+        )
+    if (
+        "delivery_lead_id" in data.model_fields_set
+        and data.delivery_lead_id is not None
+    ):
+        await _validate_owner_override(
+            db,
+            user_id=data.delivery_lead_id,
+            allowed_roles={
+                UserRole.delivery_lead,
+                UserRole.admin,
+                UserRole.head_of_recruitment,
+            },
+            field="delivery_lead_id",
+        )
+
     updates = data.model_dump(exclude_unset=True)
     prev_status = job.status
     # Snapshot istotnych pól przed mutacją — potrzebne do marketplace diff.

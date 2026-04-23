@@ -66,6 +66,7 @@ from app.models.app_setting import AppSetting
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
 from app.models.team_structure import (
+    ClientTacAssignment,
     DeliveryLeadClientAssignment,
     TacDeliveryLeadAssignment,
     TacLinkedInFarming,
@@ -183,6 +184,7 @@ __all__ = [
     "TacDeliveryLeadAssignment",
     "TacLinkedInFarming",
     "DeliveryLeadClientAssignment",
+    "ClientTacAssignment",
     "CompetitionType",
     "CompetitionWinner",
     "LinkedInDailyMetric",

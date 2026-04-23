@@ -53,6 +53,11 @@ class Client(Base, TimestampMixin):
     # Relationships
     jobs = relationship("Job", back_populates="client")
     contracts = relationship("Contract", back_populates="client")
+    tac_assignments = relationship(
+        "ClientTacAssignment",
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Client id={self.id} name={self.name}>"

@@ -30,6 +30,10 @@ class JobCreate(BaseModel):
     deadline: Optional[date] = None
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
+    # TAC + Delivery Lead — jeśli podane jawnie, wygrywa nad auto-assignem
+    # z `client_tac_assignments`/`delivery_lead_client_assignments`.
+    tac_id: Optional[int] = None
+    delivery_lead_id: Optional[int] = None
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
@@ -76,6 +80,8 @@ class JobUpdate(BaseModel):
     deadline: Optional[date] = None
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
+    tac_id: Optional[int] = None
+    delivery_lead_id: Optional[int] = None
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
@@ -143,6 +149,8 @@ class JobResponse(BaseModel):
     deadline: Optional[date]
     client_id: Optional[int]
     recruiter_id: Optional[int]
+    tac_id: Optional[int] = None
+    delivery_lead_id: Optional[int] = None
     created_by: Optional[int]
     portals: Optional[Any]
     must_skills: Optional[Any] = None

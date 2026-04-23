@@ -24,6 +24,7 @@ from app.api import (
     candidates,
     jobs,
     clients,
+    clients_team,
     pipeline,
     notes,
     contracts,
@@ -86,6 +87,7 @@ from app.api import rejection_emails as rejection_emails_api
 from app.api import microsoft365 as microsoft365_api
 from app.api import email_threads as email_threads_api
 from app.api import marketplace as marketplace_api
+from app.api import presence as presence_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -259,6 +261,9 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
+app.include_router(
+    clients_team.router, prefix="/api/clients", tags=["clients-team"]
+)
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
@@ -308,6 +313,7 @@ app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(import_export.router, prefix="/api", tags=["import-export"])
 app.include_router(fireflies.router, prefix="/api", tags=["fireflies"])
 app.include_router(ws.router, tags=["websocket"])
+app.include_router(presence_api.router, tags=["presence"])
 app.include_router(matching.router, prefix="/api", tags=["matching"])
 app.include_router(skills_api.router, prefix="/api/skills", tags=["skills"])
 app.include_router(
