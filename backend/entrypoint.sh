@@ -129,6 +129,33 @@ _ENUM_STATEMENTS = [
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS nip VARCHAR(32)",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",
+    # Auto-assign TAC + Delivery Lead do projektów (migracje 0059/0060).
+    # Bez tych kolumn prod backend crashuje na `SELECT jobs.tac_id` (ORM
+    # deklaruje kolumnę w `app.models.job.Job` od commit c57c944).
+    # Safety-net chroni prod gdyby alembic upgrade nie wszedł (multi-head).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tac_id INTEGER NULL",
+    "ALTER TABLE jobs DROP CONSTRAINT IF EXISTS fk_jobs_tac_id",
+    "ALTER TABLE jobs ADD CONSTRAINT fk_jobs_tac_id "
+    "FOREIGN KEY (tac_id) REFERENCES users(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_tac_id ON jobs (tac_id)",
+    """
+    CREATE TABLE IF NOT EXISTS client_tac_assignments (
+        id SERIAL PRIMARY KEY,
+        tac_user_id INTEGER NOT NULL
+            REFERENCES users(id) ON DELETE CASCADE,
+        client_id INTEGER NOT NULL
+            REFERENCES clients(id) ON DELETE CASCADE,
+        is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_tac UNIQUE (tac_user_id, client_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_client_tac_assignments_client_id "
+    "ON client_tac_assignments (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_tac_assignments_tac_user_id "
+    "ON client_tac_assignments (tac_user_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_primary_tac "
+    "ON client_tac_assignments (client_id) WHERE is_primary = TRUE",
     # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
     # powiadomień dla dopasowań z puli marketplace. Bez tego insert
     # Notification(notification_type='marketplace_match') crashuje z
