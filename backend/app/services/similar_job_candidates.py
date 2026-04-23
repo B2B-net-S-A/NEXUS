@@ -194,30 +194,35 @@ async def fetch_historical_candidates(
     similar_refs, tier_used = await fetch_similar_jobs(
         job_id, tier=tier, top_k=top_k_similar
     )
-    if not similar_refs:
-        return [], [], "empty"
 
-    candidates = await _rank_candidates_from_similar(
-        db,
-        similar_refs=similar_refs,
-        include_negative=include_negative,
-    )
+    candidates: list[HistoricalCandidate] = []
+    if similar_refs:
+        candidates = await _rank_candidates_from_similar(
+            db,
+            similar_refs=similar_refs,
+            include_negative=include_negative,
+        )
 
-    # Tier-fallback: primary → extended if too few candidates
-    if (
-        tier == "primary"
-        and len(candidates) < TIER_A_MIN_CANDIDATES_FOR_EXTEND
+    # Tier-fallback: primary → extended when Tier A either returned no similar
+    # jobs at all OR returned too few candidates. This is the common case early
+    # in a tenant's life — most joby sit just below the 0.70 cosine threshold.
+    if tier == "primary" and (
+        not similar_refs or len(candidates) < TIER_A_MIN_CANDIDATES_FOR_EXTEND
     ):
-        extended_refs, tier_used = await fetch_similar_jobs(
+        extended_refs, extended_tier = await fetch_similar_jobs(
             job_id, tier="extended", top_k=top_k_similar
         )
         if extended_refs:
             similar_refs = extended_refs
+            tier_used = extended_tier
             candidates = await _rank_candidates_from_similar(
                 db,
                 similar_refs=similar_refs,
                 include_negative=include_negative,
             )
+
+    if not similar_refs:
+        return [], [], "empty"
 
     return candidates[:limit], similar_refs, tier_used
 

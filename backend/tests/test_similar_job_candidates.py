@@ -489,6 +489,74 @@ async def test_fetch_historical_candidates_tier_fallback_to_extended() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_primary_tier_falls_back_when_no_tier_a_jobs_at_all() -> None:
+    """When Qdrant returns only Tier B hits, primary mode must still promote.
+
+    Regression: early return on empty similar_refs skipped the fallback path
+    entirely, leaving the widget permanently empty for tenants whose jobs sit
+    just below the 0.70 cosine threshold (the common early-stage case).
+    """
+    now = datetime.now(timezone.utc)
+    primary_hits: list[dict] = []  # no Tier A jobs (all <0.70)
+    extended_hits = [
+        {"job_id": 1, "score": 0.65, "payload": {"title": "J1"}},
+        {"job_id": 2, "score": 0.60, "payload": {"title": "J2"}},
+    ]
+    extended_stage_rows = [
+        (
+            _stage_row(
+                candidate_id=10,
+                job_id=1,
+                stage=PipelineStage.hired,
+                moved_at=now - timedelta(days=30),
+            ),
+            "J1",
+        ),
+        (
+            _stage_row(
+                candidate_id=20,
+                job_id=2,
+                stage=PipelineStage.cv_sent,
+                moved_at=now - timedelta(days=45),
+            ),
+            "J2",
+        ),
+    ]
+
+    calls = {"count": 0}
+
+    async def fake_search(job_id: int, top_k: int, exclude_self: bool):
+        calls["count"] += 1
+        return primary_hits if calls["count"] == 1 else extended_hits
+
+    class _SwitchDb:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, _stmt):
+            self.calls += 1
+            if self.calls == 1:
+                return _FakeExecuteResult(extended_stage_rows)
+            return _FakeExecuteResult([])  # no blacklisted
+
+    with patch.object(
+        sjc, "search_similar_jobs_by_job_id", new=AsyncMock(side_effect=fake_search)
+    ):
+        candidates, refs, tier_used = await sjc.fetch_historical_candidates(
+            _SwitchDb(),  # type: ignore[arg-type]
+            job_id=42,
+            tier="primary",
+        )
+
+    assert tier_used == "extended"
+    assert len(refs) == 2
+    assert len(candidates) == 2
+    # Hired is the top signal — candidate 10 should outrank candidate 20.
+    assert candidates[0].candidate_id == 10
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_fetch_historical_boost_map_returns_source_counts() -> None:
     now = datetime.now(timezone.utc)
     qdrant_hits = [
