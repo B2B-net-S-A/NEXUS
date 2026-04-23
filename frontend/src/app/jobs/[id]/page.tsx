@@ -1134,7 +1134,10 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "champion" && (
-        <ChampionProfileEditor jobId={Number(id)} />
+        <ChampionProfileEditor
+          jobId={Number(id)}
+          clientId={job?.client_id ?? null}
+        />
       )}
 
       {activeTab === "questions" && (

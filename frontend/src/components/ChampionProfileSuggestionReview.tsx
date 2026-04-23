@@ -205,6 +205,7 @@ function SourceBadge({ source }: { source: ChampionProfileSuggestion["source_typ
     fireflies_meeting: "Fireflies",
     cloudtalk_call: "CloudTalk",
     manual_consultant_note: "notatka konsultanta",
+    historical_jobs: "historia",
   };
   return (
     <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded bg-purple-100 text-purple-700">

@@ -55,6 +55,9 @@ const SOURCES: Array<{
 interface ChampionProfileEditorProps {
   jobId: number;
   canEdit?: boolean;
+  /** Phase 15: pass-through to the Sources panel so historical-matches
+   *  retrieval can default to same-client scope. */
+  clientId?: number | null;
 }
 
 function genId(): string {
@@ -64,6 +67,7 @@ function genId(): string {
 export function ChampionProfileEditor({
   jobId,
   canEdit = true,
+  clientId,
 }: ChampionProfileEditorProps) {
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -612,7 +616,11 @@ export function ChampionProfileEditor({
       {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
       {canEdit && (
         <div className="border-t border-gray-200 dark:border-gray-800 pt-6 mt-6">
-          <ChampionProfileSourcesPanel jobId={jobId} currentProfile={draft} />
+          <ChampionProfileSourcesPanel
+            jobId={jobId}
+            currentProfile={draft}
+            clientId={clientId}
+          />
         </div>
       )}
     </div>

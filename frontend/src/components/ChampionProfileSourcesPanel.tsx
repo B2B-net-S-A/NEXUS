@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Loader2, Sparkles } from "lucide-react";
 import { api, championSuggestionsApi } from "@/lib/api";
 import type { ChampionProfile, ChampionProfileSuggestion } from "@/lib/api";
+import { ChampionHistoricalMatchesPanel } from "./ChampionHistoricalMatchesPanel";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 
 interface NoteItem {
@@ -34,6 +35,9 @@ interface NoteListResponse {
 interface ChampionProfileSourcesPanelProps {
   jobId: number;
   currentProfile: ChampionProfile;
+  /** Phase 15: scope Qdrant retrieval to this client's closed jobs.
+   *  `null` means "no client" — panel falls back to cross-client mode. */
+  clientId?: number | null;
 }
 
 function noteTitle(content: string): string {
@@ -44,10 +48,15 @@ function noteTitle(content: string): string {
 export function ChampionProfileSourcesPanel({
   jobId,
   currentProfile,
+  clientId,
 }: ChampionProfileSourcesPanelProps) {
   const qc = useQueryClient();
   const [activeSuggestion, setActiveSuggestion] =
     useState<ChampionProfileSuggestion | null>(null);
+  // Phase 15: default same-client; user can flip to cross-client inside panel.
+  const [historicalCrossClient, setHistoricalCrossClient] = useState(
+    clientId == null,
+  );
 
   const pending = useQuery({
     queryKey: ["champion-suggestions", jobId],
@@ -107,6 +116,15 @@ export function ChampionProfileSourcesPanel({
         <Sparkles className="w-4 h-4 text-purple-500" />
         Źródła AI
       </h3>
+
+      {/* Phase 15: similar historical roles → pre-fill suggestion */}
+      <ChampionHistoricalMatchesPanel
+        jobId={jobId}
+        clientId={clientId ?? null}
+        crossClient={historicalCrossClient}
+        onToggleCrossClient={setHistoricalCrossClient}
+        onSuggestionGenerated={(s) => setActiveSuggestion(s)}
+      />
 
       {/* Pending suggestions */}
       <Section title="Drafty AI do przeglądu" empty="Brak pending draftów.">
@@ -246,6 +264,8 @@ function sourceLabel(source: ChampionProfileSuggestion["source_type"]): string {
       return "Rozmowa CloudTalk";
     case "manual_consultant_note":
       return "Notatka konsultanta";
+    case "historical_jobs":
+      return "Podobne role z przeszłości";
     default:
       return source;
   }
