@@ -35,6 +35,9 @@ class TalentPoolOut(BaseModel):
     created_by: Optional[int]
     created_at: datetime
     candidate_count: int
+    # Phase 10 A2 — Competence Category (nullable for legacy pools).
+    competence_category_id: Optional[int] = None
+    competence_category_slug: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -84,7 +87,10 @@ async def list_talent_pools(
 ):
     result = await db.execute(
         select(TalentPool)
-        .options(selectinload(TalentPool.memberships))
+        .options(
+            selectinload(TalentPool.memberships),
+            selectinload(TalentPool.competence_category),
+        )
         .order_by(TalentPool.created_at.desc())
     )
     pools = result.scalars().all()
@@ -98,6 +104,10 @@ async def list_talent_pools(
             created_by=p.created_by,
             created_at=p.created_at,
             candidate_count=len(p.memberships),
+            competence_category_id=p.competence_category_id,
+            competence_category_slug=(
+                p.competence_category.slug if p.competence_category else None
+            ),
         )
         for p in pools
     ]
