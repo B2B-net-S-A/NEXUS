@@ -819,13 +819,16 @@ interface JobFormData {
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
+  // Phase 15 / Phase D: programme / Agile Release Train tag — opcjonalne.
+  // Auto-extract z JD w backendzie gdy DL nie wpisze; możliwy manual override.
+  train_name: string;
 }
 
 const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
   salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
-  pipeline_template_id: "", competence_category_id: "",
+  pipeline_template_id: "", competence_category_id: "", train_name: "",
 };
 
 function jobToForm(j: any): JobFormData {
@@ -845,6 +848,7 @@ function jobToForm(j: any): JobFormData {
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
     competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
+    train_name: j.train_name ?? "",
   };
 }
 
@@ -866,6 +870,22 @@ function JobFormFields({
   onAutoCollaboratorsChange?: (ids: number[]) => void;
 }) {
   const ccId = form.competence_category_id ? Number(form.competence_category_id) : null;
+  // Phase 15 / Phase D: podpowiedzi `train_name` zawężone do klienta.
+  // Fallback na globalną listę gdy klient nie wybrany. Pomijamy fetch gdy
+  // input jest jeszcze pusty (brak potrzeby).
+  const clientIdNum = form.client_id ? Number(form.client_id) : null;
+  const { data: trainNamesData } = useQuery<{ items: string[] }>({
+    queryKey: ["jobs-train-names", clientIdNum],
+    queryFn: async () => {
+      const params = clientIdNum !== null ? { client_id: clientIdNum } : {};
+      const res = await api.get<{ items: string[] }>("/api/jobs/train-names", {
+        params,
+      });
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+  const trainNameSuggestions = trainNamesData?.items ?? [];
   return (
     <>
       <FieldGroup label="Tytuł stanowiska" required>
@@ -876,6 +896,24 @@ function JobFormFields({
           <option value="">— wybierz klienta —</option>
           {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
+      </FieldGroup>
+      <FieldGroup label="Program / Train (opcjonalne)">
+        <Input
+          list="job-train-names-autocomplete"
+          value={form.train_name}
+          onChange={e => onChange("train_name", e.target.value)}
+          placeholder="np. ART Payments, CIB Mortgages, TRAIN-X"
+        />
+        <datalist id="job-train-names-autocomplete">
+          {trainNameSuggestions.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+        <p className="text-[11px] text-gray-400 mt-1">
+          Programme / Agile Release Train. Pomaga Champion Profile znaleźć
+          podobne historyczne role z tego samego programu. Zostaw puste,
+          a AI spróbuje wyekstrahować z opisu.
+        </p>
       </FieldGroup>
       <div className="grid grid-cols-2 gap-3">
         <FieldGroup label="Typ rekrutacji">
@@ -1066,6 +1104,9 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           ? Number(form.competence_category_id)
           : undefined,
         auto_suggest_cc: !form.competence_category_id,
+        // Phase 15 / Phase D: opcjonalne, auto-extract z opisu po stronie
+        // backendu gdy puste (regex w `train_name_extractor`).
+        train_name: form.train_name.trim() || undefined,
       });
       // Reconcile auto_cc collaborators: if user de-selected any after backend
       // already auto-added, we DELETE them here. Hits the same endpoint the
@@ -1183,6 +1224,9 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         competence_category_id: form.competence_category_id
           ? Number(form.competence_category_id)
           : null,
+        // Phase 15 / Phase D: pusty string → null (clear); non-empty → value.
+        // `undefined` pominąłby pole w PATCH i zachował wartość DB.
+        train_name: form.train_name.trim() ? form.train_name.trim() : null,
       });
       onSuccess("Oferta zaktualizowana");
       onClose();

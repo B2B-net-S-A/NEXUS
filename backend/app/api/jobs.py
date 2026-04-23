@@ -57,6 +57,9 @@ _EMBED_TRIGGER_FIELDS = {
     "seniority",
     "subcategory",
     "industry",
+    # Phase 15 / Phase D: train_name goes into `_build_job_text` so changing
+    # it must bump the embedding to keep same-train similarity consistent.
+    "train_name",
 }
 
 
@@ -359,6 +362,48 @@ async def create_job(
     if settings.MARKETPLACE_ENABLED:
         background_tasks.add_task(run_marketplace_scan_safe, job.id)
     return job
+
+
+@router.get("/train-names")
+async def list_train_names(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    client_id: Optional[int] = Query(
+        default=None,
+        description=(
+            "When provided, restrict to train_names used on jobs of this client. "
+            "When omitted, returns unique train_names across the whole corpus."
+        ),
+    ),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, list[str]]:
+    """Phase 15 / Phase D: autocomplete source for the JobForm train_name field.
+
+    Returns `{items: ["ART Payments", "CIB Mortgages", ...]}` — unique,
+    non-null ``train_name`` values in case-insensitive alphabetical order.
+    Cheap (single indexed SELECT) so it is safe to call on every client
+    switch in the form.
+    """
+    # NOTE: Postgres wymaga aby expr z ORDER BY były w SELECT przy DISTINCT
+    # (`for SELECT DISTINCT, ORDER BY expressions must appear in select list`),
+    # więc używamy GROUP BY (brak tej restrykcji) żeby móc sortować
+    # case-insensitive bez leakowania `lower(...)` do response.
+    stmt = (
+        select(Job.train_name)
+        .where(Job.train_name.isnot(None))
+        .where(func.length(func.trim(Job.train_name)) > 0)
+    )
+    if client_id is not None:
+        stmt = stmt.where(Job.client_id == client_id)
+    stmt = (
+        stmt.group_by(Job.train_name)
+        .order_by(func.lower(Job.train_name))
+        .limit(limit)
+    )
+
+    rows = (await db.execute(stmt)).all()
+    items = [row[0] for row in rows if row[0]]
+    return {"items": items}
 
 
 @router.get("/{job_id}", response_model=JobResponse)
