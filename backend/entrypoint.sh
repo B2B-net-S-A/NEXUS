@@ -105,6 +105,30 @@ _ENUM_STATEMENTS = [
     "ALTER TABLE champion_profile_suggestions "
     "ADD CONSTRAINT chk_champion_suggestion_rating_range "
     "CHECK (rating IS NULL OR rating IN (-1, 0, 1))",
+    # Phase 16 (migration 0058_editable_draft_contract): edytowalna treść
+    # draftu umowy + JDG/firma na kandydatach i klientach. Safety-net chroni
+    # prod przed crash-loopem `GET /api/contracts → UndefinedColumnError`
+    # gdyby alembic upgrade nie wszedł (np. multi-head dev gałęzi 0036).
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS draft_content_html TEXT",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS draft_template_id INTEGER",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS draft_updated_at TIMESTAMPTZ",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS draft_updated_by INTEGER",
+    "ALTER TABLE contracts DROP CONSTRAINT IF EXISTS fk_contracts_draft_template_id",
+    "ALTER TABLE contracts ADD CONSTRAINT fk_contracts_draft_template_id "
+    "FOREIGN KEY (draft_template_id) REFERENCES contract_templates(id) "
+    "ON DELETE SET NULL",
+    "ALTER TABLE contracts DROP CONSTRAINT IF EXISTS fk_contracts_draft_updated_by",
+    "ALTER TABLE contracts ADD CONSTRAINT fk_contracts_draft_updated_by "
+    "FOREIGN KEY (draft_updated_by) REFERENCES users(id) "
+    "ON DELETE SET NULL",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS nip VARCHAR(32)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS business_address TEXT",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS business_form VARCHAR(64)",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255)",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS nip VARCHAR(32)",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS regon VARCHAR(32)",
     # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
     # powiadomień dla dopasowań z puli marketplace. Bez tego insert
     # Notification(notification_type='marketplace_match') crashuje z
