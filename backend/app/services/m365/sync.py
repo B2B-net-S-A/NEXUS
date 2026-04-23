@@ -371,10 +371,11 @@ async def _sync_events(
     else:
         now = datetime.now(timezone.utc)
         url = "/me/calendarView/delta"
+        # Graph rejects $top on calendarView/delta — must use Prefer header instead.
+        # Paging defaults to server-chosen size and pagination_iter handles @odata.nextLink.
         params = {
             "startDateTime": (now - timedelta(days=365)).isoformat(),
             "endDateTime": (now + timedelta(days=365)).isoformat(),
-            "$top": 50,
             "$select": EVENT_SELECT,
         }
 
