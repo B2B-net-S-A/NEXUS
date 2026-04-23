@@ -52,6 +52,11 @@ export interface CandidateFilters {
   workedAtClientIds: number[];
   view: CandidatesView;
   savedSearchId: number | null;
+  // Traffit-style advanced search buckets. Each phrase matches ILIKE
+  // across name/email/CV/ai_summary/competence_category/experience/skills/tags.
+  qAll: string[]; // every phrase must match (AND)
+  qAny: string[]; // at least one phrase matches (OR)
+  qNone: string[]; // none of these phrases may match (NOT)
 }
 
 export const DEFAULT_FILTERS: CandidateFilters = {
@@ -73,6 +78,9 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   workedAtClientIds: [],
   view: "list",
   savedSearchId: null,
+  qAll: [],
+  qAny: [],
+  qNone: [],
 };
 
 const CSV = (xs: Array<string | number>): string => xs.join(",");
@@ -107,6 +115,9 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
+  if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
+  if (f.qAny.length) p.set("q_any", PIPE(f.qAny));
+  if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
   return p;
@@ -158,6 +169,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     workedAtClientIds: parseCsvInt(sp.get("client_hist")),
     view,
     savedSearchId,
+    qAll: parsePipe(sp.get("q_all")),
+    qAny: parsePipe(sp.get("q_any")),
+    qNone: parsePipe(sp.get("q_none")),
   };
 }
 

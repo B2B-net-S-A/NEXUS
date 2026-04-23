@@ -38,9 +38,43 @@ describe("url-filters", () => {
       workedAtClientIds: [10, 11],
       view: "tiles",
       savedSearchId: 7,
+      qAll: ["react native", "typescript"],
+      qAny: ["next.js", "remix"],
+      qNone: ["junior", "stażysta"],
     };
     const encoded = encodeFilters(full);
     expect(decodeFilters(encoded)).toEqual(full);
+  });
+
+  it("advanced search buckets use pipe so commas in phrases survive", () => {
+    const withCommas: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      qAll: ["Intel, Inc.", "A/B testing"],
+    };
+    const encoded = encodeFilters(withCommas);
+    expect(encoded.get("q_all")).toBe("Intel, Inc.|A/B testing");
+    expect(decodeFilters(encoded).qAll).toEqual(["Intel, Inc.", "A/B testing"]);
+  });
+
+  it("empty advanced buckets stay out of the URL", () => {
+    const encoded = encodeFilters({
+      ...DEFAULT_FILTERS,
+      qAll: [],
+      qAny: [],
+      qNone: [],
+    });
+    expect(encoded.has("q_all")).toBe(false);
+    expect(encoded.has("q_any")).toBe(false);
+    expect(encoded.has("q_none")).toBe(false);
+  });
+
+  it("decodes advanced buckets from pipe-separated query string", () => {
+    const decoded = decodeFilters(
+      sp("q_all=react%20native|typescript&q_any=next.js&q_none=junior|stażysta"),
+    );
+    expect(decoded.qAll).toEqual(["react native", "typescript"]);
+    expect(decoded.qAny).toEqual(["next.js"]);
+    expect(decoded.qNone).toEqual(["junior", "stażysta"]);
   });
 
   it("status / employment / availability accept multiple CSV values", () => {

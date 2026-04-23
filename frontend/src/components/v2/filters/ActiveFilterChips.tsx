@@ -196,6 +196,39 @@ function collectChips(
         }),
     });
   });
+  filters.qAll.forEach((phrase) => {
+    chips.push({
+      key: `q_all:${phrase}`,
+      label: `Wszystkie: „${phrase}"`,
+      clear: () =>
+        onUpdate({
+          qAll: filters.qAll.filter((x) => x !== phrase),
+          page: 1,
+        }),
+    });
+  });
+  filters.qAny.forEach((phrase) => {
+    chips.push({
+      key: `q_any:${phrase}`,
+      label: `Którakolwiek: „${phrase}"`,
+      clear: () =>
+        onUpdate({
+          qAny: filters.qAny.filter((x) => x !== phrase),
+          page: 1,
+        }),
+    });
+  });
+  filters.qNone.forEach((phrase) => {
+    chips.push({
+      key: `q_none:${phrase}`,
+      label: `Żadna: „${phrase}"`,
+      clear: () =>
+        onUpdate({
+          qNone: filters.qNone.filter((x) => x !== phrase),
+          page: 1,
+        }),
+    });
+  });
   return chips;
 }
 
@@ -224,6 +257,9 @@ export function ActiveFilterChips({
       pastCompany: [],
       currentTitle: [],
       workedAtClientIds: [],
+      qAll: [],
+      qAny: [],
+      qNone: [],
       page: 1,
     });
 

@@ -438,6 +438,29 @@ async def list_candidates(
             "multi-select (e.g. `?open_to=side_projects&open_to=sales_support`)."
         ),
     ),
+    q_all: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Advanced search — every phrase must appear in the candidate "
+            "(AND). Matches case-insensitive ILIKE across name/email/CV/"
+            "ai_summary/competence_category/experience/skills/tags. "
+            "Repeat the param per phrase."
+        ),
+    ),
+    q_any: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Advanced search — at least one phrase must appear (OR). "
+            "See `q_all` for matched fields."
+        ),
+    ),
+    q_none: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Advanced search — none of these phrases may appear (NOT). "
+            "See `q_all` for matched fields."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
@@ -515,6 +538,12 @@ async def list_candidates(
                     Candidate.email.ilike(like_pat),
                 )
             )
+    # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
+    from app.services.advanced_candidate_search import build_advanced_filter
+
+    _advanced = build_advanced_filter(q_all, q_any, q_none)
+    if _advanced is not None:
+        query = query.where(_advanced)
     # Phase B3: structured filters over JSONB
     if skills:
         # skills is a list of canonical/alias names; normalize through the

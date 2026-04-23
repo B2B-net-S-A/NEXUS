@@ -94,6 +94,7 @@ import {
 import { CandidatesTiles } from "@/components/v2/pages/CandidatesTiles";
 import { RequireRole } from "@/components/RequireRole";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
+import { AdvancedSearchPopover } from "@/components/v2/filters/AdvancedSearchPopover";
 import { ROLE_LABELS, type UserRole } from "@/store/auth";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -336,6 +337,17 @@ export function CandidatesListV2() {
         v === "side_projects" || v === "sales_support" || v === "expert_consult"
       )
   );
+  // Traffit-style boolean buckets — pipe-separated in URL, serialized as repeating
+  // query params when calling the API.
+  const [qAll, setQAll] = useState<string[]>(
+    (searchParams.get("q_all") ?? "").split("|").filter(Boolean)
+  );
+  const [qAny, setQAny] = useState<string[]>(
+    (searchParams.get("q_any") ?? "").split("|").filter(Boolean)
+  );
+  const [qNone, setQNone] = useState<string[]>(
+    (searchParams.get("q_none") ?? "").split("|").filter(Boolean)
+  );
   const currentUser = useAuthStore((s) => s.user);
 
   // Sync URL -----------------------------------------------------
@@ -358,6 +370,9 @@ export function CandidatesListV2() {
     if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
     if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
     if (openToFilter.length) params.set("open_to", openToFilter.join(","));
+    if (qAll.length) params.set("q_all", qAll.join("|"));
+    if (qAny.length) params.set("q_any", qAny.join("|"));
+    if (qNone.length) params.set("q_none", qNone.join("|"));
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `/candidates?${qs}` : "/candidates");
   }, [
@@ -378,6 +393,9 @@ export function CandidatesListV2() {
     workedAtClientIds,
     recentlyChangedJobs,
     openToFilter,
+    qAll,
+    qAny,
+    qNone,
   ]);
 
   // Data --------------------------------------------------------
@@ -401,6 +419,9 @@ export function CandidatesListV2() {
       workedAtClientIds,
       recentlyChangedJobs,
       openToFilter,
+      qAll,
+      qAny,
+      qNone,
     ],
     queryFn: () =>
       api
@@ -427,6 +448,9 @@ export function CandidatesListV2() {
               ? Number(recentlyChangedJobs)
               : undefined,
             open_to: openToFilter.length ? openToFilter : undefined,
+            q_all: qAll.length ? qAll : undefined,
+            q_any: qAny.length ? qAny : undefined,
+            q_none: qNone.length ? qNone : undefined,
           },
           paramsSerializer: { indexes: null },
         })
@@ -548,7 +572,10 @@ export function CandidatesListV2() {
     (pastCompanyFilter.length > 0 ? 1 : 0) +
     (currentTitleFilter.length > 0 ? 1 : 0) +
     (workedAtClientIds.length > 0 ? 1 : 0) +
-    (recentlyChangedJobs ? 1 : 0);
+    (recentlyChangedJobs ? 1 : 0) +
+    (qAll.length > 0 ? 1 : 0) +
+    (qAny.length > 0 ? 1 : 0) +
+    (qNone.length > 0 ? 1 : 0);
 
   // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
   const filtersSnapshot: CandidateFilters = useMemo(
@@ -571,6 +598,9 @@ export function CandidatesListV2() {
       workedAtClientIds,
       view: "list",
       savedSearchId: null,
+      qAll,
+      qAny,
+      qNone,
     }),
     [
       search,
@@ -588,6 +618,9 @@ export function CandidatesListV2() {
       pastCompanyFilter,
       currentTitleFilter,
       workedAtClientIds,
+      qAll,
+      qAny,
+      qNone,
     ]
   );
   const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
@@ -607,6 +640,9 @@ export function CandidatesListV2() {
     if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
     if (patch.workedAtClientIds !== undefined)
       setWorkedAtClientIds(patch.workedAtClientIds);
+    if (patch.qAll !== undefined) setQAll(patch.qAll);
+    if (patch.qAny !== undefined) setQAny(patch.qAny);
+    if (patch.qNone !== undefined) setQNone(patch.qNone);
   };
 
   return (
@@ -686,6 +722,34 @@ export function CandidatesListV2() {
             }}
           />
         </div>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              title="Zaawansowane wyszukiwanie (ALL / ANY / NONE)"
+            >
+              <Filter className="h-4 w-4" />
+              Zaawansowane
+              {qAll.length + qAny.length + qNone.length > 0 && (
+                <Badge variant="burgundy" size="sm" className="ml-1">
+                  {qAll.length + qAny.length + qNone.length}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[420px] p-4">
+            <AdvancedSearchPopover
+              value={{ all: qAll, any: qAny, none: qNone }}
+              onChange={(next) => {
+                setQAll(next.all);
+                setQAny(next.any);
+                setQNone(next.none);
+                setPage(1);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
         <MultiSelectFilter<CandidateStatusValue>
           value={statusFilter}
           onChange={(v) => {
@@ -1006,6 +1070,9 @@ export function CandidatesListV2() {
                   setPastCompanyFilter([]);
                   setCurrentTitleFilter([]);
                   setWorkedAtClientIds([]);
+                  setQAll([]);
+                  setQAny([]);
+                  setQNone([]);
                   setPage(1);
                 }}
                 className="text-xs text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))]"
