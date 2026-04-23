@@ -74,15 +74,15 @@ def _patch_pipeline(
     monkeypatch.setattr(cv_parser, "parse_cv", _fake_parse)
     monkeypatch.setattr(embedding_service, "generate_embedding", _fake_embed)
     monkeypatch.setattr(embedding_service, "search_jobs_semantic", _fake_search)
-    # The endpoint imports search_jobs_semantic at module load time.
+    # The endpoint module imports these at load time — patch the rebound names.
     monkeypatch.setattr(
-        "app.api.recommendations.search_jobs_semantic", _fake_search
+        "app.api.cv_match_preview.search_jobs_semantic", _fake_search
     )
     monkeypatch.setattr(
-        "app.api.recommendations.generate_embedding", _fake_embed
+        "app.api.cv_match_preview.generate_embedding", _fake_embed
     )
-    monkeypatch.setattr("app.api.recommendations.parse_cv", _fake_parse)
-    monkeypatch.setattr("app.api.recommendations.extract_text", _fake_extract)
+    monkeypatch.setattr("app.api.cv_match_preview.parse_cv", _fake_parse)
+    monkeypatch.setattr("app.api.cv_match_preview.extract_text", _fake_extract)
 
 
 @pytest_asyncio.fixture
