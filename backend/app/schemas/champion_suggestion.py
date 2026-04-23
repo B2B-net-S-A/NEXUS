@@ -98,6 +98,13 @@ class ApplyPayload(BaseModel):
     accepted_sections: List[str] = Field(default_factory=list)
 
 
+class RatePayload(BaseModel):
+    """Request body for POST /champion-suggestions/{id}/rate (Phase 15 / Phase C)."""
+
+    rating: int = Field(..., ge=-1, le=1)
+    comment: Optional[str] = Field(default=None, max_length=2000)
+
+
 # ── Output payloads ─────────────────────────────────────────────────────────
 
 
@@ -125,6 +132,9 @@ class ChampionProfileSuggestionOut(BaseModel):
     model_name: Optional[str] = None
     prompt_version: Optional[int] = None
     error_message: Optional[str] = None
+    # Phase 15 / Phase C: DL feedback snapshot (None until the DL rates).
+    rating: Optional[int] = None
+    rating_comment: Optional[str] = None
 
     patches: List[SectionPatch] = Field(default_factory=list)
 

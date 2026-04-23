@@ -19,6 +19,7 @@ from app.models.champion_suggestion import ChampionProfileSuggestion
 from app.schemas.champion_suggestion import (
     ApplyPayload,
     ChampionProfileSuggestionOut,
+    RatePayload,
     patches_from_payload,
 )
 from app.services.champion_draft_service import apply_suggestion, reject_suggestion
@@ -82,5 +83,49 @@ async def reject_suggestion_endpoint(
         db,
         suggestion_id=suggestion_id,
         user_id=current_user.id,
+    )
+    return _to_out(suggestion)
+
+
+@router.post("/{suggestion_id}/rate", response_model=ChampionProfileSuggestionOut)
+async def rate_suggestion_endpoint(
+    suggestion_id: int,
+    payload: RatePayload,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> ChampionProfileSuggestionOut:
+    """Phase 15 / Phase C — persist DL feedback on a terminated suggestion.
+
+    Allowed only on terminal statuses (accepted / partially_accepted /
+    rejected / superseded). Rating on a pending draft would be nonsensical;
+    we return 409 in that case so the UI can hide the rating buttons until
+    apply/reject has happened.
+    """
+    from app.models.champion_suggestion import SuggestionStatus
+
+    result = await db.execute(
+        select(ChampionProfileSuggestion).where(
+            ChampionProfileSuggestion.id == suggestion_id
+        )
+    )
+    suggestion = result.scalar_one_or_none()
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    if suggestion.status == SuggestionStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail="Rate only after apply/reject — suggestion is still pending.",
+        )
+    suggestion.rating = int(payload.rating)
+    suggestion.rating_comment = (
+        payload.comment.strip() if payload.comment else None
+    )
+    await db.commit()
+    await db.refresh(suggestion)
+    logger.info(
+        "champion_draft: rated suggestion id=%s rating=%s by user=%s",
+        suggestion.id,
+        suggestion.rating,
+        current_user.id,
     )
     return _to_out(suggestion)

@@ -1594,6 +1594,10 @@ export interface ChampionProfileSuggestion {
   model_name: string | null;
   prompt_version: number | null;
   error_message: string | null;
+  /** Phase 15 / Phase C: DL feedback, -1|0|1 or null when not yet rated. */
+  rating: number | null;
+  /** Optional free-text comment attached to the rating. */
+  rating_comment: string | null;
   patches: ChampionSectionPatch[];
 }
 
@@ -1677,6 +1681,13 @@ export const championSuggestionsApi = {
         top_k: payload.top_k ?? 5,
         cross_client: payload.cross_client ?? false,
       },
+    ),
+  // Phase 15 / Phase C — persist DL feedback on a terminated suggestion.
+  // Rating: -1 (bezużyteczne) | 0 (nijak) | 1 (trafione). Comment optional.
+  rate: (suggestionId: number, rating: -1 | 0 | 1, comment?: string) =>
+    api.post<ChampionProfileSuggestion>(
+      `/api/champion-suggestions/${suggestionId}/rate`,
+      { rating, comment: comment ?? null },
     ),
 };
 

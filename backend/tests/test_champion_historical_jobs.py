@@ -527,6 +527,90 @@ async def test_preview_historical_matches_saved_job(app_client, app_auth_headers
 
 
 @pytest.mark.asyncio
+async def test_rate_suggestion_happy_path(
+    app_client, app_auth_headers, _patch_anthropic
+):
+    """Phase C: rate a terminal suggestion; rating persists, pending is 409."""
+    job_id, _ = await _seed_client_and_job()
+
+    # Start with an empty-matches path to get a rejected (terminal) suggestion.
+    with patch(
+        "app.services.champion_draft_service.find_similar_historical_jobs",
+        new=AsyncMock(return_value=[]),
+    ):
+        gen = await app_client.post(
+            f"/api/jobs/{job_id}/champion-profile/generate-from-history",
+            headers=app_auth_headers,
+            json={"top_k": 5, "cross_client": False},
+        )
+    assert gen.status_code == 200
+    sid = gen.json()["id"]
+    assert gen.json()["status"] == "rejected"
+
+    # Rate it — should succeed.
+    rate = await app_client.post(
+        f"/api/champion-suggestions/{sid}/rate",
+        headers=app_auth_headers,
+        json={"rating": 1, "comment": "good retrieval"},
+    )
+    assert rate.status_code == 200, rate.text
+    body = rate.json()
+    assert body["rating"] == 1
+    assert body["rating_comment"] == "good retrieval"
+
+
+@pytest.mark.asyncio
+async def test_rate_rejects_pending_suggestion(
+    app_client, app_auth_headers, _patch_anthropic
+):
+    """Rating on pending must return 409 — UI shouldn't expose the button yet."""
+    job_id, client_id = await _seed_client_and_job()
+    fake_matches = [
+        HistoricalJobMatch(
+            job_id=901,
+            title="Dup",
+            similarity=0.9,
+            closed_at=None,
+            client_id=client_id,
+            client_name="c",
+            champion_profile={"project_context": {"about": "x"}},
+            must_skills=[],
+            nice_skills=[],
+        ),
+        HistoricalJobMatch(
+            job_id=902,
+            title="Dup2",
+            similarity=0.85,
+            closed_at=None,
+            client_id=client_id,
+            client_name="c",
+            champion_profile={"project_context": {"about": "y"}},
+            must_skills=[],
+            nice_skills=[],
+        ),
+    ]
+    with patch(
+        "app.services.champion_draft_service.find_similar_historical_jobs",
+        new=AsyncMock(return_value=fake_matches),
+    ):
+        gen = await app_client.post(
+            f"/api/jobs/{job_id}/champion-profile/generate-from-history",
+            headers=app_auth_headers,
+            json={"top_k": 5, "cross_client": False},
+        )
+    assert gen.status_code == 200
+    assert gen.json()["status"] == "pending"
+    sid = gen.json()["id"]
+
+    rate = await app_client.post(
+        f"/api/champion-suggestions/{sid}/rate",
+        headers=app_auth_headers,
+        json={"rating": -1},
+    )
+    assert rate.status_code == 409, rate.text
+
+
+@pytest.mark.asyncio
 async def test_preview_historical_matches_unsaved_role(
     app_client, app_auth_headers
 ):

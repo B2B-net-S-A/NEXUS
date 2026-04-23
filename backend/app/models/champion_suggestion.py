@@ -99,6 +99,12 @@ class ChampionProfileSuggestion(Base, TimestampMixin):
     prompt_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Phase 15 / Phase C: optional DL feedback after apply/reject.
+    # -1 = bezużyteczne, 0 = nijak, 1 = trafione. NULL = brak oceny.
+    # Enforced by a DB CHECK constraint (migracja 0057).
+    rating: Mapped[Optional[int]] = mapped_column(nullable=True)
+    rating_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     job = relationship("Job")
     created_by = relationship("User", foreign_keys=[created_by_id])

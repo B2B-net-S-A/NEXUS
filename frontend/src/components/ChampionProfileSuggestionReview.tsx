@@ -13,7 +13,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, X } from "lucide-react";
+import { CheckCircle2, Loader2, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import {
   CHAMPION_SECTIONS,
   championSuggestionsApi,
@@ -192,8 +192,139 @@ export function ChampionProfileSuggestionReview({
             Błąd zastosowania: {(applyMutation.error as Error).message}
           </div>
         ) : null}
+
+        {/* Phase 15 / Phase C: rating buttons appear only after terminal status */}
+        {suggestion.status !== "pending" && (
+          <RatingBar suggestion={suggestion} />
+        )}
       </div>
     </div>
+  );
+}
+
+// ── Rating bar (Phase 15 / Phase C) ────────────────────────────────────────
+
+function RatingBar({ suggestion }: { suggestion: ChampionProfileSuggestion }) {
+  const qc = useQueryClient();
+  const [comment, setComment] = useState(suggestion.rating_comment ?? "");
+  const [showCommentBox, setShowCommentBox] = useState(false);
+  const rateMutation = useMutation({
+    mutationFn: async (rating: -1 | 0 | 1) => {
+      const res = await championSuggestionsApi.rate(
+        suggestion.id,
+        rating,
+        comment || undefined,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["champion-suggestions", suggestion.job_id] });
+    },
+  });
+
+  const currentRating = rateMutation.data?.rating ?? suggestion.rating ?? null;
+
+  return (
+    <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-gray-500">
+          Czy draft był pomocny?
+          {currentRating !== null && (
+            <span className="ml-2 text-gray-700 dark:text-gray-300">
+              Oceniłeś:{" "}
+              {currentRating === 1
+                ? "trafione"
+                : currentRating === -1
+                ? "nietrafione"
+                : "nijak"}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <RatingButton
+            icon={<ThumbsUp className="w-3.5 h-3.5" />}
+            label="Trafione"
+            active={currentRating === 1}
+            disabled={rateMutation.isPending}
+            onClick={() => rateMutation.mutate(1)}
+            tone="green"
+          />
+          <RatingButton
+            icon={<ThumbsDown className="w-3.5 h-3.5" />}
+            label="Nietrafione"
+            active={currentRating === -1}
+            disabled={rateMutation.isPending}
+            onClick={() => rateMutation.mutate(-1)}
+            tone="red"
+          />
+          <button
+            type="button"
+            className="text-xs text-gray-500 underline"
+            onClick={() => setShowCommentBox((v) => !v)}
+          >
+            {showCommentBox ? "Schowaj komentarz" : "Dodaj komentarz"}
+          </button>
+        </div>
+      </div>
+      {showCommentBox && (
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="np. trzeba było mocno przeredagować project_context"
+          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 min-h-[60px]"
+          maxLength={2000}
+        />
+      )}
+      {rateMutation.isError && (
+        <div className="text-xs text-red-600">
+          Nie udało się zapisać oceny.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RatingButton({
+  icon,
+  label,
+  active,
+  disabled,
+  onClick,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  tone: "green" | "red";
+}) {
+  const palette = {
+    green: {
+      active:
+        "bg-green-600 text-white border-green-700",
+      idle:
+        "bg-white dark:bg-gray-900 text-green-700 dark:text-green-300 border-green-300 hover:bg-green-50",
+    },
+    red: {
+      active: "bg-red-600 text-white border-red-700",
+      idle:
+        "bg-white dark:bg-gray-900 text-red-700 dark:text-red-300 border-red-300 hover:bg-red-50",
+    },
+  }[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "text-xs px-2 py-1 rounded border inline-flex items-center gap-1 disabled:opacity-60",
+        active ? palette.active : palette.idle,
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

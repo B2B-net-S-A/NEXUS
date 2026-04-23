@@ -92,6 +92,19 @@ _ENUM_STATEMENTS = [
     # pierwotnym VARCHAR(32) i blokowały upgrade na prod. VARCHAR(128) jest
     # bezpiecznym górnym limitem dla nazewnictwa w tym repo.
     "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)",
+    # Phase 15 / Phase C (migration 0057_champion_suggestion_rating):
+    # kolumny rating + rating_comment na champion_profile_suggestions.
+    # Safety-net: POST /champion-suggestions/{id}/rate pisze te kolumny —
+    # brak => UndefinedColumnError.
+    "ALTER TABLE champion_profile_suggestions "
+    "ADD COLUMN IF NOT EXISTS rating SMALLINT NULL",
+    "ALTER TABLE champion_profile_suggestions "
+    "ADD COLUMN IF NOT EXISTS rating_comment TEXT NULL",
+    "ALTER TABLE champion_profile_suggestions "
+    "DROP CONSTRAINT IF EXISTS chk_champion_suggestion_rating_range",
+    "ALTER TABLE champion_profile_suggestions "
+    "ADD CONSTRAINT chk_champion_suggestion_rating_range "
+    "CHECK (rating IS NULL OR rating IN (-1, 0, 1))",
     # Targ kandydatów (migracja 0054_marketplace_notification_type): nowy typ
     # powiadomień dla dopasowań z puli marketplace. Bez tego insert
     # Notification(notification_type='marketplace_match') crashuje z
