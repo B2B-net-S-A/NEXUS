@@ -23,12 +23,13 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.rate_limit import limiter
 from app.models.m365 import M365Connection, M365SyncStatus
+from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365.sync import sync_connection, trigger_backfill
 
@@ -82,7 +83,10 @@ def _frontend_callback_url(status_param: str, message: Optional[str] = None) -> 
 
 @router.get("/authorize", response_model=AuthorizeResponse)
 @limiter.limit("10/minute")
-async def authorize(request: Request, current_user: CurrentUser) -> AuthorizeResponse:
+async def authorize(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> AuthorizeResponse:
     """Return the Microsoft login URL. Frontend does `window.location = url`."""
     if not settings.M365_INTEGRATION_ENABLED:
         raise HTTPException(
@@ -235,7 +239,7 @@ async def disconnect(
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,
-    current_user: CurrentUser,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     conn = await _get_connection_for_user(db, current_user.id)
