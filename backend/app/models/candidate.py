@@ -143,6 +143,16 @@ class Candidate(Base, TimestampMixin):
     latitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Numeric(9, 6), nullable=True)
 
+    # ── Business entity / JDG (migracja 0058) ────────────────────────────
+    # Dane do generowania umów B2B i wystawiania faktur. `business_form`
+    # rozróżnia jdg / sp_zoo / sa / sc / osoba_fizyczna — sterownik dla
+    # warunków w szablonach Jinja umów.
+    legal_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    nip: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    regon: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    business_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_form: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # Who verified / last screened this candidate
     verifier_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True

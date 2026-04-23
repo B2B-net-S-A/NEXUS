@@ -1,8 +1,8 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, event
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -137,6 +137,22 @@ class Contract(Base, TimestampMixin):
     # order lapses.
     client_order_end_date: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, index=True
+    )
+
+    # ── Editable draft body (migracja 0058) ──────────────────────────────
+    # Treść draftu umowy renderowana z `ContractTemplate.content_jinja` przy
+    # pierwszym otwarciu zakładki "Umowa" w profilu kandydata, potem swobodnie
+    # edytowana przez recruitera w Tiptap. Po finalizacji ląduje jako
+    # `ContractDocument(doc_type=contract)` i status leci na `active`.
+    draft_content_html: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    draft_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contract_templates.id", ondelete="SET NULL"), nullable=True
+    )
+    draft_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    draft_updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships

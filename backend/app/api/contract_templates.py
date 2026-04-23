@@ -63,6 +63,8 @@ _jinja_env = Environment(
 
 def _contract_vars(contract: Contract) -> dict:
     """Shape exposed to templates (keep stable — it's part of the contract)."""
+    cand = contract.candidate
+    cli = contract.client
     return {
         "contract": {
             "id": contract.id,
@@ -80,22 +82,42 @@ def _contract_vars(contract: Contract) -> dict:
             else str(contract.contract_type),
             "project_name": contract.project_name,
             "team_name": contract.team_name,
+            "office_location": contract.office_location,
+            "work_mode": contract.work_mode.value
+            if contract.work_mode and hasattr(contract.work_mode, "value")
+            else (contract.work_mode or None),
             "client_pm_name": contract.client_pm_name,
             "client_pm_email": contract.client_pm_email,
         },
         "candidate": {
-            "id": contract.candidate.id if contract.candidate else None,
-            "name": contract.candidate.name if contract.candidate else None,
-            "lastname": contract.candidate.lastname if contract.candidate else None,
+            "id": cand.id if cand else None,
+            "name": cand.name if cand else None,
+            "lastname": cand.lastname if cand else None,
             "full_name": (
-                f"{contract.candidate.name} {contract.candidate.lastname}"
-                if contract.candidate
-                else None
+                f"{cand.name} {cand.lastname}" if cand else None
+            ),
+            "email": cand.email if cand else None,
+            "phone": cand.phone if cand else None,
+            "address": cand.location if cand else None,
+            # JDG / business entity (migracja 0058)
+            "legal_name": getattr(cand, "legal_name", None) if cand else None,
+            "nip": getattr(cand, "nip", None) if cand else None,
+            "regon": getattr(cand, "regon", None) if cand else None,
+            "business_address": (
+                getattr(cand, "business_address", None) if cand else None
+            ),
+            "business_form": (
+                getattr(cand, "business_form", None) if cand else None
             ),
         },
         "client": {
-            "id": contract.client.id if contract.client else None,
-            "name": contract.client.name if contract.client else None,
+            "id": cli.id if cli else None,
+            "name": cli.name if cli else None,
+            "address": cli.address if cli else None,
+            # Legal entity (migracja 0058)
+            "legal_name": getattr(cli, "legal_name", None) if cli else None,
+            "nip": getattr(cli, "nip", None) if cli else None,
+            "regon": getattr(cli, "regon", None) if cli else None,
         },
         "job": {
             "id": contract.job.id if contract.job else None,

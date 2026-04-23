@@ -155,6 +155,12 @@ class CandidateUpdate(BaseModel):
     hub_city: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Business entity / JDG (migracja 0058) — używane przy generowaniu umów.
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+    business_address: Optional[str] = None
+    business_form: Optional[str] = None
 
     @field_validator("skills", "verified_tech", mode="before")
     @classmethod
@@ -306,6 +312,12 @@ class CandidateResponse(BaseModel):
     hub_city: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Business entity / JDG (migracja 0058)
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+    business_address: Optional[str] = None
+    business_form: Optional[str] = None
     cv_filename: Optional[str]
     cv_parsed_at: Optional[datetime]
     # LinkedIn employment tracking (Phase: LinkedIn sync)

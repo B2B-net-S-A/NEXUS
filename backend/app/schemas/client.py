@@ -18,6 +18,9 @@ class ClientCreate(BaseModel):
     nda_signed: bool = False
     contract_type: Optional[str] = None
     notes: Optional[str] = None
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
 
 
 class ClientUpdate(BaseModel):
@@ -32,6 +35,9 @@ class ClientUpdate(BaseModel):
     nda_signed: Optional[bool] = None
     contract_type: Optional[str] = None
     notes: Optional[str] = None
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
 
 
 class ClientResponse(BaseModel):
@@ -47,6 +53,9 @@ class ClientResponse(BaseModel):
     nda_signed: bool
     contract_type: Optional[str]
     notes: Optional[str]
+    legal_name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -93,6 +93,11 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
+    # Draft body provenance (migracja 0058) — `content_html` itself is fetched
+    # via the dedicated /draft endpoint to keep list payloads small.
+    draft_template_id: Optional[int] = None
+    draft_updated_at: Optional[datetime] = None
+    draft_updated_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -198,6 +203,53 @@ class ContractActivateRequest(BaseModel):
     and flips the status. A future iteration may accept inline field updates
     here to collapse PATCH+activate into one call.
     """
+
+
+# ── Editable draft (migracja 0058) ───────────────────────────────────────
+
+
+class ContractTemplateBrief(BaseModel):
+    """Minimal template descriptor returned with the draft so the FE can
+    render the "Wybierz szablon" dropdown without a second roundtrip."""
+
+    id: int
+    name: str
+    contract_type: str
+    is_default: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ContractDraftResponse(BaseModel):
+    """Full draft state for the editor."""
+
+    contract_id: int
+    content_html: Optional[str] = None
+    template_id: Optional[int] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[int] = None
+    updated_by_name: Optional[str] = None
+    available_templates: list[ContractTemplateBrief] = []
+    # When True the FE knows it should warn the user that no default template
+    # is configured for this contract_type and it has to pick one manually.
+    rendered_from_default: bool = False
+
+
+class ContractDraftUpdate(BaseModel):
+    """Partial update — either swap the template (re-render) OR save edited
+    HTML, never both at once. Validated in the endpoint."""
+
+    template_id: Optional[int] = None
+    content_html: Optional[str] = None
+
+
+class ContractDraftFinalizeResponse(BaseModel):
+    """Result of POST /{id}/draft/finalize."""
+
+    contract_id: int
+    status: ContractStatus
+    document_id: Optional[int] = None
+    document_filename: Optional[str] = None
 
 
 class ContractorCandidateRef(BaseModel):

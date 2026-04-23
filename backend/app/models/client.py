@@ -29,6 +29,11 @@ class Client(Base, TimestampMixin):
     website: Mapped[Optional[str]] = mapped_column(String(500))
     address: Mapped[Optional[str]] = mapped_column(String(500))
 
+    # Dane prawne klienta — używane przy generowaniu umów (migracja 0058)
+    legal_name: Mapped[Optional[str]] = mapped_column(String(255))
+    nip: Mapped[Optional[str]] = mapped_column(String(32))
+    regon: Mapped[Optional[str]] = mapped_column(String(32))
+
     # Osoba kontaktowa
     contact_person: Mapped[Optional[str]] = mapped_column(String(255))
     contact_email: Mapped[Optional[str]] = mapped_column(String(255))

@@ -1,4 +1,5 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from io import BytesIO
 from typing import List, Optional
 
 from fastapi import (
@@ -11,11 +12,13 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from jinja2 import TemplateError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.contract_templates import _contract_vars, _jinja_env
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.call import Call
@@ -30,6 +33,7 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.contract_template import ContractTemplate
 from app.models.job import Job
 from app.models.note import Note
 from app.models.rate_benchmark import RateBenchmark
@@ -41,9 +45,13 @@ from app.schemas.contract import (
     ContractBenchmarkComparison,
     ContractCreate,
     ContractDetailResponse,
+    ContractDraftFinalizeResponse,
+    ContractDraftResponse,
+    ContractDraftUpdate,
     ContractList,
     ContractRateHistoryEntry,
     ContractResponse,
+    ContractTemplateBrief,
     ContractTerminateRequest,
     ContractTimelineItem,
     ContractUpdate,
@@ -525,6 +533,329 @@ async def activate_contract(
     await db.flush()
     await db.refresh(contract)
     return _to_detail(contract)
+
+
+# ── Editable draft (migracja 0058) ───────────────────────────────────────────
+
+
+async def _load_contract_with_relations(
+    db: AsyncSession, contract_id: int
+) -> Contract:
+    contract = await db.scalar(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+        )
+    )
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return contract
+
+
+async def _list_templates_for_contract_type(
+    db: AsyncSession, contract_type_value: str
+) -> list[ContractTemplate]:
+    res = await db.execute(
+        select(ContractTemplate)
+        .where(ContractTemplate.contract_type == contract_type_value)
+        .order_by(ContractTemplate.is_default.desc(), ContractTemplate.name)
+    )
+    return list(res.scalars().all())
+
+
+def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
+    """Render Jinja template against contract context. Returns raw HTML body
+    (no <html> wrap — that's added by the printable endpoint)."""
+    try:
+        return _jinja_env.from_string(template.content_jinja).render(
+            **_contract_vars(contract)
+        )
+    except TemplateError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"Template render error: {exc}"
+        )
+
+
+def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
+    """Wrap raw body HTML with print-friendly stylesheet + auto-print script."""
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        f"<title>{title} — kontrakt #{contract_id}</title>"
+        "<style>"
+        "body{font-family:'Helvetica',Arial,sans-serif;max-width:780px;"
+        "margin:40px auto;line-height:1.55;color:#222;padding:0 20px;}"
+        "h1,h2,h3{color:#111}"
+        "table{border-collapse:collapse;width:100%;margin:1em 0}"
+        "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}"
+        "@media print{body{margin:0;padding:0}}"
+        "</style>"
+        "<script>window.addEventListener('load',()=>setTimeout("
+        "()=>window.print(),300));</script>"
+        "</head><body>"
+        f"{body_html}"
+        "</body></html>"
+    )
+
+
+def _draft_response(
+    contract: Contract,
+    available_templates: list[ContractTemplate],
+    updated_by_name: Optional[str],
+    rendered_from_default: bool,
+) -> ContractDraftResponse:
+    return ContractDraftResponse(
+        contract_id=contract.id,
+        content_html=contract.draft_content_html,
+        template_id=contract.draft_template_id,
+        updated_at=contract.draft_updated_at,
+        updated_by=contract.draft_updated_by,
+        updated_by_name=updated_by_name,
+        available_templates=[
+            ContractTemplateBrief.model_validate(t) for t in available_templates
+        ],
+        rendered_from_default=rendered_from_default,
+    )
+
+
+@router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
+async def get_contract_draft(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return editable draft state for a contract.
+
+    First call (`draft_content_html IS NULL`) lazy-renders the default
+    template for this `contract_type` and persists it. If no default exists,
+    the response carries an empty body and the FE prompts for template
+    selection from `available_templates`.
+    """
+    contract = await _load_contract_with_relations(db, contract_id)
+    contract_type_value = (
+        contract.contract_type.value
+        if hasattr(contract.contract_type, "value")
+        else str(contract.contract_type)
+    )
+    available = await _list_templates_for_contract_type(db, contract_type_value)
+
+    rendered_from_default = False
+    if contract.draft_content_html is None:
+        default = next((t for t in available if t.is_default), None)
+        if default is not None:
+            contract.draft_content_html = _render_draft_body(default, contract)
+            contract.draft_template_id = default.id
+            contract.draft_updated_at = datetime.now(timezone.utc)
+            contract.draft_updated_by = current_user.id
+            rendered_from_default = True
+            db.add(
+                Activity(
+                    entity_type="contract",
+                    entity_id=contract.id,
+                    action="draft_initialized",
+                    user_id=current_user.id,
+                    details={"template_id": default.id, "template_name": default.name},
+                )
+            )
+            await db.flush()
+
+    updated_by_name: Optional[str] = None
+    if contract.draft_updated_by:
+        updated_by_name = await db.scalar(
+            select(User.email).where(User.id == contract.draft_updated_by)
+        )
+
+    return _draft_response(
+        contract, available, updated_by_name, rendered_from_default
+    )
+
+
+@router.patch("/{contract_id}/draft", response_model=ContractDraftResponse)
+async def update_contract_draft(
+    contract_id: int,
+    payload: ContractDraftUpdate,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the draft body. Two mutually exclusive modes:
+
+    - `template_id` only → re-render that template (overwrites content).
+    - `content_html` only → save edited body verbatim.
+    """
+    if payload.template_id is None and payload.content_html is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either `template_id` (re-render) or `content_html` (save).",
+        )
+    if payload.template_id is not None and payload.content_html is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Choose one: `template_id` re-renders and discards manual edits, "
+                "`content_html` saves manual edits."
+            ),
+        )
+
+    contract = await _load_contract_with_relations(db, contract_id)
+
+    if payload.template_id is not None:
+        tpl = await db.scalar(
+            select(ContractTemplate).where(ContractTemplate.id == payload.template_id)
+        )
+        if not tpl:
+            raise HTTPException(status_code=404, detail="Template not found")
+        contract.draft_content_html = _render_draft_body(tpl, contract)
+        contract.draft_template_id = tpl.id
+        action = "draft_template_changed"
+        details = {"template_id": tpl.id, "template_name": tpl.name}
+    else:
+        contract.draft_content_html = payload.content_html
+        action = "draft_edited"
+        details = {"length": len(payload.content_html or "")}
+
+    contract.draft_updated_at = datetime.now(timezone.utc)
+    contract.draft_updated_by = current_user.id
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action=action,
+            user_id=current_user.id,
+            details=details,
+        )
+    )
+    await db.flush()
+
+    contract_type_value = (
+        contract.contract_type.value
+        if hasattr(contract.contract_type, "value")
+        else str(contract.contract_type)
+    )
+    available = await _list_templates_for_contract_type(db, contract_type_value)
+    updated_by_name = await db.scalar(
+        select(User.email).where(User.id == current_user.id)
+    )
+    return _draft_response(contract, available, updated_by_name, False)
+
+
+@router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
+async def render_draft_for_print(
+    contract_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the draft body wrapped in a printable HTML page.
+
+    The browser opens this URL in a new tab; an embedded `window.print()`
+    fires the OS print dialog where the user picks "Save as PDF". No
+    server-side PDF dependency required.
+    """
+    contract = await _load_contract_with_relations(db, contract_id)
+    body = contract.draft_content_html
+    if not body:
+        raise HTTPException(
+            status_code=404,
+            detail="Draft is empty — open the editor and pick a template first.",
+        )
+    title = (
+        contract.candidate
+        and f"{contract.candidate.name} {contract.candidate.lastname}"
+    ) or "Umowa"
+    return HTMLResponse(content=_wrap_printable(body, contract.id, title))
+
+
+@router.post(
+    "/{contract_id}/draft/finalize",
+    response_model=ContractDraftFinalizeResponse,
+)
+async def finalize_contract_draft(
+    contract_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Snapshot the draft as a `ContractDocument(doc_type=contract)` and
+    flip the contract from `draft` to `active`.
+
+    Reuses the same field-validation rule as `/activate` so the UI can
+    show a consistent missing-field list.
+    """
+    contract = await _load_contract_with_relations(db, contract_id)
+
+    if contract.status != ContractStatus.draft:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Contract is already {contract.status.value}, cannot finalize draft",
+        )
+
+    if not contract.draft_content_html:
+        raise HTTPException(
+            status_code=422,
+            detail="Draft is empty — generate or paste content before finalizing.",
+        )
+
+    missing = validate_ready_for_activation(contract)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "Missing required fields", "missing": missing},
+        )
+
+    # Persist the rendered draft as an immutable HTML snapshot.
+    candidate_label = (
+        f"{contract.candidate.name}_{contract.candidate.lastname}"
+        if contract.candidate
+        else f"contract_{contract.id}"
+    )
+    filename = (
+        f"umowa_{candidate_label}_{contract.start_date.isoformat()}.html"
+    ).replace(" ", "_")
+    snapshot_html = _wrap_printable(
+        contract.draft_content_html, contract.id, "Umowa (snapshot draftu)"
+    )
+    blob = snapshot_html.encode("utf-8")
+    relative_path, size = storage_service.save_contract_document(
+        contract_id=contract.id,
+        upload_filename=filename,
+        source=BytesIO(blob),
+    )
+
+    doc = ContractDocument(
+        contract_id=contract.id,
+        filename=filename,
+        file_path=relative_path,
+        content_type="text/html",
+        size_bytes=size,
+        doc_type=ContractDocumentType.contract,
+        uploaded_by=current_user.id,
+    )
+    db.add(doc)
+
+    contract.status = ContractStatus.active
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="draft_finalized",
+            user_id=current_user.id,
+            details={
+                "from_status": "draft",
+                "to_status": "active",
+                "snapshot_filename": filename,
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(doc)
+
+    return ContractDraftFinalizeResponse(
+        contract_id=contract.id,
+        status=contract.status,
+        document_id=doc.id,
+        document_filename=doc.filename,
+    )
 
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
