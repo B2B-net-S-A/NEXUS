@@ -572,6 +572,11 @@ export function CandidatesListV2() {
           >
             <Sparkles className="h-4 w-4" /> Dodaj z CV
           </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/candidates/bulk-import">
+              <FileArchive className="h-4 w-4" /> Bulk CV
+            </Link>
+          </Button>
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="outline">
