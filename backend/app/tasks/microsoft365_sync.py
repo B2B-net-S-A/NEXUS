@@ -13,20 +13,33 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.m365 import M365Connection
+from app.models.m365 import M365Connection, M365SyncStatus
 from app.services.m365 import sync_connection
 
 logger = logging.getLogger(__name__)
+
+# Fatal-error markers → skip that connection until user manually reconnects.
+# These indicate the sync path itself is broken (not transient Graph flakes).
+_FATAL_ERROR_MARKERS = ("timeout", "retry_after cap", "M365ReauthRequired")
+# Backoff for connections whose last attempt errored — don't hammer them
+# every 5 min. Artur can force with POST /api/microsoft365/sync/trigger.
+_ERROR_BACKOFF_SECONDS = 30 * 60  # 30 min
 
 
 async def microsoft365_sync_loop() -> None:
     """Long-running task — iterates active connections on a schedule."""
     if not settings.M365_INTEGRATION_ENABLED:
         logger.info("m365 sync loop disabled by M365_INTEGRATION_ENABLED=false")
+        return
+    if not settings.M365_SYNC_LOOP_ENABLED:
+        logger.info(
+            "m365 sync loop off (M365_SYNC_LOOP_ENABLED=false). "
+            "Router still registered — enable env var to resume background sync."
+        )
         return
 
     interval = max(60, settings.M365_SYNC_INTERVAL_SECONDS)
@@ -47,11 +60,23 @@ async def microsoft365_sync_loop() -> None:
 async def _tick(interval: int) -> None:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=interval)
+    error_cutoff = now - timedelta(seconds=_ERROR_BACKOFF_SECONDS)
     async with AsyncSessionLocal() as db:
+        # Pick connections where:
+        #  - is_active=True
+        #  - status is NOT 'error', OR the error is older than 30 min (backoff)
+        #  - last_sync_at is NULL or older than the loop interval
         stmt = (
             select(M365Connection)
             .where(
                 M365Connection.is_active.is_(True),
+                or_(
+                    M365Connection.last_sync_status != M365SyncStatus.error,
+                    and_(
+                        M365Connection.last_sync_status == M365SyncStatus.error,
+                        M365Connection.last_sync_at < error_cutoff,
+                    ),
+                ),
                 or_(
                     M365Connection.last_sync_at.is_(None),
                     M365Connection.last_sync_at < cutoff,
@@ -61,6 +86,14 @@ async def _tick(interval: int) -> None:
         )
         result = await db.execute(stmt)
         connections = list(result.scalars().all())
+        # Skip connections whose last_error looks fatal — user must reconnect.
+        connections = [
+            c for c in connections
+            if not (
+                c.last_error
+                and any(m in c.last_error for m in _FATAL_ERROR_MARKERS)
+            )
+        ]
 
     if not connections:
         return

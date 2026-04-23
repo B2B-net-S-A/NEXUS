@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     ]
     # Sync loop cadence; clamped to >=60s in the loop itself.
     M365_SYNC_INTERVAL_SECONDS: int = 300
+    # Separate kill-switch for the background sync loop (router stays live so
+    # the user can connect/disconnect via UI regardless). Default OFF in prod
+    # until we're confident the loop can't exhaust the DB pool again.
+    # Flip to True via Coolify env var after a stable window.
+    M365_SYNC_LOOP_ENABLED: bool = False
     # Initial backfill window when user first connects.
     M365_BACKFILL_MONTHS: int = 12
     # Outlook category string that opts an email OUT of ATS sync (user-controlled).
