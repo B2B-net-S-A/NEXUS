@@ -1,16 +1,21 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
   AlertTriangle,
   ArrowLeft,
   Calendar,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Download,
+  FileSignature,
   FileText,
   Gauge,
   Link2,
@@ -22,6 +27,8 @@ import {
   Phone,
   PhoneCall,
   Plus,
+  Printer,
+  RefreshCcw,
   ShieldAlert,
   Sparkles,
   Star,
@@ -31,7 +38,10 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import api from "@/lib/api";
+import api, { contractsApi, type ContractDraftResponse } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { CandidateEngagementPanel } from "@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from "@/components/candidates/CandidateLocationPanel";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -173,6 +183,18 @@ export function CandidateDetailV2({
     queryFn: () => api.get(`/api/candidates/${id}/ai-profile`).then((r) => r.data),
     enabled: !!id,
   });
+
+  // Lista umów kandydata — dla zakładki "Umowa". Backend już akceptuje
+  // ?candidate_id w GET /api/contracts; zwraca paginowaną kopertę.
+  const { data: candidateContractsRaw } = useQuery<{ items?: any[] } | any[]>({
+    queryKey: ["candidate-contracts", id],
+    queryFn: () =>
+      contractsApi.byCandidate(Number(id)).then((r: any) => r.data),
+    enabled: !!id && activeTab === "umowa",
+  });
+  const candidateContracts: any[] = Array.isArray(candidateContractsRaw)
+    ? candidateContractsRaw
+    : (candidateContractsRaw?.items ?? []);
 
   const handleAddNote = async () => {
     if (!noteText.trim()) return;
@@ -500,6 +522,17 @@ export function CandidateDetailV2({
               <MessageSquare className="h-3.5 w-3.5" />
               Notatki
             </TabsTrigger>
+            <TabsTrigger value="umowa">
+              <FileSignature className="h-3.5 w-3.5" />
+              Umowa
+              {candidateContracts.some(
+                (c: any) => c.status === "draft",
+              ) && (
+                <Badge size="sm" variant="warning">
+                  draft
+                </Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <div className="p-5">
@@ -545,6 +578,17 @@ export function CandidateDetailV2({
                 setNoteText={setNoteText}
                 onAdd={handleAddNote}
                 saving={noteSaving}
+              />
+            </TabsContent>
+            <TabsContent value="umowa" className="mt-0">
+              <UmowaTab
+                candidateId={Number(id)}
+                candidateName={fullName}
+                contracts={candidateContracts}
+                jdgComplete={Boolean(
+                  candidate.legal_name && candidate.nip,
+                )}
+                onJumpToProfile={() => setActiveTab("profil")}
               />
             </TabsContent>
           </div>
@@ -627,6 +671,686 @@ function StatTile({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+// ─── Dane do umowy (JDG) ─────────────────────────────────────────────────
+
+interface JDGPanelInitial {
+  legal_name?: string | null;
+  nip?: string | null;
+  regon?: string | null;
+  business_address?: string | null;
+  business_form?: string | null;
+}
+
+const BUSINESS_FORM_OPTIONS: { value: string; label: string }[] = [
+  { value: "jdg", label: "JDG (jednoosobowa)" },
+  { value: "sp_zoo", label: "Sp. z o.o." },
+  { value: "sa", label: "S.A." },
+  { value: "sc", label: "Spółka cywilna" },
+  { value: "osoba_fizyczna", label: "Osoba fizyczna (UoP/zlecenie)" },
+];
+
+function JDGPanel({
+  candidateId,
+  initial,
+}: {
+  candidateId: number;
+  initial: JDGPanelInitial;
+}) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [form, setForm] = useState({
+    legal_name: initial.legal_name ?? "",
+    nip: initial.nip ?? "",
+    regon: initial.regon ?? "",
+    business_address: initial.business_address ?? "",
+    business_form: initial.business_form ?? "",
+  });
+
+  const dirty =
+    form.legal_name !== (initial.legal_name ?? "") ||
+    form.nip !== (initial.nip ?? "") ||
+    form.regon !== (initial.regon ?? "") ||
+    form.business_address !== (initial.business_address ?? "") ||
+    form.business_form !== (initial.business_form ?? "");
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch(`/api/candidates/${candidateId}`, {
+        legal_name: form.legal_name || null,
+        nip: form.nip || null,
+        regon: form.regon || null,
+        business_address: form.business_address || null,
+        business_form: form.business_form || null,
+      }),
+    onSuccess: () => {
+      showSuccess("Zapisano dane do umowy");
+      queryClient.invalidateQueries({ queryKey: ["candidate", candidateId] });
+    },
+    onError: () => showError("Nie udało się zapisać danych JDG"),
+  });
+
+  return (
+    <Card variant="default" size="md">
+      <CardHeader className="!pb-2">
+        <CardTitle className="text-sm font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] flex items-center gap-2">
+          <FileSignature className="h-3.5 w-3.5" />
+          Dane do umowy (JDG / firma)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <Label className="text-xs">Nazwa prawna</Label>
+            <Input
+              value={form.legal_name}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, legal_name: e.target.value }))
+              }
+              placeholder="np. Jan Kowalski JDG"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Forma działalności</Label>
+            <select
+              className="w-full rounded-v2-m border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-surface))] px-3 py-2 text-sm"
+              value={form.business_form}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, business_form: e.target.value }))
+              }
+            >
+              <option value="">— wybierz —</option>
+              {BUSINESS_FORM_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label className="text-xs">NIP</Label>
+            <Input
+              value={form.nip}
+              onChange={(e) => setForm((f) => ({ ...f, nip: e.target.value }))}
+              placeholder="np. PL5252000000"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">REGON</Label>
+            <Input
+              value={form.regon}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, regon: e.target.value }))
+              }
+            />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs">Adres siedziby</Label>
+          <Textarea
+            value={form.business_address}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, business_address: e.target.value }))
+            }
+            placeholder="ul. Marszałkowska 1, 00-001 Warszawa"
+            rows={2}
+          />
+        </div>
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            disabled={!dirty || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? "Zapisuję…" : "Zapisz"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Zakładka Umowa ──────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  active: "Aktywna",
+  ending: "Wygasa",
+  ended: "Zakończona",
+};
+
+function formatRate(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  unit: string | null | undefined,
+): string {
+  if (amount == null) return "—";
+  const unitLabel =
+    unit === "hourly" ? "/h" : unit === "daily" ? "/d" : "/mies.";
+  return `${amount.toLocaleString("pl-PL")} ${currency ?? "PLN"}${unitLabel}`;
+}
+
+function UmowaTab({
+  candidateId,
+  candidateName,
+  contracts,
+  jdgComplete,
+  onJumpToProfile,
+}: {
+  candidateId: number;
+  candidateName: string;
+  contracts: any[];
+  jdgComplete: boolean;
+  onJumpToProfile: () => void;
+}) {
+  const sorted = useMemo(() => {
+    const order: Record<string, number> = {
+      active: 0,
+      ending: 1,
+      draft: 2,
+      ended: 3,
+    };
+    return [...contracts].sort((a, b) => {
+      const so = (order[a.status] ?? 9) - (order[b.status] ?? 9);
+      if (so !== 0) return so;
+      return (b.start_date ?? "").localeCompare(a.start_date ?? "");
+    });
+  }, [contracts]);
+
+  const current = sorted.find(
+    (c) => c.status === "active" || c.status === "ending",
+  );
+  const draft = sorted.find((c) => c.status === "draft");
+  const history = sorted.filter((c) => c.status === "ended");
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  return (
+    <div className="space-y-5">
+      {!jdgComplete && (
+        <Card variant="default" size="md" className="border-l-4 border-l-amber-500">
+          <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-sm flex items-center gap-2 text-[hsl(var(--text-body))]">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              Brak danych do umowy (nazwa prawna / NIP). Bez nich szablon
+              wyrenderuje puste pola.
+            </div>
+            <Button size="sm" variant="outline" onClick={onJumpToProfile}>
+              Uzupełnij w Profilu
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Aktualna umowa */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+          Aktualna umowa
+        </h3>
+        {current ? (
+          <CurrentContractCard contract={current} />
+        ) : (
+          <Card variant="default" size="md">
+            <CardContent className="py-6 text-center text-sm text-[hsl(var(--text-muted))]">
+              Brak aktywnej umowy.
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* Draft */}
+      <section>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+          Draft do edycji
+        </h3>
+        {draft ? (
+          <DraftEditor
+            contractId={draft.id}
+            candidateName={candidateName}
+            contractMeta={draft}
+          />
+        ) : (
+          <Card variant="default" size="md">
+            <CardContent className="py-6 text-center text-sm text-[hsl(var(--text-muted))]">
+              Brak draftu. Draft tworzy się automatycznie gdy kandydat
+              przechodzi w pipeline na status <code>hired</code>, albo można
+              utworzyć ręcznie umowę z poziomu listy{" "}
+              <Link
+                href="/contracts"
+                className="text-[hsl(var(--accent))] underline"
+              >
+                kontraktów
+              </Link>
+              .
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* Historia */}
+      {history.length > 0 && (
+        <section>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((v) => !v)}
+            className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] flex items-center gap-1"
+          >
+            {historyOpen ? (
+              <ChevronUp className="h-3 w-3" />
+            ) : (
+              <ChevronDown className="h-3 w-3" />
+            )}
+            Historia ({history.length})
+          </button>
+          {historyOpen && (
+            <div className="mt-2 space-y-2">
+              {history.map((c) => (
+                <Card key={c.id} variant="default" size="md">
+                  <CardContent className="py-3 text-sm flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">
+                        {c.client_name ?? `Klient #${c.client_id}`}
+                      </div>
+                      <div className="text-xs text-[hsl(var(--text-muted))]">
+                        {formatDate(c.start_date)} —{" "}
+                        {c.end_date ? formatDate(c.end_date) : "?"} ·{" "}
+                        {c.contract_type?.toUpperCase()}
+                      </div>
+                    </div>
+                    {c.termination_reason && (
+                      <Badge variant="neutral" size="sm">
+                        {c.termination_reason}
+                      </Badge>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function CurrentContractCard({ contract }: { contract: any }) {
+  const { data: docs } = useQuery<any[]>({
+    queryKey: ["contract-docs", contract.id],
+    queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
+  });
+  const documents = docs ?? [];
+
+  return (
+    <Card variant="default" size="md">
+      <CardContent className="space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-semibold text-[hsl(var(--text-title))]">
+              {contract.client_name ?? `Klient #${contract.client_id}`}
+              {contract.project_name ? ` · ${contract.project_name}` : ""}
+            </div>
+            <div className="text-xs text-[hsl(var(--text-muted))]">
+              {formatDate(contract.start_date)} —{" "}
+              {contract.end_date ? formatDate(contract.end_date) : "open-ended"}
+            </div>
+          </div>
+          <div className="flex gap-2 items-center">
+            <Badge
+              variant={contract.status === "ending" ? "warning" : "success"}
+              size="md"
+            >
+              {STATUS_LABEL[contract.status] ?? contract.status}
+            </Badge>
+            <Link
+              href={`/contracts/${contract.id}`}
+              className="text-xs text-[hsl(var(--accent))] underline"
+            >
+              Zarządzaj kontraktem →
+            </Link>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <StatTile
+            label="Stawka kandydata"
+            value={formatRate(
+              contract.rate_candidate,
+              contract.currency,
+              contract.rate_unit,
+            )}
+          />
+          <StatTile
+            label="Stawka klienta"
+            value={formatRate(
+              contract.rate_client,
+              contract.currency,
+              contract.rate_unit,
+            )}
+          />
+          <StatTile
+            label="Marża"
+            value={formatRate(
+              contract.margin,
+              contract.currency,
+              contract.rate_unit,
+            )}
+          />
+          <StatTile
+            label="Tryb pracy"
+            value={contract.work_mode ?? "—"}
+          />
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[hsl(var(--text-muted))] mb-2">
+            Dokumenty
+          </div>
+          {documents.length === 0 ? (
+            <div className="text-xs text-[hsl(var(--text-muted))]">
+              Brak załączników. Dodasz je z poziomu strony kontraktu.
+            </div>
+          ) : (
+            <ul className="space-y-1">
+              {documents.map((d: any) => (
+                <li
+                  key={d.id}
+                  className="flex items-center justify-between text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 text-[hsl(var(--text-muted))]" />
+                    {d.filename}
+                    <Badge variant="neutral" size="sm">
+                      {d.doc_type}
+                    </Badge>
+                  </span>
+                  <a
+                    href={contractsApi.documentDownloadUrl(contract.id, d.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-[hsl(var(--accent))] inline-flex items-center gap-1"
+                  >
+                    <Download className="h-3 w-3" /> pobierz
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DraftEditor({
+  contractId,
+  candidateName,
+  contractMeta,
+}: {
+  contractId: number;
+  candidateName: string;
+  contractMeta: any;
+}) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmTemplateId, setConfirmTemplateId] = useState<number | null>(
+    null,
+  );
+
+  const { data, isLoading } = useQuery<ContractDraftResponse>({
+    queryKey: ["contract-draft", contractId],
+    queryFn: () => contractsApi.draft.get(contractId).then((r) => r.data),
+  });
+
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: "",
+    editorProps: {
+      attributes: {
+        class:
+          "prose prose-sm max-w-none min-h-[400px] focus:outline-none border border-[hsl(var(--border-subtle))] rounded-v2-m bg-white p-4",
+      },
+    },
+  });
+
+  // Hydrate editor when draft is loaded the first time / after re-render swap.
+  const lastLoadedSig = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editor || !data) return;
+    const sig = `${data.template_id ?? ""}:${data.updated_at ?? ""}`;
+    if (sig === lastLoadedSig.current) return;
+    lastLoadedSig.current = sig;
+    editor.commands.setContent(data.content_html ?? "<p></p>", false);
+  }, [editor, data]);
+
+  // Debounced autosave for manual edits.
+  const dirtyRef = useRef(false);
+  const saveMutation = useMutation({
+    mutationFn: (html: string) =>
+      contractsApi.draft.update(contractId, { content_html: html }),
+    onSuccess: () => {
+      showSuccess("Zapisano draft");
+      queryClient.invalidateQueries({ queryKey: ["contract-draft", contractId] });
+    },
+    onError: () => showError("Nie udało się zapisać draftu"),
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    const handler = () => {
+      dirtyRef.current = true;
+    };
+    editor.on("update", handler);
+    return () => {
+      editor.off("update", handler);
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const id = setInterval(() => {
+      if (dirtyRef.current && !saveMutation.isPending) {
+        dirtyRef.current = false;
+        saveMutation.mutate(editor.getHTML());
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [editor, saveMutation]);
+
+  const swapTemplate = useMutation({
+    mutationFn: (templateId: number) =>
+      contractsApi.draft.update(contractId, { template_id: templateId }),
+    onSuccess: () => {
+      showSuccess("Wczytano nowy szablon");
+      lastLoadedSig.current = null; // force editor re-hydration
+      queryClient.invalidateQueries({ queryKey: ["contract-draft", contractId] });
+    },
+    onError: () => showError("Nie udało się wczytać szablonu"),
+  });
+
+  const finalize = useMutation({
+    mutationFn: () => contractsApi.draft.finalize(contractId),
+    onSuccess: () => {
+      showSuccess("Umowa sfinalizowana — status: aktywna");
+      setConfirmFinalize(false);
+      queryClient.invalidateQueries({
+        queryKey: ["candidate-contracts"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["contract-draft", contractId],
+      });
+    },
+    onError: (err: unknown) => {
+      const detail =
+        err && typeof err === "object" && "response" in err
+          ? (err as any).response?.data?.detail
+          : null;
+      if (detail && typeof detail === "object" && Array.isArray(detail.missing)) {
+        showError(`Uzupełnij wymagane pola: ${detail.missing.join(", ")}`);
+      } else {
+        showError("Nie udało się sfinalizować draftu");
+      }
+    },
+  });
+
+  if (isLoading || !data) {
+    return (
+      <Card variant="default" size="md">
+        <CardContent className="py-6 text-center text-sm text-[hsl(var(--text-muted))]">
+          Ładowanie draftu…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const lastSaved = data.updated_at
+    ? `zapisano ${formatRelativeTime(data.updated_at)}`
+    : "jeszcze nie zapisano";
+
+  return (
+    <Card variant="default" size="md">
+      <CardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-sm text-[hsl(var(--text-muted))]">
+              Draft umowy dla <strong>{candidateName}</strong> — kontrakt #
+              {contractId}
+              {contractMeta.client_name
+                ? ` (${contractMeta.client_name})`
+                : ""}
+            </div>
+            <div className="text-xs text-[hsl(var(--text-muted))]">
+              {lastSaved}
+              {data.updated_by_name ? ` przez ${data.updated_by_name}` : ""}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              className="rounded-v2-m border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-surface))] px-2 py-1 text-xs"
+              value={data.template_id ?? ""}
+              onChange={(e) => {
+                const newId = Number(e.target.value);
+                if (newId && newId !== data.template_id) {
+                  setConfirmTemplateId(newId);
+                }
+              }}
+            >
+              <option value="">— wybierz szablon —</option>
+              {data.available_templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.is_default ? " (domyślny)" : ""}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                window.open(
+                  contractsApi.draft.printableUrl(contractId),
+                  "_blank",
+                )
+              }
+              disabled={!data.content_html}
+              title="Otwiera HTML w nowej karcie z auto-print → Save as PDF"
+            >
+              <Printer className="h-3.5 w-3.5" /> Drukuj / PDF
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setConfirmFinalize(true)}
+              disabled={!data.content_html || finalize.isPending}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Sfinalizuj umowę
+            </Button>
+          </div>
+        </div>
+
+        {data.available_templates.length === 0 && (
+          <div className="text-xs text-amber-600 flex items-center gap-1">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Brak szablonu dla typu <code>{contractMeta.contract_type}</code>.
+            Dodaj szablon w panelu administracyjnym.
+          </div>
+        )}
+
+        <EditorContent editor={editor} />
+
+        {saveMutation.isPending && (
+          <div className="text-xs text-[hsl(var(--text-muted))] flex items-center gap-1">
+            <RefreshCcw className="h-3 w-3 animate-spin" /> Zapisywanie…
+          </div>
+        )}
+      </CardContent>
+
+      {/* Modal: confirm template swap (overwrites manual edits) */}
+      {confirmTemplateId !== null && (
+        <ConfirmModal
+          title="Wczytać nowy szablon?"
+          message="Przełączenie szablonu nadpisze obecną treść draftu. Zapisane edycje zostaną stracone."
+          confirmLabel="Wczytaj szablon"
+          onConfirm={() => {
+            swapTemplate.mutate(confirmTemplateId);
+            setConfirmTemplateId(null);
+          }}
+          onCancel={() => setConfirmTemplateId(null)}
+        />
+      )}
+
+      {/* Modal: confirm finalize */}
+      {confirmFinalize && (
+        <ConfirmModal
+          title="Sfinalizować draft?"
+          message="Bieżąca treść zostanie zapisana jako dokument umowy, a status kontraktu zmieni się z draft na active. Edycja w tym widoku nie będzie już możliwa."
+          confirmLabel={finalize.isPending ? "Finalizuję…" : "Tak, finalizuj"}
+          onConfirm={() => finalize.mutate()}
+          onCancel={() => setConfirmFinalize(false)}
+        />
+      )}
+    </Card>
+  );
+}
+
+function ConfirmModal({
+  title,
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      onClick={onCancel}
+    >
+      <Card
+        variant="default"
+        size="md"
+        className="max-w-md w-full mx-4"
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-[hsl(var(--text-body))]">{message}</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={onCancel}>
+              Anuluj
+            </Button>
+            <Button size="sm" onClick={onConfirm}>
+              {confirmLabel}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function ProfilTab({ candidate }: { candidate: any }) {
   const skills: any[] = candidate.skills ?? [];
   const experience: any[] = candidate.experience ?? [];
@@ -659,6 +1383,18 @@ function ProfilTab({ candidate }: { candidate: any }) {
           }}
         />
       </div>
+
+      <JDGPanel
+        candidateId={candidate.id}
+        initial={{
+          legal_name: candidate.legal_name,
+          nip: candidate.nip,
+          regon: candidate.regon,
+          business_address: candidate.business_address,
+          business_form: candidate.business_form,
+        }}
+      />
+
 
       {aiSummary && (
         <section>

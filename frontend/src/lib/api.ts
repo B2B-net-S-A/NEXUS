@@ -511,6 +511,31 @@ export interface ContractTimelineItem {
   duration_seconds: number | null;
 }
 
+export interface ContractTemplateBrief {
+  id: number;
+  name: string;
+  contract_type: string;
+  is_default: boolean;
+}
+
+export interface ContractDraftResponse {
+  contract_id: number;
+  content_html: string | null;
+  template_id: number | null;
+  updated_at: string | null;
+  updated_by: number | null;
+  updated_by_name: string | null;
+  available_templates: ContractTemplateBrief[];
+  rendered_from_default: boolean;
+}
+
+export interface ContractDraftFinalizeResponse {
+  contract_id: number;
+  status: "draft" | "active" | "ending" | "ended";
+  document_id: number | null;
+  document_filename: string | null;
+}
+
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
@@ -536,6 +561,26 @@ export const contractsApi = {
     api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
   notesTimeline: (id: number) =>
     api.get<ContractTimelineItem[]>(`/api/contracts/${id}/notes`),
+  // Editable draft (migracja 0058)
+  draft: {
+    get: (id: number) =>
+      api.get<ContractDraftResponse>(`/api/contracts/${id}/draft`),
+    update: (
+      id: number,
+      payload: { template_id?: number; content_html?: string },
+    ) =>
+      api.patch<ContractDraftResponse>(`/api/contracts/${id}/draft`, payload),
+    finalize: (id: number) =>
+      api.post<ContractDraftFinalizeResponse>(
+        `/api/contracts/${id}/draft/finalize`,
+      ),
+    printableUrl: (id: number) =>
+      `${API_BASE}/api/contracts/${id}/draft/render-pdf`,
+  },
+  byCandidate: (candidateId: number) =>
+    api.get(`/api/contracts`, {
+      params: { candidate_id: candidateId, page_size: 100 },
+    }),
 };
 
 // ── Contractors (Delivery module) ───────────────────────────────────────────
