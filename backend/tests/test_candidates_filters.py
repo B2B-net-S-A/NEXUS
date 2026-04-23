@@ -311,6 +311,85 @@ async def test_employment_filter_invalid_value_returns_422(
     assert r.status_code == 422
 
 
+async def _seed_candidate_with_open_to(
+    *,
+    open_to_side_projects: bool = False,
+    open_to_sales_support: bool = False,
+    open_to_expert_consult: bool = False,
+) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    async with AsyncSessionLocal() as db:
+        c = Candidate(
+            name="OpenTo",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"openflt-{uuid.uuid4().hex[:8]}@example.com",
+            open_to_side_projects=open_to_side_projects,
+            open_to_sales_support=open_to_sales_support,
+            open_to_expert_consult=open_to_expert_consult,
+        )
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        return c.id
+
+
+@pytest.mark.asyncio
+async def test_open_to_single_flag_filters_correctly(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    side = await _seed_candidate_with_open_to(open_to_side_projects=True)
+    sales = await _seed_candidate_with_open_to(open_to_sales_support=True)
+    none = await _seed_candidate_with_open_to()
+    try:
+        r = await app_client.get(
+            "/api/candidates?open_to=side_projects&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert side in ids
+        assert sales not in ids
+        assert none not in ids
+    finally:
+        await _cleanup([side, sales, none], None, [])
+
+
+@pytest.mark.asyncio
+async def test_open_to_multi_value_is_or_combined(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    side = await _seed_candidate_with_open_to(open_to_side_projects=True)
+    sales = await _seed_candidate_with_open_to(open_to_sales_support=True)
+    expert = await _seed_candidate_with_open_to(open_to_expert_consult=True)
+    none = await _seed_candidate_with_open_to()
+    try:
+        r = await app_client.get(
+            "/api/candidates?open_to=side_projects&open_to=sales_support&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert side in ids
+        assert sales in ids
+        assert expert not in ids
+        assert none not in ids
+    finally:
+        await _cleanup([side, sales, expert, none], None, [])
+
+
+@pytest.mark.asyncio
+async def test_open_to_invalid_value_returns_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.get(
+        "/api/candidates?open_to=bogus",
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_create_candidate_sets_created_by(
     app_client: AsyncClient, app_auth_headers: dict

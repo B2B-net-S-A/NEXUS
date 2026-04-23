@@ -428,6 +428,16 @@ async def list_candidates(
             "Proxycurl sync — see `linkedin_employment_changed_at`."
         ),
     ),
+    open_to: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter candidates who declared openness to extra engagement. "
+            "Values: one or more of {'side_projects', 'sales_support', "
+            "'expert_consult'} — OR-combined (candidate needs AT LEAST ONE "
+            "of the selected flags set to True). Repeat the param for "
+            "multi-select (e.g. `?open_to=side_projects&open_to=sales_support`)."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
@@ -451,6 +461,23 @@ async def list_candidates(
         # emp_set == {"at_client", "available"} → no filter (all candidates)
     if availability:
         query = query.where(Candidate.availability_status.in_(availability))
+    if open_to:
+        _OPEN_TO_FIELDS = {
+            "side_projects": Candidate.open_to_side_projects,
+            "sales_support": Candidate.open_to_sales_support,
+            "expert_consult": Candidate.open_to_expert_consult,
+        }
+        invalid = [v for v in open_to if v not in _OPEN_TO_FIELDS]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid open_to values: {invalid}. "
+                    f"Allowed: {sorted(_OPEN_TO_FIELDS)}."
+                ),
+            )
+        clauses = [_OPEN_TO_FIELDS[v].is_(True) for v in set(open_to)]
+        query = query.where(or_(*clauses))
     if location:
         query = query.where(Candidate.location.ilike(f"%{location}%"))
     if q:
