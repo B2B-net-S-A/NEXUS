@@ -74,6 +74,12 @@ _ENUM_STATEMENTS = [
     # notification_type. Safety-net chroni prod przed crash-loopem gdyby alembic
     # head był wolniejszy niż restart aplikacji.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_activated'",
+    # Phase 15 (migration 0051_champion_historical_source): nowe źródło
+    # sugestii Profilu Championa — podobne historyczne role jako baza pre-fill.
+    # Safety-net: /api/jobs/{id}/champion-profile/generate-from-history używa
+    # tej wartości w INSERT, więc brak w enum => InvalidTextRepresentationError
+    # i crash-loop feature'a dla DL-i.
+    "ALTER TYPE champion_suggestion_source ADD VALUE IF NOT EXISTS 'historical_jobs'",
     # Phase 14 dedicated enums for interview_feedback table
     """DO $$
     BEGIN
