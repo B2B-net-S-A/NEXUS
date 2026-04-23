@@ -292,6 +292,13 @@ export function JobsListV2() {
                       <Badge size="sm" variant={statusVariant}>
                         {statusLabel}
                       </Badge>
+                      {job.tac_id == null && (
+                        <span title="Klient nie ma przypisanego primary TAC">
+                          <Badge size="sm" variant="warning">
+                            Brak TAC
+                          </Badge>
+                        </span>
+                      )}
                     </div>
                   </div>
 

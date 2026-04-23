@@ -816,6 +816,10 @@ interface JobFormData {
   priority: string;
   deadline: string;
   recruiter_id: string;
+  // TAC + Delivery Lead — auto-fill z primary TAC / head DL klienta po wyborze
+  // klienta (endpoint /api/clients/{id}/team). Jawna zmiana = override.
+  tac_id: string;
+  delivery_lead_id: string;
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
@@ -828,6 +832,7 @@ const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
   salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
+  tac_id: "", delivery_lead_id: "",
   pipeline_template_id: "", competence_category_id: "", train_name: "",
 };
 
@@ -846,6 +851,8 @@ function jobToForm(j: any): JobFormData {
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
+    tac_id: j.tac_id ? String(j.tac_id) : "",
+    delivery_lead_id: j.delivery_lead_id ? String(j.delivery_lead_id) : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
     competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
     train_name: j.train_name ?? "",
@@ -886,6 +893,44 @@ function JobFormFields({
     staleTime: 60_000,
   });
   const trainNameSuggestions = trainNamesData?.items ?? [];
+
+  // Auto-assign TAC + Delivery Lead wg client_tac_assignments + delivery_lead_client_assignments.
+  // Endpoint zwraca cały team klienta; primary TAC / head DL są highlightowane
+  // w dropdownie (zielony badge) a pola TAC/DL są auto-pre-fillowane gdy puste.
+  const { data: clientTeam } = useQuery<{
+    tacs: Array<{ id: number; user_id: number; name: string; email: string; role?: string; is_primary: boolean }>;
+    delivery_leads: Array<{ id: number; user_id: number; name: string; email: string; role?: string; is_head: boolean }>;
+  }>({
+    queryKey: ["client-team", clientIdNum],
+    queryFn: async () => {
+      if (clientIdNum === null) return { tacs: [], delivery_leads: [] };
+      const res = await api.get(`/api/clients/${clientIdNum}/team`);
+      return res.data;
+    },
+    enabled: clientIdNum !== null,
+    staleTime: 30_000,
+  });
+  const primaryTac = clientTeam?.tacs.find(t => t.is_primary);
+  const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
+
+  // Auto-fill — tylko gdy pole jest puste (użytkownik nie nadpisał).
+  useEffect(() => {
+    if (!clientTeam) return;
+    if (!form.tac_id && primaryTac) {
+      onChange("tac_id", String(primaryTac.user_id));
+    }
+    if (!form.delivery_lead_id && headDl) {
+      onChange("delivery_lead_id", String(headDl.user_id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientTeam?.tacs.length, clientTeam?.delivery_leads.length, clientIdNum]);
+
+  const tacAssignableUsers = users.filter((u: any) =>
+    ["tac", "delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
+  );
+  const dlAssignableUsers = users.filter((u: any) =>
+    ["delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
+  );
   return (
     <>
       <FieldGroup label="Tytuł stanowiska" required>
@@ -981,6 +1026,53 @@ function JobFormFields({
             </option>
           ))}
         </Select>
+      </FieldGroup>
+      {clientIdNum !== null && clientTeam && !primaryTac && (
+        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
+          ⚠️ Klient nie ma przypisanego primary TAC. Projekt zostanie zapisany bez TAC — head_of_recruitment może uzupełnić w zakładce „Opiekunowie" klienta.
+        </div>
+      )}
+      <FieldGroup label="TAC (opiekun klienta)">
+        <Select value={form.tac_id} onChange={e => onChange("tac_id", e.target.value)}>
+          <option value="">— brak TAC —</option>
+          {tacAssignableUsers.map((u: any) => (
+            <option key={u.id} value={u.id}>
+              {u.name || u.full_name || u.email}
+              {u.role ? ` (${u.role})` : ""}
+            </option>
+          ))}
+        </Select>
+        {form.tac_id && primaryTac && Number(form.tac_id) === primaryTac.user_id && (
+          <p className="text-[11px] text-emerald-600 mt-1">
+            ✓ Domyślny TAC klienta
+          </p>
+        )}
+        {form.tac_id && primaryTac && Number(form.tac_id) !== primaryTac.user_id && (
+          <p className="text-[11px] text-blue-600 mt-1">
+            Nadpisane (primary TAC klienta: {primaryTac.name})
+          </p>
+        )}
+      </FieldGroup>
+      <FieldGroup label="Delivery Lead">
+        <Select value={form.delivery_lead_id} onChange={e => onChange("delivery_lead_id", e.target.value)}>
+          <option value="">— brak DL —</option>
+          {dlAssignableUsers.map((u: any) => (
+            <option key={u.id} value={u.id}>
+              {u.name || u.full_name || u.email}
+              {u.role ? ` (${u.role})` : ""}
+            </option>
+          ))}
+        </Select>
+        {form.delivery_lead_id && headDl && Number(form.delivery_lead_id) === headDl.user_id && (
+          <p className="text-[11px] text-emerald-600 mt-1">
+            ✓ Head DL klienta
+          </p>
+        )}
+        {form.delivery_lead_id && headDl && Number(form.delivery_lead_id) !== headDl.user_id && (
+          <p className="text-[11px] text-blue-600 mt-1">
+            Nadpisane (head DL klienta: {headDl.name})
+          </p>
+        )}
       </FieldGroup>
       <FieldGroup label="Szablon procesu rekrutacyjnego">
         <Select
@@ -1099,6 +1191,8 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+        tac_id: form.tac_id ? Number(form.tac_id) : undefined,
+        delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : undefined,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
         competence_category_id: form.competence_category_id
           ? Number(form.competence_category_id)
@@ -1220,6 +1314,11 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
+        // Override TAC / DL w PATCH. `undefined` jest pomijane (zachowa DB);
+        // jeśli form.tac_id == "" oznacza to, że user jawnie chce "nieprzypisany"
+        // i musimy wysłać null — inaczej zostanie stary auto-assign.
+        tac_id: form.tac_id ? Number(form.tac_id) : null,
+        delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : null,
         competence_category_id: form.competence_category_id
           ? Number(form.competence_category_id)
