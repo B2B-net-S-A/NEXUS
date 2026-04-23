@@ -306,37 +306,15 @@ async def candidates_from_similar_jobs(
     if not ranked:
         reason_empty = "no_pipeline_history_on_similar_jobs"
 
-    # Hydrate only the columns the widget actually needs. Using a narrow
-    # `select(...)` instead of the full ORM row keeps this endpoint resilient
-    # to a production DB that lags behind model migrations (e.g. the LinkedIn
-    # employment columns from migration 0049 may not be present yet on older
-    # tenants — full `SELECT *` would 500 on any missing column).
+    # Hydrate candidate records (name, avatar, availability) in a single query.
     cand_ids = [c.candidate_id for c in ranked]
-    cand_rows: list[tuple] = []
+    cand_rows: list[Candidate] = []
     if cand_ids:
         cand_res = await db.execute(
-            select(
-                Candidate.id,
-                Candidate.name,
-                Candidate.lastname,
-                Candidate.avatar_url,
-                Candidate.competence_category,
-                Candidate.status,
-                Candidate.availability_status,
-            ).where(Candidate.id.in_(cand_ids))
+            select(Candidate).where(Candidate.id.in_(cand_ids))
         )
-        cand_rows = list(cand_res.all())
-    cand_by_id = {row.id: row for row in cand_rows}
-
-    def _derive_availability_from_row(row) -> str:
-        status = getattr(row, "availability_status", None)
-        if status == AvailabilityStatus.actively_looking:
-            return "available"
-        if status == AvailabilityStatus.open_to_offers:
-            return "available"
-        if status == AvailabilityStatus.not_looking:
-            return "busy"
-        return "unknown"
+        cand_rows = list(cand_res.scalars().all())
+    cand_by_id = {c.id: c for c in cand_rows}
 
     def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
         # 0 = available (show first), 1 = unknown, 2 = busy — within each
@@ -348,16 +326,16 @@ async def candidates_from_similar_jobs(
 
     out_candidates: list[HistoricalCandidateOut] = []
     for hc in ranked:
-        row = cand_by_id.get(hc.candidate_id)
-        if row is None:
+        c = cand_by_id.get(hc.candidate_id)
+        if c is None:
             continue
         out_candidates.append(
             HistoricalCandidateOut(
                 candidate_id=hc.candidate_id,
-                name=row.name,
-                lastname=row.lastname,
-                avatar_url=row.avatar_url,
-                competence_category=row.competence_category,
+                name=c.name,
+                lastname=c.lastname,
+                avatar_url=c.avatar_url,
+                competence_category=c.competence_category,
                 historical_score=hc.historical_score,
                 tier=hc.tier,
                 negative_signal=hc.negative_signal,
@@ -375,8 +353,8 @@ async def candidates_from_similar_jobs(
                     )
                     for s in hc.sources
                 ],
-                current_availability=_derive_availability_from_row(row),
-                current_status=row.status.value if row.status else None,
+                current_availability=_derive_availability(c),  # type: ignore[arg-type]
+                current_status=c.status.value if c.status else None,
             )
         )
 
