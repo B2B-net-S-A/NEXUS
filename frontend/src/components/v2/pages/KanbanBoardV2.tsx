@@ -11,17 +11,32 @@ import {
 } from "@hello-pangea/dnd";
 import {
   AlertCircle,
+  CheckCircle2,
   Clock,
   FileArchive,
   Flag,
+  HelpCircle,
   LayoutGrid,
   Loader2,
   MoveRight,
   Rows3,
   Sparkles,
   Star,
+  XCircle,
 } from "lucide-react";
-import api, { pipelineTemplatesApi } from "@/lib/api";
+import api, { pipelineApi, pipelineTemplatesApi, type RateUnit } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
+import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FormField } from "@/components/ui/form-field";
 import {
   BulkCvDownloadError,
   downloadBulkCvs,
@@ -56,7 +71,15 @@ interface KanbanItem {
   days_in_stage?: number;
   name?: string;
   lastname?: string;
+  // Pending verification (migracja 0056)
+  verification_status?: "active" | "pending" | "rejected";
+  expected_rate_value?: string | number | null;
+  expected_rate_unit?: RateUnit | null;
+  expected_rate_currency?: string | null;
+  budget_max_at_move?: number | null;
 }
+
+const APPROVER_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
 
 export interface KanbanColumn {
   stage: string;
@@ -107,6 +130,9 @@ interface CardProps {
   onOpenScreening: (stageId: number, name: string) => void;
   density: "cozy" | "compact";
   canScreen: boolean;
+  isApprover: boolean;
+  onAcceptVerification?: (item: KanbanItem) => void;
+  onRejectVerification?: (item: KanbanItem) => void;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -116,7 +142,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
   onOpenScreening,
   density,
   canScreen,
+  isApprover,
+  onAcceptVerification,
+  onRejectVerification,
 }: CardProps) {
+  const isPending = item.verification_status === "pending";
   const fullName = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
   const initials = fullName
     .split(/\s+/)
@@ -139,9 +169,22 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
         "group relative rounded-v2-m bg-[hsl(var(--bg-surface))] border border-[hsl(var(--border-subtle))] transition-all",
         "hover:shadow-v2-s hover:border-[hsl(var(--accent))]/40",
         selected && "ring-2 ring-[hsl(var(--accent))] border-[hsl(var(--accent))]",
-        density === "compact" ? "p-2" : "p-3"
+        density === "compact" ? "p-2" : "p-3",
+        isPending &&
+          "opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
       )}
+      title={
+        isPending
+          ? `Oczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ?? "?"}`
+          : undefined
+      }
     >
+      {isPending && (
+        <div className="absolute top-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
+          <HelpCircle className="h-2.5 w-2.5" />
+          Pending
+        </div>
+      )}
       <div className="absolute top-1 left-1">
         <Checkbox
           checked={selected}
@@ -205,7 +248,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
         </div>
       </Link>
 
-      {canScreen && density !== "compact" && (
+      {canScreen && density !== "compact" && !isPending && (
         <button
           type="button"
           onClick={(e) => {
@@ -220,6 +263,36 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
           Screening
         </button>
       )}
+      {isPending && isApprover && density !== "compact" && (
+        <div className="mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onAcceptVerification?.(item);
+            }}
+            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-v2-s bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors"
+            title="Akceptuj weryfikację"
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Akceptuj
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onRejectVerification?.(item);
+            }}
+            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-v2-s bg-white text-rose-700 border border-rose-300 font-semibold hover:bg-rose-50 transition-colors"
+            title="Odrzuć weryfikację"
+          >
+            <XCircle className="h-3 w-3" />
+            Odrzuć
+          </button>
+        </div>
+      )}
     </div>
   );
 });
@@ -232,6 +305,9 @@ interface ColProps {
   onToggleSelect: (id: number) => void;
   onOpenScreening: (stageId: number, name: string) => void;
   density: "cozy" | "compact";
+  isApprover: boolean;
+  onAcceptVerification: (item: KanbanItem) => void;
+  onRejectVerification: (item: KanbanItem) => void;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -240,6 +316,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
   onToggleSelect,
   onOpenScreening,
   density,
+  isApprover,
+  onAcceptVerification,
+  onRejectVerification,
 }: ColProps) {
   const dropId = colId(col);
   return (
@@ -306,6 +385,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
                       onOpenScreening={onOpenScreening}
                       density={density}
                       canScreen={EXTERNAL_STAGES_FOR_SCREENING.has(item.stage)}
+                      isApprover={isApprover}
+                      onAcceptVerification={onAcceptVerification}
+                      onRejectVerification={onRejectVerification}
                     />
                   </div>
                 )}
@@ -325,6 +407,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
   const density = useUiStore((s) => s.density);
   const setDensity = useUiStore((s) => s.setDensity);
   const { showActionToast, showSuccess, showError } = useToast();
+  const userRole = useAuthStore((s) => s.user?.role);
+  const isApprover = !!userRole && APPROVER_ROLES.has(userRole);
   const [cols, setCols] = useState(columns);
   const [activeTab, setActiveTab] = useState<"all" | "internal" | "external" | "terminal">("all");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -339,12 +423,23 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
     { id: string; label: string; applies_to: ("rejected" | "withdrawn")[] }[]
   >([]);
   const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
+  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
 
   const [pendingRejection, setPendingRejection] = useState<{
     item: KanbanItem;
     destCol: KanbanColumn;
     srcColId: string;
     terminalType: "rejected" | "withdrawn";
+  } | null>(null);
+  // Pending verification flow (migracja 0056)
+  const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
+    item: KanbanItem;
+    destCol: KanbanColumn;
+    srcColId: string;
+  } | null>(null);
+  const [pendingRejectVerification, setPendingRejectVerification] = useState<{
+    item: KanbanItem;
+    note: string;
   } | null>(null);
   const [scorecardPrompt, setScorecardPrompt] = useState<{
     candidateStageId: number;
@@ -363,6 +458,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
     (async () => {
       try {
         const jobRes = await api.get(`/api/jobs/${jobId}`);
+        const sMax = jobRes.data?.salary_max;
+        setJobBudgetMax(typeof sMax === "number" ? sMax : null);
         const tid = jobRes.data?.pipeline_template_id;
         if (!tid) return;
         const detail = await pipelineTemplatesApi.get(tid);
@@ -489,6 +586,18 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
       const item = src.items[res.source.index];
       if (!item) return;
 
+      // Pending verification (migracja 0056) — najpierw zapytaj o rate,
+      // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
+      // recruiter może anulować w modalu.
+      if (dst.stage === "verified") {
+        setVerifiedRatePrompt({
+          item,
+          destCol: dst,
+          srcColId: colId(src),
+        });
+        return;
+      }
+
       applyOptimistic(item, colId(src), dst);
 
       if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
@@ -504,6 +613,106 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
     },
     [cols, applyOptimistic, sendMove]
   );
+
+  // Submit z modala "Zweryfikowany — podaj rate"
+  const submitVerifiedMove = useCallback(
+    async (payload: { rate: number; unit: RateUnit; currency: string }) => {
+      if (!verifiedRatePrompt) return;
+      const { item, destCol, srcColId } = verifiedRatePrompt;
+      try {
+        const res = await pipelineApi.move({
+          candidate_id: item.candidate_id,
+          job_id: jobId,
+          stage: "verified",
+          stage_def_id: destCol.stage_def_id ?? undefined,
+          expected_rate_value: payload.rate,
+          expected_rate_unit: payload.unit,
+          expected_rate_currency: payload.currency,
+        });
+        const verifStatus = res?.data?.verification_status as
+          | "active"
+          | "pending"
+          | undefined;
+        // Zaktualizuj kolumnę z faktycznym statusem (nie zgaduj — backend wie).
+        setCols((prev) =>
+          prev.map((c) => {
+            if (colId(c) === srcColId) {
+              const items = c.items.filter((i) => i.id !== item.id);
+              return { ...c, items, count: items.length };
+            }
+            if (colId(c) === colId(destCol)) {
+              const enriched: KanbanItem = {
+                ...item,
+                stage: destCol.stage,
+                days_in_stage: 0,
+                verification_status: verifStatus ?? "active",
+                expected_rate_value: payload.rate,
+                expected_rate_unit: payload.unit,
+                expected_rate_currency: payload.currency,
+                budget_max_at_move: jobBudgetMax,
+              };
+              const items = [...c.items, enriched];
+              return { ...c, items, count: items.length };
+            }
+            return c;
+          })
+        );
+        if (verifStatus === "pending") {
+          showSuccess(
+            "Wysłano do akceptacji delivery_lead. Karta będzie aktywna po zatwierdzeniu."
+          );
+        }
+      } catch (e) {
+        console.error("Move to verified failed", e);
+        showError("Nie udało się przesunąć kandydata.");
+      } finally {
+        setVerifiedRatePrompt(null);
+      }
+    },
+    [verifiedRatePrompt, jobId, jobBudgetMax, showSuccess, showError]
+  );
+
+  const handleAcceptVerification = useCallback(
+    async (item: KanbanItem) => {
+      try {
+        await pipelineApi.acceptVerification(item.id);
+        setCols((prev) =>
+          prev.map((c) => ({
+            ...c,
+            items: c.items.map((i) =>
+              i.id === item.id ? { ...i, verification_status: "active" } : i
+            ),
+          }))
+        );
+        showSuccess("Weryfikacja zaakceptowana.");
+      } catch (e) {
+        console.error("Accept verification failed", e);
+        showError("Nie udało się zaakceptować weryfikacji.");
+      }
+    },
+    [showSuccess, showError]
+  );
+
+  const submitRejectVerification = useCallback(async () => {
+    if (!pendingRejectVerification) return;
+    const { item, note } = pendingRejectVerification;
+    if (!note.trim()) return;
+    try {
+      await pipelineApi.rejectVerification(item.id, note.trim());
+      // Odśwież widok — backend tworzy nowy CandidateStage z poprzednim
+      // stage'em, więc najprościej ponownie pobrać kanban dla joba.
+      const fresh = await pipelineApi.kanban(jobId);
+      if (Array.isArray(fresh.data?.columns)) {
+        setCols(fresh.data.columns as KanbanColumn[]);
+      }
+      showSuccess("Weryfikacja odrzucona — kandydat wrócił na poprzedni stage.");
+    } catch (e) {
+      console.error("Reject verification failed", e);
+      showError("Nie udało się odrzucić weryfikacji.");
+    } finally {
+      setPendingRejectVerification(null);
+    }
+  }, [pendingRejectVerification, jobId, showSuccess, showError]);
 
   const toggleSelect = (id: number) => {
     setSelected((p) => {
@@ -687,6 +896,11 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
                   setScreeningPrompt({ stageId, candidateName: name })
                 }
                 density={density}
+                isApprover={isApprover}
+                onAcceptVerification={handleAcceptVerification}
+                onRejectVerification={(item) =>
+                  setPendingRejectVerification({ item, note: "" })
+                }
               />
             ))
           )}
@@ -736,6 +950,68 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
           candidateName={screeningPrompt.candidateName}
           onSubmitted={() => setScreeningPrompt(null)}
         />
+      )}
+
+      {/* Pending verification modal — recruiter wpisuje rate */}
+      {verifiedRatePrompt && (
+        <VerifiedRateModal
+          open={true}
+          onOpenChange={(v) => !v && setVerifiedRatePrompt(null)}
+          candidateName={
+            `${verifiedRatePrompt.item.name ?? ""} ${verifiedRatePrompt.item.lastname ?? ""}`.trim() ||
+            "Kandydat"
+          }
+          jobBudgetMax={jobBudgetMax}
+          onConfirm={submitVerifiedMove}
+        />
+      )}
+
+      {/* Reject verification modal — approver wpisuje notatkę */}
+      {pendingRejectVerification && (
+        <Dialog
+          open={true}
+          onOpenChange={(v: boolean) => !v && setPendingRejectVerification(null)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Odrzuć weryfikację</DialogTitle>
+              <DialogDescription>
+                Kandydat wróci na poprzedni stage z notatką. Ta akcja jest
+                widoczna w historii pipeline'a.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <FormField label="Powód odrzucenia">
+                <textarea
+                  value={pendingRejectVerification.note}
+                  onChange={(e) =>
+                    setPendingRejectVerification((p) =>
+                      p ? { ...p, note: e.target.value } : null
+                    )
+                  }
+                  placeholder="np. Stawka za wysoka, max 22000 PLN"
+                  rows={4}
+                  className="w-full px-3 py-2 rounded-v2-s border border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-surface))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent))]"
+                  autoFocus
+                />
+              </FormField>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setPendingRejectVerification(null)}
+              >
+                Anuluj
+              </Button>
+              <Button
+                onClick={submitRejectVerification}
+                disabled={!pendingRejectVerification.note.trim()}
+              >
+                Odrzuć i wróć
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

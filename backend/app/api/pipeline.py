@@ -1,17 +1,21 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from pydantic import BaseModel
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
     CandidateStage,
     PipelineStage,
     STAGE_CATEGORY,
     STAGE_ORDER,
+    VerificationStatus,
 )
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
@@ -22,15 +26,18 @@ from app.models.pipeline_template import (
     PipelineTemplate,
     RejectionReason,
 )
+from app.models.user import User, UserRole
 from app.schemas.pipeline import (
     CandidateStageResponse,
     KanbanColumn,
     KanbanView,
+    PendingVerificationListItem,
+    PendingVerificationReject,
     StageMove,
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
 from app.api import ws as ws_manager
 
 router = APIRouter()
@@ -99,7 +106,80 @@ def _stage_response(stage: CandidateStage) -> dict:
         "rating": stage.rating,
         "created_at": stage.created_at,
         "days_in_stage": _days_in_stage(stage.moved_at),
+        # Pending verification snapshot (migracja 0056)
+        "verification_status": stage.verification_status,
+        "expected_rate_value": stage.expected_rate_value,
+        "expected_rate_unit": stage.expected_rate_unit,
+        "expected_rate_currency": stage.expected_rate_currency,
+        "budget_max_at_move": stage.budget_max_at_move,
+        "approved_by": stage.approved_by,
+        "approved_at": stage.approved_at,
+        "rejected_by": stage.rejected_by,
+        "rejected_at": stage.rejected_at,
+        "rejection_note": stage.rejection_note,
     }
+
+
+# ── Pending verification helper ─────────────────────────────────────────────
+
+
+async def _notify_pending_verification(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    candidate: Optional[Candidate],
+    job: Job,
+) -> None:
+    """Send `pending_verification` notification to all approver users.
+
+    Approvers = admin + delivery_lead + head_of_recruitment. Best-effort —
+    a notification failure must NOT block the stage move (the gate is the
+    DB write, not the bell).
+    """
+    approvers = (
+        await db.execute(
+            select(User.id).where(
+                User.role.in_(
+                    [
+                        UserRole.admin,
+                        UserRole.delivery_lead,
+                        UserRole.head_of_recruitment,
+                    ]
+                ),
+                User.is_active.is_(True),
+            )
+        )
+    ).all()
+    candidate_label = (
+        f"{candidate.name} {candidate.lastname}".strip()
+        if candidate
+        else f"Kandydat #{stage.candidate_id}"
+    )
+    rate_label = (
+        f"{stage.expected_rate_value} "
+        f"{(stage.expected_rate_currency or 'PLN')}/"
+        f"{(stage.expected_rate_unit or 'monthly')}"
+    )
+    budget_label = (
+        f"{stage.budget_max_at_move} PLN/m"
+        if stage.budget_max_at_move is not None
+        else "?"
+    )
+    for (uid,) in approvers:
+        db.add(
+            Notification(
+                user_id=uid,
+                title="Wymagana akceptacja weryfikacji",
+                message=(
+                    f"{candidate_label} na ofercie '{job.title}' — "
+                    f"stawka {rate_label} przekracza budżet {budget_label}."
+                ),
+                link=f"/pending-verifications?stage={stage.id}",
+                notification_type=NotificationType.pending_verification,
+                related_entity_type="candidate_stage",
+                related_entity_id=stage.id,
+            )
+        )
 
 
 @router.get("/stages", response_model=List[StageInfo])
@@ -251,6 +331,31 @@ async def move_candidate(
                     detail="rejection_reason_id not found or inactive",
                 )
 
+    # ── Pending verification gate (migracja 0056) ────────────────────────
+    # Tylko ruch na stage `verified` triggeruje sprawdzenie rate vs budget.
+    # Pozostałe stage'y zachowują defaultowe verification_status='active'.
+    verification_status = VerificationStatus.active
+    expected_rate_value = data.expected_rate_value
+    expected_rate_unit = data.expected_rate_unit
+    expected_rate_currency = data.expected_rate_currency or "PLN"
+    budget_max_snapshot: Optional[int] = None
+    needs_approval = False
+
+    if legacy_enum == PipelineStage.verified:
+        if expected_rate_value is None or expected_rate_unit is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Ruch na stage 'verified' wymaga `expected_rate_value` "
+                    "i `expected_rate_unit`."
+                ),
+            )
+        if job.salary_max is not None:
+            budget_max_snapshot = int(job.salary_max)
+            if Decimal(expected_rate_value) > Decimal(job.salary_max):
+                verification_status = VerificationStatus.pending
+                needs_approval = True
+
     stage = CandidateStage(
         candidate_id=data.candidate_id,
         job_id=data.job_id,
@@ -261,9 +366,26 @@ async def move_candidate(
         moved_by=current_user.id,
         notes=data.notes,
         rating=data.rating,
+        verification_status=verification_status,
+        expected_rate_value=expected_rate_value,
+        expected_rate_unit=(
+            expected_rate_unit.value if expected_rate_unit else None
+        ),
+        expected_rate_currency=(
+            expected_rate_currency if expected_rate_value is not None else None
+        ),
+        budget_max_at_move=budget_max_snapshot,
     )
     db.add(stage)
     await db.flush()
+
+    if needs_approval:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == data.candidate_id)
+        )
+        await _notify_pending_verification(
+            db, stage=stage, candidate=candidate, job=job
+        )
 
     stage_display_name = (
         stage_def.name
@@ -871,6 +993,257 @@ async def pipeline_overview(
         "workload": workload,
         "stage_labels": {s.value: STAGE_LABELS[s] for s in PipelineStage},
     }
+
+
+# ── Pending verification endpoints (migracja 0056) ──────────────────────────
+
+
+@router.get(
+    "/pending-verifications",
+    response_model=List[PendingVerificationListItem],
+)
+async def list_pending_verifications(
+    current_user: ApproverPlus,
+    job_id: Optional[int] = Query(None, description="Filter by job_id"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista kandydatów oczekujących akceptacji (verification_status=pending).
+
+    Dostępna tylko dla approverów (admin/delivery_lead/head_of_recruitment).
+    Recruiter dostanie 403.
+    """
+    query = (
+        select(CandidateStage, Candidate, Job, User)
+        .join(Candidate, Candidate.id == CandidateStage.candidate_id)
+        .join(Job, Job.id == CandidateStage.job_id)
+        .outerjoin(User, User.id == CandidateStage.moved_by)
+        .where(CandidateStage.verification_status == VerificationStatus.pending)
+        .order_by(CandidateStage.moved_at.desc())
+    )
+    if job_id is not None:
+        query = query.where(CandidateStage.job_id == job_id)
+
+    rows = (await db.execute(query)).all()
+    items: list[PendingVerificationListItem] = []
+    for cs, cand, job, mover in rows:
+        full_name = f"{cand.name} {cand.lastname}".strip() or f"#{cand.id}"
+        items.append(
+            PendingVerificationListItem(
+                candidate_stage_id=cs.id,
+                candidate_id=cand.id,
+                candidate_name=full_name,
+                job_id=job.id,
+                job_title=job.title,
+                expected_rate_value=cs.expected_rate_value,
+                expected_rate_unit=cs.expected_rate_unit,
+                expected_rate_currency=cs.expected_rate_currency,
+                budget_max_at_move=cs.budget_max_at_move,
+                moved_at=cs.moved_at,
+                moved_by=cs.moved_by,
+                moved_by_name=mover.name if mover else None,
+                notes=cs.notes,
+            )
+        )
+    return items
+
+
+@router.post(
+    "/{candidate_stage_id}/accept-verification",
+    response_model=CandidateStageResponse,
+)
+async def accept_verification(
+    candidate_stage_id: int,
+    current_user: ApproverPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Akceptacja pending verification → status = active.
+
+    Audit: zapisujemy approved_by + approved_at na samym CandidateStage,
+    plus Activity log. Notyfikacja do recruitera który wrzucił (`moved_by`).
+    """
+    stage = await db.scalar(
+        select(CandidateStage).where(CandidateStage.id == candidate_stage_id)
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="CandidateStage not found")
+    if stage.stage != PipelineStage.verified:
+        raise HTTPException(
+            status_code=422,
+            detail="Akceptacja dotyczy wyłącznie stage'a 'verified'",
+        )
+    if stage.verification_status != VerificationStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
+        )
+
+    stage.verification_status = VerificationStatus.active
+    stage.approved_by = current_user.id
+    stage.approved_at = datetime.now(timezone.utc)
+
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="verification_accepted",
+            user_id=current_user.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "expected_rate_value": (
+                    str(stage.expected_rate_value)
+                    if stage.expected_rate_value is not None
+                    else None
+                ),
+                "budget_max_at_move": stage.budget_max_at_move,
+            },
+        )
+    )
+
+    if stage.moved_by and stage.moved_by != current_user.id:
+        db.add(
+            Notification(
+                user_id=stage.moved_by,
+                title="Weryfikacja zaakceptowana",
+                message=(
+                    f"Twoja weryfikacja kandydata #{stage.candidate_id} "
+                    f"na ofercie #{stage.job_id} została zaakceptowana."
+                ),
+                link=f"/jobs/{stage.job_id}",
+                notification_type=NotificationType.pending_verification,
+                related_entity_type="candidate_stage",
+                related_entity_id=stage.id,
+            )
+        )
+
+    await db.commit()
+    await db.refresh(stage)
+    return CandidateStageResponse(**_stage_response(stage))
+
+
+@router.post(
+    "/{candidate_stage_id}/reject-verification",
+    response_model=CandidateStageResponse,
+)
+async def reject_verification(
+    candidate_stage_id: int,
+    payload: PendingVerificationReject,
+    current_user: ApproverPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odrzucenie pending verification → kandydat wraca na poprzedni stage.
+
+    Akcje:
+    1. Obecny CandidateStage dostaje status 'rejected' + audit fields.
+    2. Tworzymy NOWY CandidateStage z poprzednim stage'em (najnowszy przed
+       obecnym dla pary candidate+job) + notatkę "Rejected verification: …".
+    3. Activity log + notification do recruitera (`moved_by`).
+    """
+    stage = await db.scalar(
+        select(CandidateStage).where(CandidateStage.id == candidate_stage_id)
+    )
+    if not stage:
+        raise HTTPException(status_code=404, detail="CandidateStage not found")
+    if stage.stage != PipelineStage.verified:
+        raise HTTPException(
+            status_code=422,
+            detail="Reject dotyczy wyłącznie stage'a 'verified'",
+        )
+    if stage.verification_status != VerificationStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Status nie jest 'pending' (obecny: {stage.verification_status.value})",
+        )
+
+    # Mark current as rejected (audit trail)
+    now = datetime.now(timezone.utc)
+    stage.verification_status = VerificationStatus.rejected
+    stage.rejected_by = current_user.id
+    stage.rejected_at = now
+    stage.rejection_note = payload.note
+
+    # Find previous stage for this (candidate, job) pair
+    previous = await db.scalar(
+        select(CandidateStage)
+        .where(
+            and_(
+                CandidateStage.candidate_id == stage.candidate_id,
+                CandidateStage.job_id == stage.job_id,
+                CandidateStage.id != stage.id,
+                CandidateStage.moved_at < stage.moved_at,
+            )
+        )
+        .order_by(CandidateStage.moved_at.desc())
+        .limit(1)
+    )
+
+    if previous is None:
+        # Nigdy nie było wcześniejszego ruchu — wracamy na 'new'
+        revert_stage = PipelineStage.new
+        revert_stage_def_id: Optional[int] = None
+    else:
+        revert_stage = previous.stage
+        revert_stage_def_id = previous.stage_def_id
+
+    rate_label = (
+        f"{stage.expected_rate_value} "
+        f"{(stage.expected_rate_currency or 'PLN')}/"
+        f"{(stage.expected_rate_unit or 'monthly')}"
+    )
+    budget_label = (
+        f"{stage.budget_max_at_move}"
+        if stage.budget_max_at_move is not None
+        else "?"
+    )
+    revert = CandidateStage(
+        candidate_id=stage.candidate_id,
+        job_id=stage.job_id,
+        stage=revert_stage,
+        stage_def_id=revert_stage_def_id,
+        moved_at=now,
+        moved_by=current_user.id,
+        notes=(
+            f"Rejected verification: {payload.note} "
+            f"(rate {rate_label} > budżet {budget_label})"
+        ),
+        verification_status=VerificationStatus.active,
+    )
+    db.add(revert)
+
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=stage.id,
+            action="verification_rejected",
+            user_id=current_user.id,
+            details={
+                "candidate_id": stage.candidate_id,
+                "job_id": stage.job_id,
+                "reverted_to_stage": revert_stage.value,
+                "note": payload.note,
+            },
+        )
+    )
+
+    if stage.moved_by and stage.moved_by != current_user.id:
+        db.add(
+            Notification(
+                user_id=stage.moved_by,
+                title="Weryfikacja odrzucona",
+                message=(
+                    f"Twoja weryfikacja kandydata #{stage.candidate_id} "
+                    f"na ofercie #{stage.job_id} została odrzucona: {payload.note}"
+                ),
+                link=f"/jobs/{stage.job_id}",
+                notification_type=NotificationType.pending_verification,
+                related_entity_type="candidate_stage",
+                related_entity_id=stage.id,
+            )
+        )
+
+    await db.commit()
+    await db.refresh(stage)
+    return CandidateStageResponse(**_stage_response(stage))
 
 
 class BulkMoveRequest(BaseModel):

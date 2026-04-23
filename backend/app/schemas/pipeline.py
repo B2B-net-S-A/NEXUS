@@ -1,9 +1,15 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.models.recruitment_pipeline import PipelineStage, StageCategory
+from app.models.contract import RateUnit
+from app.models.recruitment_pipeline import (
+    PipelineStage,
+    StageCategory,
+    VerificationStatus,
+)
 
 
 class StageMove(BaseModel):
@@ -33,6 +39,14 @@ class StageMove(BaseModel):
     # default rejection template.
     rejection_email_template_id: Optional[int] = None
 
+    # ── Pending verification (migracja 0056) ──────────────────────────────
+    # Wymagane TYLKO przy ruchu na stage `verified` — recruiter podaje stawkę
+    # kandydata którą porównujemy z Job.salary_max. Jeśli rate > max → stage
+    # zapisany z verification_status='pending', wysyłka notif do approverów.
+    expected_rate_value: Optional[Decimal] = Field(None, ge=0)
+    expected_rate_unit: Optional[RateUnit] = None
+    expected_rate_currency: Optional[str] = Field(None, max_length=3)
+
 
 class CandidateStageResponse(BaseModel):
     id: int
@@ -50,6 +64,48 @@ class CandidateStageResponse(BaseModel):
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None
+
+    # ── Pending verification (migracja 0056) ──────────────────────────────
+    verification_status: VerificationStatus = VerificationStatus.active
+    expected_rate_value: Optional[Decimal] = None
+    expected_rate_unit: Optional[RateUnit] = None
+    expected_rate_currency: Optional[str] = None
+    budget_max_at_move: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    rejected_by: Optional[int] = None
+    rejected_at: Optional[datetime] = None
+    rejection_note: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class PendingVerificationReject(BaseModel):
+    """Body dla POST /pipeline/{stage_id}/reject-verification.
+
+    `note` jest wymagana, żeby recruiter zobaczył dlaczego zostało odrzucone
+    (trafia do notatki nowego CandidateStage z poprzednim stage'em).
+    """
+
+    note: str = Field(..., min_length=1, max_length=1000)
+
+
+class PendingVerificationListItem(BaseModel):
+    """Wiersz listy /pipeline/pending-verifications dla approverów."""
+
+    candidate_stage_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    expected_rate_value: Optional[Decimal] = None
+    expected_rate_unit: Optional[RateUnit] = None
+    expected_rate_currency: Optional[str] = None
+    budget_max_at_move: Optional[int] = None
+    moved_at: datetime
+    moved_by: Optional[int] = None
+    moved_by_name: Optional[str] = None
+    notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -85,6 +141,7 @@ STAGE_LABELS: dict[PipelineStage, str] = {
     PipelineStage.new: "Nowi / Analiza CV",
     PipelineStage.prep_call: "Preparation Call",
     PipelineStage.screening: "Screening",
+    PipelineStage.verified: "Zweryfikowany",
     PipelineStage.interview: "Interview Wewnętrzny",
     PipelineStage.cv_sent: "CV Wysłane",
     PipelineStage.client_interview: "Interview Klient",

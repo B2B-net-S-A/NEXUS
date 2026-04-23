@@ -1,8 +1,9 @@
 import enum
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,6 +24,7 @@ class PipelineStage(str, enum.Enum):
     new = "new"  # Nowy kandydat / Analiza CV
     prep_call = "prep_call"  # Preparation Call (pre-screening telefoniczny)
     screening = "screening"  # Screening rekruterski
+    verified = "verified"  # Zweryfikowany — gate akceptacji rate'u (0056)
     interview = "interview"  # Interview wewnętrzny / techniczny
     cv_sent = "cv_sent"  # CV wysłane do klienta
     # ── Etapy zewnętrzne (klient) ───────────────────────
@@ -36,10 +38,28 @@ class PipelineStage(str, enum.Enum):
     withdrawn = "withdrawn"  # Kandydat się wycofał
 
 
+class VerificationStatus(str, enum.Enum):
+    """Status weryfikacji kandydata na stage'u 'verified' (migracja 0056).
+
+    `active`   — domyślny; kandydat normalnie widoczny na stage'u (rate w widełkach
+                 lub stage inny niż 'verified').
+    `pending`  — rate poza budżetem; karta na szaro, czeka na akceptację
+                 delivery_lead/head_of_recruitment/admin.
+    `rejected` — odrzucony — przy reject tworzymy NOWY CandidateStage z poprzednim
+                 stage'em (zachowujemy historię), a obecny zostaje oznaczony jako
+                 rejected dla audit trail.
+    """
+
+    active = "active"
+    pending = "pending"
+    rejected = "rejected"
+
+
 STAGE_CATEGORY: dict[PipelineStage, StageCategory] = {
     PipelineStage.new: StageCategory.internal,
     PipelineStage.prep_call: StageCategory.internal,
     PipelineStage.screening: StageCategory.internal,
+    PipelineStage.verified: StageCategory.internal,
     PipelineStage.interview: StageCategory.internal,
     PipelineStage.cv_sent: StageCategory.internal,
     PipelineStage.client_interview: StageCategory.external,
@@ -57,6 +77,7 @@ STAGE_ORDER: list[PipelineStage] = [
     PipelineStage.new,
     PipelineStage.prep_call,
     PipelineStage.screening,
+    PipelineStage.verified,
     PipelineStage.interview,
     PipelineStage.cv_sent,
     PipelineStage.client_interview,
@@ -117,12 +138,62 @@ class CandidateStage(Base, TimestampMixin):
     # Shape validated by app.schemas.champion.ScreeningAnswers.
     screening_answers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
+    # ── Pending verification flow (migracja 0056) ──────────────────────────
+    # Wszystkie ruchy z `verification_status='active'` są normalne. Tylko ruch
+    # na stage `verified` z rate'm > Job.salary_max ustawia 'pending' i wymaga
+    # akceptacji delivery_lead/head_of_recruitment/admin.
+    verification_status: Mapped[VerificationStatus] = mapped_column(
+        Enum(VerificationStatus, name="verificationstatus"),
+        default=VerificationStatus.active,
+        server_default="active",
+        nullable=False,
+    )
+    # Snapshot stawki kandydata wprowadzonej przez recruitera przy ruchu na
+    # `verified`. Trzymamy NUMERIC żeby uniknąć floatowych błędów.
+    expected_rate_value: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    # Reuse RateUnit z contract.py (PG enum `rateunit`). Late import w samym
+    # endpoincie żeby uniknąć cyklu — tu tylko nazwa typu w bazie.
+    expected_rate_unit: Mapped[Optional[str]] = mapped_column(
+        Enum(
+            "hourly",
+            "daily",
+            "monthly",
+            name="rateunit",
+            create_type=False,
+        ),
+        nullable=True,
+    )
+    expected_rate_currency: Mapped[Optional[str]] = mapped_column(
+        String(3), nullable=True
+    )
+    # Snapshot Job.salary_max w momencie ruchu — żeby audit pokazywał
+    # konkretną liczbę nawet jeśli budżet się później zmieni.
+    budget_max_at_move: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    approved_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rejected_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rejection_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")
     moved_by_user = relationship(
         "User", back_populates="pipeline_moves", foreign_keys=[moved_by]
     )
+    approved_by_user = relationship("User", foreign_keys=[approved_by])
+    rejected_by_user = relationship("User", foreign_keys=[rejected_by])
     stage_def = relationship("PipelineStageDef")
     rejection_reason = relationship("RejectionReason")
 

@@ -52,6 +52,10 @@ class NotificationType(str, enum.Enum):
     # Wysyłane do candidate.created_by i job.recruiter_id; dedup per para
     # (candidate_id, job_id) w marketplace_alert_log (migracja 0052).
     marketplace_match = "marketplace_match"
+    # Pending verification — recruiter wrzucił kandydata na stage 'verified'
+    # ze stawką poza widełkami projektu (rate > Job.salary_max). Wysyłane do
+    # delivery_lead/head_of_recruitment/admin (migracja 0056).
+    pending_verification = "pending_verification"
 
 
 class Notification(Base, TimestampMixin):

@@ -97,6 +97,21 @@ RecruiterPlus = Annotated[
     ),
 ]
 
+# Pending verification approval (migracja 0056) — admin + delivery_lead +
+# head_of_recruitment mogą akceptować / odrzucać kandydatów na stage `verified`
+# kiedy rate przekracza Job.salary_max. Recruiter który wrzucił NIE może sam
+# akceptować — separation of duties.
+ApproverPlus = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.head_of_recruitment,
+        )
+    ),
+]
+
 # Backwards-compatibility alias for routers still importing the old name.
 # `ManagerOrAdmin` was the pre-RBAC guard for (manager, admin). After
 # consolidation it maps to DeliveryLeadPlus (admin + delivery_lead) — same

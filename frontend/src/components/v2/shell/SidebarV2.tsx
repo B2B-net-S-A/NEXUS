@@ -13,6 +13,7 @@ import {
   UserSquare2,
   UserCog,
   BarChart3,
+  CheckSquare,
   FileBarChart,
   GitBranch,
   Handshake,
@@ -41,7 +42,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
  * Chrome: plum-700 bg, cream-200 text, burgundy accent for active.
  */
 
-type BadgeCounts = { candidates?: number; jobs?: number; contacts?: number };
+type BadgeCounts = {
+  candidates?: number;
+  jobs?: number;
+  contacts?: number;
+  pendingVerifications?: number;
+};
 
 type NavItem = {
   href: string;
@@ -93,6 +99,13 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Kontraktorzy",
         icon: UserCog,
         roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
+      },
+      {
+        href: "/pending-verifications",
+        label: "Weryfikacje",
+        icon: CheckSquare,
+        badgeKey: "pendingVerifications",
+        roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
       {
         href: "/manager",
@@ -260,20 +273,48 @@ export function SidebarV2({
   const expanded = hovered || pinned || mobileOpen;
   const collapsed = !expanded;
 
+  const userRoleForBadge = user?.role;
+  const isApproverForBadge =
+    userRoleForBadge === "admin" ||
+    userRoleForBadge === "delivery_lead" ||
+    userRoleForBadge === "head_of_recruitment";
+
   const { data: stats } = useQuery({
-    queryKey: ["sidebar-badges-v2"],
+    queryKey: ["sidebar-badges-v2", isApproverForBadge],
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayIso = today.toISOString().slice(0, 10);
-      const [candidatesRes, jobsRes] = await Promise.allSettled([
+      const promises: Promise<unknown>[] = [
         api.get("/api/candidates", { params: { page_size: 1, created_after: todayIso } }),
         api.get("/api/jobs", { params: { page_size: 1, status: "published" } }),
-      ]);
+      ];
+      if (isApproverForBadge) {
+        promises.push(api.get("/api/pipeline/pending-verifications"));
+      }
+      const settled = await Promise.allSettled(promises);
+      const candidatesRes = settled[0];
+      const jobsRes = settled[1];
+      const pendingRes = isApproverForBadge ? settled[2] : null;
+
+      const pendingCount =
+        pendingRes && pendingRes.status === "fulfilled"
+          ? Array.isArray((pendingRes.value as { data?: unknown[] }).data)
+            ? ((pendingRes.value as { data: unknown[] }).data.length)
+            : 0
+          : 0;
+
       return {
-        candidates: candidatesRes.status === "fulfilled" ? (candidatesRes.value.data?.total ?? 0) : 0,
-        jobs: jobsRes.status === "fulfilled" ? (jobsRes.value.data?.total ?? 0) : 0,
+        candidates:
+          candidatesRes.status === "fulfilled"
+            ? ((candidatesRes.value as { data?: { total?: number } }).data?.total ?? 0)
+            : 0,
+        jobs:
+          jobsRes.status === "fulfilled"
+            ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
+            : 0,
         contacts: 0,
+        pendingVerifications: pendingCount,
       } as BadgeCounts;
     },
     staleTime: 60_000,

@@ -841,6 +841,25 @@ export interface StageInfo {
   is_terminal: boolean;
 }
 
+export type RateUnit = "hourly" | "daily" | "monthly";
+export type VerificationStatus = "active" | "pending" | "rejected";
+
+export interface PendingVerificationItem {
+  candidate_stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  expected_rate_value: string | null;
+  expected_rate_unit: RateUnit | null;
+  expected_rate_currency: string | null;
+  budget_max_at_move: number | null;
+  moved_at: string;
+  moved_by: number | null;
+  moved_by_name: string | null;
+  notes: string | null;
+}
+
 export const pipelineApi = {
   stagesForJob: (jobId?: number) =>
     api.get<StageInfo[]>("/api/pipeline/stages", {
@@ -855,7 +874,18 @@ export const pipelineApi = {
     notes?: string;
     rating?: number;
     rejection_reason_id?: number;
+    expected_rate_value?: number | string;
+    expected_rate_unit?: RateUnit;
+    expected_rate_currency?: string;
   }) => api.post("/api/pipeline/move", data),
+  listPendingVerifications: (jobId?: number) =>
+    api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
+      params: jobId !== undefined ? { job_id: jobId } : undefined,
+    }),
+  acceptVerification: (candidateStageId: number) =>
+    api.post(`/api/pipeline/${candidateStageId}/accept-verification`),
+  rejectVerification: (candidateStageId: number, note: string) =>
+    api.post(`/api/pipeline/${candidateStageId}/reject-verification`, { note }),
 };
 
 // ── Recommendations (Phase 2) ────────────────────────────────────────────────
@@ -956,6 +986,12 @@ export interface CandidatePipelineRow {
   days_in_stage: number;
   rating: number | null;
   has_scorecard: boolean;
+  // Pending verification (migracja 0056)
+  verification_status?: VerificationStatus;
+  expected_rate_value?: string | null;
+  expected_rate_unit?: RateUnit | null;
+  expected_rate_currency?: string | null;
+  budget_max_at_move?: number | null;
 }
 
 // ── Phase 5 ─────────────────────────────────────────────────────────────────
