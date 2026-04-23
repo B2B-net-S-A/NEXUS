@@ -163,6 +163,24 @@ _ENUM_STATEMENTS = [
             );
         END IF;
     END $$""",
+    # LinkedIn employment tracking (migracja 0049_linkedin_employment).
+    # Candidate model odwołuje się do 7 nowych kolumn + enum — bez nich KAŻDY
+    # SELECT kandydata wywala UndefinedColumnError (łącznie z /api/candidates
+    # i /api/marketplace/candidates przez JOIN).
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'linkedinsyncstatus') THEN
+            CREATE TYPE linkedinsyncstatus AS ENUM (
+                'ok', 'not_found', 'error', 'rate_limited', 'disabled'
+            );
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'linkedinchangekind') THEN
+            CREATE TYPE linkedinchangekind AS ENUM (
+                'first_snapshot', 'no_change',
+                'new_company', 'new_title_same_company'
+            );
+        END IF;
+    END $$""",
 ]
 
 _COLUMN_STATEMENTS = [
@@ -269,6 +287,35 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_jobs_closed_at ON jobs(closed_at)",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_reason jobclosereason",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS close_notes TEXT",
+    # LinkedIn tracking (migracja 0049_linkedin_employment): 7 kolumn na
+    # candidates + tabela candidate_linkedin_snapshots. Bez nich Candidate
+    # ORM SELECT pada — blokuje /api/candidates i /api/marketplace/candidates.
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_current_company VARCHAR(255)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_current_title VARCHAR(255)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_current_started_at DATE",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_employment_changed_at TIMESTAMPTZ",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_synced_at TIMESTAMPTZ",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_sync_status linkedinsyncstatus NOT NULL DEFAULT 'disabled'",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS linkedin_sync_error TEXT",
+    "CREATE INDEX IF NOT EXISTS ix_candidates_linkedin_current_company ON candidates (linkedin_current_company)",
+    "CREATE INDEX IF NOT EXISTS ix_candidates_linkedin_employment_changed_at ON candidates (linkedin_employment_changed_at)",
+    "CREATE INDEX IF NOT EXISTS ix_candidates_linkedin_synced_at ON candidates (linkedin_synced_at)",
+    """CREATE TABLE IF NOT EXISTS candidate_linkedin_snapshots (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        fetched_at TIMESTAMPTZ NOT NULL,
+        profile_json JSONB DEFAULT '{}'::jsonb,
+        current_company VARCHAR(255),
+        current_title VARCHAR(255),
+        current_started_at DATE,
+        changed_from_previous BOOLEAN NOT NULL DEFAULT false,
+        change_kind linkedinchangekind NOT NULL DEFAULT 'first_snapshot',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_linkedin_snapshots_candidate_id ON candidate_linkedin_snapshots (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_linkedin_snapshots_fetched_at ON candidate_linkedin_snapshots (fetched_at)",
+    "CREATE INDEX IF NOT EXISTS ix_linkedin_snap_candidate_fetched ON candidate_linkedin_snapshots (candidate_id, fetched_at)",
     # Targ kandydatów (migracja 0052_marketplace_pool_flag): is_marketplace
     # flag na talent_pools + marketplace_until na membership. ORM leci na
     # te kolumny z każdego listowania pul (łącznie z /api/talent-pools),
