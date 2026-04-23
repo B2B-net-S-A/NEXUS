@@ -429,6 +429,12 @@ async def create_job(
     # drugiej notyfikacji dla tej samej pary (candidate_id, job_id).
     if settings.MARKETPLACE_ENABLED:
         background_tasks.add_task(run_marketplace_scan_safe, job.id)
+    # Final refresh — upstream sesje (snapshot, auto_cc_collaborators,
+    # classify_job_to_cc) mogly commitnac w miedzyczasie, co expire-uje
+    # nasz `job` obiekt. FastAPI robi response_model walidacje przez
+    # getattr na atrybutach joba — expired atrybut w async sesji rzuca
+    # MissingGreenlet co objawia sie jako ResponseValidationError.
+    await db.refresh(job)
     return job
 
 
