@@ -81,12 +81,12 @@ from app.api import competence_categories as competence_categories_api
 from app.api import interview_questions as interview_questions_api
 from app.api import interview_feedback as interview_feedback_api
 from app.api import rejection_emails as rejection_emails_api
+from app.api import microsoft365 as microsoft365_api
+from app.api import email_threads as email_threads_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
-# resolve during `Base.metadata.create_all()` in DEBUG lifespan. Without
-# this, not-yet-routed models (m365.Email — no api route wired up yet)
-# never register their table and startup crashes with NoReferencedTableError.
+# resolve during `Base.metadata.create_all()` in DEBUG lifespan.
 import app.models as _models  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -183,6 +183,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
+    from app.tasks.microsoft365_sync import microsoft365_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -196,6 +197,7 @@ async def lifespan(app: FastAPI):
     notif_triggers_task = asyncio.create_task(notification_triggers_loop())
     rejection_email_task = asyncio.create_task(rejection_email_loop())
     linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
+    microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
 
     yield
 
@@ -212,6 +214,7 @@ async def lifespan(app: FastAPI):
         notif_triggers_task,
         rejection_email_task,
         linkedin_sync_task,
+        microsoft365_sync_task,
     )
     for t in tasks:
         t.cancel()
@@ -362,6 +365,13 @@ app.include_router(champion_suggestions_api.router, prefix="/api")
 app.include_router(
     interview_feedback_api.router, prefix="/api", tags=["interview-feedback"]
 )
+
+# Phase M365.1 — Microsoft 365 integration (OAuth + inbox threads + calendar)
+if settings.M365_INTEGRATION_ENABLED:
+    app.include_router(
+        microsoft365_api.router, prefix="/api/microsoft365", tags=["microsoft365"]
+    )
+    app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
 
 
 @app.get("/health")
