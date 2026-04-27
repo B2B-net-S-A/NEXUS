@@ -161,6 +161,15 @@ _ENUM_STATEMENTS = [
     # Notification(notification_type='marketplace_match') crashuje z
     # InvalidTextRepresentationError podczas scan_job_for_marketplace_matches.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'marketplace_match'",
+    # Job Chat (migracja 0063_job_chat): per-rekrutacja team chat. Prod
+    # alembic upgrade pada na 0029 duplicate revision id (pre-existing
+    # multi-head bug), wpada w fallback create_all — tabele powstają, ALE
+    # ALTER TYPE i CREATE TRIGGER nie. POST /api/jobs/{id}/chat/messages
+    # crashował z 500 bo notificationtype/useractiontype enums nie miały
+    # nowych wartości. Bez tego safety-netu Job Chat nie działa w prod.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_chat_message'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_chat_mention'",
+    "ALTER TYPE useractiontype ADD VALUE IF NOT EXISTS 'chat_message_added'",
     # Phase 14 dedicated enums for interview_feedback table
     """DO $$
     BEGIN
@@ -490,6 +499,79 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_mal_candidate ON marketplace_alert_log (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_mal_job ON marketplace_alert_log (job_id)",
     "CREATE INDEX IF NOT EXISTS ix_mal_created ON marketplace_alert_log (created_at DESC)",
+    # Job Chat (migracja 0063_job_chat): trzy tabele + FTS trigger + GIN
+    # index. Tabele tworzone przez metadata.create_all w drugim safety-net,
+    # ale FTS trigger i GIN index — nie. Idempotentne.
+    """CREATE TABLE IF NOT EXISTS job_chat_messages (
+        id SERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        author_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        content TEXT NOT NULL,
+        reply_to_message_id INTEGER NULL
+            REFERENCES job_chat_messages(id) ON DELETE SET NULL,
+        is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+        edited_at TIMESTAMP WITH TIME ZONE NULL,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP WITH TIME ZONE NULL,
+        pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        pinned_at TIMESTAMP WITH TIME ZONE NULL,
+        pinned_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        external_platform VARCHAR(32) NULL,
+        external_message_id VARCHAR(255) NULL,
+        search_vector tsvector NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_job_id ON job_chat_messages (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_author_id ON job_chat_messages (author_id)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_is_deleted ON job_chat_messages (is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_job_created ON job_chat_messages (job_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_search ON job_chat_messages USING gin (search_vector)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_messages_pinned ON job_chat_messages (job_id, pinned_at) WHERE pinned = TRUE AND is_deleted = FALSE",
+    """CREATE OR REPLACE FUNCTION job_chat_messages_search_trigger()
+       RETURNS trigger AS $$
+       BEGIN
+           NEW.search_vector := to_tsvector('simple', COALESCE(NEW.content, ''));
+           RETURN NEW;
+       END
+       $$ LANGUAGE plpgsql""",
+    "DROP TRIGGER IF EXISTS job_chat_messages_search_update ON job_chat_messages",
+    """CREATE TRIGGER job_chat_messages_search_update
+       BEFORE INSERT OR UPDATE OF content
+       ON job_chat_messages
+       FOR EACH ROW EXECUTE FUNCTION job_chat_messages_search_trigger()""",
+    """CREATE OR REPLACE FUNCTION job_chat_messages_touch_updated_at()
+       RETURNS trigger AS $$
+       BEGIN
+           NEW.updated_at := NOW();
+           RETURN NEW;
+       END
+       $$ LANGUAGE plpgsql""",
+    "DROP TRIGGER IF EXISTS job_chat_messages_touch_updated_at ON job_chat_messages",
+    """CREATE TRIGGER job_chat_messages_touch_updated_at
+       BEFORE UPDATE ON job_chat_messages
+       FOR EACH ROW EXECUTE FUNCTION job_chat_messages_touch_updated_at()""",
+    """CREATE TABLE IF NOT EXISTS job_chat_mentions (
+        id SERIAL PRIMARY KEY,
+        message_id INTEGER NOT NULL
+            REFERENCES job_chat_messages(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_job_chat_mentions_msg_user UNIQUE (message_id, user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_mentions_message_id ON job_chat_mentions (message_id)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_mentions_user ON job_chat_mentions (user_id)",
+    """CREATE TABLE IF NOT EXISTS job_chat_read_state (
+        id SERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        last_read_message_id INTEGER NULL
+            REFERENCES job_chat_messages(id) ON DELETE SET NULL,
+        last_read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_job_chat_read_state_job_user UNIQUE (job_id, user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_read_state_job_id ON job_chat_read_state (job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_read_state_user_id ON job_chat_read_state (user_id)",
 ]
 
 _DATA_STATEMENTS = [
