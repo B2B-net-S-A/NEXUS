@@ -1390,6 +1390,12 @@ function ProfilTab({ candidate }: { candidate: any }) {
             open_to_side_projects: candidate.open_to_side_projects,
             open_to_sales_support: candidate.open_to_sales_support,
             open_to_expert_consult: candidate.open_to_expert_consult,
+            open_to_side_projects_updated_at:
+              candidate.open_to_side_projects_updated_at,
+            open_to_sales_support_updated_at:
+              candidate.open_to_sales_support_updated_at,
+            open_to_expert_consult_updated_at:
+              candidate.open_to_expert_consult_updated_at,
             engagement_notes: candidate.engagement_notes,
           }}
         />

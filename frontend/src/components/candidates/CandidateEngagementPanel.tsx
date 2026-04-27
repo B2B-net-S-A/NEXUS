@@ -6,7 +6,14 @@ import {
   candidateProfileApi,
   type CandidateEngagementPayload,
 } from "@/lib/api";
-import { Award, Save } from "lucide-react";
+import { Award, Save, RefreshCcw } from "lucide-react";
+
+type OpenToFlagKey =
+  | "open_to_side_projects"
+  | "open_to_sales_support"
+  | "open_to_expert_consult";
+
+type OpenToTimestampKey = `${OpenToFlagKey}_updated_at`;
 
 interface Props {
   candidateId: number;
@@ -16,6 +23,9 @@ interface Props {
     open_to_side_projects?: boolean;
     open_to_sales_support?: boolean;
     open_to_expert_consult?: boolean;
+    open_to_side_projects_updated_at?: string | null;
+    open_to_sales_support_updated_at?: string | null;
+    open_to_expert_consult_updated_at?: string | null;
     engagement_notes?: string | null;
   };
 }
@@ -24,6 +34,8 @@ const FLAG_LABELS: {
   key: keyof CandidateEngagementPayload;
   label: string;
   description: string;
+  /** Klucz timestampu w `initial` — tylko dla 3 flag open_to_*. */
+  timestampKey?: OpenToTimestampKey;
 }[] = [
   {
     key: "is_ambassador",
@@ -39,18 +51,39 @@ const FLAG_LABELS: {
     key: "open_to_side_projects",
     label: "Otwarty na dodatkowe projekty",
     description: "Mógłby wziąć side-project poza głównym angażem.",
+    timestampKey: "open_to_side_projects_updated_at",
   },
   {
     key: "open_to_sales_support",
     label: "Wsparcie sprzedaży",
     description: "Może uczestniczyć w rozmowach przedsprzedażowych.",
+    timestampKey: "open_to_sales_support_updated_at",
   },
   {
     key: "open_to_expert_consult",
     label: "Konsultacje eksperckie",
     description: "Dostępny do godzinowych konsultacji eksperckich.",
+    timestampKey: "open_to_expert_consult_updated_at",
   },
 ];
+
+const STALE_DAYS_THRESHOLD = 90;
+
+/**
+ * Compute days since ISO timestamp. Returns null jeśli brak wartości.
+ */
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
+}
+
+function formatStaleness(days: number): string {
+  if (days < 60) return `Deklaracja sprzed ${days} dni`;
+  const months = Math.round(days / 30);
+  return `Deklaracja sprzed ${months} mies.`;
+}
 
 export function CandidateEngagementPanel({ candidateId, initial }: Props) {
   const qc = useQueryClient();
@@ -84,6 +117,11 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
     },
   });
 
+  /** Touch single flag — wysyła obecną wartość, backend odświeża timestamp. */
+  const touchFlag = (key: OpenToFlagKey) => {
+    mut.mutate({ [key]: Boolean(flags[key]) } as CandidateEngagementPayload);
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-900">
       <div className="flex items-center gap-2 mb-3">
@@ -96,30 +134,49 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
         )}
       </div>
       <div className="space-y-2">
-        {FLAG_LABELS.map((f) => (
-          <label
-            key={f.key}
-            className="flex items-start gap-3 cursor-pointer group"
-          >
-            <input
-              type="checkbox"
-              checked={Boolean(flags[f.key])}
-              onChange={(e) =>
-                setFlags((prev) => ({
-                  ...prev,
-                  [f.key]: e.target.checked,
-                }))
-              }
-              className="mt-0.5"
-            />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:underline">
-                {f.label}
-              </div>
-              <div className="text-xs text-gray-500">{f.description}</div>
+        {FLAG_LABELS.map((f) => {
+          const isActive = Boolean(flags[f.key]);
+          const tsRaw = f.timestampKey ? initial[f.timestampKey] : null;
+          const days = daysSince(tsRaw);
+          const isStale =
+            isActive && f.timestampKey && days !== null && days >= STALE_DAYS_THRESHOLD;
+
+          return (
+            <div key={f.key}>
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={(e) =>
+                    setFlags((prev) => ({
+                      ...prev,
+                      [f.key]: e.target.checked,
+                    }))
+                  }
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:underline">
+                    {f.label}
+                  </div>
+                  <div className="text-xs text-gray-500">{f.description}</div>
+                </div>
+              </label>
+              {isStale && days !== null && (
+                <button
+                  type="button"
+                  onClick={() => touchFlag(f.key as OpenToFlagKey)}
+                  className="ml-7 mt-1 inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 hover:underline"
+                  title="Wyślij ponownie tę samą wartość — backend odświeży timestamp"
+                  disabled={mut.isPending}
+                >
+                  <RefreshCcw className="w-3 h-3" />
+                  {formatStaleness(days)} — potwierdź
+                </button>
+              )}
             </div>
-          </label>
-        ))}
+          );
+        })}
       </div>
       <label className="block mt-3">
         <span className="text-xs text-gray-500">Notatka do zaangażowania</span>
