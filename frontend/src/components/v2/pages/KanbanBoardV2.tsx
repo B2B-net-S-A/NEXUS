@@ -515,7 +515,12 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
     async (
       item: KanbanItem,
       dst: KanbanColumn,
-      reason?: { id: string; notes: string; sendRejectionEmail?: boolean | null }
+      reason?: {
+        id: string;
+        notes: string;
+        sendRejectionEmail?: boolean | null;
+        candidateOfferResponse?: "pending" | "accepted" | "declined" | null;
+      }
     ) => {
       try {
         const response = await api.post<{
@@ -527,6 +532,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
           rejection_reason_id: reason?.id,
           notes: reason?.notes,
           send_rejection_email: reason?.sendRejectionEmail ?? undefined,
+          candidate_offer_response:
+            reason?.candidateOfferResponse ?? undefined,
         });
 
         // 0045_rejection_emails — if the backend scheduled an auto-email,
@@ -919,12 +926,24 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
             ?.category;
           return cat === "external" ? "external" : cat === "internal" ? "internal" : null;
         })()}
-        onConfirm={(reasonId, notes, sendRejectionEmail) => {
+        previousStage={
+          pendingRejection
+            ? cols.find((c) => colId(c) === pendingRejection.srcColId)?.stage ??
+              null
+            : null
+        }
+        onConfirm={(
+          reasonId,
+          notes,
+          sendRejectionEmail,
+          candidateOfferResponse
+        ) => {
           if (!pendingRejection) return;
           sendMove(pendingRejection.item, pendingRejection.destCol, {
             id: reasonId,
             notes,
             sendRejectionEmail,
+            candidateOfferResponse: candidateOfferResponse ?? null,
           });
           setPendingRejection(null);
         }}

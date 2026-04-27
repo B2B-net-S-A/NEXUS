@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useEffect, useState } from "react";
-import { Briefcase, CheckCircle2, Sparkles } from "lucide-react";
-import { recommendationsApi, type JobMatch } from "@/lib/api";
+import { AlertTriangle, Briefcase, CheckCircle2, Sparkles } from "lucide-react";
+import api, { recommendationsApi, type JobMatch } from "@/lib/api";
 import {
   Sheet,
   SheetBody,
@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { RiskBadge } from "@/components/v2/RiskBadge";
+import type { CandidateRiskProfile } from "@/types/candidate-risk";
 
 function scoreVariant(
   score: number
@@ -45,6 +47,8 @@ export function QuickAssignV2({
   const [error, setError] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
+  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -53,11 +57,18 @@ export function QuickAssignV2({
       setLoading(true);
       setError(null);
       try {
-        const res = await recommendationsApi.forCandidate(candidateId, {
-          top_k: 10,
-          include_breakdown: true,
-        });
-        if (!cancelled) setMatches(res.data.matches);
+        const [matchRes, riskRes] = await Promise.all([
+          recommendationsApi.forCandidate(candidateId, {
+            top_k: 10,
+            include_breakdown: true,
+          }),
+          api
+            .get<CandidateRiskProfile>(`/api/candidates/${candidateId}/risk`)
+            .catch(() => null),
+        ]);
+        if (cancelled) return;
+        setMatches(matchRes.data.matches);
+        setRisk(riskRes?.data ?? null);
       } catch (e: unknown) {
         if (cancelled) return;
         const msg =
@@ -97,9 +108,25 @@ export function QuickAssignV2({
           <SheetDescription>
             Dopasowania dla <strong>{candidateName}</strong> · top 10.
           </SheetDescription>
+          {risk && <RiskBadge profile={risk} className="mt-2" />}
         </SheetHeader>
 
         <SheetBody>
+          {risk?.level === "high" && (
+            <div className="mb-3 flex items-start gap-2 rounded-v2-m border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <div>
+                <strong>Wysokie ryzyko wycofania.</strong> Kandydat ma{" "}
+                {risk.breakdown.early +
+                  risk.breakdown.interview +
+                  risk.breakdown.post_accept}{" "}
+                wycofań w 24mc
+                {risk.breakdown.post_accept > 0 &&
+                  `, w tym ${risk.breakdown.post_accept}× po akceptacji oferty`}
+                . Decyzja należy do Ciebie — system tylko ostrzega.
+              </div>
+            </div>
+          )}
           {loading ? (
             <div className="text-sm text-[hsl(var(--text-muted))] py-8 text-center">
               Analizuję dopasowania…

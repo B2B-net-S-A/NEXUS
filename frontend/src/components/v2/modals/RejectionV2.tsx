@@ -25,6 +25,15 @@ interface RejectionReason {
 
 type PreviousStageCategory = "internal" | "external" | null;
 
+/** Lustro POST_ACCEPT_STAGES z `app/services/candidate_risk.py`. */
+const POST_ACCEPT_STAGES = new Set<string>([
+  "acceptance",
+  "negotiation",
+  "onboarding",
+]);
+
+export type CandidateOfferResponse = "pending" | "accepted" | "declined";
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,10 +44,16 @@ interface Props {
   // rejections, off for early-internal ones. Null when unknown (e.g.
   // quick-action path) — defaults to off to avoid surprise emails.
   previousStageCategory?: PreviousStageCategory;
+  // Phase 17 (migracja 0068): konkretny stage z którego kandydat wychodzi.
+  // Gdy ∈ {acceptance, negotiation, onboarding} ORAZ terminalType='withdrawn',
+  // pokazujemy radio `candidate_offer_response` żeby odróżnić post-accept
+  // dropout od zwykłego wycofania.
+  previousStage?: string | null;
   onConfirm: (
     reasonId: string,
     notes: string,
-    sendRejectionEmail: boolean | null
+    sendRejectionEmail: boolean | null,
+    candidateOfferResponse?: CandidateOfferResponse | null
   ) => void;
 }
 
@@ -53,6 +68,7 @@ export function RejectionV2({
   terminalType,
   reasons,
   previousStageCategory = null,
+  previousStage = null,
   onConfirm,
 }: Props) {
   const [reasonId, setReasonId] = useState("");
@@ -65,12 +81,21 @@ export function RejectionV2({
     terminalType === "rejected" && previousStageCategory === "external";
   const [sendEmail, setSendEmail] = useState<boolean>(emailAvailable);
 
+  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
+  const offerResponseRequired =
+    terminalType === "withdrawn" &&
+    !!previousStage &&
+    POST_ACCEPT_STAGES.has(previousStage);
+  const [offerResponse, setOfferResponse] =
+    useState<CandidateOfferResponse | "">("");
+
   // Reset defaults when modal re-opens (e.g. user bails, opens again).
   useEffect(() => {
     if (open) {
       setReasonId("");
       setNotes("");
       setSendEmail(emailAvailable);
+      setOfferResponse("");
     }
   }, [open, emailAvailable]);
 
@@ -80,8 +105,13 @@ export function RejectionV2({
     // Pass explicit boolean only when the checkbox is user-controlled; else
     // defer to backend auto-decision with `null`.
     const emailFlag: boolean | null = emailAvailable ? sendEmail : null;
-    onConfirm(reasonId, notes, emailFlag);
+    const offerResponseValue: CandidateOfferResponse | null =
+      offerResponseRequired && offerResponse ? offerResponse : null;
+    onConfirm(reasonId, notes, emailFlag, offerResponseValue);
   };
+
+  const submitDisabled =
+    !reasonId || (offerResponseRequired && !offerResponse);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,6 +141,36 @@ export function RejectionV2({
                 ))}
               </RadioGroup>
             </FormField>
+            {offerResponseRequired && (
+              <FormField
+                label="Reakcja kandydata na ofertę"
+                description="Pomaga w analizie ryzyka — wycofanie po akceptacji to mocny sygnał."
+                required
+              >
+                <RadioGroup
+                  value={offerResponse}
+                  onValueChange={(v) =>
+                    setOfferResponse(v as CandidateOfferResponse)
+                  }
+                >
+                  {(
+                    [
+                      { v: "declined", label: "Wycofał się PO akceptacji oferty" },
+                      { v: "accepted", label: "Zaakceptował, potem się wycofał z innego powodu" },
+                      { v: "pending", label: "Jeszcze nie odpowiedział na ofertę" },
+                    ] as const
+                  ).map(({ v, label }) => (
+                    <label
+                      key={v}
+                      className="flex items-center gap-2 text-sm cursor-pointer rounded-v2-s p-1.5 hover:bg-[hsl(var(--accent-soft))]"
+                    >
+                      <RadioGroupItem value={v} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </RadioGroup>
+              </FormField>
+            )}
             <FormField
               label="Notatka (opcjonalnie)"
               description="Np. kontekst decyzji, follow-up."
@@ -151,7 +211,7 @@ export function RejectionV2({
           </Button>
           <Button
             variant="destructive"
-            disabled={!reasonId}
+            disabled={submitDisabled}
             onClick={handleConfirm}
           >
             Potwierdź

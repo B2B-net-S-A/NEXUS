@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from app.models.candidate_risk import CandidateOfferResponse
 from app.models.contract import RateUnit
 from app.models.recruitment_pipeline import (
     PipelineStage,
@@ -46,6 +47,11 @@ class StageMove(BaseModel):
     expected_rate_value: Optional[Decimal] = Field(None, ge=0)
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = Field(None, max_length=3)
+
+    # ── Candidate offer response (migracja 0066 — Phase 17) ───────────────
+    # Sensowne tylko gdy stage ∈ {acceptance, negotiation, onboarding}.
+    # `declined` przed wycofaniem → post_accept dropout (10pt w risk score).
+    candidate_offer_response: Optional[CandidateOfferResponse] = None
 
 
 class CandidateStageResponse(BaseModel):

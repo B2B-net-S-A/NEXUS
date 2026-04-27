@@ -207,6 +207,10 @@ export function CandidateDetailV2({
         setUrlPosition(next.position); // optimistic — counter updates instantly
         const sp = encodeNavContext(urlNav.filters, next.position);
         router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
+        // Next.js caches the dynamic `[id]` segment, so `useSearchParams`
+        // can lag a render. Refresh server data so subsequent navigations
+        // see the up-to-date URL params.
+        router.refresh();
       }
     },
     [navContext, urlNav, router],

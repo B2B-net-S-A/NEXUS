@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.candidate_risk import CandidateOfferResponse
 
 
 class StageCategory(str, enum.Enum):
@@ -185,6 +186,14 @@ class CandidateStage(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     rejection_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # ── Candidate offer response (migracja 0066) ───────────────────────────
+    # Tylko ma znaczenie gdy stage ∈ {acceptance, negotiation, onboarding}.
+    # `declined` na późniejszym `withdrawn` = post-accept dropout (10pt).
+    candidate_offer_response: Mapped[Optional[CandidateOfferResponse]] = mapped_column(
+        Enum(CandidateOfferResponse, name="candidateofferresponse", create_type=False),
+        nullable=True,
+    )
 
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")

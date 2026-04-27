@@ -303,20 +303,26 @@ async def move_candidate(
             legacy_enum = data.stage or PipelineStage.new
 
     # Terminal-move validation: require rejection_reason_id
-    if (
+    is_terminal_move_stagedef = bool(
         stage_def
         and stage_def.is_terminal
         and stage_def.terminal_type
-        and stage_def.terminal_type.value
-        in (
-            "rejected",
-            "withdrawn",
-        )
-    ):
+        and stage_def.terminal_type.value in ("rejected", "withdrawn")
+    )
+    # Phase 17 (migracja 0068): legacy enum path — pilnujemy WYŁĄCZNIE
+    # `withdrawn`, bo to ma CHECK constraint na DB. Reszta legacy paths
+    # zachowuje wcześniejsze zachowanie (BC-friendly).
+    is_terminal_move_legacy_withdrawn = legacy_enum == PipelineStage.withdrawn
+    if is_terminal_move_stagedef or is_terminal_move_legacy_withdrawn:
         if not data.rejection_reason_id and not data.rejection_reason:
+            terminal_label = (
+                stage_def.terminal_type.value
+                if is_terminal_move_stagedef
+                else legacy_enum.value
+            )
             raise HTTPException(
                 status_code=422,
-                detail=f"Terminal stage ({stage_def.terminal_type.value}) requires rejection_reason_id",
+                detail=f"Terminal stage ({terminal_label}) requires rejection_reason_id",
             )
         # Validate the FK
         if data.rejection_reason_id:
@@ -375,6 +381,8 @@ async def move_candidate(
             expected_rate_currency if expected_rate_value is not None else None
         ),
         budget_max_at_move=budget_max_snapshot,
+        # Phase 17 (migracja 0068) — kandydata reakcja na ofertę po akcepcie.
+        candidate_offer_response=data.candidate_offer_response,
     )
     db.add(stage)
     await db.flush()
@@ -578,6 +586,15 @@ async def move_candidate(
 
     await db.commit()
     await db.refresh(stage)
+
+    # Phase 17 (migracja 0068): event-driven recompute risk profile.
+    # Best-effort — błąd nie blokuje response. Wymaga dodatkowego commitu
+    # ponieważ poprzedni await db.commit() już zamknął transakcję.
+    from app.services.candidate_risk import on_candidate_stage_change
+
+    await on_candidate_stage_change(db, data.candidate_id)
+    await db.commit()
+
     resp = _stage_response(stage)
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     return CandidateStageResponse(**resp)
@@ -1278,6 +1295,19 @@ async def bulk_move_candidates(
     if not data.candidate_ids or not data.job_id:
         raise HTTPException(status_code=400, detail="candidate_ids and job_id required")
 
+    # Phase 17 (migracja 0068): bulk-move nie obsługuje rejection_reason_id,
+    # więc terminal stages (rejected/withdrawn) zablokowane — wymagają indywidualnego
+    # ruchu z powodem. CHECK constraint na DB i tak by to wyłapał, ale clean 422
+    # jest dużo lepszy niż IntegrityError.
+    if data.stage in (PipelineStage.rejected, PipelineStage.withdrawn):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Bulk-move na stage '{data.stage.value}' niedozwolony — "
+                "użyj indywidualnego /move z rejection_reason_id."
+            ),
+        )
+
     moved = 0
     for cid in data.candidate_ids:
         entry = CandidateStage(
@@ -1292,4 +1322,13 @@ async def bulk_move_candidates(
         moved += 1
 
     await db.commit()
+
+    # Phase 17 (migracja 0068): recompute risk dla każdego kandydata.
+    # Best-effort — pojedynczy fail nie blokuje response.
+    from app.services.candidate_risk import on_candidate_stage_change
+
+    for cid in data.candidate_ids:
+        await on_candidate_stage_change(db, cid)
+    await db.commit()
+
     return {"moved": moved, "stage": data.stage.value, "job_id": data.job_id}

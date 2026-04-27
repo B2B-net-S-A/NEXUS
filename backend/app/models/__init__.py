@@ -123,6 +123,8 @@ from app.models.chat_reaction import (
     CandidateChatMessageReaction,
 )
 from app.models.engagement_token import EngagementDeclarationToken
+from app.models.note_mention import NoteMention
+from app.models.screening_note_mention import ScreeningNoteMention
 
 __all__ = [
     "User",
@@ -240,4 +242,6 @@ __all__ = [
     "CandidateRiskProfile",
     "RiskLevel",
     "CandidateOfferResponse",
+    "NoteMention",
+    "ScreeningNoteMention",
 ]

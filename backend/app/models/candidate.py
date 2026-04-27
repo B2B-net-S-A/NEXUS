@@ -280,6 +280,12 @@ class Candidate(Base, TimestampMixin):
     pipeline_stages = relationship(
         "CandidateStage", back_populates="candidate", cascade="all, delete-orphan"
     )
+    risk_profile = relationship(
+        "CandidateRiskProfile",
+        back_populates="candidate",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     contracts = relationship("Contract", back_populates="candidate")
     calls = relationship(
         "Call", back_populates="candidate", cascade="all, delete-orphan"
