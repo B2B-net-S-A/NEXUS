@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -53,11 +53,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
+import { useMentionableUsers } from "@/hooks/useMentionableUsers";
+import {
+  buildUsersByEmail,
+  renderWithMentions,
+} from "@/lib/renderMentions";
 import { EditCandidateModal } from "@/components/AppShell";
 import { ScreeningSheet } from "@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { CVGeneratorV2 } from "@/components/v2/modals/CVGeneratorV2";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
+import { RISK_QUERY_KEY, RiskBadge } from "@/components/v2/RiskBadge";
+import type { CandidateRiskProfile } from "@/types/candidate-risk";
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from "@/components/candidates/SuggestedPoolsWidget";
 import EmailThreadList from "@/components/emails/EmailThreadList";
@@ -156,11 +164,15 @@ export function CandidateDetailV2({
   // ── Prev/Next candidate navigation context ─────────────────────────────
   // Embedded mode receives `navigation` from parent (CandidatesListV2).
   // Full-page mode reads it from URL search params (?nav=search&pos=N&...).
+  // Use `useSearchParams` so the value re-evaluates after client hydration
+  // and on every push() — `window.location` inside useMemo wouldn't.
+  const searchParamsForNav = useSearchParams();
   const urlNav = React.useMemo(() => {
-    if (typeof window === "undefined") return null;
     if (embedded) return null; // embedded uses props, not URL
-    return decodeNavContext(new URLSearchParams(window.location.search));
-  }, [embedded]);
+    if (!searchParamsForNav) return null;
+    const sp = new URLSearchParams(searchParamsForNav.toString());
+    return decodeNavContext(sp);
+  }, [embedded, searchParamsForNav]);
 
   const navContext: CandidateDetailNavigation | null = navigation ?? null;
   const navMode: "embedded" | "url" | "off" = navContext
@@ -263,6 +275,16 @@ export function CandidateDetailV2({
     queryKey: ["candidate-history", id],
     queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
     enabled: !!id && activeTab === "rekrutacje",
+  });
+
+  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
+  // Recompute następuje event-driven po każdej tranzycji + TTL 24h, więc
+  // staleTime 5 min jest tu bezpieczny.
+  const { data: riskProfile } = useQuery<CandidateRiskProfile>({
+    queryKey: RISK_QUERY_KEY(id),
+    queryFn: () => api.get(`/api/candidates/${id}/risk`).then((r) => r.data),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
   });
   const history: any[] = Array.isArray(historyRaw)
     ? historyRaw
@@ -416,6 +438,7 @@ export function CandidateDetailV2({
                     {STATUS_LABELS[candidate.status]}
                   </Badge>
                 )}
+                {riskProfile && <RiskBadge profile={riskProfile} />}
                 <CandidateHighlights candidate={candidate} variant="full" />
                 {candidate.source === "linkedin" && (
                   <Badge variant="plum" size="sm">
