@@ -491,6 +491,8 @@ export function CandidatesListV2() {
   const [showImport, setShowImport] = useState(false);
   const [showAddFromCV, setShowAddFromCV] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showBulkPool, setShowBulkPool] = useState(false);
+  const [bulkPoolPending, setBulkPoolPending] = useState(false);
   const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [showToast, setToast] = useState<string | null>(null);
@@ -498,6 +500,31 @@ export function CandidatesListV2() {
   const toastOnSuccess = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const doBulkAddToPool = async (poolId: number) => {
+    if (selectedIds.size === 0 || bulkPoolPending) return;
+    setBulkPoolPending(true);
+    try {
+      const res = await api.post(`/api/talent-pools/${poolId}/bulk-add`, {
+        candidate_ids: Array.from(selectedIds),
+      });
+      const { added, already_in_pool, not_found } = res.data ?? {};
+      const parts: string[] = [];
+      if (added) parts.push(`dodano ${added}`);
+      if (already_in_pool) parts.push(`już w puli: ${already_in_pool}`);
+      if (not_found) parts.push(`brak: ${not_found}`);
+      toastOnSuccess(parts.length ? parts.join(", ") : "Brak zmian");
+      queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["talent-pools"] });
+      setShowBulkPool(false);
+      clearSelection();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Nie udało się dodać do puli";
+      toastOnSuccess(msg);
+    } finally {
+      setBulkPoolPending(false);
+    }
   };
 
   const doBulkDownloadCvs = async () => {
@@ -1566,6 +1593,15 @@ export function CandidatesListV2() {
             )}{" "}
             Pobierz CV (ZIP)
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowBulkPool(true)}
+            disabled={bulkPoolPending}
+            title="Dodaj zaznaczonych do puli talentów"
+          >
+            <Users className="h-3.5 w-3.5" /> Dodaj do puli
+          </Button>
           <button
             onClick={clearSelection}
             className="text-xs text-[hsl(var(--text-onchrome))]/70 hover:text-[hsl(var(--text-onchrome))] ml-1"
@@ -1573,6 +1609,16 @@ export function CandidatesListV2() {
             Wyczyść
           </button>
         </div>
+      )}
+
+      {/* Bulk add-to-pool modal */}
+      {showBulkPool && (
+        <BulkAddToPoolModal
+          selectedCount={selectedIds.size}
+          onCancel={() => setShowBulkPool(false)}
+          onConfirm={doBulkAddToPool}
+          pending={bulkPoolPending}
+        />
       )}
 
       {/* Keyboard hints */}
@@ -1634,6 +1680,82 @@ export function CandidatesListV2() {
           {showToast}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Bulk add-to-pool modal (Phase „Otwartość" Faza 2.5) ─────────────────────
+
+function BulkAddToPoolModal({
+  selectedCount,
+  onCancel,
+  onConfirm,
+  pending,
+}: {
+  selectedCount: number;
+  onCancel: () => void;
+  onConfirm: (poolId: number) => void;
+  pending: boolean;
+}) {
+  const [filter, setFilter] = useState("");
+  const { data, isLoading } = useQuery({
+    queryKey: ["talent-pools", "bulk-modal"],
+    queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
+  });
+  const pools: Array<{ id: number; name: string; candidate_count: number }> =
+    Array.isArray(data) ? data : data?.items ?? [];
+  const filtered = pools.filter((p) =>
+    p.name.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-5 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold">
+          Dodaj {selectedCount} {selectedCount === 1 ? "kandydata" : "kandydatów"} do puli
+        </h3>
+        <Input
+          placeholder="Szukaj puli…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          autoFocus
+        />
+        <div className="max-h-[50vh] overflow-y-auto space-y-1">
+          {isLoading && (
+            <div className="text-xs text-gray-500 py-4 text-center">Ładowanie pul…</div>
+          )}
+          {!isLoading && filtered.length === 0 && (
+            <div className="text-xs text-gray-500 py-4 text-center">
+              Brak pul dla „{filter}". <Link href="/talents" className="underline">Stwórz nową</Link>.
+            </div>
+          )}
+          {filtered.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onConfirm(p.id)}
+              disabled={pending}
+              className="w-full text-left text-sm px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 flex items-center justify-between"
+            >
+              <span>{p.name}</span>
+              <span className="text-xs text-gray-500">
+                {p.candidate_count} {p.candidate_count === 1 ? "kandydat" : "kandydatów"}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>
+            Anuluj
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

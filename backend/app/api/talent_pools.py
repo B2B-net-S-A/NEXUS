@@ -47,6 +47,18 @@ class AddCandidateRequest(BaseModel):
     candidate_id: int
 
 
+class BulkAddCandidatesRequest(BaseModel):
+    candidate_ids: list[int]
+
+
+class BulkAddResponse(BaseModel):
+    pool_id: int
+    requested: int
+    added: int
+    already_in_pool: int
+    not_found: int
+
+
 class CandidateInPoolOut(BaseModel):
     id: int
     name: str
@@ -181,6 +193,67 @@ async def add_candidate_to_pool(
         "pool_id": pool_id,
         "candidate_id": data.candidate_id,
     }
+
+
+@router.post(
+    "/talent-pools/{pool_id}/bulk-add",
+    status_code=200,
+    response_model=BulkAddResponse,
+)
+async def bulk_add_candidates_to_pool(
+    pool_id: int,
+    data: BulkAddCandidatesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Bulk-add wielu kandydatów do puli — idempotentne (skip already-in-pool).
+
+    Zwraca summary z liczbą rzeczywiście dodanych vs duplikatów vs nieistniejących
+    kandydatów. Używane przez floating bulk-action bar na liście /candidates
+    (Phase „Otwartość na dodatkowe projekty" Faza 2.5).
+    """
+    await _get_pool_or_404(pool_id, db)
+
+    if not data.candidate_ids:
+        raise HTTPException(status_code=422, detail="candidate_ids cannot be empty")
+
+    requested_ids = list(set(data.candidate_ids))
+
+    # 1. Sprawdź którzy z requested_ids istnieją w bazie.
+    existing_cand_result = await db.execute(
+        select(Candidate.id).where(Candidate.id.in_(requested_ids))
+    )
+    existing_cand_ids = {row[0] for row in existing_cand_result.all()}
+    not_found = len(requested_ids) - len(existing_cand_ids)
+
+    # 2. Sprawdź którzy z istniejących już są w puli.
+    already_member_result = await db.execute(
+        select(TalentPoolMembership.candidate_id).where(
+            TalentPoolMembership.talent_pool_id == pool_id,
+            TalentPoolMembership.candidate_id.in_(existing_cand_ids),
+        )
+    )
+    already_member_ids = {row[0] for row in already_member_result.all()}
+
+    # 3. Dodaj brakujące memberships.
+    to_add = existing_cand_ids - already_member_ids
+    for cid in to_add:
+        db.add(
+            TalentPoolMembership(
+                talent_pool_id=pool_id,
+                candidate_id=cid,
+                added_by=current_user.id,
+            )
+        )
+    await db.commit()
+
+    return BulkAddResponse(
+        pool_id=pool_id,
+        requested=len(requested_ids),
+        added=len(to_add),
+        already_in_pool=len(already_member_ids),
+        not_found=not_found,
+    )
 
 
 @router.delete("/talent-pools/{pool_id}/remove/{candidate_id}", status_code=200)
