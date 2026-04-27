@@ -181,6 +181,21 @@ export function CandidateDetailV2({
     ? "url"
     : "off";
 
+  // URL mode: keep an internal position state so the counter updates *now*
+  // (on click) rather than waiting for `useSearchParams` to re-emit after
+  // `router.push` settles — when the dynamic `[id]` segment is cached the
+  // re-emit can lag a render. Sync from URL whenever it actually changes
+  // (back/forward, refresh, deep link).
+  const [urlPosition, setUrlPosition] = React.useState<number>(
+    urlNav?.position ?? 1,
+  );
+  React.useEffect(() => {
+    if (urlNav?.position && urlNav.position !== urlPosition) {
+      setUrlPosition(urlNav.position);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlNav?.position]);
+
   const navOnNavigate = React.useCallback(
     (next: { candidateId: number; position: number }) => {
       if (navContext) {
@@ -189,6 +204,7 @@ export function CandidateDetailV2({
       }
       // URL mode: navigate to the new candidate, preserving filters + new pos.
       if (urlNav) {
+        setUrlPosition(next.position); // optimistic — counter updates instantly
         const sp = encodeNavContext(urlNav.filters, next.position);
         router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
       }
@@ -214,7 +230,7 @@ export function CandidateDetailV2({
           mode: "url",
           enabled: true,
           filters: urlNav.filters,
-          position: urlNav.position,
+          position: urlPosition,
           onNavigate: navOnNavigate,
         }
       : {
@@ -2036,16 +2052,23 @@ function NotatkiTab({
     (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
   );
 
+  // Mentionable users dla autocomplete + render badge'y w liście notatek.
+  // Reużywamy jednego query — staleTime 60s w hooku.
+  const { data: users = [] } = useMentionableUsers({ kind: "global" });
+  const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Textarea
+        <MentionTextarea
           value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
+          onChange={setNoteText}
+          scope={{ kind: "global" }}
           onFocus={() => setEditing?.("notes", true)}
           onBlur={() => setEditing?.("notes", false)}
-          placeholder="Nowa notatka…"
+          placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
           rows={3}
+          ariaLabel="Treść nowej notatki"
         />
         {othersEditingNotes.length > 0 ? (
           <div className="text-xs text-[#F59E0B] flex items-center gap-1.5">
@@ -2090,7 +2113,7 @@ function NotatkiTab({
                 <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
               </div>
               <p className="text-sm text-[hsl(var(--text-body))] mt-1 whitespace-pre-line">
-                {n.content}
+                {renderWithMentions(n.content ?? "", usersByEmail)}
               </p>
             </div>
           ))}
