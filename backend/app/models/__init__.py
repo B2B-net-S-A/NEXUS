@@ -107,6 +107,8 @@ from app.models.rejection_email import (
     RejectionEmailStatus,
     ScheduledRejectionEmail,
 )
+from app.models.job_chat import JobChatMessage, JobChatMention, JobChatReadState
+from app.models.engagement_token import EngagementDeclarationToken
 
 __all__ = [
     "User",
@@ -212,4 +214,8 @@ __all__ = [
     "CandidateLinkedinSnapshot",
     "LinkedinChangeKind",
     "LinkedinSyncStatus",
+    "JobChatMessage",
+    "JobChatMention",
+    "JobChatReadState",
+    "EngagementDeclarationToken",
 ]
