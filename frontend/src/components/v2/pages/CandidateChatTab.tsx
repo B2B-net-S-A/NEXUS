@@ -37,9 +37,9 @@ import {
   type CandidateChatBusEvent,
   type CandidateChatMessage,
   type CandidateChatMessageListResp,
-  type ChatUserMini,
   type ReactionAggregate,
 } from "@/types/job-chat";
+import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
 
@@ -48,19 +48,6 @@ const PAGE_LIMIT = 50;
 interface CandidateChatTabProps {
   candidateId: number;
 }
-
-interface MentionState {
-  open: boolean;
-  query: string;
-  /** Index w kontrolowanym `text` gdzie zaczyna się aktywny token "@…". */
-  startIndex: number;
-}
-
-const initialMentionState: MentionState = {
-  open: false,
-  query: "",
-  startIndex: -1,
-};
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -113,7 +100,6 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<CandidateChatMessage | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [mention, setMention] = useState<MentionState>(initialMentionState);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -151,7 +137,6 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     onSuccess: () => {
       setText("");
       setReplyTo(null);
-      setMention(initialMentionState);
       stickToBottomRef.current = true;
       // Server emituje WS event do wszystkich (w tym do autora) → invalidacja
       // ride'uje na CANDIDATE_CHAT_BUS_EVENT, ale dla pewności wyzwalamy też tutaj.
@@ -250,56 +235,6 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     candidateChatApi.markRead(candidateId).catch(() => undefined);
   }, [candidateId, messages.length]);
 
-  // ── Mention parser ────────────────────────────────────────────────────────
-  const handleTextChange = (val: string, caret: number) => {
-    setText(val);
-    // Detekcja "@..." na lewo od caret bez spacji
-    const before = val.slice(0, caret);
-    const atPos = before.lastIndexOf("@");
-    if (atPos === -1) {
-      setMention(initialMentionState);
-      return;
-    }
-    const token = before.slice(atPos + 1);
-    if (!token || /\s/.test(token)) {
-      setMention(initialMentionState);
-      return;
-    }
-    setMention({ open: true, query: token.toLowerCase(), startIndex: atPos });
-  };
-
-  const insertMention = (m: ChatUserMini) => {
-    if (mention.startIndex < 0 || !textareaRef.current) return;
-    const before = text.slice(0, mention.startIndex);
-    const afterCaret = text.slice(
-      textareaRef.current.selectionStart ?? text.length,
-    );
-    const insertion = `@${m.email} `;
-    const next = before + insertion + afterCaret;
-    setText(next);
-    setMention(initialMentionState);
-    // restore caret
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const newPos = (before + insertion).length;
-      ta.focus();
-      ta.setSelectionRange(newPos, newPos);
-    });
-  };
-
-  const filteredMembers = useMemo(() => {
-    if (!mention.open) return [];
-    const q = mention.query;
-    return members
-      .filter(
-        (m) =>
-          m.email.toLowerCase().includes(q) ||
-          m.name.toLowerCase().includes(q),
-      )
-      .slice(0, 6);
-  }, [members, mention]);
-
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -316,11 +251,6 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mention.open && e.key === "Escape") {
-      e.preventDefault();
-      setMention(initialMentionState);
-      return;
-    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -492,41 +422,24 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
         onSubmit={handleSubmit}
         className="relative border-t border-gray-200 dark:border-gray-700 px-3 py-2"
       >
-        {mention.open && filteredMembers.length > 0 && (
-          <div className="absolute bottom-full left-3 right-3 mb-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 overflow-hidden">
-            {filteredMembers.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => insertMention(m)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                <span className="font-medium">{m.name}</span>
-                <span className="text-xs text-gray-500">{m.email}</span>
-                <span className="ml-auto text-[10px] uppercase text-gray-400">
-                  {m.role}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
         <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) =>
-              handleTextChange(e.target.value, e.target.selectionStart ?? 0)
-            }
-            onKeyDown={handleKey}
-            placeholder={
-              editingId !== null
-                ? "Edytuj wiadomość…"
-                : "Napisz wiadomość… (@email aby oznaczyć osobę, Enter wysyła, Shift+Enter = nowa linia)"
-            }
-            rows={2}
-            className="flex-1 resize-none rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={sendMutation.isPending || editMutation.isPending}
-          />
+          <div className="flex-1">
+            <MentionTextarea
+              value={text}
+              onChange={setText}
+              scope={{ kind: "candidate", candidateId }}
+              textareaRef={textareaRef}
+              onKeyDown={handleKey}
+              placeholder={
+                editingId !== null
+                  ? "Edytuj wiadomość…"
+                  : "Napisz wiadomość… (@email aby oznaczyć osobę, Enter wysyła, Shift+Enter = nowa linia)"
+              }
+              rows={2}
+              disabled={sendMutation.isPending || editMutation.isPending}
+              ariaLabel="Treść wiadomości chatu kandydata"
+            />
+          </div>
           <button
             type="submit"
             disabled={
