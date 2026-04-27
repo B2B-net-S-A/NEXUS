@@ -79,6 +79,8 @@ class ConnectionManager:
             user_id,
             len(self._connections[user_id]),
         )
+        # Stamp users.last_seen_at — used by email-fallback task (Feature 11).
+        await _stamp_last_seen(user_id)
 
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         # Clean up presence subscriptions before removing from connections
@@ -91,8 +93,9 @@ class ConnectionManager:
                 pass
             if not self._connections[user_id]:
                 del self._connections[user_id]
-                # Last tab gone: forget cached user info
+                # Last tab gone: forget cached user info + stamp last_seen.
                 self._user_info.pop(user_id, None)
+                await _stamp_last_seen(user_id)
 
         logger.info("WS disconnected: user_id=%d", user_id)
 
@@ -295,6 +298,24 @@ manager = ConnectionManager()
 async def notify_user(user_id: int, event: dict) -> None:
     """Public helper callable from any API endpoint."""
     await manager.notify_user(user_id, event)
+
+
+async def _stamp_last_seen(user_id: int) -> None:
+    """Update users.last_seen_at = NOW() for the email-fallback task.
+
+    Best-effort: errors swallowed — WS lifecycle should never block on
+    ancillary stat tracking.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                User.__table__.update()
+                .where(User.id == user_id)
+                .values(last_seen_at=datetime.now(timezone.utc))
+            )
+            await db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("last_seen_at stamp failed for user %d: %s", user_id, e)
 
 
 # ── Token auth helper ──────────────────────────────────────────────────────────

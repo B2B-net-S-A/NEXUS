@@ -1,7 +1,7 @@
-"""merge 0036_microsoft365 + 0063_job_chat into one head
+"""merge 0036_microsoft365 + 0063_job_chat + 0032_client_materials into one head
 
 Revision ID: 0064_merge_microsoft365_job_chat
-Revises: 0036_microsoft365, 0063_job_chat
+Revises: 0036_microsoft365, 0063_job_chat, 0032_client_materials
 Create Date: 2026-04-27 14:30:00.000000
 
 Context:
@@ -33,7 +33,7 @@ from alembic import op
 
 
 revision = "0064_merge_microsoft365_job_chat"
-down_revision = ("0036_microsoft365", "0063_job_chat")
+down_revision = ("0036_microsoft365", "0063_job_chat", "0032_client_materials")
 branch_labels = None
 depends_on = None
 

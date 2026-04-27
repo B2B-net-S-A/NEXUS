@@ -19,6 +19,7 @@ from app.api.deps import CurrentUser, DeliveryLeadPlus
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.chat_reaction import JobChatMessageReaction
 from app.models.job_chat import JobChatMention, JobChatMessage, JobChatReadState
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
@@ -31,7 +32,11 @@ from app.schemas.job_chat import (
     ChatPinResponse,
     ChatUnreadCount,
     ChatUserMini,
+    ReactionAggregate,
+    ReactionToggleResponse,
+    ReadByUser,
 )
+from app.services.chat_reactions import aggregate_job_reactions
 from app.services.job_membership import (
     is_member_of_job,
     list_job_member_ids,
@@ -108,6 +113,9 @@ async def _serialize(
     )
     mentions = [uid for (uid,) in mention_rows.all()]
 
+    reactions_map = await aggregate_job_reactions(db, [msg.id])
+    reactions = [ReactionAggregate(**r) for r in reactions_map.get(msg.id, [])]
+
     visible_content = (
         DELETED_PLACEHOLDER if msg.is_deleted else msg.content
     )
@@ -126,6 +134,7 @@ async def _serialize(
         pinned_at=msg.pinned_at,
         pinned_by=msg.pinned_by,
         mentions=mentions,
+        reactions=reactions,
         created_at=msg.created_at,
         updated_at=msg.updated_at,
     )
@@ -261,7 +270,9 @@ async def create_message(
                 link=link,
                 notification_type=NotificationType.job_chat_message,
                 related_entity_type="job_chat_message",
-                related_entity_id=msg.id,
+                related_entity_id=None,  # chat notifications nie używają dedup
+                # ix_notif_dedup_daily unique on (user, type, entity_id, day)
+                # — chat events są per-message, nie per-day; dedup nie ma sensu
             )
         )
 
@@ -274,7 +285,9 @@ async def create_message(
                 link=link,
                 notification_type=NotificationType.job_chat_mention,
                 related_entity_type="job_chat_message",
-                related_entity_id=msg.id,
+                related_entity_id=None,  # chat notifications nie używają dedup
+                # ix_notif_dedup_daily unique on (user, type, entity_id, day)
+                # — chat events są per-message, nie per-day; dedup nie ma sensu
             )
         )
 
@@ -611,3 +624,155 @@ async def list_members(
     await _require_member(db, current_user, job_id)
     members = await list_job_members(db, job_id)
     return [_user_to_mini(u) for u in members if u is not None]
+
+
+# ── Reactions (Feature 7) ────────────────────────────────────────────────────
+
+
+async def _job_reactions_for_msg(
+    db: AsyncSession, msg_id: int
+) -> list[ReactionAggregate]:
+    aggs = await aggregate_job_reactions(db, [msg_id])
+    return [ReactionAggregate(**r) for r in aggs.get(msg_id, [])]
+
+
+@router.post(
+    "/{job_id}/chat/messages/{msg_id}/reactions",
+    response_model=ReactionToggleResponse,
+)
+async def add_reaction(
+    job_id: int,
+    msg_id: int,
+    payload: dict,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ReactionToggleResponse:
+    """Dodaje reakcję emoji na wiadomość (idempotentne — duplikat = no-op)."""
+    await _require_member(db, current_user, job_id)
+    msg = await db.get(JobChatMessage, msg_id)
+    if msg is None or msg.job_id != job_id:
+        raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
+    if msg.is_deleted:
+        raise HTTPException(status_code=400, detail="Nie można reagować na usuniętą.")
+
+    emoji = (payload or {}).get("emoji", "").strip()
+    if not emoji or len(emoji) > 16:
+        raise HTTPException(
+            status_code=400, detail="Emoji jest wymagane (max 16 znaków)."
+        )
+
+    existing = (
+        await db.execute(
+            select(JobChatMessageReaction).where(
+                and_(
+                    JobChatMessageReaction.message_id == msg_id,
+                    JobChatMessageReaction.user_id == current_user.id,
+                    JobChatMessageReaction.emoji == emoji,
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(
+            JobChatMessageReaction(
+                message_id=msg_id, user_id=current_user.id, emoji=emoji
+            )
+        )
+        await db.commit()
+
+    reactions = await _job_reactions_for_msg(db, msg_id)
+    await _broadcast(
+        db,
+        job_id,
+        {
+            "type": "chat:message:reaction",
+            "data": {
+                "job_id": job_id,
+                "message_id": msg_id,
+                "reactions": [r.model_dump(mode="json") for r in reactions],
+            },
+        },
+    )
+    return ReactionToggleResponse(message_id=msg_id, reactions=reactions)
+
+
+@router.delete(
+    "/{job_id}/chat/messages/{msg_id}/reactions/{emoji}",
+    response_model=ReactionToggleResponse,
+)
+async def remove_reaction(
+    job_id: int,
+    msg_id: int,
+    emoji: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ReactionToggleResponse:
+    await _require_member(db, current_user, job_id)
+    msg = await db.get(JobChatMessage, msg_id)
+    if msg is None or msg.job_id != job_id:
+        raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
+
+    await db.execute(
+        JobChatMessageReaction.__table__.delete().where(
+            and_(
+                JobChatMessageReaction.message_id == msg_id,
+                JobChatMessageReaction.user_id == current_user.id,
+                JobChatMessageReaction.emoji == emoji,
+            )
+        )
+    )
+    await db.commit()
+
+    reactions = await _job_reactions_for_msg(db, msg_id)
+    await _broadcast(
+        db,
+        job_id,
+        {
+            "type": "chat:message:reaction",
+            "data": {
+                "job_id": job_id,
+                "message_id": msg_id,
+                "reactions": [r.model_dump(mode="json") for r in reactions],
+            },
+        },
+    )
+    return ReactionToggleResponse(message_id=msg_id, reactions=reactions)
+
+
+# ── Read receipts (Feature 9) ────────────────────────────────────────────────
+
+
+@router.get(
+    "/{job_id}/chat/messages/{msg_id}/read-by",
+    response_model=list[ReadByUser],
+)
+async def message_read_by(
+    job_id: int,
+    msg_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[ReadByUser]:
+    """Lista użytkowników którzy przeczytali tę (lub późniejszą) wiadomość.
+
+    Derived z `job_chat_read_state.last_read_message_id >= msg_id`.
+    """
+    await _require_member(db, current_user, job_id)
+    msg = await db.get(JobChatMessage, msg_id)
+    if msg is None or msg.job_id != job_id:
+        raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
+
+    rows = await db.execute(
+        select(
+            JobChatReadState.user_id,
+            JobChatReadState.last_read_at,
+            User.name,
+        )
+        .join(User, User.id == JobChatReadState.user_id)
+        .where(JobChatReadState.job_id == job_id)
+        .where(JobChatReadState.last_read_message_id >= msg_id)
+        .where(JobChatReadState.user_id != current_user.id)
+        .order_by(JobChatReadState.last_read_at.asc())
+    )
+    return [
+        ReadByUser(user_id=uid, name=name, read_at=ts) for uid, ts, name in rows.all()
+    ]

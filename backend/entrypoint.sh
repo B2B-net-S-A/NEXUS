@@ -572,6 +572,102 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_chat_read_state_job_id ON job_chat_read_state (job_id)",
     "CREATE INDEX IF NOT EXISTS ix_job_chat_read_state_user_id ON job_chat_read_state (user_id)",
+    # Chat Phase 2 (migracja 0065): per-candidate chat (3 tabele) + reactions
+    # (2 tabele) + email-fallback kolumny. Idempotent dla prod gdy alembic
+    # upgrade pada na multi-head i wpada w fallback create_all.
+    """CREATE TABLE IF NOT EXISTS candidate_chat_messages (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        author_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        content TEXT NOT NULL,
+        reply_to_message_id INTEGER NULL
+            REFERENCES candidate_chat_messages(id) ON DELETE SET NULL,
+        is_edited BOOLEAN NOT NULL DEFAULT FALSE,
+        edited_at TIMESTAMP WITH TIME ZONE NULL,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP WITH TIME ZONE NULL,
+        pinned BOOLEAN NOT NULL DEFAULT FALSE,
+        pinned_at TIMESTAMP WITH TIME ZONE NULL,
+        pinned_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        external_platform VARCHAR(32) NULL,
+        external_message_id VARCHAR(255) NULL,
+        search_vector tsvector NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_candidate_id ON candidate_chat_messages (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_author_id ON candidate_chat_messages (author_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_is_deleted ON candidate_chat_messages (is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_candidate_created ON candidate_chat_messages (candidate_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_search ON candidate_chat_messages USING gin (search_vector)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_messages_pinned ON candidate_chat_messages (candidate_id, pinned_at) WHERE pinned = TRUE AND is_deleted = FALSE",
+    """CREATE OR REPLACE FUNCTION candidate_chat_messages_search_trigger()
+       RETURNS trigger AS $$
+       BEGIN
+           NEW.search_vector := to_tsvector('simple', COALESCE(NEW.content, ''));
+           RETURN NEW;
+       END
+       $$ LANGUAGE plpgsql""",
+    "DROP TRIGGER IF EXISTS candidate_chat_messages_search_update ON candidate_chat_messages",
+    """CREATE TRIGGER candidate_chat_messages_search_update
+       BEFORE INSERT OR UPDATE OF content
+       ON candidate_chat_messages
+       FOR EACH ROW EXECUTE FUNCTION candidate_chat_messages_search_trigger()""",
+    """CREATE OR REPLACE FUNCTION candidate_chat_messages_touch_updated_at()
+       RETURNS trigger AS $$
+       BEGIN
+           NEW.updated_at := NOW();
+           RETURN NEW;
+       END
+       $$ LANGUAGE plpgsql""",
+    "DROP TRIGGER IF EXISTS candidate_chat_messages_touch_updated_at ON candidate_chat_messages",
+    """CREATE TRIGGER candidate_chat_messages_touch_updated_at
+       BEFORE UPDATE ON candidate_chat_messages
+       FOR EACH ROW EXECUTE FUNCTION candidate_chat_messages_touch_updated_at()""",
+    """CREATE TABLE IF NOT EXISTS candidate_chat_mentions (
+        id SERIAL PRIMARY KEY,
+        message_id INTEGER NOT NULL
+            REFERENCES candidate_chat_messages(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_candidate_chat_mentions_msg_user UNIQUE (message_id, user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_mentions_message_id ON candidate_chat_mentions (message_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_mentions_user ON candidate_chat_mentions (user_id)",
+    """CREATE TABLE IF NOT EXISTS candidate_chat_read_state (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        last_read_message_id INTEGER NULL
+            REFERENCES candidate_chat_messages(id) ON DELETE SET NULL,
+        last_read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_candidate_chat_read_state_candidate_user UNIQUE (candidate_id, user_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_read_state_candidate_id ON candidate_chat_read_state (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_read_state_user_id ON candidate_chat_read_state (user_id)",
+    """CREATE TABLE IF NOT EXISTS job_chat_message_reactions (
+        id SERIAL PRIMARY KEY,
+        message_id INTEGER NOT NULL REFERENCES job_chat_messages(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        emoji VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_job_chat_msg_reaction UNIQUE (message_id, user_id, emoji)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_msg_reactions_message ON job_chat_message_reactions (message_id)",
+    "CREATE INDEX IF NOT EXISTS ix_job_chat_msg_reactions_user_id ON job_chat_message_reactions (user_id)",
+    """CREATE TABLE IF NOT EXISTS candidate_chat_message_reactions (
+        id SERIAL PRIMARY KEY,
+        message_id INTEGER NOT NULL REFERENCES candidate_chat_messages(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        emoji VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_candidate_chat_msg_reaction UNIQUE (message_id, user_id, emoji)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_msg_reactions_message ON candidate_chat_message_reactions (message_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_chat_msg_reactions_user_id ON candidate_chat_message_reactions (user_id)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NULL",
+    "CREATE INDEX IF NOT EXISTS ix_users_last_seen_at ON users (last_seen_at)",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ NULL",
 ]
 
 _DATA_STATEMENTS = [

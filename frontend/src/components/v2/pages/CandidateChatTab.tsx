@@ -29,14 +29,14 @@ import {
   X,
 } from "lucide-react";
 
-import { jobChatApi } from "@/lib/api";
+import { candidateChatApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { hasMinRole, useAuthStore } from "@/store/auth";
 import {
-  CHAT_BUS_EVENT,
-  type ChatBusEvent,
-  type ChatMessage,
-  type ChatMessageListResp,
+  CANDIDATE_CHAT_BUS_EVENT,
+  type CandidateChatBusEvent,
+  type CandidateChatMessage,
+  type CandidateChatMessageListResp,
   type ChatUserMini,
   type ReactionAggregate,
 } from "@/types/job-chat";
@@ -45,8 +45,8 @@ const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏
 
 const PAGE_LIMIT = 50;
 
-interface JobChatTabProps {
-  jobId: number;
+interface CandidateChatTabProps {
+  candidateId: number;
 }
 
 interface MentionState {
@@ -64,22 +64,22 @@ const initialMentionState: MentionState = {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function JobChatTab({ jobId }: JobChatTabProps) {
+export default function CandidateChatTab({ candidateId }: CandidateChatTabProps) {
   const user = useAuthStore((s) => s.user);
   const canPin = hasMinRole(user, "delivery_lead");
   const queryClient = useQueryClient();
 
   // ── Members (dla autocomplete) ────────────────────────────────────────────
   const { data: members = [] } = useQuery({
-    queryKey: ["job-chat-members", jobId],
-    queryFn: async () => (await jobChatApi.getMembers(jobId)).data,
+    queryKey: ["candidate-chat-members", candidateId],
+    queryFn: async () => (await candidateChatApi.getMembers(candidateId)).data,
     staleTime: 60_000,
   });
 
   // ── Pinned ────────────────────────────────────────────────────────────────
   const { data: pinned = [] } = useQuery({
-    queryKey: ["job-chat-pinned", jobId],
-    queryFn: async () => (await jobChatApi.getPinned(jobId)).data,
+    queryKey: ["candidate-chat-pinned", candidateId],
+    queryFn: async () => (await candidateChatApi.getPinned(candidateId)).data,
     staleTime: 30_000,
   });
 
@@ -88,7 +88,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   const [activeSearch, setActiveSearch] = useState("");
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["job-chat-messages", jobId, activeSearch],
+    queryKey: ["candidate-chat-messages", candidateId, activeSearch],
     initialPageParam: undefined as number | undefined,
     queryFn: async ({ pageParam }) => {
       const params: { limit: number; before_id?: number; search?: string } = {
@@ -96,22 +96,22 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       };
       if (pageParam) params.before_id = pageParam;
       if (activeSearch.trim()) params.search = activeSearch.trim();
-      const resp = await jobChatApi.listMessages(jobId, params);
-      return resp.data as ChatMessageListResp;
+      const resp = await candidateChatApi.listMessages(candidateId, params);
+      return resp.data as CandidateChatMessageListResp;
     },
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? (lastPage.next_before_id ?? undefined) : undefined,
   });
 
   // Merge wszystkich page'y w jedną listę i odwróć (najstarsza pierwsza, dla UI od dołu).
-  const messages = useMemo<ChatMessage[]>(() => {
+  const messages = useMemo<CandidateChatMessage[]>(() => {
     const all = (messagesQuery.data?.pages ?? []).flatMap((p) => p.items);
     return all.slice().reverse();
   }, [messagesQuery.data]);
 
   // ── Compose state ─────────────────────────────────────────────────────────
   const [text, setText] = useState("");
-  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [replyTo, setReplyTo] = useState<CandidateChatMessage | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [mention, setMention] = useState<MentionState>(initialMentionState);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -147,39 +147,39 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     mutationFn: async (payload: {
       content: string;
       reply_to_message_id?: number | null;
-    }) => (await jobChatApi.sendMessage(jobId, payload)).data,
+    }) => (await candidateChatApi.sendMessage(candidateId, payload)).data,
     onSuccess: () => {
       setText("");
       setReplyTo(null);
       setMention(initialMentionState);
       stickToBottomRef.current = true;
       // Server emituje WS event do wszystkich (w tym do autora) → invalidacja
-      // ride'uje na CHAT_BUS_EVENT, ale dla pewności wyzwalamy też tutaj.
+      // ride'uje na CANDIDATE_CHAT_BUS_EVENT, ale dla pewności wyzwalamy też tutaj.
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
     },
   });
 
   const editMutation = useMutation({
     mutationFn: async ({ id, content }: { id: number; content: string }) =>
-      (await jobChatApi.editMessage(jobId, id, { content })).data,
+      (await candidateChatApi.editMessage(candidateId, id, { content })).data,
     onSuccess: () => {
       setText("");
       setEditingId(null);
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await jobChatApi.deleteMessage(jobId, id);
+      await candidateChatApi.deleteMessage(candidateId, id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
     },
   });
@@ -187,12 +187,12 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   const pinMutation = useMutation({
     mutationFn: async ({ id, pin }: { id: number; pin: boolean }) =>
       pin
-        ? (await jobChatApi.pinMessage(jobId, id)).data
-        : (await jobChatApi.unpinMessage(jobId, id)).data,
+        ? (await candidateChatApi.pinMessage(candidateId, id)).data
+        : (await candidateChatApi.unpinMessage(candidateId, id)).data,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["job-chat-pinned", jobId] });
+      queryClient.invalidateQueries({ queryKey: ["candidate-chat-pinned", candidateId] });
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
     },
   });
@@ -208,11 +208,11 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       add: boolean;
     }) =>
       add
-        ? (await jobChatApi.addReaction(jobId, id, emoji)).data
-        : (await jobChatApi.removeReaction(jobId, id, emoji)).data,
+        ? (await candidateChatApi.addReaction(candidateId, id, emoji)).data
+        : (await candidateChatApi.removeReaction(candidateId, id, emoji)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
     },
   });
@@ -220,38 +220,35 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   // ── WS bus listener ───────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: Event) => {
-      const ev = e as CustomEvent<ChatBusEvent>;
+      const ev = e as CustomEvent<CandidateChatBusEvent>;
       const detail = ev.detail;
       if (!detail) return;
 
-      // Filtrujemy tylko wiadomości tego joba
-      const eventJobId =
-        detail.kind === "delete" || detail.kind === "pin"
-          ? detail.data.job_id
-          : detail.data.job_id;
-      if (eventJobId !== jobId) return;
+      // Filtrujemy tylko wiadomości tego kandydata
+      const eventCandidateId = detail.data.candidate_id;
+      if (eventCandidateId !== candidateId) return;
 
       queryClient.invalidateQueries({
-        queryKey: ["job-chat-messages", jobId, activeSearch],
+        queryKey: ["candidate-chat-messages", candidateId, activeSearch],
       });
-      queryClient.invalidateQueries({ queryKey: ["job-chat-pinned", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["job-chat-unread", jobId] });
+      queryClient.invalidateQueries({ queryKey: ["candidate-chat-pinned", candidateId] });
+      queryClient.invalidateQueries({ queryKey: ["candidate-chat-unread", candidateId] });
 
       // Mark as read jeśli to nowa wiadomość a tab jest aktywny
       if (detail.kind === "new" && document.visibilityState === "visible") {
         // best-effort, w tle
-        jobChatApi.markRead(jobId).catch(() => undefined);
+        candidateChatApi.markRead(candidateId).catch(() => undefined);
       }
     };
-    window.addEventListener(CHAT_BUS_EVENT, handler as EventListener);
+    window.addEventListener(CANDIDATE_CHAT_BUS_EVENT, handler as EventListener);
     return () =>
-      window.removeEventListener(CHAT_BUS_EVENT, handler as EventListener);
-  }, [jobId, activeSearch, queryClient]);
+      window.removeEventListener(CANDIDATE_CHAT_BUS_EVENT, handler as EventListener);
+  }, [candidateId, activeSearch, queryClient]);
 
   // Mark read on mount + przy każdej zmianie ostatniej wiadomości (jeśli tab widoczny)
   useEffect(() => {
-    jobChatApi.markRead(jobId).catch(() => undefined);
-  }, [jobId, messages.length]);
+    candidateChatApi.markRead(candidateId).catch(() => undefined);
+  }, [candidateId, messages.length]);
 
   // ── Mention parser ────────────────────────────────────────────────────────
   const handleTextChange = (val: string, caret: number) => {
@@ -344,7 +341,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     setActiveSearch(searchQuery);
   };
 
-  const startEdit = (m: ChatMessage) => {
+  const startEdit = (m: CandidateChatMessage) => {
     setEditingId(m.id);
     setReplyTo(null);
     setText(m.content);
@@ -456,7 +453,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
               reactionMutation.mutate({ id: m.id, emoji, add })
             }
             onLoadReadBy={async (msgId) =>
-              (await jobChatApi.getReadBy(jobId, msgId)).data
+              (await candidateChatApi.getReadBy(candidateId, msgId)).data
             }
           />
         ))}
@@ -558,7 +555,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
 // ── MessageRow ───────────────────────────────────────────────────────────────
 
 interface MessageRowProps {
-  message: ChatMessage;
+  message: CandidateChatMessage;
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;

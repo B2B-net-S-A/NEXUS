@@ -75,6 +75,7 @@ import { LinkedinSyncPanel } from "@/components/v2/LinkedinSyncPanel";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { usePresence, type PresenceViewer } from "@/hooks/usePresence";
 import { useAuthStore } from "@/store/auth";
+import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   active: "success",
@@ -550,6 +551,10 @@ export function CandidateDetailV2({
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="chat">
+              <MessageSquare className="h-3.5 w-3.5" />
+              Chat
+            </TabsTrigger>
           </TabsList>
 
           <div className="p-5">
@@ -610,6 +615,9 @@ export function CandidateDetailV2({
                 )}
                 onJumpToProfile={() => setActiveTab("profil")}
               />
+            </TabsContent>
+            <TabsContent value="chat" className="mt-0">
+              <CandidateChatTab candidateId={Number(id)} />
             </TabsContent>
           </div>
         </Tabs>

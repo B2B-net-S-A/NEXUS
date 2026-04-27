@@ -26,6 +26,14 @@ class ChatMessageUpdate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
 
 
+class ReactionAggregate(BaseModel):
+    """Agregacja reakcji per emoji — używana przez Job + Candidate chat."""
+
+    emoji: str
+    count: int
+    user_ids: list[int]
+
+
 class ChatMessageResponse(BaseModel):
     id: int
     job_id: int
@@ -40,10 +48,26 @@ class ChatMessageResponse(BaseModel):
     pinned_at: Optional[datetime]
     pinned_by: Optional[int]
     mentions: list[int] = []  # user_ids
+    reactions: list[ReactionAggregate] = []
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReactionToggleResponse(BaseModel):
+    """Odpowiedź na POST/DELETE reakcji — pełny stan reakcji wiadomości."""
+
+    message_id: int
+    reactions: list[ReactionAggregate]
+
+
+class ReadByUser(BaseModel):
+    """Element listy 'kto przeczytał' — derived z JobChatReadState."""
+
+    user_id: int
+    name: str
+    read_at: datetime
 
 
 class ChatMessageList(BaseModel):

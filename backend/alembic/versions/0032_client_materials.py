@@ -1,6 +1,6 @@
 """Phase 11 A1: client_one_pagers + client_contract_terms tables
 
-Revision ID: 0029
+Revision ID: 0032_client_materials
 Revises: 0028
 Create Date: 2026-04-21 10:00:00.000000
 
@@ -9,12 +9,19 @@ Sales-material uploads (PDF/DOCX one-pagers) and structured MSA terms
 "Materiały" sub-tab on the client detail page.
 
 Idempotent — guarded DDL matches 0018_contract_documents.py pattern.
+
+NOTE: Original revision id was "0029", colliding with
+0029_job_collaborators.py. Renamed to "0032_client_materials" (matching
+the filename) to remove the duplicate-revision warning and fix
+multi-head alembic state. All DDL is `CREATE TABLE IF NOT EXISTS` —
+re-applying after the rename is a no-op on environments where tables
+already exist (which is everywhere given the entrypoint.sh safety-net).
 """
 
 from alembic import op
 
 
-revision = "0029"
+revision = "0032_client_materials"
 down_revision = "0028"
 branch_labels = None
 depends_on = None

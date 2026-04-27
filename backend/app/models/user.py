@@ -76,6 +76,15 @@ class User(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Last time this user had an active WS connection. Updated by
+    # `ConnectionManager.connect/disconnect` in `app.api.ws`. Used by the
+    # email-fallback background task: when a chat notification is older
+    # than 15 min and the user's last_seen_at is also older than 15 min,
+    # send the notification by email instead of just WS.
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     # Relationships
     authored_notes = relationship(
         "Note", back_populates="author", foreign_keys="Note.author_id"

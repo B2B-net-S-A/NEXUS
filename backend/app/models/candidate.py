@@ -272,6 +272,11 @@ class Candidate(Base, TimestampMixin):
     notes = relationship(
         "Note", back_populates="candidate", cascade="all, delete-orphan"
     )
+    chat_messages = relationship(
+        "CandidateChatMessage",
+        back_populates="candidate",
+        cascade="all, delete-orphan",
+    )
     pipeline_stages = relationship(
         "CandidateStage", back_populates="candidate", cascade="all, delete-orphan"
     )

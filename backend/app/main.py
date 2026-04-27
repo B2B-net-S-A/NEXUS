@@ -90,6 +90,8 @@ from app.api import email_threads as email_threads_api
 from app.api import marketplace as marketplace_api
 from app.api import presence as presence_api
 from app.api import job_chat as job_chat_api
+from app.api import candidate_chat as candidate_chat_api
+from app.api import admin_chats as admin_chats_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -192,6 +194,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.microsoft365_sync import microsoft365_sync_loop
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
+    from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -207,6 +210,7 @@ async def lifespan(app: FastAPI):
     linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
     microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
     marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
+    chat_email_fallback_task = asyncio.create_task(chat_email_fallback_loop())
 
     yield
 
@@ -225,6 +229,7 @@ async def lifespan(app: FastAPI):
         linkedin_sync_task,
         microsoft365_sync_task,
         marketplace_sweeper_task,
+        chat_email_fallback_task,
     )
     for t in tasks:
         t.cancel()
@@ -320,6 +325,12 @@ app.include_router(fireflies.router, prefix="/api", tags=["fireflies"])
 app.include_router(ws.router, tags=["websocket"])
 app.include_router(presence_api.router, tags=["presence"])
 app.include_router(job_chat_api.router, prefix="/api/jobs", tags=["job-chat"])
+app.include_router(
+    candidate_chat_api.router, prefix="/api/candidates", tags=["candidate-chat"]
+)
+app.include_router(
+    admin_chats_api.router, prefix="/api/admin", tags=["admin-chats"]
+)
 app.include_router(matching.router, prefix="/api", tags=["matching"])
 app.include_router(skills_api.router, prefix="/api/skills", tags=["skills"])
 app.include_router(

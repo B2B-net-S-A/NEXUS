@@ -43,9 +43,14 @@ export const CHAMPION_PROFILE_CHANGED_EVENT = "nexus:cp-changed";
 // constant in sync with frontend/src/components/v2/kpi/KpiNudgeToaster.tsx.
 export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
 
-// Job Chat events — re-broadcast z WS do JobChatTab. Komponent listenuje
-// CHAT_BUS_EVENT i sam invaliduje React Query keys + appenduje wiadomości.
-import { CHAT_BUS_EVENT, type ChatBusEvent } from "@/types/job-chat";
+// Job + Candidate Chat events — re-broadcast z WS do *ChatTab. Komponent
+// listenuje odpowiedni event bus i sam invaliduje React Query keys.
+import {
+  CANDIDATE_CHAT_BUS_EVENT,
+  CHAT_BUS_EVENT,
+  type CandidateChatBusEvent,
+  type ChatBusEvent,
+} from "@/types/job-chat";
 
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
@@ -193,6 +198,37 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
             window.dispatchEvent(
               new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
             );
+          }
+        } else if (msg.type === "chat:message:reaction" && msg.data) {
+          if (typeof window !== "undefined") {
+            const detail: ChatBusEvent = { kind: "reaction", data: msg.data };
+            window.dispatchEvent(
+              new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
+            );
+          }
+        } else if (
+          typeof msg.type === "string" &&
+          msg.type.startsWith("candidate-chat:message:") &&
+          msg.data
+        ) {
+          if (typeof window !== "undefined") {
+            const kindMap: Record<string, CandidateChatBusEvent["kind"]> = {
+              "candidate-chat:message:new": "new",
+              "candidate-chat:message:edit": "edit",
+              "candidate-chat:message:delete": "delete",
+              "candidate-chat:message:pin": "pin",
+              "candidate-chat:message:reaction": "reaction",
+            };
+            const kind = kindMap[msg.type];
+            if (kind) {
+              const detail = { kind, data: msg.data } as CandidateChatBusEvent;
+              window.dispatchEvent(
+                new CustomEvent<CandidateChatBusEvent>(
+                  CANDIDATE_CHAT_BUS_EVENT,
+                  { detail },
+                ),
+              );
+            }
           }
         } else if (msg.type === "ping") {
           ws.send("ping");

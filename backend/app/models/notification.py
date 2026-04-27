@@ -1,7 +1,8 @@
 import enum
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -98,6 +99,14 @@ class Notification(Base, TimestampMixin):
     # bo entity może być candidate_stage, call, candidate albo job.
     related_entity_type: Mapped[Optional[str]] = mapped_column(String(50))
     related_entity_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+
+    # Email fallback dla offline >15min (Phase chat-2): kiedy chat-related
+    # notyfikacja przeleży 15 min nieprzeczytana i user nie był online,
+    # background task wysyła email i stempluje tutaj timestamp. Zapobiega
+    # podwójnym wysyłkom przy kolejnych przebiegach taska.
+    email_sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])

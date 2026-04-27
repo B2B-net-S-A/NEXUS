@@ -104,7 +104,7 @@ async def authorize(
     return AuthorizeResponse(authorize_url=url)
 
 
-@router.get("/callback")
+@router.get("/callback", response_class=RedirectResponse)
 @limiter.limit("20/minute")
 async def callback(
     request: Request,
@@ -113,10 +113,14 @@ async def callback(
     error: Optional[str] = Query(None),
     error_description: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
+):
     """OAuth redirect endpoint — unauthenticated; identity comes from signed state.
 
     Exchanges code → tokens, upserts M365Connection, kicks off backfill.
+
+    Note: `response_class=RedirectResponse` (not return-type annotation) —
+    Pydantic 2 cannot generate JSON schema from a Starlette Response subclass,
+    which would crash `/openapi.json` for the whole app.
     """
     if error:
         logger.warning("m365 callback error: %s — %s", error, error_description)

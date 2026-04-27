@@ -108,6 +108,15 @@ from app.models.rejection_email import (
     ScheduledRejectionEmail,
 )
 from app.models.job_chat import JobChatMessage, JobChatMention, JobChatReadState
+from app.models.candidate_chat import (
+    CandidateChatMessage,
+    CandidateChatMention,
+    CandidateChatReadState,
+)
+from app.models.chat_reaction import (
+    JobChatMessageReaction,
+    CandidateChatMessageReaction,
+)
 from app.models.engagement_token import EngagementDeclarationToken
 
 __all__ = [
@@ -217,5 +226,10 @@ __all__ = [
     "JobChatMessage",
     "JobChatMention",
     "JobChatReadState",
+    "CandidateChatMessage",
+    "CandidateChatMention",
+    "CandidateChatReadState",
+    "JobChatMessageReaction",
+    "CandidateChatMessageReaction",
     "EngagementDeclarationToken",
 ]

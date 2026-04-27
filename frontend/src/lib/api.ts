@@ -2146,11 +2146,16 @@ export const interviewQuestionsApi = {
 // `chat:message:*` w useNotifications. Patrz: backend/app/api/job_chat.py.
 
 import type {
+  CandidateChatMessage,
+  CandidateChatMessageListResp,
   ChatMessage,
   ChatMessageListResp,
   ChatPinResponse,
   ChatUnreadCount,
   ChatUserMini,
+  GlobalChatList,
+  ReactionToggleResponse,
+  ReadByUser,
 } from "@/types/job-chat";
 
 export const jobChatApi = {
@@ -2185,6 +2190,92 @@ export const jobChatApi = {
     api.get<ChatUnreadCount>(`/api/jobs/${jobId}/chat/unread-count`),
   getMembers: (jobId: number) =>
     api.get<ChatUserMini[]>(`/api/jobs/${jobId}/chat/members`),
+  // Reactions (Feature 7)
+  addReaction: (jobId: number, msgId: number, emoji: string) =>
+    api.post<ReactionToggleResponse>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/reactions`,
+      { emoji },
+    ),
+  removeReaction: (jobId: number, msgId: number, emoji: string) =>
+    api.delete<ReactionToggleResponse>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`,
+    ),
+  // Read receipts (Feature 9)
+  getReadBy: (jobId: number, msgId: number) =>
+    api.get<ReadByUser[]>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/read-by`,
+    ),
+};
+
+// ── Candidate Chat (Feature 2) ───────────────────────────────────────────────
+
+export const candidateChatApi = {
+  listMessages: (
+    candidateId: number,
+    params?: { limit?: number; before_id?: number; search?: string },
+  ) =>
+    api.get<CandidateChatMessageListResp>(
+      `/api/candidates/${candidateId}/chat/messages`,
+      { params },
+    ),
+  sendMessage: (
+    candidateId: number,
+    data: { content: string; reply_to_message_id?: number | null },
+  ) =>
+    api.post<CandidateChatMessage>(
+      `/api/candidates/${candidateId}/chat/messages`,
+      data,
+    ),
+  editMessage: (candidateId: number, msgId: number, data: { content: string }) =>
+    api.patch<CandidateChatMessage>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}`,
+      data,
+    ),
+  deleteMessage: (candidateId: number, msgId: number) =>
+    api.delete<void>(`/api/candidates/${candidateId}/chat/messages/${msgId}`),
+  pinMessage: (candidateId: number, msgId: number) =>
+    api.post<ChatPinResponse>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}/pin`,
+    ),
+  unpinMessage: (candidateId: number, msgId: number) =>
+    api.delete<ChatPinResponse>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}/pin`,
+    ),
+  getPinned: (candidateId: number) =>
+    api.get<CandidateChatMessage[]>(
+      `/api/candidates/${candidateId}/chat/pinned`,
+    ),
+  markRead: (candidateId: number) =>
+    api.put<ChatUnreadCount>(`/api/candidates/${candidateId}/chat/read`),
+  getUnreadCount: (candidateId: number) =>
+    api.get<ChatUnreadCount>(
+      `/api/candidates/${candidateId}/chat/unread-count`,
+    ),
+  getMembers: (candidateId: number) =>
+    api.get<ChatUserMini[]>(`/api/candidates/${candidateId}/chat/members`),
+  addReaction: (candidateId: number, msgId: number, emoji: string) =>
+    api.post<ReactionToggleResponse>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}/reactions`,
+      { emoji },
+    ),
+  removeReaction: (candidateId: number, msgId: number, emoji: string) =>
+    api.delete<ReactionToggleResponse>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}/reactions/${encodeURIComponent(emoji)}`,
+    ),
+  getReadBy: (candidateId: number, msgId: number) =>
+    api.get<ReadByUser[]>(
+      `/api/candidates/${candidateId}/chat/messages/${msgId}/read-by`,
+    ),
+};
+
+// ── Admin global chats (Feature 10) ──────────────────────────────────────────
+
+export const adminChatsApi = {
+  listGlobal: (params?: {
+    limit?: number;
+    chat_type?: "job" | "candidate";
+    search?: string;
+  }) => api.get<GlobalChatList>(`/api/admin/global-chats`, { params }),
 };
 
 export default api;
