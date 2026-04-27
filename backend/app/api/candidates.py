@@ -2096,6 +2096,55 @@ async def update_candidate_engagement(
     return _candidate_to_response(candidate)
 
 
+@router.post(
+    "/{candidate_id}/engagement-declaration-link",
+    status_code=201,
+)
+async def create_engagement_declaration_link(
+    candidate_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generuje magic-link dla kandydata do self-service deklaracji „Otwartość".
+
+    Link jest jednokrotny, TTL 30 dni. Frontend formularz: `/engagement/{token}`.
+    Wysyłka maila opcjonalna — endpoint zwraca tylko token i URL, rekruter kopiuje
+    do swojej kanałowej komunikacji (Slack/email/SMS).
+
+    Phase „Otwartość" Faza 2.6.
+    """
+    import secrets
+    from app.models.engagement_token import EngagementDeclarationToken
+    from datetime import timedelta as _timedelta
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id)
+    )
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    token_str = secrets.token_urlsafe(24)  # ~32 chars urlsafe
+    now = datetime.now(timezone.utc)
+    expires_at = now + _timedelta(days=30)
+
+    row = EngagementDeclarationToken(
+        candidate_id=candidate_id,
+        token=token_str,
+        created_at=now,
+        expires_at=expires_at,
+        created_by=current_user.id,
+    )
+    db.add(row)
+    await db.commit()
+
+    base = settings.PUBLIC_APP_URL.rstrip("/") if hasattr(settings, "PUBLIC_APP_URL") and settings.PUBLIC_APP_URL else "https://nexus.dynaminds.pl"
+    return {
+        "token": token_str,
+        "url": f"{base}/engagement/{token_str}",
+        "expires_at": expires_at.isoformat(),
+    }
+
+
 @router.patch(
     "/{candidate_id}/location",
     response_model=CandidateResponse,

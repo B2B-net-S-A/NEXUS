@@ -346,6 +346,22 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_sales_support BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_expert_consult BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS engagement_notes TEXT",
+    # candidates open_to_* timestamps (migration 0061_open_to_timestamps)
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_side_projects_updated_at TIMESTAMPTZ",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_sales_support_updated_at TIMESTAMPTZ",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS open_to_expert_consult_updated_at TIMESTAMPTZ",
+    # engagement_declaration_tokens (migration 0062_engagement_declaration_tokens)
+    """CREATE TABLE IF NOT EXISTS engagement_declaration_tokens (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        token VARCHAR(48) UNIQUE NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_engagement_decl_tokens_token ON engagement_declaration_tokens (token)",
+    "CREATE INDEX IF NOT EXISTS ix_engagement_decl_tokens_candidate ON engagement_declaration_tokens (candidate_id)",
     # candidates structured location (migration 0037_contracts_expansion)
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS country VARCHAR(2)",

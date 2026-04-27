@@ -6,7 +6,8 @@ import {
   candidateProfileApi,
   type CandidateEngagementPayload,
 } from "@/lib/api";
-import { Award, Save, RefreshCcw } from "lucide-react";
+import { Award, Save, RefreshCcw, Link as LinkIcon } from "lucide-react";
+import api from "@/lib/api";
 
 type OpenToFlagKey =
   | "open_to_side_projects"
@@ -122,6 +123,31 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
     mut.mutate({ [key]: Boolean(flags[key]) } as CandidateEngagementPayload);
   };
 
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [linkPending, setLinkPending] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const generateMagicLink = async () => {
+    setLinkPending(true);
+    setLinkCopied(false);
+    try {
+      const res = await api.post(
+        `/api/candidates/${candidateId}/engagement-declaration-link`
+      );
+      const url: string | undefined = res.data?.url;
+      if (url) {
+        setLinkUrl(url);
+        if (typeof navigator !== "undefined" && navigator.clipboard) {
+          await navigator.clipboard.writeText(url);
+          setLinkCopied(true);
+        }
+      }
+    } catch (e) {
+      // Toast niepotrzebny — UI pokaże brak linku.
+    } finally {
+      setLinkPending(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-900">
       <div className="flex items-center gap-2 mb-3">
@@ -190,7 +216,17 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           placeholder="Jaką rolę chciałby pełnić? Jakie projekty by go interesowały?"
         />
       </label>
-      <div className="flex justify-end mt-3">
+      <div className="flex justify-between items-center mt-3 gap-2">
+        <button
+          type="button"
+          onClick={generateMagicLink}
+          disabled={linkPending}
+          title="Wyślij kandydatowi link, gdzie sam zaktualizuje preferencje"
+          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm px-3 py-1.5 disabled:opacity-50"
+        >
+          <LinkIcon className="w-3.5 h-3.5" />
+          {linkPending ? "Generuję…" : "Magic-link"}
+        </button>
         <button
           type="button"
           onClick={() => mut.mutate(flags)}
@@ -201,6 +237,19 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           {mut.isPending ? "Zapisywanie…" : "Zapisz"}
         </button>
       </div>
+      {linkUrl && (
+        <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded text-[11px]">
+          <div className="text-amber-800 dark:text-amber-300 font-medium">
+            {linkCopied ? "Skopiowano do schowka:" : "Link wygenerowany:"}
+          </div>
+          <code className="block mt-0.5 text-amber-700 dark:text-amber-400 break-all">
+            {linkUrl}
+          </code>
+          <div className="mt-1 text-gray-500">
+            Wyślij kandydatowi (Slack/email/SMS). Link jednokrotny, ważny 30 dni.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
