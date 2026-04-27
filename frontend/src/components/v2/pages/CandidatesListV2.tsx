@@ -1113,6 +1113,8 @@ export function CandidatesListV2() {
             applyFiltersPatch({
               q: decoded.q,
               status: decoded.status,
+              employment: decoded.employment,
+              availability: decoded.availability,
               sort: decoded.sort,
               page: 1,
               remote: decoded.remote,
@@ -1124,6 +1126,9 @@ export function CandidatesListV2() {
               pastCompany: decoded.pastCompany,
               currentTitle: decoded.currentTitle,
               workedAtClientIds: decoded.workedAtClientIds,
+              qAll: decoded.qAll,
+              qAny: decoded.qAny,
+              qNone: decoded.qNone,
             });
           }}
         />
