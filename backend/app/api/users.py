@@ -78,6 +78,86 @@ async def list_users(
     return [UserBrief.model_validate(u) for u in result.scalars().all()]
 
 
+@router.get("/mentionable", response_model=List[UserBrief])
+async def list_mentionable_users(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    job_id: Optional[int] = Query(
+        None,
+        description=(
+            "Jeśli podane: zwraca tylko members tego projektu (job-scope). "
+            "Używane gdy mention dotyczy notatki/chatu związanego z konkretnym "
+            "projektem."
+        ),
+    ),
+    candidate_id: Optional[int] = Query(
+        None,
+        description=(
+            "Jeśli podane: zwraca tylko members chatu kandydata. Używane przez "
+            "candidate chat. Job_id ma pierwszeństwo gdy oba są podane."
+        ),
+    ),
+    q: Optional[str] = Query(
+        None, description="Case-insensitive match on name/email."
+    ),
+):
+    """Lista userów dostępnych do @mention.
+
+    Trzy tryby (mutually exclusive — pierwszy match wygrywa):
+      job_id       → members projektu (przez list_job_member_ids)
+      candidate_id → members chatu kandydata (przez list_candidate_chat_member_ids)
+      brak ID      → wszyscy aktywni z rolą != `user` (default _DEFAULT_ROLES)
+
+    Zawsze filtruje `is_active=True`. Frontend `MentionTextarea` cache'uje
+    przez react-query (`staleTime: 60s`).
+    """
+    if job_id is not None:
+        from app.services.job_membership import list_job_member_ids
+
+        member_ids = await list_job_member_ids(db, job_id)
+        if not member_ids:
+            return []
+        rows = await db.execute(
+            select(User)
+            .where(User.id.in_(member_ids))
+            .where(User.is_active.is_(True))
+            .order_by(User.name)
+        )
+        users = list(rows.scalars().all())
+    elif candidate_id is not None:
+        from app.services.candidate_membership import (
+            list_candidate_chat_member_ids,
+        )
+
+        member_ids = await list_candidate_chat_member_ids(db, candidate_id)
+        if not member_ids:
+            return []
+        rows = await db.execute(
+            select(User)
+            .where(User.id.in_(member_ids))
+            .where(User.is_active.is_(True))
+            .order_by(User.name)
+        )
+        users = list(rows.scalars().all())
+    else:
+        rows = await db.execute(
+            select(User)
+            .where(User.is_active.is_(True))
+            .where(User.role.in_(_DEFAULT_ROLES))
+            .order_by(User.name)
+        )
+        users = list(rows.scalars().all())
+
+    if q:
+        needle = q.lower()
+        users = [
+            u
+            for u in users
+            if needle in (u.email or "").lower() or needle in (u.name or "").lower()
+        ]
+    return [UserBrief.model_validate(u) for u in users]
+
+
 # ── Preferences ────────────────────────────────────────────────────────────
 
 

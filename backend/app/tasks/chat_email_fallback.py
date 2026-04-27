@@ -6,9 +6,10 @@ starsze niż 15 min (lub NULL — użytkownik nigdy nie był online z tym
 fixem). Dla każdej takiej notyfikacji wysyła email i stempluje
 `Notification.email_sent_at = NOW()` żeby uniknąć duplikatów.
 
-Wysyłka: M365 (jeśli skonfigurowane) z fallbackiem na log-only (`smtp_send`
-nie istnieje w tym repo na dziś — drukujemy do logu, prod admin może
-podpiąć SES/Sendgrid w jednym miejscu).
+Wysyłka: SMTP przez `services.email.send_chat_fallback_email` — feature-
+gated przez `SMTP_ENABLED`. Gdy off zwraca `False` i pętla retry'uje w
+następnej iteracji (po włączeniu SMTP creds w env). Backupowy log na
+WARN gdy SMTP fail żeby nie zalewać produkcji.
 
 Loop dziedziczy wzorzec z `triggers_loop.py` — `asyncio.create_task` w
 lifespan, sleeping 60s między iteracjami, exception isolation.
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
+from app.services.email import send_chat_fallback_email
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +48,24 @@ _CHAT_NOTIF_TYPES = {
 async def _send_chat_email(
     user: User, notif: Notification
 ) -> bool:
-    """Send email for one notification. Return True if "sent" (or queued).
+    """Send email for one notification. Return True if SMTP confirmed.
 
-    Implementation note: production should wire this to M365 or SMTP/SES.
-    Right now we log the would-be email and pretend success — that's enough
-    to dedupe via `email_sent_at` and prove the loop works end-to-end. When
-    a mail provider is configured, swap out the body of this function.
+    SMTP via `services.email.send_chat_fallback_email`. Feature-gated przez
+    `SMTP_ENABLED` — gdy off lub creds brakują wraca False, loop retry-uje
+    w kolejnej iteracji (bez stempla email_sent_at).
     """
-    logger.info(
-        "[chat_email_fallback] WOULD-SEND to %s (id=%d) | subject=%r body=%r link=%s",
-        user.email,
-        user.id,
-        notif.title,
-        (notif.message or "")[:140],
-        notif.link,
+    if not user.email:
+        logger.debug(
+            "chat_email_fallback skip — user %s nie ma emaila", user.id
+        )
+        return False
+    return send_chat_fallback_email(
+        to_email=user.email,
+        recipient_name=user.name or user.email,
+        notification_title=notif.title,
+        notification_message=notif.message or "",
+        deep_link_path=notif.link or "/",
     )
-    return True
 
 
 async def _process_one_pass(db: AsyncSession) -> int:

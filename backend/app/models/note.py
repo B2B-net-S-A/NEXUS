@@ -50,6 +50,11 @@ class Note(Base, TimestampMixin):
     author = relationship(
         "User", back_populates="authored_notes", foreign_keys=[author_id]
     )
+    mentions = relationship(
+        "NoteMention",
+        back_populates="note",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return (

@@ -7,11 +7,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.note import Note
 from app.models.candidate import Candidate
+from app.models.note_mention import NoteMention
 from app.models.user_activity import UserActivity, UserActionType
 from app.schemas.note import NoteCreate, NoteList, NoteResponse, NoteUpdate
 from app.api.deps import CurrentUser, DeliveryLeadPlus
+from app.services.mention_dispatch import (
+    build_note_context_label,
+    build_note_deep_link,
+    enqueue_mention_notifications,
+    send_mention_side_effects,
+    trim_snippet,
+)
+from app.services.mention_parser import parse_mentions, parse_mentions_global
 
 router = APIRouter()
+
+
+async def _resolve_mentions(
+    db: AsyncSession, content: str, note: Note
+) -> list[int]:
+    """Wybiera scope w zależności od note.job_id (najwęższy → najszerszy).
+
+    job_id present → tylko members projektu (parse_mentions).
+    inaczej → każdy aktywny user firmy (parse_mentions_global).
+    """
+    if not content:
+        return []
+    if note.job_id:
+        return await parse_mentions(db, content, note.job_id)
+    return await parse_mentions_global(db, content)
 
 
 @router.get("", response_model=NoteList)
@@ -40,7 +64,32 @@ async def create_note(
 ):
     note = Note(**data.model_dump(), author_id=current_user.id)
     db.add(note)
-    await db.flush()
+    await db.flush()  # need note.id
+
+    # @mentions — wybiera scope, filtruje self, insert NoteMention rows.
+    mentioned_ids = await _resolve_mentions(db, note.content, note)
+    mentioned_ids = [uid for uid in mentioned_ids if uid != current_user.id]
+    for uid in mentioned_ids:
+        db.add(NoteMention(note_id=note.id, user_id=uid))
+
+    # Enqueue Notifications (in-transaction). Side-effects (email/WS) po commit.
+    snippet = trim_snippet(note.content or "")
+    deep_link = build_note_deep_link(note)
+    context_label = await build_note_context_label(db, note)
+    notification_title = (
+        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce"
+    )
+    pairs = await enqueue_mention_notifications(
+        db,
+        mentioned_user_ids=mentioned_ids,
+        author=current_user,
+        deep_link_path=deep_link,
+        snippet=snippet,
+        notification_title=notification_title,
+        related_entity_type="note",
+        related_entity_id=note.id,
+    )
+
     # Update candidate notes_count
     if data.candidate_id:
         result = await db.execute(
@@ -64,9 +113,24 @@ async def create_note(
             details={
                 "note_id": note.id,
                 "note_type": data.note_type.value if data.note_type else None,
+                "mentioned_count": len(mentioned_ids),
             },
         )
     )
+
+    # Explicit commit — Notification rows muszą być trwałe ZANIM odpalimy email/WS.
+    await db.commit()
+
+    # Best-effort side-effects po commicie. Nie blokują response gdy SMTP fail.
+    if pairs:
+        await send_mention_side_effects(
+            pairs,
+            author_name=current_user.name or current_user.email,
+            snippet=snippet,
+            deep_link_path=deep_link,
+            context_label=context_label,
+            notification_title=notification_title,
+        )
 
     await db.refresh(note)
     return note
@@ -94,8 +158,64 @@ async def update_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+
+    # Załaduj stare mentions (do diffu).
+    old_rows = await db.execute(
+        select(NoteMention.user_id).where(NoteMention.note_id == note.id)
+    )
+    old_ids = {uid for (uid,) in old_rows.all()}
+
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(note, k, v)
+
+    # Po apply contentu — re-parse mentions na nowej treści.
+    new_ids_list = await _resolve_mentions(db, note.content or "", note)
+    new_ids = {uid for uid in new_ids_list if uid != current_user.id}
+
+    to_add = sorted(new_ids - old_ids)
+    to_remove = old_ids - new_ids
+
+    if to_remove:
+        await db.execute(
+            NoteMention.__table__.delete().where(
+                NoteMention.note_id == note.id,
+                NoteMention.user_id.in_(to_remove),
+            )
+        )
+    for uid in to_add:
+        db.add(NoteMention(note_id=note.id, user_id=uid))
+
+    pairs: list = []
+    snippet = trim_snippet(note.content or "")
+    deep_link = build_note_deep_link(note)
+    context_label = await build_note_context_label(db, note)
+    notification_title = (
+        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce"
+    )
+    if to_add:
+        pairs = await enqueue_mention_notifications(
+            db,
+            mentioned_user_ids=to_add,
+            author=current_user,
+            deep_link_path=deep_link,
+            snippet=snippet,
+            notification_title=notification_title,
+            related_entity_type="note",
+            related_entity_id=note.id,
+        )
+
+    await db.commit()
+
+    if pairs:
+        await send_mention_side_effects(
+            pairs,
+            author_name=current_user.name or current_user.email,
+            snippet=snippet,
+            deep_link_path=deep_link,
+            context_label=context_label,
+            notification_title=notification_title,
+        )
+
     await db.refresh(note)
     return note
 

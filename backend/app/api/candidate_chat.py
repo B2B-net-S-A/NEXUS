@@ -42,44 +42,7 @@ from app.services.candidate_membership import (
     list_candidate_chat_members,
 )
 from app.services.chat_reactions import aggregate_candidate_reactions
-from app.services.mention_parser import parse_mentions as parse_job_mentions
-
-# Reuse the same regex pattern but resolve mentions against candidate chat members.
-import re
-from sqlalchemy import select as _select
-
-
-_EMAIL_RE = re.compile(r"@([A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
-_USERID_RE = re.compile(r"@(\d+)\b")
-
-
-async def parse_candidate_mentions(
-    db: AsyncSession, content: str, candidate_id: int
-) -> list[int]:
-    if not content:
-        return []
-    raw_emails = _EMAIL_RE.findall(content)
-    raw_user_ids = _USERID_RE.findall(content)
-
-    candidates_set: set[int] = set()
-    if raw_emails:
-        rows = await db.execute(
-            _select(User.id, User.email).where(
-                User.email.in_([e.lower() for e in raw_emails])
-            )
-        )
-        for uid, _ in rows.all():
-            candidates_set.add(uid)
-    for sid in raw_user_ids:
-        try:
-            candidates_set.add(int(sid))
-        except ValueError:
-            continue
-    if not candidates_set:
-        return []
-
-    member_ids = set(await list_candidate_chat_member_ids(db, candidate_id))
-    return sorted([uid for uid in candidates_set if uid in member_ids])
+from app.services.mention_parser import parse_mentions_candidate
 
 
 router = APIRouter()
@@ -289,7 +252,7 @@ async def create_message(
     db.add(msg)
     await db.flush()
 
-    mentioned_ids = await parse_candidate_mentions(db, data.content, candidate_id)
+    mentioned_ids = await parse_mentions_candidate(db, data.content, candidate_id)
     mentioned_ids = [uid for uid in mentioned_ids if uid != current_user.id]
     for uid in mentioned_ids:
         db.add(CandidateChatMention(message_id=msg.id, user_id=uid))
@@ -383,7 +346,7 @@ async def edit_message(
             CandidateChatMention.message_id == msg.id
         )
     )
-    new_mentions = await parse_candidate_mentions(db, data.content, candidate_id)
+    new_mentions = await parse_mentions_candidate(db, data.content, candidate_id)
     new_mentions = [uid for uid in new_mentions if uid != current_user.id]
     for uid in new_mentions:
         db.add(CandidateChatMention(message_id=msg.id, user_id=uid))

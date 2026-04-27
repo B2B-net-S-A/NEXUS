@@ -68,6 +68,10 @@ class NotificationType(str, enum.Enum):
     # `pipeline_stage_defs` (baseline) z możliwością override per klient
     # (`client_stage_notification_overrides`).
     stage_rule = "stage_rule"
+    # @mention w zwykłej notatce (Note) lub notatce ze screeningu (ScreeningNote).
+    # Wartość dodana w 0066_note_mentions. Wysyłka emaila best-effort przez
+    # SMTP synchronicznie po commicie (services/mention_dispatch.py).
+    note_mention = "note_mention"
 
 
 class Notification(Base, TimestampMixin):

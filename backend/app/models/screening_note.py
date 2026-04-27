@@ -87,6 +87,11 @@ class ScreeningNote(Base):
     candidate = relationship("Candidate", backref="screening_notes")
     job = relationship("Job", backref="screening_notes")
     author = relationship("User", foreign_keys=[author_id])
+    mentions = relationship(
+        "ScreeningNoteMention",
+        back_populates="screening_note",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<ScreeningNote id={self.id} candidate_id={self.candidate_id} type={self.screening_type}>"

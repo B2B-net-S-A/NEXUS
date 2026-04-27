@@ -15,7 +15,36 @@ from app.models.screening_note import (
     CounterOfferRisk,
 )
 from app.models.candidate import Candidate
+from app.models.screening_note_mention import ScreeningNoteMention
 from app.api.deps import CurrentUser
+from app.services.mention_dispatch import (
+    build_screening_note_deep_link,
+    enqueue_mention_notifications,
+    send_mention_side_effects,
+    trim_snippet,
+)
+from app.services.mention_parser import parse_mentions, parse_mentions_global
+
+
+def _concat_screening_text(data: "ScreeningNoteCreate") -> str:
+    """Łączy 3 tekstowe pola żeby parsować mentions w jednym przebiegu.
+
+    Pomija pola opcjonalne które są None lub pusty string.
+    Separator `\n\n` żeby niespodzianki w regex'ie (np. mention w red_flags
+    + mention w personality_notes) nie zlewały się do jednego tokenu.
+    """
+    parts = [
+        data.red_flags or "",
+        data.personality_notes or "",
+        data.closing_strategy or "",
+    ]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _screening_snippet(data: "ScreeningNoteCreate") -> str:
+    """Pierwszy non-empty z 3 pól → trimmed snippet do 140 znaków."""
+    raw = data.red_flags or data.personality_notes or data.closing_strategy or ""
+    return trim_snippet(raw)
 
 router = APIRouter()
 
@@ -132,7 +161,49 @@ async def create_screening_note(
         overall_impression=data.overall_impression,
     )
     db.add(note)
-    await db.flush()
+    await db.flush()  # need note.id
+
+    # @mentions — parsuj concat'owaną treść 3 pól tekstowych. Scope:
+    # job_id obecny (z filtru members), inaczej global (każdy aktywny user).
+    combined = _concat_screening_text(data)
+    if data.job_id:
+        mentioned_ids = await parse_mentions(db, combined, data.job_id)
+    else:
+        mentioned_ids = await parse_mentions_global(db, combined)
+    mentioned_ids = [uid for uid in mentioned_ids if uid != current_user.id]
+    for uid in mentioned_ids:
+        db.add(ScreeningNoteMention(screening_note_id=note.id, user_id=uid))
+
+    snippet = _screening_snippet(data)
+    deep_link = build_screening_note_deep_link(data.candidate_id, note.id)
+    context_label = "notatce ze screeningu"
+    notification_title = (
+        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce ze screeningu"
+    )
+
+    pairs = await enqueue_mention_notifications(
+        db,
+        mentioned_user_ids=mentioned_ids,
+        author=current_user,
+        deep_link_path=deep_link,
+        snippet=snippet,
+        notification_title=notification_title,
+        related_entity_type="screening_note",
+        related_entity_id=note.id,
+    )
+
+    await db.commit()
+
+    if pairs:
+        await send_mention_side_effects(
+            pairs,
+            author_name=current_user.name or current_user.email,
+            snippet=snippet,
+            deep_link_path=deep_link,
+            context_label=context_label,
+            notification_title=notification_title,
+        )
+
     await db.refresh(note)
     return note
 
