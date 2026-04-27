@@ -11,6 +11,11 @@ from app.models.competence_category import (
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
 from app.models.invite_link import CandidateInviteLink
 from app.models.client import Client
+from app.models.candidate_risk import (
+    CandidateOfferResponse,
+    CandidateRiskProfile,
+    RiskLevel,
+)
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract, ContractTerminationReason
@@ -232,4 +237,7 @@ __all__ = [
     "JobChatMessageReaction",
     "CandidateChatMessageReaction",
     "EngagementDeclarationToken",
+    "CandidateRiskProfile",
+    "RiskLevel",
+    "CandidateOfferResponse",
 ]

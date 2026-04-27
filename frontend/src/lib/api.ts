@@ -2278,4 +2278,96 @@ export const adminChatsApi = {
   }) => api.get<GlobalChatList>(`/api/admin/global-chats`, { params }),
 };
 
+// ── Stage notification rules (migracja 0066) ─────────────────────────────────
+
+export type RecipientType =
+  | "job_delivery_lead"
+  | "job_recruiter"
+  | "client_head_dl"
+  | "client_primary_tac"
+  | "specific_user"
+  | "role"
+  | "candidate_creator";
+
+export interface StageNotificationRule {
+  id: number;
+  stage_def_id: number;
+  recipient_type: RecipientType;
+  specific_user_id: number | null;
+  role: string | null;
+  notify_inapp: boolean;
+  notify_email: boolean;
+  is_active: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StageNotificationRuleInput {
+  recipient_type: RecipientType;
+  specific_user_id?: number | null;
+  role?: string | null;
+  notify_inapp: boolean;
+  notify_email: boolean;
+  is_active?: boolean;
+}
+
+export const stageNotificationRulesApi = {
+  list: (templateId: number, stageDefId: number) =>
+    api.get<StageNotificationRule[]>(
+      `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules`,
+    ),
+  create: (templateId: number, stageDefId: number, data: StageNotificationRuleInput) =>
+    api.post<StageNotificationRule>(
+      `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules`,
+      data,
+    ),
+  update: (
+    templateId: number,
+    stageDefId: number,
+    ruleId: number,
+    data: Partial<StageNotificationRuleInput>,
+  ) =>
+    api.patch<StageNotificationRule>(
+      `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules/${ruleId}`,
+      data,
+    ),
+  delete: (templateId: number, stageDefId: number, ruleId: number) =>
+    api.delete(
+      `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules/${ruleId}`,
+    ),
+};
+
+export interface ClientStageNotificationOverride extends StageNotificationRule {
+  client_id: number;
+}
+
+export interface ClientStageOverrideInput extends StageNotificationRuleInput {
+  stage_def_id: number;
+}
+
+export const clientNotificationOverridesApi = {
+  list: (clientId: number, params?: { stage_def_id?: number }) =>
+    api.get<ClientStageNotificationOverride[]>(
+      `/api/clients/${clientId}/notification-overrides`,
+      { params },
+    ),
+  create: (clientId: number, data: ClientStageOverrideInput) =>
+    api.post<ClientStageNotificationOverride>(
+      `/api/clients/${clientId}/notification-overrides`,
+      data,
+    ),
+  update: (
+    clientId: number,
+    overrideId: number,
+    data: Partial<StageNotificationRuleInput>,
+  ) =>
+    api.patch<ClientStageNotificationOverride>(
+      `/api/clients/${clientId}/notification-overrides/${overrideId}`,
+      data,
+    ),
+  delete: (clientId: number, overrideId: number) =>
+    api.delete(`/api/clients/${clientId}/notification-overrides/${overrideId}`),
+};
+
 export default api;

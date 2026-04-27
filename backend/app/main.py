@@ -92,6 +92,7 @@ from app.api import presence as presence_api
 from app.api import job_chat as job_chat_api
 from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
+from app.api import stage_notification_rules as stage_notification_rules_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -347,6 +348,16 @@ app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
+)
+app.include_router(
+    stage_notification_rules_api.template_router,
+    prefix="/api/pipeline-templates",
+    tags=["stage-notification-rules"],
+)
+app.include_router(
+    stage_notification_rules_api.client_router,
+    prefix="/api/clients",
+    tags=["stage-notification-overrides"],
 )
 app.include_router(recommendations.router, prefix="/api", tags=["recommendations"])
 app.include_router(cv_match_preview.router, prefix="/api", tags=["recommendations"])

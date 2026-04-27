@@ -63,6 +63,11 @@ class NotificationType(str, enum.Enum):
     # `job_chat_mention` — bezpośrednie @mention; wyższy priorytet w UI.
     job_chat_message = "job_chat_message"
     job_chat_mention = "job_chat_mention"
+    # Configurable stage-transition notifications (migracja 0066). Emitowane
+    # przez `services/stage_notification_emitter.py`. Reguły wiszą na
+    # `pipeline_stage_defs` (baseline) z możliwością override per klient
+    # (`client_stage_notification_overrides`).
+    stage_rule = "stage_rule"
 
 
 class Notification(Base, TimestampMixin):

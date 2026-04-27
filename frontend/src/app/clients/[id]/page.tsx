@@ -13,6 +13,7 @@ import {
   CheckCircle,
   XCircle,
   BookOpen,
+  Bell,
   Users,
   Plus,
   Trash2,
@@ -38,6 +39,7 @@ import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
+import { NotificationsTab } from "./NotificationsTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
@@ -697,7 +699,7 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "profil" | "info" | "projekty" | "opiekunowie" | "wiedza" | "kontakty" | "kontrakty" | "materialy" | "cennik";
+type Tab = "profil" | "info" | "projekty" | "opiekunowie" | "powiadomienia" | "wiedza" | "kontakty" | "kontrakty" | "materialy" | "cennik";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -730,6 +732,7 @@ export default function ClientDetailPage() {
     { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "opiekunowie", label: "Opiekunowie", icon: <UserCog className="w-4 h-4" /> },
+    { key: "powiadomienia", label: "Powiadomienia", icon: <Bell className="w-4 h-4" /> },
     { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
     { key: "kontakty", label: "Kontakty", icon: <Users className="w-4 h-4" /> },
     { key: "kontrakty", label: "Kontrakty", icon: <FileText className="w-4 h-4" /> },
@@ -860,6 +863,7 @@ export default function ClientDetailPage() {
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
           {activeTab === "opiekunowie" && <OwnersTab clientId={Number(id)} />}
+          {activeTab === "powiadomienia" && <NotificationsTab clientId={Number(id)} />}
           {activeTab === "wiedza" && <KnowledgeTab clientId={Number(id)} />}
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
           {activeTab === "kontrakty" && <ContractsTab clientId={Number(id)} />}

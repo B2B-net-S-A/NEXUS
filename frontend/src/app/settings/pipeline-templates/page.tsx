@@ -24,8 +24,10 @@ import {
   AlertCircle,
   Loader2,
   ClipboardList,
+  Bell,
 } from "lucide-react";
 import { ScorecardSchemaBuilder } from "@/components/ScorecardSchemaBuilder";
+import { StageNotificationRulesModal } from "@/components/StageNotificationRulesModal";
 
 const CATEGORY_LABELS: Record<string, string> = {
   internal: "Wewnętrzny",
@@ -47,6 +49,10 @@ export default function PipelineTemplatesPage() {
   const [savingOrder, setSavingOrder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scorecardEditor, setScorecardEditor] = useState<{
+    stageDefId: number;
+    stageName: string;
+  } | null>(null);
+  const [notifEditor, setNotifEditor] = useState<{
     stageDefId: number;
     stageName: string;
   } | null>(null);
@@ -474,6 +480,19 @@ export default function PipelineTemplatesPage() {
                                       )}
                                   </button>
                                   <button
+                                    onClick={() =>
+                                      setNotifEditor({
+                                        stageDefId: stage.id,
+                                        stageName: stage.name,
+                                      })
+                                    }
+                                    title="Konfiguruj powiadomienia dla etapu"
+                                    className="text-xs flex items-center gap-1 px-2 py-0.5 rounded text-gray-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 transition-colors"
+                                  >
+                                    <Bell className="w-3.5 h-3.5" />
+                                    Powiadomienia
+                                  </button>
+                                  <button
                                     onClick={() => handleRenameStage(stage)}
                                     className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
                                   >
@@ -567,6 +586,14 @@ export default function PipelineTemplatesPage() {
               void loadDetail(selectedId);
             }
           }}
+        />
+      )}
+      {notifEditor && selectedId !== null && (
+        <StageNotificationRulesModal
+          templateId={selectedId}
+          stageDefId={notifEditor.stageDefId}
+          stageName={notifEditor.stageName}
+          onClose={() => setNotifEditor(null)}
         />
       )}
     </div>

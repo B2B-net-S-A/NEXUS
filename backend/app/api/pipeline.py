@@ -426,29 +426,44 @@ async def move_candidate(
         )
     )
 
-    # Notification for the recruiter assigned to the job (if different from current user)
-    if job.recruiter_id and job.recruiter_id != current_user.id:
-        notif = Notification(
-            user_id=job.recruiter_id,
-            title="Zmiana etapu kandydata",
-            message=f"Kandydat #{data.candidate_id} → '{stage_display_name}' w ofercie #{data.job_id}.",
-            link=f"/jobs/{data.job_id}",
-            notification_type=NotificationType.stage_changed,
+    # Configurable stage-transition notifications (migracja 0066).
+    # Zastąpiło hardcoded recruiter-notify. Reguły wiszą na pipeline_stage_defs
+    # (baseline) z opcjonalnym override per klient. Resolver + emitter robią
+    # in-app + email (SMTP) per regułą. Best-effort: failure tu NIGDY nie
+    # blokuje ruchu stage'a.
+    try:
+        from app.services.stage_notification_emitter import notify_stage_change
+
+        # Najnowszy poprzedni stage tej pary candidate+job (do forward-only
+        # check w resolverze).
+        previous_stage = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == data.candidate_id,
+                CandidateStage.job_id == data.job_id,
+                CandidateStage.id != stage.id,
+            )
+            .order_by(CandidateStage.moved_at.desc())
+            .limit(1)
         )
-        db.add(notif)
-        await db.flush()
-        await ws_manager.notify_user(
-            job.recruiter_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            },
+        candidate_obj = await db.scalar(
+            select(Candidate).where(Candidate.id == data.candidate_id)
+        )
+        if candidate_obj is not None:
+            await notify_stage_change(
+                db,
+                new_stage=stage,
+                previous_stage=previous_stage,
+                job=job,
+                candidate=candidate_obj,
+                mover=current_user,
+                stage_display_name=stage_display_name,
+            )
+    except Exception as _exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "stage_notif top-level failure for stage=%s: %s", stage.id, _exc
         )
 
     # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
