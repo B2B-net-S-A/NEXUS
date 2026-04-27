@@ -56,6 +56,12 @@ class NotificationType(str, enum.Enum):
     # ze stawką poza widełkami projektu (rate > Job.salary_max). Wysyłane do
     # delivery_lead/head_of_recruitment/admin (migracja 0056).
     pending_verification = "pending_verification"
+    # Job Chat — wewnętrzny czat zespołu per rekrutacja (migracja 0061).
+    # `job_chat_message` — każda nowa wiadomość → notyfikacja dla każdego
+    # członka projektu poza autorem.
+    # `job_chat_mention` — bezpośrednie @mention; wyższy priorytet w UI.
+    job_chat_message = "job_chat_message"
+    job_chat_mention = "job_chat_mention"
 
 
 class Notification(Base, TimestampMixin):

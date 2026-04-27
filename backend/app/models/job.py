@@ -218,6 +218,9 @@ class Job(Base, TimestampMixin):
         "CandidateStage", back_populates="job", cascade="all, delete-orphan"
     )
     notes = relationship("Note", back_populates="job")
+    chat_messages = relationship(
+        "JobChatMessage", back_populates="job", cascade="all, delete-orphan"
+    )
     contracts = relationship("Contract", back_populates="job")
     postings = relationship(
         "JobPosting", back_populates="job", cascade="all, delete-orphan"

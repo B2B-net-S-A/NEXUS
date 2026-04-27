@@ -13,7 +13,9 @@ import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2 } from "lucide-react";
+import JobChatTab from "@/components/v2/pages/JobChatTab";
+import { jobChatApi } from "@/lib/api";
+import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle } from "lucide-react";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -854,7 +856,8 @@ type PageTab =
   | "ai-matching"
   | "portals"
   | "champion"
-  | "questions";
+  | "questions"
+  | "chat";
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -868,6 +871,22 @@ export default function JobDetailPage() {
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
+
+  // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
+  useEffect(() => {
+    if (searchParams?.get("tab") === "chat") {
+      setActiveTab("chat");
+    }
+  }, [searchParams]);
+
+  // Unread badge dla taba Chat
+  const { data: chatUnread } = useQuery({
+    queryKey: ["job-chat-unread", id],
+    queryFn: async () => (await jobChatApi.getUnreadCount(Number(id))).data,
+    enabled: !!id,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
 
   // Phase 13: when redirected from AddJobModal with ?highlight=ai-proposals,
   // switch to the AI matching tab, scroll to the widget, and glow the panel
@@ -1098,6 +1117,24 @@ export default function JobDetailPage() {
           >
             Baza pytań
           </button>
+          <button
+            onClick={() => setActiveTab("chat")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors relative",
+              activeTab === "chat"
+                ? "border-blue-600 text-blue-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            )}
+            data-testid="tab-chat"
+          >
+            <MessageCircle className="w-4 h-4" />
+            Chat
+            {chatUnread && chatUnread.unread_count > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-red-500 text-white">
+                {chatUnread.unread_count > 99 ? "99+" : chatUnread.unread_count}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -1152,6 +1189,8 @@ export default function JobDetailPage() {
           clientId={job?.client_id ?? null}
         />
       )}
+
+      {activeTab === "chat" && <JobChatTab jobId={Number(id)} />}
     </div>
   );
 }

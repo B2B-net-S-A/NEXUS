@@ -2139,4 +2139,52 @@ export const interviewQuestionsApi = {
     }),
 };
 
+// ── Job Chat ─────────────────────────────────────────────────────────────────
+//
+// Per-recruitment internal team chat. Members: admin / recruiter (owner) /
+// delivery_lead / tac / aktywni job_collaborators. Realtime przez WS event
+// `chat:message:*` w useNotifications. Patrz: backend/app/api/job_chat.py.
+
+import type {
+  ChatMessage,
+  ChatMessageListResp,
+  ChatPinResponse,
+  ChatUnreadCount,
+  ChatUserMini,
+} from "@/types/job-chat";
+
+export const jobChatApi = {
+  listMessages: (
+    jobId: number,
+    params?: { limit?: number; before_id?: number; search?: string },
+  ) =>
+    api.get<ChatMessageListResp>(`/api/jobs/${jobId}/chat/messages`, {
+      params,
+    }),
+  sendMessage: (
+    jobId: number,
+    data: { content: string; reply_to_message_id?: number | null },
+  ) => api.post<ChatMessage>(`/api/jobs/${jobId}/chat/messages`, data),
+  editMessage: (jobId: number, msgId: number, data: { content: string }) =>
+    api.patch<ChatMessage>(`/api/jobs/${jobId}/chat/messages/${msgId}`, data),
+  deleteMessage: (jobId: number, msgId: number) =>
+    api.delete<void>(`/api/jobs/${jobId}/chat/messages/${msgId}`),
+  pinMessage: (jobId: number, msgId: number) =>
+    api.post<ChatPinResponse>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/pin`,
+    ),
+  unpinMessage: (jobId: number, msgId: number) =>
+    api.delete<ChatPinResponse>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/pin`,
+    ),
+  getPinned: (jobId: number) =>
+    api.get<ChatMessage[]>(`/api/jobs/${jobId}/chat/pinned`),
+  markRead: (jobId: number) =>
+    api.put<ChatUnreadCount>(`/api/jobs/${jobId}/chat/read`),
+  getUnreadCount: (jobId: number) =>
+    api.get<ChatUnreadCount>(`/api/jobs/${jobId}/chat/unread-count`),
+  getMembers: (jobId: number) =>
+    api.get<ChatUserMini[]>(`/api/jobs/${jobId}/chat/members`),
+};
+
 export default api;

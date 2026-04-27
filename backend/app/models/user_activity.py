@@ -17,6 +17,7 @@ class UserActionType(str, enum.Enum):
     placement_closed = "placement_closed"
     note_added = "note_added"
     cv_uploaded = "cv_uploaded"
+    chat_message_added = "chat_message_added"
 
 
 class UserActivity(Base):

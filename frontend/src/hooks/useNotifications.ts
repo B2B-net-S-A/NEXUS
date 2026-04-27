@@ -43,6 +43,10 @@ export const CHAMPION_PROFILE_CHANGED_EVENT = "nexus:cp-changed";
 // constant in sync with frontend/src/components/v2/kpi/KpiNudgeToaster.tsx.
 export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
 
+// Job Chat events — re-broadcast z WS do JobChatTab. Komponent listenuje
+// CHAT_BUS_EVENT i sam invaliduje React Query keys + appenduje wiadomości.
+import { CHAT_BUS_EVENT, type ChatBusEvent } from "@/types/job-chat";
+
 interface UseNotificationsOptions {
   onNotification?: (notif: WsNotification) => void;
 }
@@ -160,6 +164,34 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           if (typeof window !== "undefined") {
             window.dispatchEvent(
               new CustomEvent(KPI_NUDGE_EVENT, { detail: msg.data }),
+            );
+          }
+        } else if (msg.type === "chat:message:new" && msg.data) {
+          if (typeof window !== "undefined") {
+            const detail: ChatBusEvent = { kind: "new", data: msg.data };
+            window.dispatchEvent(
+              new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
+            );
+          }
+        } else if (msg.type === "chat:message:edit" && msg.data) {
+          if (typeof window !== "undefined") {
+            const detail: ChatBusEvent = { kind: "edit", data: msg.data };
+            window.dispatchEvent(
+              new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
+            );
+          }
+        } else if (msg.type === "chat:message:delete" && msg.data) {
+          if (typeof window !== "undefined") {
+            const detail: ChatBusEvent = { kind: "delete", data: msg.data };
+            window.dispatchEvent(
+              new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
+            );
+          }
+        } else if (msg.type === "chat:message:pin" && msg.data) {
+          if (typeof window !== "undefined") {
+            const detail: ChatBusEvent = { kind: "pin", data: msg.data };
+            window.dispatchEvent(
+              new CustomEvent<ChatBusEvent>(CHAT_BUS_EVENT, { detail }),
             );
           }
         } else if (msg.type === "ping") {
