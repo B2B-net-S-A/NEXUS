@@ -2067,8 +2067,20 @@ async def update_candidate_engagement(
     updates = data.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=422, detail="No engagement fields provided")
+
+    # Auto-update per-flag timestamps whenever an `open_to_*` value is touched —
+    # nawet jeśli wartość się nie zmienia. Rekruter może „potwierdzić" świeżość
+    # deklaracji przez nudge UI wysyłając tę samą wartość ponownie.
+    _OPEN_TO_TIMESTAMP_FIELDS = (
+        "open_to_side_projects",
+        "open_to_sales_support",
+        "open_to_expert_consult",
+    )
+    now = datetime.now(timezone.utc)
     for k, v in updates.items():
         setattr(candidate, k, v)
+        if k in _OPEN_TO_TIMESTAMP_FIELDS:
+            setattr(candidate, f"{k}_updated_at", now)
 
     db.add(
         Activity(

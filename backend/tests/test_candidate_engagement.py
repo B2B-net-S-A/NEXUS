@@ -58,6 +58,50 @@ async def test_engagement_patch_roundtrip(
     )
 
 
+async def test_engagement_patch_sets_open_to_timestamp(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """PATCH /engagement that toggles open_to_* must set *_updated_at to NOW.
+
+    Sprawdza że nudge UI ma czego się trzymać — bez tego cała Faza 2 (TTL)
+    nie ma sensu.
+    """
+    candidate = await _any_candidate(app_client, app_auth_headers)
+    if not candidate:
+        return
+    cid = candidate["id"]
+
+    res = await app_client.patch(
+        f"/api/candidates/{cid}/engagement",
+        json={"open_to_side_projects": True},
+        headers=app_auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["open_to_side_projects"] is True
+    ts1 = body.get("open_to_side_projects_updated_at")
+    assert ts1, "open_to_side_projects_updated_at not set after touch"
+
+    # Drugi PATCH z tą samą wartością — timestamp ma się odświeżyć (rekruter
+    # „potwierdza" świeżość deklaracji).
+    import asyncio
+    await asyncio.sleep(0.05)
+    res2 = await app_client.patch(
+        f"/api/candidates/{cid}/engagement",
+        json={"open_to_side_projects": True},
+        headers=app_auth_headers,
+    )
+    ts2 = res2.json().get("open_to_side_projects_updated_at")
+    assert ts2 and ts2 > ts1, "timestamp not refreshed on confirm-touch"
+
+    # Cleanup
+    await app_client.patch(
+        f"/api/candidates/{cid}/engagement",
+        json={"open_to_side_projects": False},
+        headers=app_auth_headers,
+    )
+
+
 async def test_location_patch_uppercases_country(
     app_client: AsyncClient, app_auth_headers: dict
 ):

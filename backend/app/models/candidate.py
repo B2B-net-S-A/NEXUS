@@ -131,6 +131,18 @@ class Candidate(Base, TimestampMixin):
     open_to_expert_consult: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # TTL/freshness per flag — NULL = nigdy nie zadeklarowano/potwierdzono.
+    # Auto-updated przez PATCH /engagement gdy flaga jest dotknięta — także
+    # gdy wartość się nie zmienia (rekruter „potwierdza" świeżość przez nudge).
+    open_to_side_projects_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    open_to_sales_support_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    open_to_expert_consult_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     engagement_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # ── Structured location (Phase: Kontrakty expansion) ─────────────────

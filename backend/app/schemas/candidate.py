@@ -304,6 +304,10 @@ class CandidateResponse(BaseModel):
     open_to_side_projects: bool = False
     open_to_sales_support: bool = False
     open_to_expert_consult: bool = False
+    # TTL/freshness timestamps (Phase „Otwartość" Faza 2).
+    open_to_side_projects_updated_at: Optional[datetime] = None
+    open_to_sales_support_updated_at: Optional[datetime] = None
+    open_to_expert_consult_updated_at: Optional[datetime] = None
     engagement_notes: Optional[str] = None
     # Structured location (Kontrakty expansion)
     city: Optional[str] = None
