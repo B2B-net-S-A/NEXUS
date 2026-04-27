@@ -75,7 +75,7 @@ Po pushu commita `f0b716f` Coolify zbudował obie usługi; backend endpoint odpo
 - **Zakładka Notatki:** chip `● Anna Test (presence) edytuje notatki` (animowany orange dot, tekst F59E0B)
 - Tooltip na awatarze działa (pełne imię + rola + edytowane pola)
 
-Note: test-user `presence-test@example.com` (id=13) pozostaje na prodzie — brak publicznego endpointu do DELETE usera. Do ręcznego czyszczenia przez bezpośredni SQL na Postgres w Coolify (`UPDATE users SET is_active=false WHERE id=13;` albo DROP), gdy Artur uzna za stosowne.
+Cleanup: test-user `presence-test@example.com` (id=13) zdeaktywowany przez `DELETE /api/admin/users/13` → 204 No Content (soft delete: `is_active=false`).
 
 ## Znane ograniczenia
 
