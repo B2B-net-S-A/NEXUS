@@ -430,6 +430,7 @@ export function CandidatesListV2() {
             q: search || undefined,
             status: statusFilter.length ? statusFilter : undefined,
             page,
+            sort: sortBy || undefined,
             include_match_stats: true,
             match_threshold: 35,
             skills: skillsFilter.length ? skillsFilter : undefined,
@@ -495,6 +496,10 @@ export function CandidatesListV2() {
   const [bulkPoolPending, setBulkPoolPending] = useState(false);
   const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
+  // 1-based position of the open profile within the filtered set. Updated on
+  // row click and on prev/next navigation inside the modal so CandidateNav
+  // can show "N / total" and walk page boundaries.
+  const [detailPosition, setDetailPosition] = useState<number>(1);
   const [showToast, setToast] = useState<string | null>(null);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const toastOnSuccess = (msg: string) => {
@@ -1367,7 +1372,13 @@ export function CandidatesListV2() {
               items={items}
               selectedIds={selectedIds}
               onToggleSelect={toggleId}
-              onOpenDetail={(id) => setDetailId(id)}
+              onOpenDetail={(id) => {
+                setDetailId(id);
+                const idx = items.findIndex((c) => c.id === id);
+                if (idx >= 0) {
+                  setDetailPosition((page - 1) * pageSize + idx + 1);
+                }
+              }}
               onQuickAssign={(c) => setAssignFor(c)}
             />
           )
@@ -1444,7 +1455,13 @@ export function CandidatesListV2() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setDetailId(candidate.id)}
+                      onClick={() => {
+                        setDetailId(candidate.id);
+                        const idx = items.findIndex((c) => c.id === candidate.id);
+                        if (idx >= 0) {
+                          setDetailPosition((page - 1) * pageSize + idx + 1);
+                        }
+                      }}
                       className="flex items-center gap-3 min-w-0 text-left"
                     >
                       <Avatar size={density === "compact" ? "sm" : "md"}>
@@ -1669,6 +1686,27 @@ export function CandidatesListV2() {
                 embedded
                 candidateId={detailId}
                 onClose={() => setDetailId(null)}
+                navigation={{
+                  filters: filtersSnapshot,
+                  position: detailPosition,
+                  pageItems: items.map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    lastname: c.lastname,
+                  })),
+                  total,
+                  pageNumber: page,
+                  pageSize,
+                  onNavigate: ({ candidateId, position }) => {
+                    setDetailId(candidateId);
+                    setDetailPosition(position);
+                    // Keep the underlying list in sync so closing the sheet
+                    // lands on the page where navigation ended.
+                    const nextListPage =
+                      Math.floor((position - 1) / pageSize) + 1;
+                    if (nextListPage !== page) setPage(nextListPage);
+                  },
+                }}
               />
             </div>
           )}

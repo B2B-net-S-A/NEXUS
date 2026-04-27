@@ -74,7 +74,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 
 // ── Hook: keyboard shortcuts ──────────────────────────────────────────────────
 
-function isInputActive(): boolean {
+export function isInputActive(): boolean {
   const el = document.activeElement;
   if (!el) return false;
   const tag = el.tagName.toLowerCase();

@@ -461,6 +461,16 @@ async def list_candidates(
             "See `q_all` for matched fields."
         ),
     ),
+    sort: str = Query(
+        "newest",
+        pattern="^(newest|oldest|name)$",
+        description=(
+            "Sort order. 'newest' = created_at DESC; 'oldest' = created_at ASC; "
+            "'name' = name ASC, lastname ASC. All include `id` tie-breaker for "
+            "100% stable pagination across requests (required for next/prev "
+            "candidate navigation in the UI)."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if status:
@@ -636,6 +646,19 @@ async def list_candidates(
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()
+
+    # Stable ORDER BY before pagination — required so next/prev candidate
+    # navigation walks the same sequence between requests. id tie-breaker
+    # disambiguates rows with identical sort key.
+    if sort == "oldest":
+        query = query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
+    elif sort == "name":
+        query = query.order_by(
+            Candidate.name.asc(), Candidate.lastname.asc(), Candidate.id.asc()
+        )
+    else:  # "newest" (default)
+        query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
+
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     items = list(result.scalars().all())

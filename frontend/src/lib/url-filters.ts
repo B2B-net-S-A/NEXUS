@@ -178,3 +178,75 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
 export function filtersEqual(a: CandidateFilters, b: CandidateFilters): boolean {
   return encodeFilters(a).toString() === encodeFilters(b).toString();
 }
+
+// ── Navigation context (next/prev candidate from filtered list) ──────────────
+
+/**
+ * Encode `CandidateFilters` plus 1-based position into URLSearchParams so a
+ * full-page candidate profile (`/candidates/[id]?nav=search&pos=N&...`) can
+ * reconstruct the filtered list it belongs to and offer prev/next nav.
+ *
+ * Reuses `encodeFilters` for filter serialization.
+ */
+export function encodeNavContext(
+  filters: CandidateFilters,
+  position: number,
+): URLSearchParams {
+  const p = encodeFilters(filters);
+  p.set("nav", "search");
+  p.set("pos", String(Math.max(1, Math.floor(position))));
+  return p;
+}
+
+/**
+ * Decode nav context from URLSearchParams. Returns `null` if `nav` is not set
+ * (i.e., the profile was opened without nav context — show no prev/next UI).
+ */
+export function decodeNavContext(
+  sp: URLSearchParams,
+): { filters: CandidateFilters; position: number } | null {
+  if (sp.get("nav") !== "search") return null;
+  const posRaw = Number.parseInt(sp.get("pos") ?? "", 10);
+  const position = Number.isFinite(posRaw) && posRaw > 0 ? posRaw : 1;
+  return { filters: decodeFilters(sp), position };
+}
+
+/**
+ * Map `CandidateFilters` to the `params` object accepted by axios `.get` for
+ * `GET /api/candidates`. Mirrors the exact param mapping in `CandidatesListV2`
+ * so navigation queries hit the same react-query cache key as the list view.
+ *
+ * Pass `extras` for fields the list view sends that aren't part of
+ * `CandidateFilters` proper (e.g. `include_match_stats`, `match_threshold`).
+ */
+export function filtersToApiParams(
+  filters: CandidateFilters,
+  page: number,
+  extras: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    q: filters.q || undefined,
+    status: filters.status.length ? filters.status : undefined,
+    page,
+    sort: filters.sort || undefined,
+    skills: filters.skills.length ? filters.skills : undefined,
+    skill_combine:
+      filters.skills.length > 1 ? filters.skillCombine.toUpperCase() : undefined,
+    remote_policy: filters.remote.length ? filters.remote : undefined,
+    employment: filters.employment.length ? filters.employment : undefined,
+    availability: filters.availability.length ? filters.availability : undefined,
+    location: filters.location || undefined,
+    talent_pool_id: filters.poolIds.length ? filters.poolIds : undefined,
+    added_by_user_id: filters.addedByIds.length ? filters.addedByIds : undefined,
+    current_company: filters.currentCompany.length ? filters.currentCompany : undefined,
+    past_company: filters.pastCompany.length ? filters.pastCompany : undefined,
+    current_title: filters.currentTitle.length ? filters.currentTitle : undefined,
+    worked_at_client_id: filters.workedAtClientIds.length
+      ? filters.workedAtClientIds
+      : undefined,
+    q_all: filters.qAll.length ? filters.qAll : undefined,
+    q_any: filters.qAny.length ? filters.qAny : undefined,
+    q_none: filters.qNone.length ? filters.qNone : undefined,
+    ...extras,
+  };
+}

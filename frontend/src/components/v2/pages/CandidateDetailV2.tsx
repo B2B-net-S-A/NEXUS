@@ -76,6 +76,17 @@ import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { usePresence, type PresenceViewer } from "@/hooks/usePresence";
 import { useAuthStore } from "@/store/auth";
 import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
+import { CandidateNav } from "@/components/v2/CandidateNav";
+import {
+  useCandidateNavigation,
+  type CandidateLite,
+} from "@/hooks/useCandidateNavigation";
+import {
+  DEFAULT_FILTERS,
+  type CandidateFilters,
+  decodeNavContext,
+  encodeNavContext,
+} from "@/lib/url-filters";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   active: "success",
@@ -98,6 +109,27 @@ const SKILL_LEVEL_VARIANT: Record<
   junior: "neutral",
 };
 
+/**
+ * Navigation context for prev/next candidate browsing inside the profile.
+ * Provided by parent (`CandidatesListV2`) for embedded Sheet mode. Full-page
+ * mode reads it from URL via `decodeNavContext` instead.
+ */
+export interface CandidateDetailNavigation {
+  filters: CandidateFilters;
+  /** Current 1-based position in the filtered list. */
+  position: number;
+  /** Items currently loaded by parent (so hook can avoid re-fetch). */
+  pageItems: CandidateLite[];
+  /** Total filtered count from parent. */
+  total: number;
+  /** Page number `pageItems` belongs to. */
+  pageNumber: number;
+  /** Page size used by parent's list query. */
+  pageSize: number;
+  /** Called when user navigates — parent updates which candidate is shown. */
+  onNavigate: (next: { candidateId: number; position: number }) => void;
+}
+
 interface CandidateDetailV2Props {
   /** When true, render without page frame (for side-sheet embedding). */
   embedded?: boolean;
@@ -105,18 +137,85 @@ interface CandidateDetailV2Props {
   candidateId?: number;
   /** Close handler for embedded mode. */
   onClose?: () => void;
+  /** When provided, renders prev/next nav strip (embedded mode). */
+  navigation?: CandidateDetailNavigation;
 }
 
 export function CandidateDetailV2({
   embedded,
   candidateId,
   onClose,
+  navigation,
 }: CandidateDetailV2Props = {}) {
   const routeParams = useParams();
   const router = useRouter();
   const id = candidateId ?? Number(routeParams?.id);
   const queryClient = useQueryClient();
   const openTab = useTabsStore((s) => s.openTab);
+
+  // ── Prev/Next candidate navigation context ─────────────────────────────
+  // Embedded mode receives `navigation` from parent (CandidatesListV2).
+  // Full-page mode reads it from URL search params (?nav=search&pos=N&...).
+  const urlNav = React.useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (embedded) return null; // embedded uses props, not URL
+    return decodeNavContext(new URLSearchParams(window.location.search));
+  }, [embedded]);
+
+  const navContext: CandidateDetailNavigation | null = navigation ?? null;
+  const navMode: "embedded" | "url" | "off" = navContext
+    ? "embedded"
+    : urlNav
+    ? "url"
+    : "off";
+
+  const navOnNavigate = React.useCallback(
+    (next: { candidateId: number; position: number }) => {
+      if (navContext) {
+        navContext.onNavigate(next);
+        return;
+      }
+      // URL mode: navigate to the new candidate, preserving filters + new pos.
+      if (urlNav) {
+        const sp = encodeNavContext(urlNav.filters, next.position);
+        router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
+      }
+    },
+    [navContext, urlNav, router],
+  );
+
+  const candidateNav = useCandidateNavigation(
+    navMode === "embedded" && navContext
+      ? {
+          mode: "embedded",
+          enabled: true,
+          filters: navContext.filters,
+          position: navContext.position,
+          pageItems: navContext.pageItems,
+          total: navContext.total,
+          pageNumber: navContext.pageNumber,
+          pageSize: navContext.pageSize,
+          onNavigate: navOnNavigate,
+        }
+      : navMode === "url" && urlNav
+      ? {
+          mode: "url",
+          enabled: true,
+          filters: urlNav.filters,
+          position: urlNav.position,
+          onNavigate: navOnNavigate,
+        }
+      : {
+          // Disabled — no nav context available.
+          mode: "url",
+          enabled: false,
+          filters: DEFAULT_FILTERS,
+          position: 1,
+          onNavigate: () => {},
+        },
+  );
+
+  const showNav = navMode !== "off";
 
   const [activeTab, setActiveTab] = useState("profil");
   const [emailOpen, setEmailOpen] = useState(false);
@@ -245,14 +344,52 @@ export function CandidateDetailV2({
 
   return (
     <div className={rootClass}>
-      {/* Back / close */}
-      {embedded ? null : (
-        <Link
-          href="/candidates"
-          className="inline-flex items-center gap-1 text-sm text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))]"
-        >
-          <ArrowLeft className="h-4 w-4" /> Wróć do kandydatów
-        </Link>
+      {/* Top row: back link (full-page) and prev/next nav (when in nav context) */}
+      {embedded ? (
+        showNav ? (
+          <CandidateNav
+            position={candidateNav.position}
+            total={candidateNav.total}
+            hasPrev={candidateNav.hasPrev}
+            hasNext={candidateNav.hasNext}
+            onPrev={candidateNav.goPrev}
+            onNext={candidateNav.goNext}
+            isLoading={candidateNav.isLoading}
+            onClose={onClose}
+            onExpand={
+              navContext
+                ? () => {
+                    const sp = encodeNavContext(
+                      navContext.filters,
+                      candidateNav.position,
+                    );
+                    router.push(`/candidates/${id}?${sp.toString()}`);
+                  }
+                : undefined
+            }
+          />
+        ) : null
+      ) : (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Link
+            href="/candidates"
+            className="inline-flex items-center gap-1 text-sm text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))]"
+          >
+            <ArrowLeft className="h-4 w-4" /> Wróć do kandydatów
+          </Link>
+          {showNav && (
+            <CandidateNav
+              position={candidateNav.position}
+              total={candidateNav.total}
+              hasPrev={candidateNav.hasPrev}
+              hasNext={candidateNav.hasNext}
+              onPrev={candidateNav.goPrev}
+              onNext={candidateNav.goNext}
+              isLoading={candidateNav.isLoading}
+              className="ml-auto"
+            />
+          )}
+        </div>
       )}
 
       {candidate.employment && (
@@ -371,8 +508,8 @@ export function CandidateDetailV2({
               viewers={presenceViewers}
             />
 
-            {/* Close button (embedded) */}
-            {embedded && onClose && (
+            {/* Close button (embedded fallback — when nav strip isn't shown). */}
+            {embedded && !showNav && onClose && (
               <button
                 onClick={onClose}
                 aria-label="Zamknij"
