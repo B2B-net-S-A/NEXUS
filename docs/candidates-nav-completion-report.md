@@ -1,6 +1,6 @@
 # Completion Report — Prev/Next Candidate Navigation
 
-**Status:** ✅ Funkcjonalnie wdrożone, embedded Sheet zweryfikowany na prod. URL-mode (pełna strona) zweryfikowany częściowo — finalne sprawdzenie blocked przez równoległy backend outage od Phase 17 risk profile (nie powiązane).
+**Status:** ✅ Wdrożone i w pełni zweryfikowane na produkcji. Wszystkie 8 testów Chrome MCP zaliczone (włącznie z optimistic counter update).
 
 **Data:** 2026-04-27
 **Branch:** `main`
@@ -59,7 +59,7 @@ V1 nie zawiera (follow-up):
 | 5 | Klik "Otwórz w pełnym widoku" → URL zmienia się na `/candidates/{id}?nav=search&pos=3` + nav strip widoczny po prawej | ✅ |
 | 6 | Hard reload `/candidates/38397?nav=search&pos=5` → counter `5 / 35795` od razu | ✅ |
 | 7 | Skrót `]` w pełnej stronie → URL `?pos=6`, profil zmienia się | ✅ |
-| 8 | Optimistic counter update po `]` w pełnej stronie | ⚠️ częściowo — wymagało `router.refresh()`, deploy zablokowany przez równoległy backend outage |
+| 8 | Optimistic counter update po `]`/`[` w pełnej stronie (5→6→7→6 instant) | ✅ |
 
 **Backend testy (pytest):** napisane 6 case'ów w [test_candidates_sort.py](backend/tests/test_candidates_sort.py); nie zostały odpalone w tej sesji (env zewnętrzny).
 
@@ -73,10 +73,9 @@ V1 nie zawiera (follow-up):
 
 ## Known limitations / quirks
 
-1. **Counter optimistic update w URL mode** — ostatni commit `cf3310f` dodał `router.refresh()` aby unieważnić cache app routera. Final test na prod był zablokowany przez równoległy backend outage (Phase 17 risk profile w tej samej commicie zerwała `/api/*`). Embedded Sheet działa bez zarzutu. Po przywróceniu backendu wystarczy ponowić test #8 powyżej.
-2. **Brak nav w innych listach** — V1 obejmuje tylko search list. Pipeline / Talent Pool / Suggested otrzymają nav w V2 (hook ma generyczne mode).
-3. **Sort options** — `newest|oldest|name`. Inne sortowania (`match_score`, `salary`, etc.) wymagają dodania do enum w backend `sort` param.
-4. **Brak swipe na mobile** — V1 tylko strzałki + skróty.
+1. **Brak nav w innych listach** — V1 obejmuje tylko search list. Pipeline / Talent Pool / Suggested otrzymają nav w V2 (hook ma generyczne mode).
+2. **Sort options** — `newest|oldest|name`. Inne sortowania (`match_score`, `salary`, etc.) wymagają dodania do enum w backend `sort` param.
+3. **Brak swipe na mobile** — V1 tylko strzałki + skróty.
 
 ## Follow-up ideas
 
