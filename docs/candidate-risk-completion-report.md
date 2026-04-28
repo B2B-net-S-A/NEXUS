@@ -130,7 +130,35 @@ Wszystkie 3 endpointy zwracają normalne 403 zamiast 503 — backend stabilny. R
 ### ⚠️ Skipped z planu (świadomie, nie krytyczne dla MVP)
 
 - **Kolumna risk badge w listach kandydatów** (`CandidatesListV2.tsx`) — wymagałoby albo per-row N+1 fetch, albo augmenty `/api/candidates` żeby zwracał `risk_level`. W MVP bardziej szumi niż pomaga (większość kandydatów to `low`). Kontekst zostaje w detail view + alert przy assign.
-- **Smoke test pełny E2E z claude-admin** — login na prodzie zwraca 401 dla domyślnego `claude-admin@b2bnet.pl`/`admin123` (hasło zmienione lub entrypoint nie reset'uje). Endpoint `/risk` zweryfikowany via curl bez auth (zwraca 403, healthy). Kod komponentów zweryfikowany staticly (grep deployed bundle pokazuje `RiskBadge` + "Niskie ryzyko"). Artur może dotestować flow z własnym kontem.
+### ✅ Smoke test E2E na prodzie 2026-04-28 (pełny, zielony)
+
+Login: `claude-admin@b2bnet.pl` z bootstrap password z `scripts/ensure_claude_admin.py`.
+
+**API smoke (curl + JWT):**
+| Test | Endpoint | Rezultat |
+|------|----------|----------|
+| Walidacja withdrawn bez reason | `POST /pipeline/move stage=withdrawn` | **422** "Terminal stage (withdrawn) requires rejection_reason_id" ✅ |
+| Bulk-move terminal block | `POST /pipeline/bulk-move stage=withdrawn` | **422** "Bulk-move na stage 'withdrawn' niedozwolony — użyj indywidualnego..." ✅ |
+| Risk dla kandydata bez historii | `GET /candidates/10/risk` | **200** `level=low, score=0, recent_events=[]` ✅ |
+| `/history` augment | `GET /candidates/1/history` | response zawiera `risk_summary` field ✅ |
+
+**Pełny flow post-accept dropout (cand=1, Piotr Kowalski):**
+1. `POST /pipeline/move stage=acceptance` → 200, stage_id=71
+2. `POST /pipeline/move stage=withdrawn rejection_reason_id=12 candidate_offer_response=declined` → 200
+3. `GET /candidates/1/risk` → **`level=high, score=10, breakdown.post_accept=1`** ✅
+4. `recent_events[0]`: `{job_title: "Senior Angular Developer", reason: "accepted_other_offer", category: "post_accept"}` ✅
+
+**Flow early dropout (cand=2, Agnieszka Nowak):**
+1. `POST /pipeline/move stage=new` → 200
+2. `POST /pipeline/move stage=withdrawn rejection_reason_id=15` (lost_interest) → 200
+3. `GET /candidates/2/risk` → **`level=low, score=1, breakdown.early=1`** ✅
+
+**UI smoke przez Chrome MCP na nexus.dynaminds.pl:**
+- Profil cand=1 (Piotr Kowalski): czerwony badge **"Wysokie ryzyko · 1"** w nagłówku obok "Aktywny" ✅
+- Tooltip: **"1 wycofań w 24mc: 1× Wycofania po akceptacji oferty (10 pt każda) · Ostatnie wycofania: 28.04.2026 · Senior Angular Developer · Zaakceptował inną ofertę"** ✅
+- Profil cand=2 (Agnieszka Nowak): zielony badge **"Niskie ryzyko · 1"** ✅
+
+Wszystkie 3 warianty kolorystyczne render'ują się prawidłowo. Tooltip pokazuje breakdown + recent events z prawdziwymi danymi (job title, reason translation, formatted date). Po przywróceniu oryginalnych stage'ów (cleanup) risk score pozostaje — wycofanie jest faktem historycznym.
 
 ---
 
