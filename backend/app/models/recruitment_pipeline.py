@@ -205,6 +205,14 @@ class CandidateStage(Base, TimestampMixin):
     rejected_by_user = relationship("User", foreign_keys=[rejected_by])
     stage_def = relationship("PipelineStageDef")
     rejection_reason = relationship("RejectionReason")
+    # CV per rekrutacja (snapshot oryginalnego + draft brandowanego). 1:1.
+    cv_instance = relationship(
+        "CandidateStageCV",
+        back_populates="candidate_stage",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<CandidateStage candidate={self.candidate_id} job={self.job_id} stage={self.stage}>"

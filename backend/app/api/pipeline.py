@@ -20,6 +20,9 @@ from app.models.recruitment_pipeline import (
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
+from app.services.candidate_stage_cv_service import (
+    create_original_cv_snapshot,
+)
 from app.models.job import Job
 from app.models.pipeline_template import (
     PipelineStageDef,
@@ -386,6 +389,7 @@ async def move_candidate(
     )
     db.add(stage)
     await db.flush()
+    await create_original_cv_snapshot(db, stage)
 
     if needs_approval:
         candidate = await db.scalar(
@@ -1241,6 +1245,8 @@ async def reject_verification(
         verification_status=VerificationStatus.active,
     )
     db.add(revert)
+    await db.flush()
+    await create_original_cv_snapshot(db, revert)
 
     db.add(
         Activity(
@@ -1319,6 +1325,8 @@ async def bulk_move_candidates(
             notes=data.notes,
         )
         db.add(entry)
+        await db.flush()
+        await create_original_cv_snapshot(db, entry)
         moved += 1
 
     await db.commit()

@@ -26,6 +26,9 @@ from app.api.deps import (
 )
 from app.core.config import settings
 from app.core.database import get_db
+from app.services.candidate_stage_cv_service import (
+    create_original_cv_snapshot,
+)
 from app.core.rate_limit import limiter
 from app.models.user import User, UserRole
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
@@ -744,6 +747,8 @@ async def assign_candidate_to_job(
         moved_by=current_user.id,
     )
     db.add(stage)
+    await db.flush()
+    await create_original_cv_snapshot(db, stage)
     await db.commit()
     await db.refresh(stage)
 

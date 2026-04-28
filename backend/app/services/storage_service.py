@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 STORAGE_ROOT = Path(os.environ.get("UPLOADS_DIR", "/tmp/nexus/uploads"))
 CONTRACTS_DIR = STORAGE_ROOT / "contracts"
 CLIENT_ONE_PAGERS_DIR = STORAGE_ROOT / "client_one_pagers"
+BRANDED_CVS_DIR = STORAGE_ROOT / "branded_cvs"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -148,5 +149,63 @@ def delete_client_one_pager(relative_path: str) -> None:
     try:
         abs_path.unlink()
         logger.info("Deleted client one-pager: %s", relative_path)
+    except OSError:
+        logger.exception("Failed to delete %s", relative_path)
+
+
+# ── Branded CVs (per CandidateStage finalize) ────────────────────────────────
+
+
+def save_branded_cv(
+    candidate_stage_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save finalized branded CV under /branded_cvs/{stage_id}/{uuid}-{name}.
+
+    Mirror `save_contract_document` — the snapshot is wrapped HTML produced by
+    `POST /cv/branded/finalize`. Returns (relative_path, size_bytes).
+    """
+    safe = _sanitize_filename(upload_filename)
+    target_dir = BRANDED_CVS_DIR / str(candidate_stage_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
+    target_path = target_dir / stored_name
+
+    size = 0
+    with target_path.open("wb") as dst:
+        while True:
+            chunk = source.read(1024 * 64)
+            if not chunk:
+                break
+            dst.write(chunk)
+            size += len(chunk)
+
+    rel = str(target_path.relative_to(STORAGE_ROOT))
+    logger.info("Saved branded CV: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_branded_cv_path(relative_path: str) -> Path:
+    """Resolve stored relative path to absolute, guarding traversal."""
+    abs_path = (STORAGE_ROOT / relative_path).resolve()
+    try:
+        abs_path.relative_to(STORAGE_ROOT.resolve())
+    except ValueError as exc:
+        raise FileNotFoundError(f"Invalid storage path: {relative_path}") from exc
+    if not abs_path.is_file():
+        raise FileNotFoundError(f"File missing on disk: {relative_path}")
+    return abs_path
+
+
+def delete_branded_cv(relative_path: str) -> None:
+    """Best-effort delete — doesn't raise when file is already gone."""
+    try:
+        abs_path = get_branded_cv_path(relative_path)
+    except FileNotFoundError:
+        logger.warning("Delete requested for missing file: %s", relative_path)
+        return
+    try:
+        abs_path.unlink()
+        logger.info("Deleted branded CV: %s", relative_path)
     except OSError:
         logger.exception("Failed to delete %s", relative_path)

@@ -125,6 +125,8 @@ from app.models.chat_reaction import (
 from app.models.engagement_token import EngagementDeclarationToken
 from app.models.note_mention import NoteMention
 from app.models.screening_note_mention import ScreeningNoteMention
+from app.models.candidate_stage_cv import CandidateStageCV
+from app.models.cv_share_token import CVShareToken
 
 __all__ = [
     "User",
@@ -244,4 +246,6 @@ __all__ = [
     "CandidateOfferResponse",
     "NoteMention",
     "ScreeningNoteMention",
+    "CandidateStageCV",
+    "CVShareToken",
 ]

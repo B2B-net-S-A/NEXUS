@@ -23,6 +23,9 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.services.candidate_stage_cv_service import (
+    create_original_cv_snapshot,
+)
 from app.models.activity import Activity
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.champion_share import ChampionCardShareToken
@@ -295,15 +298,18 @@ async def submit_public_apply(
         )
     )
     if stage_exists is None:
-        db.add(
-            CandidateStage(
-                candidate_id=candidate.id,
-                job_id=link.job_id,
-                stage=PipelineStage.new,
-                moved_by=link.created_by,
-                notes="Aplikacja przez invite link",
-            )
+        new_stage = CandidateStage(
+            candidate_id=candidate.id,
+            job_id=link.job_id,
+            stage=PipelineStage.new,
+            moved_by=link.created_by,
+            notes="Aplikacja przez invite link",
         )
+        db.add(new_stage)
+        await db.flush()
+        # Snapshot CV — kandydat właśnie wgrał `stored_filename` powyżej, więc
+        # `candidate.cv_file_content` już jest aktualny i pójdzie do snapshotu.
+        await create_original_cv_snapshot(db, new_stage)
 
     # Audit trail — link the Activity to the inviting recruiter.
     activity_details: dict = {
