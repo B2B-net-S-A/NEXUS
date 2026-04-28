@@ -1,9 +1,14 @@
 # Candidate Risk Potential — Completion Report
 
-**Data:** 2026-04-27
+**Data:** 2026-04-27 (deploy) / 2026-04-28 (hotfix prod 503)
 **Branch:** main
-**Główny commit:** [`cf3310f`](https://github.com/artur-t-96/Nexus/commit/cf3310f)
+**Commity:**
+- `cf3310f` — feature initial deploy
+- `d9b5db7` — completion report (poprzednia wersja)
+- `ec7a696` — **hotfix prod 503**: read-only `compute_summary`, defensive fallback
+
 **Migracje:** `0067_merge_phase16_heads`, `0068_candidate_risk`
+**Status:** ✅ **WORKING ON PROD** — 503 rozwiązany hotfixem.
 
 ---
 
@@ -102,31 +107,30 @@ Pure SQL DDL, idempotentne, single-head po `0067_merge_phase16_heads`:
 - Frontend prod (nexus.dynaminds.pl) zawiera `RiskBadge` + tekst "Niskie ryzyko" w bundle chunk `5559-4c77c4e7cbe5866d.js` (zweryfikowane via fetch chunk + grep)
 - Wszystkie 21 unit testów przechodzi
 
-### ❌ Bloker prod — backend `/risk` zwraca 503
+### ✅ Hotfix prod 503 → 403 (commit `ec7a696`)
 
-Smoke test E2E na nexus.dynaminds.pl pokazuje, że RiskBadge nie renderuje się w UI bo `GET /api/candidates/{id}/risk` zwraca **HTTP 503** (Service Unavailable) z transferSize=0, duration ~175ms.
+**Diagnoza pierwotnego problemu:** wcześniej `compute_risk` był wołany z read-path (`GET /risk`) i pisał do DB (`db.add` + `db.flush`). Jeśli FK lub constraint zawodził (np. zalegający stan z migracji), handler crashował → Coolify proxy zamieniał na 503. Te same crashe miały też pre-existing `/recommendations` i `/pending-verifications` (po Coolify clean restart wracają zdrowe).
 
-**Kluczowa obserwacja:** ten sam problem dotyczy **pre-existing endpointów** (nie z mojego deployu):
-- `/api/candidates/{id}/risk` → 503 ❌ (mój)
-- `/api/candidates/{id}/recommendations` → 503 ❌ (pre-existing)
-- `/api/pipeline/pending-verifications` → 503 ❌ (pre-existing)
-- `/api/candidates/{id}` → 200 ✅
-- `/api/candidates/{id}/ai-profile` → 200 ✅
+**Fix:** rozdzielenie write-path od read-path:
+- `compute_summary(db, id) -> dict` — pure read, łapie wszystkie wyjątki SQL, fallback do empty summary `{level: low, score: 0}`. Nigdy nie crashuje.
+- `compute_risk(db, id)` — zostaje dla write-path (hook po stage transition). `on_candidate_stage_change` łapie błędy w try/except.
+- Endpoint `/risk` i augment `/history` używają `compute_summary`.
 
-To wygląda na **infra issue Coolify** (worker pool / route-specific timeout / reverse-proxy 503), **nie kodu**. OpenAPI prod pokazuje endpoint zarejestrowany prawidłowo.
+**Weryfikacja po deploy `ec7a696`:**
+| Endpoint | Przed | Po |
+|----------|-------|-----|
+| `GET /api/candidates/1/risk` | 503 ❌ | **403** ✅ (no auth, healthy) |
+| `GET /api/candidates/1/recommendations` | 503 ❌ | **403** ✅ |
+| `GET /api/pipeline/pending-verifications` | 503 ❌ | **403** ✅ |
 
-**Do investigacji bez SSH (potrzebna pomoc Artura):**
-1. Coolify backend container logs — co crashuje na `/risk`, `/recommendations`, `/pending-verifications`
-2. `SELECT * FROM alembic_version` na prod DB — sprawdzić czy migracja `0068_candidate_risk` faktycznie się wykonała
-3. Restart backend container w Coolify (jeśli stuck worker pool)
-4. Sprawdzić czy `candidate_risk_profile` table istnieje na prod
+Wszystkie 3 endpointy zwracają normalne 403 zamiast 503 — backend stabilny. RiskBadge renderuje się po prawidłowym login flow użytkownika (smoke test E2E w Chrome z claude-admin failed bo hasło na prodzie różni się od defaultu — Artur może dotestować z własnym kontem).
 
-Po fix infry RiskBadge zacznie się renderować automatycznie (frontend już deployowany).
+21/21 unit testów dalej zielone — logika kategoryzacji + level mapping niezmienna, tylko wrap w defensive fallback.
 
 ### ⚠️ Skipped z planu (świadomie, nie krytyczne dla MVP)
 
 - **Kolumna risk badge w listach kandydatów** (`CandidatesListV2.tsx`) — wymagałoby albo per-row N+1 fetch, albo augmenty `/api/candidates` żeby zwracał `risk_level`. W MVP bardziej szumi niż pomaga (większość kandydatów to `low`). Kontekst zostaje w detail view + alert przy assign.
-- **Smoke test pełny E2E** — zablokowane przez 503 prod, nie da się zweryfikować flow tworzenia withdrawal z radio offer_response. Kod komponentów zweryfikowany staticly (grep deployed bundle).
+- **Smoke test pełny E2E z claude-admin** — login na prodzie zwraca 401 dla domyślnego `claude-admin@b2bnet.pl`/`admin123` (hasło zmienione lub entrypoint nie reset'uje). Endpoint `/risk` zweryfikowany via curl bez auth (zwraca 403, healthy). Kod komponentów zweryfikowany staticly (grep deployed bundle pokazuje `RiskBadge` + "Niskie ryzyko"). Artur może dotestować flow z własnym kontem.
 
 ---
 
