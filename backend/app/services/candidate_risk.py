@@ -122,18 +122,28 @@ async def _previous_stage_for(
     return await db.scalar(stmt)
 
 
-async def compute_risk(
-    db: AsyncSession, candidate_id: int
-) -> CandidateRiskProfile:
-    """Pełna kalkulacja + UPSERT do cache. Wywoływana z hooka tranzycji i z TTL.
+def _empty_summary(candidate_id: int) -> dict:
+    """Synth profile dla nowych kandydatów / fallback przy błędach DB.
 
-    Algorithm:
-        1. SELECT withdrawn stages w oknie 24mc (z reason JOIN i job_title)
-        2. Skip rekordy z reason='legacy_unknown' (backfilled stare dane)
-        3. Dla każdego — znajdź stage poprzedni → kategoryzuj
-        4. Sumuj punkty per kategoria, derive level
-        5. UPSERT profilu z recent_events (ostatnie 5)
+    Read-path NIGDY nie crashuje — zwraca pustą strukturę. Plain dict
+    (nie CandidateRiskProfile) bo nie chcemy nawet allocate'ować ORM modelu
+    gdy DB layer się sypie (np. tabeli nie ma jeszcze).
     """
+    return {
+        "level": RiskLevel.low,
+        "score": 0,
+        "early_count": 0,
+        "interview_count": 0,
+        "post_accept_count": 0,
+        "recent_events": [],
+        "computed_at": datetime.now(timezone.utc),
+    }
+
+
+async def _gather_events(
+    db: AsyncSession, candidate_id: int
+) -> tuple[dict, list[dict]]:
+    """Pure compute — zwraca (counts, events) bez side-effectów na DB."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=30 * WINDOW_MONTHS)
 
     stmt = (
@@ -164,7 +174,7 @@ async def compute_risk(
 
     for stage_row, reason_name, job_title in rows:
         if reason_name == LEGACY_REASON_NAME:
-            continue  # backfilled stare dane — nie liczymy
+            continue
         prev_stage = await _previous_stage_for(db, stage_row)
         category = _categorize(prev_stage, stage_row.candidate_offer_response)
         if category is None:
@@ -180,23 +190,56 @@ async def compute_risk(
             }
         )
 
+    return counts, events
+
+
+async def compute_summary(db: AsyncSession, candidate_id: int) -> dict:
+    """READ-ONLY compute. Zwraca dict bez touch'a DB write. Nie crashuje
+    nigdy — przy błędach SQL fallback do pustego summary."""
+    try:
+        counts, events = await _gather_events(db, candidate_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "compute_summary read failed for candidate=%s: %s", candidate_id, exc
+        )
+        return _empty_summary(candidate_id)
+
     score = sum(counts[k] * POINTS[k] for k in counts)
-    level = _level_from_score(score)
-    now = datetime.now(timezone.utc)
+    return {
+        "level": _level_from_score(score),
+        "score": score,
+        "early_count": counts["early"],
+        "interview_count": counts["interview"],
+        "post_accept_count": counts["post_accept"],
+        "recent_events": events[:RECENT_EVENTS_LIMIT],
+        "computed_at": datetime.now(timezone.utc),
+    }
+
+
+async def compute_risk(
+    db: AsyncSession, candidate_id: int
+) -> CandidateRiskProfile:
+    """Pełna kalkulacja + UPSERT do cache. Wywoływana z hooka tranzycji.
+
+    Może crash'ować jeśli tabela `candidate_risk_profile` nie istnieje
+    (migracja nie zaaplikowana) — wtedy `on_candidate_stage_change` łapie
+    w try/except i loguje warning. Read-path używa `compute_summary`.
+    """
+    summary = await compute_summary(db, candidate_id)
 
     profile = await db.get(CandidateRiskProfile, candidate_id)
     if profile is None:
         profile = CandidateRiskProfile(candidate_id=candidate_id)
         db.add(profile)
 
-    profile.level = level
-    profile.score = score
-    profile.early_count = counts["early"]
-    profile.interview_count = counts["interview"]
-    profile.post_accept_count = counts["post_accept"]
-    profile.recent_events = events[:RECENT_EVENTS_LIMIT]
-    profile.computed_at = now
-    profile.stale_after = now + timedelta(hours=TTL_HOURS)
+    profile.level = summary["level"]
+    profile.score = summary["score"]
+    profile.early_count = summary["early_count"]
+    profile.interview_count = summary["interview_count"]
+    profile.post_accept_count = summary["post_accept_count"]
+    profile.recent_events = summary["recent_events"]
+    profile.computed_at = summary["computed_at"]
+    profile.stale_after = summary["computed_at"] + timedelta(hours=TTL_HOURS)
 
     await db.flush()
     return profile
@@ -221,8 +264,17 @@ async def on_candidate_stage_change(
 async def get_or_compute(
     db: AsyncSession, candidate_id: int
 ) -> CandidateRiskProfile:
-    """Czyta cache; przelicza gdy brak lub TTL minął."""
-    profile = await db.get(CandidateRiskProfile, candidate_id)
+    """[Legacy compat] Czyta cache; przelicza gdy brak lub TTL minął.
+
+    Read-path API używa `compute_summary` zamiast tego (read-only, defensive).
+    """
+    try:
+        profile = await db.get(CandidateRiskProfile, candidate_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "risk profile lookup failed candidate=%s: %s", candidate_id, exc
+        )
+        return None  # type: ignore[return-value]
     if profile is None:
         return await compute_risk(db, candidate_id)
     if profile.stale_after is None or profile.stale_after < datetime.now(

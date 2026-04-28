@@ -1277,19 +1277,20 @@ async def get_candidate_history(
             }
         )
 
-    # Risk summary (Phase 17 — candidate_risk_profile, migracja 0066)
-    from app.models.candidate_risk import CandidateRiskProfile
-    from app.services.candidate_risk import get_or_compute as _risk_get
+    # Risk summary (Phase 17 — read-only compute, migracja 0068)
+    from app.services.candidate_risk import compute_summary as _risk_summary
 
     try:
-        risk_profile = await _risk_get(db, candidate_id)
+        s = await _risk_summary(db, candidate_id)
         risk_summary = {
-            "level": risk_profile.level.value,
-            "score": risk_profile.score,
+            "level": s["level"].value
+            if hasattr(s["level"], "value")
+            else s["level"],
+            "score": s["score"],
             "breakdown": {
-                "early": risk_profile.early_count,
-                "interview": risk_profile.interview_count,
-                "post_accept": risk_profile.post_accept_count,
+                "early": s["early_count"],
+                "interview": s["interview_count"],
+                "post_accept": s["post_accept_count"],
             },
         }
     except Exception as exc:  # noqa: BLE001
@@ -1311,38 +1312,32 @@ async def get_candidate_risk(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Risk profile dla kandydata (Phase 17 — migracja 0066).
+    """Risk profile dla kandydata (Phase 17 — read-only, migracja 0068).
 
-    Zwraca cached profil; przelicza gdy stale_after < now() lub brak rekordu.
-    Dla nowych kandydatów bez historii — synth low/0 (`profile_exists=true`,
-    nigdy 404).
+    Read-only compute — nie pisze do DB. Bezpieczne dla GET requestu.
+    Dla nowych kandydatów bez historii / przy błędach DB — synth low/0
+    (`profile_exists=true`, nigdy 404, nigdy 5xx).
     """
-    from app.models.candidate_risk import RiskLevel as _RiskLevel
-    from app.services.candidate_risk import get_or_compute as _risk_get
+    from app.services.candidate_risk import compute_summary as _risk_summary
 
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    profile = await _risk_get(db, candidate_id)
-
-    # Najnowsze events lecimy z profile.recent_events (JSONB snapshot z compute_risk).
-    events = profile.recent_events or []
+    s = await _risk_summary(db, candidate_id)
     return {
         "candidate_id": candidate_id,
-        "level": profile.level.value
-        if isinstance(profile.level, _RiskLevel)
-        else profile.level,
-        "score": profile.score,
+        "level": s["level"].value if hasattr(s["level"], "value") else s["level"],
+        "score": s["score"],
         "breakdown": {
-            "early": profile.early_count,
-            "interview": profile.interview_count,
-            "post_accept": profile.post_accept_count,
+            "early": s["early_count"],
+            "interview": s["interview_count"],
+            "post_accept": s["post_accept_count"],
         },
-        "last_updated_at": profile.computed_at.isoformat()
-        if profile.computed_at
+        "last_updated_at": s["computed_at"].isoformat()
+        if s["computed_at"]
         else None,
-        "recent_events": events,
+        "recent_events": s["recent_events"],
         "profile_exists": True,
     }
 
