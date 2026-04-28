@@ -1282,6 +1282,89 @@ export const historicalCandidatesApi = {
     ),
 };
 
+// ── Request history (Historia requestu) ────────────────────────────────────
+
+export type RequestHistoryOutcome = "filled" | "cancelled";
+export type RequestHistorySimilaritySource = "sql_same_client" | "voyage";
+
+export interface RequestHistoryEntry {
+  job_id: number;
+  title: string;
+  train_name: string | null;
+  same_train: boolean;
+  seniority: string | null;
+  status: string;
+  is_in_progress: boolean;
+  outcome: RequestHistoryOutcome | null;
+  close_reason: string | null;
+  similarity: number;
+  similarity_source: RequestHistorySimilaritySource;
+  closed_at: string | null;
+  created_at: string;
+  tth_days: number | null;
+  client_id: number | null;
+  client_name: string | null;
+  champion_name: string | null;
+  champion_candidate_id: number | null;
+  champions_count: number;
+  candidates_count: number;
+  fee_rate: number | null;
+  fee_currency: string | null;
+  rate_unit: string | null;
+  tac_name: string | null;
+  delivery_lead_name: string | null;
+}
+
+export interface RequestHistoryMeta {
+  sql_count: number;
+  voyage_count: number;
+  total: number;
+  skill_freq_sample: number;
+}
+
+export interface RequestHistoryResponse {
+  closed: RequestHistoryEntry[];
+  in_progress: RequestHistoryEntry[];
+  skill_frequency: Record<string, unknown>;
+  meta: RequestHistoryMeta;
+}
+
+export interface RequestHistoryPreviewBody {
+  title: string;
+  client_id?: number | null;
+  raw_description?: string | null;
+  train_name?: string | null;
+  top_k?: number;
+  cross_client?: boolean;
+  include_open?: boolean;
+}
+
+export const requestHistoryApi = {
+  forJob: (
+    jobId: number,
+    opts?: { cross_client?: boolean; top_k?: number; include_open?: boolean },
+  ) =>
+    api.get<RequestHistoryResponse>(`/api/jobs/${jobId}/request-history`, {
+      params: opts,
+    }),
+  preview: (body: RequestHistoryPreviewBody) =>
+    api.post<RequestHistoryResponse>(
+      "/api/jobs/request-history/preview",
+      body,
+    ),
+  addCandidate: (
+    jobId: number,
+    body: { candidate_id: number; source_job_id?: number | null },
+  ) =>
+    api.post<{
+      candidate_stage_id: number;
+      job_id: number;
+      candidate_id: number;
+      stage: string;
+      source_job_id: number | null;
+    }>(`/api/jobs/${jobId}/candidates`, body),
+};
+
 export const recommendationsApi = {
   forJob: (jobId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
     api.get<{ job_id: number; job_title: string; search_type: string; matches: CandidateMatch[] }>(

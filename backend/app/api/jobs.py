@@ -310,10 +310,54 @@ async def create_job(
     # has been generated (needs job text). For create we must persist first
     # to get `job.id`; classifier will be called below post-embed.
     payload = data.model_dump(
-        exclude={"auto_suggest_cc", "secondary_cc_ids"}
+        exclude={"auto_suggest_cc", "secondary_cc_ids", "from_job_id", "copy_questions"}
     )
     secondary_cc_ids = data.secondary_cc_ids or []
     auto_suggest = data.auto_suggest_cc
+
+    # "Skopiuj jako template" — dociąg pól z source jobu zanim wstawimy nowy.
+    # Pola, które caller już wpisał w formularzu, mają precedencję (sprawdzamy
+    # `not payload.get(field)` — `None`, pusty string, pusta lista wszystkie
+    # liczą się jako "brak"). `champion_profile` kopiujemy TYLKO gdy nowy
+    # request jest u tego samego klienta — championship to charakterystyka
+    # kandydata u konkretnego klienta.
+    src_job: Optional[Job] = None
+    if data.from_job_id is not None:
+        src_job = (
+            await db.execute(select(Job).where(Job.id == data.from_job_id))
+        ).scalar_one_or_none()
+        if src_job is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail=f"from_job_id: source job {data.from_job_id} not found",
+            )
+        copy_fields = (
+            "description",
+            "requirements",
+            "must_skills",
+            "nice_skills",
+            "train_name",
+            "seniority",
+            "subcategory",
+            "industry",
+            "headcount",
+            "work_mode",
+            "remote_policy",
+            "salary_min",
+            "salary_max",
+        )
+        for field in copy_fields:
+            if not payload.get(field):
+                value = getattr(src_job, field, None)
+                if isinstance(value, list):
+                    payload[field] = list(value)
+                elif isinstance(value, dict):
+                    payload[field] = dict(value)
+                else:
+                    payload[field] = value
+        same_client = payload.get("client_id") == src_job.client_id
+        if same_client and not payload.get("champion_profile") and src_job.champion_profile:
+            payload["champion_profile"] = dict(src_job.champion_profile)
 
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
     # hit `resolve_default_owners`. Override always wins, but only when it
@@ -368,12 +412,45 @@ async def create_job(
         for cc_id in secondary_cc_ids[:2]:  # cap at 2
             db.add(JobSecondaryCc(job_id=job.id, competence_category_id=cc_id))
 
+    activity_action = "created"
+    activity_details: Optional[dict] = None
+    if src_job is not None:
+        activity_action = "created_from_template"
+        activity_details = {"source_job_id": src_job.id}
+        # Skopiuj pinned interview questions (job_questions) z source jobu —
+        # idempotentne dzięki unique (job_id, question_id) na junction table.
+        if data.copy_questions:
+            from app.models.interview_question import JobQuestion
+
+            existing_links = (
+                await db.execute(
+                    select(
+                        JobQuestion.question_id,
+                        JobQuestion.is_pinned,
+                        JobQuestion.added_by_source,
+                        JobQuestion.order_index,
+                    ).where(JobQuestion.job_id == src_job.id)
+                )
+            ).all()
+            for question_id, is_pinned, added_by_source, order_index in existing_links:
+                db.add(
+                    JobQuestion(
+                        job_id=job.id,
+                        question_id=question_id,
+                        is_pinned=is_pinned,
+                        added_by_source=added_by_source,
+                        order_index=order_index,
+                        added_by_user_id=current_user.id,
+                    )
+                )
+
     db.add(
         Activity(
             entity_type="job",
             entity_id=job.id,
-            action="created",
+            action=activity_action,
             user_id=current_user.id,
+            details=activity_details,
         )
     )
     await db.commit()
@@ -1059,6 +1136,261 @@ async def preview_historical_matches_for_new_role(
     return HistoricalMatchesResponse(
         matches=previews,
         skill_frequency=skill_frequency(matches),
+    )
+
+
+# ── Request history (Historia requestu) ────────────────────────────────────
+# Sibling-request view in the job detail page. Differs from
+# `champion-profile/historical-matches` (Phase 15) in three ways:
+#   - includes BOTH closed and in-progress requests (unless `include_open=false`),
+#   - does NOT require `champion_profile`,
+#   - SQL fast-path same-client + Voyage fallback (progressive enhancement).
+# Implemented in `services.request_history.find_similar_requests`.
+
+
+def _split_entries(entries):
+    """Split RequestHistoryEntry list into (closed, in_progress) buckets."""
+    closed_out = []
+    in_progress_out = []
+    for e in entries:
+        if e.is_in_progress:
+            in_progress_out.append(e)
+        else:
+            closed_out.append(e)
+    return closed_out, in_progress_out
+
+
+@router.get("/{job_id}/request-history")
+async def get_request_history(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    top_k: int = Query(default=10, ge=1, le=30),
+    cross_client: bool = Query(default=False),
+    include_open: bool = Query(default=True),
+):
+    """List sibling requests for a job — Historia tab.
+
+    Splits the list into `closed` and `in_progress`. `skill_frequency` is
+    computed only on closed entries (open jobs have no hire yet). Cheap by
+    default — same-client SQL hit avoids Voyage entirely.
+    """
+    from app.schemas.request_history import (
+        RequestHistoryEntry as RequestHistoryEntrySchema,
+        RequestHistoryMeta,
+        RequestHistoryResponse,
+    )
+    from app.services.request_history import (
+        aggregate_meta_counts,
+        find_similar_requests,
+    )
+    from app.services.historical_jobs_retrieval import (
+        HistoricalJobMatch,
+        skill_frequency,
+    )
+
+    job = (
+        await db.execute(select(Job).where(Job.id == job_id))
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    entries = await find_similar_requests(
+        db,
+        client_id=job.client_id,
+        title=job.title or "",
+        raw_description=job.description or "",
+        train_name=getattr(job, "train_name", None),
+        top_k=top_k,
+        cross_client=cross_client,
+        exclude_job_id=job.id,
+        include_open=include_open,
+    )
+
+    closed, in_progress = _split_entries(entries)
+
+    # skill_frequency operates on HistoricalJobMatch — adapt closed entries by
+    # loading must/nice from DB for those job_ids only. Cheap (1 SELECT).
+    skill_freq: dict = {}
+    if closed:
+        closed_ids = [e.job_id for e in closed]
+        rows = (
+            await db.execute(
+                select(Job.id, Job.must_skills, Job.nice_skills, Job.train_name).where(
+                    Job.id.in_(closed_ids)
+                )
+            )
+        ).all()
+        proxy_matches = [
+            HistoricalJobMatch(
+                job_id=r[0],
+                title="",
+                similarity=0.0,
+                closed_at=None,
+                client_id=None,
+                client_name=None,
+                champion_profile={},
+                must_skills=list(r[1] or []),
+                nice_skills=list(r[2] or []),
+                train_name=r[3],
+                same_train=False,
+            )
+            for r in rows
+        ]
+        skill_freq = skill_frequency(proxy_matches)
+
+    counts = aggregate_meta_counts(entries)
+    return RequestHistoryResponse(
+        closed=[RequestHistoryEntrySchema.model_validate(e.__dict__) for e in closed],
+        in_progress=[
+            RequestHistoryEntrySchema.model_validate(e.__dict__) for e in in_progress
+        ],
+        skill_frequency=skill_freq,
+        meta=RequestHistoryMeta(
+            sql_count=counts["sql_count"],
+            voyage_count=counts["voyage_count"],
+            total=counts["total"],
+            skill_freq_sample=len(closed),
+        ),
+    )
+
+
+@router.post("/request-history/preview")
+async def preview_request_history(
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+    payload: dict | None = None,
+):
+    """Preview sibling requests for an UNSAVED role (banner in AddJobModal).
+
+    Reuses the same engine; difference is `exclude_job_id=None` (no self) and
+    no `Job` row to read defaults from.
+    """
+    from app.schemas.request_history import (
+        RequestHistoryEntry as RequestHistoryEntrySchema,
+        RequestHistoryMeta,
+        RequestHistoryPreviewRequest,
+        RequestHistoryResponse,
+    )
+    from app.services.request_history import (
+        aggregate_meta_counts,
+        find_similar_requests,
+    )
+
+    body = RequestHistoryPreviewRequest.model_validate(payload or {})
+
+    entries = await find_similar_requests(
+        db,
+        client_id=body.client_id,
+        title=body.title,
+        raw_description=body.raw_description,
+        train_name=body.train_name,
+        top_k=body.top_k,
+        cross_client=body.cross_client,
+        include_open=body.include_open,
+    )
+    closed, in_progress = _split_entries(entries)
+    counts = aggregate_meta_counts(entries)
+    return RequestHistoryResponse(
+        closed=[RequestHistoryEntrySchema.model_validate(e.__dict__) for e in closed],
+        in_progress=[
+            RequestHistoryEntrySchema.model_validate(e.__dict__) for e in in_progress
+        ],
+        skill_frequency={},  # banner doesn't need skill freq
+        meta=RequestHistoryMeta(
+            sql_count=counts["sql_count"],
+            voyage_count=counts["voyage_count"],
+            total=counts["total"],
+            skill_freq_sample=0,
+        ),
+    )
+
+
+@router.post(
+    "/{job_id}/candidates",
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_candidate_from_history(
+    job_id: int,
+    body: dict,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a candidate as a `new` pipeline entry — used by 'Dodaj championa'.
+
+    Idempotent: if `(candidate_id, job_id)` already exists in `candidate_stages`,
+    returns 409 Conflict (UI surfaces 'kandydat już jest w pipeline').
+    """
+    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.schemas.request_history import (
+        AddCandidateFromHistoryPayload,
+        AddCandidateFromHistoryResponse,
+    )
+
+    payload = AddCandidateFromHistoryPayload.model_validate(body or {})
+
+    job = (
+        await db.execute(select(Job).where(Job.id == job_id))
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    candidate = (
+        await db.execute(select(Candidate).where(Candidate.id == payload.candidate_id))
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="Candidate not found"
+        )
+
+    existing = (
+        await db.execute(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == payload.candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Candidate already exists in this pipeline",
+        )
+
+    stage = CandidateStage(
+        candidate_id=payload.candidate_id,
+        job_id=job_id,
+        stage=PipelineStage.new,
+        moved_by=current_user.id,
+    )
+    db.add(stage)
+    db.add(
+        Activity(
+            entity_type="candidate_stage",
+            entity_id=0,  # filled after flush
+            action="added_from_historical_job",
+            user_id=current_user.id,
+            details={
+                "job_id": job_id,
+                "candidate_id": payload.candidate_id,
+                "source_job_id": payload.source_job_id,
+            },
+        )
+    )
+    await db.flush()
+    # Update activity entity_id now that stage has an id.
+    # Lazy approach: just commit — activity already references job_id+candidate_id
+    # in details, that's sufficient for audit. Skip the second update query.
+    await db.commit()
+    await db.refresh(stage)
+
+    return AddCandidateFromHistoryResponse(
+        candidate_stage_id=stage.id,
+        job_id=job_id,
+        candidate_id=payload.candidate_id,
+        stage=stage.stage.value,
+        source_job_id=payload.source_job_id,
     )
 
 

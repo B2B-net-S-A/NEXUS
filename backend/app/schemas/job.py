@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.job import (
     JobCloseReason,
@@ -58,6 +58,18 @@ class JobCreate(BaseModel):
     competence_category_id: Optional[int] = None
     secondary_cc_ids: Optional[List[int]] = None
     auto_suggest_cc: bool = True
+
+    # "Skopiuj jako template" (zakładka Historia requestu). Gdy ustawione,
+    # backend kopiuje brakujące pola (description / requirements / skills /
+    # train_name / seniority / industry / subcategory / headcount / work_mode /
+    # remote_policy / salary range) z source job, plus `champion_profile`
+    # tylko gdy nowy job jest u tego samego klienta. Pola, które klient
+    # wypełnił w formularzu, mają precedencję.
+    from_job_id: Optional[int] = Field(default=None, gt=0)
+    # Jeśli True i `from_job_id` ustawione — kopiujemy też pinned interview
+    # questions (job_questions) z source job. Idempotent dzięki unique
+    # constraint (job_id, question_id).
+    copy_questions: bool = False
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod

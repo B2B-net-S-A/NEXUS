@@ -9,13 +9,14 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
 import { HistoricalCandidatesSection } from "@/components/HistoricalCandidatesSection";
+import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle } from "lucide-react";
+import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History } from "lucide-react";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -853,6 +854,7 @@ const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> 
 
 type PageTab =
   | "pipeline"
+  | "history"
   | "ai-matching"
   | "portals"
   | "champion"
@@ -1070,6 +1072,19 @@ export default function JobDetailPage() {
             Pipeline kandydatów
           </button>
           <button
+            onClick={() => setActiveTab("history")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "history"
+                ? "border-amber-600 text-amber-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            )}
+            data-testid="tab-history"
+          >
+            <History className="w-4 h-4" />
+            Historia
+          </button>
+          <button
             onClick={() => setActiveTab("ai-matching")}
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
@@ -1147,6 +1162,13 @@ export default function JobDetailPage() {
             <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
           )}
         </div>
+      )}
+
+      {activeTab === "history" && (
+        <RequestHistorySection
+          jobId={Number(id)}
+          clientId={job?.client_id ?? null}
+        />
       )}
 
       {activeTab === "ai-matching" && (

@@ -14,7 +14,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X, Loader2, Sparkles,
 } from "lucide-react";
-import api, { aiWriterApi, phase5Api, pipelineTemplatesApi } from "@/lib/api";
+import api, {
+  aiWriterApi,
+  phase5Api,
+  pipelineTemplatesApi,
+  requestHistoryApi,
+} from "@/lib/api";
+import type { RequestHistoryResponse } from "@/lib/api";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
 import { AutoAssignedCollaborators } from "@/components/jobs/AutoAssignedCollaborators";
 
@@ -800,6 +806,22 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
   );
 }
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Lightweight `useDebouncedValue` — kept inline because we don't want to
+ * pull in a new shared hook for one call site. 500ms is enough to avoid
+ * banging the preview endpoint on every keystroke.
+ */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(handle);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 // ── Modal: Dodaj / Edytuj ofertę ─────────────────────────────────────────────
 
 interface JobFormData {
@@ -1114,7 +1136,21 @@ function JobFormFields({
   );
 }
 
-export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+export function AddJobModal({
+  onClose,
+  onSuccess,
+  fromJobId = null,
+}: {
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  /**
+   * "Skopiuj jako template" handoff — gdy ustawione, modal startuje
+   * z prefilled polami z source jobu. Backend dokonuje finalnego
+   * zoznaczenia w POST /api/jobs (przekazujemy `from_job_id`), więc
+   * tutaj prefill jest tylko visualnym preview formularza.
+   */
+  fromJobId?: number | null;
+}) {
   const router = useRouter();
   const [form, setForm] = useState<JobFormData>(EMPTY_JOB);
   const [saving, setSaving] = useState(false);
@@ -1124,6 +1160,64 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   // auto_cc collaborators: undefined = not initialised (all auto-add), otherwise
   // the explicit set user chose (may exclude some backend would add).
   const [autoCollaboratorIds, setAutoCollaboratorIds] = useState<number[] | null>(null);
+
+  // Prefill form from source job when fromJobId is provided.
+  useEffect(() => {
+    if (fromJobId == null) return;
+    let cancelled = false;
+    api
+      .get(`/api/jobs/${fromJobId}`)
+      .then((r) => {
+        if (cancelled) return;
+        const src = r.data;
+        const prefilled = jobToForm(src);
+        // User świadomie wybiera klienta i nadaje nową nazwę roli — nie
+        // kopiujemy `client_id` ani `title` (zmuszamy DL do potwierdzenia).
+        prefilled.client_id = "";
+        prefilled.title = "";
+        setForm(prefilled);
+      })
+      .catch(() => {
+        // Cichy fallback — DL może wypełnić ręcznie.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fromJobId]);
+
+  // Banner z siostrzanymi requestami — pokazujemy gdy klient wybrany
+  // i tytuł >=5 znaków. Debounced przez staleTime + enabled gate.
+  const debouncedTitle = useDebouncedValue(form.title, 500);
+  const clientIdNum = form.client_id ? Number(form.client_id) : null;
+  const previewQuery = useQuery<RequestHistoryResponse>({
+    queryKey: [
+      "request-history-preview",
+      clientIdNum,
+      debouncedTitle,
+      form.train_name,
+    ],
+    queryFn: async () => {
+      const r = await requestHistoryApi.preview({
+        title: debouncedTitle,
+        client_id: clientIdNum,
+        train_name: form.train_name || null,
+        raw_description: form.description || null,
+        top_k: 5,
+        cross_client: false,
+        include_open: true,
+      });
+      return r.data;
+    },
+    enabled:
+      fromJobId == null && // banner zbędny gdy już mamy template — DL widział historię
+      clientIdNum !== null &&
+      debouncedTitle.length >= 5,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const previewTotal =
+    (previewQuery.data?.closed.length ?? 0) +
+    (previewQuery.data?.in_progress.length ?? 0);
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
@@ -1201,6 +1295,10 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
         // Phase 15 / Phase D: opcjonalne, auto-extract z opisu po stronie
         // backendu gdy puste (regex w `train_name_extractor`).
         train_name: form.train_name.trim() || undefined,
+        // "Skopiuj jako template" handoff — backend kopiuje brakujące pola
+        // i pinned interview questions (idempotent, same-client champion only).
+        from_job_id: fromJobId ?? undefined,
+        copy_questions: fromJobId != null ? true : undefined,
       });
       // Reconcile auto_cc collaborators: if user de-selected any after backend
       // already auto-added, we DELETE them here. Hits the same endpoint the
@@ -1234,9 +1332,21 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   };
 
   return (
-    <Modal title="Dodaj ofertę pracy" onClose={onClose} wide>
+    <Modal
+      title={fromJobId != null ? "Skopiuj jako template" : "Dodaj ofertę pracy"}
+      onClose={onClose}
+      wide
+    >
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
+        {fromJobId != null && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            Tworzysz kopię z roli #{fromJobId}. Pola opisu, wymagań, skills,
+            seniority i train zostały prefillowane. Wybierz klienta i nadaj
+            tytuł — Champion Profile zostanie skopiowany tylko gdy zachowasz
+            tego samego klienta.
+          </div>
+        )}
         {/* AI Generate button */}
         <div className="flex items-center gap-2">
           <button
@@ -1254,6 +1364,40 @@ export function AddJobModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           <span className="text-xs text-gray-400">Wypełni opis i wymagania automatycznie</span>
         </div>
         {aiError && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{aiError}</div>}
+        {previewTotal > 0 && previewQuery.data && (
+          <div
+            className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs"
+            data-testid="request-history-banner"
+          >
+            <div className="flex items-center gap-1.5 text-blue-900 dark:text-blue-200 font-medium">
+              <Sparkles className="inline w-4 h-4" />
+              U tego klienta było już {previewTotal}{" "}
+              {previewTotal === 1 ? "podobny request" : "podobnych requestów"}
+              {" "}({previewQuery.data.in_progress.length} w toku,{" "}
+              {previewQuery.data.closed.length} zamkniętych)
+            </div>
+            <ul className="mt-1.5 space-y-0.5 pl-5 list-disc text-blue-800 dark:text-blue-300">
+              {[...previewQuery.data.in_progress, ...previewQuery.data.closed]
+                .slice(0, 3)
+                .map((r) => (
+                  <li key={r.job_id}>
+                    <a
+                      href={`/jobs/${r.job_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-blue-700"
+                    >
+                      {r.title}
+                    </a>{" "}
+                    <span className="text-blue-600 dark:text-blue-400">
+                      ({r.is_in_progress ? "w toku" : r.outcome ?? "zamknięty"}
+                      {r.tth_days != null ? `, ${r.tth_days}d` : ""})
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
         <JobFormFields
           form={form}
           onChange={onChange}
