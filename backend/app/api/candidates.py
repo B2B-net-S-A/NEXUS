@@ -1227,12 +1227,17 @@ async def get_candidate_history(
                 "job_status": job_status,
                 "stages": [],
                 "latest_stage": None,
+                # latest_stage_id wskazuje na najnowszy CandidateStage row
+                # (potrzebne dla CV-per-rekrutacja: api wybiera stage_id by
+                # wczytać snapshot oryginalnego CV i brandowane CV draft).
+                "latest_stage_id": None,
                 "first_seen": None,
                 "last_seen": None,
             }
         entry = jobs_map[job_id]
         entry["stages"].append(
             {
+                "stage_id": stage.id,
                 "stage": stage.stage.value,
                 "moved_at": stage.moved_at.isoformat() if stage.moved_at else None,
                 "rating": stage.rating,
@@ -1247,6 +1252,7 @@ async def get_candidate_history(
             if not entry["last_seen"] or moved_at > entry["last_seen"]:
                 entry["last_seen"] = moved_at
                 entry["latest_stage"] = stage.stage.value
+                entry["latest_stage_id"] = stage.id
 
     # Contracts
     from app.models.contract import Contract

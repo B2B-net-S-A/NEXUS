@@ -2453,4 +2453,99 @@ export const clientNotificationOverridesApi = {
     api.delete(`/api/clients/${clientId}/notification-overrides/${overrideId}`),
 };
 
+// ── CV per rekrutacja (PR1+PR2) ────────────────────────────────────────────
+
+export interface CVOriginalSnapshot {
+  candidate_stage_id: number;
+  candidate_id: number;
+  job_id: number;
+  has_snapshot: boolean;
+  original_cv_filename: string | null;
+  original_cv_language: string | null;
+  original_snapshot_at: string | null;
+  original_snapshot_source: string | null;
+  download_url: string | null;
+}
+
+export type CVBrandedStatus = "none" | "draft" | "finalized";
+export type CVTemplate = "standard" | "blind";
+export type CVLanguage = "pl" | "en";
+
+export interface CVBrandedState {
+  candidate_stage_id: number;
+  status: CVBrandedStatus;
+  content_html: string | null;
+  template: string | null;
+  language: string | null;
+  updated_at: string | null;
+  updated_by: number | null;
+  updated_by_name: string | null;
+  finalized_at: string | null;
+  finalized_by: number | null;
+  finalized_by_name: string | null;
+  snapshot_filename: string | null;
+  rendered_from_default: boolean;
+}
+
+export interface CVBrandedFinalizeResponseT {
+  candidate_stage_id: number;
+  status: CVBrandedStatus;
+  snapshot_filename: string;
+  snapshot_size_bytes: number;
+}
+
+export interface CVShareTokenResp {
+  token: string;
+  expires_at: string | null;
+  share_url_suffix: string;
+  candidate_stage_cv_id: number;
+}
+
+export const candidateStageCvApi = {
+  original: {
+    get: (stageId: number) =>
+      api.get<CVOriginalSnapshot>(
+        `/api/candidates/stages/${stageId}/cv/original`,
+      ),
+    downloadUrl: (stageId: number) =>
+      `${API_BASE}/api/candidates/stages/${stageId}/cv/original/download`,
+    refresh: (stageId: number) =>
+      api.post<CVOriginalSnapshot>(
+        `/api/candidates/stages/${stageId}/cv/original/refresh`,
+      ),
+  },
+  branded: {
+    get: (stageId: number) =>
+      api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
+    update: (
+      stageId: number,
+      payload:
+        | { content_html: string }
+        | { template?: CVTemplate; language?: CVLanguage },
+    ) =>
+      api.patch<CVBrandedState>(
+        `/api/candidates/stages/${stageId}/cv/branded`,
+        payload,
+      ),
+    finalize: (stageId: number) =>
+      api.post<CVBrandedFinalizeResponseT>(
+        `/api/candidates/stages/${stageId}/cv/branded/finalize`,
+      ),
+    printableUrl: (stageId: number) =>
+      `${API_BASE}/api/candidates/stages/${stageId}/cv/branded/render-pdf`,
+  },
+  share: {
+    create: (stageId: number, expiresInDays = 30) =>
+      api.post<CVShareTokenResp>(
+        `/api/candidates/stages/${stageId}/cv/share-token`,
+        null,
+        { params: { expires_in_days: expiresInDays } },
+      ),
+    revoke: (token: string) =>
+      api.delete<{ status: string; token: string }>(
+        `/api/candidates/stages/cv/share-token/${token}`,
+      ),
+  },
+};
+
 export default api;

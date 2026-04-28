@@ -38,7 +38,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import api, { contractsApi, type ContractDraftResponse } from "@/lib/api";
+import api, {
+  contractsApi,
+  type ContractDraftResponse,
+  candidateStageCvApi,
+  type CVOriginalSnapshot,
+  type CVBrandedState,
+} from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +69,10 @@ import { EditCandidateModal } from "@/components/AppShell";
 import { ScreeningSheet } from "@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { CVGeneratorV2 } from "@/components/v2/modals/CVGeneratorV2";
+import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
+import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RISK_QUERY_KEY, RiskBadge } from "@/components/v2/RiskBadge";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
@@ -747,7 +757,10 @@ export function CandidateDetailV2({
             <TabsContent value="rekrutacje" className="mt-0">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2">
-                  <RekrutacjeTab history={history} />
+                  <RekrutacjeTab
+                    history={history}
+                    candidateName={`${candidate.name} ${candidate.lastname}`}
+                  />
                 </div>
                 <div className="space-y-4">
                   <CandidatePipelinesWidget
@@ -1851,7 +1864,13 @@ function TimelineTab({ items }: { items: any[] }) {
   );
 }
 
-function RekrutacjeTab({ history }: { history: any[] }) {
+function RekrutacjeTab({
+  history,
+  candidateName,
+}: {
+  history: any[];
+  candidateName: string;
+}) {
   if (!Array.isArray(history) || history.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-[hsl(var(--text-muted))]">
@@ -1862,35 +1881,215 @@ function RekrutacjeTab({ history }: { history: any[] }) {
   return (
     <div className="space-y-2">
       {history.map((job: any, i: number) => (
-        <Link
-          key={i}
-          href={`/jobs/${job.job_id ?? job.id}`}
-          className="block rounded-v2-m border border-[hsl(var(--border-subtle))] hover:border-[hsl(var(--accent))]/40 p-3 transition-colors"
-        >
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <div className="font-medium text-[hsl(var(--text-title))] truncate">
-                {job.job_title ?? `Oferta #${job.job_id ?? job.id}`}
-              </div>
-              <div className="text-xs text-[hsl(var(--text-muted))]">
-                {job.latest_stage ?? "—"}
-                {job.first_seen
-                  ? ` · dodano ${formatDate(job.first_seen)}`
-                  : ""}
-              </div>
-              {Array.isArray(job.stages) && job.stages.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                  {job.stages.slice(0, 6).map((s: any, si: number) => (
-                    <Badge key={si} size="sm" variant="soft">
-                      {s.stage}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </Link>
+        <RekrutacjaCard
+          key={job.job_id ?? job.id ?? i}
+          job={job}
+          candidateName={candidateName}
+        />
       ))}
+    </div>
+  );
+}
+
+function RekrutacjaCard({
+  job,
+  candidateName,
+}: {
+  job: any;
+  candidateName: string;
+}) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const stageId: number | null = job.latest_stage_id ?? null;
+  const [openOriginal, setOpenOriginal] = useState(false);
+  const [openBranded, setOpenBranded] = useState(false);
+  const [openShare, setOpenShare] = useState(false);
+  const [confirmRefresh, setConfirmRefresh] = useState(false);
+
+  const { data: original } = useQuery<CVOriginalSnapshot>({
+    queryKey: ["cv-original", stageId],
+    queryFn: () =>
+      candidateStageCvApi.original.get(stageId as number).then((r) => r.data),
+    enabled: stageId != null,
+  });
+
+  const { data: branded } = useQuery<CVBrandedState>({
+    queryKey: ["cv-branded", stageId],
+    queryFn: () =>
+      candidateStageCvApi.branded.get(stageId as number).then((r) => r.data),
+    enabled: stageId != null && (openBranded || openShare),
+  });
+
+  const refreshMut = useMutation({
+    mutationFn: () =>
+      candidateStageCvApi.original.refresh(stageId as number),
+    onSuccess: () => {
+      showSuccess("Snapshot CV oryginalnego zaktualizowany");
+      queryClient.invalidateQueries({ queryKey: ["cv-original", stageId] });
+      setConfirmRefresh(false);
+    },
+    onError: (e) =>
+      showError(
+        (e as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ?? "Błąd podczas odświeżania snapshotu",
+      ),
+  });
+
+  const brandedStatus =
+    (branded?.status as "none" | "draft" | "finalized" | undefined) ?? "none";
+
+  return (
+    <div className="rounded-v2-m border border-[hsl(var(--border-subtle))] p-3 hover:border-[hsl(var(--accent))]/40 transition-colors">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/jobs/${job.job_id ?? job.id}`}
+            className="font-medium text-[hsl(var(--text-title))] hover:underline"
+          >
+            {job.job_title ?? `Oferta #${job.job_id ?? job.id}`}
+          </Link>
+          <div className="text-xs text-[hsl(var(--text-muted))]">
+            {job.latest_stage ?? "—"}
+            {job.first_seen
+              ? ` · dodano ${formatDate(job.first_seen)}`
+              : ""}
+          </div>
+          {Array.isArray(job.stages) && job.stages.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+              {job.stages.slice(0, 6).map((s: any, si: number) => (
+                <Badge key={si} size="sm" variant="soft">
+                  {s.stage}
+                </Badge>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {original ? (
+              original.has_snapshot ? (
+                <Badge size="sm" variant="success">
+                  CV oryginalne
+                </Badge>
+              ) : (
+                <Badge size="sm" variant="warning">
+                  Brak CV w momencie zgłoszenia
+                </Badge>
+              )
+            ) : null}
+            {brandedStatus === "finalized" ? (
+              <Badge size="sm" variant="success">
+                Brandowane: gotowe
+              </Badge>
+            ) : brandedStatus === "draft" ? (
+              <Badge size="sm" variant="info">
+                Brandowane: draft
+              </Badge>
+            ) : (
+              <Badge size="sm" variant="neutral">
+                Brandowane: brak
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {stageId != null ? (
+        <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-[hsl(var(--border-subtle))]">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpenOriginal(true)}
+            disabled={!original?.has_snapshot}
+          >
+            Pokaż CV oryginalne
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpenBranded(true)}
+          >
+            {brandedStatus === "none"
+              ? "Stwórz brandowane"
+              : "Edytuj brandowane"}
+          </Button>
+          <Button
+            size="sm"
+            disabled={brandedStatus !== "finalized"}
+            onClick={() => setOpenShare(true)}
+            title={
+              brandedStatus !== "finalized"
+                ? "Najpierw sfinalizuj brandowane CV"
+                : undefined
+            }
+          >
+            Wyślij klientowi
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setConfirmRefresh(true)}
+            title="Aktualizuj snapshot oryginalnego z bieżącym CV kandydata"
+          >
+            <RefreshCcw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ) : null}
+
+      {openOriginal && stageId != null ? (
+        <CVOriginalPreviewModal
+          open
+          onOpenChange={setOpenOriginal}
+          stageId={stageId}
+          jobTitle={job.job_title}
+          candidateName={candidateName}
+        />
+      ) : null}
+      {openBranded && stageId != null ? (
+        <CVBrandedEditModal
+          open
+          onOpenChange={setOpenBranded}
+          stageId={stageId}
+          jobTitle={job.job_title}
+          candidateName={candidateName}
+        />
+      ) : null}
+      {openShare && stageId != null ? (
+        <CVShareLinkModal
+          open
+          onOpenChange={setOpenShare}
+          stageId={stageId}
+          candidateName={candidateName}
+        />
+      ) : null}
+
+      {confirmRefresh ? (
+        <Dialog open onOpenChange={() => setConfirmRefresh(false)}>
+          <DialogContent size="md">
+            <div className="p-5 space-y-3">
+              <h3 className="font-medium">Aktualizować snapshot oryginalny?</h3>
+              <p className="text-sm text-[hsl(var(--text-muted))]">
+                Zostanie nadpisany aktualną zawartością CV kandydata. Stary
+                snapshot przepadnie. Operacja jest logowana w aktywnościach.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmRefresh(false)}
+                >
+                  Anuluj
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => refreshMut.mutate()}
+                  disabled={refreshMut.isPending}
+                >
+                  Aktualizuj
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

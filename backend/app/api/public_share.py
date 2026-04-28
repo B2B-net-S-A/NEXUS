@@ -28,7 +28,9 @@ from app.services.candidate_stage_cv_service import (
 )
 from app.models.activity import Activity
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.champion_share import ChampionCardShareToken
+from app.models.cv_share_token import CVShareToken
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -86,6 +88,62 @@ async def get_public_champion_card(
         },
         "champion_profile": (job.champion_profile if job else None) or {},
         "screening_answers": stage.screening_answers or None,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+    }
+
+
+# ── CV per rekrutacja — public share (Faza 4) ──────────────────────────────
+
+
+@router.get("/cv/{token}")
+@limiter.limit("30/minute")
+async def get_public_cv(
+    token: str,
+    request: Request,  # required by slowapi limiter
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Klient otwiera token-link i widzi brandowane CV — bez logowania.
+
+    PII safety: response NIE zawiera email, phone, lastname kandydata. Tylko
+    `candidate_first_name` + `job_title` + `cv_html` + `expires_at`.
+    Test `test_public_cv_no_pii_leakage` jako safety net.
+
+    Walidacja:
+    * 404 gdy token nie istnieje lub został odwołany
+    * 410 gdy token wygasł
+    * 404 gdy CV przestało być finalized (np. recruiter zresetował)
+    """
+    row: Optional[CVShareToken] = await db.scalar(
+        select(CVShareToken).where(CVShareToken.token == token)
+    )
+    if row is None or row.revoked:
+        raise HTTPException(status_code=404, detail="Link nie istnieje lub został odwołany.")
+    if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Link wygasł.")
+
+    csv: Optional[CandidateStageCV] = await db.scalar(
+        select(CandidateStageCV).where(CandidateStageCV.id == row.candidate_stage_cv_id)
+    )
+    if csv is None or csv.branded_status != "finalized":
+        raise HTTPException(
+            status_code=404,
+            detail="CV nie jest już dostępne (zostało zresetowane).",
+        )
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv.candidate_id)
+    )
+    job = await db.scalar(select(Job).where(Job.id == csv.job_id))
+
+    # Source of truth: zapisany draft HTML (immutable po finalize). Storage
+    # plik ma to samo, ale czytanie z DB jest szybsze i bezpieczniejsze
+    # (brak ryzyka stale path traversal).
+    cv_html = csv.branded_draft_html or ""
+
+    return {
+        "candidate_first_name": candidate.name if candidate else None,
+        "job_title": job.title if job else None,
+        "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
 
