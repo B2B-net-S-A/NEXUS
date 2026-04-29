@@ -50,9 +50,7 @@ async def create_original_cv_snapshot(
         )
 
     existing = await db.scalar(
-        select(CandidateStageCV).where(
-            CandidateStageCV.candidate_stage_id == stage.id
-        )
+        select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == stage.id)
     )
     if existing is not None:
         return existing
@@ -135,9 +133,7 @@ async def refresh_original_cv_snapshot(
       ValueError  — gdy kandydat aktualnie nie ma CV (nie ma czego odświeżać).
     """
     csv_row = await db.scalar(
-        select(CandidateStageCV).where(
-            CandidateStageCV.candidate_stage_id == stage_id
-        )
+        select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == stage_id)
     )
     if csv_row is None:
         raise LookupError(

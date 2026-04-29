@@ -52,9 +52,7 @@ class ProposalSnapshot(Base):
     )
     top_k: Mapped[int] = mapped_column(Integer, nullable=False, server_default="20")
     # 0 = built-in DEFAULT_PROFILE (mirrors CandidateJobMatchScore.profile_id)
-    profile_id: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    profile_id: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     candidate_ids: Mapped[Optional[list[int]]] = mapped_column(JSONB, nullable=True)
     breakdowns: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

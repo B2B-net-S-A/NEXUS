@@ -268,14 +268,10 @@ app.add_middleware(
 # Register routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
-app.include_router(
-    public_engagement.router, prefix="/api", tags=["public-engagement"]
-)
+app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
-app.include_router(
-    clients_team.router, prefix="/api/clients", tags=["clients-team"]
-)
+app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
@@ -284,9 +280,7 @@ app.include_router(
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
-app.include_router(
-    contractors.router, prefix="/api/contractors", tags=["contractors"]
-)
+app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 app.include_router(
     contract_analytics.router,
@@ -333,9 +327,7 @@ app.include_router(job_chat_api.router, prefix="/api/jobs", tags=["job-chat"])
 app.include_router(
     candidate_chat_api.router, prefix="/api/candidates", tags=["candidate-chat"]
 )
-app.include_router(
-    admin_chats_api.router, prefix="/api/admin", tags=["admin-chats"]
-)
+app.include_router(admin_chats_api.router, prefix="/api/admin", tags=["admin-chats"])
 app.include_router(matching.router, prefix="/api", tags=["matching"])
 app.include_router(skills_api.router, prefix="/api/skills", tags=["skills"])
 app.include_router(
@@ -378,9 +370,7 @@ app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(
     invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
 )
-app.include_router(
-    app_settings_api.router, prefix="/api/settings", tags=["settings"]
-)
+app.include_router(app_settings_api.router, prefix="/api/settings", tags=["settings"])
 app.include_router(
     rate_benchmarks_api.router,
     prefix="/api/rate-benchmarks",

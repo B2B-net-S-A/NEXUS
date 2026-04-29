@@ -20,7 +20,7 @@ from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType
 from app.models.user import User, UserRole
-from app.services.kpi_catalog import KpiPeriod, get_kpi
+from app.services.kpi_catalog import get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
 from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
 from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
@@ -135,9 +135,7 @@ async def admin_trigger_kpi_coach_sweep(
 
     Zwraca counters (users processed, praise/remind/eod emitted, skipped).
     """
-    counters = await run_scheduled_sweep(
-        db, force=force, target_user_id=target_user_id
-    )
+    counters = await run_scheduled_sweep(db, force=force, target_user_id=target_user_id)
     await db.commit()
     return SweepCountersSchema(**counters)
 

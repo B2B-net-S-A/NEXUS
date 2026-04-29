@@ -116,9 +116,7 @@ async def get_rejection_email(
     return _to_response(row)
 
 
-@router.post(
-    "/{rejection_email_id}/cancel", response_model=RejectionEmailResponse
-)
+@router.post("/{rejection_email_id}/cancel", response_model=RejectionEmailResponse)
 async def cancel_rejection_email(
     rejection_email_id: int,
     current_user: CurrentUser,
@@ -180,9 +178,7 @@ async def cancel_rejection_email(
         Notification(
             user_id=row.recruiter_id,
             title="Anulowano email odrzucenia",
-            message=(
-                f"Zaplanowany email do {row.to_email} został anulowany."
-            ),
+            message=(f"Zaplanowany email do {row.to_email} został anulowany."),
             link=f"/candidates/{row.candidate_id}",
             notification_type=NotificationType.rejection_email_cancelled,
             related_entity_type="scheduled_rejection_email",

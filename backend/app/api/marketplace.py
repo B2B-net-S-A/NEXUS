@@ -153,23 +153,17 @@ async def list_candidates(
     """Paginowana lista kandydatów w targu."""
     limit = page_size
     offset = (page - 1) * page_size
-    rows, total = await list_marketplace_candidates(
-        db, limit=limit, offset=offset, q=q
-    )
+    rows, total = await list_marketplace_candidates(db, limit=limit, offset=offset, q=q)
     await db.commit()
 
     # Hydratacja ownerów
     from sqlalchemy import select
     from app.models.user import User
 
-    owner_ids = {
-        c.created_by for _, c in rows if c.created_by is not None
-    }
+    owner_ids = {c.created_by for _, c in rows if c.created_by is not None}
     owner_map: dict[int, UserBrief] = {}
     if owner_ids:
-        res = await db.execute(
-            select(User).where(User.id.in_(owner_ids))
-        )
+        res = await db.execute(select(User).where(User.id.in_(owner_ids)))
         for u in res.scalars().all():
             owner_map[u.id] = UserBrief(id=u.id, name=u.name, email=u.email)
 
@@ -240,9 +234,7 @@ async def remove_from_marketplace(
     db: AsyncSession = Depends(get_db),
 ):
     """Zdjęcie kandydata z targu."""
-    removed = await remove_candidate_from_marketplace(
-        db, candidate_id=candidate_id
-    )
+    removed = await remove_candidate_from_marketplace(db, candidate_id=candidate_id)
     if not removed:
         raise HTTPException(status_code=404, detail="Kandydat nie jest na targu")
     await db.commit()

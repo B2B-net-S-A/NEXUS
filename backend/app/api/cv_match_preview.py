@@ -221,11 +221,7 @@ async def cv_upload_preview(
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
         emb_ok = await generate_embedding(query_text) is not None
-        hits = (
-            await search_jobs_semantic(query_text, top_k=top_k * 4)
-            if emb_ok
-            else []
-        )
+        hits = await search_jobs_semantic(query_text, top_k=top_k * 4) if emb_ok else []
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
 
@@ -243,9 +239,7 @@ async def cv_upload_preview(
             }
 
         jobs_res = await db.execute(
-            select(Job).where(
-                Job.id.in_(job_ids), Job.status == JobStatus.published
-            )
+            select(Job).where(Job.id.in_(job_ids), Job.status == JobStatus.published)
         )
         jobs = jobs_res.scalars().all()
 

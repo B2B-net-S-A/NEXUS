@@ -6,7 +6,6 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -41,7 +40,6 @@ from app.schemas.pipeline import (
     STAGE_LABELS,
 )
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
-from app.api import ws as ws_manager
 
 router = APIRouter()
 
@@ -377,9 +375,7 @@ async def move_candidate(
         rating=data.rating,
         verification_status=verification_status,
         expected_rate_value=expected_rate_value,
-        expected_rate_unit=(
-            expected_rate_unit.value if expected_rate_unit else None
-        ),
+        expected_rate_unit=(expected_rate_unit.value if expected_rate_unit else None),
         expected_rate_currency=(
             expected_rate_currency if expected_rate_value is not None else None
         ),
@@ -559,7 +555,7 @@ async def move_candidate(
                             f"Kandydat #{data.candidate_id} został zatrudniony "
                             f"na ofertę #{job.id}. Uzupełnij stawki i daty kontraktu."
                         ),
-                        link=f"/contractors?tab=drafts",
+                        link="/contractors?tab=drafts",
                         notification_type=NotificationType.contract_activated,
                         related_entity_type="contract",
                         related_entity_id=draft.id,
@@ -572,10 +568,7 @@ async def move_candidate(
     # moves (returns None for internal-only rejections, missing email, etc.)
     # so we can call it unconditionally when the flag allows.
     scheduled_rejection_email_id: Optional[int] = None
-    if (
-        legacy_enum == PipelineStage.rejected
-        and data.send_rejection_email is not False
-    ):
+    if legacy_enum == PipelineStage.rejected and data.send_rejection_email is not False:
         from app.services.rejection_email_scheduler import maybe_schedule
 
         scheduled = await maybe_schedule(
@@ -1227,9 +1220,7 @@ async def reject_verification(
         f"{(stage.expected_rate_unit or 'monthly')}"
     )
     budget_label = (
-        f"{stage.budget_max_at_move}"
-        if stage.budget_max_at_move is not None
-        else "?"
+        f"{stage.budget_max_at_move}" if stage.budget_max_at_move is not None else "?"
     )
     revert = CandidateStage(
         candidate_id=stage.candidate_id,

@@ -71,7 +71,9 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
 
     # Wszyscy admini systemu (małych liczb użytkowników — OK)
     admins = await db.execute(
-        select(User.id).where(User.role == UserRole.admin).where(User.is_active.is_(True))
+        select(User.id)
+        .where(User.role == UserRole.admin)
+        .where(User.is_active.is_(True))
     )
     for (uid,) in admins.all():
         member_ids.add(uid)

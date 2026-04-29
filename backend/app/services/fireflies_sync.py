@@ -203,13 +203,10 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                     participant_emails=participants,
                 )
                 auto_job_id: Optional[int] = None
-                if (
-                    len(matches) == 1
-                    or (
-                        len(matches) >= 2
-                        and matches[0].score >= SCORE_AUTO
-                        and matches[0].score - matches[1].score >= 0.1
-                    )
+                if len(matches) == 1 or (
+                    len(matches) >= 2
+                    and matches[0].score >= SCORE_AUTO
+                    and matches[0].score - matches[1].score >= 0.1
                 ):
                     if matches[0].score >= SCORE_AUTO:
                         auto_job_id = matches[0].job_id

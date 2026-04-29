@@ -59,15 +59,12 @@ def render_stage_email(
     moved_at_local = _format_warsaw(moved_at)
 
     subject_client_part = f" ({client_name})" if client_name else ""
-    subject = (
-        f"Kandydat {candidate_first_name} → {stage_name}{subject_client_part}"
-    )
+    subject = f"Kandydat {candidate_first_name} → {stage_name}{subject_client_part}"
 
     text_lines = [
         f"Cześć {recipient_name},",
         "",
-        f"Kandydat {candidate_full_name} został przeniesiony na etap "
-        f"„{stage_name}”.",
+        f"Kandydat {candidate_full_name} został przeniesiony na etap „{stage_name}”.",
         "",
         f"Klient: {client_name or '—'}",
         f"Projekt: {job_title} (#{job_id})",
@@ -90,32 +87,32 @@ def render_stage_email(
     if notes and notes.strip():
         safe_notes = html.escape(notes.strip()).replace("\n", "<br>")
         notes_block_html = (
-            "<p style=\"margin:16px 0 0\"><strong>Notatka przy ruchu:</strong><br>"
+            '<p style="margin:16px 0 0"><strong>Notatka przy ruchu:</strong><br>'
             f"{safe_notes}</p>"
         )
 
     html_body = (
-        "<div style=\"font-family:Arial,sans-serif;line-height:1.5;color:#222\">"
+        '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#222">'
         f"<p>Cześć {safe_recipient},</p>"
         f"<p>Kandydat <strong>{safe_candidate}</strong> został przeniesiony "
         f"na etap <strong>„{safe_stage}”</strong>.</p>"
-        "<table style=\"border-collapse:collapse;margin:12px 0\">"
-        "<tr><td style=\"padding:4px 12px 4px 0;color:#666\">Klient</td>"
-        f"<td style=\"padding:4px 0\"><strong>{safe_client or '—'}</strong></td></tr>"
-        "<tr><td style=\"padding:4px 12px 4px 0;color:#666\">Projekt</td>"
-        f"<td style=\"padding:4px 0\"><strong>{safe_job}</strong> (#{job_id})</td></tr>"
-        "<tr><td style=\"padding:4px 12px 4px 0;color:#666\">Przeniósł</td>"
-        f"<td style=\"padding:4px 0\">{safe_mover}</td></tr>"
-        "<tr><td style=\"padding:4px 12px 4px 0;color:#666\">Czas</td>"
-        f"<td style=\"padding:4px 0\">{moved_at_local} (Warsaw)</td></tr>"
+        '<table style="border-collapse:collapse;margin:12px 0">'
+        '<tr><td style="padding:4px 12px 4px 0;color:#666">Klient</td>'
+        f'<td style="padding:4px 0"><strong>{safe_client or "—"}</strong></td></tr>'
+        '<tr><td style="padding:4px 12px 4px 0;color:#666">Projekt</td>'
+        f'<td style="padding:4px 0"><strong>{safe_job}</strong> (#{job_id})</td></tr>'
+        '<tr><td style="padding:4px 12px 4px 0;color:#666">Przeniósł</td>'
+        f'<td style="padding:4px 0">{safe_mover}</td></tr>'
+        '<tr><td style="padding:4px 12px 4px 0;color:#666">Czas</td>'
+        f'<td style="padding:4px 0">{moved_at_local} (Warsaw)</td></tr>'
         "</table>"
         f"{notes_block_html}"
-        f"<p style=\"margin:20px 0\"><a href=\"{safe_link}\" "
-        "style=\"display:inline-block;padding:10px 18px;"
-        "background:#2563eb;color:#fff;text-decoration:none;border-radius:6px\">"
+        f'<p style="margin:20px 0"><a href="{safe_link}" '
+        'style="display:inline-block;padding:10px 18px;'
+        'background:#2563eb;color:#fff;text-decoration:none;border-radius:6px">'
         "Otwórz kartę kandydata</a></p>"
-        "<hr style=\"border:0;border-top:1px solid #eee;margin:24px 0 12px\">"
-        "<p style=\"color:#888;font-size:12px;margin:0\">Nexus ATS — "
+        '<hr style="border:0;border-top:1px solid #eee;margin:24px 0 12px">'
+        '<p style="color:#888;font-size:12px;margin:0">Nexus ATS — '
         "powiadomienie o zmianie stage'a (skonfigurowane w "
         "ustawieniach pipeline'u).</p>"
         "</div>"

@@ -134,9 +134,7 @@ async def _embedding_scores(
         from app.core.config import settings
 
         def _search() -> dict[int, float]:
-            client = QdrantClient(
-                host=settings.QDRANT_HOST, port=settings.QDRANT_PORT
-            )
+            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
                 hits = client.search(
                     collection_name=CC_CENTROIDS_COLLECTION,
@@ -168,9 +166,7 @@ async def _fetch_job_embedding(job_id: int) -> Optional[list[float]]:
         from app.core.config import settings
 
         def _retrieve() -> Optional[list[float]]:
-            client = QdrantClient(
-                host=settings.QDRANT_HOST, port=settings.QDRANT_PORT
-            )
+            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
                 points = client.retrieve(
                     collection_name="nexus_jobs",
@@ -202,9 +198,7 @@ async def _fetch_candidate_embedding(candidate_id: int) -> Optional[list[float]]
         from app.core.config import settings
 
         def _retrieve() -> Optional[list[float]]:
-            client = QdrantClient(
-                host=settings.QDRANT_HOST, port=settings.QDRANT_PORT
-            )
+            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
                 points = client.retrieve(
                     collection_name="nexus_candidates",

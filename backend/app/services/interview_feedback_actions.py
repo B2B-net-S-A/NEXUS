@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.interview_feedback import (

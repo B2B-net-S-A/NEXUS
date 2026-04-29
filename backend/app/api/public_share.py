@@ -14,11 +14,20 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -117,7 +126,9 @@ async def get_public_cv(
         select(CVShareToken).where(CVShareToken.token == token)
     )
     if row is None or row.revoked:
-        raise HTTPException(status_code=404, detail="Link nie istnieje lub został odwołany.")
+        raise HTTPException(
+            status_code=404, detail="Link nie istnieje lub został odwołany."
+        )
     if row.expires_at is not None and row.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Link wygasł.")
 
@@ -160,9 +171,7 @@ _ALLOWED_CV_EXT = {".pdf", ".doc", ".docx"}
 _PHONE_RE = re.compile(r"^\+?[0-9 ()\-]{6,30}$")
 
 
-async def _load_valid_link(
-    token: str, db: AsyncSession
-) -> CandidateInviteLink:
+async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
     """Fetch an invite link and raise 404 if missing/revoked/expired.
 
     Shared by both GET and POST so failure modes stay consistent.
@@ -206,9 +215,7 @@ async def get_public_apply_meta(
             "title": job.title,
             "location": job.location,
             "seniority": job.seniority.value if job.seniority else None,
-            "remote_policy": (
-                job.remote_policy.value if job.remote_policy else None
-            ),
+            "remote_policy": (job.remote_policy.value if job.remote_policy else None),
         },
         "expires_at": link.expires_at.isoformat(),
     }
@@ -336,7 +343,9 @@ async def submit_public_apply(
             candidate.linkedin = linkedin.strip()
         if message:
             # Append applicant message to ai_summary without destroying prior notes.
-            prefix = candidate.ai_summary.strip() + "\n\n" if candidate.ai_summary else ""
+            prefix = (
+                candidate.ai_summary.strip() + "\n\n" if candidate.ai_summary else ""
+            )
             candidate.ai_summary = f"{prefix}[{datetime.now(timezone.utc).date().isoformat()}] {message.strip()}"
         # Ownership: reassign to the recruiter who posted the link.
         candidate.created_by = link.created_by
@@ -451,9 +460,7 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
 
         await _enrich_candidate_cv_task(candidate_id)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            "[apply] CV enrichment failed candidate=%s: %s", candidate_id, e
-        )
+        logger.warning("[apply] CV enrichment failed candidate=%s: %s", candidate_id, e)
 
     # (2) CC classification + auto-assign. Needs its own session because the
     # previous task committed and closed its session.
@@ -478,6 +485,4 @@ async def _invite_post_apply_task(candidate_id: int) -> None:
                     scores[0].score,
                 )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            "[apply] CC classify failed candidate=%s: %s", candidate_id, e
-        )
+        logger.warning("[apply] CC classify failed candidate=%s: %s", candidate_id, e)

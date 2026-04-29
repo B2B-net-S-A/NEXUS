@@ -82,7 +82,9 @@ def _slugify(title: str) -> str:
     return slug or "procedura"
 
 
-async def _ensure_unique_slug(db: AsyncSession, base: str, exclude_id: Optional[int] = None) -> str:
+async def _ensure_unique_slug(
+    db: AsyncSession, base: str, exclude_id: Optional[int] = None
+) -> str:
     """Zwraca slug, dodając sufiks -2, -3, … jeśli już istnieje."""
     candidate = base
     suffix = 2
@@ -127,9 +129,7 @@ async def list_procedures(
             or_(Procedure.title.ilike(pattern), Procedure.content.ilike(pattern))
         )
 
-    stmt = stmt.order_by(
-        Procedure.sort_order.desc(), Procedure.updated_at.desc()
-    )
+    stmt = stmt.order_by(Procedure.sort_order.desc(), Procedure.updated_at.desc())
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -186,9 +186,7 @@ async def update_procedure(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> Procedure:
-    procedure = await db.scalar(
-        select(Procedure).where(Procedure.id == procedure_id)
-    )
+    procedure = await db.scalar(select(Procedure).where(Procedure.id == procedure_id))
     if procedure is None:
         raise HTTPException(status_code=404, detail="Procedure not found")
 
@@ -220,9 +218,7 @@ async def delete_procedure(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    procedure = await db.scalar(
-        select(Procedure).where(Procedure.id == procedure_id)
-    )
+    procedure = await db.scalar(select(Procedure).where(Procedure.id == procedure_id))
     if procedure is None:
         raise HTTPException(status_code=404, detail="Procedure not found")
     await db.delete(procedure)

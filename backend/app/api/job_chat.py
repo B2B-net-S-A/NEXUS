@@ -55,9 +55,7 @@ MAX_PAGE_LIMIT = 200
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _require_member(
-    db: AsyncSession, user: User, job_id: int
-) -> None:
+async def _require_member(db: AsyncSession, user: User, job_id: int) -> None:
     """Raise 403 jeśli user nie jest członkiem projektu (po sprawdzeniu 404)."""
     # Krótki path: sprawdza istnienie joba przy okazji
     is_member = await is_member_of_job(db, user, job_id)
@@ -89,13 +87,9 @@ def _reply_preview(content: str, limit: int = 120) -> str:
     return cleaned[: limit - 1] + "…"
 
 
-async def _serialize(
-    db: AsyncSession, msg: JobChatMessage
-) -> ChatMessageResponse:
+async def _serialize(db: AsyncSession, msg: JobChatMessage) -> ChatMessageResponse:
     """Zbuduj ChatMessageResponse — z author, mentions, reply preview."""
-    author = (
-        await db.get(User, msg.author_id) if msg.author_id is not None else None
-    )
+    author = await db.get(User, msg.author_id) if msg.author_id is not None else None
 
     reply_preview: Optional[str] = None
     if msg.reply_to_message_id:
@@ -107,18 +101,14 @@ async def _serialize(
                 reply_preview = _reply_preview(parent.content)
 
     mention_rows = await db.execute(
-        select(JobChatMention.user_id).where(
-            JobChatMention.message_id == msg.id
-        )
+        select(JobChatMention.user_id).where(JobChatMention.message_id == msg.id)
     )
     mentions = [uid for (uid,) in mention_rows.all()]
 
     reactions_map = await aggregate_job_reactions(db, [msg.id])
     reactions = [ReactionAggregate(**r) for r in reactions_map.get(msg.id, [])]
 
-    visible_content = (
-        DELETED_PLACEHOLDER if msg.is_deleted else msg.content
-    )
+    visible_content = DELETED_PLACEHOLDER if msg.is_deleted else msg.content
 
     return ChatMessageResponse(
         id=msg.id,
@@ -196,7 +186,9 @@ async def list_messages(
     items = [await _serialize(db, m) for m in page]
     next_before_id = page[-1].id if (has_more and page) else None
 
-    return ChatMessageList(items=items, has_more=has_more, next_before_id=next_before_id)
+    return ChatMessageList(
+        items=items, has_more=has_more, next_before_id=next_before_id
+    )
 
 
 # ── Create message ───────────────────────────────────────────────────────────
@@ -309,9 +301,7 @@ async def create_message(
 # ── Edit message ─────────────────────────────────────────────────────────────
 
 
-@router.patch(
-    "/{job_id}/chat/messages/{msg_id}", response_model=ChatMessageResponse
-)
+@router.patch("/{job_id}/chat/messages/{msg_id}", response_model=ChatMessageResponse)
 async def edit_message(
     job_id: int,
     msg_id: int,
@@ -414,9 +404,7 @@ async def delete_message(
 # ── Pin / Unpin ──────────────────────────────────────────────────────────────
 
 
-@router.post(
-    "/{job_id}/chat/messages/{msg_id}/pin", response_model=ChatPinResponse
-)
+@router.post("/{job_id}/chat/messages/{msg_id}/pin", response_model=ChatPinResponse)
 async def pin_message(
     job_id: int,
     msg_id: int,
@@ -468,9 +456,7 @@ async def pin_message(
     return ChatPinResponse(message_id=msg.id, pinned=True)
 
 
-@router.delete(
-    "/{job_id}/chat/messages/{msg_id}/pin", response_model=ChatPinResponse
-)
+@router.delete("/{job_id}/chat/messages/{msg_id}/pin", response_model=ChatPinResponse)
 async def unpin_message(
     job_id: int,
     msg_id: int,
@@ -502,9 +488,7 @@ async def unpin_message(
     return ChatPinResponse(message_id=msg.id, pinned=False)
 
 
-@router.get(
-    "/{job_id}/chat/pinned", response_model=list[ChatMessageResponse]
-)
+@router.get("/{job_id}/chat/pinned", response_model=list[ChatMessageResponse])
 async def list_pinned(
     job_id: int,
     current_user: CurrentUser,
@@ -513,15 +497,19 @@ async def list_pinned(
     """Lista przypiętych wiadomości (max 3) — w kolejności od najstarszego pin."""
     await _require_member(db, current_user, job_id)
     rows = (
-        await db.execute(
-            select(JobChatMessage)
-            .where(JobChatMessage.job_id == job_id)
-            .where(JobChatMessage.pinned.is_(True))
-            .where(JobChatMessage.is_deleted.is_(False))
-            .order_by(JobChatMessage.pinned_at.asc())
-            .limit(MAX_PINNED_PER_JOB)
+        (
+            await db.execute(
+                select(JobChatMessage)
+                .where(JobChatMessage.job_id == job_id)
+                .where(JobChatMessage.pinned.is_(True))
+                .where(JobChatMessage.is_deleted.is_(False))
+                .order_by(JobChatMessage.pinned_at.asc())
+                .limit(MAX_PINNED_PER_JOB)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [await _serialize(db, m) for m in rows]
 
 
@@ -539,9 +527,7 @@ async def mark_read(
 
     last_id = (
         await db.execute(
-            select(func.max(JobChatMessage.id)).where(
-                JobChatMessage.job_id == job_id
-            )
+            select(func.max(JobChatMessage.id)).where(JobChatMessage.job_id == job_id)
         )
     ).scalar()
 
@@ -570,9 +556,7 @@ async def mark_read(
         state.last_read_at = now
 
     await db.commit()
-    return ChatUnreadCount(
-        job_id=job_id, unread_count=0, last_read_message_id=last_id
-    )
+    return ChatUnreadCount(job_id=job_id, unread_count=0, last_read_message_id=last_id)
 
 
 @router.get("/{job_id}/chat/unread-count", response_model=ChatUnreadCount)

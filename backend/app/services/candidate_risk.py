@@ -216,9 +216,7 @@ async def compute_summary(db: AsyncSession, candidate_id: int) -> dict:
     }
 
 
-async def compute_risk(
-    db: AsyncSession, candidate_id: int
-) -> CandidateRiskProfile:
+async def compute_risk(db: AsyncSession, candidate_id: int) -> CandidateRiskProfile:
     """Pełna kalkulacja + UPSERT do cache. Wywoływana z hooka tranzycji.
 
     Może crash'ować jeśli tabela `candidate_risk_profile` nie istnieje
@@ -245,9 +243,7 @@ async def compute_risk(
     return profile
 
 
-async def on_candidate_stage_change(
-    db: AsyncSession, candidate_id: int
-) -> None:
+async def on_candidate_stage_change(db: AsyncSession, candidate_id: int) -> None:
     """Hook wołany z handlerów tranzycji stage'u. Best-effort — nie blokuje commitu.
 
     Idempotentny: można wywołać wielokrotnie. Recompute na każdej tranzycji nie
@@ -256,14 +252,10 @@ async def on_candidate_stage_change(
     try:
         await compute_risk(db, candidate_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "compute_risk failed for candidate=%s: %s", candidate_id, exc
-        )
+        logger.warning("compute_risk failed for candidate=%s: %s", candidate_id, exc)
 
 
-async def get_or_compute(
-    db: AsyncSession, candidate_id: int
-) -> CandidateRiskProfile:
+async def get_or_compute(db: AsyncSession, candidate_id: int) -> CandidateRiskProfile:
     """[Legacy compat] Czyta cache; przelicza gdy brak lub TTL minął.
 
     Read-path API używa `compute_summary` zamiast tego (read-only, defensive).
@@ -271,14 +263,10 @@ async def get_or_compute(
     try:
         profile = await db.get(CandidateRiskProfile, candidate_id)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "risk profile lookup failed candidate=%s: %s", candidate_id, exc
-        )
+        logger.warning("risk profile lookup failed candidate=%s: %s", candidate_id, exc)
         return None  # type: ignore[return-value]
     if profile is None:
         return await compute_risk(db, candidate_id)
-    if profile.stale_after is None or profile.stale_after < datetime.now(
-        timezone.utc
-    ):
+    if profile.stale_after is None or profile.stale_after < datetime.now(timezone.utc):
         return await compute_risk(db, candidate_id)
     return profile

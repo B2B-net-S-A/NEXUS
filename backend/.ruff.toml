@@ -1,0 +1,9 @@
+# Ruff configuration for NEXUS backend.
+# Defaults are sensible — only opt-out per-file ignores below.
+
+[lint.per-file-ignores]
+# Legacy compat layer: imports after sys.path manipulation. Refactor TODO.
+"app/services/m365/sync.py" = ["E402"]
+
+# Loop variable `field` shadows imported `field` symbol. Rename loop var TODO.
+"app/services/marketplace_service.py" = ["F402"]

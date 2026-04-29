@@ -313,9 +313,7 @@ async def candidates_from_similar_jobs(
     cand_ids = [c.candidate_id for c in ranked]
     cand_rows: list[Candidate] = []
     if cand_ids:
-        cand_res = await db.execute(
-            select(Candidate).where(Candidate.id.in_(cand_ids))
-        )
+        cand_res = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
         cand_rows = list(cand_res.scalars().all())
     cand_by_id = {c.id: c for c in cand_rows}
 
@@ -843,7 +841,10 @@ async def seeking_contractors(
     ),
     top_k: int = Query(5, ge=1, le=20, description="Top jobs per candidate."),
     threshold: float = Query(
-        40.0, ge=0.0, le=100.0, description="Total score below which jobs are rolled into `below_threshold_count`."
+        40.0,
+        ge=0.0,
+        le=100.0,
+        description="Total score below which jobs are rolled into `below_threshold_count`.",
     ),
     location: Optional[str] = Query(None),
     salary_min: Optional[int] = Query(None),
@@ -890,11 +891,8 @@ async def seeking_contractors(
 
     # Source A: contractors with end_date within horizon (status active or ending)
     ending_rows = await db.execute(
-        select(Contract.candidate_id, Contract.end_date, Contract.client_id)
-        .where(
-            Contract.status.in_(
-                [ContractStatus.active, ContractStatus.ending]
-            ),
+        select(Contract.candidate_id, Contract.end_date, Contract.client_id).where(
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             Contract.end_date.is_not(None),
             Contract.end_date <= horizon,
         )
@@ -938,9 +936,7 @@ async def seeking_contractors(
     candidates = cand_res.scalars().all()
 
     # 2. Prefetch all open jobs once.
-    jobs_res = await db.execute(
-        select(Job).where(Job.status == JobStatus.published)
-    )
+    jobs_res = await db.execute(select(Job).where(Job.status == JobStatus.published))
     all_open_jobs = list(jobs_res.scalars().all())
 
     if not all_open_jobs:
@@ -951,7 +947,9 @@ async def seeking_contractors(
                 {
                     "candidate": _shape_seek_candidate(c),
                     "source": (
-                        "ending_contract" if c.id in ending_meta else "availability_status"
+                        "ending_contract"
+                        if c.id in ending_meta
+                        else "availability_status"
                     ),
                     "contract_end_date": (
                         ending_meta[c.id]["contract_end_date"].isoformat()

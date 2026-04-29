@@ -166,9 +166,7 @@ async def monthly_races(
             for idx, r in enumerate(ranked)
         ]
         # Zakwalifikowany lider = pierwszy niewykluczony.
-        qualified = next(
-            (entry for entry in ranking if not entry["excluded"]), None
-        )
+        qualified = next((entry for entry in ranking if not entry["excluded"]), None)
         return {
             "period": month_period,
             "days_remaining": days_left,
@@ -222,9 +220,7 @@ async def get_history(
         select(CompetitionWinner, User.name.label("user_name"))
         .join(User, CompetitionWinner.user_id == User.id)
         .where(CompetitionWinner.competition_type == ctype.value)
-        .order_by(
-            desc(CompetitionWinner.period), CompetitionWinner.rank
-        )
+        .order_by(desc(CompetitionWinner.period), CompetitionWinner.rank)
         .limit(limit * 3)  # 3 pozycje per period
     )
     rows = (await db.execute(q)).all()

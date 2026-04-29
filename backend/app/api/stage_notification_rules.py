@@ -70,7 +70,9 @@ async def list_rules(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    await _ensure_stage_in_template(db, template_id=template_id, stage_def_id=stage_def_id)
+    await _ensure_stage_in_template(
+        db, template_id=template_id, stage_def_id=stage_def_id
+    )
     rows = await db.execute(
         select(StageNotificationRule)
         .where(StageNotificationRule.stage_def_id == stage_def_id)
@@ -212,9 +214,7 @@ async def list_overrides(
         ClientStageNotificationOverride.client_id == client_id
     )
     if stage_def_id is not None:
-        stmt = stmt.where(
-            ClientStageNotificationOverride.stage_def_id == stage_def_id
-        )
+        stmt = stmt.where(ClientStageNotificationOverride.stage_def_id == stage_def_id)
     stmt = stmt.order_by(
         ClientStageNotificationOverride.stage_def_id,
         ClientStageNotificationOverride.created_at,

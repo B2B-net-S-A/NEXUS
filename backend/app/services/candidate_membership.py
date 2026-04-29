@@ -37,9 +37,8 @@ async def is_member_of_candidate_chat(
         return True
 
     # Sub-query: jobs that have this candidate in pipeline
-    stage_jobs_q = (
-        select(distinct(CandidateStage.job_id))
-        .where(CandidateStage.candidate_id == candidate_id)
+    stage_jobs_q = select(distinct(CandidateStage.job_id)).where(
+        CandidateStage.candidate_id == candidate_id
     )
     job_ids = [jid for (jid,) in (await db.execute(stage_jobs_q)).all()]
     if not job_ids:

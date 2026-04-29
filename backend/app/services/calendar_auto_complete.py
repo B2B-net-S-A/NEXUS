@@ -25,9 +25,7 @@ from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 logger = logging.getLogger(__name__)
 
 
-async def mark_ended_interviews_completed(
-    db: AsyncSession, now: datetime
-) -> int:
+async def mark_ended_interviews_completed(db: AsyncSession, now: datetime) -> int:
     """Promote ended interview events from scheduled → completed.
 
     Returns the number of rows affected.

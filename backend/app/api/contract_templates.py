@@ -93,9 +93,7 @@ def _contract_vars(contract: Contract) -> dict:
             "id": cand.id if cand else None,
             "name": cand.name if cand else None,
             "lastname": cand.lastname if cand else None,
-            "full_name": (
-                f"{cand.name} {cand.lastname}" if cand else None
-            ),
+            "full_name": (f"{cand.name} {cand.lastname}" if cand else None),
             "email": cand.email if cand else None,
             "phone": cand.phone if cand else None,
             "address": cand.location if cand else None,
@@ -106,9 +104,7 @@ def _contract_vars(contract: Contract) -> dict:
             "business_address": (
                 getattr(cand, "business_address", None) if cand else None
             ),
-            "business_form": (
-                getattr(cand, "business_form", None) if cand else None
-            ),
+            "business_form": (getattr(cand, "business_form", None) if cand else None),
         },
         "client": {
             "id": cli.id if cli else None,

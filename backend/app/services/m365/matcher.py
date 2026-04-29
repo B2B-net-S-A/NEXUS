@@ -113,9 +113,7 @@ async def _find_candidate_by_email(
     return result.scalars().first()
 
 
-async def _find_candidates_by_domain(
-    db: AsyncSession, domain: str
-) -> list[Candidate]:
+async def _find_candidates_by_domain(db: AsyncSession, domain: str) -> list[Candidate]:
     """Return candidates whose email ends with @{domain}."""
     stmt = select(Candidate).where(Candidate.email.ilike(f"%@{domain}"))
     result = await db.execute(stmt)

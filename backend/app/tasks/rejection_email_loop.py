@@ -67,8 +67,7 @@ async def _tick() -> None:
                 select(ScheduledRejectionEmail.id)
                 .where(
                     ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
-                    ScheduledRejectionEmail.scheduled_at
-                    <= datetime.now(timezone.utc),
+                    ScheduledRejectionEmail.scheduled_at <= datetime.now(timezone.utc),
                 )
                 .order_by(ScheduledRejectionEmail.scheduled_at.asc())
                 .limit(BATCH_LIMIT)

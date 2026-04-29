@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cache import cache_invalidate
 from app.core.database import get_db
 from app.models.job import Job, JobStatus, RecruitmentType
-from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
@@ -184,9 +184,7 @@ async def _load_collaborator_map(
     return out
 
 
-async def _require_manage_ownership(
-    job: Job, current_user: User
-) -> None:
+async def _require_manage_ownership(job: Job, current_user: User) -> None:
     """Gate for collaborator add/remove: admin, delivery_lead, or primary owner."""
     if current_user.role in (UserRole.admin, UserRole.delivery_lead):
         return
@@ -356,7 +354,11 @@ async def create_job(
                 else:
                     payload[field] = value
         same_client = payload.get("client_id") == src_job.client_id
-        if same_client and not payload.get("champion_profile") and src_job.champion_profile:
+        if (
+            same_client
+            and not payload.get("champion_profile")
+            and src_job.champion_profile
+        ):
             payload["champion_profile"] = dict(src_job.champion_profile)
 
     # Validate explicit owner overrides (tac_id / delivery_lead_id) before we
@@ -547,9 +549,7 @@ async def list_train_names(
     if client_id is not None:
         stmt = stmt.where(Job.client_id == client_id)
     stmt = (
-        stmt.group_by(Job.train_name)
-        .order_by(func.lower(Job.train_name))
-        .limit(limit)
+        stmt.group_by(Job.train_name).order_by(func.lower(Job.train_name)).limit(limit)
     )
 
     rows = (await db.execute(stmt)).all()
@@ -642,9 +642,9 @@ async def update_job(
 
     # Phase 15 / Phase D: re-extract train_name if title/description changed
     # and the DL hasn't set one manually. Never overrides a DL-provided tag.
-    train_fields_touched = bool(
-        {"title", "description"} & updates.keys()
-    ) and "train_name" not in updates
+    train_fields_touched = (
+        bool({"title", "description"} & updates.keys()) and "train_name" not in updates
+    )
     if train_fields_touched and not job.train_name:
         extracted = await _auto_extract_train_name(
             db=db,
@@ -809,8 +809,7 @@ async def get_champion_profile(
         sql_update(Notification)
         .where(
             Notification.user_id == current_user.id,
-            Notification.notification_type
-            == NotificationType.champion_profile_updated,
+            Notification.notification_type == NotificationType.champion_profile_updated,
             Notification.related_entity_type == "job",
             Notification.related_entity_id == job_id,
             Notification.is_read.is_(False),
@@ -1189,9 +1188,7 @@ async def get_request_history(
         skill_frequency,
     )
 
-    job = (
-        await db.execute(select(Job).where(Job.id == job_id))
-    ).scalar_one_or_none()
+    job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -1330,9 +1327,7 @@ async def add_candidate_from_history(
 
     payload = AddCandidateFromHistoryPayload.model_validate(body or {})
 
-    job = (
-        await db.execute(select(Job).where(Job.id == job_id))
-    ).scalar_one_or_none()
+    job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Job not found")
 
@@ -1340,9 +1335,7 @@ async def add_candidate_from_history(
         await db.execute(select(Candidate).where(Candidate.id == payload.candidate_id))
     ).scalar_one_or_none()
     if candidate is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Candidate not found"
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Candidate not found")
 
     existing = (
         await db.execute(
@@ -1403,7 +1396,10 @@ async def list_champion_suggestions(
     limit: int = Query(default=20, ge=1, le=100),
 ):
     """List Champion Profile suggestions for a job, newest first."""
-    from app.models.champion_suggestion import ChampionProfileSuggestion, SuggestionStatus
+    from app.models.champion_suggestion import (
+        ChampionProfileSuggestion,
+        SuggestionStatus,
+    )
     from app.schemas.champion_suggestion import (
         ChampionProfileSuggestionListOut,
         ChampionProfileSuggestionOut,
@@ -1553,13 +1549,17 @@ async def list_collaborators(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     rows = (
-        await db.execute(
-            select(User)
-            .join(JobCollaborator, JobCollaborator.user_id == User.id)
-            .where(JobCollaborator.job_id == job_id)
-            .order_by(User.name)
+        (
+            await db.execute(
+                select(User)
+                .join(JobCollaborator, JobCollaborator.user_id == User.id)
+                .where(JobCollaborator.job_id == job_id)
+                .order_by(User.name)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [UserBrief.model_validate(u) for u in rows]
 
 
@@ -1708,7 +1708,9 @@ async def classify_job_cc(
     result = await classify_job_to_cc(job, db)
     top_schema = _cc_score_to_schema(result.top) if result.top else None
     alternatives = [_cc_score_to_schema(s) for s in result.alternatives]
-    return CcSuggestionsResponse(top=top_schema, alternatives=alternatives, tie=result.tie)
+    return CcSuggestionsResponse(
+        top=top_schema, alternatives=alternatives, tie=result.tie
+    )
 
 
 @router.post("/{job_id}/cc-override", status_code=status.HTTP_201_CREATED)

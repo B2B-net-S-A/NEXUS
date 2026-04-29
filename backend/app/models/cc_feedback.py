@@ -52,7 +52,9 @@ class CcSuggestionOverride(Base):
 class JobSecondaryCc(Base):
     __tablename__ = "job_secondary_cc"
     __table_args__ = (
-        UniqueConstraint("job_id", "competence_category_id", name="uq_job_secondary_cc"),
+        UniqueConstraint(
+            "job_id", "competence_category_id", name="uq_job_secondary_cc"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -68,9 +70,7 @@ class JobSecondaryCc(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    job = relationship(
-        "Job", foreign_keys=[job_id], overlaps="secondary_cc_links"
-    )
+    job = relationship("Job", foreign_keys=[job_id], overlaps="secondary_cc_links")
     competence_category = relationship(
         "CompetenceCategory", foreign_keys=[competence_category_id]
     )

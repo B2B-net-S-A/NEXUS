@@ -5,7 +5,7 @@
 /my-summary (własne dane).
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,7 +18,6 @@ from app.models.linkedin_metric import LinkedInDailyMetric
 from app.models.user import User, UserRole
 from app.schemas.linkedin_metric import (
     LinkedInBulkPayload,
-    LinkedInMetricIn,
     LinkedInMetricOut,
     LinkedInSummary,
     LinkedInUserTotals,
@@ -132,9 +131,7 @@ async def list_linkedin_users(
                 select(User)
                 .where(
                     User.is_active == True,  # noqa: E712
-                    User.role.in_(
-                        [UserRole.tac, UserRole.recruiter, UserRole.sourcer]
-                    ),
+                    User.role.in_([UserRole.tac, UserRole.recruiter, UserRole.sourcer]),
                 )
                 .order_by(User.name)
             )
@@ -229,9 +226,7 @@ async def _compute_summary(
             LinkedInDailyMetric.user_id,
             User.name,
             User.role,
-            func.coalesce(func.sum(LinkedInDailyMetric.cv_added), 0).label(
-                "cv_added"
-            ),
+            func.coalesce(func.sum(LinkedInDailyMetric.cv_added), 0).label("cv_added"),
             func.coalesce(func.sum(LinkedInDailyMetric.messages_sent), 0).label(
                 "messages_sent"
             ),
@@ -261,9 +256,7 @@ async def _compute_summary(
             messages_sent=int(r.messages_sent),
             responses_received=int(r.responses_received),
             response_rate=_safe_pct(int(r.responses_received), int(r.messages_sent)),
-            cv_response_rate=_safe_pct(
-                int(r.responses_received), int(r.cv_added)
-            ),
+            cv_response_rate=_safe_pct(int(r.responses_received), int(r.cv_added)),
             days_reported=int(r.days_reported),
         )
         for r in rows
@@ -309,7 +302,9 @@ async def my_summary(
 ):
     """Własna aggregacja + trend dzienny dla zalogowanego usera."""
     start, end = _period_bounds(period)
-    per_user, _totals = await _compute_summary(db, start, end, only_user_id=current_user.id)
+    per_user, _totals = await _compute_summary(
+        db, start, end, only_user_id=current_user.id
+    )
     me = per_user[0] if per_user else None
 
     # Trend dzienny (ostatnie 14 dni).

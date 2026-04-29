@@ -141,9 +141,7 @@ async def _latest_stage_per_pair(
     return latest
 
 
-async def _jobs_by_id(
-    db: AsyncSession, job_ids: Iterable[int]
-) -> dict[int, Job]:
+async def _jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
     ids = list({jid for jid in job_ids if jid is not None})
     if not ids:
         return {}
@@ -206,7 +204,10 @@ async def check_dl_stage_stale_6h(db: AsyncSession, now: datetime) -> int:
         targets = await _delivery_lead_targets(db, job)
         if not targets:
             continue
-        hours = int((now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds() // 3600)
+        hours = int(
+            (now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds()
+            // 3600
+        )
         for dl_id in targets:
             result = await emit(
                 db,
@@ -454,9 +455,7 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
 async def check_stage_stuck_7d(db: AsyncSession, now: datetime) -> int:
     """Kandydat na nieterminalnym etapie od ≥7 dni → alert do rekrutera."""
     latest = await _latest_stage_per_pair(db)
-    cutoff = now.astimezone(timezone.utc) - timedelta(
-        days=settings.STAGE_STUCK_DAYS
-    )
+    cutoff = now.astimezone(timezone.utc) - timedelta(days=settings.STAGE_STUCK_DAYS)
     stale = [
         s
         for s in latest.values()
@@ -471,7 +470,10 @@ async def check_stage_stuck_7d(db: AsyncSession, now: datetime) -> int:
         job = jobs.get(stage.job_id)
         if not job or not job.recruiter_id:
             continue
-        days = int((now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds() // 86400)
+        days = int(
+            (now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds()
+            // 86400
+        )
         result = await emit(
             db,
             user_id=job.recruiter_id,
@@ -512,12 +514,8 @@ async def _events_in_post_interview_window(
     db: AsyncSession, now: datetime, offset_minutes: int
 ) -> list[CalendarEvent]:
     now_utc = now.astimezone(timezone.utc)
-    upper = now_utc - timedelta(
-        minutes=offset_minutes - _POST_INTERVIEW_WINDOW_MINUTES
-    )
-    lower = now_utc - timedelta(
-        minutes=offset_minutes + _POST_INTERVIEW_WINDOW_MINUTES
-    )
+    upper = now_utc - timedelta(minutes=offset_minutes - _POST_INTERVIEW_WINDOW_MINUTES)
+    lower = now_utc - timedelta(minutes=offset_minutes + _POST_INTERVIEW_WINDOW_MINUTES)
     rows = await db.execute(
         select(CalendarEvent).where(
             CalendarEvent.event_type == EventType.interview,
@@ -591,7 +589,9 @@ async def check_post_interview_t15(db: AsyncSession, now: datetime) -> int:
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
         client_side = _is_client_side(stage)
-        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        source = (
+            FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        )
         if await _feedback_exists(db, event.id, source):
             continue
 
@@ -634,7 +634,9 @@ async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
         client_side = _is_client_side(stage)
-        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        source = (
+            FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        )
         if await _feedback_exists(db, event.id, source):
             continue
 
@@ -662,9 +664,7 @@ async def check_post_interview_t45(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-async def check_post_interview_t2h_escalation(
-    db: AsyncSession, now: datetime
-) -> int:
+async def check_post_interview_t2h_escalation(db: AsyncSession, now: datetime) -> int:
     """2h po interview bez feedbacku → eskalacja do DL + czerwona flaga na evencie."""
     events = await _events_in_post_interview_window(
         db, now, settings.POST_INTERVIEW_T2H_MINUTES
@@ -678,7 +678,9 @@ async def check_post_interview_t2h_escalation(
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
         client_side = _is_client_side(stage)
-        source = FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        source = (
+            FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
+        )
         if await _feedback_exists(db, event.id, source):
             continue
 

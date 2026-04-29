@@ -27,7 +27,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -221,9 +221,7 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
     expired_ids = [r[0] for r in res.all()]
     if expired_ids:
         await db.execute(
-            delete(TalentPoolMembership).where(
-                TalentPoolMembership.id.in_(expired_ids)
-            )
+            delete(TalentPoolMembership).where(TalentPoolMembership.id.in_(expired_ids))
         )
         removed_expired = len(expired_ids)
 
@@ -243,7 +241,9 @@ def _should_scan_job(job: Job) -> Optional[str]:
     """Return a reason string to skip, or None if we should scan."""
     if job.status not in (JobStatus.draft, JobStatus.published):
         # `closed` jobów nie skanujemy.
-        return f"status={job.status.value if hasattr(job.status, 'value') else job.status}"
+        return (
+            f"status={job.status.value if hasattr(job.status, 'value') else job.status}"
+        )
     must = job.must_skills or []
     nice = job.nice_skills or []
     if not must and not nice:
@@ -268,7 +268,6 @@ async def _create_marketplace_notifications(
     """
     from app.api.notifications import create_notification
 
-    recipients: list[int] = []
     cand_owner = candidate.created_by
     job_owner = job.recruiter_id
 
@@ -397,9 +396,7 @@ async def scan_job_for_marketplace_matches(
 
     skip = _should_scan_job(job)
     if skip is not None:
-        logger.info(
-            "marketplace_scan skipped job_id=%d reason=%s", job_id, skip
-        )
+        logger.info("marketplace_scan skipped job_id=%d reason=%s", job_id, skip)
         return ScanResult(
             job_id=job_id,
             latency_ms=round((time.perf_counter() - t0) * 1000, 2),
@@ -443,18 +440,14 @@ async def scan_job_for_marketplace_matches(
                 if cid in pool_ids and score is not None:
                     sim_map[int(cid)] = float(score)
     except Exception:
-        logger.exception(
-            "marketplace_scan: semantic search failed job_id=%d", job_id
-        )
+        logger.exception("marketplace_scan: semantic search failed job_id=%d", job_id)
 
     matches = 0
     new_alerts = 0
     scored = 0
     for cand in candidates:
         # Pre-check: para już w logu → skip całkowicie (no scoring wasted).
-        if await _was_already_alerted(
-            db, candidate_id=cand.id, job_id=job.id
-        ):
+        if await _was_already_alerted(db, candidate_id=cand.id, job_id=job.id):
             continue
         try:
             bd = await score_candidate_job(
@@ -798,6 +791,4 @@ async def run_marketplace_scan_safe(job_id: int) -> None:
             await scan_job_for_marketplace_matches(job_id, db)
             await db.commit()
     except Exception:
-        logger.exception(
-            "run_marketplace_scan_safe failed job_id=%d", job_id
-        )
+        logger.exception("run_marketplace_scan_safe failed job_id=%d", job_id)

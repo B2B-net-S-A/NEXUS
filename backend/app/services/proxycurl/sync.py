@@ -35,7 +35,7 @@ from app.services.proxycurl.client import (
     ProxycurlProfile,
     normalize_linkedin_url,
 )
-from app.services.proxycurl.diff import ChangeResult, compute_change
+from app.services.proxycurl.diff import compute_change
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +108,7 @@ async def sync_candidate_linkedin(
         candidate.linkedin_sync_error = "profile_not_found"
         candidate.linkedin_synced_at = datetime.now(timezone.utc)
         await db.commit()
-        logger.info(
-            "Proxycurl 404 for candidate %s (%s)", candidate.id, exc.url
-        )
+        logger.info("Proxycurl 404 for candidate %s (%s)", candidate.id, exc.url)
         return SyncResult(
             candidate_id=candidate.id,
             status=LinkedinSyncStatus.not_found,
@@ -169,9 +167,7 @@ async def sync_candidate_linkedin(
 
     pruned = await prune_old_snapshots(db, candidate.id, keep=10)
     if pruned:
-        logger.debug(
-            "Pruned %d old snapshots for candidate %s", pruned, candidate.id
-        )
+        logger.debug("Pruned %d old snapshots for candidate %s", pruned, candidate.id)
     await db.commit()
 
     return SyncResult(

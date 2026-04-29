@@ -100,9 +100,7 @@ def compute_change(
     )
 
 
-def companies_equal(
-    a: Optional[str], b: Optional[str], *, threshold: int = 90
-) -> bool:
+def companies_equal(a: Optional[str], b: Optional[str], *, threshold: int = 90) -> bool:
     """Fuzzy equality check for company names.
 
     Uses `rapidfuzz.fuzz.token_set_ratio` so order / punctuation / legal

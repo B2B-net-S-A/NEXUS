@@ -147,7 +147,7 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         "z opisu stanowiska dostarczonego przez klienta. "
         "NAJWAŻNIEJSZE REGUŁY: "
         "(1) Jeśli informacji NIE MA w źródle — pozostaw pole puste "
-        "(null / \"\" / []) i ustaw confidence=0 dla tej sekcji. "
+        '(null / "" / []) i ustaw confidence=0 dla tej sekcji. '
         "(2) Nigdy nie wymyślaj ani nie zgaduj danych. "
         "(3) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
     ),
@@ -161,20 +161,20 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         "---\n\n"
         "Wygeneruj JSON zgodny z poniższą strukturą (wszystkie pola wymagane, "
         "ale mogą być puste):\n"
-        '{{\n'
+        "{{\n"
         '  "basics": {{\n'
         '    "onsite_days_per_week": int|null,\n'
         '    "candidate_location_pref": str|null,\n'
         '    "language": str|null\n'
-        '  }},\n'
+        "  }},\n"
         '  "project_context": {{\n'
         '    "about": "cel projektu, zespół, harmonogram (po polsku)",\n'
         '    "responsibilities": "obowiązki stanowiska (po polsku)",\n'
         '    "selling_points": "co przekona kandydata (po polsku)"\n'
-        '  }},\n'
+        "  }},\n"
         '  "screening_questions": [\n'
         '    {{"id": "q1", "question": "...", "ideal_answer": "...", "deal_breaker": ""}}\n'
-        '  ],\n'
+        "  ],\n"
         '  "historical_client_questions": "",\n'
         '  "internal_consultant_insight": "",\n'
         '  "sourcing": {{\n'
@@ -182,7 +182,7 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         '    "keywords": "słowa kluczowe do search",\n'
         '    "target_companies": "firmy skąd warto sourcować",\n'
         '    "notes": ""\n'
-        '  }},\n'
+        "  }},\n"
         '  "_confidence": {{\n'
         '    "basics": 0.0,\n'
         '    "project_context": 0.0,\n'
@@ -190,8 +190,8 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         '    "historical_client_questions": 0.0,\n'
         '    "internal_consultant_insight": 0.0,\n'
         '    "sourcing": 0.0\n'
-        '  }}\n'
-        '}}\n\n'
+        "  }}\n"
+        "}}\n\n"
         "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer; "
         "deal_breaker wypełnij TYLKO gdy klient wyraźnie wskazał dyskwalifikator. "
         "W polu sourcing.sources zaznacz TYLKO kanały EXPLICIT sugerowane w opisie — "
@@ -230,14 +230,14 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
         "{meeting_transcript}\n"
         "---\n\n"
         "Zwróć delta-patch JSON — tylko sekcje do aktualizacji:\n"
-        '{{\n'
+        "{{\n"
         '  "basics": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
         '  "project_context": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
         '  "screening_questions": {{ "value": [{{...}}]|null, "confidence": 0..1, "rationale": "..." }},\n'
         '  "historical_client_questions": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
         '  "internal_consultant_insight": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
         '  "sourcing": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "..." }}\n'
-        '}}\n\n'
+        "}}\n\n"
         "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie. "
         "rationale = krótki cytat/fragment z transkryptu uzasadniający zmianę "
         "(1-2 zdania, po polsku). "
@@ -327,14 +327,14 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
         "---\n\n"
         "Zwróć delta-patch JSON — TYLKO sekcje dla których historia daje "
         "jednoznaczny sygnał. Format identyczny jak dla enrichment:\n"
-        '{{\n'
+        "{{\n"
         '  "basics": {{ "value": {{...}}, "confidence": 0..1, "rationale": "..." }},\n'
         '  "project_context": {{ "value": {{...}}, "confidence": 0..1, "rationale": "skopiowano z Job #..." }},\n'
         '  "screening_questions": {{ "value": [{{...}}], "confidence": 0..1, "rationale": "użyte w X/Y podobnych rolach" }},\n'
         '  "historical_client_questions": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
         '  "internal_consultant_insight": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
         '  "sourcing": {{ "value": {{...}}, "confidence": 0..1, "rationale": "union top-K" }}\n'
-        '}}\n\n'
+        "}}\n\n"
         "Dla sekcji których NIE uzupełniasz — pomiń klucz całkowicie. "
         "Confidence: 0.8-1.0 dla verbatim copy z pojedynczego matcha o "
         "similarity >= 0.85; 0.5-0.8 dla kompozycji/unionu; 0.3-0.5 gdy "

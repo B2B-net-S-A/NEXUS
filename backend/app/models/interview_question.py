@@ -99,9 +99,7 @@ class InterviewQuestion(Base, TimestampMixin):
 
     text: Mapped[str] = mapped_column(Text, nullable=False)
     ideal_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    deal_breaker: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    deal_breaker: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     competence_category_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("competence_categories.id", ondelete="SET NULL"),
@@ -201,9 +199,7 @@ class JobQuestion(Base):
     )
 
     # Fractional indexing — drag-drop bez kolizji (między 1000.0 i 2000.0 daj 1500.0)
-    order_index: Mapped[float] = mapped_column(
-        Float, nullable=False, default=1000.0
-    )
+    order_index: Mapped[float] = mapped_column(Float, nullable=False, default=1000.0)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -227,9 +223,7 @@ class InterviewQuestionRating(Base):
     """Audit trail oceny pytania po rozmowie. Faza 1: tylko zbieramy sygnał."""
 
     __tablename__ = "interview_question_ratings"
-    __table_args__ = (
-        Index("ix_iqr_question_created", "question_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_iqr_question_created", "question_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     question_id: Mapped[int] = mapped_column(

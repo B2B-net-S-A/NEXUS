@@ -150,8 +150,7 @@ _PRAISE_HIT_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
         ),
         MessageTemplate(
             title="🧠 Rozmowy zrobione",
-            body="{name}, screeningi wyrobione ({current}/{target}). "
-            "Trzymaj tempo!",
+            body="{name}, screeningi wyrobione ({current}/{target}). Trzymaj tempo!",
             emoji="🧠",
         ),
         MessageTemplate(
@@ -270,8 +269,7 @@ _REMIND_BEHIND_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
     "daily_new_candidates": (
         MessageTemplate(
             title="💡 Kandydaci do dobicia",
-            body="{name}, nowi kandydaci dziś {current}/{target}. "
-            "Brakuje {remaining}.",
+            body="{name}, nowi kandydaci dziś {current}/{target}. Brakuje {remaining}.",
             emoji="💡",
         ),
         MessageTemplate(

@@ -95,9 +95,7 @@ class DeliveryLeadClientAssignment(Base):
 
     __tablename__ = "delivery_lead_client_assignments"
     __table_args__ = (
-        UniqueConstraint(
-            "delivery_lead_user_id", "client_id", name="uq_dl_client"
-        ),
+        UniqueConstraint("delivery_lead_user_id", "client_id", name="uq_dl_client"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -143,9 +141,7 @@ class ClientTacAssignment(Base):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    is_primary: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

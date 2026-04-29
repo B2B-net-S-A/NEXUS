@@ -92,9 +92,7 @@ async def _run_once(today: date | None = None) -> dict:
                         created = await comp_service.freeze_competition(
                             db, ctype, prev_quarter_period
                         )
-                        results[f"{ctype.value}:{prev_quarter_period}"] = len(
-                            created
-                        )
+                        results[f"{ctype.value}:{prev_quarter_period}"] = len(created)
                         logger.info(
                             "auto-freeze %s for %s: %d winners",
                             ctype.value,

@@ -48,7 +48,9 @@ async def list_benchmarks(
         query = query.where(RateBenchmark.location.ilike(f"%{location}%"))
     if currency:
         query = query.where(RateBenchmark.currency == currency.upper())
-    query = query.order_by(RateBenchmark.source_date.desc(), RateBenchmark.role).limit(limit)
+    query = query.order_by(RateBenchmark.source_date.desc(), RateBenchmark.role).limit(
+        limit
+    )
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -139,7 +141,10 @@ async def import_benchmarks(
     errors: list[str] = []
 
     for row_num, row in enumerate(reader, start=2):  # header is row 1
-        lower_row = {k.strip().lower(): (v.strip() if isinstance(v, str) else v) for k, v in row.items()}
+        lower_row = {
+            k.strip().lower(): (v.strip() if isinstance(v, str) else v)
+            for k, v in row.items()
+        }
         try:
             role = lower_row.get("role")
             rate_unit_str = (lower_row.get("rate_unit") or "").lower()
@@ -147,8 +152,16 @@ async def import_benchmarks(
             source = lower_row.get("source")
             source_date_str = lower_row.get("source_date")
 
-            if not role or not rate_unit_str or not median_str or not source or not source_date_str:
-                raise ValueError("missing required field (role/rate_unit/market_median/source/source_date)")
+            if (
+                not role
+                or not rate_unit_str
+                or not median_str
+                or not source
+                or not source_date_str
+            ):
+                raise ValueError(
+                    "missing required field (role/rate_unit/market_median/source/source_date)"
+                )
 
             seniority_val = lower_row.get("seniority")
             seniority_enum = SeniorityLevel(seniority_val) if seniority_val else None
@@ -158,9 +171,13 @@ async def import_benchmarks(
                 seniority=seniority_enum,
                 currency=(lower_row.get("currency") or "PLN").upper()[:3],
                 rate_unit=RateUnit(rate_unit_str),
-                market_min=int(lower_row["market_min"]) if lower_row.get("market_min") else None,
+                market_min=int(lower_row["market_min"])
+                if lower_row.get("market_min")
+                else None,
                 market_median=int(median_str),
-                market_max=int(lower_row["market_max"]) if lower_row.get("market_max") else None,
+                market_max=int(lower_row["market_max"])
+                if lower_row.get("market_max")
+                else None,
                 source=source,
                 source_date=date.fromisoformat(source_date_str),
                 location=lower_row.get("location") or None,

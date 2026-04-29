@@ -27,7 +27,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -100,9 +100,7 @@ def _q_from_iq(
     )
 
 
-async def _tier_pinned(
-    db: AsyncSession, job: Job
-) -> list[SuggestedQuestion]:
+async def _tier_pinned(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
     """Pytania przypięte do joba, sortowane po `order_index`."""
     result = await db.execute(
         select(JobQuestion)
@@ -146,7 +144,9 @@ def _tier_legacy_champion(job: Job) -> list[SuggestedQuestion]:
     return out
 
 
-def _tenant_filter(other_job_client_id: Optional[int], self_client_id: Optional[int]) -> bool:
+def _tenant_filter(
+    other_job_client_id: Optional[int], self_client_id: Optional[int]
+) -> bool:
     """Czy pytania innego joba mogą być pożyczone do prep-kita 'self'.
 
     Hard rule: pytania `client_id != NULL` → tylko dla tego samego klienta.
@@ -236,7 +236,8 @@ async def _tier_same_cc_similar(
     )
     same_cc_ids = {row[0] for row in result.all()}
     filtered_ids = [
-        jid for jid in candidate_ids
+        jid
+        for jid in candidate_ids
         if jid in same_cc_ids and scores.get(jid, 0.0) >= TIER_1_MIN_COSINE
     ]
     filtered_scores = {jid: scores[jid] for jid in filtered_ids}
@@ -295,7 +296,8 @@ async def _tier_secondary_cc(
     )
     allowed_ids = {row[0] for row in result.all()}
     filtered_ids = [
-        jid for jid in candidate_ids
+        jid
+        for jid in candidate_ids
         if jid in allowed_ids and scores.get(jid, 0.0) >= TIER_2_MIN_COSINE
     ]
     filtered_scores = {jid: scores[jid] for jid in filtered_ids}
@@ -321,9 +323,7 @@ def _parse_bullet_list(content: str) -> list[str]:
     return [text] if text else []
 
 
-async def _tier_client_knowledge(
-    db: AsyncSession, job: Job
-) -> list[SuggestedQuestion]:
+async def _tier_client_knowledge(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
     """Tier 3: legacy `ClientKnowledge` kategorii `interview_questions`."""
     if not job.client_id:
         return []
@@ -348,7 +348,7 @@ def _tier_auto_generate(job: Job) -> list[SuggestedQuestion]:
     out: list[SuggestedQuestion] = []
 
     # Must-have skills
-    for item in (job.must_skills or []):
+    for item in job.must_skills or []:
         if isinstance(item, dict):
             name = (item.get("name") or "").strip()
         elif isinstance(item, str):

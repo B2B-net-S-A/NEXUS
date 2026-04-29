@@ -163,9 +163,7 @@ async def _rank_recruiters_by_stage(
             CandidateStage.stage == stage,
             CandidateStage.moved_at >= start,
             CandidateStage.moved_at < end,
-            User.role.in_(
-                [UserRole.sourcer, UserRole.tac, UserRole.recruiter]
-            ),
+            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
             User.is_active == True,  # noqa: E712
         )
         .group_by(User.id, User.name, User.role)
@@ -211,9 +209,7 @@ async def _rank_recruiters_by_points(
         .where(
             CandidateStage.moved_at >= start,
             CandidateStage.moved_at < end,
-            User.role.in_(
-                [UserRole.sourcer, UserRole.tac, UserRole.recruiter]
-            ),
+            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
             User.is_active == True,  # noqa: E712
         )
         .group_by(User.id, User.name, User.role, CandidateStage.stage)
@@ -341,13 +337,10 @@ async def _rank_dls_by_placements(
         placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
 
     # Requests per DL (dla hit_ratio).
-    req_q = (
-        select(Job.id, Job.delivery_lead_id, Job.client_id)
-        .where(
-            Job.recruitment_type == RecruitmentType.body_leasing,
-            Job.created_at >= start,
-            Job.created_at < end,
-        )
+    req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
+        Job.recruitment_type == RecruitmentType.body_leasing,
+        Job.created_at >= start,
+        Job.created_at < end,
     )
     req_rows = (await db.execute(req_q)).all()
     requests_by_dl: dict[int, int] = {}
@@ -401,9 +394,7 @@ async def _rank_dls_by_placements(
 # ── Public API: live rankings (bez zapisu) ──────────────────────────────
 
 
-async def quarterly_champions_dl(
-    db: AsyncSession, period: str
-) -> list[RankedUser]:
+async def quarterly_champions_dl(db: AsyncSession, period: str) -> list[RankedUser]:
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
     return await _rank_dls_by_placements(db, start=start, end=end, limit=10)
@@ -442,9 +433,7 @@ async def monthly_most_recommendations(
     )
 
 
-async def monthly_most_placements(
-    db: AsyncSession, period: str
-) -> list[RankedUser]:
+async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
     return await _rank_recruiters_by_stage(

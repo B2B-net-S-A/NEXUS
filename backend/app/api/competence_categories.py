@@ -7,7 +7,7 @@ więc frontend może ją cache'ować z React Query przez cały session.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -80,9 +80,11 @@ async def list_cc_recruiters(
     if not cc:
         raise HTTPException(status_code=404, detail="Competence Category not found")
 
-    stmt = select(UserCompetenceCategory, User).join(
-        User, UserCompetenceCategory.user_id == User.id
-    ).where(UserCompetenceCategory.competence_category_id == cc_id)
+    stmt = (
+        select(UserCompetenceCategory, User)
+        .join(User, UserCompetenceCategory.user_id == User.id)
+        .where(UserCompetenceCategory.competence_category_id == cc_id)
+    )
     if priority is not None:
         stmt = stmt.where(UserCompetenceCategory.priority == priority)
     rows = (await db.execute(stmt)).all()

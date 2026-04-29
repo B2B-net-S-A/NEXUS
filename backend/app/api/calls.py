@@ -242,9 +242,7 @@ async def cloudtalk_webhook(
             "CloudTalk webhook: CLOUDTALK_WEBHOOK_SECRET empty while enabled; rejecting"
         )
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-    expected = hmac.new(
-        secret.encode("utf-8"), raw_body, hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, signature_header):
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
@@ -269,9 +267,7 @@ async def cloudtalk_webhook(
 
     call_row: Optional[Call] = None
     if ct_id:
-        call_row = await db.scalar(
-            select(Call).where(Call.cloudtalk_call_id == ct_id)
-        )
+        call_row = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
 
     # Find candidate by phone (lookup once).
     candidate: Optional[Candidate] = None

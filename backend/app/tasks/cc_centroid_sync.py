@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,11 +40,11 @@ async def _bootstrap_if_needed(db: AsyncSession) -> None:
     ).all()
     cc_ids = [r[0] for r in rows]
     if not cc_ids:
-        logger.info("[cc_centroid_sync] All CCs already have embeddings — skipping bootstrap.")
+        logger.info(
+            "[cc_centroid_sync] All CCs already have embeddings — skipping bootstrap."
+        )
         return
-    logger.info(
-        "[cc_centroid_sync] Bootstrapping centroids for %d CCs…", len(cc_ids)
-    )
+    logger.info("[cc_centroid_sync] Bootstrapping centroids for %d CCs…", len(cc_ids))
     for cc_id in cc_ids:
         try:
             await compute_cc_centroid(db, cc_id)

@@ -100,12 +100,14 @@ def _send_email_for_recipient(
     new_stage: CandidateStage,
 ) -> None:
     if not user.email:
-        logger.debug(
-            "stage_notif: email skipped — user=%s has no email", user.id
-        )
+        logger.debug("stage_notif: email skipped — user=%s has no email", user.id)
         return
     base_url = (settings.PUBLIC_BASE_URL or "").rstrip("/")
-    link = f"{base_url}/candidates/{candidate.id}" if base_url else f"/candidates/{candidate.id}"
+    link = (
+        f"{base_url}/candidates/{candidate.id}"
+        if base_url
+        else f"/candidates/{candidate.id}"
+    )
 
     subject, text_body, html_body = render_stage_email(
         recipient_name=user.name or user.email,

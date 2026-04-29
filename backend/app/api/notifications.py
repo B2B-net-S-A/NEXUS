@@ -189,6 +189,7 @@ async def create_notification(
     """
     if dedupe_resurface and related_entity_id is not None:
         from sqlalchemy import and_
+
         existing = await db.scalar(
             select(Notification)
             .where(

@@ -18,7 +18,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -166,9 +166,7 @@ async def _count_votes(
             func.count().label("cnt"),
         )
         .where(InterviewQuestionRating.question_id.in_(question_ids))
-        .group_by(
-            InterviewQuestionRating.question_id, InterviewQuestionRating.rating
-        )
+        .group_by(InterviewQuestionRating.question_id, InterviewQuestionRating.rating)
     )
     out: dict[int, dict[str, int]] = {qid: {"up": 0, "down": 0} for qid in question_ids}
     for qid, rating, cnt in result.all():
@@ -276,9 +274,7 @@ async def list_questions(
     if q:
         conds.append(InterviewQuestion.text.ilike(f"%{q.strip()}%"))
     if skill_tag:
-        conds.append(
-            InterviewQuestion.skill_tags.contains([skill_tag.strip().lower()])
-        )
+        conds.append(InterviewQuestion.skill_tags.contains([skill_tag.strip().lower()]))
     if conds:
         stmt = stmt.where(and_(*conds))
     stmt = stmt.order_by(desc(InterviewQuestion.created_at)).limit(limit)
@@ -322,7 +318,10 @@ async def update_question(
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
 
     # Autoryzacja: tylko autor lub admin edytuje
-    if iq.created_by not in (None, current_user.id) and current_user.role != UserRole.admin:
+    if (
+        iq.created_by not in (None, current_user.id)
+        and current_user.role != UserRole.admin
+    ):
         raise HTTPException(
             status_code=403,
             detail="Tylko autor pytania lub admin może edytować",
@@ -362,10 +361,11 @@ async def delete_question(
     iq = await db.get(InterviewQuestion, question_id)
     if not iq:
         raise HTTPException(status_code=404, detail="Nie znaleziono pytania")
-    if iq.created_by not in (None, current_user.id) and current_user.role != UserRole.admin:
-        raise HTTPException(
-            status_code=403, detail="Tylko autor lub admin może usunąć"
-        )
+    if (
+        iq.created_by not in (None, current_user.id)
+        and current_user.role != UserRole.admin
+    ):
+        raise HTTPException(status_code=403, detail="Tylko autor lub admin może usunąć")
     await db.delete(iq)
     await db.commit()
 

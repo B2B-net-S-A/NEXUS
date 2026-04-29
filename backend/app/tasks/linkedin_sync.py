@@ -94,8 +94,6 @@ async def _tick() -> None:
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "sync_candidate_linkedin failed for id=%s", cid
-                )
+                logger.exception("sync_candidate_linkedin failed for id=%s", cid)
             # Stagger so Proxycurl rate limits don't kick in.
             await asyncio.sleep(2)

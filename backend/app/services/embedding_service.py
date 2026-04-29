@@ -523,9 +523,7 @@ async def search_similar_jobs_by_job_id(
                 with_vectors=True,
             )
         except Exception as e:
-            logger.debug(
-                "[Search] retrieve vector for job %s failed: %s", job_id, e
-            )
+            logger.debug("[Search] retrieve vector for job %s failed: %s", job_id, e)
             return []
 
         if not points:

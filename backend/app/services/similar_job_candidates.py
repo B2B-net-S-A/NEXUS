@@ -227,9 +227,7 @@ async def fetch_historical_candidates(
     return candidates[:limit], similar_refs, tier_used
 
 
-async def fetch_historical_boost_map(
-    db: AsyncSession, job_id: int
-) -> dict[int, int]:
+async def fetch_historical_boost_map(db: AsyncSession, job_id: int) -> dict[int, int]:
     """Lightweight path used by `/recommendations` to apply a rank boost.
 
     Returns ``{candidate_id -> source_count}`` where ``source_count`` is the
@@ -374,11 +372,7 @@ async def _rank_candidates_from_similar(
         negative_signal = any(s.stage in NEGATIVE_STAGES for s in sources_sorted)
         # Candidate tier = best (A over B) across their sources.
         tier: Literal["A", "B"] = (
-            "A"
-            if any(
-                ref_by_id[s.job_id].tier == "A" for s in sources_sorted
-            )
-            else "B"
+            "A" if any(ref_by_id[s.job_id].tier == "A" for s in sources_sorted) else "B"
         )
         results.append(
             HistoricalCandidate(

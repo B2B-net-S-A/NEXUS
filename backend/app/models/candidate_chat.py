@@ -96,7 +96,9 @@ class CandidateChatMessage(Base, TimestampMixin):
     )
 
     external_platform: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    external_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    external_message_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
 
     search_vector: Mapped[Optional[str]] = mapped_column(TSVECTOR, nullable=True)
 

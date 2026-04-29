@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
@@ -153,7 +153,7 @@ async def callback(
 
     try:
         cipher = get_token_cipher()
-    except TokenCipherNotConfigured as exc:
+    except TokenCipherNotConfigured:
         return RedirectResponse(
             _frontend_callback_url("error", "Server encryption key not configured"),
             status_code=302,
@@ -161,7 +161,7 @@ async def callback(
 
     # Upsert connection row.
     existing = await _get_connection_for_user(db, user_id)
-    now = datetime.now(timezone.utc)
+    datetime.now(timezone.utc)
     if existing is None:
         existing = M365Connection(
             user_id=user_id,
@@ -211,9 +211,7 @@ async def get_connection(
         mailbox_upn=conn.mailbox_upn,
         last_sync_at=conn.last_sync_at,
         synced_through=conn.synced_through,
-        last_sync_status=conn.last_sync_status.value
-        if conn.last_sync_status
-        else None,
+        last_sync_status=conn.last_sync_status.value if conn.last_sync_status else None,
         last_error=conn.last_error,
         backfill_in_progress=conn.backfill_completed_at is None,
     )

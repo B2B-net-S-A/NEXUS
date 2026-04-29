@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, TacPlus, require_roles
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
-from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.competence_category import (
@@ -195,9 +194,7 @@ async def report_recruitment(
     category_map: dict[int, dict | None] = {}
     if user_ids:
         user_rows = (
-            await db.execute(
-                select(User.id, User.role).where(User.id.in_(user_ids))
-            )
+            await db.execute(select(User.id, User.role).where(User.id.in_(user_ids)))
         ).all()
         role_map = {
             u.id: (u.role.value if hasattr(u.role, "value") else str(u.role))
@@ -225,7 +222,13 @@ async def report_recruitment(
         best: dict[int, tuple] = {}
         for cc in cc_rows:
             score = (
-                3 if cc.priority == 1 else 2 if cc.is_primary else 1 if cc.priority == 2 else 0
+                3
+                if cc.priority == 1
+                else 2
+                if cc.is_primary
+                else 1
+                if cc.priority == 2
+                else 0
             )
             if cc.user_id not in best or score > best[cc.user_id][0]:
                 best[cc.user_id] = (
@@ -459,15 +462,19 @@ async def _compute_dl_metrics(
     fallback = await _dl_head_fallback_map(db)
 
     # 1. Jobs body_leasing stworzone w okresie.
-    jobs_q = select(
-        Job.id,
-        Job.delivery_lead_id,
-        Job.client_id,
-        Job.headcount,
-        Job.status,
-        Client.name.label("client_name"),
-    ).outerjoin(Client, Job.client_id == Client.id).where(
-        Job.recruitment_type == RecruitmentType.body_leasing,
+    jobs_q = (
+        select(
+            Job.id,
+            Job.delivery_lead_id,
+            Job.client_id,
+            Job.headcount,
+            Job.status,
+            Client.name.label("client_name"),
+        )
+        .outerjoin(Client, Job.client_id == Client.id)
+        .where(
+            Job.recruitment_type == RecruitmentType.body_leasing,
+        )
     )
     if period_start is not None:
         jobs_q = jobs_q.where(Job.created_at >= period_start)
@@ -561,7 +568,9 @@ async def _compute_dl_metrics(
         slot["open_vacancies"] += remaining
 
     # 4. Union DL set: każdy DL który ma cokolwiek (requests lub open).
-    all_dl_ids = set(per_dl.keys()) | set(open_by_dl.keys()) | set(placements_by_dl.keys())
+    all_dl_ids = (
+        set(per_dl.keys()) | set(open_by_dl.keys()) | set(placements_by_dl.keys())
+    )
     if only_dl_id is not None:
         all_dl_ids.add(only_dl_id)
         all_dl_ids = {only_dl_id}
@@ -591,9 +600,7 @@ async def _compute_dl_metrics(
                 "placements": p,
                 "hit_ratio": hit_ratio,
                 "fill_rate": fill_rate,
-                "avg_vacancies_per_request": (
-                    round(vac / req, 2) if req else 0.0
-                ),
+                "avg_vacancies_per_request": (round(vac / req, 2) if req else 0.0),
                 "open_requests": open_data["open_requests"],
                 "open_vacancies": open_data["open_vacancies"],
                 "target_achieved": hit_ratio >= HIT_RATIO_TARGET_PCT,
@@ -677,9 +684,9 @@ async def report_delivery_lead_trend(
             year -= 1
         month_start = datetime(year, month, 1, tzinfo=timezone.utc)
         if month == 12:
-            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            datetime(year + 1, 1, 1, tzinfo=timezone.utc)
         else:
-            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+            datetime(year, month + 1, 1, tzinfo=timezone.utc)
 
         # Snapshot dla okresu miesiąca — używamy period_start = month_start
         # i filtrujemy by `< month_end` przez tymczasowe wybranie z metrics.
@@ -829,8 +836,7 @@ async def _compute_client_hit_ratio(
         jobs_q = jobs_q.where(Job.client_id == only_client_id)
     if exclude_reasons:
         jobs_q = jobs_q.where(
-            (Job.close_reason.is_(None))
-            | (Job.close_reason.notin_(exclude_reasons))
+            (Job.close_reason.is_(None)) | (Job.close_reason.notin_(exclude_reasons))
         )
     jobs_rows = (await db.execute(jobs_q)).all()
 
@@ -1001,24 +1007,18 @@ async def _compute_client_hit_ratio(
     return per_client_out, overall
 
 
-def _sort_clients(
-    rows: list[dict], sort: str, min_closed: int
-) -> list[dict]:
+def _sort_clients(rows: list[dict], sort: str, min_closed: int) -> list[dict]:
     """Sort + optional min_closed filter (applied server-side for `volume`-type
     leaderboards; frontend decides how to render low-sample clients)."""
     filtered = [r for r in rows if r["closed_jobs"] >= min_closed]
     if sort == "hit_ratio":
-        filtered.sort(
-            key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True
-        )
+        filtered.sort(key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True)
     elif sort == "volume":
         filtered.sort(key=lambda r: r["closed_jobs"], reverse=True)
     elif sort == "name":
         filtered.sort(key=lambda r: r["client_name"].lower())
     else:
-        filtered.sort(
-            key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True
-        )
+        filtered.sort(key=lambda r: (r["hit_ratio"], r["closed_jobs"]), reverse=True)
     return filtered
 
 
@@ -1082,9 +1082,7 @@ async def report_clients_hit_ratio(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sort": sort,
         "min_closed": min_closed,
-        "excluded_reasons": sorted(
-            (r.value for r in excluded), key=lambda x: x
-        )
+        "excluded_reasons": sorted((r.value for r in excluded), key=lambda x: x)
         if excluded
         else [],
         "clients": per_client,
@@ -1126,9 +1124,7 @@ async def report_clients_at_risk(
     prev_start = now - 2 * span
     prev_end = current_start
 
-    current_rows, _ = await _compute_client_hit_ratio(
-        db, period_start=current_start
-    )
+    current_rows, _ = await _compute_client_hit_ratio(db, period_start=current_start)
     prev_rows, _ = await _compute_client_hit_ratio(
         db, period_start=prev_start, period_end=prev_end
     )
@@ -1530,9 +1526,9 @@ async def report_invite_links(
         select(
             CandidateInviteLink.label.label("channel"),
             func.count(CandidateInviteLink.token).label("links_count"),
-            func.coalesce(
-                func.sum(CandidateInviteLink.use_count), 0
-            ).label("applications"),
+            func.coalesce(func.sum(CandidateInviteLink.use_count), 0).label(
+                "applications"
+            ),
             func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
         )
         .where(
@@ -1647,9 +1643,7 @@ async def report_power_calling(
             CandidateStage.moved_at >= start,
             CandidateStage.moved_at < end,
             User.is_active == True,  # noqa: E712
-            User.role.in_(
-                [UserRole.sourcer, UserRole.tac, UserRole.recruiter]
-            ),
+            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
         )
         .group_by(User.id, User.name, User.role)
         .order_by(func.count(CandidateStage.id).desc())
@@ -1681,7 +1675,13 @@ async def report_power_calling(
         best: dict[int, tuple] = {}
         for cc in cc_rows:
             score = (
-                3 if cc.priority == 1 else 2 if cc.is_primary else 1 if cc.priority == 2 else 0
+                3
+                if cc.priority == 1
+                else 2
+                if cc.is_primary
+                else 1
+                if cc.priority == 2
+                else 0
             )
             if cc.user_id not in best or score > best[cc.user_id][0]:
                 best[cc.user_id] = (

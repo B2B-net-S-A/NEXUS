@@ -24,10 +24,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Iterable, Literal, Optional
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -227,7 +226,9 @@ async def find_similar_requests(
                 train_name=job_train,
                 same_train=same_train,
                 seniority=(job.seniority.value if job.seniority else None),
-                status=job.status.value if hasattr(job.status, "value") else str(job.status),
+                status=job.status.value
+                if hasattr(job.status, "value")
+                else str(job.status),
                 is_in_progress=is_in_progress,
                 outcome=outcome,
                 close_reason=(
@@ -291,7 +292,9 @@ async def _sql_same_client_candidates(
     """Cheap same-client lookup. Returns {job_id: 1.0}. Sorted: same-train first,
     then closed_at desc, then created_at desc.
     """
-    stmt = select(Job.id).where(Job.client_id == client_id, Job.status != JobStatus.draft)
+    stmt = select(Job.id).where(
+        Job.client_id == client_id, Job.status != JobStatus.draft
+    )
     if exclude_job_id is not None:
         stmt = stmt.where(Job.id != exclude_job_id)
     if not include_open:
@@ -341,9 +344,7 @@ async def _voyage_candidates(
         return {}
 
     qdrant_limit = max(top_k * QDRANT_OVERSAMPLE_FACTOR, top_k)
-    hits = await asyncio.to_thread(
-        _qdrant_search, embedding, client_id, qdrant_limit
-    )
+    hits = await asyncio.to_thread(_qdrant_search, embedding, client_id, qdrant_limit)
     if not hits:
         return {}
 
@@ -462,14 +463,20 @@ async def _aggregate_request_metadata(
 
     # Q4: latest contract per job (for fee) — DISTINCT ON job_id
     contract_rows = (
-        await db.execute(
-            select(Contract)
-            .where(Contract.job_id.in_(job_ids))
-            .order_by(Contract.job_id, Contract.created_at.desc())
-            .distinct(Contract.job_id)
+        (
+            await db.execute(
+                select(Contract)
+                .where(Contract.job_id.in_(job_ids))
+                .order_by(Contract.job_id, Contract.created_at.desc())
+                .distinct(Contract.job_id)
+            )
         )
-    ).scalars().all()
-    contract_by_id: dict[int, Contract] = {c.job_id: c for c in contract_rows if c.job_id}
+        .scalars()
+        .all()
+    )
+    contract_by_id: dict[int, Contract] = {
+        c.job_id: c for c in contract_rows if c.job_id
+    }
 
     out: dict[int, _Meta] = {}
     for jid in job_ids:
@@ -492,8 +499,11 @@ async def _aggregate_request_metadata(
             fee_rate = contract.monthly_margin
             fee_currency = contract.currency
             rate_unit = (
-                contract.rate_unit.value if hasattr(contract.rate_unit, "value")
-                else str(contract.rate_unit) if contract.rate_unit else None
+                contract.rate_unit.value
+                if hasattr(contract.rate_unit, "value")
+                else str(contract.rate_unit)
+                if contract.rate_unit
+                else None
             )
 
         out[jid] = _Meta(
@@ -522,11 +532,15 @@ async def _load_owner_names(
         return {}
 
     rows = (
-        await db.execute(select(User.id, User.name, User.email).where(User.id.in_(user_ids)))
+        await db.execute(
+            select(User.id, User.name, User.email).where(User.id.in_(user_ids))
+        )
     ).all()
     name_by_id: dict[int, str] = {}
     for uid, name, email in rows:
-        name_by_id[int(uid)] = (name or "").strip() or (email or "").strip() or f"User {uid}"
+        name_by_id[int(uid)] = (
+            (name or "").strip() or (email or "").strip() or f"User {uid}"
+        )
 
     out: dict[tuple[str, int], str] = {}
     for job, _ in job_rows:

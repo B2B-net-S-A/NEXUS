@@ -123,9 +123,7 @@ async def get_client_team(
                 User.email,
                 User.role,
             )
-            .join(
-                User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id
-            )
+            .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
             .where(DeliveryLeadClientAssignment.client_id == client_id)
             .order_by(
                 DeliveryLeadClientAssignment.is_head.desc(),
@@ -236,9 +234,7 @@ async def remove_tac_from_client(
         )
     ).scalar_one_or_none()
     if row is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Assignment not found"
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
     await db.delete(row)
     await db.commit()
 
@@ -260,9 +256,7 @@ async def toggle_tac_primary(
         )
     ).scalar_one_or_none()
     if row is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="Assignment not found"
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
 
     if not row.is_primary:
         prev_primary = (

@@ -47,9 +47,7 @@ _GENERIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     # "TRAIN X", "Train-5", "TRAIN: Platform"
     re.compile(rf"\b(?i:TRAIN)[\s:\-]+{_TITLE_CASE_SEQUENCE}"),
     # "Release Train Payments" / "Agile Release Train CIB"
-    re.compile(
-        rf"\b(?i:(?:Agile\s+)?Release\s+Train)[\s:\-]+{_TITLE_CASE_SEQUENCE}"
-    ),
+    re.compile(rf"\b(?i:(?:Agile\s+)?Release\s+Train)[\s:\-]+{_TITLE_CASE_SEQUENCE}"),
     # "Programme: Open Banking" / "program - Mortgages"
     re.compile(rf"\b(?i:Program(?:me)?)[\s:\-]+{_TITLE_CASE_SEQUENCE}"),
 )
@@ -76,9 +74,7 @@ _CLIENT_TRAIN_DICT: dict[str, tuple[str, ...]] = {
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
-def extract_train_name(
-    text: str, client_slug: Optional[str] = None
-) -> Optional[str]:
+def extract_train_name(text: str, client_slug: Optional[str] = None) -> Optional[str]:
     """Return the most likely train name in ``text`` or ``None``.
 
     Args:
@@ -96,9 +92,7 @@ def extract_train_name(
     if client_slug:
         key = client_slug.strip().lower()
         for canonical in _CLIENT_TRAIN_DICT.get(key, ()):
-            pattern = re.compile(
-                r"\b" + re.escape(canonical) + r"\b", re.IGNORECASE
-            )
+            pattern = re.compile(r"\b" + re.escape(canonical) + r"\b", re.IGNORECASE)
             if pattern.search(text):
                 return canonical
 

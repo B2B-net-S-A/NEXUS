@@ -90,9 +90,7 @@ class CandidatesColumnsConfig(BaseModel):
             seen.add(col)
         missing_required = REQUIRED_CANDIDATE_COLUMNS - seen
         if missing_required:
-            raise ValueError(
-                f"required columns missing: {sorted(missing_required)}"
-            )
+            raise ValueError(f"required columns missing: {sorted(missing_required)}")
         return v
 
 
@@ -113,9 +111,7 @@ async def get_candidates_columns(
     if role_row is not None:
         return {"columns": role_row.value["columns"]}
 
-    global_row = await db.scalar(
-        select(AppSetting).where(AppSetting.key == _BASE_KEY)
-    )
+    global_row = await db.scalar(select(AppSetting).where(AppSetting.key == _BASE_KEY))
     if global_row is not None:
         return {"columns": global_row.value["columns"]}
 

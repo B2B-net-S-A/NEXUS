@@ -27,9 +27,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
-from app.models.job import Job
 from app.models.user import UserRole
 from app.schemas.contract import (
     ContractorCandidateRef,
@@ -139,14 +137,10 @@ async def list_contractors(
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar() or 0
 
-    result = await db.execute(
-        query.offset((page - 1) * page_size).limit(page_size)
-    )
+    result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
     items = [_to_item(c) for c in contracts]
-    return ContractorList(
-        items=items, total=total, page=page, page_size=page_size
-    )
+    return ContractorList(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/stats", response_model=ContractorStats)

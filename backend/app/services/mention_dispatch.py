@@ -29,7 +29,6 @@ Dlaczego dwie fazy zamiast jednej (jak w notification_triggers.emit):
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -215,9 +214,7 @@ async def send_mention_side_effects(
             if ok:
                 sent += 1
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "mention email failed user=%s err=%s", user.id, exc
-            )
+            logger.warning("mention email failed user=%s err=%s", user.id, exc)
     return sent
 
 

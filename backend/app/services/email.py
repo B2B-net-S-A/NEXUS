@@ -71,9 +71,7 @@ def send_email(
         logger.info("email sent to=%s subject=%r", to, subject)
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "email send failed to=%s subject=%r error=%s", to, subject, exc
-        )
+        logger.warning("email send failed to=%s subject=%r error=%s", to, subject, exc)
         return False
 
 
@@ -101,8 +99,8 @@ def send_post_interview_reminder(
         f"<p>Cześć {recipient_name},</p>"
         f"<p>Już 45 min od interview z kandydatem <strong>#{candidate_id}</strong>. "
         f"Zadzwoń do <strong>{side_label}</strong> i zbierz feedback + pytania.</p>"
-        f"<p><a href=\"{link}\">Otwórz modal feedbacku</a></p>"
-        "<hr><p style=\"color:#888;font-size:12px\">Nexus ATS</p>"
+        f'<p><a href="{link}">Otwórz modal feedbacku</a></p>'
+        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
     )
     return send_email(to_email, subject, text_body, html_body)
 
@@ -159,7 +157,7 @@ def send_mention_email(
         f'<blockquote style="border-left:3px solid #3b82f6;padding-left:12px;'
         f'color:#374151;margin:16px 0">{safe_snippet}</blockquote>'
         f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'
-        f'color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;'
+        f"color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;"
         f'font-weight:500">Otwórz w Nexusie</a></p>'
         '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
     )
@@ -202,7 +200,7 @@ def send_chat_fallback_email(
         f"<p><strong>{safe_title}</strong></p>"
         f"<p>{safe_message}</p>"
         f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'
-        f'color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;'
+        f"color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;"
         f'font-weight:500">Otwórz w Nexusie</a></p>'
         '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
     )

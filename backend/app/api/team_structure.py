@@ -52,9 +52,7 @@ def _user_brief(u: User) -> UserBrief:
 
 
 def _category_brief(c: CompetenceCategory) -> CategoryBrief:
-    return CategoryBrief(
-        id=c.id, slug=c.slug, name_pl=c.name_pl, name_en=c.name_en
-    )
+    return CategoryBrief(id=c.id, slug=c.slug, name_pl=c.name_pl, name_en=c.name_en)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -277,9 +275,7 @@ async def assign_tac_to_dl(
     if tac is None or tac.role != UserRole.tac:
         raise HTTPException(400, "tac_user_id must reference a user with role=tac")
     dl = (
-        await db.execute(
-            select(User).where(User.id == payload.delivery_lead_user_id)
-        )
+        await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
     if dl is None or dl.role != UserRole.delivery_lead:
         raise HTTPException(
@@ -429,9 +425,7 @@ async def assign_dl_to_client(
     db: AsyncSession = Depends(get_db),
 ):
     dl = (
-        await db.execute(
-            select(User).where(User.id == payload.delivery_lead_user_id)
-        )
+        await db.execute(select(User).where(User.id == payload.delivery_lead_user_id))
     ).scalar_one_or_none()
     if dl is None or dl.role != UserRole.delivery_lead:
         raise HTTPException(400, "must reference role=delivery_lead")
@@ -554,10 +548,7 @@ async def team_structure_summary(
         "recruiters": await _count(UserRole.recruiter),
         "delivery_leads": await _count(UserRole.delivery_lead),
         "head_of_recruitment": await _count(UserRole.head_of_recruitment),
-        "clients": (
-            await db.execute(select(func.count(Client.id)))
-        ).scalar()
-        or 0,
+        "clients": (await db.execute(select(func.count(Client.id)))).scalar() or 0,
     }
 
     return TeamStructureSummary(

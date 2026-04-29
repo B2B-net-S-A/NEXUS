@@ -26,7 +26,6 @@ from app.models.candidate import Candidate
 from app.models.contract import (
     Contract,
     ContractStatus,
-    ContractTerminationReason,
     RateUnit,
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
@@ -538,9 +537,7 @@ async def activate_contract(
 # ── Editable draft (migracja 0058) ───────────────────────────────────────────
 
 
-async def _load_contract_with_relations(
-    db: AsyncSession, contract_id: int
-) -> Contract:
+async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> Contract:
     contract = await db.scalar(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -574,9 +571,7 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
             **_contract_vars(contract)
         )
     except TemplateError as exc:
-        raise HTTPException(
-            status_code=422, detail=f"Template render error: {exc}"
-        )
+        raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
 def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
@@ -667,9 +662,7 @@ async def get_contract_draft(
             select(User.email).where(User.id == contract.draft_updated_by)
         )
 
-    return _draft_response(
-        contract, available, updated_by_name, rendered_from_default
-    )
+    return _draft_response(contract, available, updated_by_name, rendered_from_default)
 
 
 @router.patch("/{contract_id}/draft", response_model=ContractDraftResponse)
@@ -1411,7 +1404,10 @@ async def update_contract_equipment(
     for k, v in updates.items():
         setattr(item, k, v)
     # Guard: returned_date requires return_status=returned (mark as returned).
-    if item.returned_date is not None and item.return_status != EquipmentReturnStatus.returned:
+    if (
+        item.returned_date is not None
+        and item.return_status != EquipmentReturnStatus.returned
+    ):
         item.return_status = EquipmentReturnStatus.returned
     db.add(
         Activity(
@@ -1419,8 +1415,10 @@ async def update_contract_equipment(
             entity_id=contract_id,
             action="equipment_updated",
             user_id=current_user.id,
-            details={k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                     for k, v in updates.items()},
+            details={
+                k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                for k, v in updates.items()
+            },
         )
     )
     await db.flush()
@@ -1615,7 +1613,9 @@ async def contract_timeline(
 # ── Benchmark comparison (rate vs internal avg vs market) ────────────────────
 
 
-def _monthly_equivalent(rate: Optional[int], unit: RateUnit, hours: int) -> Optional[int]:
+def _monthly_equivalent(
+    rate: Optional[int], unit: RateUnit, hours: int
+) -> Optional[int]:
     if rate is None:
         return None
     if unit == RateUnit.monthly:
@@ -1627,14 +1627,18 @@ def _monthly_equivalent(rate: Optional[int], unit: RateUnit, hours: int) -> Opti
     return rate
 
 
-async def _resolve_role_for_contract(db: AsyncSession, contract: Contract) -> Optional[str]:
+async def _resolve_role_for_contract(
+    db: AsyncSession, contract: Contract
+) -> Optional[str]:
     """Best-effort role extraction: job.title → candidate.competence_category."""
     if contract.job_id:
         title = await db.scalar(select(Job.title).where(Job.id == contract.job_id))
         if title:
             return title
     cc = await db.scalar(
-        select(Candidate.competence_category).where(Candidate.id == contract.candidate_id)
+        select(Candidate.competence_category).where(
+            Candidate.id == contract.candidate_id
+        )
     )
     return cc
 
@@ -1718,7 +1722,9 @@ async def contract_benchmark(
     market_source_date = None
     if market_row is not None:
         market_min_monthly = _monthly_equivalent(
-            market_row.market_min, market_row.rate_unit, contract.billing_hours_per_month
+            market_row.market_min,
+            market_row.rate_unit,
+            contract.billing_hours_per_month,
         )
         market_median_monthly = _monthly_equivalent(
             market_row.market_median,
@@ -1726,7 +1732,9 @@ async def contract_benchmark(
             contract.billing_hours_per_month,
         )
         market_max_monthly = _monthly_equivalent(
-            market_row.market_max, market_row.rate_unit, contract.billing_hours_per_month
+            market_row.market_max,
+            market_row.rate_unit,
+            contract.billing_hours_per_month,
         )
         market_source = market_row.source
         market_source_date = market_row.source_date

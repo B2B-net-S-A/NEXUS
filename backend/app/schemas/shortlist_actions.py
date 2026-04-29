@@ -15,7 +15,9 @@ from pydantic import BaseModel, Field
 class CandidateShortlistEmailRequest(BaseModel):
     """Inputs for `POST /api/recommendations/send-candidate-shortlist-email`."""
 
-    candidate_id: int = Field(..., description="ID kandydata, do którego idzie shortlist")
+    candidate_id: int = Field(
+        ..., description="ID kandydata, do którego idzie shortlist"
+    )
     job_ids: List[int] = Field(..., description="Lista ID ofert do zaproponowania")
 
 

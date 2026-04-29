@@ -41,9 +41,7 @@ class CompetitionWinner(Base):
     __tablename__ = "competition_winners"
     __table_args__ = (
         CheckConstraint("rank IN (1, 2, 3)", name="ck_competition_rank"),
-        UniqueConstraint(
-            "competition_type", "period", "rank", name="uq_competition"
-        ),
+        UniqueConstraint("competition_type", "period", "rank", name="uq_competition"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

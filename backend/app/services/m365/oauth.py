@@ -121,7 +121,9 @@ def _authorize_endpoint() -> str:
 
 
 def _token_endpoint() -> str:
-    return f"https://login.microsoftonline.com/{_tenant_url_fragment()}/oauth2/v2.0/token"
+    return (
+        f"https://login.microsoftonline.com/{_tenant_url_fragment()}/oauth2/v2.0/token"
+    )
 
 
 # ── Authorize URL ────────────────────────────────────────────────────────────

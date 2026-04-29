@@ -36,18 +36,12 @@ class StageNotificationRuleBase(BaseModel):
                     "specific_user_id is required when recipient_type=specific_user"
                 )
             if self.role is not None:
-                raise ValueError(
-                    "role must be NULL when recipient_type=specific_user"
-                )
+                raise ValueError("role must be NULL when recipient_type=specific_user")
         elif self.recipient_type == RecipientType.role:
             if self.role is None:
-                raise ValueError(
-                    "role is required when recipient_type=role"
-                )
+                raise ValueError("role is required when recipient_type=role")
             if self.role not in _VALID_ROLE_VALUES:
-                raise ValueError(
-                    f"role must be one of {sorted(_VALID_ROLE_VALUES)}"
-                )
+                raise ValueError(f"role must be one of {sorted(_VALID_ROLE_VALUES)}")
             if self.specific_user_id is not None:
                 raise ValueError(
                     "specific_user_id must be NULL when recipient_type=role"
@@ -58,13 +52,9 @@ class StageNotificationRuleBase(BaseModel):
                     "specific_user_id is only allowed when recipient_type=specific_user"
                 )
             if self.role is not None:
-                raise ValueError(
-                    "role is only allowed when recipient_type=role"
-                )
+                raise ValueError("role is only allowed when recipient_type=role")
         if not (self.notify_inapp or self.notify_email):
-            raise ValueError(
-                "at least one of notify_inapp / notify_email must be TRUE"
-            )
+            raise ValueError("at least one of notify_inapp / notify_email must be TRUE")
         return self
 
 

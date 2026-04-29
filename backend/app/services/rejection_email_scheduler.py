@@ -300,7 +300,7 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
         else:
             # Back off exponentially (5min × 2^attempts).
             retry_row.scheduled_at = datetime.now(timezone.utc) + timedelta(
-                minutes=5 * (2 ** retry_row.attempts)
+                minutes=5 * (2**retry_row.attempts)
             )
         await db.flush()
         await db.commit()
@@ -399,9 +399,7 @@ async def _load_other_active_processes(
             .join(latest, latest.c.job_id == Job.id)
             .where(
                 latest.c.rn == 1,
-                ~latest.c.stage.in_(
-                    [s.value for s in ACTIVE_OTHER_STAGES_EXCLUDE]
-                ),
+                ~latest.c.stage.in_([s.value for s in ACTIVE_OTHER_STAGES_EXCLUDE]),
             )
         )
     ).all()
@@ -501,6 +499,7 @@ _IF_BLOCK_RE = re.compile(
 
 def _apply(template: str, ctx: dict[str, str], *, has_others: bool) -> str:
     """Apply the conditional block + simple placeholders."""
+
     def _block_sub(m: re.Match[str]) -> str:
         return m.group(1) if has_others else ""
 

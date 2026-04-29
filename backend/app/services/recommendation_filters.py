@@ -21,7 +21,7 @@ match should KEEP. Predicates compose via `_apply_all`.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Sequence
 

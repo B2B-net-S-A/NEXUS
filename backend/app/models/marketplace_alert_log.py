@@ -32,9 +32,7 @@ class MarketplaceAlertLog(Base):
 
     __tablename__ = "marketplace_alert_log"
     __table_args__ = (
-        UniqueConstraint(
-            "candidate_id", "job_id", name="uq_marketplace_alert_pair"
-        ),
+        UniqueConstraint("candidate_id", "job_id", name="uq_marketplace_alert_pair"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)

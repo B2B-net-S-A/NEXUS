@@ -41,7 +41,9 @@ class ClientProfileSummary(BaseModel):
     total_placements: int  # active + historical (ever placed)
     active_mrr: int  # sum monthly margin for active contracts (PLN)
     ltv: int  # lifetime revenue from this client (PLN, sum of monthly_rate_client * duration_months)
-    avg_time_to_fill_days: Optional[float] = None  # mean (Contract.start_date - Job.created_at) for placed jobs
+    avg_time_to_fill_days: Optional[float] = (
+        None  # mean (Contract.start_date - Job.created_at) for placed jobs
+    )
 
 
 class OpenJobItem(BaseModel):
@@ -64,7 +66,9 @@ class ActiveConsultantItem(BaseModel):
     job_title: Optional[str] = None
     start_date: date
     end_date: Optional[date] = None
-    days_to_end: Optional[int] = None  # null if no end_date; < 30 triggers amber UI, < 7 red
+    days_to_end: Optional[int] = (
+        None  # null if no end_date; < 30 triggers amber UI, < 7 red
+    )
     monthly_rate_client: Optional[int] = None
     monthly_margin: Optional[int] = None
     currency: str = "PLN"

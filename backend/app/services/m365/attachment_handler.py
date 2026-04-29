@@ -13,7 +13,6 @@ import asyncio
 import base64
 import hashlib
 import logging
-import os
 import re
 import uuid
 from pathlib import Path
@@ -31,7 +30,9 @@ from app.services.storage_service import _sanitize_filename
 logger = logging.getLogger(__name__)
 
 # Root directory for M365 attachment storage (docker volume `uploads_data`).
-STORAGE_ROOT = Path(settings.UPLOAD_DIR if hasattr(settings, "UPLOAD_DIR") else "/tmp/nexus/uploads")
+STORAGE_ROOT = Path(
+    settings.UPLOAD_DIR if hasattr(settings, "UPLOAD_DIR") else "/tmp/nexus/uploads"
+)
 M365_ROOT = STORAGE_ROOT / "microsoft365"
 
 _CV_FILENAME_RE = re.compile(r"\b(cv|resume|życiorys|zyciorys|lebenslauf)\b", re.I)
@@ -72,7 +73,7 @@ async def download_for_email(
                 "$select": "id,name,contentType,size,isInline,@odata.type,contentBytes"
             },
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.exception(
             "Failed to list attachments for email %s", email_row.m365_message_id
         )

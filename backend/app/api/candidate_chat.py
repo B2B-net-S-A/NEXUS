@@ -56,9 +56,7 @@ MAX_PAGE_LIMIT = 200
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _require_member(
-    db: AsyncSession, user: User, candidate_id: int
-) -> None:
+async def _require_member(db: AsyncSession, user: User, candidate_id: int) -> None:
     if not await is_member_of_candidate_chat(db, user, candidate_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -105,9 +103,7 @@ async def _serialize_many(
     parents_map: dict[int, CandidateChatMessage] = {}
     if parent_ids:
         rows = await db.execute(
-            select(CandidateChatMessage).where(
-                CandidateChatMessage.id.in_(parent_ids)
-            )
+            select(CandidateChatMessage).where(CandidateChatMessage.id.in_(parent_ids))
         )
         for p in rows.scalars().all():
             parents_map[p.id] = p
@@ -137,7 +133,9 @@ async def _serialize_many(
         reply_preview = None
         if parent is not None:
             reply_preview = (
-                DELETED_PLACEHOLDER if parent.is_deleted else _reply_preview(parent.content)
+                DELETED_PLACEHOLDER
+                if parent.is_deleted
+                else _reply_preview(parent.content)
             )
         out.append(
             CandidateChatMessageResponse(
@@ -154,9 +152,7 @@ async def _serialize_many(
                 pinned_at=m.pinned_at,
                 pinned_by=m.pinned_by,
                 mentions=mentions_map.get(m.id, []),
-                reactions=[
-                    ReactionAggregate(**r) for r in reactions_map.get(m.id, [])
-                ],
+                reactions=[ReactionAggregate(**r) for r in reactions_map.get(m.id, [])],
                 created_at=m.created_at,
                 updated_at=m.updated_at,
             )
@@ -446,7 +442,11 @@ async def pin_message(
         candidate_id,
         {
             "type": "candidate-chat:message:pin",
-            "data": {"candidate_id": candidate_id, "message_id": msg.id, "pinned": True},
+            "data": {
+                "candidate_id": candidate_id,
+                "message_id": msg.id,
+                "pinned": True,
+            },
         },
     )
     return CandidateChatPinResponse(message_id=msg.id, pinned=True)
@@ -498,21 +498,23 @@ async def list_pinned(
 ) -> list[CandidateChatMessageResponse]:
     await _require_member(db, current_user, candidate_id)
     rows = (
-        await db.execute(
-            select(CandidateChatMessage)
-            .where(CandidateChatMessage.candidate_id == candidate_id)
-            .where(CandidateChatMessage.pinned.is_(True))
-            .where(CandidateChatMessage.is_deleted.is_(False))
-            .order_by(CandidateChatMessage.pinned_at.asc())
-            .limit(MAX_PINNED_PER_CANDIDATE)
+        (
+            await db.execute(
+                select(CandidateChatMessage)
+                .where(CandidateChatMessage.candidate_id == candidate_id)
+                .where(CandidateChatMessage.pinned.is_(True))
+                .where(CandidateChatMessage.is_deleted.is_(False))
+                .order_by(CandidateChatMessage.pinned_at.asc())
+                .limit(MAX_PINNED_PER_CANDIDATE)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return await _serialize_many(db, list(rows))
 
 
-@router.put(
-    "/{candidate_id}/chat/read", response_model=CandidateChatUnreadCount
-)
+@router.put("/{candidate_id}/chat/read", response_model=CandidateChatUnreadCount)
 async def mark_read(
     candidate_id: int,
     current_user: CurrentUser,
@@ -589,9 +591,7 @@ async def unread_count(
     )
 
 
-@router.get(
-    "/{candidate_id}/chat/members", response_model=list[ChatUserMini]
-)
+@router.get("/{candidate_id}/chat/members", response_model=list[ChatUserMini])
 async def list_members(
     candidate_id: int,
     current_user: CurrentUser,
@@ -605,9 +605,7 @@ async def list_members(
 # ── Reactions (Feature 7) ────────────────────────────────────────────────────
 
 
-async def _reactions_for_msg(
-    db: AsyncSession, msg_id: int
-) -> list[ReactionAggregate]:
+async def _reactions_for_msg(db: AsyncSession, msg_id: int) -> list[ReactionAggregate]:
     aggs = await aggregate_candidate_reactions(db, [msg_id])
     raw = aggs.get(msg_id, [])
     return [ReactionAggregate(**r) for r in raw]

@@ -42,9 +42,7 @@ def _normalize(value: Any) -> Any:
     return value
 
 
-def diff_champion_profile(
-    old: dict | None, new: dict | None
-) -> list[str]:
+def diff_champion_profile(old: dict | None, new: dict | None) -> list[str]:
     """Return the top-level sections that differ between two profiles.
 
     Empty input dicts are treated as "no profile yet" (all of ``_SECTIONS``

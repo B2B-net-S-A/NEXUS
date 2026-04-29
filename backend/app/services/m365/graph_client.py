@@ -98,7 +98,7 @@ class GraphClient:
                     resp = await self._client.request(
                         method, url, params=params, json=json, headers=hdrs
                     )
-                except (httpx.ConnectError, httpx.ReadTimeout, httpx.ReadError) as exc:
+                except (httpx.ConnectError, httpx.ReadTimeout, httpx.ReadError):
                     network_tries += 1
                     if network_tries > _MAX_RETRIES_NETWORK:
                         raise
@@ -121,13 +121,14 @@ class GraphClient:
                             resp.status_code,
                             f"retry_after cap exceeded ({_MAX_RETRIES_THROTTLE}x)",
                         )
-                    retry_after = _parse_retry_after(
-                        resp.headers.get("Retry-After")
-                    )
+                    retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
                     sleep_s = min(retry_after, _RETRY_AFTER_CAP_SECONDS)
                     logger.warning(
                         "Graph throttled %s (try %d/%d) — sleeping %ds",
-                        resp.status_code, throttle_tries, _MAX_RETRIES_THROTTLE, sleep_s,
+                        resp.status_code,
+                        throttle_tries,
+                        _MAX_RETRIES_THROTTLE,
+                        sleep_s,
                     )
                     await asyncio.sleep(sleep_s)
                     continue
@@ -148,9 +149,7 @@ class GraphClient:
 
     async def _refresh_and_persist(self) -> None:
         """Refresh access token and persist rotated refresh token to DB."""
-        logger.info(
-            "Graph 401 — refreshing tokens for connection %s", self._conn.id
-        )
+        logger.info("Graph 401 — refreshing tokens for connection %s", self._conn.id)
         try:
             bundle = await m365_oauth.refresh_tokens(self._refresh_token)
         except m365_oauth.M365ReauthRequired:
@@ -171,9 +170,7 @@ class GraphClient:
         await self._db.commit()
 
     # ── Public surface ─────────────────────────────────────────────────────
-    async def get(
-        self, url: str, params: Optional[dict] = None
-    ) -> Any:
+    async def get(self, url: str, params: Optional[dict] = None) -> Any:
         return await self._request("GET", url, params=params)
 
     async def post(self, url: str, json: Optional[Any] = None) -> Any:

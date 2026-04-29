@@ -49,9 +49,7 @@ class LinkedInDailyMetric(Base):
     week_number: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     cv_added: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     messages_sent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    responses_received: Mapped[int] = mapped_column(
-        Integer, default=0, nullable=False
-    )
+    responses_received: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

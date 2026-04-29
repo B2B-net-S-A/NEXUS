@@ -100,9 +100,7 @@ class M365Connection(Base, TimestampMixin):
     delta_token_events: Mapped[Optional[str]] = mapped_column(Text)
 
     # Backfill high-water mark (oldest message date we've synced through).
-    synced_through: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
+    synced_through: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_sync_status: Mapped[M365SyncStatus] = mapped_column(
         Enum(M365SyncStatus, name="m365syncstatus"),
@@ -184,7 +182,9 @@ class Email(Base, TimestampMixin):
         default=EmailDirection.received,
         nullable=False,
     )
-    has_attachments: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    has_attachments: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # True when Outlook category `M365_IGNORE_CATEGORY` is present; body/attachments
     # are NOT fetched for these (privacy opt-out) but the stub exists so we don't

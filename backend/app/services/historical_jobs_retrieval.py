@@ -162,9 +162,7 @@ async def find_similar_historical_jobs(
         similarity = similarity_by_id.get(job.id, 0.0)
         job_train = getattr(job, "train_name", None)
         same_train = bool(
-            target_train
-            and job_train
-            and job_train.strip().lower() == target_train
+            target_train and job_train and job_train.strip().lower() == target_train
         )
         matches.append(
             HistoricalJobMatch(
@@ -322,9 +320,7 @@ def _qdrant_search(
         from qdrant_client import QdrantClient
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-        client = QdrantClient(
-            host=settings.QDRANT_HOST, port=settings.QDRANT_PORT
-        )
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         query_filter: Optional[Filter] = None
         if client_id is not None:
             query_filter = Filter(

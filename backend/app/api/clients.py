@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -52,7 +52,9 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
     return max(0, days // 30)
 
 
-def _contract_total_revenue(contract: Contract, boundary: Optional[date] = None) -> Optional[int]:
+def _contract_total_revenue(
+    contract: Contract, boundary: Optional[date] = None
+) -> Optional[int]:
     """Cumulative revenue from a contract up to a boundary date (exclusive).
 
     For active contracts the caller passes `boundary=date.today()` so LTV keeps
@@ -331,7 +333,11 @@ async def get_client_profile(
     for c in list(active_contracts) + list(ended_contracts):
         if c.job is None or c.start_date is None or c.job.created_at is None:
             continue
-        job_created = c.job.created_at.date() if hasattr(c.job.created_at, "date") else c.job.created_at
+        job_created = (
+            c.job.created_at.date()
+            if hasattr(c.job.created_at, "date")
+            else c.job.created_at
+        )
         delta = (c.start_date - job_created).days
         if delta >= 0:
             fill_days.append(delta)

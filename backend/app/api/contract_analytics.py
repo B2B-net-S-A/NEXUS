@@ -340,7 +340,9 @@ async def role_client_mix(
             client_id=r.client_id,
             client_name=r.client_name,
             active_count=int(r.cnt),
-            pct_of_total=round((r.cnt / total_active) * 100, 1) if total_active else 0.0,
+            pct_of_total=round((r.cnt / total_active) * 100, 1)
+            if total_active
+            else 0.0,
         )
         for r in raw
     ]
@@ -510,12 +512,14 @@ async def termination_analysis(
         )
         bucket["total"] += 1
         reason_val = (
-            contract.termination_reason.value
-            if contract.termination_reason
-            else None
+            contract.termination_reason.value if contract.termination_reason else None
         )
         is_early = False
-        if contract.terminated_at and contract.end_date and contract.terminated_at < contract.end_date:
+        if (
+            contract.terminated_at
+            and contract.end_date
+            and contract.terminated_at < contract.end_date
+        ):
             is_early = True
         elif reason_val in early_reasons:
             is_early = True
@@ -535,9 +539,7 @@ async def termination_analysis(
             if info["total"]
             else 0.0,
         )
-        for cid, info in sorted(
-            retention_map.items(), key=lambda kv: -kv[1]["total"]
-        )
+        for cid, info in sorted(retention_map.items(), key=lambda kv: -kv[1]["total"])
     ]
 
     return TerminationAnalysis(

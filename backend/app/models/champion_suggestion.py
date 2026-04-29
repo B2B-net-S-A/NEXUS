@@ -70,9 +70,7 @@ class ChampionProfileSuggestion(Base, TimestampMixin):
 
     # Delta-patch per section. Shape:
     #   { "<section>": { "value": <any>, "confidence": 0..1, "rationale": "..." } }
-    payload: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     status: Mapped[SuggestionStatus] = mapped_column(
         Enum(

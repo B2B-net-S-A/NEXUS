@@ -72,9 +72,7 @@ async def send_candidate_shortlist_email(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    cand = await db.scalar(
-        select(Candidate).where(Candidate.id == body.candidate_id)
-    )
+    cand = await db.scalar(select(Candidate).where(Candidate.id == body.candidate_id))
     if not cand:
         raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
     if not cand.email:
@@ -86,14 +84,10 @@ async def send_candidate_shortlist_email(
             ),
         )
     if not body.job_ids:
-        raise HTTPException(
-            status_code=400, detail="Lista ofert nie może być pusta."
-        )
+        raise HTTPException(status_code=400, detail="Lista ofert nie może być pusta.")
 
     jobs_res = await db.execute(
-        select(Job).where(
-            Job.id.in_(body.job_ids), Job.status == JobStatus.published
-        )
+        select(Job).where(Job.id.in_(body.job_ids), Job.status == JobStatus.published)
     )
     jobs = list(jobs_res.scalars().all())
     if not jobs:
@@ -161,14 +155,12 @@ def _build_client_proposal_email(
     skills = ", ".join(blind_summary.get("skills_summary") or []) or "—"
     languages = ", ".join(blind_summary.get("languages") or []) or "—"
     cc = (
-        blind_summary.get("competence_category")
-        or candidate.competence_category
-        or "—"
+        blind_summary.get("competence_category") or candidate.competence_category or "—"
     )
 
     plain = (
         "Cześć,\n\n"
-        f"Mamy konsultanta, który pasuje do otwartej u Was roli „{role}\".\n\n"
+        f'Mamy konsultanta, który pasuje do otwartej u Was roli „{role}".\n\n'
         "Profil (anonimowy):\n"
         f"• Doświadczenie: {yrs} lat\n"
         f"• Wykształcenie: {edu}\n"
@@ -182,7 +174,7 @@ def _build_client_proposal_email(
     html = (
         "<p>Cześć,</p>"
         f"<p>Mamy konsultanta, który pasuje do otwartej u Was roli "
-        f"<strong>„{role}\"</strong>.</p>"
+        f'<strong>„{role}"</strong>.</p>'
         "<p><strong>Profil (anonimowy):</strong></p>"
         "<ul>"
         f"<li>Doświadczenie: <strong>{yrs} lat</strong></li>"
@@ -195,7 +187,7 @@ def _build_client_proposal_email(
         "pełne CV.</p>"
         "<p>Pozdrawiam,<br>Zespół B2B.net</p>"
     )
-    subject = f"Propozycja kandydata na rolę „{role}\""
+    subject = f'Propozycja kandydata na rolę „{role}"'
     return {"subject": subject, "text_body": plain, "html_body": html}
 
 
@@ -207,9 +199,7 @@ async def prepare_client_proposal(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    cand = await db.scalar(
-        select(Candidate).where(Candidate.id == body.candidate_id)
-    )
+    cand = await db.scalar(select(Candidate).where(Candidate.id == body.candidate_id))
     if not cand:
         raise HTTPException(status_code=404, detail="Kandydat nie istnieje")
     job = await db.scalar(select(Job).where(Job.id == body.job_id))
@@ -218,9 +208,7 @@ async def prepare_client_proposal(
 
     skills = cand.skills or []
     skills_summary = [
-        s.get("name", "")
-        for s in skills
-        if isinstance(s, dict) and s.get("name")
+        s.get("name", "") for s in skills if isinstance(s, dict) and s.get("name")
     ]
     if not skills_summary and isinstance(skills, list):
         skills_summary = [str(s) for s in skills if isinstance(s, str)]
@@ -244,9 +232,7 @@ async def prepare_client_proposal(
     for lang in languages_list:
         if isinstance(lang, dict) and lang.get("lang"):
             level = lang.get("level")
-            languages.append(
-                f"{lang['lang']} — {level}" if level else lang["lang"]
-            )
+            languages.append(f"{lang['lang']} — {level}" if level else lang["lang"])
 
     blind = {
         "skills_summary": skills_summary,

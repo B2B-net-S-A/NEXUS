@@ -27,7 +27,6 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
-    UniqueConstraint,
     func,
     text,
 )

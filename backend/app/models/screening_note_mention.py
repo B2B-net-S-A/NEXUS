@@ -37,6 +37,5 @@ class ScreeningNoteMention(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<ScreeningNoteMention note={self.screening_note_id} "
-            f"user={self.user_id}>"
+            f"<ScreeningNoteMention note={self.screening_note_id} user={self.user_id}>"
         )

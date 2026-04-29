@@ -37,11 +37,11 @@ from app.models.base import TimestampMixin
 class RejectionEmailStatus(str, enum.Enum):
     """Lifecycle of a scheduled rejection email."""
 
-    pending = "pending"          # queued, awaiting scheduled_at
-    sent = "sent"                # successfully dispatched via Graph
-    cancelled = "cancelled"      # undo before dispatch
-    failed = "failed"            # final failure after retry attempts
-    skipped = "skipped"          # no M365 connection — nothing sent
+    pending = "pending"  # queued, awaiting scheduled_at
+    sent = "sent"  # successfully dispatched via Graph
+    cancelled = "cancelled"  # undo before dispatch
+    failed = "failed"  # final failure after retry attempts
+    skipped = "skipped"  # no M365 connection — nothing sent
 
 
 class ScheduledRejectionEmail(Base, TimestampMixin):

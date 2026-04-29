@@ -24,7 +24,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.candidate import Candidate
 from app.models.engagement_token import EngagementDeclarationToken
 
 

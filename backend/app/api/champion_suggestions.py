@@ -117,9 +117,7 @@ async def rate_suggestion_endpoint(
             detail="Rate only after apply/reject — suggestion is still pending.",
         )
     suggestion.rating = int(payload.rating)
-    suggestion.rating_comment = (
-        payload.comment.strip() if payload.comment else None
-    )
+    suggestion.rating_comment = payload.comment.strip() if payload.comment else None
     await db.commit()
     await db.refresh(suggestion)
     logger.info(

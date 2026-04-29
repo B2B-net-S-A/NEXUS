@@ -45,9 +45,7 @@ _CHAT_NOTIF_TYPES = {
 }
 
 
-async def _send_chat_email(
-    user: User, notif: Notification
-) -> bool:
+async def _send_chat_email(user: User, notif: Notification) -> bool:
     """Send email for one notification. Return True if SMTP confirmed.
 
     SMTP via `services.email.send_chat_fallback_email`. Feature-gated przez
@@ -55,9 +53,7 @@ async def _send_chat_email(
     w kolejnej iteracji (bez stempla email_sent_at).
     """
     if not user.email:
-        logger.debug(
-            "chat_email_fallback skip — user %s nie ma emaila", user.id
-        )
+        logger.debug("chat_email_fallback skip — user %s nie ma emaila", user.id)
         return False
     return send_chat_fallback_email(
         to_email=user.email,
@@ -101,9 +97,7 @@ async def _process_one_pass(db: AsyncSession) -> int:
                 notif.email_sent_at = now
                 sent += 1
         except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "chat_email_fallback failed for notif %d: %s", notif.id, e
-            )
+            logger.warning("chat_email_fallback failed for notif %d: %s", notif.id, e)
     if sent:
         await db.commit()
     return sent

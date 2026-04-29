@@ -1,31 +1,29 @@
 """Email thread endpoints used by the candidate-detail UI.
 
-    GET  /api/candidates/{id}/emails          → list conversations (grouped)
-    GET  /api/emails/{id}                     → full email w/ attachments
-    GET  /api/emails/{id}/attachments/{aid}/download → binary
-    POST /api/candidates/{id}/emails/compose  → new email in candidate context
-    POST /api/candidates/{id}/emails/reply    → reply to an existing email
+GET  /api/candidates/{id}/emails          → list conversations (grouped)
+GET  /api/emails/{id}                     → full email w/ attachments
+GET  /api/emails/{id}/attachments/{aid}/download → binary
+POST /api/candidates/{id}/emails/compose  → new email in candidate context
+POST /api/candidates/{id}/emails/reply    → reply to an existing email
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DeliveryLeadPlus
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.m365 import (
     Email,
     EmailAttachment,
-    EmailDirection,
     EmailMatchMethod,
     M365Connection,
 )
@@ -98,9 +96,7 @@ class ReplyRequest(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-async def _require_active_connection(
-    db: AsyncSession, user_id: int
-) -> M365Connection:
+async def _require_active_connection(db: AsyncSession, user_id: int) -> M365Connection:
     conn = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == user_id)
     )
@@ -217,9 +213,7 @@ async def get_email(
     atts_result = await db.scalars(
         select(EmailAttachment).where(EmailAttachment.email_id == email_id)
     )
-    attachments = [
-        AttachmentOut.model_validate(a) for a in atts_result.all()
-    ]
+    attachments = [AttachmentOut.model_validate(a) for a in atts_result.all()]
     out = _to_email_out(email)
     out.attachments = attachments
     return out
@@ -249,9 +243,7 @@ async def download_attachment(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid path")
     if not abs_path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file missing on disk")
-    return FileResponse(
-        abs_path, media_type=att.content_type, filename=att.filename
-    )
+    return FileResponse(abs_path, media_type=att.content_type, filename=att.filename)
 
 
 @router.post("/candidates/{candidate_id}/emails/compose", response_model=EmailOut)
@@ -290,7 +282,8 @@ async def reply_email(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     if original.candidate_id not in (None, candidate_id):
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "original email belongs to a different candidate"
+            status.HTTP_400_BAD_REQUEST,
+            "original email belongs to a different candidate",
         )
     row = await m365_sender.reply(
         db, conn, email_row=original, body_html=payload.body_html

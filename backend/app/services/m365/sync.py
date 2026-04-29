@@ -30,7 +30,6 @@ from app.core.database import AsyncSessionLocal
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.m365 import (
     Email,
-    EmailAttachment,
     EmailDirection,
     EmailMatchMethod,
     M365Connection,
@@ -83,6 +82,7 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
     await db.commit()
 
     try:
+
         async def _run() -> None:
             async with GraphClient(conn, db) as gc:
                 await _sync_messages(db, gc, conn, result)
@@ -147,9 +147,7 @@ async def _sync_messages(
         except GraphRequestError as exc:
             if exc.status == 410:
                 # Delta token invalidated — reset, do a 30d fallback on next run.
-                logger.warning(
-                    "Delta 410 for %s/%s — resetting token", conn.id, folder
-                )
+                logger.warning("Delta 410 for %s/%s — resetting token", conn.id, folder)
                 conn.delta_token_messages = None
                 await db.commit()
             else:
@@ -226,9 +224,7 @@ async def _upsert_message(
         return None
 
     # Check existing row first.
-    existing = await db.scalar(
-        select(Email).where(Email.m365_message_id == m365_id)
-    )
+    existing = await db.scalar(select(Email).where(Email.m365_message_id == m365_id))
 
     # Graph's "@removed" shape marks deletions in delta results.
     if msg.get("@removed"):
@@ -261,7 +257,9 @@ async def _upsert_message(
     else:
         body = msg.get("body") or {}
         raw_html = body.get("content") or ""
-        body_html = sanitize_html(raw_html) if body.get("contentType") == "html" else None
+        body_html = (
+            sanitize_html(raw_html) if body.get("contentType") == "html" else None
+        )
         body_text = html_to_text(raw_html) if not body_html else html_to_text(body_html)
         if body.get("contentType") == "text" and not body_html:
             body_text = raw_html
@@ -350,7 +348,7 @@ async def _upsert_message(
             for att in atts:
                 if att.is_cv_candidate and row.candidate_id is not None:
                     await attachment_handler.try_parse_cv(db, att, row)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             logger.exception("attachment handling failed for email %s", row.id)
 
     return row
@@ -432,9 +430,7 @@ async def _sync_events(
         await db.commit()
 
 
-async def _upsert_event(
-    db: AsyncSession, conn: M365Connection, ev: dict
-) -> bool:
+async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> bool:
     graph_id = ev.get("id")
     if not graph_id:
         return False
@@ -461,7 +457,7 @@ async def _upsert_event(
         return False
 
     subject = (ev.get("subject") or "Spotkanie")[:255]
-    location_name = ((ev.get("location") or {}).get("displayName") or None)
+    location_name = (ev.get("location") or {}).get("displayName") or None
     description = (ev.get("body") or {}).get("content")
 
     attendees_raw = ev.get("attendees") or []

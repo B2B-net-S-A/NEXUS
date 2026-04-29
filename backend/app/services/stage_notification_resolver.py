@@ -27,7 +27,6 @@ from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -90,9 +89,7 @@ def _snapshot_override(rule: ClientStageNotificationOverride) -> _RuleSnapshot:
     )
 
 
-async def _baseline_rules(
-    db: AsyncSession, stage_def_id: int
-) -> list[_RuleSnapshot]:
+async def _baseline_rules(db: AsyncSession, stage_def_id: int) -> list[_RuleSnapshot]:
     rows = await db.execute(
         select(StageNotificationRule).where(
             StageNotificationRule.stage_def_id == stage_def_id,
@@ -194,9 +191,7 @@ async def _resolve_user_ids_for_rule(
 
     if rt == RecipientType.role:
         if rule.role is None:
-            logger.warning(
-                "stage_notif: role-based rule has NULL role — skipping"
-            )
+            logger.warning("stage_notif: role-based rule has NULL role — skipping")
             return []
         try:
             role_enum = UserRole(rule.role)
@@ -206,9 +201,7 @@ async def _resolve_user_ids_for_rule(
             )
             return []
         rows = await db.execute(
-            select(User.id).where(
-                User.role == role_enum, User.is_active.is_(True)
-            )
+            select(User.id).where(User.role == role_enum, User.is_active.is_(True))
         )
         return list(rows.scalars().all())
 
@@ -225,16 +218,12 @@ async def _resolve_user_ids_for_rule(
     return []
 
 
-async def _filter_active_users(
-    db: AsyncSession, user_ids: set[int]
-) -> set[int]:
+async def _filter_active_users(db: AsyncSession, user_ids: set[int]) -> set[int]:
     """Zwraca podzbiór ID-ków, dla których ``users.is_active = TRUE``."""
     if not user_ids:
         return set()
     rows = await db.execute(
-        select(User.id).where(
-            User.id.in_(user_ids), User.is_active.is_(True)
-        )
+        select(User.id).where(User.id.in_(user_ids), User.is_active.is_(True))
     )
     return set(rows.scalars().all())
 

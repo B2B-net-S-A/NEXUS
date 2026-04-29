@@ -323,7 +323,11 @@ async def run_contract_alerts_cycle() -> dict:
             already = await _equipment_already_notified(db)
             fresh = [item for item in due if item.id not in already]
             for item in fresh:
-                days_left = (item.return_due_date - date.today()).days if item.return_due_date else None
+                days_left = (
+                    (item.return_due_date - date.today()).days
+                    if item.return_due_date
+                    else None
+                )
                 title = f"[eq_ret] Sprzęt do zwrotu — item #{item.id}"
                 message = (
                     f"Sprzęt {item.item_type.value} "
@@ -362,7 +366,9 @@ async def run_contract_alerts_cycle() -> dict:
                     if c.client_order_end_date
                     else None
                 )
-                title = f"[client_order] Kontrakt #{c.id} — zamówienie klienta kończy się"
+                title = (
+                    f"[client_order] Kontrakt #{c.id} — zamówienie klienta kończy się"
+                )
                 message = (
                     f"Zamówienie klienta dla kontraktu #{c.id} wygasa "
                     f"{c.client_order_end_date} ({days_left} dni). "

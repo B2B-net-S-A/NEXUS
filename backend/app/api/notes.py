@@ -23,9 +23,7 @@ from app.services.mention_parser import parse_mentions, parse_mentions_global
 router = APIRouter()
 
 
-async def _resolve_mentions(
-    db: AsyncSession, content: str, note: Note
-) -> list[int]:
+async def _resolve_mentions(db: AsyncSession, content: str, note: Note) -> list[int]:
     """Wybiera scope w zależności od note.job_id (najwęższy → najszerszy).
 
     job_id present → tylko members projektu (parse_mentions).
@@ -267,7 +265,9 @@ async def link_note_to_job(
 
     # Enrichment uses the full note.content — which already contains the
     # summary and transcript as formatted by fireflies_sync.py.
-    title_line = note.content.split("\n", 1)[0].lstrip("# ").strip() if note.content else ""
+    title_line = (
+        note.content.split("\n", 1)[0].lstrip("# ").strip() if note.content else ""
+    )
     suggestion = await enrich_from_meeting(
         db,
         job_id=body.job_id,

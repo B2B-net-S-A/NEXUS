@@ -110,7 +110,9 @@ class JobChatMessage(Base, TimestampMixin):
     author = relationship("User", foreign_keys=[author_id])
     pinner = relationship("User", foreign_keys=[pinned_by])
     reply_to = relationship(
-        "JobChatMessage", remote_side="JobChatMessage.id", foreign_keys=[reply_to_message_id]
+        "JobChatMessage",
+        remote_side="JobChatMessage.id",
+        foreign_keys=[reply_to_message_id],
     )
     mentions = relationship(
         "JobChatMention", back_populates="message", cascade="all, delete-orphan"
@@ -133,9 +135,7 @@ class JobChatMention(Base):
 
     __tablename__ = "job_chat_mentions"
     __table_args__ = (
-        UniqueConstraint(
-            "message_id", "user_id", name="uq_job_chat_mentions_msg_user"
-        ),
+        UniqueConstraint("message_id", "user_id", name="uq_job_chat_mentions_msg_user"),
         Index("ix_job_chat_mentions_user", "user_id"),
     )
 
@@ -164,9 +164,7 @@ class JobChatReadState(Base):
 
     __tablename__ = "job_chat_read_state"
     __table_args__ = (
-        UniqueConstraint(
-            "job_id", "user_id", name="uq_job_chat_read_state_job_user"
-        ),
+        UniqueConstraint("job_id", "user_id", name="uq_job_chat_read_state_job_user"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

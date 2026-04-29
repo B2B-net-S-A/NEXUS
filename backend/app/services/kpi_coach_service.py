@@ -25,8 +25,8 @@ Dedup (hard): UniqueConstraint `uq_kpi_nudge_log_dedup` na
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timedelta, timezone
-from typing import Iterable, Optional
+from datetime import datetime, time, timezone
+from typing import Optional
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
@@ -228,9 +228,9 @@ async def _try_emit(
     forced_variant: Optional[int] = None,
 ) -> Optional[bool]:
     """Próba emisji nudge'a dla konkretnego KPI. Zwraca:
-      True  — emitowano (log + notification + WS),
-      False — zdedupowane (constraint),
-      None  — pominięto przez inny guard (np. exception).
+    True  — emitowano (log + notification + WS),
+    False — zdedupowane (constraint),
+    None  — pominięto przez inny guard (np. exception).
     """
     bucket = period_bucket_label(kpi_result.period, now)
     message = render(
@@ -320,9 +320,7 @@ async def _try_emit(
             },
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "kpi_coach WS push failed for user=%s: %s", user.id, exc
-        )
+        logger.warning("kpi_coach WS push failed for user=%s: %s", user.id, exc)
     return True
 
 

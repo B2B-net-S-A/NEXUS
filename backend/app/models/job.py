@@ -207,7 +207,9 @@ class Job(Base, TimestampMixin):
         "CompetenceCategory", foreign_keys=[competence_category_id]
     )
     secondary_cc_links = relationship(
-        "JobSecondaryCc", foreign_keys="JobSecondaryCc.job_id", cascade="all, delete-orphan"
+        "JobSecondaryCc",
+        foreign_keys="JobSecondaryCc.job_id",
+        cascade="all, delete-orphan",
     )
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     delivery_lead = relationship("User", foreign_keys=[delivery_lead_id])

@@ -74,8 +74,8 @@ _EMAIL_RE = re.compile(
 # separators (space, dash, dot, non-breaking space). Captures the raw match —
 # callers may normalize to "+48 XXX XXX XXX" if needed.
 _PHONE_PL_RE = re.compile(
-    r"(?:(?:\+|00)\s*48[\s.\-]*)?"        # optional country code
-    r"(?:\d[\s.\-]*){9}",                  # exactly 9 digits with separators
+    r"(?:(?:\+|00)\s*48[\s.\-]*)?"  # optional country code
+    r"(?:\d[\s.\-]*){9}",  # exactly 9 digits with separators
 )
 
 # Honorific/role tokens that should NOT appear in a detected first/last name.
@@ -148,8 +148,9 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
         if not 2 <= len(tokens) <= 4:
             continue
         # Each token must start with an uppercase letter; accept PL diacritics.
-        if not all(re.match(r"^[A-ZŁŚŻŹĆŃÓĄĘ][\wŁłŚśŻżŹźĆćŃńÓóĄąĘę\-']+$", t)
-                   for t in tokens):
+        if not all(
+            re.match(r"^[A-ZŁŚŻŹĆŃÓĄĘ][\wŁłŚśŻżŹźĆćŃńÓóĄąĘę\-']+$", t) for t in tokens
+        ):
             continue
         first = tokens[0]
         last = " ".join(tokens[1:])
@@ -157,9 +158,7 @@ def _split_name_from_header(cv_text: str) -> tuple[Optional[str], Optional[str]]
     return None, None
 
 
-def _apply_contact_fallbacks(
-    parsed: dict[str, Any], cv_text: str
-) -> dict[str, Any]:
+def _apply_contact_fallbacks(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:
     """Fill missing contact fields via regex; preserves LLM values.
 
     Regex only writes into keys that are currently `None` or missing.
@@ -367,9 +366,7 @@ async def parse_cv(cv_text: str, *, prefer_llm: bool = True) -> dict[str, Any]:
     return _regex_fallback(cv_text)
 
 
-def _with_linkedin_fallback(
-    parsed: dict[str, Any], cv_text: str
-) -> dict[str, Any]:
+def _with_linkedin_fallback(parsed: dict[str, Any], cv_text: str) -> dict[str, Any]:
     """Backstop: if the LLM missed `linkedin_url`, try the regex on raw text.
 
     Mutates a shallow copy so callers that re-use the dict don't see the

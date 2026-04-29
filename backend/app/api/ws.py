@@ -346,9 +346,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
 _ALLOWED_RESOURCE_TYPES = {"candidate", "job"}
 
 
-async def _handle_presence_message(
-    user: User, websocket: WebSocket, msg: dict
-) -> None:
+async def _handle_presence_message(user: User, websocket: WebSocket, msg: dict) -> None:
     msg_type = msg.get("type")
     rt = msg.get("resource_type")
     rid = msg.get("resource_id")

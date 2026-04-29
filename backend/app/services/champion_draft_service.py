@@ -72,9 +72,7 @@ from app.services.llm_prompts import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-opus-4-5")
-MAX_TRANSCRIPT_CHARS = int(
-    os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000")
-)
+MAX_TRANSCRIPT_CHARS = int(os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000"))
 
 
 # ── LLM plumbing ────────────────────────────────────────────────────────────
@@ -438,9 +436,7 @@ def _compact_historical_profiles(
                 "title": match.title,
                 "client_name": match.client_name,
                 "similarity": match.similarity,
-                "closed_at": (
-                    match.closed_at.isoformat() if match.closed_at else None
-                ),
+                "closed_at": (match.closed_at.isoformat() if match.closed_at else None),
                 "seniority": match.seniority,
                 "project_context": {
                     "about": _cap(project_context.get("about")),
@@ -545,8 +541,7 @@ async def generate_from_historical_jobs(
         try:
             raw = await _call_claude_json(
                 prompt=prompt,
-                system_prompt=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.system_prompt
-                or "",
+                system_prompt=CHAMPION_PROFILE_FROM_HISTORICAL_JOBS.system_prompt or "",
             )
             payload = {}
             for section in VALID_SECTIONS:
@@ -602,7 +597,9 @@ async def generate_from_historical_jobs(
 # ── Merge logic for apply ───────────────────────────────────────────────────
 
 
-def _merge_sourcing(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
+def _merge_sourcing(
+    current: dict[str, Any], proposed: dict[str, Any]
+) -> dict[str, Any]:
     """For sourcing: per-field merge. Lists unioned, strings replaced if non-empty."""
     merged = dict(current or {})
     proposed_sources = proposed.get("sources") or []
@@ -644,9 +641,7 @@ def _merge_screening_questions(
     return out
 
 
-def _merge_section(
-    section: str, current: Any, proposed: Any
-) -> Any:
+def _merge_section(section: str, current: Any, proposed: Any) -> Any:
     """Apply the section-specific merge rule. Raw dicts, no Pydantic objects."""
     if section == "basics":
         return _merge_basics(current or {}, proposed or {})

@@ -46,6 +46,7 @@ def _screening_snippet(data: "ScreeningNoteCreate") -> str:
     raw = data.red_flags or data.personality_notes or data.closing_strategy or ""
     return trim_snippet(raw)
 
+
 router = APIRouter()
 
 
@@ -177,9 +178,7 @@ async def create_screening_note(
     snippet = _screening_snippet(data)
     deep_link = build_screening_note_deep_link(data.candidate_id, note.id)
     context_label = "notatce ze screeningu"
-    notification_title = (
-        f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce ze screeningu"
-    )
+    notification_title = f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce ze screeningu"
 
     pairs = await enqueue_mention_notifications(
         db,

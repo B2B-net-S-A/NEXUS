@@ -200,6 +200,7 @@ async def create_feedback(
     except Exception:  # noqa: BLE001
         # Auto-akcje są best-effort — log i jedziemy dalej z zapisem feedbacku.
         import logging
+
         logging.getLogger(__name__).exception(
             "apply_post_feedback_actions failed for feedback id=%s", fb.id
         )
@@ -274,6 +275,7 @@ async def update_feedback(
         await apply_post_feedback_actions(db, fb)
     except Exception:  # noqa: BLE001
         import logging
+
         logging.getLogger(__name__).exception(
             "apply_post_feedback_actions failed for feedback id=%s", fb.id
         )

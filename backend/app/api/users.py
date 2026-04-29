@@ -97,9 +97,7 @@ async def list_mentionable_users(
             "candidate chat. Job_id ma pierwszeństwo gdy oba są podane."
         ),
     ),
-    q: Optional[str] = Query(
-        None, description="Case-insensitive match on name/email."
-    ),
+    q: Optional[str] = Query(None, description="Case-insensitive match on name/email."),
 ):
     """Lista userów dostępnych do @mention.
 

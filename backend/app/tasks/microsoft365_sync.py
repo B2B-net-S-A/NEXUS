@@ -88,10 +88,10 @@ async def _tick(interval: int) -> None:
         connections = list(result.scalars().all())
         # Skip connections whose last_error looks fatal — user must reconnect.
         connections = [
-            c for c in connections
+            c
+            for c in connections
             if not (
-                c.last_error
-                and any(m in c.last_error for m in _FATAL_ERROR_MARKERS)
+                c.last_error and any(m in c.last_error for m in _FATAL_ERROR_MARKERS)
             )
         ]
 

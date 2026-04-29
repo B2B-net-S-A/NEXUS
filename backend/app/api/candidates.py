@@ -7,10 +7,20 @@ import zipfile
 import aiofiles
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import Text, and_, false, func, not_, or_, select, text
+from sqlalchemy import and_, false, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -266,7 +276,7 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     if active_contracts:
         chosen = max(
             active_contracts,
-            key=lambda c: (c.end_date or date.max),
+            key=lambda c: c.end_date or date.max,
         )
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
@@ -639,9 +649,7 @@ async def list_candidates(
     # Phase: LinkedIn sync — filter by detected employer change window.
     # Uses ix_candidates_linkedin_employment_changed_at for fast planner path.
     if recently_changed_jobs in (1, 2, 3):
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            days=30 * recently_changed_jobs
-        )
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30 * recently_changed_jobs)
         query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
@@ -732,7 +740,11 @@ class CompanySuggestion(BaseModel):
 async def suggest_companies(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    q: str = Query("", max_length=100, description="Substring to match (ILIKE). Empty = top-N overall."),
+    q: str = Query(
+        "",
+        max_length=100,
+        description="Substring to match (ILIKE). Empty = top-N overall.",
+    ),
     limit: int = Query(20, ge=1, le=50),
 ):
     """Return top-N companies aggregated from all candidates' `experience[].company`.
@@ -1289,9 +1301,7 @@ async def get_candidate_history(
     try:
         s = await _risk_summary(db, candidate_id)
         risk_summary = {
-            "level": s["level"].value
-            if hasattr(s["level"], "value")
-            else s["level"],
+            "level": s["level"].value if hasattr(s["level"], "value") else s["level"],
             "score": s["score"],
             "breakdown": {
                 "early": s["early_count"],
@@ -1340,9 +1350,7 @@ async def get_candidate_risk(
             "interview": s["interview_count"],
             "post_accept": s["post_accept_count"],
         },
-        "last_updated_at": s["computed_at"].isoformat()
-        if s["computed_at"]
-        else None,
+        "last_updated_at": s["computed_at"].isoformat() if s["computed_at"] else None,
         "recent_events": s["recent_events"],
         "profile_exists": True,
     }
@@ -1516,9 +1524,7 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
         typed values always win.
     """
     existing_extracted = dict(candidate.cv_extracted_data or {})
-    manual_override = bool(
-        existing_extracted.get("_manual_override_experience", False)
-    )
+    manual_override = bool(existing_extracted.get("_manual_override_experience", False))
 
     if parsed.get("years_it_experience") is not None:
         candidate.years_it_experience = parsed["years_it_experience"]
@@ -1554,8 +1560,7 @@ def _apply_cv_enrichment(candidate: Candidate, parsed: dict) -> int:
 
     companies = parsed.get("companies") or []
     has_rich_experience = bool(candidate.experience) and any(
-        isinstance(e, dict) and e.get("role")
-        for e in (candidate.experience or [])
+        isinstance(e, dict) and e.get("role") for e in (candidate.experience or [])
     )
     written = 0
     if companies and not manual_override and not has_rich_experience:
@@ -1605,9 +1610,7 @@ async def _auto_assign_primary_cc(candidate: Candidate, db: AsyncSession) -> Non
             top.score,
         )
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning(
-            "[cv_cc] classify failed candidate=%s: %s", candidate.id, e
-        )
+        logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, e)
 
 
 async def _enrich_candidate_cv_task(candidate_id: int) -> None:
@@ -1653,9 +1656,7 @@ async def _enrich_candidate_cv_task(candidate_id: int) -> None:
                 written,
             )
         except Exception as e:  # pragma: no cover — defensive
-            logger.warning(
-                f"[cv_enrich] failed for candidate {candidate_id}: {e}"
-            )
+            logger.warning(f"[cv_enrich] failed for candidate {candidate_id}: {e}")
             await db.rollback()
 
 
@@ -1805,16 +1806,18 @@ async def create_candidate_from_cv(
         },
     )
     db.add(activity)
-    db.add(UserActivity(
-        user_id=current_user.id,
-        action_type=UserActionType.candidate_added,
-        entity_type="candidate",
-        entity_id=candidate.id,
-        details={
-            "filename": file.filename,
-            "source": "from_cv",
-        },
-    ))
+    db.add(
+        UserActivity(
+            user_id=current_user.id,
+            action_type=UserActionType.candidate_added,
+            entity_type="candidate",
+            entity_id=candidate.id,
+            details={
+                "filename": file.filename,
+                "source": "from_cv",
+            },
+        )
+    )
     await db.flush()
 
     # 5 — best-effort enrichment: embedding + CC classification.
@@ -1995,9 +1998,7 @@ async def bulk_cv_download(
     """
     requested_ids = list(dict.fromkeys(payload.candidate_ids))
 
-    result = await db.execute(
-        select(Candidate).where(Candidate.id.in_(requested_ids))
-    )
+    result = await db.execute(select(Candidate).where(Candidate.id.in_(requested_ids)))
     candidates_by_id = {c.id: c for c in result.scalars().all()}
 
     manifest_rows: list[str] = ["id\tfirst\tlast\tcv_filename\tstatus"]
@@ -2203,9 +2204,7 @@ async def create_engagement_declaration_link(
     from app.models.engagement_token import EngagementDeclarationToken
     from datetime import timedelta as _timedelta
 
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
@@ -2223,7 +2222,11 @@ async def create_engagement_declaration_link(
     db.add(row)
     await db.commit()
 
-    base = settings.PUBLIC_APP_URL.rstrip("/") if hasattr(settings, "PUBLIC_APP_URL") and settings.PUBLIC_APP_URL else "https://nexus.dynaminds.pl"
+    base = (
+        settings.PUBLIC_APP_URL.rstrip("/")
+        if hasattr(settings, "PUBLIC_APP_URL") and settings.PUBLIC_APP_URL
+        else "https://nexus.dynaminds.pl"
+    )
     return {
         "token": token_str,
         "url": f"{base}/engagement/{token_str}",
@@ -2307,9 +2310,7 @@ async def get_suggested_pools(
     """Return talent pools ranked by centroid similarity to this candidate."""
     from app.services.pool_suggester import suggest_pools_for_candidate
 
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
@@ -2354,7 +2355,9 @@ async def list_candidate_ccs(
             name_pl=cc.name_pl,
             is_primary=ccc.is_primary,
             confidence_score=ccc.confidence_score,
-            source=ccc.source.value if hasattr(ccc.source, "value") else str(ccc.source),
+            source=ccc.source.value
+            if hasattr(ccc.source, "value")
+            else str(ccc.source),
         )
         for ccc, cc in rows
     ]
@@ -2492,9 +2495,7 @@ async def sync_candidate_linkedin_now(
             detail="LinkedIn sync is not configured (PROXYCURL_API_KEY missing)",
         )
 
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == candidate_id)
-    )
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 

@@ -20,7 +20,9 @@ class RiskBreakdown(BaseModel):
 
     early: int = Field(0, ge=0, description="Wycofania przed jakimkolwiek interview")
     interview: int = Field(
-        0, ge=0, description="Wycofania po wejściu w interview / cv_sent / client_interview"
+        0,
+        ge=0,
+        description="Wycofania po wejściu w interview / cv_sent / client_interview",
     )
     post_accept: int = Field(
         0, ge=0, description="Wycofania po akcepcie oferty przez kandydata"

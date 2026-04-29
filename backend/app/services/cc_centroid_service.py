@@ -22,7 +22,6 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.candidate import Candidate
 from app.models.competence_category import (
     CandidateCompetenceCategory,
     CompetenceCategory,
@@ -42,9 +41,7 @@ def _ensure_centroid_collections() -> None:
         from qdrant_client import QdrantClient
         from qdrant_client.models import Distance, VectorParams
 
-        client = QdrantClient(
-            host=settings.QDRANT_HOST, port=settings.QDRANT_PORT
-        )
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         existing = {c.name for c in client.get_collections().collections}
         for coll in (CC_CENTROIDS_COLLECTION, POOL_CENTROIDS_COLLECTION):
             if coll not in existing:
@@ -65,9 +62,7 @@ def _retrieve_vectors_sync(collection: str, ids: list[int]) -> list[list[float]]
         from qdrant_client import QdrantClient
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        points = client.retrieve(
-            collection_name=collection, ids=ids, with_vectors=True
-        )
+        points = client.retrieve(collection_name=collection, ids=ids, with_vectors=True)
     except Exception as e:
         logger.warning("[Centroid] retrieve failed (%s): %s", collection, e)
         return []
@@ -143,7 +138,9 @@ async def compute_cc_centroid(db: AsyncSession, cc_id: int) -> bool:
         vector = await _bootstrap_cc_from_keywords(cc)
 
     if vector is None:
-        logger.warning("[Centroid] CC %s: no vector to upsert (bootstrap failed)", cc.slug)
+        logger.warning(
+            "[Centroid] CC %s: no vector to upsert (bootstrap failed)", cc.slug
+        )
         return False
 
     await asyncio.to_thread(
@@ -181,8 +178,11 @@ async def compute_pool_centroid(db: AsyncSession, pool_id: int) -> bool:
     )
     vector = _mean_vector(vectors)
     if vector is None:
-        logger.warning("[Centroid] pool %s: no embeddings among %d members",
-                       pool_id, len(candidate_ids))
+        logger.warning(
+            "[Centroid] pool %s: no embeddings among %d members",
+            pool_id,
+            len(candidate_ids),
+        )
         return False
 
     await asyncio.to_thread(
@@ -191,7 +191,9 @@ async def compute_pool_centroid(db: AsyncSession, pool_id: int) -> bool:
     pool.centroid_vector_id = str(pool_id)
     pool.centroid_updated_at = datetime.now(timezone.utc)
     await db.commit()
-    logger.info("[Centroid] pool %s upserted (%d members).", pool_id, len(candidate_ids))
+    logger.info(
+        "[Centroid] pool %s upserted (%d members).", pool_id, len(candidate_ids)
+    )
     return True
 
 
@@ -213,12 +215,7 @@ async def refresh_stale_centroids(db: AsyncSession, stale_days: int = 7) -> dict
     stats = {"cc_refreshed": 0, "pools_refreshed": 0}
 
     # Refresh every CC (5 seed CCs, cheap)
-    cc_ids = [
-        row[0]
-        for row in (
-            await db.execute(select(CompetenceCategory.id))
-        ).all()
-    ]
+    cc_ids = [row[0] for row in (await db.execute(select(CompetenceCategory.id))).all()]
     for cc_id in cc_ids:
         ok = await compute_cc_centroid(db, cc_id)
         if ok:

@@ -36,9 +36,7 @@ _MENTIONABLE_ROLES: frozenset[UserRole] = frozenset(
 )
 
 
-async def _extract_candidate_user_ids(
-    db: AsyncSession, content: str
-) -> set[int]:
+async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int]:
     """Resolves emails+user_ids z treści do zbioru user_id.
 
     NIE filtruje po scope ani aktywności — to zadanie callera.
@@ -53,9 +51,7 @@ async def _extract_candidate_user_ids(
 
     if raw_emails:
         rows = await db.execute(
-            select(User.id).where(
-                User.email.in_([e.lower() for e in raw_emails])
-            )
+            select(User.id).where(User.email.in_([e.lower() for e in raw_emails]))
         )
         for (uid,) in rows.all():
             candidate_ids.add(uid)
@@ -69,9 +65,7 @@ async def _extract_candidate_user_ids(
     return candidate_ids
 
 
-async def parse_mentions(
-    db: AsyncSession, content: str, job_id: int
-) -> list[int]:
+async def parse_mentions(db: AsyncSession, content: str, job_id: int) -> list[int]:
     """Mentions w job-scoped contentcie. Filtruje do members projektu.
 
     Backward-compatible signature — używana w job_chat.py i (po refactor)
@@ -97,9 +91,7 @@ async def parse_mentions_candidate(
     return sorted(set(members))
 
 
-async def parse_mentions_global(
-    db: AsyncSession, content: str
-) -> list[int]:
+async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
     """Mentions bez scope projektu/kandydata — np. notatka candidate-only
     przy kandydacie bez przypisanego jobu. Filtruje do aktywnych userów
     z rolą inną niż `user`.

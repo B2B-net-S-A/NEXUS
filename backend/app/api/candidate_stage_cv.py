@@ -82,15 +82,11 @@ def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotRespons
     )
 
 
-async def _load_csv_for_stage(
-    db: AsyncSession, stage_id: int
-) -> CandidateStageCV:
+async def _load_csv_for_stage(db: AsyncSession, stage_id: int) -> CandidateStageCV:
     """Wczytaj CandidateStageCV dla stage_id, 404 gdy brak. Sprawdza tez czy
     sam stage istnieje — żeby rozróżnić "stage nie istnieje" od "stage bez CV"."""
     csv = await db.scalar(
-        select(CandidateStageCV).where(
-            CandidateStageCV.candidate_stage_id == stage_id
-        )
+        select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == stage_id)
     )
     if csv is not None:
         return csv
@@ -166,9 +162,7 @@ async def refresh_original_cv(
     Jeśli kandydat aktualnie nie ma CV → 422 (nie ma czego skopiować).
     """
     try:
-        csv = await refresh_original_cv_snapshot(
-            db, stage_id, user_id=current_user.id
-        )
+        csv = await refresh_original_cv_snapshot(db, stage_id, user_id=current_user.id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -382,11 +376,11 @@ async def render_branded_cv_for_print(
         select(Candidate).where(Candidate.id == csv.candidate_id)
     )
     label = (
-        f"{candidate.name} {candidate.lastname}"
-        if candidate
-        else f"stage_{stage_id}"
+        f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
     )
-    return HTMLResponse(content=_wrap_printable_cv(csv.branded_draft_html, stage_id, label))
+    return HTMLResponse(
+        content=_wrap_printable_cv(csv.branded_draft_html, stage_id, label)
+    )
 
 
 @router.post(
@@ -494,9 +488,7 @@ async def create_cv_share_token(
     if csv.branded_status != "finalized":
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Nie można udostępnić draftu — najpierw zfinalizuj brandowane CV."
-            ),
+            detail=("Nie można udostępnić draftu — najpierw zfinalizuj brandowane CV."),
         )
 
     token = secrets.token_urlsafe(36)
@@ -539,18 +531,14 @@ async def revoke_cv_share_token(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Odwołaj share token (`revoked=true`). Idempotent."""
-    row = await db.scalar(
-        select(CVShareToken).where(CVShareToken.token == token)
-    )
+    row = await db.scalar(select(CVShareToken).where(CVShareToken.token == token))
     if row is None:
         raise HTTPException(status_code=404, detail="Token nie znaleziony")
     if row.revoked:
         return {"status": "already_revoked", "token": token}
 
     await db.execute(
-        update(CVShareToken)
-        .where(CVShareToken.token == token)
-        .values(revoked=True)
+        update(CVShareToken).where(CVShareToken.token == token).values(revoked=True)
     )
     db.add(
         Activity(
