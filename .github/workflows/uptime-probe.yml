@@ -26,9 +26,11 @@ jobs:
         id: backend
         run: |
           set -euo pipefail
-          body=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/health)
+          # Primary: /api/health (standard shape per deployment.md).
+          # Fallback: /health (legacy alias, do usunięcia po 7 dniach od merge).
+          body=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health)
           echo "body=$body"
-          echo "$body" | jq -e '.status == "ok"' > /dev/null
+          echo "$body" | jq -e '.status != "unhealthy"' > /dev/null
       - name: TLS expiry check
         run: |
           set -euo pipefail

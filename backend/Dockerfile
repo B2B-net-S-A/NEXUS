@@ -13,6 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Build metadata for /api/health endpoint (see ~/.claude/rules/deployment.md).
+# Defaults to "unknown" so local docker build works without explicit args.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+ENV GIT_SHA=$GIT_SHA
+ENV BUILT_AT=$BUILT_AT
+
 # Copy application code
 COPY . .
 
