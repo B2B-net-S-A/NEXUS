@@ -35,6 +35,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # Build metadata for /api/health endpoint (~/.claude/rules/deployment.md).
+        # Coolify może ustawić te env vars w resource config (np. SOURCE_COMMIT
+        # webhook payload dla GIT_SHA, build-time stamp dla BUILT_AT).
+        # Defaultują do "unknown" gdy nie ustawione — endpoint nadal działa.
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
     restart: unless-stopped
     env_file:
       - .env
