@@ -59,11 +59,11 @@ def upgrade() -> None:
             j.client_id,
             j.id,
             CURRENT_DATE,
-            'draft',
+            'draft'::contractstatus,
             'PLN',
-            'monthly',
+            'monthly'::rateunit,
             160,
-            'b2b',
+            'b2b'::contracttype,
             NOW(),
             NOW()
         FROM candidate_stages cs

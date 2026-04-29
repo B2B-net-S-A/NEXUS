@@ -18,6 +18,7 @@ Backfill: kandydaci z non-null legacy `candidate.competence_category_id` → row
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0041_ai_cc_matching"
@@ -70,7 +71,10 @@ def upgrade() -> None:
         ),
         sa.Column(
             "source",
-            sa.Enum(
+            # postgresql.ENUM (not sa.Enum) preserves create_type=False through
+            # dialect adaptation — sa.Enum drops the kwarg in adapt(), causing a
+            # double-CREATE TYPE on PG and a DuplicateObjectError.
+            postgresql.ENUM(
                 "ai_auto",
                 "ai_suggested",
                 "manual",

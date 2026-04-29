@@ -39,7 +39,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    pass
+    # Backfill the `scheduled_rejection_emails.email_id` FK that 0045 had to
+    # skip when it ran before 0036_microsoft365 created the `emails` table
+    # (e.g. on a fresh CI database). Idempotent — does nothing on prod where
+    # 0045 already added the constraint, and does nothing on re-run.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            BEGIN
+                ALTER TABLE scheduled_rejection_emails
+                ADD CONSTRAINT fk_scheduled_rejection_emails_email_id
+                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL;
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END;
+        END$$;
+        """
+    )
 
 
 def downgrade() -> None:
