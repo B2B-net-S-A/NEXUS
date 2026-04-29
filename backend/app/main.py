@@ -413,4 +413,52 @@ if settings.M365_INTEGRATION_ENABLED:
 
 @app.get("/health")
 async def health_check():
+    """Legacy healthcheck. Alias for /api/health on shape transition (7 days).
+
+    Kept for backwards compatibility with uptime-probe.yml and any external
+    monitor that grepped `.status == "ok"` shape. Prefer /api/health which
+    follows the standard shape from ~/.claude/rules/deployment.md.
+    """
     return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}
+
+
+@app.get("/api/health")
+async def api_health_check():
+    """Standard healthcheck per ~/.claude/rules/deployment.md.
+
+    Shape: {status, version, deployedAt, checks: {database}}.
+    HTTP 503 on `unhealthy`, 200 on `healthy`/`degraded`.
+    Database ping is bounded to 2s to avoid blocking k8s/Docker probes.
+    """
+    import asyncio
+    import os
+
+    from fastapi import status as http_status
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    checks: dict[str, str] = {}
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
+        checks["database"] = "healthy"
+    except Exception:
+        checks["database"] = "unhealthy"
+
+    is_healthy = all(v == "healthy" for v in checks.values())
+    overall = "healthy" if is_healthy else "unhealthy"
+
+    return JSONResponse(
+        content={
+            "status": overall,
+            "version": os.environ.get("GIT_SHA", "unknown"),
+            "deployedAt": os.environ.get("BUILT_AT", "unknown"),
+            "checks": checks,
+        },
+        status_code=http_status.HTTP_200_OK
+        if is_healthy
+        else http_status.HTTP_503_SERVICE_UNAVAILABLE,
+    )

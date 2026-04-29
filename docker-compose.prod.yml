@@ -33,7 +33,9 @@ services:
       DEBUG: "false"
       SENTRY_ENVIRONMENT: production
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      # /api/health = standard shape per ~/.claude/rules/deployment.md.
+      # /health zachowane jako alias przez 7 dni dla uptime-probe.yml legacy.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
