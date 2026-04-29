@@ -25,6 +25,7 @@ Idempotent + reversible (z wyjątkiem enum values — Postgres limitation).
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0043_interview_feedback"
@@ -116,7 +117,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "feedback_source",
-            sa.Enum(
+            postgresql.ENUM(
                 "candidate_side",
                 "client_side",
                 name="feedbacksource",
@@ -128,7 +129,7 @@ def upgrade() -> None:
         sa.Column("overall_impression", sa.SmallInteger, nullable=True),
         sa.Column(
             "interest_level",
-            sa.Enum(
+            postgresql.ENUM(
                 "hot",
                 "warm",
                 "cold",
@@ -142,7 +143,7 @@ def upgrade() -> None:
         sa.Column("concerns", sa.Text, nullable=True),
         sa.Column(
             "next_step_preference",
-            sa.Enum(
+            postgresql.ENUM(
                 "ready_for_next",
                 "need_info",
                 "pass",
@@ -157,7 +158,7 @@ def upgrade() -> None:
         sa.Column("overall_fit", sa.SmallInteger, nullable=True),
         sa.Column(
             "decision",
-            sa.Enum(
+            postgresql.ENUM(
                 "advance",
                 "reject",
                 "on_hold",

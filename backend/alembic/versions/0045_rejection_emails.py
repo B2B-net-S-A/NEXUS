@@ -60,6 +60,9 @@ def upgrade() -> None:
         )
 
     # ── scheduled_rejection_emails ──────────────────────────────────────────
+    # `emails` table is created by 0036_microsoft365 on a sibling branch and may
+    # not exist yet on a fresh DB. Skip the email_id FK here and add it later
+    # in the 0064 merge (which is downstream of both 0045 and 0036).
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS scheduled_rejection_emails (
@@ -84,13 +87,34 @@ def upgrade() -> None:
             cancelled_at        TIMESTAMPTZ NULL,
             cancelled_by        INTEGER NULL
                                     REFERENCES users(id) ON DELETE SET NULL,
-            email_id            INTEGER NULL
-                                    REFERENCES emails(id) ON DELETE SET NULL,
+            email_id            INTEGER NULL,
             attempts            INTEGER NOT NULL DEFAULT 0,
             last_error          TEXT NULL,
             created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+        """
+    )
+
+    # Best-effort: if `emails` already exists (prod / when 0036 ran first), add
+    # the FK now so prod-applied schemas keep their constraint. On a fresh DB
+    # this branch is skipped and the FK is added by 0064 merge.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = current_schema() AND table_name = 'emails'
+            ) THEN
+                BEGIN
+                    ALTER TABLE scheduled_rejection_emails
+                    ADD CONSTRAINT fk_scheduled_rejection_emails_email_id
+                    FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE SET NULL;
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END;
+            END IF;
+        END$$;
         """
     )
 

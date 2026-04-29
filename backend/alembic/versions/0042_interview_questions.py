@@ -29,6 +29,7 @@ import re
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0042_interview_questions"
@@ -107,7 +108,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "seniority",
-            sa.Enum(
+            postgresql.ENUM(
                 "junior",
                 "mid",
                 "senior",
@@ -120,7 +121,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "question_type",
-            sa.Enum(
+            postgresql.ENUM(
                 "technical",
                 "behavioral",
                 "motivation",
@@ -132,7 +133,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "source",
-            sa.Enum(
+            postgresql.ENUM(
                 "manual",
                 "auto_generated",
                 "imported_from_champion",
@@ -218,7 +219,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "added_by_source",
-            sa.Enum(
+            postgresql.ENUM(
                 "manual",
                 "auto_from_similar",
                 "auto_generated",
@@ -287,7 +288,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "rating",
-            sa.Enum("up", "down", name="questionratingvalue", create_type=False),
+            postgresql.ENUM("up", "down", name="questionratingvalue", create_type=False),
             nullable=False,
         ),
         sa.Column("notes", sa.Text, nullable=True),

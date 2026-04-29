@@ -36,7 +36,14 @@ revision = "0033_cc_entities"
 # applyable. A separate merge revision can later reconcile the orphan branches.
 down_revision = "notif_triggers_13"
 branch_labels = None
-depends_on = None
+# This migration ALTERs `job_collaborators` (adds `source` column), which is
+# created by 0029. On the prod DB at the time of writing this migration, the
+# table existed in schema already (because the legacy 0001 ran create_all on
+# the live ORM, which contained job_collaborators). After 0001 was refactored
+# to pin to the 2026-03-18 schema, that crutch is gone — we must declare the
+# cross-branch dependency explicitly so Alembic schedules 0029 first on fresh
+# databases.
+depends_on = ("0029",)
 
 
 SEED_CCS = [
