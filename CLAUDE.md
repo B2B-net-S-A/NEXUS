@@ -1,0 +1,108 @@
+# CLAUDE.md — NEXUS (ATS)
+
+> Per-app deviations od globalnego standardu w `~/.claude/rules/deployment.md`.
+> Plik ładowany automatycznie przy każdej sesji Claude'a w tym repo.
+
+## Stack & ports
+
+- **Backend:** FastAPI 0.115 + SQLAlchemy 2.0 (async, asyncpg) + Alembic — `backend/`, port 8000.
+- **Frontend:** Next.js 15.1 (App Router, React 19, TypeScript 5.7) — `frontend/`, port 3000.
+- **Database:** Postgres 16-alpine (compose service) + Qdrant (vector DB, embeddings przez Voyage AI).
+- **Auth:** JWT + RBAC.
+- **Local AI:** Ollama (llama3.2) — opcjonalnie, dla offline pracy.
+- **Test:** pytest + pytest-asyncio (BE) + Vitest + Playwright (FE).
+- **Sentry:** `sentry-sdk[fastapi]` w `backend/requirements.txt` (status w prod do potwierdzenia).
+
+**Specyfika:** **monorepo** z dwoma podkatalogami `backend/` + `frontend/`, każdy ze swoim Dockerfile i package mgr.
+
+## Deploy
+
+- **Hosting:** Coolify on Hetzner.
+- **Registry:** **brak GHCR** — Coolify buduje obrazy lokalnie z compose `build:` block (świadoma decyzja, nie jak Compass/LeadGen).
+- **Compose orkiestracja:**
+  - `docker-compose.yml` — base (no port bindings, Coolify Traefik routuje przez `expose:`).
+  - `docker-compose.override.yml` — dev (re-adds host port bindings, auto-loaded przez `docker compose up`).
+  - `docker-compose.prod.yml` — prod overlay (resource limits, healthchecks).
+- **Trigger deploy:** push `main` — Coolify ma webhook na repo, automatycznie pulluje + rebuilduje.
+- **Brak deploy job w CI:** `.github/workflows/ci.yml` to tylko quality gates; sam deploy jest event-driven od strony Coolify.
+
+> **Faza 4 nie dotyczy NEXUS-a** — już jest na Coolify.
+
+## Healthcheck endpoint
+
+- **URL backend:** `/health` (FastAPI, no auth) — `app/main.py` linia ~424.
+- **URL frontend:** Dockerfile HEALTHCHECK na port 3000 (wget).
+- **Compose healthcheck:** tylko Postgres `pg_isready`; backend i frontend bez healthcheck w compose (są w Dockerfile).
+- **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron co X minut na `https://api.<nexus-url>/health`, oczekuje `jq -e '.status == "ok"'`.
+
+> **Faza 1 (TODO):** dodać `/api/health` z full shape (`{status, version, deployedAt, checks: {database, qdrant, voyage}}`). Zachować `/health` jako fallback przez 7 dni dla `uptime-probe.yml`.
+
+## Env vars (build-time vs runtime)
+
+**Build args (FE):**
+- `NEXT_PUBLIC_API_URL` (default `http://localhost:8000` w `docker-compose.yml`).
+- `GIT_SHA`, `BUILT_AT` (po Fazie 1).
+
+**Runtime env (BE — przez `.env` na serwerze, mapowany do compose `env_file:`):**
+- `DATABASE_URL` (postgresql+asyncpg://...)
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` (na serwerze override DATABASE_URL przez compose service names)
+- `SECRET_KEY` (JWT signing, min 48 chars)
+- `QDRANT_HOST`, `QDRANT_PORT`
+- `VOYAGE_API_KEY` (embeddings)
+- `SENTRY_DSN` (opcjonalnie)
+- inne per feature
+
+**Walka z surprise:** compose `env_file: .env` — wszystkie sekrety w jednym pliku na serwerze (Coolify env vault).
+
+## CI gotchas
+
+- **Najsilniejsze CI w stacku** (gitleaks + ruff + alembic + pytest + ESLint + tsc + Vitest + Codecov).
+- **`needs: secret-scan`** — gitleaks musi przejść przed innymi jobami (świadomy guard).
+- **Pytest selective:** wskazane konkretne pliki testów (5 plików), nie `pytest .` — bo cały suite ma live-server tests które są skipowane (`RUN_LIVE_TESTS=0`).
+- **Codecov flags:** `backend` + `frontend` — separate uploads.
+- **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
+- **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).
+- **40+ feature branches w remote** — przy `git checkout` weryfikuj że `main` pociągnięty (`git fetch && git log origin/main..HEAD`).
+
+## Manual ops cheat sheet
+
+```bash
+cd "/Users/arturtwardowski/NEXUS (ATS)"
+
+# Quick checks (lokalnie)
+cd backend && ruff check app/ && pytest tests/test_scoring_service.py -v
+cd ../frontend && npm run type-check && npm run lint && npm run build
+
+# Local stack up (dev with ports)
+docker compose up --build  # auto-loads override.yml
+
+# Local prod simulation
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+
+# Healthcheck (po Fazie 1)
+curl -fsSL https://api.<nexus-url>/api/health | jq .
+SHORT_SHA=$(git rev-parse --short=7 HEAD)
+curl -fsSL https://api.<nexus-url>/api/health | jq -e ".version == \"$SHORT_SHA\""
+
+# Deploy (Coolify ma webhook na main push)
+git push origin main
+# Sprawdź Coolify dashboard — build status
+
+# Rollback przez Coolify dashboard (świadomie inny niż Compass/LeadGen):
+# → resource → Deployments → wybierz poprzedni → Redeploy
+```
+
+## Specyfika tej apki
+
+- **Vector search (Qdrant):** używamy do matching kandydat ↔ stanowisko. Score harness: `scripts/eval_matching.py` lokalnie (waliduj precision/recall przed/po zmianach scoringu).
+- **Migracje (Alembic):** `alembic upgrade head` na startup (Coolify entrypoint). Migracje testowane w CI (`alembic upgrade head` na test DB w `backend-lint-test` job).
+- **Backup drill:** `.github/workflows/backup-drill.yml` — periodic test pg_dump → pg_restore. Działa, nie ruszamy w fazach 0-4.
+- **E2E:** Playwright lokalnie + osobny workflow `e2e.yml`.
+- **40+ feature branches:** historyczne, niektóre stale. Przed merge nowej feature branchy — sprawdź czy nie ma duplikatów.
+
+## Po Fazie 1
+
+Update tej sekcji:
+- `/health` zachować, `/api/health` standard shape.
+- Update `uptime-probe.yml` na `/api/health` + nowy jq query.
+- Dodać `pytest tests/test_health_v2.py` do `backend-lint-test` job.
