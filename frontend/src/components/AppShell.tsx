@@ -8,11 +8,12 @@
  * `<AppShellV2>` in `components/v2/shell/`.
  */
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  X, Loader2, Sparkles,
+  X, Loader2, Sparkles, ChevronRight, Plus,
 } from "lucide-react";
 import api, {
   aiWriterApi,
