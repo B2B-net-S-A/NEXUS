@@ -34,10 +34,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client import Client
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
+    select_primary_cv_file,
+    traffit_activity_to_activity,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
     traffit_employee_to_candidate,
+    traffit_recruitment_history_to_stage,
     traffit_recruitment_to_job,
+    traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
@@ -569,6 +573,7 @@ class TraffitImporter:
                                 template_id, name, "order",
                                 category, is_terminal, terminal_type,
                                 legacy_enum_value,
+                                external_id, external_source,
                                 tracker_enabled, scorecard_schema,
                                 created_at, updated_at
                             ) VALUES (
@@ -578,6 +583,7 @@ class TraffitImporter:
                                 CASE WHEN :terminal_type IS NULL THEN NULL
                                      ELSE CAST(:terminal_type AS terminaltype) END,
                                 :legacy_enum_value,
+                                :external_id, 'traffit',
                                 false, '{}'::jsonb,
                                 NOW(), NOW()
                             )
@@ -591,6 +597,7 @@ class TraffitImporter:
                             "is_terminal": sd["is_terminal"],
                             "terminal_type": sd.get("terminal_type"),
                             "legacy_enum_value": sd["legacy_enum_value"],
+                            "external_id": sd["traffit_state_id"],
                         },
                     )
             except Exception as e:  # noqa: BLE001
@@ -800,6 +807,484 @@ class TraffitImporter:
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Talents import done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
+
+    # ── Faza 5b helpers — lookup maps dla pipelines/activities/sources ──────
+
+    async def _build_candidate_external_id_map(self) -> dict[str, int]:
+        result = await self.db.execute(
+            text(
+                "SELECT id, external_id FROM candidates "
+                "WHERE external_source='traffit' AND external_id IS NOT NULL"
+            )
+        )
+        return {row.external_id: row.id for row in result}
+
+    async def _build_job_external_id_map(self) -> dict[str, int]:
+        result = await self.db.execute(
+            text(
+                "SELECT id, external_id FROM jobs "
+                "WHERE external_source='traffit' AND external_id IS NOT NULL"
+            )
+        )
+        return {row.external_id: row.id for row in result}
+
+    async def _build_stage_def_lookup(
+        self,
+    ) -> tuple[dict[str, int], dict[str, str]]:
+        """Zwraca dwie mapy: external_id → stage_def_id, external_id → legacy_enum.
+
+        Jeśli ten sam Traffit state.id istnieje w kilku templates (różne
+        workflowy), wygrywa pierwszy znaleziony — to zwykły edge case.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT id, external_id, legacy_enum_value "
+                "FROM pipeline_stage_defs "
+                "WHERE external_source='traffit' AND external_id IS NOT NULL"
+            )
+        )
+        ext_to_id: dict[str, int] = {}
+        ext_to_legacy: dict[str, str] = {}
+        for row in result:
+            if row.external_id not in ext_to_id:
+                ext_to_id[row.external_id] = row.id
+                ext_to_legacy[row.external_id] = row.legacy_enum_value or "screening"
+        return ext_to_id, ext_to_legacy
+
+    # ── Faza 5b: candidates-cv (binary CV download) ─────────────────────────
+
+    async def import_candidates_cv(self) -> PhaseProgress:
+        """Pobiera CV files dla zaimportowanych Traffit candidates.
+
+        Idempotent: skipuje kandydatów z `cv_file_content IS NOT NULL`.
+        Per-kandydat: GET /employees/{traffit_id}/files → wybiera primary CV
+        → GET /employees/{traffit_id}/files/{file_id}/content (binary).
+        """
+        progress = PhaseProgress(
+            phase="candidates_cv", started_at=datetime.now(timezone.utc)
+        )
+
+        result = await self.db.execute(
+            text(
+                """
+                SELECT id, external_id FROM candidates
+                WHERE external_source='traffit'
+                  AND external_id IS NOT NULL
+                  AND cv_file_content IS NULL
+                ORDER BY id
+                """
+            )
+        )
+        targets = list(result)
+        progress.total_source = len(targets)
+        if not targets:
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        commit_every = 100
+        since_commit = 0
+        assert self.traffit._http is not None  # noqa: SLF001
+
+        for row in targets:
+            progress.processed += 1
+            traffit_id = row.external_id
+            try:
+                files_resp = await self.traffit._get_raw(  # noqa: SLF001
+                    f"/employees/{traffit_id}/files", page=1, page_size=50
+                )
+                if files_resp.status_code != 200:
+                    progress.add_error(
+                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                    )
+                    continue
+                files = files_resp.json()
+                if not isinstance(files, list):
+                    progress.skipped += 1
+                    continue
+                primary = select_primary_cv_file(files)
+                if not primary:
+                    progress.skipped += 1
+                    continue
+                file_id = primary["id"]
+                filename = primary.get("name") or "cv"
+
+                if self.dry_run:
+                    progress.inserted += 1
+                    continue
+
+                # Binary content — bypass JSON header
+                token = await self.traffit._ensure_token()  # noqa: SLF001
+                url = (
+                    f"{self.traffit.config.api_base}"
+                    f"/employees/{traffit_id}/files/{file_id}/content"
+                )
+                await self.traffit._throttle()  # noqa: SLF001
+                content_resp = await self.traffit._http.get(  # noqa: SLF001
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if content_resp.status_code != 200:
+                    progress.add_error(
+                        f"emp {traffit_id} file {file_id} HTTP "
+                        f"{content_resp.status_code}"
+                    )
+                    continue
+
+                cv_bytes = content_resp.content
+                await self.db.execute(
+                    text(
+                        """
+                        UPDATE candidates SET
+                            cv_file_content = :content,
+                            cv_filename = :filename,
+                            updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "content": cv_bytes,
+                        "filename": filename,
+                        "id": row.id,
+                    },
+                )
+                progress.inserted += 1
+                since_commit += 1
+                if since_commit >= commit_every:
+                    await self.db.commit()
+                    since_commit = 0
+                    logger.info(
+                        "CV download progress: %d/%d",
+                        progress.processed,
+                        progress.total_source,
+                    )
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"emp {traffit_id}: {e!r}")
+                await self.db.rollback()
+                since_commit = 0
+
+        if not self.dry_run and since_commit > 0:
+            await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Candidates CV done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
+
+    # ── Faza 5b: pipelines (recruitment_history → candidate_stages) ─────────
+
+    async def import_pipelines(self) -> PhaseProgress:
+        progress = PhaseProgress(
+            phase="pipelines", started_at=datetime.now(timezone.utc)
+        )
+        try:
+            progress.total_source = await self.traffit.total_count(
+                "/employees/recruitment_history"
+            )
+        except Exception as e:  # noqa: BLE001
+            progress.add_error(f"total_count failed: {e!r}")
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        cand_map = await self._build_candidate_external_id_map()
+        job_map = await self._build_job_external_id_map()
+        sd_id_map, sd_legacy_map = await self._build_stage_def_lookup()
+        user_map = await self.build_user_id_map()
+        logger.info(
+            "Pipelines lookups: candidates=%d jobs=%d stage_defs=%d users=%d",
+            len(cand_map),
+            len(job_map),
+            len(sd_id_map),
+            len(user_map),
+        )
+
+        commit_every = 500
+        since_commit = 0
+
+        async for raw in self.traffit.get_paginated(
+            "/employees/recruitment_history", page_size=self.batch_size
+        ):
+            progress.processed += 1
+            try:
+                payload = traffit_recruitment_history_to_stage(
+                    raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
+                )
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"map history id={raw.get('id')}: {e!r}")
+                continue
+            if payload is None:
+                progress.skipped += 1
+                continue
+            if self.dry_run:
+                progress.inserted += 1
+                continue
+            try:
+                result = await self.db.execute(
+                    text(
+                        """
+                        INSERT INTO candidate_stages (
+                            external_id, external_source,
+                            candidate_id, job_id, stage_def_id, stage,
+                            moved_at, moved_by,
+                            verification_status,
+                            created_at, updated_at
+                        ) VALUES (
+                            :external_id, 'traffit',
+                            :candidate_id, :job_id, :stage_def_id,
+                            CAST(:stage AS pipelinestage),
+                            CAST(:moved_at AS TIMESTAMPTZ), :moved_by,
+                            CAST('active' AS verificationstatus),
+                            NOW(), NOW()
+                        )
+                        ON CONFLICT (external_source, external_id)
+                        WHERE external_id IS NOT NULL
+                        DO UPDATE SET
+                            stage_def_id = EXCLUDED.stage_def_id,
+                            stage        = EXCLUDED.stage,
+                            moved_at     = EXCLUDED.moved_at,
+                            moved_by     = COALESCE(
+                                EXCLUDED.moved_by, candidate_stages.moved_by
+                            ),
+                            updated_at   = NOW()
+                        RETURNING id, (xmax = 0) AS was_insert
+                        """
+                    ),
+                    {
+                        "external_id": payload["external_id"],
+                        "candidate_id": payload["candidate_id"],
+                        "job_id": payload["job_id"],
+                        "stage_def_id": payload["stage_def_id"],
+                        "stage": payload["stage_legacy_enum"],
+                        "moved_at": payload["moved_at"],
+                        "moved_by": payload["moved_by"],
+                    },
+                )
+                row = result.fetchone()
+                if row is None:
+                    continue
+                if row[1]:
+                    progress.inserted += 1
+                else:
+                    progress.updated += 1
+                since_commit += 1
+                if since_commit >= commit_every:
+                    await self.db.commit()
+                    since_commit = 0
+                    logger.info(
+                        "Pipelines progress: %d/%d",
+                        progress.processed,
+                        progress.total_source,
+                    )
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(
+                    f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                )
+                await self.db.rollback()
+                since_commit = 0
+
+        if not self.dry_run and since_commit > 0:
+            await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Pipelines import done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
+
+    # ── Faza 5b: candidate activities ───────────────────────────────────────
+
+    async def import_candidate_activities(self) -> PhaseProgress:
+        progress = PhaseProgress(
+            phase="candidate_activities", started_at=datetime.now(timezone.utc)
+        )
+        try:
+            progress.total_source = await self.traffit.total_count(
+                "/employees/activities"
+            )
+        except Exception as e:  # noqa: BLE001
+            progress.add_error(f"total_count failed: {e!r}")
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        cand_map = await self._build_candidate_external_id_map()
+        user_map = await self.build_user_id_map()
+        logger.info(
+            "Activities lookups: candidates=%d users=%d",
+            len(cand_map),
+            len(user_map),
+        )
+
+        commit_every = 500
+        since_commit = 0
+
+        async for raw in self.traffit.get_paginated(
+            "/employees/activities", page_size=self.batch_size
+        ):
+            progress.processed += 1
+            try:
+                payload = traffit_activity_to_activity(raw, cand_map, user_map)
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"map activity id={raw.get('id')}: {e!r}")
+                continue
+            if payload is None:
+                progress.skipped += 1
+                continue
+            if self.dry_run:
+                progress.inserted += 1
+                continue
+            try:
+                result = await self.db.execute(
+                    text(
+                        """
+                        INSERT INTO activities (
+                            external_id, external_source,
+                            entity_type, entity_id, action, details,
+                            user_id, created_at, updated_at
+                        ) VALUES (
+                            :external_id, 'traffit',
+                            :entity_type, :entity_id, :action,
+                            CAST(:details AS JSONB),
+                            :user_id, NOW(), NOW()
+                        )
+                        ON CONFLICT (external_source, external_id)
+                        WHERE external_id IS NOT NULL
+                        DO UPDATE SET
+                            details   = EXCLUDED.details,
+                            user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
+                            updated_at = NOW()
+                        RETURNING id, (xmax = 0) AS was_insert
+                        """
+                    ),
+                    {
+                        "external_id": payload["external_id"],
+                        "entity_type": payload["entity_type"],
+                        "entity_id": payload["entity_id"],
+                        "action": payload["action"],
+                        "details": json.dumps(payload["details"]),
+                        "user_id": payload["user_id"],
+                    },
+                )
+                row = result.fetchone()
+                if row is None:
+                    continue
+                if row[1]:
+                    progress.inserted += 1
+                else:
+                    progress.updated += 1
+                since_commit += 1
+                if since_commit >= commit_every:
+                    await self.db.commit()
+                    since_commit = 0
+                    logger.info(
+                        "Activities progress: %d/%d",
+                        progress.processed,
+                        progress.total_source,
+                    )
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(
+                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
+                )
+                await self.db.rollback()
+                since_commit = 0
+
+        if not self.dry_run and since_commit > 0:
+            await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Activities import done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
+
+    # ── Faza 5b: candidate sources → tags ───────────────────────────────────
+
+    async def import_candidate_sources(self) -> PhaseProgress:
+        """Iteruje /sources/, agreguje per-kandydat i append'uje do tags JSONB."""
+        progress = PhaseProgress(
+            phase="candidate_sources", started_at=datetime.now(timezone.utc)
+        )
+        try:
+            progress.total_source = await self.traffit.total_count("/sources/")
+        except Exception as e:  # noqa: BLE001
+            progress.add_error(f"total_count failed: {e!r}")
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        cand_map = await self._build_candidate_external_id_map()
+
+        # Aggregate per candidate w pamięci — przy 75k records to OK
+        # (każdy record ~200B → ~15MB max).
+        per_candidate: dict[int, list[dict[str, Any]]] = {}
+
+        async for raw in self.traffit.get_paginated(
+            "/sources/", page_size=self.batch_size
+        ):
+            progress.processed += 1
+            try:
+                mapped = traffit_source_to_candidate_tag(raw, cand_map)
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"map source id={raw.get('id')}: {e!r}")
+                continue
+            if mapped is None:
+                progress.skipped += 1
+                continue
+            per_candidate.setdefault(mapped["candidate_id"], []).append(
+                mapped["tag"]
+            )
+
+        if self.dry_run:
+            progress.inserted = sum(len(v) for v in per_candidate.values())
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        # Apply: read existing tags, dedup po (type, source_id), write back
+        for candidate_id, new_tags in per_candidate.items():
+            try:
+                row = await self.db.execute(
+                    text(
+                        "SELECT tags FROM candidates WHERE id=:id"
+                    ),
+                    {"id": candidate_id},
+                )
+                rec = row.fetchone()
+                existing = rec[0] if rec and rec[0] else []
+                if not isinstance(existing, list):
+                    existing = []
+
+                seen_ids = {
+                    t.get("source_id")
+                    for t in existing
+                    if isinstance(t, dict) and t.get("type") == "traffit_source"
+                }
+                added = 0
+                for t in new_tags:
+                    if t.get("source_id") in seen_ids:
+                        continue
+                    existing.append(t)
+                    seen_ids.add(t.get("source_id"))
+                    added += 1
+                if added > 0:
+                    await self.db.execute(
+                        text(
+                            "UPDATE candidates SET tags=CAST(:tags AS JSONB), "
+                            "updated_at=NOW() WHERE id=:id"
+                        ),
+                        {"tags": json.dumps(existing), "id": candidate_id},
+                    )
+                    progress.inserted += added
+                else:
+                    progress.skipped += 1
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
+                await self.db.rollback()
+
+        await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Sources import done: %s",
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress

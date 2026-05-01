@@ -1,0 +1,32 @@
+[
+  {
+    "id": 19,
+    "name": "Sample",
+    "type": "start",
+    "sid": "SampleStage",
+    "workflow": {
+      "id": 4
+    },
+    "order": 0
+  },
+  {
+    "id": 20,
+    "name": "Sample",
+    "type": "end-good",
+    "sid": "SampleStage",
+    "workflow": {
+      "id": 4
+    },
+    "order": 9999997
+  },
+  {
+    "id": 21,
+    "name": "Sample",
+    "type": "end-bad",
+    "sid": "SampleStage",
+    "workflow": {
+      "id": 4
+    },
+    "order": 9999998
+  }
+]

@@ -30,6 +30,13 @@ class Activity(Base, TimestampMixin):
 
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
 
+    # External source tracking — Traffit activity_id itp.
+    # Migracja 0075 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     # Relationships
     user = relationship("User", back_populates="activities")
 

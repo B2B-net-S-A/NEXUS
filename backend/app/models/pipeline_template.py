@@ -137,6 +137,13 @@ class PipelineStageDef(Base, TimestampMixin):
         String(50), nullable=True, index=True
     )
 
+    # External source tracking — Traffit workflow_state.id itp.
+    # Migracja 0075 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     template = relationship("PipelineTemplate", back_populates="stages")
 
     def __repr__(self) -> str:  # pragma: no cover
