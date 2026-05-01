@@ -1,6 +1,11 @@
 # Migracja Traffit → Nexus (plan)
 
-> Status: **plan** (2026-05-01). Kod jeszcze nie istnieje. Po akcepcie — wdrożenie fazami.
+> Status: **w trakcie** (2026-05-01). Faza 0-3 zmergowana w PR #63 (migracje schema,
+> backend required-documents, UI „Wymagane dokumenty"). Faza 4 (importer
+> clients+contacts) — w toku. CRM activities wykluczone — patrz
+> `~/.claude/plans/crm-activities-bez-woolly-fairy.md` dla pełnego scope tego
+> ścieżkowania.
+>
 > Cel: jednorazowa migracja całej historii rekrutacyjnej z Traffita do Nexusa
 > + opcjonalny incremental sync przez webhooki przez okres koegzystencji.
 
@@ -49,7 +54,7 @@ Komparatory: `=`, `!=`, `<=`, `>=`, `in`, `like`.
 | `workflow` | `/workflows/`, `/workflows/details`, `/workflows/stats` | Pipeline'y (definicje stage'ów per recruitment) |
 | `client` | `/clients/`, `/clients/{id}` | Klienci |
 | `crm_person` | `/crm_persons/` | Osoby kontaktowe u klienta (Contact) |
-| `crm_activity` | `/crm_activities/` | Aktywności CRM (calls, meetings) |
+| ~~`crm_activity`~~ | ~~`/crm_activities/`~~ | **Wykluczone z migracji** (decyzja Artura) |
 | `recruitment` | `/recruitments/`, `/recruitments/{id}/states`, `/.../employees`, `/.../rejections` | Joby + workflow + pipeline'y kandydatów |
 | `advert` | `/job_posts/`, `/job_posts/{id}` | Ogłoszenia (publikacje) |
 | `advert_publish` | publikacja ogłoszeń | (read-only przy migracji) |
@@ -93,8 +98,8 @@ Pełna lista endpointów — patrz [api.traffit.com](https://api.traffit.com/).
 | `recruitment.employees[]` (kandydat w jobie) | `candidate_stages` | Snapshot aktualnego stage'u + historia z `state_changes` jeśli dostępna. |
 | `recruitment.rejections` | `candidate_stages.stage='rejected'` + `rejection_reason_id` | Mapowanie reasonów na nasze `rejection_reasons`. |
 | `client` | `clients` | `external_id`, `external_source`. **Migracja** kolumn + partial unique index. |
-| `crm_person` | `contacts` | Linkujemy do `client_id` po external_id. **Migracja** kolumn. |
-| `crm_activity` | `activities` lub `calls` | Zależy od typu (call vs meeting vs note). |
+| `crm_person` | `contacts` | Linkujemy do `client_id` po external_id. **Migracja** kolumn. Sieroty bez klienta → klient `__traffit_orphans` (auto-utworzony). |
+| ~~`crm_activity`~~ | — | **Wykluczone z migracji** (decyzja Artura). 108 wpisów w Traffit zostaje w starym systemie do referencji. |
 | `user` | `users` | **Tylko mapowanie po emailu** — userów już mamy w Nexusie. Generujemy plik `traffit_user_id_to_nexus_user_id.json` dla follow-up FK fixów. |
 | `job_post` (advert) | `job_postings` | Jeśli aktywne — zapisujemy URL i status; nie publikujemy ponownie. |
 | `talent` (talent pool) | `talent_pools` | Już istnieje model. Mapowanie nazwy + przynależności kandydatów. |
@@ -194,7 +199,7 @@ class TraffitClient:
 Konfiguracja przez env (Coolify vault):
 - `TRAFFIT_TENANT=b2bnetwork`
 - `TRAFFIT_CLIENT_ID=b2bnetwork_NEXUS`
-- `TRAFFIT_CLIENT_SECRET=<secret>` (ten z prompta)
+- `TRAFFIT_CLIENT_SECRET` (wartość — patrz Coolify env vault; **nigdy** w repo)
 - `TRAFFIT_THROTTLE_RPS=5`
 
 ### 3.2 Idempotentny UPSERT (wzór z `talent_radar_importer.py`)
@@ -303,11 +308,11 @@ Kolejność: **users mapping → clients → contacts (CRM persons) → workflow
 - **Walidacja:** dla losowych 5 jobów — counters po stage'ach match (Traffit vs
       Nexus). Total rejected match.
 
-### Faza 5 — Talents (talent pools), CRM activities, advert metadata (½ dnia)
+### Faza 5 — Talents (talent pools), advert metadata (½ dnia)
 - [ ] `/talents/` → `talent_pools` + przynależności (talent_pool_members).
-- [ ] `/crm_activities/` → `activities` lub `calls` zależnie od typu.
 - [ ] `/job_posts/` (advert) → metadata-only do `job_postings`
       (URL, status, daty); nie re-publikujemy.
+- ~~`/crm_activities/`~~ — **wykluczone z migracji** (decyzja Artura).
 
 ### Faza 6 — Incremental sync via webhooks (1 dzień, opcjonalnie)
 - [ ] `GET /webhook-types` — zobacz co Traffit wysyła (candidate.created,
@@ -416,7 +421,7 @@ Jeśli coś pójdzie nie tak — `pg_restore` rollback.
    ```bash
    export TRAFFIT_TENANT=b2bnetwork  # do potwierdzenia
    export TRAFFIT_CLIENT_ID=b2bnetwork_NEXUS
-   export TRAFFIT_CLIENT_SECRET=<from-prompt>
+   read -rs TRAFFIT_CLIENT_SECRET; export TRAFFIT_CLIENT_SECRET
 
    # Spróbuj JSON
    curl -sS -X POST "https://www.${TRAFFIT_TENANT}.traffit.com/oauth2/token" \
