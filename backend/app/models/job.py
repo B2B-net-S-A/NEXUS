@@ -201,6 +201,13 @@ class Job(Base, TimestampMixin):
         ForeignKey("pipeline_templates.id"), nullable=True, index=True
     )
 
+    # External source tracking — Traffit / future imports.
+    # Migracja 0074 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     # Relationships
     client = relationship("Client", back_populates="jobs")
     competence_category = relationship(

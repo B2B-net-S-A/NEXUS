@@ -1,11 +1,19 @@
-"""CLI: jednorazowa migracja Traffit → Nexus (clients + contacts).
+"""CLI: jednorazowa migracja Traffit → Nexus.
+
+Phases (uruchamiać w tej kolejności przy pierwszej migracji):
+    1. workflows   — Traffit workflows → pipeline_templates + pipeline_stage_defs
+    2. clients     — /clients/ → clients
+    3. contacts    — /crm_persons/ → contacts (z lookup po external_id klienta)
+    4. candidates  — /employees/ → candidates (BEZ CV files; tylko metadata)
+    5. jobs        — /recruitments/ → jobs (z lookup po klientach + workflows)
+    6. talents     — /talents/ → talent_pools
+    7. reconcile   — counts Traffit vs Nexus dla wszystkich encji
 
 Uruchomienie:
     python -m app.cli.import_traffit --phase clients
-    python -m app.cli.import_traffit --phase contacts
-    python -m app.cli.import_traffit --phase clients,contacts
+    python -m app.cli.import_traffit --phase clients,contacts,workflows,candidates,jobs,talents
     python -m app.cli.import_traffit --phase reconcile
-    python -m app.cli.import_traffit --phase clients,contacts --dry-run
+    python -m app.cli.import_traffit --phase candidates --dry-run
 
 Sekrety w env (Coolify env vault, NIE w repo):
     TRAFFIT_TENANT, TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET
@@ -31,7 +39,15 @@ from app.services.traffit.importer import TraffitImporter
 logger = logging.getLogger(__name__)
 
 
-VALID_PHASES = {"clients", "contacts", "reconcile"}
+VALID_PHASES = {
+    "clients",
+    "contacts",
+    "workflows",
+    "candidates",
+    "jobs",
+    "talents",
+    "reconcile",
+}
 
 
 def _parse_phases(arg: str) -> list[str]:
@@ -44,6 +60,16 @@ def _parse_phases(arg: str) -> list[str]:
     return phases
 
 
+_PHASE_RUNNERS: dict[str, str] = {
+    "clients": "import_clients",
+    "contacts": "import_contacts",
+    "workflows": "import_workflows",
+    "candidates": "import_candidates",
+    "jobs": "import_jobs",
+    "talents": "import_talents",
+}
+
+
 async def _run(phases: Iterable[str], *, dry_run: bool, batch_size: int) -> int:
     config = TraffitConfig.from_env()
     exit_code = 0
@@ -54,33 +80,38 @@ async def _run(phases: Iterable[str], *, dry_run: bool, batch_size: int) -> int:
                 traffit, db, dry_run=dry_run, batch_size=batch_size
             )
             for phase in phases:
-                if phase == "clients":
-                    progress = await importer.import_clients()
-                    print(json.dumps(progress.as_dict(), default=str, indent=2))
-                    if progress.errors:
-                        exit_code = 1
-                elif phase == "contacts":
-                    progress = await importer.import_contacts()
-                    print(json.dumps(progress.as_dict(), default=str, indent=2))
-                    if progress.errors:
-                        exit_code = 1
-                elif phase == "reconcile":
+                if phase == "reconcile":
                     report = await importer.reconcile()
                     print(json.dumps(report, indent=2))
-                    if not report["clients"]["match"] or not report["contacts"]["match"]:
+                    if any(
+                        isinstance(v, dict) and v.get("match") is False
+                        for v in report.values()
+                    ):
                         exit_code = 2  # mismatch — non-fatal but actionable
+                else:
+                    method_name = _PHASE_RUNNERS[phase]
+                    progress = await getattr(importer, method_name)()
+                    print(json.dumps(progress.as_dict(), default=str, indent=2))
+                    if progress.errors:
+                        exit_code = 1
     return exit_code
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Traffit → Nexus migration CLI (clients + contacts)"
+        description=(
+            "Traffit → Nexus migration CLI (clients, contacts, workflows, "
+            "candidates, jobs, talents)"
+        )
     )
     parser.add_argument(
         "--phase",
         type=_parse_phases,
         required=True,
-        help="comma-separated: clients,contacts,reconcile",
+        help=(
+            "comma-separated: workflows,clients,contacts,candidates,jobs,"
+            "talents,reconcile"
+        ),
     )
     parser.add_argument(
         "--dry-run",

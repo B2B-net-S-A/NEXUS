@@ -133,3 +133,357 @@ def traffit_crm_person_to_nexus(
         "is_decision_maker": bool(payload.get("is_decision_maker") or False),
         "notes": _pick_nonempty(payload.get("notes")),
     }
+
+
+# ── Faza 5: workflow → pipeline_template + stage_defs ───────────────────────
+
+# Mapowanie Traffit state.type → (Nexus PipelineStage enum, category, terminal flag).
+# Discovery (workflow B2B): start, screening, initial_accept, technical_verification,
+# task, client_verification, interview, end-good, end-bad, wait.
+# Plus `is_rejection: true` na state → wymusza terminal=rejected niezależnie od type.
+_TRAFFIT_STATE_TYPE_MAP: dict[str, dict[str, Any]] = {
+    "start": {"legacy": "new", "category": "internal", "is_terminal": False},
+    "screening": {
+        "legacy": "screening",
+        "category": "internal",
+        "is_terminal": False,
+    },
+    "initial_accept": {
+        "legacy": "verified",
+        "category": "internal",
+        "is_terminal": False,
+    },
+    "technical_verification": {
+        "legacy": "interview",
+        "category": "internal",
+        "is_terminal": False,
+    },
+    "task": {"legacy": "screening", "category": "internal", "is_terminal": False},
+    "client_verification": {
+        "legacy": "cv_sent",
+        "category": "external",
+        "is_terminal": False,
+    },
+    "interview": {
+        "legacy": "interview",
+        "category": "internal",
+        "is_terminal": False,
+    },
+    "end-good": {
+        "legacy": "hired",
+        "category": "terminal",
+        "is_terminal": True,
+        "terminal_type": "hired",
+    },
+    "end-bad": {
+        "legacy": "rejected",
+        "category": "terminal",
+        "is_terminal": True,
+        "terminal_type": "rejected",
+    },
+    "wait": {
+        "legacy": "withdrawn",
+        "category": "terminal",
+        "is_terminal": True,
+        "terminal_type": "withdrawn",
+    },
+}
+
+# Default fallback dla nieznanych typów (rzadkie custom Traffit states).
+_DEFAULT_STATE_MAPPING = {
+    "legacy": "screening",
+    "category": "internal",
+    "is_terminal": False,
+}
+
+
+def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
+    """Zwraca mapping z PipelineStageDef-friendly polami dla Traffit state.
+
+    Honoruje state.is_rejection: true (override na terminal=rejected).
+    """
+    state_type = (state.get("type") or "").strip()
+    is_rejection = bool(state.get("is_rejection") or False)
+
+    base = dict(_TRAFFIT_STATE_TYPE_MAP.get(state_type, _DEFAULT_STATE_MAPPING))
+    if is_rejection:
+        base.update(
+            {
+                "legacy": "rejected",
+                "category": "terminal",
+                "is_terminal": True,
+                "terminal_type": "rejected",
+            }
+        )
+    return base
+
+
+def traffit_workflow_to_template(payload: dict[str, Any]) -> dict[str, Any]:
+    """Workflow Traffita → PipelineTemplate insert dict (bez stage_defs)."""
+    workflow_id = payload.get("id")
+    if workflow_id is None:
+        raise ValueError("Traffit workflow missing 'id'")
+    raw_name = (payload.get("name") or "").strip()
+    name = raw_name or f"Traffit Workflow #{workflow_id}"
+    return {
+        "external_id": str(workflow_id),
+        "external_source": "traffit",
+        "name": name[:100],
+        "description": f"Imported from Traffit (workflow_id={workflow_id})",
+        "is_default": False,
+    }
+
+
+def traffit_workflow_state_to_stage_def(
+    state: dict[str, Any], order_index: int
+) -> dict[str, Any]:
+    """Workflow state Traffita → PipelineStageDef insert dict.
+
+    `order_index` jest pozycją w liście (po sortowaniu po `state.order`),
+    nie raw `state.order` (który dla terminal states bywa 9999997+).
+    """
+    state_id = state.get("id")
+    if state_id is None:
+        raise ValueError("Traffit state missing 'id'")
+    raw_name = (state.get("name") or "").strip()
+    sid = (state.get("sid") or "").strip()
+    name = raw_name or sid or f"Stan #{state_id}"
+
+    mapping = map_traffit_state_to_pipeline(state)
+
+    return {
+        "traffit_state_id": str(state_id),
+        "name": name[:100],
+        "order": order_index,
+        "category": mapping["category"],
+        "is_terminal": mapping["is_terminal"],
+        "terminal_type": mapping.get("terminal_type"),
+        "legacy_enum_value": mapping["legacy"],
+    }
+
+
+# ── Faza 5: employee → candidate ────────────────────────────────────────────
+
+# Mapping Traffit `status` text → Nexus CandidateStatus enum.
+_CANDIDATE_STATUS_MAP: dict[str, str] = {
+    "active": "active",
+    "aktywny": "active",
+    "inactive": "passive",
+    "nieaktywny": "passive",
+    "passive": "passive",
+    "blacklist": "blacklisted",
+    "blacklisted": "blacklisted",
+}
+
+
+def normalize_candidate_status(raw: Optional[str]) -> str:
+    if not raw:
+        return "active"
+    return _CANDIDATE_STATUS_MAP.get(raw.strip().lower(), "active")
+
+
+# Custom fields Traffit (prefixowane `_`) trafiają do Candidate.cv_extracted_data
+# pod kluczem `traffit_<original_key>` żeby nie kolidowały z naszymi polami.
+_CUSTOM_FIELD_PREFIX = "_"
+
+
+def traffit_employee_to_candidate(
+    payload: dict[str, Any],
+    user_id_map: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
+    """Map Traffit employee → Nexus `candidates` UPSERT dict.
+
+    user_id_map: traffit_user_id (str) → nexus_user_id (int) dla mapowania
+    `created_by`. None / brak → tracimy attribution (created_by=NULL).
+
+    Custom fields prefixowane `_` (np. `_Position`, `_certificates`) trafiają
+    do `cv_extracted_data` jako `traffit_<key>` — catch-all bez kolizji.
+
+    Pliki CV są reprezentowane tylko jako `cv_filename` (nazwa pliku z
+    pierwszego wpisu). Binary content pobiera importer osobno przez
+    `/employees/{id}/files/{file_id}/content`.
+    """
+    traffit_id = payload.get("id")
+    if traffit_id is None:
+        raise ValueError("Traffit employee missing 'id'")
+
+    name = (payload.get("name") or "").strip()
+    lastname = (payload.get("lastname") or "").strip()
+    if not name:
+        email = payload.get("email") or ""
+        if "@" in email:
+            name = email.split("@", 1)[0]
+        else:
+            name = "?"
+    if not lastname:
+        lastname = "?"
+
+    # Custom fields → cv_extracted_data
+    custom: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key.startswith(_CUSTOM_FIELD_PREFIX) and value is not None:
+            clean_key = f"traffit{key}"  # _Position → traffit_Position
+            custom[clean_key] = value
+
+    files = payload.get("files") or []
+    first_file = files[0] if isinstance(files, list) and files else None
+    cv_filename = (
+        first_file.get("filename") if isinstance(first_file, dict) else None
+    )
+
+    # created_by lookup
+    created_by_nexus: Optional[int] = None
+    if user_id_map:
+        created_by_obj = payload.get("created_by") or {}
+        if isinstance(created_by_obj, dict):
+            traffit_user_id = created_by_obj.get("id")
+            if traffit_user_id is not None:
+                created_by_nexus = user_id_map.get(str(traffit_user_id))
+
+    # candidate_languages może być stringiem lub listą — normalizujemy do listy
+    raw_langs = payload.get("candidate_languages")
+    if isinstance(raw_langs, str) and raw_langs.strip():
+        languages: list[Any] = [{"lang": raw_langs.strip(), "level": None}]
+    elif isinstance(raw_langs, list):
+        languages = raw_langs
+    else:
+        languages = []
+
+    return {
+        "external_id": str(traffit_id),
+        "external_source": "traffit",
+        "name": name[:100],
+        "lastname": lastname[:100],
+        "email": _pick_nonempty(payload.get("email")),
+        "phone": _pick_nonempty(payload.get("mobile"), payload.get("phone")),
+        "linkedin": _pick_nonempty(payload.get("linkedin")),
+        "location": _pick_nonempty(payload.get("candidate_location")),
+        "status": normalize_candidate_status(payload.get("status")),
+        "ai_summary": _pick_nonempty(payload.get("candidate_about")),
+        "languages": languages,
+        "cv_filename": cv_filename,
+        "cv_extracted_data": custom,
+        "source": "traffit",
+        "created_by": created_by_nexus,
+    }
+
+
+# ── Faza 5: recruitment → job ───────────────────────────────────────────────
+
+_JOB_STATUS_MAP: dict[str, str] = {
+    "active": "published",
+    "open": "published",
+    "otwarta": "published",
+    "published": "published",
+    "draft": "draft",
+    "closed": "closed",
+    "zamknieta": "closed",
+    "zamknięta": "closed",
+}
+
+
+def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
+    if is_closed:
+        return "closed"
+    if not raw:
+        return "draft"
+    return _JOB_STATUS_MAP.get(raw.strip().lower(), "draft")
+
+
+def traffit_recruitment_to_job(
+    payload: dict[str, Any],
+    client_external_id_to_nexus_id: dict[str, int],
+    workflow_external_id_to_template_id: dict[str, int],
+    user_id_map: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
+    """Map Traffit recruitment → Nexus `jobs` UPSERT dict.
+
+    Nexus_client_id może być None gdy klient jeszcze nie zmigrowany — importer
+    decyduje czy skipować rekord, czy zostawić client_id=NULL.
+    """
+    traffit_id = payload.get("id")
+    if traffit_id is None:
+        raise ValueError("Traffit recruitment missing 'id'")
+
+    raw_name = (payload.get("name") or "").strip()
+    title = raw_name or f"Rekrutacja #{traffit_id}"
+
+    client_obj = payload.get("client") or {}
+    traffit_client_id = (
+        client_obj.get("id") if isinstance(client_obj, dict) else None
+    )
+    nexus_client_id: Optional[int] = None
+    if traffit_client_id is not None:
+        nexus_client_id = client_external_id_to_nexus_id.get(
+            str(traffit_client_id)
+        )
+
+    workflow_id = payload.get("workflow_id")
+    pipeline_template_id: Optional[int] = None
+    if workflow_id is not None:
+        pipeline_template_id = workflow_external_id_to_template_id.get(
+            str(workflow_id)
+        )
+
+    recruiter_id: Optional[int] = None
+    if user_id_map:
+        rp = payload.get("responsible_person")
+        if isinstance(rp, dict):
+            traffit_user_id = rp.get("id")
+            if traffit_user_id is not None:
+                recruiter_id = user_id_map.get(str(traffit_user_id))
+
+    is_closed = bool(payload.get("is_closed") or False)
+    closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
+
+    deadline = None
+    if isinstance(closing_date, str) and closing_date.strip():
+        # Take date portion (yyyy-MM-dd)
+        deadline = closing_date.split(" ")[0]
+
+    return {
+        "external_id": str(traffit_id),
+        "external_source": "traffit",
+        "title": title[:255],
+        "status": normalize_job_status(payload.get("status"), is_closed),
+        "client_id": nexus_client_id,
+        "pipeline_template_id": pipeline_template_id,
+        "recruiter_id": recruiter_id,
+        "reference_number": _pick_nonempty(payload.get("nrRef")),
+        "deadline": deadline,
+        "custom_fields": {
+            "traffit_is_confidential": bool(payload.get("is_confidential") or False),
+            "traffit_raw_status": payload.get("status"),
+        },
+    }
+
+
+# ── Faza 5: talent → talent_pool ────────────────────────────────────────────
+
+
+def traffit_talent_to_pool(
+    payload: dict[str, Any],
+    user_id_map: Optional[dict[str, int]] = None,
+) -> dict[str, Any]:
+    """Map Traffit talent → Nexus `talent_pools` UPSERT dict."""
+    traffit_id = payload.get("id")
+    if traffit_id is None:
+        raise ValueError("Traffit talent missing 'id'")
+    raw_name = (payload.get("name") or "").strip()
+    name = raw_name or f"Pula #{traffit_id}"
+
+    created_by_nexus: Optional[int] = None
+    if user_id_map:
+        created_by_obj = payload.get("created_by") or {}
+        if isinstance(created_by_obj, dict):
+            traffit_user_id = created_by_obj.get("id")
+            if traffit_user_id is not None:
+                created_by_nexus = user_id_map.get(str(traffit_user_id))
+
+    return {
+        "external_id": str(traffit_id),
+        "external_source": "traffit",
+        "name": name[:255],
+        "description": _pick_nonempty(payload.get("description")),
+        "created_by": created_by_nexus,
+    }

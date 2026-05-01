@@ -61,6 +61,13 @@ class TalentPool(Base):
         index=True,
     )
 
+    # External source tracking — Traffit / future imports.
+    # Migracja 0074 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     # Relationships
     creator = relationship("User", foreign_keys=[created_by])
     competence_category = relationship(

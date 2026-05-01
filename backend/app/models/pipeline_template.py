@@ -68,6 +68,13 @@ class PipelineTemplate(Base, TimestampMixin):
     )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
+    # External source tracking — Traffit / future imports.
+    # Migracja 0074 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     stages = relationship(
         "PipelineStageDef",
         back_populates="template",
