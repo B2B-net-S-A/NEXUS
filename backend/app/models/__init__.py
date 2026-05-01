@@ -127,6 +127,11 @@ from app.models.note_mention import NoteMention
 from app.models.screening_note_mention import ScreeningNoteMention
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
+from app.models.required_document_template import RequiredDocumentTemplate
+from app.models.client_required_document import (
+    ClientDocStatus,
+    ClientRequiredDocument,
+)
 
 __all__ = [
     "User",
@@ -248,4 +253,7 @@ __all__ = [
     "ScreeningNoteMention",
     "CandidateStageCV",
     "CVShareToken",
+    "RequiredDocumentTemplate",
+    "ClientRequiredDocument",
+    "ClientDocStatus",
 ]

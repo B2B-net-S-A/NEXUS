@@ -29,6 +29,13 @@ class Contact(Base):
         DateTime(timezone=True)
     )
 
+    # External source tracking — Traffit / future imports.
+    # Migracja 0071 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

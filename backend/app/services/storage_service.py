@@ -23,6 +23,7 @@ STORAGE_ROOT = Path(os.environ.get("UPLOADS_DIR", "/tmp/nexus/uploads"))
 CONTRACTS_DIR = STORAGE_ROOT / "contracts"
 CLIENT_ONE_PAGERS_DIR = STORAGE_ROOT / "client_one_pagers"
 BRANDED_CVS_DIR = STORAGE_ROOT / "branded_cvs"
+CLIENT_REQUIRED_DOCS_DIR = STORAGE_ROOT / "client_required_docs"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -149,6 +150,63 @@ def delete_client_one_pager(relative_path: str) -> None:
     try:
         abs_path.unlink()
         logger.info("Deleted client one-pager: %s", relative_path)
+    except OSError:
+        logger.exception("Failed to delete %s", relative_path)
+
+
+# ── Client required documents (NDA, RODO, ...) ───────────────────────────────
+
+
+def save_client_required_doc(
+    client_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save under /client_required_docs/{client_id}/{uuid}-{name}.
+
+    Returns (relative_path, size_bytes).
+    """
+    safe = _sanitize_filename(upload_filename)
+    target_dir = CLIENT_REQUIRED_DOCS_DIR / str(client_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
+    target_path = target_dir / stored_name
+
+    size = 0
+    with target_path.open("wb") as dst:
+        while True:
+            chunk = source.read(1024 * 64)
+            if not chunk:
+                break
+            dst.write(chunk)
+            size += len(chunk)
+
+    rel = str(target_path.relative_to(STORAGE_ROOT))
+    logger.info("Saved client required doc: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_client_required_doc_path(relative_path: str) -> Path:
+    """Resolve relative path back to absolute path. Guards against traversal."""
+    abs_path = (STORAGE_ROOT / relative_path).resolve()
+    try:
+        abs_path.relative_to(STORAGE_ROOT.resolve())
+    except ValueError as exc:
+        raise FileNotFoundError(f"Invalid storage path: {relative_path}") from exc
+    if not abs_path.is_file():
+        raise FileNotFoundError(f"File missing on disk: {relative_path}")
+    return abs_path
+
+
+def delete_client_required_doc(relative_path: str) -> None:
+    """Best-effort delete — doesn't raise when file is already gone."""
+    try:
+        abs_path = get_client_required_doc_path(relative_path)
+    except FileNotFoundError:
+        logger.warning("Delete requested for missing file: %s", relative_path)
+        return
+    try:
+        abs_path.unlink()
+        logger.info("Deleted client required doc: %s", relative_path)
     except OSError:
         logger.exception("Failed to delete %s", relative_path)
 
