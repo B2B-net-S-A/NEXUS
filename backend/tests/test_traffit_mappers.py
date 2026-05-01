@@ -11,9 +11,17 @@ from pathlib import Path
 import pytest
 
 from app.services.traffit.mappers import (
+    map_traffit_state_to_pipeline,
+    normalize_candidate_status,
     normalize_client_status,
+    normalize_job_status,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
+    traffit_employee_to_candidate,
+    traffit_recruitment_to_job,
+    traffit_talent_to_pool,
+    traffit_workflow_state_to_stage_def,
+    traffit_workflow_to_template,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "traffit"
@@ -152,3 +160,285 @@ class TestTraffitCrmPersonToNexus:
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
             traffit_crm_person_to_nexus({"name": "X"}, {}, 999)
+
+
+# ── Faza 5: workflow + state mapping ────────────────────────────────────────
+
+
+class TestMapTraffitStateToPipeline:
+    @pytest.mark.parametrize(
+        "state_type,expected_legacy,expected_terminal",
+        [
+            ("start", "new", False),
+            ("screening", "screening", False),
+            ("initial_accept", "verified", False),
+            ("technical_verification", "interview", False),
+            ("client_verification", "cv_sent", False),
+            ("interview", "interview", False),
+            ("end-good", "hired", True),
+            ("end-bad", "rejected", True),
+            ("wait", "withdrawn", True),
+            ("custom_unknown_xyz", "screening", False),  # default fallback
+        ],
+    )
+    def test_basic_type_mapping(
+        self, state_type, expected_legacy, expected_terminal
+    ):
+        result = map_traffit_state_to_pipeline({"type": state_type})
+        assert result["legacy"] == expected_legacy
+        assert result["is_terminal"] == expected_terminal
+
+    def test_is_rejection_overrides_to_rejected(self):
+        result = map_traffit_state_to_pipeline(
+            {"type": "screening", "is_rejection": True}
+        )
+        assert result["legacy"] == "rejected"
+        assert result["category"] == "terminal"
+        assert result["is_terminal"] is True
+        assert result["terminal_type"] == "rejected"
+
+    def test_terminal_types(self):
+        assert (
+            map_traffit_state_to_pipeline({"type": "end-good"}).get("terminal_type")
+            == "hired"
+        )
+        assert (
+            map_traffit_state_to_pipeline({"type": "end-bad"}).get("terminal_type")
+            == "rejected"
+        )
+        assert (
+            map_traffit_state_to_pipeline({"type": "wait"}).get("terminal_type")
+            == "withdrawn"
+        )
+
+
+class TestTraffitWorkflowToTemplate:
+    def test_minimal(self):
+        result = traffit_workflow_to_template({"id": 4, "name": "B2B"})
+        assert result["external_id"] == "4"
+        assert result["external_source"] == "traffit"
+        assert result["name"] == "B2B"
+        assert result["is_default"] is False
+
+    def test_empty_name_falls_back(self):
+        result = traffit_workflow_to_template({"id": 7, "name": ""})
+        assert result["name"] == "Traffit Workflow #7"
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_workflow_to_template({"name": "X"})
+
+
+class TestTraffitWorkflowStateToStageDef:
+    def test_full_fixture_b2b(self):
+        # Pierwszy state z workflows_4_detail.json: id=19, type=start, sid=Nowy
+        wf = _load("workflows_4_detail.json")
+        first = wf["states"][0]
+        result = traffit_workflow_state_to_stage_def(first, order_index=0)
+        assert result["traffit_state_id"] == "19"
+        assert result["order"] == 0
+        assert result["category"] == "internal"
+        assert result["is_terminal"] is False
+        assert result["legacy_enum_value"] == "new"
+
+    def test_terminal_state(self):
+        result = traffit_workflow_state_to_stage_def(
+            {"id": 21, "name": "Sample", "sid": "Odrzucenie", "type": "end-bad"},
+            order_index=12,
+        )
+        assert result["is_terminal"] is True
+        assert result["terminal_type"] == "rejected"
+        assert result["legacy_enum_value"] == "rejected"
+
+    def test_name_fallback_to_sid(self):
+        result = traffit_workflow_state_to_stage_def(
+            {"id": 99, "name": "", "sid": "MyStage", "type": "screening"},
+            order_index=2,
+        )
+        assert result["name"] == "MyStage"
+
+
+# ── Faza 5: employee → candidate ─────────────────────────────────────────────
+
+
+class TestNormalizeCandidateStatus:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("active", "active"),
+            ("Aktywny", "active"),
+            ("inactive", "passive"),
+            ("Nieaktywny", "passive"),
+            ("blacklisted", "blacklisted"),
+            ("blacklist", "blacklisted"),
+            ("", "active"),
+            (None, "active"),
+            ("unknown_xyz", "active"),
+        ],
+    )
+    def test_mapping(self, raw, expected):
+        assert normalize_candidate_status(raw) == expected
+
+
+class TestTraffitEmployeeToCandidate:
+    def test_full_fixture(self):
+        payloads = _load("employees_list.json")
+        result = traffit_employee_to_candidate(payloads[0])
+        assert result["external_id"] == "1246"
+        assert result["external_source"] == "traffit"
+        assert result["name"] == "Sample"
+        assert result["lastname"] == "User"
+        assert result["email"] == "user@example.com"
+        assert result["phone"] == "+48000000000"
+        assert result["status"] == "active"
+        assert result["cv_filename"] == "file.pdf"
+        # Custom fields all None in fixture → cv_extracted_data empty
+        assert result["cv_extracted_data"] == {}
+        assert result["source"] == "traffit"
+
+    def test_custom_fields_preserved(self):
+        payload = {
+            "id": 1,
+            "name": "John",
+            "lastname": "Doe",
+            "_Position": "Senior Backend Engineer",
+            "_certificates": "AWS Solutions Architect",
+            "_education": None,  # null skipped
+        }
+        result = traffit_employee_to_candidate(payload)
+        assert result["cv_extracted_data"] == {
+            "traffit_Position": "Senior Backend Engineer",
+            "traffit_certificates": "AWS Solutions Architect",
+        }
+
+    def test_user_id_map_lookup(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "lastname": "Y",
+            "created_by": {"id": 43},
+        }
+        result = traffit_employee_to_candidate(payload, {"43": 100})
+        assert result["created_by"] == 100
+
+    def test_user_not_in_map_no_attribution(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "lastname": "Y",
+            "created_by": {"id": 999},
+        }
+        result = traffit_employee_to_candidate(payload, {"43": 100})
+        assert result["created_by"] is None
+
+    def test_name_fallback_email_localpart(self):
+        payload = {
+            "id": 1,
+            "name": "",
+            "lastname": "",
+            "email": "alice@example.com",
+        }
+        result = traffit_employee_to_candidate(payload)
+        assert result["name"] == "alice"
+        assert result["lastname"] == "?"
+
+    def test_languages_string_normalized_to_list(self):
+        payload = {"id": 1, "name": "X", "candidate_languages": "Polish, English"}
+        result = traffit_employee_to_candidate(payload)
+        assert result["languages"] == [
+            {"lang": "Polish, English", "level": None}
+        ]
+
+    def test_no_files(self):
+        payload = {"id": 1, "name": "X", "files": []}
+        result = traffit_employee_to_candidate(payload)
+        assert result["cv_filename"] is None
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_employee_to_candidate({"name": "X"})
+
+
+# ── Faza 5: recruitment → job ───────────────────────────────────────────────
+
+
+class TestNormalizeJobStatus:
+    def test_is_closed_overrides(self):
+        assert normalize_job_status("active", is_closed=True) == "closed"
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("active", "published"),
+            ("open", "published"),
+            ("otwarta", "published"),
+            ("draft", "draft"),
+            ("closed", "closed"),
+            ("zamknięta", "closed"),
+            ("unknown", "draft"),
+            (None, "draft"),
+        ],
+    )
+    def test_mapping(self, raw, expected):
+        assert normalize_job_status(raw) == expected
+
+
+class TestTraffitRecruitmentToJob:
+    def test_full_fixture(self):
+        payload = _load("recruitments_detail.json")
+        client_map = {str(payload["client"]["id"]): 50}
+        workflow_map = {str(payload["workflow_id"]): 200}
+
+        result = traffit_recruitment_to_job(
+            payload, client_map, workflow_map, user_id_map={}
+        )
+        assert result["external_id"] == str(payload["id"])
+        assert result["external_source"] == "traffit"
+        assert result["client_id"] == 50
+        assert result["pipeline_template_id"] == 200
+        assert result["title"]  # not empty
+        assert result["custom_fields"]["traffit_is_confidential"] in (False, True)
+
+    def test_unknown_client_returns_none(self):
+        payload = {"id": 1, "name": "X", "client": {"id": 999}}
+        result = traffit_recruitment_to_job(payload, {"1": 50}, {}, None)
+        assert result["client_id"] is None
+
+    def test_is_closed_overrides_status(self):
+        payload = {"id": 1, "name": "X", "status": "active", "is_closed": True}
+        result = traffit_recruitment_to_job(payload, {}, {}, None)
+        assert result["status"] == "closed"
+
+    def test_closing_date_parsed_to_iso(self):
+        payload = {"id": 1, "name": "X", "closing_date": "2026-12-31 00:00:00"}
+        result = traffit_recruitment_to_job(payload, {}, {}, None)
+        assert result["deadline"] == "2026-12-31"
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_recruitment_to_job({"name": "X"}, {}, {}, None)
+
+
+# ── Faza 5: talent → talent_pool ────────────────────────────────────────────
+
+
+class TestTraffitTalentToPool:
+    def test_minimal(self):
+        result = traffit_talent_to_pool({"id": 5, "name": "Frontend"})
+        assert result["external_id"] == "5"
+        assert result["external_source"] == "traffit"
+        assert result["name"] == "Frontend"
+
+    def test_empty_name_falls_back(self):
+        result = traffit_talent_to_pool({"id": 7, "name": ""})
+        assert result["name"] == "Pula #7"
+
+    def test_user_id_map(self):
+        result = traffit_talent_to_pool(
+            {"id": 1, "name": "X", "created_by": {"id": 42}}, {"42": 100}
+        )
+        assert result["created_by"] == 100
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_talent_to_pool({"name": "X"})
