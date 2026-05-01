@@ -1,0 +1,19 @@
+[
+  {
+    "is_active": false,
+    "created_by": {
+      "id": 1
+    },
+    "updated_by": {
+      "id": 1
+    },
+    "id": 28,
+    "permission_group": {
+      "id": 3,
+      "name": "Sample"
+    },
+    "username": "user",
+    "email": "user@example.com",
+    "updated_at": "2022-12-22 11:51:23"
+  }
+]

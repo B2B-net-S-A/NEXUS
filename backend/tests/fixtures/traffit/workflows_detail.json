@@ -1,0 +1,136 @@
+{
+  "id": 4,
+  "name": "Sample",
+  "states": [
+    {
+      "id": 19,
+      "name": "Sample",
+      "type": "start",
+      "sid": "Nowy",
+      "order": 0,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 23,
+      "name": "Sample",
+      "type": "screening",
+      "sid": "Screening",
+      "order": 1,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 32,
+      "name": "Sample",
+      "type": "initial_accept",
+      "time_limit": 5,
+      "order": 2,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 38,
+      "name": "Sample",
+      "type": "technical_verification",
+      "order": 3,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 37,
+      "name": "Sample",
+      "type": "task",
+      "time_limit": 1,
+      "order": 4,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 24,
+      "name": "Sample",
+      "type": "client_verification",
+      "sid": "Wysłany do Klienta",
+      "order": 5,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 36,
+      "name": "Sample",
+      "type": "technical_verification",
+      "order": 6,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 35,
+      "name": "Sample",
+      "type": "technical_verification",
+      "order": 7,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 25,
+      "name": "Sample",
+      "type": "interview",
+      "sid": "Interview",
+      "order": 8,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 33,
+      "name": "Sample",
+      "type": "interview",
+      "order": 9,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 34,
+      "name": "Sample",
+      "type": "initial_accept",
+      "order": 10,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 26,
+      "name": "Sample",
+      "type": "initial_accept",
+      "sid": "Zaakceptowany",
+      "order": 11,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 20,
+      "name": "Sample",
+      "type": "end-good",
+      "sid": "Zatrudniony",
+      "order": 9999997,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 21,
+      "name": "Sample",
+      "type": "end-bad",
+      "sid": "Odrzucenie",
+      "order": 9999998,
+      "is_public": false,
+      "is_rejection": false
+    },
+    {
+      "id": 22,
+      "name": "Sample",
+      "type": "wait",
+      "sid": "Współpraca zakończona",
+      "order": 9999999,
+      "is_public": false,
+      "is_rejection": false
+    }
+  ]
+}

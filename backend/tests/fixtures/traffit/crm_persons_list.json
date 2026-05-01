@@ -1,0 +1,20 @@
+[
+  {
+    "id": 24,
+    "name": "Sample",
+    "lastname": "User",
+    "email": "user@example.com",
+    "status": "active",
+    "client": {
+      "id": 8
+    },
+    "created_by": {
+      "id": 53
+    },
+    "updated_by": {
+      "id": 53
+    },
+    "created_at": "2024-01-24 16:19:00",
+    "updated_at": "2024-01-24 16:19:00"
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "is_confidential": false,
+    "id": 60,
+    "name": "Sample",
+    "client": {
+      "id": 1,
+      "name": "Sample"
+    },
+    "is_closed": true,
+    "closing_date": "2023-02-22 09:54:21",
+    "nrRef": "/12/08/2022/EP",
+    "created_by": {
+      "id": 49
+    },
+    "updated_by": {
+      "id": 40
+    },
+    "created_at": "2022-08-09 09:59:10",
+    "updated_at": "2023-02-22 09:54:21"
+  }
+]
