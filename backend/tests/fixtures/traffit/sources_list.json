@@ -1,0 +1,18 @@
+[
+  {
+    "id": 5,
+    "domain": "https://example.com",
+    "url": "https://example.com",
+    "employee": {
+      "id": 6708
+    },
+    "dictionary_item": {
+      "id": 143
+    },
+    "employee_application": {
+      "recruitment": {
+        "id": 52
+      }
+    }
+  }
+]

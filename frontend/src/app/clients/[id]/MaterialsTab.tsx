@@ -10,6 +10,11 @@ import {
   Upload,
   Save,
   X,
+  ShieldCheck,
+  AlertCircle,
+  CheckCircle2,
+  CircleDashed,
+  MinusCircle,
 } from "lucide-react";
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -103,12 +108,60 @@ function fileIcon(filename: string) {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
+type SubTab = "one_pagers" | "required_docs" | "contract_terms";
+
 export function MaterialsTab({ clientId }: { clientId: number }) {
+  const [active, setActive] = useState<SubTab>("one_pagers");
+
   return (
-    <div className="space-y-8">
-      <OnePagersSection clientId={clientId} />
-      <ContractTermsSection clientId={clientId} />
+    <div className="space-y-4">
+      <div className="inline-flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
+        <SubTabButton
+          active={active === "one_pagers"}
+          onClick={() => setActive("one_pagers")}
+          label="One-pagery"
+        />
+        <SubTabButton
+          active={active === "required_docs"}
+          onClick={() => setActive("required_docs")}
+          label="Wymagane dokumenty"
+        />
+        <SubTabButton
+          active={active === "contract_terms"}
+          onClick={() => setActive("contract_terms")}
+          label="Warunki kontraktowe"
+        />
+      </div>
+
+      {active === "one_pagers" && <OnePagersSection clientId={clientId} />}
+      {active === "required_docs" && (
+        <RequiredDocumentsSection clientId={clientId} />
+      )}
+      {active === "contract_terms" && <ContractTermsSection clientId={clientId} />}
     </div>
+  );
+}
+
+function SubTabButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+        active
+          ? "bg-white dark:bg-gray-700 text-purple-700 dark:text-purple-300 shadow-sm"
+          : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -407,6 +460,595 @@ function UploadSheet({
               className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
             >
               {submitting ? "Wysyłam…" : "Wyślij"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Section: Required documents ─────────────────────────────────────────────
+
+type DocStatus = "pending" | "uploaded" | "signed" | "n_a";
+
+interface RequiredDocTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  sort_order: number;
+}
+
+interface RequiredDoc {
+  id: number;
+  client_id: number;
+  template_id: number | null;
+  name: string;
+  description: string | null;
+  is_mandatory: boolean;
+  status: DocStatus;
+  filename: string | null;
+  content_type: string | null;
+  size_bytes: number | null;
+  uploaded_by: number | null;
+  uploaded_by_email: string | null;
+  uploaded_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const STATUS_META: Record<
+  DocStatus,
+  { label: string; bg: string; text: string; icon: React.ReactNode }
+> = {
+  pending: {
+    label: "Oczekuje",
+    bg: "bg-gray-100 dark:bg-gray-700",
+    text: "text-gray-600 dark:text-gray-300",
+    icon: <CircleDashed className="w-3.5 h-3.5" />,
+  },
+  uploaded: {
+    label: "Wgrany",
+    bg: "bg-blue-100 dark:bg-blue-900/30",
+    text: "text-blue-700 dark:text-blue-300",
+    icon: <AlertCircle className="w-3.5 h-3.5" />,
+  },
+  signed: {
+    label: "Podpisany",
+    bg: "bg-green-100 dark:bg-green-900/30",
+    text: "text-green-700 dark:text-green-300",
+    icon: <CheckCircle2 className="w-3.5 h-3.5" />,
+  },
+  n_a: {
+    label: "N/D",
+    bg: "bg-gray-100 dark:bg-gray-700",
+    text: "text-gray-400 line-through",
+    icon: <MinusCircle className="w-3.5 h-3.5" />,
+  },
+};
+
+function RequiredDocumentsSection({ clientId }: { clientId: number }) {
+  const qc = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [showApply, setShowApply] = useState(false);
+  const [editing, setEditing] = useState<RequiredDoc | null>(null);
+
+  const { data: docs = [], isLoading } = useQuery<RequiredDoc[]>({
+    queryKey: ["client-required-docs", clientId],
+    queryFn: () =>
+      api
+        .get(`/api/clients/${clientId}/required-documents`)
+        .then((r) => r.data),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) =>
+      api.delete(`/api/clients/${clientId}/required-documents/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-required-docs", clientId] });
+      showSuccess("Usunięto");
+    },
+    onError: () => showError("Nie udało się usunąć"),
+  });
+
+  return (
+    <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-purple-600" />
+            Wymagane dokumenty
+          </h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            NDA, RODO, klauzule off-limits — wymogi przed startem współpracy
+          </p>
+        </div>
+        <button
+          onClick={() => setShowApply(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Z szablonu
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-400">Ładowanie…</p>
+      ) : docs.length === 0 ? (
+        <div className="text-center py-8 text-gray-400 text-sm">
+          Brak wymogów. Kliknij &bdquo;Z szablonu&rdquo;, aby zaaplikować NDA / RODO / off-limits / warunki płatności.
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+          {docs.map((d) => (
+            <RequiredDocRow
+              key={d.id}
+              clientId={clientId}
+              doc={d}
+              onEdit={() => setEditing(d)}
+              onDelete={() => deleteMutation.mutate(d.id)}
+            />
+          ))}
+        </ul>
+      )}
+
+      {showApply && (
+        <ApplyTemplatesDialog
+          clientId={clientId}
+          existingTemplateIds={new Set(
+            docs.map((d) => d.template_id).filter((x): x is number => x !== null)
+          )}
+          onClose={() => setShowApply(false)}
+          onSuccess={(count) => {
+            qc.invalidateQueries({
+              queryKey: ["client-required-docs", clientId],
+            });
+            setShowApply(false);
+            if (count > 0) {
+              showSuccess(`Dodano ${count} wymóg(i) z szablonu`);
+            } else {
+              showError("Wszystkie wybrane szablony są już zaaplikowane");
+            }
+          }}
+        />
+      )}
+
+      {editing && (
+        <EditDocDialog
+          clientId={clientId}
+          doc={editing}
+          onClose={() => setEditing(null)}
+          onSuccess={() => {
+            qc.invalidateQueries({
+              queryKey: ["client-required-docs", clientId],
+            });
+            setEditing(null);
+            showSuccess("Zapisano");
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function RequiredDocRow({
+  clientId,
+  doc,
+  onEdit,
+  onDelete,
+}: {
+  clientId: number;
+  doc: RequiredDoc;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const qc = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [uploading, setUploading] = useState(false);
+  const meta = STATUS_META[doc.status];
+
+  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      showError(`Plik za duży (max ${MAX_UPLOAD_MB} MB)`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await api.post(
+        `/api/clients/${clientId}/required-documents/${doc.id}/upload`,
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } }
+      );
+      qc.invalidateQueries({ queryKey: ["client-required-docs", clientId] });
+      showSuccess("Plik wgrany");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } }).response?.data
+          ?.detail ?? "Błąd uploadu";
+      showError(msg);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  async function handleDownload() {
+    try {
+      const res = await api.get(
+        `/api/clients/${clientId}/required-documents/${doc.id}/download`,
+        { responseType: "blob" }
+      );
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.filename ?? "file";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      showError("Nie udało się pobrać pliku");
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
+            {doc.name}
+          </span>
+          {doc.is_mandatory && doc.status !== "n_a" && (
+            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
+              wymagany
+            </span>
+          )}
+          <span
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text}`}
+          >
+            {meta.icon}
+            {meta.label}
+          </span>
+        </div>
+        {doc.description && (
+          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+            {doc.description}
+          </p>
+        )}
+        {doc.filename && (
+          <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+            <span className="truncate">{doc.filename}</span>
+            <span>·</span>
+            <span>{formatSize(doc.size_bytes)}</span>
+            {doc.uploaded_at && (
+              <>
+                <span>·</span>
+                <span>{formatDate(doc.uploaded_at)}</span>
+              </>
+            )}
+            {doc.uploaded_by_email && (
+              <>
+                <span>·</span>
+                <span className="truncate">{doc.uploaded_by_email}</span>
+              </>
+            )}
+          </div>
+        )}
+        {doc.notes && (
+          <p className="text-xs text-gray-400 mt-1 italic line-clamp-2">
+            {doc.notes}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {doc.filename && (
+          <button
+            onClick={handleDownload}
+            className="p-1.5 text-gray-400 hover:text-purple-600 transition-colors"
+            title="Pobierz"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        )}
+        <label className="p-1.5 text-gray-400 hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
+          <Upload className="w-4 h-4" />
+          <input
+            type="file"
+            className="hidden"
+            onChange={handleUpload}
+            disabled={uploading}
+          />
+        </label>
+        <button
+          onClick={onEdit}
+          className="px-2 py-1 text-xs text-gray-600 hover:text-purple-600 transition-colors"
+        >
+          Edytuj
+        </button>
+        <DeleteButton onConfirm={onDelete} />
+      </div>
+    </li>
+  );
+}
+
+function ApplyTemplatesDialog({
+  clientId,
+  existingTemplateIds,
+  onClose,
+  onSuccess,
+}: {
+  clientId: number;
+  existingTemplateIds: Set<number>;
+  onClose: () => void;
+  onSuccess: (createdCount: number) => void;
+}) {
+  const { showError } = useToast();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [submitting, setSubmitting] = useState(false);
+
+  const { data: templates = [], isLoading } = useQuery<RequiredDocTemplate[]>({
+    queryKey: ["required-document-templates"],
+    queryFn: () =>
+      api.get(`/api/required-document-templates`).then((r) => r.data),
+  });
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function submit(applyAllDefaults: boolean) {
+    setSubmitting(true);
+    try {
+      const ids = applyAllDefaults ? null : Array.from(selected);
+      const res = await api.post(
+        `/api/clients/${clientId}/required-documents/apply-templates`,
+        { template_ids: ids }
+      );
+      onSuccess(res.data.length);
+    } catch {
+      showError("Nie udało się zaaplikować szablonów");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Aplikuj szablon(y)
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          {isLoading ? (
+            <p className="text-sm text-gray-400">Ładowanie szablonów…</p>
+          ) : templates.length === 0 ? (
+            <p className="text-sm text-gray-400">Brak szablonów.</p>
+          ) : (
+            <ul className="space-y-2">
+              {templates.map((t) => {
+                const already = existingTemplateIds.has(t.id);
+                return (
+                  <li key={t.id} className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(t.id)}
+                      onChange={() => toggle(t.id)}
+                      disabled={already}
+                      className="mt-1"
+                      id={`tmpl-${t.id}`}
+                    />
+                    <label
+                      htmlFor={`tmpl-${t.id}`}
+                      className={`flex-1 text-sm cursor-pointer ${
+                        already ? "text-gray-400" : "text-gray-900 dark:text-gray-100"
+                      }`}
+                    >
+                      <div className="font-medium">
+                        {t.name}
+                        {already && (
+                          <span className="ml-2 text-xs text-gray-400">
+                            (już zaaplikowany)
+                          </span>
+                        )}
+                      </div>
+                      {t.description && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {t.description}
+                        </p>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            Anuluj
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(true)}
+            disabled={submitting || templates.length === 0}
+            className="px-3 py-1.5 rounded-lg text-sm text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
+          >
+            Aplikuj wszystkie domyślne
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(false)}
+            disabled={submitting || selected.size === 0}
+            className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+          >
+            Aplikuj wybrane ({selected.size})
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditDocDialog({
+  clientId,
+  doc,
+  onClose,
+  onSuccess,
+}: {
+  clientId: number;
+  doc: RequiredDoc;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [name, setName] = useState(doc.name);
+  const [description, setDescription] = useState(doc.description ?? "");
+  const [status, setStatus] = useState<DocStatus>(doc.status);
+  const [isMandatory, setIsMandatory] = useState(doc.is_mandatory);
+  const [notes, setNotes] = useState(doc.notes ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const { showError } = useToast();
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await api.patch(
+        `/api/clients/${clientId}/required-documents/${doc.id}`,
+        {
+          name: name.trim(),
+          description: description.trim() || null,
+          status,
+          is_mandatory: isMandatory,
+          notes: notes.trim() || null,
+        }
+      );
+      onSuccess();
+    } catch {
+      showError("Nie udało się zapisać");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Edytuj wymóg
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Nazwa
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 rounded-lg text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Opis
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 rounded-lg text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as DocStatus)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 rounded-lg text-sm"
+              >
+                <option value="pending">Oczekuje</option>
+                <option value="uploaded">Wgrany</option>
+                <option value="signed">Podpisany</option>
+                <option value="n_a">N/D</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 mt-6">
+              <input
+                type="checkbox"
+                checked={isMandatory}
+                onChange={(e) => setIsMandatory(e.target.checked)}
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Wymagany
+              </span>
+            </label>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Notatki
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-900 rounded-lg text-sm"
+              placeholder="Komentarz dla zespołu…"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              Anuluj
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name.trim()}
+              className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+            >
+              {submitting ? "Zapisuję…" : "Zapisz"}
             </button>
           </div>
         </form>

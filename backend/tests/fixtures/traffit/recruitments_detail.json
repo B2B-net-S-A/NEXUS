@@ -1,0 +1,27 @@
+{
+  "workflow_id": 4,
+  "id": 60,
+  "status": "active",
+  "name": "Sample",
+  "client": {
+    "id": 1,
+    "name": "Sample"
+  },
+  "is_closed": true,
+  "closing_date": "2023-02-22 09:54:21",
+  "nrRef": "/12/08/2022/EP",
+  "responsible_person": [
+    {
+      "id": 49,
+      "email": "user@example.com"
+    }
+  ],
+  "created_by": {
+    "id": 49
+  },
+  "updated_by": {
+    "id": 40
+  },
+  "created_at": "2022-08-09 09:59:10",
+  "updated_at": "2023-02-22 09:54:21"
+}

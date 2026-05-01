@@ -1,0 +1,71 @@
+{
+  "fields": {
+    "id": {
+      "type": "integer",
+      "required": true,
+      "structure": []
+    },
+    "name": {
+      "type": "text",
+      "required": false,
+      "structure": []
+    },
+    "lastname": {
+      "type": "text",
+      "required": true,
+      "structure": []
+    },
+    "email": {
+      "type": "email",
+      "required": false,
+      "structure": []
+    },
+    "status": {
+      "type": "text",
+      "required": true,
+      "structure": []
+    },
+    "created_at": {
+      "type": "datetime",
+      "required": true,
+      "structure": [],
+      "format": "yyyy-MM-dd HH:mm:ss"
+    },
+    "updated_at": {
+      "type": "datetime",
+      "required": true,
+      "structure": [],
+      "format": "yyyy-MM-dd HH:mm:ss"
+    },
+    "created_by": {
+      "type": "user_entity",
+      "required": true,
+      "structure": [
+        []
+      ]
+    },
+    "updated_by": {
+      "type": "user_entity",
+      "required": true,
+      "structure": [
+        []
+      ]
+    },
+    "guid": {
+      "type": "text",
+      "required": false,
+      "structure": []
+    },
+    "synchro_time": {
+      "type": "datetime",
+      "required": false,
+      "structure": [],
+      "format": "yyyy-MM-dd HH:mm:ss"
+    },
+    "client": {
+      "type": "entity",
+      "required": true,
+      "structure": []
+    }
+  }
+}

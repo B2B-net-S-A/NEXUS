@@ -45,6 +45,7 @@ from app.api import calls
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
+from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
 from app.api import prep_kit
@@ -304,6 +305,9 @@ app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(client_materials.router, prefix="/api", tags=["client-materials"])
+app.include_router(
+    required_documents.router, prefix="/api", tags=["required-documents"]
+)
 app.include_router(screenings.router, prefix="/api", tags=["screenings"])
 app.include_router(contacts.router, prefix="/api", tags=["contacts"])
 app.include_router(prep_kit.router, prefix="/api", tags=["prep-kit"])

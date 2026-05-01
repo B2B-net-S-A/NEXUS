@@ -1,0 +1,35 @@
+[
+  {
+    "id": 1246,
+    "name": "Sample",
+    "lastname": "User",
+    "status": "active",
+    "files": [
+      {
+        "filename": "file.pdf",
+        "file_uploaded": "2020-01-01 00:00:00"
+      }
+    ],
+    "email": "user@example.com",
+    "created_at": "2019-05-12 00:00:00",
+    "updated_at": "2022-07-19 06:59:26",
+    "created_by": {
+      "id": 43
+    },
+    "updated_by": {
+      "id": 43
+    },
+    "mobile": "+48000000000",
+    "candidate_about": null,
+    "candidate_location": null,
+    "candidate_languages": null,
+    "linkedin": null,
+    "_nationality": null,
+    "_experience": null,
+    "_education": null,
+    "_technologie": null,
+    "_certificates": null,
+    "_previous_employers": null,
+    "_Position": null
+  }
+]

@@ -50,6 +50,13 @@ class Client(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # External source tracking — Traffit / future imports.
+    # Migracja 0071 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     # Relationships
     jobs = relationship("Job", back_populates="client")
     contracts = relationship("Contract", back_populates="client")

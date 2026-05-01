@@ -1,0 +1,15 @@
+[
+  {
+    "id": 26,
+    "name": "Sample",
+    "created_by": {
+      "id": 54
+    },
+    "updated_by": {
+      "id": 54
+    },
+    "created_at": "2022-09-20 11:53:44",
+    "updated_at": "2022-09-20 11:53:44",
+    "status": "Aktywny"
+  }
+]
