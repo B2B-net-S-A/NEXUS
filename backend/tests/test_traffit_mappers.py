@@ -15,10 +15,14 @@ from app.services.traffit.mappers import (
     normalize_candidate_status,
     normalize_client_status,
     normalize_job_status,
+    select_primary_cv_file,
+    traffit_activity_to_activity,
     traffit_client_to_nexus,
     traffit_crm_person_to_nexus,
     traffit_employee_to_candidate,
+    traffit_recruitment_history_to_stage,
     traffit_recruitment_to_job,
+    traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
@@ -442,3 +446,203 @@ class TestTraffitTalentToPool:
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
             traffit_talent_to_pool({"name": "X"})
+
+
+# ── Faza 5b: select_primary_cv_file ─────────────────────────────────────────
+
+
+class TestSelectPrimaryCvFile:
+    def test_empty(self):
+        assert select_primary_cv_file([]) is None
+
+    def test_no_id(self):
+        # Files without `id` are not downloadable
+        assert select_primary_cv_file([{"name": "cv.pdf"}]) is None
+
+    def test_pdf_preferred_over_docx(self):
+        files = [
+            {"id": 1, "name": "old.docx"},
+            {"id": 2, "name": "new.pdf"},
+        ]
+        result = select_primary_cv_file(files)
+        assert result["id"] == 2
+
+    def test_docx_preferred_over_doc(self):
+        files = [
+            {"id": 1, "name": "old.doc"},
+            {"id": 2, "name": "new.docx"},
+        ]
+        result = select_primary_cv_file(files)
+        assert result["id"] == 2
+
+    def test_unknown_extension_lowest_priority(self):
+        files = [
+            {"id": 1, "name": "scan.jpg"},
+            {"id": 2, "name": "cv.pdf"},
+        ]
+        result = select_primary_cv_file(files)
+        assert result["id"] == 2
+
+    def test_only_unknown_returns_first(self):
+        files = [{"id": 7, "name": "scan.jpg"}, {"id": 8, "name": "other.tif"}]
+        result = select_primary_cv_file(files)
+        assert result is not None
+        assert result["id"] == 7
+
+
+# ── Faza 5b: recruitment_history → candidate_stages ─────────────────────────
+
+
+class TestTraffitRecruitmentHistoryToStage:
+    def test_full_fixture(self):
+        # recruitment_history_list[0]: id=19, employee.id=6708, recruitment.id=52,
+        # workflow_state.id=19 (type=start)
+        history = _load("recruitment_history_list.json")
+        record = history[0]
+
+        cand_map = {"6708": 1000}  # Traffit emp 6708 → Nexus candidate 1000
+        job_map = {"52": 200}  # Traffit recruitment 52 → Nexus job 200
+        sd_id_map = {"19": 50}  # Traffit state 19 → Nexus stage_def 50
+        sd_legacy_map = {"19": "new"}
+
+        result = traffit_recruitment_history_to_stage(
+            record, cand_map, job_map, sd_id_map, sd_legacy_map, user_id_map={"40": 5}
+        )
+        assert result is not None
+        assert result["external_id"] == "19"
+        assert result["candidate_id"] == 1000
+        assert result["job_id"] == 200
+        assert result["stage_def_id"] == 50
+        assert result["stage_legacy_enum"] == "new"
+        assert result["moved_by"] == 5
+
+    def test_missing_employee_returns_none(self):
+        record = {
+            "id": 1,
+            "recruitment": {"id": 52},
+            "workflow_state": {"id": 19},
+            # employee field missing
+        }
+        result = traffit_recruitment_history_to_stage(
+            record, {}, {}, {}, {}, None
+        )
+        assert result is None
+
+    def test_unknown_candidate_returns_none(self):
+        record = {
+            "id": 1,
+            "employee": {"id": 999},
+            "recruitment": {"id": 52},
+            "workflow_state": {"id": 19},
+        }
+        result = traffit_recruitment_history_to_stage(
+            record, {}, {"52": 200}, {"19": 50}, {"19": "new"}, None
+        )
+        assert result is None
+
+    def test_unknown_state_falls_back_to_screening(self):
+        record = {
+            "id": 1,
+            "employee": {"id": 100},
+            "recruitment": {"id": 200},
+            "workflow_state": {"id": 999},  # state not in map
+            "date": "2024-01-01 00:00:00",
+        }
+        result = traffit_recruitment_history_to_stage(
+            record, {"100": 1}, {"200": 2}, {}, {}, None
+        )
+        assert result is not None
+        assert result["stage_def_id"] is None
+        assert result["stage_legacy_enum"] == "screening"  # default
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_recruitment_history_to_stage(
+                {"employee": {"id": 1}}, {}, {}, {}, {}, None
+            )
+
+
+# ── Faza 5b: activity → activity ────────────────────────────────────────────
+
+
+class TestTraffitActivityToActivity:
+    def test_full_fixture(self):
+        # employee_activities_list[0]: id=1558, type.id=91, type.value=Sample,
+        # content=Sample content, created_by.id=43
+        # NOTE: fixture nie ma `employee` field — to global activities listing.
+        # Sprawdzę handcrafted payload.
+        record = {
+            "id": 1558,
+            "activity_date": "2022-07-19 06:59:26",
+            "type": {"id": 91, "value": "Import - dodany"},
+            "content": "Sample content",
+            "employee": {"id": 1246},  # global endpoint zawiera employee
+            "created_by": {"id": 43},
+        }
+        result = traffit_activity_to_activity(
+            record, {"1246": 500}, user_id_map={"43": 7}
+        )
+        assert result is not None
+        assert result["external_id"] == "1558"
+        assert result["entity_type"] == "candidate"
+        assert result["entity_id"] == 500
+        assert result["action"] == "traffit:Import - dodany"
+        assert result["details"]["traffit_type_value"] == "Import - dodany"
+        assert result["details"]["content"] == "Sample content"
+        assert result["user_id"] == 7
+
+    def test_missing_employee_returns_none(self):
+        result = traffit_activity_to_activity(
+            {"id": 1, "type": {"id": 1, "value": "X"}}, {}, None
+        )
+        assert result is None
+
+    def test_unknown_candidate_returns_none(self):
+        result = traffit_activity_to_activity(
+            {"id": 1, "employee": {"id": 999}, "type": {"value": "X"}},
+            {"1": 100},
+            None,
+        )
+        assert result is None
+
+    def test_unknown_type_falls_back_to_unknown(self):
+        result = traffit_activity_to_activity(
+            {"id": 1, "employee": {"id": 1}}, {"1": 100}, None
+        )
+        assert result is not None
+        assert result["action"] == "traffit:unknown"
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_activity_to_activity({"employee": {"id": 1}}, {}, None)
+
+
+# ── Faza 5b: source → candidate.tags ────────────────────────────────────────
+
+
+class TestTraffitSourceToCandidateTag:
+    def test_full_payload(self):
+        record = {
+            "id": 5001,
+            "employee": {"id": 1246},
+            "dictionary_item": {"id": 150, "value": "LinkedIn"},
+            "domain": "linkedin.com",
+            "url": "https://linkedin.com/in/sample",
+        }
+        result = traffit_source_to_candidate_tag(record, {"1246": 500})
+        assert result["candidate_id"] == 500
+        tag = result["tag"]
+        assert tag["type"] == "traffit_source"
+        assert tag["source_id"] == 5001
+        assert tag["value"] == "LinkedIn"
+        assert tag["domain"] == "linkedin.com"
+
+    def test_unknown_employee(self):
+        result = traffit_source_to_candidate_tag(
+            {"id": 1, "employee": {"id": 999}}, {"1": 100}
+        )
+        assert result is None
+
+    def test_missing_id_returns_none(self):
+        result = traffit_source_to_candidate_tag({"employee": {"id": 1}}, {})
+        assert result is None

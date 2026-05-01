@@ -1,13 +1,22 @@
 """CLI: jednorazowa migracja Traffit → Nexus.
 
 Phases (uruchamiać w tej kolejności przy pierwszej migracji):
-    1. workflows   — Traffit workflows → pipeline_templates + pipeline_stage_defs
-    2. clients     — /clients/ → clients
-    3. contacts    — /crm_persons/ → contacts (z lookup po external_id klienta)
-    4. candidates  — /employees/ → candidates (BEZ CV files; tylko metadata)
-    5. jobs        — /recruitments/ → jobs (z lookup po klientach + workflows)
-    6. talents     — /talents/ → talent_pools
-    7. reconcile   — counts Traffit vs Nexus dla wszystkich encji
+    1. workflows           — Traffit workflows → pipeline_templates + stage_defs
+    2. clients             — /clients/ → clients
+    3. contacts            — /crm_persons/ → contacts (lookup po klientach)
+    4. candidates          — /employees/ → candidates (metadata, BEZ binary CV)
+    5. jobs                — /recruitments/ → jobs (lookup po klientach/workflows)
+    6. talents             — /talents/ → talent_pools
+
+  (Faza 5b — wymaga ukończonych phases 1-5)
+    7. candidates-cv       — pobiera CV (binary) per kandydat z external_source=traffit
+    8. pipelines           — /employees/recruitment_history → candidate_stages
+                             (151k stage moves; ~2.5h przy 5 RPS)
+    9. candidate-activities — /employees/activities → activities
+                             (343k records; ~5.7h)
+   10. candidate-sources   — /sources/ → candidate.tags (JSONB list)
+
+   11. reconcile           — counts Traffit vs Nexus dla wszystkich encji
 
 Uruchomienie:
     python -m app.cli.import_traffit --phase clients
@@ -46,6 +55,10 @@ VALID_PHASES = {
     "candidates",
     "jobs",
     "talents",
+    "candidates-cv",
+    "pipelines",
+    "candidate-activities",
+    "candidate-sources",
     "reconcile",
 }
 
@@ -67,6 +80,10 @@ _PHASE_RUNNERS: dict[str, str] = {
     "candidates": "import_candidates",
     "jobs": "import_jobs",
     "talents": "import_talents",
+    "candidates-cv": "import_candidates_cv",
+    "pipelines": "import_pipelines",
+    "candidate-activities": "import_candidate_activities",
+    "candidate-sources": "import_candidate_sources",
 }
 
 

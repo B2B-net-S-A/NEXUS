@@ -1,0 +1,123 @@
+[
+  {
+    "id": 19,
+    "date": "2022-08-08 15:27:30",
+    "end_date": "2022-08-08 15:27:48",
+    "employee": {
+      "id": 6708
+    },
+    "recruitment": {
+      "id": 52
+    },
+    "workflow_state": {
+      "id": 19,
+      "name": "Sample",
+      "type": "start",
+      "sid": "SampleStage"
+    },
+    "created_at": "2022-08-08 15:27:30",
+    "updated_at": "2022-08-08 15:27:48",
+    "created_by": {
+      "id": 40
+    },
+    "updated_by": {
+      "id": 40
+    }
+  },
+  {
+    "id": 22,
+    "date": "2022-08-08 15:27:48",
+    "employee": {
+      "id": 6708
+    },
+    "recruitment": {
+      "id": 52
+    },
+    "workflow_state": {
+      "id": 24,
+      "name": "Sample",
+      "type": "client_verification",
+      "sid": "SampleStage"
+    },
+    "created_at": "2022-08-08 15:27:48",
+    "updated_at": "2022-08-08 15:27:48",
+    "created_by": {
+      "id": 40
+    },
+    "updated_by": {
+      "id": 40
+    }
+  },
+  {
+    "id": 24,
+    "date": "2022-08-09 10:00:15",
+    "end_date": "2022-08-09 10:00:15",
+    "employee": {
+      "id": 6712
+    },
+    "recruitment": {
+      "id": 55
+    },
+    "workflow_state": {
+      "id": 19,
+      "name": "Sample",
+      "type": "start",
+      "sid": "SampleStage"
+    },
+    "created_at": "2022-08-09 10:00:15",
+    "updated_at": "2022-08-09 10:00:15",
+    "created_by": {
+      "id": 31
+    },
+    "updated_by": {
+      "id": 31
+    }
+  },
+  {
+    "id": 27,
+    "date": "2022-08-09 10:00:15",
+    "end_date": "2022-08-26 09:08:02",
+    "employee": {
+      "id": 6712
+    },
+    "recruitment": {
+      "id": 55
+    },
+    "workflow_state": {
+      "id": 24,
+      "name": "Sample",
+      "type": "client_verification",
+      "sid": "SampleStage"
+    },
+    "created_at": "2022-08-09 10:00:15",
+    "updated_at": "2022-08-26 09:08:02",
+    "created_by": {
+      "id": 31
+    },
+    "updated_by": {
+      "id": 31
+    }
+  },
+  {
+    "id": 29,
+    "date": "2022-08-09 10:02:28",
+    "end_date": "2022-08-30 10:57:49",
+    "employee": {
+      "id": 6713
+    },
+    "recruitment": {
+      "id": 54
+    },
+    "workflow_state": {
+      "id": 19,
+      "name": "Sample",
+      "type": "start",
+      "sid": "SampleStage"
+    },
+    "created_at": "2022-08-09 10:02:28",
+    "updated_at": "2022-08-30 10:57:49",
+    "updated_by": {
+      "id": 49
+    }
+  }
+]

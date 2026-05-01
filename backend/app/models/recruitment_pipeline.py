@@ -195,6 +195,13 @@ class CandidateStage(Base, TimestampMixin):
         nullable=True,
     )
 
+    # External source tracking — Traffit recruitment_history move ID itp.
+    # Migracja 0075 dodaje partial unique index na (external_source, external_id).
+    external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    external_source: Mapped[Optional[str]] = mapped_column(
+        String(50), default="manual", index=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="pipeline_stages")
     job = relationship("Job", back_populates="pipeline_stages")

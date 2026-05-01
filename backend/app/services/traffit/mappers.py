@@ -487,3 +487,209 @@ def traffit_talent_to_pool(
         "description": _pick_nonempty(payload.get("description")),
         "created_by": created_by_nexus,
     }
+
+
+# ── Faza 5b: recruitment_history → candidate_stages ─────────────────────────
+
+
+def traffit_recruitment_history_to_stage(
+    payload: dict[str, Any],
+    employee_external_id_to_candidate_id: dict[str, int],
+    recruitment_external_id_to_job_id: dict[str, int],
+    state_external_id_to_stage_def_id: dict[str, int],
+    state_external_id_to_legacy_enum: dict[str, str],
+    user_id_map: Optional[dict[str, int]] = None,
+) -> Optional[dict[str, Any]]:
+    """Map Traffit recruitment_history record → Nexus `candidate_stages` UPSERT dict.
+
+    Zwraca None jeśli employee/recruitment/state nie ma swojego odpowiednika
+    w Nexusie (caller logguje jako skip).
+
+    `traffit_history_id` jest niepowtarzalny per move (idempotent UPSERT).
+    """
+    history_id = payload.get("id")
+    if history_id is None:
+        raise ValueError("Traffit recruitment_history missing 'id'")
+
+    employee = payload.get("employee") or {}
+    recruitment = payload.get("recruitment") or {}
+    workflow_state = payload.get("workflow_state") or {}
+
+    emp_id = employee.get("id") if isinstance(employee, dict) else None
+    rec_id = recruitment.get("id") if isinstance(recruitment, dict) else None
+    state_id = (
+        workflow_state.get("id") if isinstance(workflow_state, dict) else None
+    )
+    if emp_id is None or rec_id is None or state_id is None:
+        return None
+
+    candidate_id = employee_external_id_to_candidate_id.get(str(emp_id))
+    job_id = recruitment_external_id_to_job_id.get(str(rec_id))
+    stage_def_id = state_external_id_to_stage_def_id.get(str(state_id))
+    legacy_enum = state_external_id_to_legacy_enum.get(str(state_id), "screening")
+
+    if candidate_id is None or job_id is None:
+        return None
+
+    # moved_at = `date` (start) z payload Traffita
+    moved_at = payload.get("date") or payload.get("created_at")
+
+    # moved_by — preferuj created_by, fallback updated_by
+    moved_by_nexus: Optional[int] = None
+    if user_id_map:
+        for key in ("created_by", "updated_by"):
+            obj = payload.get(key)
+            if isinstance(obj, dict):
+                tid = obj.get("id")
+                if tid is not None:
+                    moved_by_nexus = user_id_map.get(str(tid))
+                    if moved_by_nexus is not None:
+                        break
+
+    return {
+        "external_id": str(history_id),
+        "external_source": "traffit",
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "stage_def_id": stage_def_id,  # może być None gdy stage nieobecny w template
+        "stage_legacy_enum": legacy_enum,
+        "moved_at": moved_at,
+        "moved_by": moved_by_nexus,
+    }
+
+
+# ── Faza 5b: /employees/activities → activities ─────────────────────────────
+
+
+def traffit_activity_to_activity(
+    payload: dict[str, Any],
+    employee_external_id_to_candidate_id: dict[str, int],
+    user_id_map: Optional[dict[str, int]] = None,
+) -> Optional[dict[str, Any]]:
+    """Map Traffit activity → Nexus `activities` INSERT dict.
+
+    Zwraca None gdy employee nie ma odpowiednika w Nexusie.
+
+    Activity Nexusa ma {entity_type, entity_id, action, details, user_id}.
+    Trzymamy raw Traffit type w details.traffit_type i full content w details.
+    """
+    activity_id = payload.get("id")
+    if activity_id is None:
+        raise ValueError("Traffit activity missing 'id'")
+
+    employee = payload.get("employee") or {}
+    emp_id = employee.get("id") if isinstance(employee, dict) else None
+    # Activities lookup może być w globalnej liście — `employee` zwykle obecny.
+    # Ale niektóre tenanty mogą nie mieć tego — wtedy skipujemy.
+    if emp_id is None:
+        return None
+
+    candidate_id = employee_external_id_to_candidate_id.get(str(emp_id))
+    if candidate_id is None:
+        return None
+
+    activity_type = payload.get("type") or {}
+    type_value = (
+        activity_type.get("value") if isinstance(activity_type, dict) else None
+    )
+    type_id = activity_type.get("id") if isinstance(activity_type, dict) else None
+
+    action = f"traffit:{type_value or 'unknown'}"[:100]
+
+    user_nexus: Optional[int] = None
+    if user_id_map:
+        cb = payload.get("created_by")
+        if isinstance(cb, dict):
+            tid = cb.get("id")
+            if tid is not None:
+                user_nexus = user_id_map.get(str(tid))
+
+    return {
+        "external_id": str(activity_id),
+        "external_source": "traffit",
+        "entity_type": "candidate",
+        "entity_id": candidate_id,
+        "action": action,
+        "details": {
+            "traffit_type_id": type_id,
+            "traffit_type_value": type_value,
+            "activity_date": payload.get("activity_date"),
+            "content": payload.get("content"),
+        },
+        "user_id": user_nexus,
+    }
+
+
+# ── Faza 5b: /sources/ → candidate.tags entry ───────────────────────────────
+
+
+def traffit_source_to_candidate_tag(
+    payload: dict[str, Any],
+    employee_external_id_to_candidate_id: dict[str, int],
+) -> Optional[dict[str, Any]]:
+    """Map Traffit source record → tag entry dla `candidate.tags` JSONB list.
+
+    Zwraca dict {candidate_id, tag} gdzie tag = {"type": "traffit_source",
+    "source_id", "value", "domain", "url"}. Caller append'uje do tags listy
+    (z deduplication po source_id).
+
+    Zwraca None gdy employee nie zmigrowany.
+    """
+    source_id = payload.get("id")
+    if source_id is None:
+        return None
+
+    employee = payload.get("employee") or {}
+    emp_id = employee.get("id") if isinstance(employee, dict) else None
+    if emp_id is None:
+        return None
+
+    candidate_id = employee_external_id_to_candidate_id.get(str(emp_id))
+    if candidate_id is None:
+        return None
+
+    dictionary = payload.get("dictionary_item") or {}
+    value = (
+        dictionary.get("value") if isinstance(dictionary, dict) else None
+    )
+
+    return {
+        "candidate_id": candidate_id,
+        "tag": {
+            "type": "traffit_source",
+            "source_id": source_id,
+            "value": value,
+            "domain": payload.get("domain"),
+            "url": payload.get("url"),
+        },
+    }
+
+
+# ── Faza 5b: pliki — wybór CV ───────────────────────────────────────────────
+
+
+def select_primary_cv_file(files: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Wybierz najnowszy plik PDF/DOCX jako CV.
+
+    Reguła: preferuj `.pdf` > `.docx` > `.doc` > inne. Wśród tej samej
+    kategorii — pierwszy w liście (Traffit zwraca w order of upload).
+
+    Zwraca {id, name} lub None.
+    """
+    if not files:
+        return None
+    by_priority = {".pdf": 0, ".docx": 1, ".doc": 2}
+
+    def rank(f: dict[str, Any]) -> int:
+        name = (f.get("name") or "").lower()
+        for ext, prio in by_priority.items():
+            if name.endswith(ext):
+                return prio
+        return 99
+
+    # Items must have `id` to be downloadable
+    candidates = [f for f in files if f.get("id") is not None]
+    if not candidates:
+        return None
+    candidates.sort(key=rank)
+    return candidates[0]
