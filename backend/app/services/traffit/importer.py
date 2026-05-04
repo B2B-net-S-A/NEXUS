@@ -580,8 +580,7 @@ class TraffitImporter:
                                 CAST(:order AS integer),
                                 CAST(:category AS stagecategoryenum),
                                 CAST(:is_terminal AS boolean),
-                                CASE WHEN :terminal_type IS NULL THEN NULL
-                                     ELSE CAST(:terminal_type AS terminaltype) END,
+                                CAST(:terminal_type AS terminaltype),
                                 CAST(:legacy_enum_value AS varchar(50)),
                                 CAST(:external_id AS varchar(100)),
                                 'traffit',
