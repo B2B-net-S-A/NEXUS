@@ -713,6 +713,21 @@ class TraffitImporter:
             len(user_map),
         )
 
+        # Pre-load existing reference_numbers so we can disambiguate Traffit
+        # duplicates (same nrRef across different recruitments) without
+        # racing the uq_jobs_reference_number constraint mid-loop.
+        existing_refs_result = await self.db.execute(
+            text(
+                "SELECT reference_number, external_id FROM jobs "
+                "WHERE reference_number IS NOT NULL"
+            )
+        )
+        # ref -> external_id of the row that already owns it (None if it was
+        # set manually pre-import); during this run we update the same dict.
+        ref_owner: dict[str, Optional[str]] = {
+            row[0]: row[1] for row in existing_refs_result.fetchall()
+        }
+
         async for raw in self.traffit.get_paginated(
             "/recruitments/", page_size=self.batch_size
         ):
@@ -735,6 +750,20 @@ class TraffitImporter:
                         f"skip job ext={payload['external_id']}: no client mapping"
                     )
                 continue
+
+            # Disambiguate duplicate reference_number (Traffit allows it,
+            # Nexus has uq_jobs_reference_number). First occurrence keeps the
+            # raw nrRef; later ones get a "(#external_id)" suffix.
+            ref = payload.get("reference_number")
+            ext_id = payload["external_id"]
+            if ref:
+                owner = ref_owner.get(ref)
+                if owner is not None and owner != ext_id:
+                    suffixed = f"{ref} (#{ext_id})"[:100]
+                    payload["reference_number"] = suffixed
+                    ref_owner[suffixed] = ext_id
+                else:
+                    ref_owner[ref] = ext_id
 
             if self.dry_run:
                 progress.inserted += 1
