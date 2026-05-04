@@ -17,25 +17,27 @@
 
 ## Deploy
 
-- **Hosting:** Coolify on Hetzner.
-- **Registry:** **brak GHCR** — Coolify buduje obrazy lokalnie z compose `build:` block (świadoma decyzja, nie jak Compass/LeadGen).
+- **Hosting:** Coolify v4 self-hosted on Hetzner CAX21 ARM (91.99.199.112).
+- **Coolify panel:** `https://coolify-nexus.dynaminds.pl` (HTTPS+LE, public via Traefik route — od 2026-05-04).
+- **App UUID (Coolify):** `ocgkwcbovpve9wvf9smxl0kx`.
+- **Registry:** **brak GHCR** — Coolify buduje obrazy lokalnie z compose `build:` block (jednolite z Compass + LeadGen).
 - **Compose orkiestracja:**
-  - `docker-compose.yml` — base (no port bindings, Coolify Traefik routuje przez `expose:`).
+  - `docker-compose.yml` — base z `build:` block (no port bindings, Coolify Traefik routuje przez `expose:`).
   - `docker-compose.override.yml` — dev (re-adds host port bindings, auto-loaded przez `docker compose up`).
   - `docker-compose.prod.yml` — prod overlay (resource limits, healthchecks).
-- **Trigger deploy:** push `main` — Coolify ma webhook na repo, automatycznie pulluje + rebuilduje.
-- **Brak deploy job w CI:** `.github/workflows/ci.yml` to tylko quality gates; sam deploy jest event-driven od strony Coolify.
-
-> **Faza 4 nie dotyczy NEXUS-a** — już jest na Coolify.
+- **Auto-deploy:** ✅ **TAK** — `git push origin main` → `.github/workflows/deploy.yml` (unified template, PR #68 merged 2026-05-04) → Coolify webhook → build + restart → smoke test.
+- **Trigger:** push `main` → `.github/workflows/deploy.yml`.
+- **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy.
+- **Standardy + procedury:** patrz `~/.claude/rules/deployment.md` + `~/.claude/rules/deployment-runbook.md`.
 
 ## Healthcheck endpoint
 
-- **URL backend:** `/health` (FastAPI, no auth) — `app/main.py` linia ~424.
-- **URL frontend:** Dockerfile HEALTHCHECK na port 3000 (wget).
-- **Compose healthcheck:** tylko Postgres `pg_isready`; backend i frontend bez healthcheck w compose (są w Dockerfile).
-- **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron co X minut na `https://api.<nexus-url>/health`, oczekuje `jq -e '.status == "ok"'`.
-
-> **Faza 1 (TODO):** dodać `/api/health` z full shape (`{status, version, deployedAt, checks: {database, qdrant, voyage}}`). Zachować `/health` jako fallback przez 7 dni dla `uptime-probe.yml`.
+- **Standard URL:** `/api/health` z full shape `{status, version, deployedAt, checks: {database}}` (Faza 1.B done 2026-04-29, PR #61).
+- **Legacy URL:** `/health` zachowane jako alias (uptime-probe.yml legacy compat).
+- **Implementation:** `app/main.py` (`/api/health` z DB ping z 2s timeout).
+- **Compose healthcheck:** backend `curl /api/health` (docker-compose.prod.yml).
+- **Uptime probe:** `.github/workflows/uptime-probe.yml` — cron na `/api/health` z `jq -e '.status != "unhealthy"'`.
+- **GIT_SHA / BUILT_AT:** Coolify env vars (substytutowane przez `$SOURCE_COMMIT` + statyczny timestamp), patch via Coolify API (PR #62).
 
 ## Env vars (build-time vs runtime)
 
