@@ -63,8 +63,7 @@ def traffit_client_to_nexus(payload: dict[str, Any]) -> dict[str, Any]:
         # Trzymamy raw status w notes jako audit trail jeśli różny od mapped.
         "notes": (
             f"[traffit] status: {raw_status}"
-            if raw_status
-            and raw_status.strip().lower() not in _CLIENT_STATUS_MAP
+            if raw_status and raw_status.strip().lower() not in _CLIENT_STATUS_MAP
             else None
         ),
     }
@@ -126,9 +125,7 @@ def traffit_crm_person_to_nexus(
         "name": full_name[:255],
         "email": _pick_nonempty(payload.get("email")),
         "phone": _pick_nonempty(payload.get("phone"), payload.get("mobile")),
-        "position": _pick_nonempty(
-            payload.get("position"), payload.get("job_title")
-        ),
+        "position": _pick_nonempty(payload.get("position"), payload.get("job_title")),
         "department": _pick_nonempty(payload.get("department")),
         "is_decision_maker": bool(payload.get("is_decision_maker") or False),
         "notes": _pick_nonempty(payload.get("notes")),
@@ -327,9 +324,7 @@ def traffit_employee_to_candidate(
 
     files = payload.get("files") or []
     first_file = files[0] if isinstance(files, list) and files else None
-    cv_filename = (
-        first_file.get("filename") if isinstance(first_file, dict) else None
-    )
+    cv_filename = first_file.get("filename") if isinstance(first_file, dict) else None
 
     # created_by lookup
     created_by_nexus: Optional[int] = None
@@ -409,21 +404,15 @@ def traffit_recruitment_to_job(
     title = raw_name or f"Rekrutacja #{traffit_id}"
 
     client_obj = payload.get("client") or {}
-    traffit_client_id = (
-        client_obj.get("id") if isinstance(client_obj, dict) else None
-    )
+    traffit_client_id = client_obj.get("id") if isinstance(client_obj, dict) else None
     nexus_client_id: Optional[int] = None
     if traffit_client_id is not None:
-        nexus_client_id = client_external_id_to_nexus_id.get(
-            str(traffit_client_id)
-        )
+        nexus_client_id = client_external_id_to_nexus_id.get(str(traffit_client_id))
 
     workflow_id = payload.get("workflow_id")
     pipeline_template_id: Optional[int] = None
     if workflow_id is not None:
-        pipeline_template_id = workflow_external_id_to_template_id.get(
-            str(workflow_id)
-        )
+        pipeline_template_id = workflow_external_id_to_template_id.get(str(workflow_id))
 
     recruiter_id: Optional[int] = None
     if user_id_map:
@@ -517,9 +506,7 @@ def traffit_recruitment_history_to_stage(
 
     emp_id = employee.get("id") if isinstance(employee, dict) else None
     rec_id = recruitment.get("id") if isinstance(recruitment, dict) else None
-    state_id = (
-        workflow_state.get("id") if isinstance(workflow_state, dict) else None
-    )
+    state_id = workflow_state.get("id") if isinstance(workflow_state, dict) else None
     if emp_id is None or rec_id is None or state_id is None:
         return None
 
@@ -589,9 +576,7 @@ def traffit_activity_to_activity(
         return None
 
     activity_type = payload.get("type") or {}
-    type_value = (
-        activity_type.get("value") if isinstance(activity_type, dict) else None
-    )
+    type_value = activity_type.get("value") if isinstance(activity_type, dict) else None
     type_id = activity_type.get("id") if isinstance(activity_type, dict) else None
 
     action = f"traffit:{type_value or 'unknown'}"[:100]
@@ -649,9 +634,7 @@ def traffit_source_to_candidate_tag(
         return None
 
     dictionary = payload.get("dictionary_item") or {}
-    value = (
-        dictionary.get("value") if isinstance(dictionary, dict) else None
-    )
+    value = dictionary.get("value") if isinstance(dictionary, dict) else None
 
     return {
         "candidate_id": candidate_id,

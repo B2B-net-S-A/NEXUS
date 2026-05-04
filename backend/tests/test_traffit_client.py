@@ -65,18 +65,18 @@ async def test_get_paginated_handles_server_capped_page_size() -> None:
     must keep going past page 1 (use X-Result-Page-Size, not user-supplied size)."""
     handler = _PaginatedHandler(total=146, server_cap=100)
     transport = httpx.MockTransport(
-        lambda req: _token_route(req)
-        if req.url.path == "/oauth2/token"
-        else handler(req)
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
     )
 
     config = _config()
     async with TraffitClient(config) as client:
         client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
         try:
-            items = [item async for item in client.get_paginated(
-                "/clients/", page_size=200
-            )]
+            items = [
+                item async for item in client.get_paginated("/clients/", page_size=200)
+            ]
         finally:
             await client._http.aclose()
             client._http = None
@@ -91,16 +91,17 @@ async def test_get_paginated_stops_when_server_returns_full_total_pages() -> Non
     """Honors X-Result-Total-Pages even when last page is full."""
     handler = _PaginatedHandler(total=200, server_cap=100)
     transport = httpx.MockTransport(
-        lambda req: _token_route(req)
-        if req.url.path == "/oauth2/token"
-        else handler(req)
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
     )
     async with TraffitClient(_config()) as client:
         client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
         try:
-            items = [item async for item in client.get_paginated(
-                "/employees/", page_size=200
-            )]
+            items = [
+                item
+                async for item in client.get_paginated("/employees/", page_size=200)
+            ]
         finally:
             await client._http.aclose()
             client._http = None
@@ -114,16 +115,16 @@ async def test_get_paginated_empty_collection() -> None:
     """Empty page=1 yields nothing and stops."""
     handler = _PaginatedHandler(total=0, server_cap=100)
     transport = httpx.MockTransport(
-        lambda req: _token_route(req)
-        if req.url.path == "/oauth2/token"
-        else handler(req)
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
     )
     async with TraffitClient(_config()) as client:
         client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
         try:
-            items = [item async for item in client.get_paginated(
-                "/clients/", page_size=200
-            )]
+            items = [
+                item async for item in client.get_paginated("/clients/", page_size=200)
+            ]
         finally:
             await client._http.aclose()
             client._http = None
@@ -136,9 +137,9 @@ async def test_get_paginated_empty_collection() -> None:
 async def test_total_count_reads_header() -> None:
     handler = _PaginatedHandler(total=43573, server_cap=100)
     transport = httpx.MockTransport(
-        lambda req: _token_route(req)
-        if req.url.path == "/oauth2/token"
-        else handler(req)
+        lambda req: (
+            _token_route(req) if req.url.path == "/oauth2/token" else handler(req)
+        )
     )
     async with TraffitClient(_config()) as client:
         client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
