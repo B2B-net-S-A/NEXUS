@@ -254,6 +254,9 @@ class TraffitClient:
             total_pages = int(resp.headers.get("X-Result-Total-Pages", "0"))
             if total_pages and page >= total_pages:
                 return
-            if len(items) < page_size:
+            actual_page_size = int(
+                resp.headers.get("X-Result-Page-Size", page_size)
+            )
+            if len(items) < actual_page_size:
                 return
             page += 1
