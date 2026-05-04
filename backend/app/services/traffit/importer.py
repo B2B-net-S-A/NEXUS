@@ -562,8 +562,17 @@ class TraffitImporter:
                     text("DELETE FROM pipeline_stage_defs WHERE template_id=:tid"),
                     {"tid": template_id},
                 )
+                # Traffit workflows can have duplicate state names within one
+                # workflow (e.g. B2B has two "Zaakceptowany" states). The Nexus
+                # constraint uq_stage_name_in_template forbids that, so suffix
+                # later occurrences with the source state id to keep names unique.
+                seen_names: set[str] = set()
                 for idx, state in enumerate(states_sorted):
                     sd = traffit_workflow_state_to_stage_def(state, idx)
+                    base = sd["name"]
+                    if base in seen_names:
+                        sd["name"] = f"{base} (#{sd['traffit_state_id']})"[:100]
+                    seen_names.add(sd["name"])
                     await self.db.execute(
                         text(
                             """
