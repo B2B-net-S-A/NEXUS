@@ -254,9 +254,18 @@ class TraffitClient:
             for item in items:
                 yield item
             total_pages = int(resp.headers.get("X-Result-Total-Pages", "0"))
-            if total_pages and page >= total_pages:
-                return
-            actual_page_size = int(resp.headers.get("X-Result-Page-Size", page_size))
-            if len(items) < actual_page_size:
-                return
+            if total_pages:
+                # Total-pages header is authoritative when present.
+                # Some Traffit endpoints (/crm_persons/) return non-uniform
+                # page sizes (e.g. 99 items on intermediate pages of 100),
+                # so len(items) is unreliable as a stop signal.
+                if page >= total_pages:
+                    return
+            else:
+                # Fallback when total-pages absent: short page = last page.
+                actual_page_size = int(
+                    resp.headers.get("X-Result-Page-Size", page_size)
+                )
+                if len(items) < actual_page_size:
+                    return
             page += 1

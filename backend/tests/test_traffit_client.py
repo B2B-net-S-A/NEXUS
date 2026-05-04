@@ -173,6 +173,54 @@ async def test_get_paginated_clamps_oversized_page_size_to_100() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_paginated_handles_short_intermediate_pages() -> None:
+    """Regression: /crm_persons/ returns 99 items per intermediate page even
+    though X-Result-Page-Size says 100. Paginator must trust X-Result-Total-Pages
+    over len(items) when total_pages header is present."""
+    pages_data: dict[int, list[int]] = {
+        1: list(range(1, 101)),
+        2: list(range(101, 200)),
+        3: list(range(200, 299)),
+        4: list(range(299, 348)),
+    }
+
+    seen_pages: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        page = int(request.headers.get("X-Request-Current-Page", "1"))
+        seen_pages.append(page)
+        items = pages_data.get(page, [])
+        return httpx.Response(
+            200,
+            json=[{"id": i} for i in items],
+            headers={
+                "X-Result-Count": str(len(items)),
+                "X-Result-Current-Page": str(page),
+                "X-Result-Page-Size": "100",
+                "X-Result-Total-Count": "347",
+                "X-Result-Total-Pages": "4",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            items = [
+                item
+                async for item in client.get_paginated("/crm_persons/", page_size=100)
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    assert len(items) == 347
+    assert seen_pages == [1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
 async def test_total_count_reads_header() -> None:
     handler = _PaginatedHandler(total=43573, server_cap=100)
     transport = httpx.MockTransport(
