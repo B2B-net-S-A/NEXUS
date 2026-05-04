@@ -185,9 +185,7 @@ class TestMapTraffitStateToPipeline:
             ("custom_unknown_xyz", "screening", False),  # default fallback
         ],
     )
-    def test_basic_type_mapping(
-        self, state_type, expected_legacy, expected_terminal
-    ):
+    def test_basic_type_mapping(self, state_type, expected_legacy, expected_terminal):
         result = map_traffit_state_to_pipeline({"type": state_type})
         assert result["legacy"] == expected_legacy
         assert result["is_terminal"] == expected_terminal
@@ -349,9 +347,7 @@ class TestTraffitEmployeeToCandidate:
     def test_languages_string_normalized_to_list(self):
         payload = {"id": 1, "name": "X", "candidate_languages": "Polish, English"}
         result = traffit_employee_to_candidate(payload)
-        assert result["languages"] == [
-            {"lang": "Polish, English", "level": None}
-        ]
+        assert result["languages"] == [{"lang": "Polish, English", "level": None}]
 
     def test_no_files(self):
         payload = {"id": 1, "name": "X", "files": []}
@@ -413,10 +409,17 @@ class TestTraffitRecruitmentToJob:
         result = traffit_recruitment_to_job(payload, {}, {}, None)
         assert result["status"] == "closed"
 
-    def test_closing_date_parsed_to_iso(self):
+    def test_closing_date_parsed_to_date_object(self):
+        from datetime import date
+
         payload = {"id": 1, "name": "X", "closing_date": "2026-12-31 00:00:00"}
         result = traffit_recruitment_to_job(payload, {}, {}, None)
-        assert result["deadline"] == "2026-12-31"
+        assert result["deadline"] == date(2026, 12, 31)
+
+    def test_invalid_closing_date_returns_none(self):
+        payload = {"id": 1, "name": "X", "closing_date": "not-a-date"}
+        result = traffit_recruitment_to_job(payload, {}, {}, None)
+        assert result["deadline"] is None
 
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
@@ -523,9 +526,7 @@ class TestTraffitRecruitmentHistoryToStage:
             "workflow_state": {"id": 19},
             # employee field missing
         }
-        result = traffit_recruitment_history_to_stage(
-            record, {}, {}, {}, {}, None
-        )
+        result = traffit_recruitment_history_to_stage(record, {}, {}, {}, {}, None)
         assert result is None
 
     def test_unknown_candidate_returns_none(self):

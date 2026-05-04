@@ -14,6 +14,7 @@ Discovery findings (docs/traffit-discovery.md):
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Optional
 
 # Status mapping for Traffit `client.status` (free text) → Nexus ClientStatus enum.
@@ -425,10 +426,13 @@ def traffit_recruitment_to_job(
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
 
-    deadline = None
+    deadline: Optional[date] = None
     if isinstance(closing_date, str) and closing_date.strip():
-        # Take date portion (yyyy-MM-dd)
-        deadline = closing_date.split(" ")[0]
+        # Take date portion (yyyy-MM-dd) and convert to datetime.date for asyncpg.
+        try:
+            deadline = date.fromisoformat(closing_date.split(" ")[0])
+        except ValueError:
+            deadline = None
 
     return {
         "external_id": str(traffit_id),
