@@ -271,7 +271,7 @@ class TraffitImporter:
         db: AsyncSession,
         *,
         dry_run: bool = False,
-        batch_size: int = 200,
+        batch_size: int = 100,
     ) -> None:
         self.traffit = traffit
         self.db = db

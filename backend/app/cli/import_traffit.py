@@ -138,8 +138,8 @@ def main() -> None:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=200,
-        help="X-Request-Page-Size dla Traffit API (default 200)",
+        default=100,
+        help="X-Request-Page-Size dla Traffit API (default 100; server hard cap)",
     )
     parser.add_argument(
         "--log-level",
