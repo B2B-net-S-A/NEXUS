@@ -640,7 +640,7 @@ class TraffitImporter:
         user_map = await self.build_user_id_map()
         logger.info("Candidates: user_id_map size=%d", len(user_map))
 
-        commit_every = 500
+        commit_every = 100
         since_commit = 0
 
         async for raw in self.traffit.get_paginated(
@@ -672,14 +672,20 @@ class TraffitImporter:
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
-                        "Candidates progress: %d/%d",
+                        "Candidates progress: %d/%d (inserted=%d updated=%d errors=%d)",
                         progress.processed,
                         progress.total_source,
+                        progress.inserted,
+                        progress.updated,
+                        len(progress.error_samples),
                     )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(
-                    f"upsert candidate ext={payload.get('external_id')}: {e!r}"
-                )
+                msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
+                progress.add_error(msg)
+                # error_samples is capped at 20; log every Nth error so we keep
+                # signal once the cap is hit during a long run.
+                if progress.errors <= 5 or progress.errors % 200 == 0:
+                    logger.warning("Candidates upsert error: %s", msg[:300])
                 await self.db.rollback()
                 since_commit = 0
 
