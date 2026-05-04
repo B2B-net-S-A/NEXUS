@@ -143,7 +143,11 @@ _UPSERT_PIPELINE_TEMPLATE = text(
         external_id, external_source, name, description, is_default,
         archived, created_at, updated_at
     ) VALUES (
-        :external_id, :external_source, :name, :description, :is_default,
+        CAST(:external_id AS varchar(100)),
+        CAST(:external_source AS varchar(50)),
+        CAST(:name AS varchar(100)),
+        CAST(:description AS text),
+        CAST(:is_default AS boolean),
         false, NOW(), NOW()
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
@@ -571,13 +575,16 @@ class TraffitImporter:
                                 tracker_enabled, scorecard_schema,
                                 created_at, updated_at
                             ) VALUES (
-                                :template_id, :name, :order,
+                                CAST(:template_id AS integer),
+                                CAST(:name AS varchar(100)),
+                                CAST(:order AS integer),
                                 CAST(:category AS stagecategoryenum),
-                                :is_terminal,
+                                CAST(:is_terminal AS boolean),
                                 CASE WHEN :terminal_type IS NULL THEN NULL
                                      ELSE CAST(:terminal_type AS terminaltype) END,
-                                :legacy_enum_value,
-                                :external_id, 'traffit',
+                                CAST(:legacy_enum_value AS varchar(50)),
+                                CAST(:external_id AS varchar(100)),
+                                'traffit',
                                 false, '{}'::jsonb,
                                 NOW(), NOW()
                             )
