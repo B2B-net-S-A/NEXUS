@@ -1,0 +1,86 @@
+name: Deploy
+
+# Unified deployment workflow per ~/.claude/rules/deployment.md.
+# Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
+#
+# Push do main → trigger Coolify deploy via API → wait → smoke test /api/health.
+# Coolify samo buduje + restart kontenerów (z compose `build:` block lub GHCR pull).
+#
+# Required GH secrets:
+#   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
+#   COOLIFY_TOKEN     Bearer token (Sanctum personal_access_tokens)
+#   COOLIFY_APP_UUID  Application UUID (from Coolify panel resource URL)
+#
+# Required GH variables:
+#   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Trigger Coolify deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger deployment
+        run: |
+          response=$(curl -fsSL -X GET \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false")
+          echo "Response: $response"
+          deployment_uuid=$(echo "$response" | jq -r '.deployments[0].deployment_uuid')
+          if [ -z "$deployment_uuid" ] || [ "$deployment_uuid" = "null" ]; then
+            echo "::error::Failed to start deployment"
+            exit 1
+          fi
+          echo "Deployment queued: $deployment_uuid"
+          echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
+        id: trigger
+
+  smoke-test:
+    name: Smoke test /api/health
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for Coolify build + restart
+        run: sleep 90
+
+      - name: Healthcheck (standard shape + version match)
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::vars.APP_URL not set in repo settings"
+            exit 1
+          fi
+          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          for i in $(seq 1 12); do
+            response=$(curl -fsSL "$APP_URL/api/health" 2>/dev/null || echo '')
+            if [ -n "$response" ]; then
+              status=$(echo "$response" | jq -r '.status // "missing"')
+              version=$(echo "$response" | jq -r '.version // "missing"')
+              version_short=$(echo "$version" | cut -c1-7)
+              if [ "$status" != "unhealthy" ] && [ "$status" != "missing" ]; then
+                if [ "$version_short" = "$EXPECTED_SHA" ]; then
+                  echo "✅ Pass: status=$status version=$version"
+                  exit 0
+                fi
+                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
+              else
+                echo "Attempt $i: status=$status, retrying in 15s..."
+              fi
+            else
+              echo "Attempt $i: no response, retrying in 15s..."
+            fi
+            sleep 15
+          done
+          echo "::error::Smoke test failed after 12 attempts (3 min)"
+          exit 1
