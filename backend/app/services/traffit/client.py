@@ -77,9 +77,7 @@ ALL_SCOPES = (
 class TraffitClient:
     """Async client. Use as `async with TraffitClient(config) as c:`."""
 
-    def __init__(
-        self, config: TraffitConfig, scope: str = ALL_SCOPES
-    ) -> None:
+    def __init__(self, config: TraffitConfig, scope: str = ALL_SCOPES) -> None:
         self.config = config
         self.scope = scope
         self._token: Optional[str] = None
@@ -234,8 +232,7 @@ class TraffitClient:
             )
             if resp.status_code != 200:
                 raise RuntimeError(
-                    f"GET {path} page={page}: HTTP {resp.status_code} "
-                    f"{resp.text[:200]}"
+                    f"GET {path} page={page}: HTTP {resp.status_code} {resp.text[:200]}"
                 )
             try:
                 items = resp.json()
@@ -254,6 +251,7 @@ class TraffitClient:
             total_pages = int(resp.headers.get("X-Result-Total-Pages", "0"))
             if total_pages and page >= total_pages:
                 return
-            if len(items) < page_size:
+            actual_page_size = int(resp.headers.get("X-Result-Page-Size", page_size))
+            if len(items) < actual_page_size:
                 return
             page += 1

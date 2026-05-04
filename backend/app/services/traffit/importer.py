@@ -466,9 +466,7 @@ class TraffitImporter:
         są pomijane — caller widzi mapping size.
         """
         traffit_users: list[dict[str, Any]] = []
-        async for u in self.traffit.get_paginated(
-            "/users/", page_size=self.batch_size
-        ):
+        async for u in self.traffit.get_paginated("/users/", page_size=self.batch_size):
             traffit_users.append(u)
 
         emails = [
@@ -481,9 +479,7 @@ class TraffitImporter:
 
         # Pull Nexus users by email
         result = await self.db.execute(
-            text(
-                "SELECT id, lower(email) AS email FROM users WHERE email IS NOT NULL"
-            )
+            text("SELECT id, lower(email) AS email FROM users WHERE email IS NOT NULL")
         )
         nexus_by_email: dict[str, int] = {row.email: row.id for row in result}
 
@@ -559,9 +555,7 @@ class TraffitImporter:
                 )
                 # Replace existing stages for this template (clean slate)
                 await self.db.execute(
-                    text(
-                        "DELETE FROM pipeline_stage_defs WHERE template_id=:tid"
-                    ),
+                    text("DELETE FROM pipeline_stage_defs WHERE template_id=:tid"),
                     {"tid": template_id},
                 )
                 for idx, state in enumerate(states_sorted):
@@ -649,9 +643,7 @@ class TraffitImporter:
             try:
                 params = dict(payload)
                 params["languages"] = json.dumps(payload["languages"])
-                params["cv_extracted_data"] = json.dumps(
-                    payload["cv_extracted_data"]
-                )
+                params["cv_extracted_data"] = json.dumps(payload["cv_extracted_data"])
                 result = await self.db.execute(_UPSERT_CANDIDATE, params)
                 row = result.fetchone()
                 if row is None:
@@ -688,9 +680,7 @@ class TraffitImporter:
     # ── Faza 5: jobs ────────────────────────────────────────────────────────
 
     async def import_jobs(self) -> PhaseProgress:
-        progress = PhaseProgress(
-            phase="jobs", started_at=datetime.now(timezone.utc)
-        )
+        progress = PhaseProgress(phase="jobs", started_at=datetime.now(timezone.utc))
         try:
             progress.total_source = await self.traffit.total_count("/recruitments/")
         except Exception as e:  # noqa: BLE001
@@ -763,9 +753,7 @@ class TraffitImporter:
     # ── Faza 5: talents ─────────────────────────────────────────────────────
 
     async def import_talents(self) -> PhaseProgress:
-        progress = PhaseProgress(
-            phase="talents", started_at=datetime.now(timezone.utc)
-        )
+        progress = PhaseProgress(phase="talents", started_at=datetime.now(timezone.utc))
         try:
             progress.total_source = await self.traffit.total_count("/talents/")
         except Exception as e:  # noqa: BLE001
@@ -1231,9 +1219,7 @@ class TraffitImporter:
             if mapped is None:
                 progress.skipped += 1
                 continue
-            per_candidate.setdefault(mapped["candidate_id"], []).append(
-                mapped["tag"]
-            )
+            per_candidate.setdefault(mapped["candidate_id"], []).append(mapped["tag"])
 
         if self.dry_run:
             progress.inserted = sum(len(v) for v in per_candidate.values())
@@ -1244,9 +1230,7 @@ class TraffitImporter:
         for candidate_id, new_tags in per_candidate.items():
             try:
                 row = await self.db.execute(
-                    text(
-                        "SELECT tags FROM candidates WHERE id=:id"
-                    ),
+                    text("SELECT tags FROM candidates WHERE id=:id"),
                     {"id": candidate_id},
                 )
                 rec = row.fetchone()
