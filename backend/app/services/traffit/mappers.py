@@ -70,6 +70,13 @@ def traffit_client_to_nexus(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _trunc(value: Optional[str], maxlen: int) -> Optional[str]:
+    """Truncate string to fit a varchar(N) column. Pass-through for None."""
+    if value is None:
+        return None
+    return value[:maxlen]
+
+
 def _pick_nonempty(*values: Any) -> Optional[str]:
     """Return first non-empty stringified value, or None."""
     for v in values:
@@ -350,14 +357,16 @@ def traffit_employee_to_candidate(
         "external_source": "traffit",
         "name": name[:100],
         "lastname": lastname[:100],
-        "email": _pick_nonempty(payload.get("email")),
-        "phone": _pick_nonempty(payload.get("mobile"), payload.get("phone")),
-        "linkedin": _pick_nonempty(payload.get("linkedin")),
-        "location": _pick_nonempty(payload.get("candidate_location")),
+        "email": _trunc(_pick_nonempty(payload.get("email")), 255),
+        "phone": _trunc(
+            _pick_nonempty(payload.get("mobile"), payload.get("phone")), 30
+        ),
+        "linkedin": _trunc(_pick_nonempty(payload.get("linkedin")), 500),
+        "location": _trunc(_pick_nonempty(payload.get("candidate_location")), 255),
         "status": normalize_candidate_status(payload.get("status")),
         "ai_summary": _pick_nonempty(payload.get("candidate_about")),
         "languages": languages,
-        "cv_filename": cv_filename,
+        "cv_filename": _trunc(cv_filename, 500),
         "cv_extracted_data": custom,
         "source": "traffit",
         "created_by": created_by_nexus,
