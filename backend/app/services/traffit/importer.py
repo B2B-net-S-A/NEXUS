@@ -202,6 +202,36 @@ _UPSERT_CANDIDATE = text(
 )
 
 
+# Used when a Traffit candidate's email matches an existing record
+# (e.g. seeded from talent_radar). Adopt the row as Traffit-sourced and
+# stash the previous external_source under cv_extracted_data.legacy_source
+# so we don't lose origin attribution.
+_UPDATE_CANDIDATE_ADOPT = text(
+    """
+    UPDATE candidates
+    SET external_source = CAST(:external_source AS varchar(50)),
+        external_id     = CAST(:external_id AS varchar(100)),
+        name            = CAST(:name AS varchar(100)),
+        lastname        = CAST(:lastname AS varchar(100)),
+        phone           = COALESCE(CAST(:phone AS varchar(50)), candidates.phone),
+        linkedin        = COALESCE(CAST(:linkedin AS varchar(255)), candidates.linkedin),
+        location        = COALESCE(CAST(:location AS varchar(255)), candidates.location),
+        status          = CAST(:status AS candidatestatus),
+        languages       = CAST(:languages AS JSONB),
+        cv_filename     = COALESCE(CAST(:cv_filename AS varchar(255)),
+                                   candidates.cv_filename),
+        cv_extracted_data = candidates.cv_extracted_data
+                            || CAST(:cv_extracted_data AS JSONB)
+                            || jsonb_build_object(
+                                 'legacy_source', candidates.external_source
+                               ),
+        updated_at      = NOW()
+    WHERE id = :nexus_id
+    RETURNING id
+    """
+)
+
+
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -640,8 +670,24 @@ class TraffitImporter:
         user_map = await self.build_user_id_map()
         logger.info("Candidates: user_id_map size=%d", len(user_map))
 
+        # Pre-load existing email → nexus_id mapping. Many emails already
+        # exist from talent_radar/manual seed; ix_candidates_email is unique,
+        # so straight INSERT would fail. Adopt those rows as Traffit-sourced
+        # via _UPDATE_CANDIDATE_ADOPT instead.
+        email_map_result = await self.db.execute(
+            text(
+                "SELECT id, lower(email) FROM candidates "
+                "WHERE email IS NOT NULL AND email <> ''"
+            )
+        )
+        email_to_id: dict[str, int] = {
+            row[1]: row[0] for row in email_map_result.fetchall() if row[1]
+        }
+        logger.info("Candidates: existing email_to_id size=%d", len(email_to_id))
+
         commit_every = 100
         since_commit = 0
+        adopted = 0
 
         async for raw in self.traffit.get_paginated(
             "/employees/", page_size=self.batch_size
@@ -655,35 +701,65 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+
+            email_lc = (payload.get("email") or "").strip().lower()
+            existing_id = email_to_id.get(email_lc) if email_lc else None
+
             try:
-                params = dict(payload)
-                params["languages"] = json.dumps(payload["languages"])
-                params["cv_extracted_data"] = json.dumps(payload["cv_extracted_data"])
-                result = await self.db.execute(_UPSERT_CANDIDATE, params)
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
+                if existing_id is not None:
+                    # Adopt existing candidate (e.g. from talent_radar).
+                    params = {
+                        "nexus_id": existing_id,
+                        "external_id": payload["external_id"],
+                        "external_source": payload["external_source"],
+                        "name": payload["name"],
+                        "lastname": payload["lastname"],
+                        "phone": payload.get("phone"),
+                        "linkedin": payload.get("linkedin"),
+                        "location": payload.get("location"),
+                        "status": payload["status"],
+                        "languages": json.dumps(payload["languages"]),
+                        "cv_filename": payload.get("cv_filename"),
+                        "cv_extracted_data": json.dumps(payload["cv_extracted_data"]),
+                    }
+                    await self.db.execute(_UPDATE_CANDIDATE_ADOPT, params)
                     progress.updated += 1
+                    adopted += 1
+                else:
+                    params = dict(payload)
+                    params["languages"] = json.dumps(payload["languages"])
+                    params["cv_extracted_data"] = json.dumps(
+                        payload["cv_extracted_data"]
+                    )
+                    result = await self.db.execute(_UPSERT_CANDIDATE, params)
+                    row = result.fetchone()
+                    if row is None:
+                        continue
+                    if row[1]:
+                        progress.inserted += 1
+                        # Newly inserted — record its email so subsequent
+                        # Traffit candidates with the same email adopt it.
+                        if email_lc:
+                            email_to_id[email_lc] = row[0]
+                    else:
+                        progress.updated += 1
                 since_commit += 1
                 if since_commit >= commit_every:
                     await self.db.commit()
                     since_commit = 0
                     logger.info(
-                        "Candidates progress: %d/%d (inserted=%d updated=%d errors=%d)",
+                        "Candidates progress: %d/%d "
+                        "(inserted=%d updated=%d adopted=%d errors=%d)",
                         progress.processed,
                         progress.total_source,
                         progress.inserted,
                         progress.updated,
-                        len(progress.error_samples),
+                        adopted,
+                        progress.errors,
                     )
             except Exception as e:  # noqa: BLE001
                 msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
                 progress.add_error(msg)
-                # error_samples is capped at 20; log every Nth error so we keep
-                # signal once the cap is hit during a long run.
                 if progress.errors <= 5 or progress.errors % 200 == 0:
                     logger.warning("Candidates upsert error: %s", msg[:300])
                 await self.db.rollback()
