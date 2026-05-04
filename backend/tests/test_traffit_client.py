@@ -134,6 +134,45 @@ async def test_get_paginated_empty_collection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_paginated_clamps_oversized_page_size_to_100() -> None:
+    """Some Traffit endpoints (/workflows/) return HTTP 400 if page_size > 100.
+    Client must clamp to MAX_PAGE_SIZE=100 before sending."""
+    seen_sizes: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        size = request.headers.get("X-Request-Page-Size")
+        seen_sizes.append(size or "")
+        return httpx.Response(
+            200,
+            json=[{"id": 1}, {"id": 2}],
+            headers={
+                "X-Result-Count": "2",
+                "X-Result-Current-Page": "1",
+                "X-Result-Page-Size": "100",
+                "X-Result-Total-Count": "2",
+                "X-Result-Total-Pages": "1",
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with TraffitClient(_config()) as client:
+        client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+        try:
+            items = [
+                item
+                async for item in client.get_paginated("/workflows/", page_size=200)
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    assert items == [{"id": 1}, {"id": 2}]
+    assert all(int(s) <= 100 for s in seen_sizes if s)
+
+
+@pytest.mark.asyncio
 async def test_total_count_reads_header() -> None:
     handler = _PaginatedHandler(total=43573, server_cap=100)
     transport = httpx.MockTransport(

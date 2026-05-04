@@ -157,22 +157,27 @@ class TraffitClient:
 
     # ── Low-level GET with retries ──────────────────────────────────────────
 
+    # Traffit hard cap (some endpoints return HTTP 400 above this, others
+    # silently cap and report actual via X-Result-Page-Size).
+    MAX_PAGE_SIZE = 100
+
     async def _get_raw(
         self,
         path: str,
         *,
         page: int = 1,
-        page_size: int = 200,
+        page_size: int = 100,
         extra_headers: Optional[dict[str, str]] = None,
     ) -> httpx.Response:
         token = await self._ensure_token()
         assert self._http is not None
 
+        effective_size = min(page_size, self.MAX_PAGE_SIZE)
         url = f"{self.config.api_base}{path}"
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "X-Request-Page-Size": str(page_size),
+            "X-Request-Page-Size": str(effective_size),
             "X-Request-Current-Page": str(page),
         }
         if extra_headers:
@@ -219,7 +224,7 @@ class TraffitClient:
         self,
         path: str,
         *,
-        page_size: int = 200,
+        page_size: int = 100,
     ) -> AsyncIterator[dict]:
         """Yield each item across all pages. Sorts on `id ASC` for stability."""
         page = 1
