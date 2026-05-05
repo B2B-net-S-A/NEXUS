@@ -1333,8 +1333,12 @@ class TraffitImporter:
         # (każdy record ~200B → ~15MB max).
         per_candidate: dict[int, list[dict[str, Any]]] = {}
 
+        # /sources/ endpoint na tenant b2bnetwork zwraca HTTP 500 dla page_size > 50
+        # (server-side bug; manual probe: 50 OK, 75/100 → 500). Hardcode niżej niż
+        # globalny batch_size, niezależnie od --batch-size.
+        sources_page_size = min(self.batch_size, 50)
         async for raw in self.traffit.get_paginated(
-            "/sources/", page_size=self.batch_size
+            "/sources/", page_size=sources_page_size
         ):
             progress.processed += 1
             try:
