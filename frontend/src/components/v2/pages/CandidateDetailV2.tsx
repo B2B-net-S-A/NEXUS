@@ -17,6 +17,7 @@ import {
   Download,
   FileSignature,
   FileText,
+  Files,
   Gauge,
   Link2,
   Linkedin,
@@ -730,6 +731,10 @@ export function CandidateDetailV2({
               <MessageSquare className="h-3.5 w-3.5" />
               Notatki
             </TabsTrigger>
+            <TabsTrigger value="pliki">
+              <Files className="h-3.5 w-3.5" />
+              Pliki
+            </TabsTrigger>
             <TabsTrigger value="umowa">
               <FileSignature className="h-3.5 w-3.5" />
               Umowa
@@ -797,6 +802,9 @@ export function CandidateDetailV2({
                 currentUserId={currentUser?.id}
                 setEditing={setPresenceEditing}
               />
+            </TabsContent>
+            <TabsContent value="pliki" className="mt-0">
+              <PlikiTab candidateId={Number(id)} />
             </TabsContent>
             <TabsContent value="umowa" className="mt-0">
               <UmowaTab
@@ -2308,10 +2316,18 @@ function NotatkiTab({
               key={n.id ?? i}
               className="rounded-v2-m bg-[hsl(var(--bg-canvas))]/40 border border-[hsl(var(--border-subtle))] p-3"
             >
-              <div className="flex items-baseline gap-2 text-xs text-[hsl(var(--text-muted))]">
+              <div className="flex items-baseline gap-2 text-xs text-[hsl(var(--text-muted))] flex-wrap">
                 <span className="font-medium text-[hsl(var(--text-title))]">
                   {n.note_type ? `Notatka — ${n.note_type}` : "Notatka"}
                 </span>
+                {n.author_name && (
+                  <>
+                    <span>·</span>
+                    <span title={n.author_email ?? undefined}>
+                      {n.author_name}
+                    </span>
+                  </>
+                )}
                 <span>·</span>
                 <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
               </div>
@@ -2322,6 +2338,125 @@ function NotatkiTab({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Pliki (multi-file CV — Faza A migracji Traffit) ────────────────────
+
+interface CandidateDocument {
+  id: number;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  is_primary: boolean;
+  uploaded_at: string | null;
+  external_source: string | null;
+  created_at: string;
+}
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileIcon(contentType: string | null): React.ReactNode {
+  // Visual hint by mime type
+  return <FileText className="h-4 w-4 text-[hsl(var(--text-muted))]" />;
+}
+
+function PlikiTab({ candidateId }: { candidateId: number }) {
+  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
+    queryKey: ["candidate-documents", candidateId],
+    queryFn: async () => {
+      const res = await api.get<CandidateDocument[]>(
+        `/api/candidates/${candidateId}/documents`,
+      );
+      return res.data;
+    },
+    staleTime: 30_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="text-sm text-[hsl(var(--text-muted))] py-6 text-center">
+        Ładowanie plików…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-sm text-[hsl(var(--accent-error))] py-6 text-center">
+        Błąd ładowania plików.
+      </div>
+    );
+  }
+
+  const docs = documents ?? [];
+  if (docs.length === 0) {
+    return (
+      <div className="text-sm text-[hsl(var(--text-muted))] py-6 text-center">
+        Brak plików. Dodaj CV lub inne dokumenty przez profil.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {docs.map((doc) => (
+        <div
+          key={doc.id}
+          className="flex items-center gap-3 rounded-v2-m bg-[hsl(var(--bg-canvas))]/40 border border-[hsl(var(--border-subtle))] p-3 hover:bg-[hsl(var(--bg-canvas))]/60 transition-colors"
+        >
+          {fileIcon(doc.content_type)}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="font-medium text-sm text-[hsl(var(--text-title))] truncate">
+                {doc.filename}
+              </span>
+              {doc.is_primary && (
+                <Badge size="sm" variant="success">
+                  primary
+                </Badge>
+              )}
+              {doc.external_source === "traffit" && (
+                <Badge size="sm" variant="info">
+                  z Traffita
+                </Badge>
+              )}
+            </div>
+            <div className="text-xs text-[hsl(var(--text-muted))] mt-0.5">
+              {formatFileSize(doc.size_bytes)}
+              {doc.uploaded_at && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  <span>
+                    {new Date(doc.uploaded_at).toLocaleDateString("pl-PL")}
+                  </span>
+                </>
+              )}
+              {doc.content_type && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  <span>{doc.content_type}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <a
+            href={`/api/candidates/${candidateId}/documents/${doc.id}/content`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Pobierz
+          </a>
+        </div>
+      ))}
     </div>
   );
 }

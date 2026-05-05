@@ -24,6 +24,16 @@ function toMini(u: UserBrief): ChatUserMini {
   };
 }
 
+interface UseMentionableUsersOptions {
+  /**
+   * Pokaż też nieaktywnych userów (np. 131 importowanych z Traffit jako
+   * disabled accounts w Faza A). Domyślnie false — pokazuje tylko aktywnych.
+   * Włączane gdy renderujemy historyczne notatki/komentarze i chcemy mention'ować
+   * autora którego konto wygasło.
+   */
+  includeInactive?: boolean;
+}
+
 /**
  * Lista użytkowników do autocomplete @mention. Cache'owana per scope przez
  * react-query (60s staleTime — odświeża się rzadko, członkostwo projektu /
@@ -34,14 +44,19 @@ function toMini(u: UserBrief): ChatUserMini {
  *   { kind: "candidate", id }    → members chatu kandydata
  *   { kind: "global" }           → wszyscy aktywni z rolą != `user`
  */
-export function useMentionableUsers(scope: MentionScope) {
+export function useMentionableUsers(
+  scope: MentionScope,
+  opts: UseMentionableUsersOptions = {},
+) {
   const key = scopeKey(scope);
+  const includeInactive = Boolean(opts.includeInactive);
   return useQuery<ChatUserMini[]>({
-    queryKey: ["mentionable-users", key],
+    queryKey: ["mentionable-users", key, includeInactive],
     queryFn: async () => {
-      const params: Record<string, number> = {};
+      const params: Record<string, number | string> = {};
       if (scope.kind === "job") params.job_id = scope.jobId;
       if (scope.kind === "candidate") params.candidate_id = scope.candidateId;
+      if (includeInactive) params.include_inactive = "true";
       const resp = await api.get<UserBrief[]>("/api/users/mentionable", {
         params,
       });
