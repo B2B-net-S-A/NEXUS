@@ -14,8 +14,31 @@ Discovery findings (docs/traffit-discovery.md):
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Optional
+
+
+def _parse_traffit_datetime(value: Any) -> Optional[datetime]:
+    """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to
+    timezone-aware UTC datetime. Returns None if value is None/empty/invalid.
+    asyncpg requires aware datetime for `timestamp with time zone` columns.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, str):
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        # fromisoformat accepts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS'
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
 
 # Status mapping for Traffit `client.status` (free text) → Nexus ClientStatus enum.
 # Lower-cased keys; values match Nexus enum values.
@@ -531,8 +554,10 @@ def traffit_recruitment_history_to_stage(
     if candidate_id is None or job_id is None:
         return None
 
-    # moved_at = `date` (start) z payload Traffita
-    moved_at = payload.get("date") or payload.get("created_at")
+    # moved_at = `date` (start) z payload Traffita.
+    # Traffit zwraca string 'yyyy-MM-dd HH:mm:ss'; PG kolumna jest
+    # timestamp with time zone, więc parsujemy do tz-aware datetime (UTC).
+    moved_at = _parse_traffit_datetime(payload.get("date") or payload.get("created_at"))
 
     # moved_by — preferuj created_by, fallback updated_by
     moved_by_nexus: Optional[int] = None
