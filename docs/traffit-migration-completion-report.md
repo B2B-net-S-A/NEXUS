@@ -2,8 +2,33 @@
 
 > Sesja 2026-05-04 / 2026-05-05. Tenant: `b2bnetwork`.
 > Plan: [`traffit-migration-plan.md`](./traffit-migration-plan.md). Discovery: [`traffit-discovery.md`](./traffit-discovery.md).
+> **Faza A** (data layer + frontend completeness) — plan: `~/.claude/plans/zaplanuj-teraz-t-full-calm-journal.md`, PR #86 (backend), PR #87 (frontend).
 
-## Status: zakończona z udokumentowanymi luckami
+## Faza A — co zrobione (15:50, 5 maja)
+
+✓ **Schema** (Alembic 0076 + 0077): `users.external_id`, `candidate_documents` table, notes promotion z activities (43 138 notes, idempotent NOT EXISTS)
+✓ **141/141 userów** Traffita w Nexusie (140 nowych disabled + 1 adopted) — `import_users` phase done
+✓ **Multi-file CV API**: `GET /api/candidates/{id}/documents` + `/content` download (verified: candidate 258 ma 2 pliki, jeden primary)
+✓ **Timeline z author_name** dla notes (NotatkiTab UI pokazuje "Jan Kowalski · 2 min temu")
+✓ **`/api/users/mentionable?include_inactive=true`** — opt-in dla disabled Traffit-userów w mention picker
+✓ **Frontend zakładka "Pliki"** z `PlikiTab` + `DocumentCard` (download, primary badge, "z Traffita" tag) — live na nexus.dynaminds.pl
+✓ **Pipelines `commit_every=1`** — eliminuje batch rollback dla check_constraint violations
+
+### W trakcie (background, 3 phases równoległe)
+
+- **A4 activities re-run** — większy `user_id_map` (10→141) → atrybucja user_id w 343k aktywności. ETA ~6h API.
+- **A5 pipelines re-run** — recovery 18k zgubionych stage moves + atrybucja `moved_by`. ETA ~5 min do końca.
+- **A6 candidates-files** — pobiera **wszystkie** pliki per kandydat (nie tylko primary). ETA ~5h.
+
+### Zostaje po background completion
+
+- Re-run notes.author_id backfill (już zrobiony częściowo: 327 → 5 669 z 43 138; po A4 → ~99%)
+- Final `--phase reconcile` + UI smoke test
+- Aktualizacja sekcji "Wyniki reconcile" poniżej z finalnymi liczbami
+
+---
+
+## Status (Faza 4-5b): zakończona z udokumentowanymi luckami
 
 Wszystkie phases (Faza 4 + 5 + 5b) odpalone na prodzie, dane zaimportowane. Reconcile pokazuje drobne diff'y (głównie ghost records w Traffit i dangling refs), które są oczekiwane.
 
