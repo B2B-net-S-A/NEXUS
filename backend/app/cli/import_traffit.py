@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 VALID_PHASES = {
+    "users",
     "clients",
     "contacts",
     "workflows",
@@ -56,6 +57,7 @@ VALID_PHASES = {
     "jobs",
     "talents",
     "candidates-cv",
+    "candidates-files",
     "pipelines",
     "candidate-activities",
     "candidate-sources",
@@ -74,6 +76,7 @@ def _parse_phases(arg: str) -> list[str]:
 
 
 _PHASE_RUNNERS: dict[str, str] = {
+    "users": "import_users",
     "clients": "import_clients",
     "contacts": "import_contacts",
     "workflows": "import_workflows",
@@ -81,6 +84,7 @@ _PHASE_RUNNERS: dict[str, str] = {
     "jobs": "import_jobs",
     "talents": "import_talents",
     "candidates-cv": "import_candidates_cv",
+    "candidates-files": "import_candidate_files",
     "pipelines": "import_pipelines",
     "candidate-activities": "import_candidate_activities",
     "candidate-sources": "import_candidate_sources",

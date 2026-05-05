@@ -627,6 +627,12 @@ def traffit_activity_to_activity(
             if tid is not None:
                 user_nexus = user_id_map.get(str(tid))
 
+    # Preserve raw Traffit user IDs in details so a future re-attribute can
+    # match without re-fetching the API. Used by Faza A backfill SQL when
+    # `import_users` adds historic users that didn't exist at first import.
+    created_by_id = (payload.get("created_by") or {}).get("id")
+    updated_by_id = (payload.get("updated_by") or {}).get("id")
+
     return {
         "external_id": str(activity_id),
         "external_source": "traffit",
@@ -638,6 +644,8 @@ def traffit_activity_to_activity(
             "traffit_type_value": type_value,
             "activity_date": payload.get("activity_date"),
             "content": payload.get("content"),
+            "traffit_created_by_id": created_by_id,
+            "traffit_updated_by_id": updated_by_id,
         },
         "user_id": user_nexus,
     }
@@ -714,3 +722,130 @@ def select_primary_cv_file(files: list[dict[str, Any]]) -> Optional[dict[str, An
         return None
     candidates.sort(key=rank)
     return candidates[0]
+
+
+# ── Faza A: Traffit user → Nexus user backfill ──────────────────────────────
+
+
+# Mapping permission_group.name → Nexus UserRole (lowercase value).
+_TRAFFIT_GROUP_TO_ROLE: dict[str, str] = {
+    "rekruterzy": "recruiter",
+    "recruiters": "recruiter",
+    "admin": "admin",
+    "administrator": "admin",
+    "administratorzy": "admin",
+    "manager": "delivery_lead",
+    "managers": "delivery_lead",
+    "lead": "delivery_lead",
+    "kierownicy": "delivery_lead",
+    "delivery": "delivery_lead",
+    "sourcer": "sourcer",
+    "sourcerzy": "sourcer",
+    "sourcing": "sourcer",
+    "tac": "tac",
+}
+
+
+def normalize_traffit_role(group_name: Optional[str]) -> str:
+    """Map Traffit permission_group.name → Nexus UserRole enum value.
+
+    Default: 'recruiter' dla nierozpoznanych grup (większość historycznych
+    Traffit userów to "Rekruterzy" zgodnie z probe API).
+    """
+    if not group_name:
+        return "recruiter"
+    key = group_name.strip().lower()
+    if key in _TRAFFIT_GROUP_TO_ROLE:
+        return _TRAFFIT_GROUP_TO_ROLE[key]
+    # Substring match dla wariantów typu "Rekruterzy 2025"
+    for keyword, role in _TRAFFIT_GROUP_TO_ROLE.items():
+        if keyword in key:
+            return role
+    return "recruiter"
+
+
+def traffit_user_to_nexus(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map Traffit user → Nexus `users` UPSERT dict.
+
+    Required: id, email. Inne pola fallback gracefully:
+    - name = "{name} {lastname}".strip() lub email-localpart
+    - role = mapped from permission_group.name (default 'recruiter')
+    - is_active = z payload (większość historycznych userów ma false)
+    - password_hash = '!imported-from-traffit-no-login!' (bcrypt-invalid;
+      konto jest disabled, login niemożliwy. Jeśli user wraca, admin musi
+      ustawić nowe hasło ręcznie.)
+    """
+    traffit_id = payload.get("id")
+    if traffit_id is None:
+        raise ValueError("Traffit user missing 'id'")
+
+    email = (payload.get("email") or payload.get("username") or "").strip().lower()
+    if not email or "@" not in email:
+        raise ValueError(f"Traffit user {traffit_id} missing or invalid email")
+
+    raw_first = (payload.get("name") or "").strip()
+    raw_last = (payload.get("lastname") or "").strip()
+    full_name = " ".join(p for p in (raw_first, raw_last) if p).strip()
+    if not full_name:
+        # Fallback to email localpart (e.g. "jakub.petryna" → "Jakub Petryna")
+        local = email.split("@", 1)[0]
+        full_name = " ".join(
+            part.capitalize() for part in local.replace(".", " ").split()
+        )
+    if not full_name:
+        full_name = f"Traffit User #{traffit_id}"
+
+    group = payload.get("permission_group") or {}
+    group_name = group.get("name") if isinstance(group, dict) else None
+    role = normalize_traffit_role(group_name)
+
+    # is_active default False for safety (większość Traffit-imported userów
+    # to historic accounts; admin może ich aktywować ręcznie po imporcie)
+    is_active = bool(payload.get("is_active") or False)
+
+    return {
+        "external_id": str(traffit_id),
+        "external_source": "traffit",
+        "email": _trunc(email, 255),
+        "name": _trunc(full_name, 255),
+        "role": role,
+        "is_active": is_active,
+        # Bcrypt-invalid placeholder. Login attempt = bcrypt verify fails =>
+        # nie ma sposobu na wejście do konta przez ten hash.
+        "password_hash": "!imported-from-traffit-no-login!",
+    }
+
+
+def select_all_files_with_priority(
+    files: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Sort wszystkie pliki kandydata po priorytecie pdf > docx > doc > inne;
+    pierwszy element dostaje `is_primary=True`, pozostałe `False`.
+
+    Używane przez Fazę A `import_candidate_files` żeby zaimportować WSZYSTKIE
+    dokumenty (nie tylko primary CV). Zachowuje markowanie primary tak żeby
+    zakładka "Pliki" w UI pokazała preferowany na górze listy.
+
+    Zwraca listę dictów z dodatkowym kluczem `is_primary: bool`. Pliki bez
+    `id` są skipowane (niemożliwe do pobrania binary).
+    """
+    if not files:
+        return []
+    by_priority = {".pdf": 0, ".docx": 1, ".doc": 2}
+
+    def rank(f: dict[str, Any]) -> int:
+        name = (f.get("name") or "").lower()
+        for ext, prio in by_priority.items():
+            if name.endswith(ext):
+                return prio
+        return 99
+
+    candidates = [f for f in files if f.get("id") is not None]
+    if not candidates:
+        return []
+    sorted_files = sorted(candidates, key=rank)
+    result: list[dict[str, Any]] = []
+    for i, f in enumerate(sorted_files):
+        # Don't mutate input — return shallow-copied dict z is_primary marker
+        result.append({**f, "is_primary": (i == 0)})
+    return result

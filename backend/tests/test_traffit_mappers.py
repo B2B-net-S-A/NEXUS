@@ -15,6 +15,8 @@ from app.services.traffit.mappers import (
     normalize_candidate_status,
     normalize_client_status,
     normalize_job_status,
+    normalize_traffit_role,
+    select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
     traffit_client_to_nexus,
@@ -24,6 +26,7 @@ from app.services.traffit.mappers import (
     traffit_recruitment_to_job,
     traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
+    traffit_user_to_nexus,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
 )
@@ -579,6 +582,7 @@ class TestTraffitActivityToActivity:
             "content": "Sample content",
             "employee": {"id": 1246},  # global endpoint zawiera employee
             "created_by": {"id": 43},
+            "updated_by": {"id": 51},
         }
         result = traffit_activity_to_activity(
             record, {"1246": 500}, user_id_map={"43": 7}
@@ -591,6 +595,22 @@ class TestTraffitActivityToActivity:
         assert result["details"]["traffit_type_value"] == "Import - dodany"
         assert result["details"]["content"] == "Sample content"
         assert result["user_id"] == 7
+        # Faza A: raw Traffit user IDs in details for SQL-only re-attribution
+        assert result["details"]["traffit_created_by_id"] == 43
+        assert result["details"]["traffit_updated_by_id"] == 51
+
+    def test_preserves_traffit_user_id_when_user_not_in_map(self):
+        # Even if user not in user_id_map, raw Traffit ID should be preserved
+        record = {
+            "id": 99,
+            "type": {"value": "Notatka"},
+            "employee": {"id": 1},
+            "created_by": {"id": 999},  # not in map
+        }
+        result = traffit_activity_to_activity(record, {"1": 100}, user_id_map={})
+        assert result is not None
+        assert result["user_id"] is None
+        assert result["details"]["traffit_created_by_id"] == 999
 
     def test_missing_employee_returns_none(self):
         result = traffit_activity_to_activity(
@@ -647,3 +667,134 @@ class TestTraffitSourceToCandidateTag:
     def test_missing_id_returns_none(self):
         result = traffit_source_to_candidate_tag({"employee": {"id": 1}}, {})
         assert result is None
+
+
+# ── Faza A: select_all_files_with_priority ──────────────────────────────────
+
+
+class TestSelectAllFilesWithPriority:
+    def test_empty_returns_empty_list(self):
+        assert select_all_files_with_priority([]) == []
+
+    def test_single_file_marked_primary(self):
+        result = select_all_files_with_priority([{"id": 1, "name": "cv.pdf"}])
+        assert len(result) == 1
+        assert result[0]["is_primary"] is True
+
+    def test_priority_ordering_pdf_then_docx_then_doc(self):
+        files = [
+            {"id": 3, "name": "letter.doc"},
+            {"id": 2, "name": "cv.docx"},
+            {"id": 1, "name": "resume.pdf"},
+        ]
+        result = select_all_files_with_priority(files)
+        assert [f["id"] for f in result] == [1, 2, 3]
+        assert result[0]["is_primary"] is True
+        assert result[1]["is_primary"] is False
+        assert result[2]["is_primary"] is False
+
+    def test_unknown_extension_goes_last(self):
+        files = [
+            {"id": 1, "name": "scan.png"},
+            {"id": 2, "name": "cv.pdf"},
+        ]
+        result = select_all_files_with_priority(files)
+        assert result[0]["id"] == 2
+        assert result[1]["id"] == 1
+
+    def test_files_without_id_skipped(self):
+        result = select_all_files_with_priority(
+            [{"name": "noid.pdf"}, {"id": 5, "name": "ok.pdf"}]
+        )
+        assert len(result) == 1
+        assert result[0]["id"] == 5
+
+    def test_does_not_mutate_input(self):
+        files = [{"id": 1, "name": "cv.pdf"}, {"id": 2, "name": "x.docx"}]
+        result = select_all_files_with_priority(files)
+        # Mutation happens only on result copies
+        assert "is_primary" not in files[0]
+        assert "is_primary" not in files[1]
+        assert result[0]["is_primary"] is True
+
+
+# ── Faza A: traffit_user_to_nexus + normalize_traffit_role ──────────────────
+
+
+class TestNormalizeTraffitRole:
+    @pytest.mark.parametrize(
+        "group_name,expected",
+        [
+            ("Rekruterzy", "recruiter"),
+            ("Recruiters", "recruiter"),
+            ("Admin", "admin"),
+            ("Administratorzy", "admin"),
+            ("Manager", "delivery_lead"),
+            ("Lead Delivery", "delivery_lead"),
+            ("Sourcerzy", "sourcer"),
+            ("TAC", "tac"),
+            (None, "recruiter"),
+            ("", "recruiter"),
+            ("Nieznana grupa XYZ", "recruiter"),  # default fallback
+        ],
+    )
+    def test_known_and_unknown(self, group_name, expected):
+        assert normalize_traffit_role(group_name) == expected
+
+
+class TestTraffitUserToNexus:
+    def test_full_payload(self):
+        payload = {
+            "id": 28,
+            "username": "jakub.petryna@b2bnetwork.pl",
+            "email": "jakub.petryna@b2bnetwork.pl",
+            "is_active": False,
+            "permission_group": {"id": 3, "name": "Rekruterzy"},
+        }
+        result = traffit_user_to_nexus(payload)
+        assert result["external_id"] == "28"
+        assert result["external_source"] == "traffit"
+        assert result["email"] == "jakub.petryna@b2bnetwork.pl"
+        assert result["name"] == "Jakub Petryna"  # email-localpart fallback
+        assert result["role"] == "recruiter"
+        assert result["is_active"] is False
+        assert result["password_hash"] == "!imported-from-traffit-no-login!"
+
+    def test_with_explicit_name_lastname(self):
+        payload = {
+            "id": 39,
+            "email": "hubert@b2bnetwork.pl",
+            "name": "Hubert",
+            "lastname": "Balcerowicz",
+            "is_active": True,
+            "permission_group": {"name": "Admin"},
+        }
+        result = traffit_user_to_nexus(payload)
+        assert result["name"] == "Hubert Balcerowicz"
+        assert result["role"] == "admin"
+        assert result["is_active"] is True
+
+    def test_missing_email_raises(self):
+        with pytest.raises(ValueError, match="missing or invalid email"):
+            traffit_user_to_nexus({"id": 1})
+
+    def test_missing_id_raises(self):
+        with pytest.raises(ValueError, match="missing 'id'"):
+            traffit_user_to_nexus({"email": "x@y.pl"})
+
+    def test_username_fallback_to_email(self):
+        # Some Traffit tenants store email only in `username`
+        payload = {
+            "id": 5,
+            "username": "user@b2bnetwork.pl",
+            "is_active": True,
+            "permission_group": {"name": "Rekruterzy"},
+        }
+        result = traffit_user_to_nexus(payload)
+        assert result["email"] == "user@b2bnetwork.pl"
+
+    def test_email_lowercased(self):
+        result = traffit_user_to_nexus(
+            {"id": 1, "email": "FOO@B2B.pl", "is_active": True}
+        )
+        assert result["email"] == "foo@b2b.pl"

@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
+from app.models.candidate_document import CandidateDocument
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
 from app.models.activity import Activity
@@ -40,6 +41,7 @@ from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
+    CandidateDocumentOut,
     CandidateEngagementUpdate,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
@@ -1086,15 +1088,17 @@ async def get_candidate_timeline(
 
     timeline = []
 
-    # Notes
+    # Notes — JOIN User for author_name (Faza A: po imporcie 131 Traffit
+    # userów chcemy wyświetlać "kto" dodał notatkę. NotatkiTab w UI używa
+    # `author_name` z tego pola).
     notes_result = await db.execute(
-        select(Note)
+        select(Note, User.name.label("author_name"), User.email.label("author_email"))
+        .outerjoin(User, Note.author_id == User.id)
         .where(Note.candidate_id == candidate_id)
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
-    notes = notes_result.scalars().all()
-    for note in notes:
+    for note, author_name, author_email in notes_result.all():
         timeline.append(
             {
                 "type": "note",
@@ -1103,6 +1107,8 @@ async def get_candidate_timeline(
                 "note_type": note.note_type.value if note.note_type else None,
                 "content": note.content,
                 "author_id": note.author_id,
+                "author_name": author_name,
+                "author_email": author_email,
             }
         )
 
@@ -1320,6 +1326,79 @@ async def get_candidate_history(
         "contracts": contracts_history,
         "risk_summary": risk_summary,
     }
+
+
+@router.get(
+    "/{candidate_id}/documents",
+    response_model=list[CandidateDocumentOut],
+)
+async def list_candidate_documents(
+    candidate_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """List wszystkich plików kandydata (multi-file CV, Faza A migracji
+    Traffit). Primary plik jest pierwszy w response (sortowanie po
+    `is_primary DESC`, `uploaded_at DESC`).
+
+    Nie zwraca `file_content` — pobierz binary przez
+    `/api/candidates/{candidate_id}/documents/{doc_id}/content`.
+    """
+    cand = (
+        await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+    ).scalar_one_or_none()
+    if cand is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    result = await db.execute(
+        select(CandidateDocument)
+        .where(CandidateDocument.candidate_id == candidate_id)
+        .order_by(
+            CandidateDocument.is_primary.desc(),
+            CandidateDocument.uploaded_at.desc().nulls_last(),
+            CandidateDocument.created_at.desc(),
+        )
+    )
+    return list(result.scalars().all())
+
+
+@router.get("/{candidate_id}/documents/{doc_id}/content")
+async def download_candidate_document(
+    candidate_id: int,
+    doc_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pobierz binary content pliku — StreamingResponse z proper
+    Content-Type i Content-Disposition: attachment.
+    """
+    result = await db.execute(
+        select(CandidateDocument).where(
+            CandidateDocument.id == doc_id,
+            CandidateDocument.candidate_id == candidate_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # `file_content` is deferred — explicit refresh
+    await db.refresh(doc, attribute_names=["file_content"])
+    if not doc.file_content:
+        raise HTTPException(status_code=404, detail="Document content not available")
+
+    import io
+
+    media_type = doc.content_type or "application/octet-stream"
+    filename = doc.filename or f"document-{doc.id}"
+    return StreamingResponse(
+        io.BytesIO(doc.file_content),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(doc.file_content)),
+        },
+    )
 
 
 @router.get("/{candidate_id}/risk")

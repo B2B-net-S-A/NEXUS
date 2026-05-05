@@ -98,6 +98,15 @@ async def list_mentionable_users(
         ),
     ),
     q: Optional[str] = Query(None, description="Case-insensitive match on name/email."),
+    include_inactive: bool = Query(
+        False,
+        description=(
+            "Jeśli True — zwraca też nieaktywnych userów (Faza A: 131 userów "
+            "zaimportowanych z Traffit jako disabled accounts). Używane gdy "
+            "renderujemy historyczne notatki i chcemy pokazać autora któremu "
+            "konto wygasło."
+        ),
+    ),
 ):
     """Lista userów dostępnych do @mention.
 
@@ -106,21 +115,22 @@ async def list_mentionable_users(
       candidate_id → members chatu kandydata (przez list_candidate_chat_member_ids)
       brak ID      → wszyscy aktywni z rolą != `user` (default _DEFAULT_ROLES)
 
-    Zawsze filtruje `is_active=True`. Frontend `MentionTextarea` cache'uje
-    przez react-query (`staleTime: 60s`).
+    Domyślnie filtruje `is_active=True`. Z `include_inactive=true` rozszerza
+    o disabled userów (np. importowani z Traffit w Faza A migracji).
+    Frontend `MentionTextarea` cache'uje przez react-query (`staleTime: 60s`).
     """
+    active_clause = User.is_active.is_(True)
+
     if job_id is not None:
         from app.services.job_membership import list_job_member_ids
 
         member_ids = await list_job_member_ids(db, job_id)
         if not member_ids:
             return []
-        rows = await db.execute(
-            select(User)
-            .where(User.id.in_(member_ids))
-            .where(User.is_active.is_(True))
-            .order_by(User.name)
-        )
+        q_stmt = select(User).where(User.id.in_(member_ids))
+        if not include_inactive:
+            q_stmt = q_stmt.where(active_clause)
+        rows = await db.execute(q_stmt.order_by(User.name))
         users = list(rows.scalars().all())
     elif candidate_id is not None:
         from app.services.candidate_membership import (
@@ -130,20 +140,16 @@ async def list_mentionable_users(
         member_ids = await list_candidate_chat_member_ids(db, candidate_id)
         if not member_ids:
             return []
-        rows = await db.execute(
-            select(User)
-            .where(User.id.in_(member_ids))
-            .where(User.is_active.is_(True))
-            .order_by(User.name)
-        )
+        q_stmt = select(User).where(User.id.in_(member_ids))
+        if not include_inactive:
+            q_stmt = q_stmt.where(active_clause)
+        rows = await db.execute(q_stmt.order_by(User.name))
         users = list(rows.scalars().all())
     else:
-        rows = await db.execute(
-            select(User)
-            .where(User.is_active.is_(True))
-            .where(User.role.in_(_DEFAULT_ROLES))
-            .order_by(User.name)
-        )
+        q_stmt = select(User).where(User.role.in_(_DEFAULT_ROLES))
+        if not include_inactive:
+            q_stmt = q_stmt.where(active_clause)
+        rows = await db.execute(q_stmt.order_by(User.name))
         users = list(rows.scalars().all())
 
     if q:
