@@ -404,3 +404,22 @@ class CandidateFromCVConflictResponse(BaseModel):
     detail: str
     existing_candidate_id: int
     matches: list[CandidateFromCVDuplicate]
+
+
+class CandidateDocumentOut(BaseModel):
+    """Pojedynczy plik kandydata (multi-file CV) — list response.
+
+    Nie zawiera `file_content` (BYTEA) — pobiera się osobno przez
+    `/api/candidates/{id}/documents/{doc_id}/content` endpoint.
+    """
+
+    id: int
+    filename: str
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    is_primary: bool
+    uploaded_at: Optional[datetime] = None
+    external_source: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

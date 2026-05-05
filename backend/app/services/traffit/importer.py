@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client import Client
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
+    select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
     traffit_client_to_nexus,
@@ -43,6 +44,7 @@ from app.services.traffit.mappers import (
     traffit_recruitment_to_job,
     traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
+    traffit_user_to_nexus,
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
 )
@@ -293,6 +295,89 @@ _UPSERT_TALENT_POOL = text(
 )
 
 
+# ── Faza A UPSERT statements ─────────────────────────────────────────────────
+
+
+# Insert NEW Traffit-imported user. password_hash placeholder = bcrypt-invalid,
+# is_active=false zwykle (zachowuje payload Traffit). Idempotent na
+# (external_source, external_id).
+_UPSERT_USER = text(
+    """
+    INSERT INTO users (
+        external_id, external_source, email, name, role,
+        is_active, password_hash, profile_completed,
+        created_at, updated_at
+    ) VALUES (
+        CAST(:external_id AS varchar(100)),
+        CAST(:external_source AS varchar(50)),
+        CAST(:email AS varchar(255)),
+        CAST(:name AS varchar(255)),
+        CAST(:role AS userrole),
+        CAST(:is_active AS boolean),
+        CAST(:password_hash AS varchar(255)),
+        true,
+        NOW(), NOW()
+    )
+    ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
+    DO UPDATE SET
+        name      = EXCLUDED.name,
+        role      = EXCLUDED.role,
+        is_active = EXCLUDED.is_active,
+        updated_at = NOW()
+    RETURNING id, (xmax = 0) AS was_insert
+    """
+)
+
+# Mark istniejącego (po email) Nexus usera jako Traffit-imported. Nie zmienia
+# password_hash/role (zachowuje istniejący Nexus account).
+_UPDATE_USER_ADOPT = text(
+    """
+    UPDATE users
+    SET external_id     = CAST(:external_id AS varchar(100)),
+        external_source = CAST(:external_source AS varchar(50)),
+        updated_at      = NOW()
+    WHERE id = :nexus_id
+    RETURNING id
+    """
+)
+
+
+# Insert/UPSERT candidate document. external_id format: "<emp_id>-<file_id>".
+# `is_primary` może być TRUE tylko dla jednego pliku per kandydat (caller
+# odpowiada za logikę markowania — patrz select_all_files_with_priority).
+_UPSERT_CANDIDATE_DOCUMENT = text(
+    """
+    INSERT INTO candidate_documents (
+        candidate_id, filename, file_content, content_type,
+        size_bytes, is_primary, uploaded_at,
+        external_id, external_source,
+        created_at, updated_at
+    ) VALUES (
+        CAST(:candidate_id AS integer),
+        CAST(:filename AS varchar(500)),
+        :file_content,
+        CAST(:content_type AS varchar(100)),
+        CAST(:size_bytes AS integer),
+        CAST(:is_primary AS boolean),
+        :uploaded_at,
+        CAST(:external_id AS varchar(100)),
+        CAST(:external_source AS varchar(50)),
+        NOW(), NOW()
+    )
+    ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
+    DO UPDATE SET
+        filename     = EXCLUDED.filename,
+        file_content = COALESCE(EXCLUDED.file_content, candidate_documents.file_content),
+        content_type = COALESCE(EXCLUDED.content_type, candidate_documents.content_type),
+        size_bytes   = COALESCE(EXCLUDED.size_bytes, candidate_documents.size_bytes),
+        is_primary   = EXCLUDED.is_primary,
+        uploaded_at  = COALESCE(EXCLUDED.uploaded_at, candidate_documents.uploaded_at),
+        updated_at   = NOW()
+    RETURNING id, (xmax = 0) AS was_insert
+    """
+)
+
+
 # ── Importer ─────────────────────────────────────────────────────────────────
 
 
@@ -522,6 +607,102 @@ class TraffitImporter:
             for traffit_id, email in emails
             if email in nexus_by_email
         }
+
+    # ── Faza A: users import ────────────────────────────────────────────────
+
+    async def import_users(self) -> PhaseProgress:
+        """Import 141 Traffit users → Nexus users.
+
+        Logika:
+        - Email match istniejący Nexus user → UPDATE z external_id (adopt)
+        - Brak match → INSERT nowy disabled user (is_active=false,
+          password_hash placeholder, role z permission_group)
+
+        Po imporcie `build_user_id_map` zwróci 141 entries (zamiast 1-10),
+        co umożliwia poprawną atrybucję re-runu activities/pipelines.
+        """
+        progress = PhaseProgress(phase="users", started_at=datetime.now(timezone.utc))
+        try:
+            progress.total_source = await self.traffit.total_count("/users/")
+        except Exception as e:  # noqa: BLE001
+            progress.add_error(f"total_count failed: {e!r}")
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        # Pre-load istniejących Nexus users `email → id` (case-insensitive)
+        result = await self.db.execute(
+            text(
+                "SELECT id, lower(email) AS email FROM users "
+                "WHERE email IS NOT NULL AND email <> ''"
+            )
+        )
+        nexus_email_to_id: dict[str, int] = {
+            row.email: row.id for row in result.fetchall() if row.email
+        }
+        logger.info("Users import: existing Nexus users %d", len(nexus_email_to_id))
+
+        async for raw in self.traffit.get_paginated(
+            "/users/", page_size=self.batch_size
+        ):
+            progress.processed += 1
+            try:
+                payload = traffit_user_to_nexus(raw)
+            except ValueError as e:
+                # Missing email or id — skip, log
+                progress.skipped += 1
+                if len(progress.error_samples) < 20:
+                    progress.error_samples.append(
+                        f"skip user id={raw.get('id')}: {e!s}"
+                    )
+                continue
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"map user id={raw.get('id')}: {e!r}")
+                continue
+
+            if self.dry_run:
+                progress.inserted += 1
+                continue
+
+            existing_id = nexus_email_to_id.get(payload["email"])
+            try:
+                if existing_id is not None:
+                    # Adopt — mark istniejącego usera jako Traffit-imported
+                    await self.db.execute(
+                        _UPDATE_USER_ADOPT,
+                        {
+                            "nexus_id": existing_id,
+                            "external_id": payload["external_id"],
+                            "external_source": payload["external_source"],
+                        },
+                    )
+                    progress.updated += 1
+                else:
+                    result = await self.db.execute(_UPSERT_USER, payload)
+                    row = result.fetchone()
+                    if row is None:
+                        continue
+                    if row[1]:
+                        progress.inserted += 1
+                        # Cache fresh email→id dla intra-run dedup (gdyby
+                        # Traffit miał 2 userów z tym samym emailem)
+                        nexus_email_to_id[payload["email"]] = row[0]
+                    else:
+                        progress.updated += 1
+            except Exception as e:  # noqa: BLE001
+                msg = f"upsert user ext={payload['external_id']}: {e!r}"
+                progress.add_error(msg)
+                if progress.errors <= 5:
+                    logger.warning("User upsert error: %s", msg[:300])
+                await self.db.rollback()
+
+        if not self.dry_run:
+            await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Users import done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
 
     async def _build_workflow_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
@@ -1088,6 +1269,164 @@ class TraffitImporter:
         )
         return progress
 
+    # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
+
+    async def import_candidate_files(self) -> PhaseProgress:
+        """Pobiera WSZYSTKIE pliki kandydatów Traffit do `candidate_documents`.
+
+        Idempotent: ON CONFLICT (external_source, external_id) DO UPDATE.
+        external_id format: `"<traffit_employee_id>-<file_id>"`.
+
+        Per-kandydat:
+        1. GET /employees/{traffit_id}/files → lista plików
+        2. select_all_files_with_priority — sortuje pdf>docx>doc, marker is_primary
+        3. Per plik: GET /employees/{traffit_id}/files/{file_id}/content → binary
+        4. UPSERT do candidate_documents
+
+        W przeciwieństwie do import_candidates_cv (single primary) — bierze
+        wszystkie pliki. Skipuje kandydatów którzy mają już komplet plików
+        (sprawdza count(*) FROM candidate_documents WHERE candidate_id = X).
+        """
+        progress = PhaseProgress(
+            phase="candidates_files", started_at=datetime.now(timezone.utc)
+        )
+
+        # Wszyscy traffit-sourced candidates. Skipujemy tych którzy
+        # mają już files w candidate_documents (idempotent).
+        result = await self.db.execute(
+            text(
+                """
+                SELECT c.id, c.external_id
+                FROM candidates c
+                LEFT JOIN candidate_documents cd
+                  ON cd.candidate_id = c.id AND cd.external_source = 'traffit'
+                WHERE c.external_source = 'traffit'
+                  AND c.external_id IS NOT NULL
+                GROUP BY c.id, c.external_id
+                HAVING count(cd.id) = 0
+                ORDER BY c.id
+                """
+            )
+        )
+        targets = list(result)
+        progress.total_source = len(targets)
+        if not targets:
+            progress.finished_at = datetime.now(timezone.utc)
+            logger.info("Candidates files: nothing to do (already imported)")
+            return progress
+
+        logger.info("Candidates files: %d candidates to process", len(targets))
+
+        commit_every = 50  # commit po 50 candidates (każdy może mieć kilka files)
+        since_commit = 0
+        assert self.traffit._http is not None  # noqa: SLF001
+
+        for row in targets:
+            progress.processed += 1
+            traffit_id = row.external_id
+            try:
+                files_resp = await self.traffit._get_raw(  # noqa: SLF001
+                    f"/employees/{traffit_id}/files", page=1, page_size=50
+                )
+                if files_resp.status_code != 200:
+                    progress.add_error(
+                        f"emp {traffit_id} files HTTP {files_resp.status_code}"
+                    )
+                    continue
+                files_raw = files_resp.json()
+                if not isinstance(files_raw, list) or not files_raw:
+                    progress.skipped += 1
+                    continue
+
+                files_sorted = select_all_files_with_priority(files_raw)
+                if not files_sorted:
+                    progress.skipped += 1
+                    continue
+
+                if self.dry_run:
+                    progress.inserted += len(files_sorted)
+                    continue
+
+                # Pobierz binary dla każdego pliku
+                for f in files_sorted:
+                    file_id = f["id"]
+                    filename = f.get("name") or f"file-{file_id}"
+                    is_primary = bool(f.get("is_primary", False))
+                    uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
+
+                    token = await self.traffit._ensure_token()  # noqa: SLF001
+                    url = (
+                        f"{self.traffit.config.api_base}"
+                        f"/employees/{traffit_id}/files/{file_id}/content"
+                    )
+                    await self.traffit._throttle()  # noqa: SLF001
+                    content_resp = await self.traffit._http.get(  # noqa: SLF001
+                        url,
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    if content_resp.status_code != 200:
+                        progress.add_error(
+                            f"emp {traffit_id} file {file_id} HTTP "
+                            f"{content_resp.status_code}"
+                        )
+                        continue
+
+                    file_bytes = content_resp.content
+                    content_type = content_resp.headers.get("content-type", "")
+                    # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
+                    if ";" in content_type:
+                        content_type = content_type.split(";", 1)[0].strip()
+
+                    # Parse uploaded_at z formatu Traffita
+                    from app.services.traffit.mappers import _parse_traffit_datetime
+
+                    uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
+
+                    await self.db.execute(
+                        _UPSERT_CANDIDATE_DOCUMENT,
+                        {
+                            "candidate_id": row.id,
+                            "filename": filename[:500],
+                            "file_content": file_bytes,
+                            "content_type": content_type[:100]
+                            if content_type
+                            else None,
+                            "size_bytes": len(file_bytes),
+                            "is_primary": is_primary,
+                            "uploaded_at": uploaded_at,
+                            "external_id": f"{traffit_id}-{file_id}"[:100],
+                            "external_source": "traffit",
+                        },
+                    )
+                    progress.inserted += 1
+
+                since_commit += 1
+                if since_commit >= commit_every:
+                    await self.db.commit()
+                    since_commit = 0
+                    logger.info(
+                        "Files import progress: %d/%d candidates "
+                        "(inserted=%d skipped=%d errors=%d)",
+                        progress.processed,
+                        progress.total_source,
+                        progress.inserted,
+                        progress.skipped,
+                        progress.errors,
+                    )
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"emp {traffit_id}: {e!r}")
+                await self.db.rollback()
+                since_commit = 0
+
+        if not self.dry_run and since_commit > 0:
+            await self.db.commit()
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info(
+            "Candidates files done: %s",
+            json.dumps(progress.as_dict(), default=str)[:500],
+        )
+        return progress
+
     # ── Faza 5b: pipelines (recruitment_history → candidate_stages) ─────────
 
     async def import_pipelines(self) -> PhaseProgress:
@@ -1115,7 +1454,13 @@ class TraffitImporter:
             len(user_map),
         )
 
-        commit_every = 500
+        # Commit po każdym successful upsert (zamiast per-batch). Eliminuje
+        # batch rollback gdy jeden record narusza check_constraint
+        # (np. withdrawn_requires_reason). Pierwszy run miał ~18k stage moves
+        # zgubione w batchach po 500 — per-record commit odzyskuje całość.
+        # Trade-off: ~2x slower z powodu fsync na każdy commit (akceptowalne
+        # dla 152k rekordów = ~85 min API-bound i tak).
+        commit_every = 1
         since_commit = 0
 
         async for raw in self.traffit.get_paginated(
@@ -1187,15 +1532,23 @@ class TraffitImporter:
                 if since_commit >= commit_every:
                     await self.db.commit()
                     since_commit = 0
-                    logger.info(
-                        "Pipelines progress: %d/%d",
-                        progress.processed,
-                        progress.total_source,
-                    )
+                    # Log progress co 500 records (commit jest per-1 ale spam
+                    # na każde 1 byłby nie do zniesienia)
+                    if progress.processed % 500 == 0:
+                        logger.info(
+                            "Pipelines progress: %d/%d "
+                            "(inserted=%d updated=%d errors=%d)",
+                            progress.processed,
+                            progress.total_source,
+                            progress.inserted,
+                            progress.updated,
+                            progress.errors,
+                        )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(
-                    f"upsert stage ext={payload.get('external_id')}: {e!r}"
-                )
+                msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                progress.add_error(msg)
+                if progress.errors <= 5 or progress.errors % 500 == 0:
+                    logger.warning("Pipelines upsert error: %s", msg[:300])
                 await self.db.rollback()
                 since_commit = 0
 

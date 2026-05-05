@@ -272,6 +272,9 @@ class Candidate(Base, TimestampMixin):
     notes = relationship(
         "Note", back_populates="candidate", cascade="all, delete-orphan"
     )
+    documents = relationship(
+        "CandidateDocument", back_populates="candidate", cascade="all, delete-orphan"
+    )
     chat_messages = relationship(
         "CandidateChatMessage",
         back_populates="candidate",
