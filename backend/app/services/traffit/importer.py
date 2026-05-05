@@ -1334,12 +1334,13 @@ class TraffitImporter:
         per_candidate: dict[int, list[dict[str, Any]]] = {}
 
         # /sources/ endpoint na tenant b2bnetwork ma server-side bug w paginacji:
-        # losowe HTTP 500 na page>=2 dla page_size > 10 (manual probe matrix).
-        # page_size=10 jest stabilne na wszystkich stronach; powyżej 10 — sporadyczne
-        # 500 na page 2/3/4. 75k records / 10 = 7569 pages × 0.2s @ 5 RPS = ~25 min.
+        # losowe HTTP 500 na specyficznych stronach (np. p6, p8, p11 przy size=10),
+        # nawet przy page_size=10. Cap do 10 (mniej "złych" stron) + skip_on_5xx
+        # żeby nie ubić importu z powodu chwiejnego endpoint'u Traffita.
+        # Tracimy ~10 records per failed page, akceptowalne dla audit-log danych.
         sources_page_size = min(self.batch_size, 10)
         async for raw in self.traffit.get_paginated(
-            "/sources/", page_size=sources_page_size
+            "/sources/", page_size=sources_page_size, skip_on_5xx=True
         ):
             progress.processed += 1
             try:

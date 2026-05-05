@@ -225,9 +225,28 @@ class TraffitClient:
         path: str,
         *,
         page_size: int = 100,
+        skip_on_5xx: bool = False,
     ) -> AsyncIterator[dict]:
-        """Yield each item across all pages. Sorts on `id ASC` for stability."""
+        """Yield each item across all pages. Sorts on `id ASC` for stability.
+
+        skip_on_5xx: when True, log a 5xx page and continue past it instead of
+            raising. Useful for /sources/ on b2bnetwork tenant which has random
+            HTTP 500s on specific pages — losing the failed page is preferable
+            to aborting the whole import.
+        """
         page = 1
+        # If we know the total page count from page=1, use it; otherwise we
+        # rely on len(items) < page_size to stop. With skip_on_5xx the first
+        # page might fail, so we probe total_pages via total_count for safety.
+        total_pages_known: Optional[int] = None
+        if skip_on_5xx:
+            try:
+                total = await self.total_count(path)
+                if total > 0:
+                    total_pages_known = (total + page_size - 1) // page_size
+            except Exception:  # noqa: BLE001
+                total_pages_known = None
+
         while True:
             resp = await self._get_raw(
                 path,
@@ -236,6 +255,17 @@ class TraffitClient:
                 extra_headers={"X-Request-Sort": json.dumps({"id": "ASC"})},
             )
             if resp.status_code != 200:
+                if skip_on_5xx and 500 <= resp.status_code < 600:
+                    logger.warning(
+                        "GET %s page=%d HTTP %d — skipping page",
+                        path,
+                        page,
+                        resp.status_code,
+                    )
+                    if total_pages_known and page >= total_pages_known:
+                        return
+                    page += 1
+                    continue
                 raise RuntimeError(
                     f"GET {path} page={page}: HTTP {resp.status_code} {resp.text[:200]}"
                 )
