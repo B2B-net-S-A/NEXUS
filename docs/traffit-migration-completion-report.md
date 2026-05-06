@@ -1,30 +1,42 @@
 # Traffit → Nexus migration — completion report
 
-> Sesja 2026-05-04 / 2026-05-05. Tenant: `b2bnetwork`.
+> Sesja 2026-05-04 / 2026-05-05 / 2026-05-06. Tenant: `b2bnetwork`.
 > Plan: [`traffit-migration-plan.md`](./traffit-migration-plan.md). Discovery: [`traffit-discovery.md`](./traffit-discovery.md).
-> **Faza A** (data layer + frontend completeness) — plan: `~/.claude/plans/zaplanuj-teraz-t-full-calm-journal.md`, PR #86 (backend), PR #87 (frontend).
+> **Faza A** (data layer + frontend) — plan: `~/.claude/plans/zaplanuj-teraz-t-full-calm-journal.md`, PR #86 (backend), PR #87 (frontend), PR #88+#89 (docs).
 
-## Faza A — co zrobione (15:50, 5 maja)
+## ✅ Faza A — finalne wyniki (po A4+A5+A6)
 
-✓ **Schema** (Alembic 0076 + 0077): `users.external_id`, `candidate_documents` table, notes promotion z activities (43 138 notes, idempotent NOT EXISTS)
-✓ **141/141 userów** Traffita w Nexusie (140 nowych disabled + 1 adopted) — `import_users` phase done
-✓ **Multi-file CV API**: `GET /api/candidates/{id}/documents` + `/content` download (verified: candidate 258 ma 2 pliki, jeden primary)
-✓ **Timeline z author_name** dla notes (NotatkiTab UI pokazuje "Jan Kowalski · 2 min temu")
-✓ **`/api/users/mentionable?include_inactive=true`** — opt-in dla disabled Traffit-userów w mention picker
-✓ **Frontend zakładka "Pliki"** z `PlikiTab` + `DocumentCard` (download, primary badge, "z Traffita" tag) — live na nexus.dynaminds.pl
-✓ **Pipelines `commit_every=1`** — eliminuje batch rollback dla check_constraint violations
+| Metryka | Przed Fazą A | Po Fazie A | Poprawa |
+|---|---:|---:|---:|
+| **Userów Traffit w Nexus** | 10 / 141 (7%) | **141 / 141 (100%)** | 14× |
+| **Activities z `user_id`** | 1 739 / 343 867 (0.5%) | **310 271 / 344 317 (90.1%)** | 178× |
+| **Notes z `author_id`** | 327 / 43 138 (0.8%) | **40 759 / 43 138 (94.5%)** | 125× |
+| **Stage moves z `moved_by`** | 1 957 / 134 331 (1.5%) | **95 770 / 147 208 (65%)** | 49× |
+| **Pliki kandydatów** | 40 488 (single CV) | **49 323 (multi-file)** | +22% |
+| **Notes promoted z activities** | 0 | **43 138** (notatki + emaile + reply + rozmowy + spotkania) | nowe |
+| **Stage moves total** | 134 331 (-18k batch loss) | **147 208** | +13k recovered |
+| `candidate_documents` | brak tabeli | **49 323** rekordów | nowa tabela |
 
-### W trakcie (background, 3 phases równoległe)
+### Kluczowe zmiany w UX (live na nexus.dynaminds.pl)
 
-- **A4 activities re-run** — większy `user_id_map` (10→141) → atrybucja user_id w 343k aktywności. ETA ~6h API.
-- **A5 pipelines re-run** — recovery 18k zgubionych stage moves + atrybucja `moved_by`. ETA ~5 min do końca.
-- **A6 candidates-files** — pobiera **wszystkie** pliki per kandydat (nie tylko primary). ETA ~5h.
+- ✅ Profil kandydata pokazuje teraz **autora** przy każdej notatce ("Marek Stojecki · 2 min temu")
+- ✅ Stage history pokazuje **kto przesunął** kandydata (95k z 147k stage moves)
+- ✅ Nowa zakładka **"Pliki"** wyświetla wszystkie dokumenty kandydata (multi-file CV) z download
+- ✅ Mention picker `?include_inactive=true` pozwala mention'ować historycznych Traffit-userów
 
-### Zostaje po background completion
+### Operational issues z Fazy A
 
-- Re-run notes.author_id backfill (już zrobiony częściowo: 327 → 5 669 z 43 138; po A4 → ~99%)
-- Final `--phase reconcile` + UI smoke test
-- Aktualizacja sekcji "Wyniki reconcile" poniżej z finalnymi liczbami
+- ⚠️ **Disk 98% pełny** (75G volume, ~2GB free) — A6 exit=1 z powodu disk-full near końca. Wymaga upgrade Hetzner volume (recommended: dodać 25-50GB). Wszystkie 3 phases zaimportowały dane przed disk fill, ale postgres miał kilka short recovery cycles.
+- A4 activities ran 1h33m (16:08 → 17:41 UTC, exit 0).
+- A6 candidates-files ran 5h31m (16:08 → 21:39 UTC, exit 1 mid-write) — i tak pobrał 49k z ~50k plików.
+
+### Architektura Faza A — kluczowe decyzje
+
+- **Persistent containers** — phases A4/A6 odpalone w **osobnych** Docker containerach (nie `docker exec` w main app), żeby przeżyły Coolify rebuild przy każdym push do main.
+- **`commit_every=1`** w pipelines (zamiast batch 100) — eliminuje rollback batch przy check_constraint violations (`withdrawn_requires_reason`). Trade-off: ~2x slower fsync ale recovery 18k stage moves.
+- **`select_all_files_with_priority`** — nowy mapper zwraca listę wszystkich plików (vs single primary), z `is_primary=True` na pierwszym (priority pdf > docx > doc).
+- **Dual-source notes** — notatki w `activities` (timeline) + kopia w `notes` (dedicated UI), bulk INSERT przez Alembic 0077.
+- **`_UPDATE_USER_ADOPT`** — istniejący Nexus user matchowany po email dostaje `external_id` Traffita (mark imported, zachowuje rolę/hasło).
 
 ---
 
