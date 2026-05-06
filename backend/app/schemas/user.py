@@ -27,6 +27,10 @@ class UserResponse(BaseModel):
     is_active: bool
     profile_completed: bool = False
     profile_completed_at: Optional[datetime] = None
+    # Force-change-password gate (migracja 0078). Po admin-resecie hasła
+    # ustawiamy True; frontend redirectuje do /profile dopóki nie zmieni.
+    force_password_change: bool = False
+    force_password_change_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

@@ -25,18 +25,27 @@ def create_access_token(
     subject: Union[str, int],
     role: str,
     expires_delta: Optional[timedelta] = None,
+    force_password_change: bool = False,
 ) -> str:
-    """Create a JWT access token."""
+    """Create a JWT access token.
+
+    Claim ``fpc`` (force_password_change) jest dodawany TYLKO gdy True —
+    dla starych tokenów (sprzed deploya) middleware traktuje brak claim
+    jako False (default). Frontend middleware czyta ``fpc`` żeby
+    przekierować usera do /profile po admin-resecie hasła.
+    """
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    payload = {
+    payload: dict = {
         "sub": str(subject),
         "role": role,
         "type": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
+    if force_password_change:
+        payload["fpc"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 

@@ -9,16 +9,27 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
+from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser
 from app.schemas.user import UserResponse
+from app.services.email import (
+    send_password_changed_notification,
+    send_password_reset_email,
+)
+from app.services.password_reset import (
+    RESET_TOKEN_TTL_MINUTES,
+    create_reset_token,
+)
 
 router = APIRouter()
 
@@ -183,15 +194,125 @@ async def reset_password(
     _admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Reset a user's password (admin only)."""
+    """Reset a user's password manually (admin only).
+
+    Po resecie:
+    - Ustawiamy ``force_password_change=True`` — user musi przy pierwszym
+      loginie zmienić hasło na własne (bo admin zna to tymczasowe).
+    - Audit log: ``Activity(action="password_changed_by_admin")``.
+    - In-app notification + email do usera (security audit trail).
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     user.password_hash = hash_password(data.new_password)
+    user.force_password_change = True
+    user.force_password_change_at = func.now()
+
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=user.id,
+            action="password_changed_by_admin",
+            user_id=_admin.id,
+            details={
+                "admin_id": _admin.id,
+                "admin_email": _admin.email,
+                "method": "manual",
+            },
+        )
+    )
+    db.add(
+        Notification(
+            user_id=user.id,
+            title="Twoje hasło zostało zresetowane",
+            message=(
+                f"Administrator {_admin.name} zresetował Twoje hasło. "
+                "Przy następnym logowaniu zostaniesz poproszony(-a) o "
+                "ustawienie nowego hasła."
+            ),
+            link="/profile",
+            notification_type=NotificationType.password_changed_by_admin,
+            related_entity_type="user",
+            related_entity_id=user.id,
+        )
+    )
     await db.flush()
+
+    send_password_changed_notification(
+        to_email=user.email,
+        recipient_name=user.name,
+        by_admin=True,
+        admin_name=_admin.name,
+    )
     return {"detail": "Password reset successfully"}
+
+
+@router.post("/users/{user_id}/send-reset-link", response_model=dict)
+async def send_reset_link(
+    user_id: int,
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a password reset link to a user via email (admin only).
+
+    Alternatywa dla manual ``reset-password`` — admin nie zna tymczasowego
+    hasła, user sam ustawia nowe przez link w mailu (TTL 60 min). Token
+    jest jednorazowy. Flag ``force_password_change`` NIE jest ustawiany,
+    bo user i tak ustawi własne hasło w reset-password flow.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(
+            status_code=400, detail="Cannot send reset link to deactivated user"
+        )
+
+    plain_token = await create_reset_token(
+        db, user.id, requested_by_admin_id=_admin.id
+    )
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    reset_url = f"{base}/login/reset?token={plain_token}"
+
+    send_password_reset_email(
+        to_email=user.email,
+        recipient_name=user.name,
+        reset_url=reset_url,
+        expires_minutes=RESET_TOKEN_TTL_MINUTES,
+    )
+
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=user.id,
+            action="password_reset_link_sent_by_admin",
+            user_id=_admin.id,
+            details={
+                "admin_id": _admin.id,
+                "admin_email": _admin.email,
+            },
+        )
+    )
+    db.add(
+        Notification(
+            user_id=user.id,
+            title="Wysłano link do resetu hasła",
+            message=(
+                f"Administrator {_admin.name} wysłał Ci link do zresetowania "
+                "hasła. Sprawdź skrzynkę email — link jest ważny przez 60 minut."
+            ),
+            link=None,
+            notification_type=NotificationType.password_reset_requested,
+            related_entity_type="user",
+            related_entity_id=user.id,
+        )
+    )
+    await db.flush()
+    return {"detail": "Reset link sent to user's email"}
 
 
 @router.get("/system")

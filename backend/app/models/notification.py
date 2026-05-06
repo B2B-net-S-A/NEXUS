@@ -72,6 +72,12 @@ class NotificationType(str, enum.Enum):
     # Wartość dodana w 0066_note_mentions. Wysyłka emaila best-effort przez
     # SMTP synchronicznie po commicie (services/mention_dispatch.py).
     note_mention = "note_mention"
+    # Password reset flow (migracja 0078). `password_reset_requested` —
+    # informacyjna notyfikacja po wysłaniu linka resetowego (gdy admin
+    # wysłał w imieniu usera). `password_changed_by_admin` — gdy admin
+    # zresetował hasło ręcznie; user dostaje in-app + email.
+    password_reset_requested = "password_reset_requested"
+    password_changed_by_admin = "password_changed_by_admin"
 
 
 class Notification(Base, TimestampMixin):

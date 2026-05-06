@@ -164,6 +164,116 @@ def send_mention_email(
     return send_email(to_email, subject, text_body, html_body)
 
 
+def send_password_reset_email(
+    *,
+    to_email: str,
+    recipient_name: str,
+    reset_url: str,
+    expires_minutes: int = 60,
+) -> bool:
+    """Wysyła email z linkiem resetowym hasła.
+
+    Args:
+        to_email: adres email odbiorcy
+        recipient_name: imię (lub email) odbiorcy do "Cześć X"
+        reset_url: pełny URL z tokenem (np. https://nexus.dynaminds.pl/login/reset?token=...)
+        expires_minutes: TTL linka (do treści maila — backend ustawia faktyczny TTL)
+
+    Treść jest jednoznaczna: link, czas ważności, info "jeśli to nie ty —
+    zignoruj". HTML body sanitizes user-controlled content via html.escape().
+    """
+    subject = "Resetowanie hasła w NEXUS"
+
+    text_body = (
+        f"Cześć {recipient_name},\n\n"
+        f"Otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta w NEXUS.\n\n"
+        f"Aby ustawić nowe hasło, kliknij w poniższy link "
+        f"(ważny przez {expires_minutes} minut):\n\n"
+        f"{reset_url}\n\n"
+        f"Jeśli to nie Ty prosiłeś(-aś) o reset hasła, zignoruj tę wiadomość — "
+        f"Twoje konto pozostaje bezpieczne.\n\n"
+        "— NEXUS · B2BNet"
+    )
+
+    safe_recipient = html.escape(recipient_name)
+    safe_link = html.escape(reset_url, quote=True)
+
+    html_body = (
+        f"<p>Cześć {safe_recipient},</p>"
+        f"<p>Otrzymaliśmy prośbę o zresetowanie hasła do Twojego konta w NEXUS.</p>"
+        f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'
+        f"color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;"
+        f'font-weight:500">Ustaw nowe hasło</a></p>'
+        f'<p style="color:#666;font-size:13px">Link jest ważny przez '
+        f"<strong>{expires_minutes} minut</strong>. "
+        f"Jeśli przycisk nie działa, skopiuj poniższy URL do przeglądarki:</p>"
+        f'<p style="color:#666;font-size:12px;word-break:break-all">{safe_link}</p>'
+        f'<hr><p style="color:#888;font-size:12px">Jeśli to nie Ty prosiłeś(-aś) '
+        f"o reset hasła, zignoruj tę wiadomość — Twoje konto pozostaje bezpieczne.</p>"
+        '<p style="color:#888;font-size:12px">NEXUS · B2BNet</p>'
+    )
+    return send_email(to_email, subject, text_body, html_body)
+
+
+def send_password_changed_notification(
+    *,
+    to_email: str,
+    recipient_name: str,
+    by_admin: bool,
+    admin_name: Optional[str] = None,
+) -> bool:
+    """Powiadomienie wysyłane *po* zmianie hasła — security audit trail.
+
+    Wysyłane:
+    - po self-service change-password (informacyjne, ``by_admin=False``)
+    - po admin-resecie hasła (``by_admin=True``, ``admin_name`` wymagane)
+    - po user-driven reset z tokenu (``by_admin=False``)
+
+    Treść powiadomienia mówi *kiedy* i *przez kogo*, zachęca do reakcji
+    "jeśli to nie ty". Standard practice — pomaga wykryć compromised
+    accounts i daje audit trail.
+    """
+    subject = "Twoje hasło w NEXUS zostało zmienione"
+
+    if by_admin:
+        actor_text = f"przez administratora {admin_name}" if admin_name else "przez administratora"
+        actor_html = (
+            f"przez administratora <strong>{html.escape(admin_name)}</strong>"
+            if admin_name
+            else "przez administratora"
+        )
+    else:
+        actor_text = "z Twojego konta"
+        actor_html = "z Twojego konta"
+
+    text_body = (
+        f"Cześć {recipient_name},\n\n"
+        f"Informujemy, że Twoje hasło w NEXUS zostało właśnie zmienione "
+        f"{actor_text}.\n\n"
+        f"Jeśli to byłeś(-aś) Ty — możesz zignorować tę wiadomość.\n\n"
+        f"Jeśli to NIE Ty zmieniłeś(-aś) hasło — natychmiast skontaktuj się "
+        f"z administratorem (admin@b2bnet.pl) lub zaloguj się i ustaw nowe hasło.\n\n"
+        "— NEXUS · B2BNet"
+    )
+
+    safe_recipient = html.escape(recipient_name)
+
+    html_body = (
+        f"<p>Cześć {safe_recipient},</p>"
+        f"<p>Informujemy, że <strong>Twoje hasło w NEXUS zostało właśnie zmienione</strong> "
+        f"{actor_html}.</p>"
+        f'<p style="color:#374151">Jeśli to byłeś(-aś) Ty — możesz zignorować tę wiadomość.</p>'
+        f'<div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px;'
+        f'border-radius:6px;margin:16px 0">'
+        f"<strong>⚠️ Jeśli to NIE Ty zmieniłeś(-aś) hasło</strong> — natychmiast skontaktuj się "
+        f'z administratorem (<a href="mailto:admin@b2bnet.pl">admin@b2bnet.pl</a>) '
+        f"lub zaloguj się i ustaw nowe hasło."
+        "</div>"
+        '<hr><p style="color:#888;font-size:12px">NEXUS · B2BNet</p>'
+    )
+    return send_email(to_email, subject, text_body, html_body)
+
+
 def send_chat_fallback_email(
     *,
     to_email: str,

@@ -81,6 +81,7 @@ jobs:
                  tests/test_ical_import.py \
                  tests/test_api_integration.py \
                  tests/test_health_v2.py \
+                 tests/test_password_reset.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

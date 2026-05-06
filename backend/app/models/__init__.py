@@ -50,6 +50,7 @@ from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.calendar_event import CalendarEvent
 from app.models.notification import Notification
+from app.models.password_reset_token import PasswordResetToken
 from app.models.rate_history import RateHistory, ContractType
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.pipeline_template import (
@@ -185,6 +186,7 @@ __all__ = [
     "MarketplaceAlertLog",
     "CalendarEvent",
     "Notification",
+    "PasswordResetToken",
     "RateHistory",
     "ContractType",
     "CandidateConflict",

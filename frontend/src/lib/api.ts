@@ -28,6 +28,20 @@ api.interceptors.response.use(
   }
 );
 
+// ── Auth ─────────────────────────────────────────────────────────────────────
+export const authApi = {
+  /** Self-service password change for the logged-in user. */
+  changePassword: (current_password: string, new_password: string) =>
+    api.post("/api/auth/change-password", { current_password, new_password }),
+  /** Request a password reset link by email. Always returns 200 with a generic
+   *  message regardless of whether the email exists (anti-enumeration). */
+  forgotPassword: (email: string) =>
+    api.post("/api/auth/forgot-password", { email }),
+  /** Set new password using a token from the reset email. */
+  resetPasswordWithToken: (token: string, new_password: string) =>
+    api.post("/api/auth/reset-password", { token, new_password }),
+};
+
 // ── Dashboard ────────────────────────────────────────────────────────────────
 export const dashboardApi = {
   getStats: () => api.get("/api/dashboard/stats"),
@@ -149,6 +163,10 @@ export const adminApi = {
   deactivateUser: (id: number) => api.delete(`/api/admin/users/${id}`),
   resetPassword: (id: number, new_password: string) =>
     api.post(`/api/admin/users/${id}/reset-password`, { new_password }),
+  /** Send a password reset link to the user's email instead of setting one
+   *  manually. User chooses their own password via the link (TTL 60 min). */
+  sendResetLink: (id: number) =>
+    api.post(`/api/admin/users/${id}/send-reset-link`),
   systemStats: () => api.get("/api/admin/system"),
   // Phase 7a: talent-radar import
   startTalentRadarImport: (data: {

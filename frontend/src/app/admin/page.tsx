@@ -185,19 +185,29 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
 
 // ── Reset Password Modal ───────────────────────────────────────────────────────
 
+type ResetMode = "manual" | "send_link";
+
 interface ResetPasswordModalProps {
   user: AdminUser;
   onClose: () => void;
-  onSave: (password: string) => void;
+  onSaveManual: (password: string) => void;
+  onSendLink: () => void;
   loading: boolean;
 }
 
-function ResetPasswordModal({ user, onClose, onSave, loading }: ResetPasswordModalProps) {
+function ResetPasswordModal({
+  user,
+  onClose,
+  onSaveManual,
+  onSendLink,
+  loading,
+}: ResetPasswordModalProps) {
+  const [mode, setMode] = useState<ResetMode>("manual");
   const [password, setPassword] = useState("");
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-5">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Reset hasła</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-300">
@@ -205,29 +215,87 @@ function ResetPasswordModal({ user, onClose, onSave, loading }: ResetPasswordMod
           </button>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Ustawiasz nowe hasło dla użytkownika <strong>{user.name}</strong>.
+          Reset hasła dla użytkownika <strong>{user.name}</strong> ({user.email}).
         </p>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Nowe hasło"
-        />
-        <div className="flex justify-end gap-3">
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setMode("manual")}
+            className={cn(
+              "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
+              mode === "manual"
+                ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100"
+                : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+            )}
+          >
+            Ustaw ręcznie
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("send_link")}
+            className={cn(
+              "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
+              mode === "send_link"
+                ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100"
+                : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+            )}
+          >
+            Wyślij link mailem
+          </button>
+        </div>
+
+        {mode === "manual" ? (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Ustaw hasło tymczasowe i przekaż je użytkownikowi (np. na Slacku).
+              Po pierwszym logowaniu user zostanie poproszony o zmianę hasła na własne.
+            </p>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Nowe hasło (min. 8 znaków)"
+              minLength={8}
+              autoFocus
+            />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              Wyślemy na adres <strong>{user.email}</strong> wiadomość z linkiem
+              do ustawienia nowego hasła. Link jest ważny <strong>60 minut</strong>.
+              User sam wybiera nowe hasło — Ty go nie znasz.
+            </p>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-900 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
             Anuluj
           </button>
-          <button
-            onClick={() => onSave(password)}
-            disabled={loading || !password}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-          >
-            {loading ? "Resetowanie..." : "Resetuj hasło"}
-          </button>
+          {mode === "manual" ? (
+            <button
+              onClick={() => onSaveManual(password)}
+              disabled={loading || password.length < 8}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? "Resetowanie…" : "Resetuj hasło"}
+            </button>
+          ) : (
+            <button
+              onClick={onSendLink}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? "Wysyłanie…" : "Wyślij link"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -790,7 +858,18 @@ export default function AdminPage() {
   const resetPasswordMutation = useMutation({
     mutationFn: ({ id, password }: { id: number; password: string }) =>
       adminApi.resetPassword(id, password),
-    onSuccess: () => setModal(null),
+    onSuccess: () => {
+      setModal(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+  });
+
+  const sendResetLinkMutation = useMutation({
+    mutationFn: (id: number) => adminApi.sendResetLink(id),
+    onSuccess: () => {
+      setModal(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
   });
 
   if (!user) return (
@@ -978,8 +1057,13 @@ export default function AdminPage() {
         <ResetPasswordModal
           user={selectedUser}
           onClose={() => setModal(null)}
-          onSave={(pw) => resetPasswordMutation.mutate({ id: selectedUser.id, password: pw })}
-          loading={resetPasswordMutation.isPending}
+          onSaveManual={(pw) =>
+            resetPasswordMutation.mutate({ id: selectedUser.id, password: pw })
+          }
+          onSendLink={() => sendResetLinkMutation.mutate(selectedUser.id)}
+          loading={
+            resetPasswordMutation.isPending || sendResetLinkMutation.isPending
+          }
         />
       )}
     </div>

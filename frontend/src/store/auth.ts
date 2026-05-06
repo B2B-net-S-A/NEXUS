@@ -49,6 +49,12 @@ interface User {
    *  które onboardingu nie wymagają). */
   profile_completed: boolean
   profile_completed_at: string | null
+  /** Force-change-password gate (migracja 0078). Po admin-resecie hasła
+   *  ustawiamy True; middleware przekierowuje wszędzie poza /profile,
+   *  dopóki user nie zmieni hasła sam (POST /api/auth/change-password).
+   *  Backend czyści flagę po sukcesie self-service change-password. */
+  force_password_change: boolean
+  force_password_change_at: string | null
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
@@ -170,6 +176,14 @@ function readInitialUser(): User | null {
       }
       if (typeof user.profile_completed_at !== "string") {
         user.profile_completed_at = null
+      }
+      // Backfill for users cached before force_password_change existed
+      // (migracja 0078). Default false — nie redirectuj istniejących sesji.
+      if (typeof user.force_password_change !== "boolean") {
+        user.force_password_change = false
+      }
+      if (typeof user.force_password_change_at !== "string") {
+        user.force_password_change_at = null
       }
       return user as unknown as User
     }

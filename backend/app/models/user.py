@@ -76,6 +76,19 @@ class User(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Force-change-password gate. Po admin-resecie hasła (manual)
+    # ustawiamy True; middleware frontendu przekierowuje wszędzie
+    # poza /profile, dopóki user nie zmieni hasła sam (POST
+    # /api/auth/change-password) — wtedy flagę clearujemy. Pole
+    # dodane w migracji 0078_password_reset_infrastructure (z
+    # server_default=false dla istniejących userów).
+    force_password_change: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    force_password_change_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Last time this user had an active WS connection. Updated by
     # `ConnectionManager.connect/disconnect` in `app.api.ws`. Used by the
     # email-fallback background task: when a chat notification is older

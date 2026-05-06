@@ -44,6 +44,8 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 ]
 
 // Ścieżki nigdy nieobjęte middleware (publiczne, assety, API).
+// `/login` pokrywa też `/login/forgot-password` i `/login/reset` (forgot
+// password flow działa dla niezalogowanych).
 const PUBLIC_PATHS = ["/login", "/403", "/_next", "/favicon", "/public", "/share", "/apply"]
 
 function isPublicPath(pathname: string): boolean {
@@ -68,7 +70,9 @@ function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
  * Prawdziwa walidacja sygnatury odbywa się przy każdym wywołaniu API
  * (backend/app/api/deps.py::get_current_user) — middleware to tylko UX guard.
  */
-function decodeJwtPayload(token: string): { role?: UserRole; exp?: number } | null {
+function decodeJwtPayload(
+  token: string
+): { role?: UserRole; exp?: number; fpc?: boolean } | null {
   try {
     const parts = token.split(".")
     if (parts.length !== 3) return null
@@ -126,6 +130,16 @@ export function middleware(request: NextRequest) {
   // Rola OK? (null = zalogowany wystarczy)
   if (allowedRoles && !allowedRoles.includes(payload.role)) {
     return NextResponse.redirect(new URL("/403", request.url))
+  }
+
+  // Force-change-password gate: jeśli admin zresetował user'owi hasło,
+  // claim `fpc=true` w JWT redirectuje wszędzie poza /profile (gdzie user
+  // może hasło zmienić). Backend czyści flagę po POST /api/auth/change-password
+  // i nowy login dostarcza JWT bez `fpc`.
+  if (payload.fpc === true && !pathname.startsWith("/profile")) {
+    const profileUrl = new URL("/profile", request.url)
+    profileUrl.searchParams.set("force_password_change", "1")
+    return NextResponse.redirect(profileUrl)
   }
 
   return NextResponse.next()

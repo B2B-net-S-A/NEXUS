@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import api from "@/lib/api";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Sparkles } from "lucide-react";
@@ -130,6 +131,15 @@ function LoginForm() {
               {loading ? "Logowanie…" : "Zaloguj się"}
               {!loading && <ArrowRight className="h-4 w-4" />}
             </Button>
+
+            <div className="text-center">
+              <Link
+                href="/login/forgot-password"
+                className="text-sm text-[hsl(var(--accent))] hover:underline"
+              >
+                Zapomniałeś hasła?
+              </Link>
+            </div>
           </form>
         </div>
 

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import {
   User,
@@ -16,6 +17,7 @@ import {
   EyeOff,
   CheckCircle,
   AlertCircle,
+  AlertTriangle,
   BarChart3,
   FileText,
   UserPlus,
@@ -124,7 +126,17 @@ function ActivityCard({ type, count }: { type: string; count: number }) {
 // ── Profile page ──────────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
-  const { user } = useAuthStore();
+  const { user, setAuth, token } = useAuthStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+
+  // Force-change-password gate. Pokazujemy banner gdy:
+  //   - middleware przekierował tu z innego route'u (?force_password_change=1), lub
+  //   - user.force_password_change=true w store (zapasowe — middleware to klucz)
+  const forcedFromUrl = searchParams.get("force_password_change") === "1";
+  const forcedFromStore = user?.force_password_change === true;
+  const mustChangePassword = forcedFromUrl || forcedFromStore;
 
   // Password form state
   const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
@@ -182,6 +194,34 @@ export default function ProfilePage() {
       });
       setPwSuccess(true);
       setPwForm({ current: "", next: "", confirm: "" });
+
+      // Po zmianie hasła backend wyczyścił flag force_password_change.
+      // Re-fetch /me + nowy login do refreshu JWT (claim fpc zniknie)
+      // żeby middleware przestał redirectować z innych route'ów.
+      // Tutaj tylko refresh /me — full re-login wymagany jest dopiero przy
+      // następnej akcji którą middleware zatrzyma. Bezpieczniej: wymuś
+      // ponowny login by JWT się przeładował.
+      try {
+        const me = await api.get("/api/auth/me");
+        if (token) {
+          // setAuth z tym samym tokenem zapisuje świeży user object
+          // (bez force_password_change). JWT pozostaje stary aż do
+          // następnego loginu — ale fpc claim w JWT wymaga full re-login,
+          // więc dla mustChangePassword case wylogowujemy + redirect.
+          setAuth(me.data, token);
+        }
+        queryClient.invalidateQueries({ queryKey: ["user-profile"] });
+      } catch {
+        /* refresh best-effort */
+      }
+
+      if (mustChangePassword) {
+        // JWT ma claim fpc=true który nie zniknie bez nowego loginu.
+        // Wylogowanie + redirect na login zapewnia świeży token bez fpc.
+        setTimeout(() => {
+          useAuthStore.getState().logout();
+        }, 1500);
+      }
     } catch (err: any) {
       setPwError(err?.response?.data?.detail || "Błąd zmiany hasła");
     } finally {
@@ -208,6 +248,25 @@ export default function ProfilePage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Profil użytkownika</h1>
+
+      {/* Force-change-password banner */}
+      {mustChangePassword && !pwSuccess && (
+        <div
+          role="alert"
+          className="bg-amber-50 dark:bg-amber-900/30 border-l-4 border-amber-400 dark:border-amber-500 rounded-r-lg p-4 flex items-start gap-3"
+        >
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900 dark:text-amber-200">
+              Twoje hasło zostało zresetowane przez administratora
+            </p>
+            <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+              Aby kontynuować pracę w NEXUS, ustaw teraz nowe hasło w formularzu poniżej.
+              Pozostałe sekcje aplikacji są zablokowane do czasu zmiany hasła.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Profile card */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
