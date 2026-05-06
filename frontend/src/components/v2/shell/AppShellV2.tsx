@@ -29,7 +29,9 @@ import type { QuickActionModal } from "./QuickActionsV2";
  */
 export function AppShellV2({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
+  // `/login`, `/login/forgot-password`, `/login/reset` — wszystkie bare-form
+  // strony bez sidebaru. startsWith zamiast === żeby pokryć subpaths.
+  const isLoginPage = pathname?.startsWith("/login") ?? false;
   const isSharePage = pathname?.startsWith("/share/") ?? false;
   const isApplyPage = pathname?.startsWith("/apply/") ?? false;
 
