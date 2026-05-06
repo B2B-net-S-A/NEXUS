@@ -174,7 +174,7 @@ export function CommandPaletteV2({
                   )}
                   <span className="truncate">{r.title}</span>
                   {r.subtitle && (
-                    <span className="ml-2 text-xs text-[hsl(var(--text-muted))] truncate">
+                    <span className="ml-2 text-xs text-muted-foreground truncate">
                       · {r.subtitle}
                     </span>
                   )}
@@ -243,7 +243,7 @@ export function CommandPaletteV2({
         <CommandGroup heading="Wskazówka">
           <CommandItem disabled>
             <Search className="h-4 w-4" />
-            <span className="text-xs text-[hsl(var(--text-muted))]">
+            <span className="text-xs text-muted-foreground">
               Minimum 2 znaki, aby zobaczyć wyniki wyszukiwania
             </span>
           </CommandItem>
