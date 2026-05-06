@@ -768,11 +768,10 @@ class TraffitImporter:
                 states_sorted = sorted(
                     states, key=lambda s: (s.get("order") or 0, s.get("id") or 0)
                 )
-                # Replace existing stages for this template (clean slate)
-                await self.db.execute(
-                    text("DELETE FROM pipeline_stage_defs WHERE template_id=:tid"),
-                    {"tid": template_id},
-                )
+                # Idempotent UPSERT per stage_def (was DELETE+INSERT but that
+                # broke FK from candidate_stages.stage_def_id on daily re-runs).
+                # ON CONFLICT (external_source, external_id) DO UPDATE keeps
+                # FK references intact while updating order/category/etc.
                 # Traffit workflows can have duplicate state names within one
                 # workflow (e.g. B2B has two "Zaakceptowany" states). The Nexus
                 # constraint uq_stage_name_in_template forbids that, so suffix
@@ -807,6 +806,17 @@ class TraffitImporter:
                                 false, '{}'::jsonb,
                                 NOW(), NOW()
                             )
+                            ON CONFLICT (external_source, external_id)
+                            WHERE external_id IS NOT NULL
+                            DO UPDATE SET
+                                template_id       = EXCLUDED.template_id,
+                                name              = EXCLUDED.name,
+                                "order"           = EXCLUDED."order",
+                                category          = EXCLUDED.category,
+                                is_terminal       = EXCLUDED.is_terminal,
+                                terminal_type     = EXCLUDED.terminal_type,
+                                legacy_enum_value = EXCLUDED.legacy_enum_value,
+                                updated_at        = NOW()
                             """
                         ),
                         {
