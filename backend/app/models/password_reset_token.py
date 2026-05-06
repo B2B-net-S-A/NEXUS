@@ -33,9 +33,7 @@ class PasswordResetToken(Base, TimestampMixin):
     )
 
     # SHA-256 hex digest (64 znaki). Lookup po UNIQUE INDEX — brak timing leak.
-    token_hash: Mapped[str] = mapped_column(
-        String(64), unique=True, nullable=False
-    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
 
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
@@ -48,9 +46,7 @@ class PasswordResetToken(Base, TimestampMixin):
     )
 
     # Audit: IP z którego przyszło żądanie (request.client.host).
-    requested_ip: Mapped[Optional[str]] = mapped_column(
-        String(45), nullable=True
-    )
+    requested_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
 
     # Gdy admin wysłał link w imieniu usera ("Wyślij link resetowy") — id admina.
     requested_by_admin_id: Mapped[Optional[int]] = mapped_column(
@@ -60,9 +56,7 @@ class PasswordResetToken(Base, TimestampMixin):
     # Relationships — tylko dla audytu/debugowania, nie back_populates (User nie
     # potrzebuje listy swoich tokenów w runtime).
     user = relationship("User", foreign_keys=[user_id])
-    requested_by_admin = relationship(
-        "User", foreign_keys=[requested_by_admin_id]
-    )
+    requested_by_admin = relationship("User", foreign_keys=[requested_by_admin_id])
 
     def __repr__(self) -> str:
         return (

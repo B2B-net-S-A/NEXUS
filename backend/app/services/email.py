@@ -236,7 +236,11 @@ def send_password_changed_notification(
     subject = "Twoje hasło w NEXUS zostało zmienione"
 
     if by_admin:
-        actor_text = f"przez administratora {admin_name}" if admin_name else "przez administratora"
+        actor_text = (
+            f"przez administratora {admin_name}"
+            if admin_name
+            else "przez administratora"
+        )
         actor_html = (
             f"przez administratora <strong>{html.escape(admin_name)}</strong>"
             if admin_name

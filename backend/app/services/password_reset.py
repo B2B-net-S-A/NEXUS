@@ -141,9 +141,7 @@ async def verify_and_consume_token(
     )
     row = result.first()
     if row is None:
-        logger.info(
-            "password_reset: token verification failed (invalid/expired/used)"
-        )
+        logger.info("password_reset: token verification failed (invalid/expired/used)")
         return None
 
     user_id = row[0]

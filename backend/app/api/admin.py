@@ -272,9 +272,7 @@ async def send_reset_link(
             status_code=400, detail="Cannot send reset link to deactivated user"
         )
 
-    plain_token = await create_reset_token(
-        db, user.id, requested_by_admin_id=_admin.id
-    )
+    plain_token = await create_reset_token(db, user.id, requested_by_admin_id=_admin.id)
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     reset_url = f"{base}/login/reset?token={plain_token}"
 

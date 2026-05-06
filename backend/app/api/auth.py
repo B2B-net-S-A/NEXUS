@@ -223,9 +223,7 @@ async def forgot_password(
     await cleanup_expired_tokens(db)
 
     if user is not None and user.is_active:
-        plain_token = await create_reset_token(
-            db, user.id, requested_ip=requester_ip
-        )
+        plain_token = await create_reset_token(db, user.id, requested_ip=requester_ip)
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         reset_url = f"{base}/login/reset?token={plain_token}"
 
