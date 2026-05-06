@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${poppins.variable}`}
     >
-      <body className="bg-canvas text-body font-sans">
+      <body className="bg-background text-foreground font-sans antialiased">
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>

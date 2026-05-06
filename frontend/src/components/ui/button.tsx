@@ -6,69 +6,30 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/**
- * Dynaminds button.
- *
- * Variants (per brandbook):
- *  - primary     : burgundy bg · white fg · default CTA
- *  - secondary   : plum bg · cream fg · strong secondary action
- *  - ghost       : transparent · plum fg · subtle tile wash on hover
- *  - tertiary    : text-only · burgundy underline hover
- *  - destructive : burgundy-700 · white · irreversible actions
- *  - outline     : transparent · hairline plum border · title fg
- *
- * All variants lift on hover via `-translate-y-[1px]` (per brandbook) and
- * show a 4px accent-soft focus ring handled globally in globals.css under
- * [data-ui="v2"].
- */
-
 const buttonVariants = cva(
   [
     "inline-flex items-center justify-center gap-2 whitespace-nowrap",
-    "font-medium transition-all duration-200 ease-in-out",
+    "font-medium transition-colors duration-150",
     "disabled:opacity-50 disabled:pointer-events-none",
-    "focus-visible:outline-none",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
     "select-none",
   ],
   {
     variants: {
       variant: {
-        primary: [
-          "bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))]",
-          "hover:bg-[hsl(var(--accent-strong))] hover:-translate-y-[1px]",
-          "active:translate-y-0",
-          "shadow-v2-s hover:shadow-v2-m",
-        ],
-        secondary: [
-          "bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]",
-          "hover:bg-[hsl(var(--bg-chrome))]/90 hover:-translate-y-[1px]",
-          "shadow-v2-s hover:shadow-v2-m",
-        ],
-        ghost: [
-          "bg-transparent text-[hsl(var(--text-title))]",
-          "hover:bg-[hsl(var(--accent-soft))]",
-        ],
-        tertiary: [
-          "bg-transparent text-[hsl(var(--accent))]",
-          "hover:text-[hsl(var(--accent-strong))]",
-          "underline-offset-4 hover:underline",
-        ],
-        destructive: [
-          "bg-[hsl(var(--accent-strong))] text-white",
-          "hover:bg-burgundy-800 hover:-translate-y-[1px]",
-          "shadow-v2-s",
-        ],
-        outline: [
-          "bg-transparent border border-[hsl(var(--border-strong))] text-[hsl(var(--text-title))]",
-          "hover:bg-[hsl(var(--accent-soft))] hover:border-[hsl(var(--accent))]",
-        ],
+        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "bg-transparent text-foreground hover:bg-muted",
+        tertiary: "bg-transparent text-primary hover:text-primary/80 underline-offset-4 hover:underline",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm",
+        outline: "bg-transparent border border-border text-foreground hover:bg-muted",
       },
       size: {
-        sm: "h-8 px-3 text-xs rounded-v2-s",
-        md: "h-10 px-4 text-sm rounded-v2-m",
-        lg: "h-12 px-6 text-base rounded-v2-m",
-        icon: "h-10 w-10 rounded-v2-m",
-        "icon-sm": "h-8 w-8 rounded-v2-s",
+        sm: "h-8 px-3 text-xs rounded-md",
+        md: "h-9 px-4 text-sm rounded-md",
+        lg: "h-10 px-6 text-sm rounded-md",
+        icon: "h-9 w-9 rounded-md",
+        "icon-sm": "h-8 w-8 rounded-md",
       },
     },
     defaultVariants: {

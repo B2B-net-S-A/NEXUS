@@ -10,10 +10,7 @@ export default function OnboardingLayout({
   children: React.ReactNode
 }) {
   return (
-    <div
-      data-ui="v2"
-      className="min-h-screen bg-[hsl(var(--bg-canvas))] text-[hsl(var(--text-body))]"
-    >
+    <div className="min-h-screen bg-background text-foreground">
       {children}
     </div>
   )

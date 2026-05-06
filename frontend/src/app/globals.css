@@ -24,15 +24,9 @@
   animation: fadeIn 200ms ease-out both;
 }
 
-/*
- * Alert pulse — used by burgundy "U KLIENTA" badges & profile banner.
- * Breathes a soft ring around the element without changing its color, so
- * multiple alerts next to each other don't overwhelm the page. Respect
- * `prefers-reduced-motion` to avoid triggering vestibular issues.
- */
 @keyframes pulse-subtle {
-  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0.45); }
-  50%      { box-shadow: 0 0 0 4px hsl(var(--accent) / 0); }
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.45); }
+  50%      { box-shadow: 0 0 0 4px hsl(var(--primary) / 0); }
 }
 
 .animate-pulse-subtle {
@@ -45,81 +39,69 @@
 
 @layer base {
   :root {
-    /* ── V1 tokens (generic SaaS blue) — untouched ─────────────────────── */
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --sidebar-bg: 222.2 84% 4.9%;
-    --sidebar-text: 210 40% 98%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 263 70% 50%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 263 70% 50%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 263 70% 50%;
+    --radius: 0.5rem;
 
-    /* ── V2 tokens (Dynaminds brand — light mode defaults) ─────────────── */
-    /* Hex values kept in /tmp/anthropic-design/dynaminds-design-system/project/colors_and_type.css */
-    --bg-canvas: 37 30% 92%;        /* cream-200 #F0EBE3 — body bg */
-    --bg-surface: 0 0% 100%;        /* white — cards, tables */
-    --bg-chrome: 309 28% 14%;       /* plum-700 #2E1A2B — sidebar, topbar */
-
-    --text-title: 309 28% 14%;      /* plum-700 on light surfaces */
-    --text-body: 36 6% 33%;         /* nt-dark #5A5650 */
-    --text-muted: 36 5% 60%;        /* nt-medium #9E9A94 */
-    --text-onchrome: 37 30% 92%;    /* cream-200 on plum chrome */
-
-    --border-subtle: 36 18% 89%;    /* nt-light #E8E4DE */
-    --border-strong: 309 28% 14%;   /* plum-700 */
-
-    --accent: 351 68% 32%;          /* burgundy-600 #8B1A2B */
-    --accent-foreground: 0 0% 100%; /* white on burgundy */
-    --accent-strong: 351 73% 24%;   /* burgundy-700 #6B1120 — hover */
-    --accent-soft: 351 60% 96%;     /* burgundy-50 #FBF2F3 — subtle bg wash */
-
-    --success: 138 45% 33%;         /* #2f7a45 from brandbook */
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;          /* amber-600-ish */
-    --warning-foreground: 0 0% 100%;
-    --danger: 351 68% 32%;          /* alias to accent */
-    --danger-foreground: 0 0% 100%;
+    /* Legacy V2 aliases — kept until all V2 components migrate to shadcn tokens.
+       Removed once `bg-[hsl(var(--bg-canvas))]` / `--bg-chrome` / `--text-title` etc.
+       are gone from the codebase (Fazes 1-7). */
+    --bg-canvas: var(--background);
+    --bg-surface: var(--card);
+    --bg-chrome: var(--card);
+    --text-title: var(--foreground);
+    --text-body: var(--foreground);
+    --text-muted: var(--muted-foreground);
+    --text-onchrome: var(--foreground);
+    --border-subtle: var(--border);
+    --border-strong: var(--border);
+    --accent-strong: var(--primary);
+    --accent-soft: var(--muted);
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 98%;
+    --danger: var(--destructive);
+    --danger-foreground: var(--destructive-foreground);
   }
 
-  /* V1 dark (existing) — untouched */
   .dark {
-    --background: 0 0% 6%;
-    --foreground: 0 0% 96%;
-  }
-
-  /* V2 scope: explicit confirmation + future-proof for dark override.
-     All v2 surfaces sit under [data-ui="v2"] at the html element. */
-  [data-ui="v2"] {
-    /* Light defaults already set in :root; restated here to make scope explicit. */
-    --bg-canvas: 37 30% 92%;
-    --bg-surface: 0 0% 100%;
-    --bg-chrome: 309 28% 14%;
-    --text-title: 309 28% 14%;
-    --text-body: 36 6% 33%;
-    --text-muted: 36 5% 60%;
-    --text-onchrome: 37 30% 92%;
-    --border-subtle: 36 18% 89%;
-    --border-strong: 309 28% 14%;
-    --accent: 351 68% 32%;
-    --accent-foreground: 0 0% 100%;
-    --accent-strong: 351 73% 24%;
-    --accent-soft: 351 60% 96%;
-  }
-
-  /* Client-facing /share portal — dark theme (plum/black/burgundy) */
-  [data-ui-theme="share-dark"] {
-    --bg-canvas: 0 0% 0%;              /* black body */
-    --bg-surface: 309 28% 14%;         /* plum-700 cards on black */
-    --bg-chrome: 0 0% 0%;
-    --text-title: 37 30% 92%;          /* cream-200 titles */
-    --text-body: 36 18% 89%;           /* nt-light */
-    --text-muted: 36 5% 60%;
-    --text-onchrome: 37 30% 92%;
-    --border-subtle: 309 15% 22%;      /* subtle plum hairline */
-    --border-strong: 37 30% 92%;
-    --accent: 351 60% 55%;             /* brighter burgundy on dark */
-    --accent-foreground: 0 0% 100%;
-    --accent-strong: 351 70% 68%;
-    --accent-soft: 309 28% 14%;
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 263 70% 60%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 263 70% 60%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 263 70% 60%;
   }
 
   * {
@@ -130,46 +112,31 @@
     @apply bg-background text-foreground;
   }
 
-  /* ── Consistent heading hierarchy (V1 global — kept; V2 overrides via own typography layer) ── */
   h1 {
-    @apply text-2xl font-bold text-gray-900 dark:text-gray-100;
+    @apply text-2xl font-semibold tracking-tight text-foreground;
   }
 
   h2 {
-    @apply text-xl font-semibold text-gray-900 dark:text-gray-100;
+    @apply text-xl font-semibold tracking-tight text-foreground;
   }
 
   h3 {
-    @apply text-base font-semibold text-gray-900 dark:text-gray-100;
+    @apply text-base font-semibold tracking-tight text-foreground;
   }
 
-  /* ── Focus rings — all interactive elements ──────────────────── */
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible,
   [tabindex]:focus-visible {
-    @apply outline-none ring-2 ring-blue-500 ring-offset-1;
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 
-  /* V2 focus ring — opt-in via .v2-focusable on elements under [data-ui="v2"] */
-  [data-ui="v2"] button:focus-visible,
-  [data-ui="v2"] a:focus-visible,
-  [data-ui="v2"] input:focus-visible,
-  [data-ui="v2"] select:focus-visible,
-  [data-ui="v2"] textarea:focus-visible,
-  [data-ui="v2"] [tabindex]:focus-visible {
-    @apply outline-none;
-    box-shadow: 0 0 0 4px hsl(var(--accent-soft)), 0 0 0 5px hsl(var(--accent));
-  }
-
-  /* ── Table rows — consistent height (v1) ─────────────────────── */
   tbody tr {
     @apply h-12;
   }
 
-  /* ── Input baseline ──────────────────────────────────────────── */
   input[type="text"],
   input[type="email"],
   input[type="password"],
@@ -181,236 +148,5 @@
   select,
   textarea {
     @apply text-sm;
-  }
-
-  /* ── V2: canvas bg on body when data-ui=v2 on html ──────────── */
-  [data-ui="v2"] body {
-    @apply bg-canvas text-body font-sans;
-  }
-
-  /* V2 eyebrow — uppercase section kicker */
-  [data-ui="v2"] .eyebrow {
-    @apply font-display text-xs font-semibold uppercase tracking-[0.22em] text-accent;
-  }
-
-  /* V2 display (hero-scale text) */
-  [data-ui="v2"] .display {
-    @apply font-display font-extrabold text-title;
-    font-size: clamp(4.8rem, 7.5vw, 9.6rem);
-    line-height: 0.95;
-    letter-spacing: -0.03em;
-  }
-
-  /* Share-dark overrides for body (black canvas) */
-  [data-ui-theme="share-dark"] body {
-    background: hsl(var(--bg-canvas));
-    color: hsl(var(--text-body));
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Phase 7 — Kanban reskin via scoped overrides under [data-ui="v2"].
-     KanbanBoard component gets `data-component="kanban-board"` marker.
-     We override inline Tailwind gray-* with Dynaminds palette without
-     rewriting the 590-line DnD component.
-     ─────────────────────────────────────────────────────────────── */
-  [data-ui="v2"] [data-component="kanban-board"] .bg-gray-50 {
-    background-color: hsl(var(--bg-canvas)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .dark\:bg-gray-800 {
-    background-color: hsl(var(--bg-canvas)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-gray-200,
-  [data-ui="v2"] [data-component="kanban-board"] .dark\:border-gray-700 {
-    border-color: hsl(var(--border-subtle)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .text-gray-700,
-  [data-ui="v2"] [data-component="kanban-board"] .text-gray-200 {
-    color: hsl(var(--text-title)) !important;
-  }
-  /* Stage top-border accents → burgundy tonal family (replace blue/purple/amber) */
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-blue-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-sky-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-indigo-400 {
-    border-top-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-purple-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-amber-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-yellow-400 {
-    border-top-color: hsl(var(--accent-strong)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-orange-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-lime-400 {
-    border-top-color: #87778c !important; /* plum-400 */
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-green-500 {
-    border-top-color: #2f7a45 !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-red-400 {
-    border-top-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-gray-400,
-  [data-ui="v2"] [data-component="kanban-board"] .border-t-slate-400 {
-    border-top-color: hsl(var(--border-subtle)) !important;
-  }
-  /* Column count badge: blue-100 → accent-soft, blue-700 → accent */
-  [data-ui="v2"] [data-component="kanban-board"] .bg-blue-100 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .text-blue-700 {
-    color: hsl(var(--accent)) !important;
-  }
-  /* Bulk action bar: bg-blue-600 → plum chrome */
-  [data-ui="v2"] [data-component="kanban-board"] .bg-blue-600 {
-    background-color: hsl(var(--bg-chrome)) !important;
-  }
-  /* Hover-over drop zone */
-  [data-ui="v2"] [data-component="kanban-board"] .bg-blue-50\/60 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  /* Screening micro-button: purple-100 → burgundy soft */
-  [data-ui="v2"] [data-component="kanban-board"] .bg-purple-100 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] [data-component="kanban-board"] .text-purple-700 {
-    color: hsl(var(--accent)) !important;
-  }
-  /* Dragging ring */
-  [data-ui="v2"] [data-component="kanban-board"] .ring-blue-500 {
-    --tw-ring-color: hsl(var(--accent)) !important;
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Phase 5 — Candidate detail (v1 page, 2298 LOC) reskin via scoped
-     overrides. Marker `data-component="candidate-detail"` added on root.
-     Recolors v1 Tailwind utility classes within detail context only.
-     ─────────────────────────────────────────────────────────────── */
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-blue-600,
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-blue-500,
-  [data-ui="v2"] [data-component="candidate-detail"] .hover\:bg-blue-700:hover {
-    background-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] [data-component="candidate-detail"] .text-blue-600,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-blue-500,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-blue-400,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-blue-700,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-blue-800 {
-    color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-blue-50,
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-blue-100,
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-blue-50\/40 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] [data-component="candidate-detail"] .border-blue-600,
-  [data-ui="v2"] [data-component="candidate-detail"] .border-blue-500,
-  [data-ui="v2"] [data-component="candidate-detail"] .border-blue-200 {
-    border-color: hsl(var(--accent)) !important;
-  }
-  /* Purple (champion card / special tabs) → plum */
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-purple-50,
-  [data-ui="v2"] [data-component="candidate-detail"] .bg-purple-100 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] [data-component="candidate-detail"] .text-purple-600,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-purple-700,
-  [data-ui="v2"] [data-component="candidate-detail"] .text-purple-800 {
-    color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] [data-component="candidate-detail"] .border-purple-200,
-  [data-ui="v2"] [data-component="candidate-detail"] .border-purple-300 {
-    border-color: hsl(var(--accent))/40 !important;
-  }
-  /* Card surfaces — v1 uses rounded-2xl bg-white; keep, just refine border */
-  [data-ui="v2"] [data-component="candidate-detail"] .border-gray-200,
-  [data-ui="v2"] [data-component="candidate-detail"] .dark\:border-gray-700 {
-    border-color: hsl(var(--border-subtle)) !important;
-  }
-  /* Tab bar active indicator */
-  [data-ui="v2"] [data-component="candidate-detail"] .border-b-blue-600,
-  [data-ui="v2"] [data-component="candidate-detail"] .border-blue-600 {
-    border-color: hsl(var(--accent)) !important;
-  }
-  /* Focus rings */
-  [data-ui="v2"] [data-component="candidate-detail"] .focus\:ring-blue-500:focus,
-  [data-ui="v2"] [data-component="candidate-detail"] .focus-visible\:ring-blue-400:focus-visible {
-    --tw-ring-color: hsl(var(--accent)) !important;
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Phase 8 — Modal overrides (v1 modals reused in v2 shell — Add*,
-     Edit*, Screening, Scorecard, SendEmail, CVGenerator, QuickAssign,
-     Rejection, Import). Re-color inline blue + purple to Dynaminds
-     accent. Applies under [data-ui="v2"] globally (modals render at
-     body level, outside detail wrapper).
-     ─────────────────────────────────────────────────────────────── */
-  [data-ui="v2"] .fixed.inset-0 .bg-blue-600,
-  [data-ui="v2"] .fixed.inset-0 .hover\:bg-blue-700:hover {
-    background-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] .fixed.inset-0 .text-blue-600,
-  [data-ui="v2"] .fixed.inset-0 .text-blue-700 {
-    color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] .fixed.inset-0 .focus\:ring-blue-500:focus {
-    --tw-ring-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] .fixed.inset-0 .border-blue-500,
-  [data-ui="v2"] .fixed.inset-0 .border-blue-600 {
-    border-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] .fixed.inset-0 .bg-purple-100,
-  [data-ui="v2"] .fixed.inset-0 .bg-purple-50 {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] .fixed.inset-0 .text-purple-700,
-  [data-ui="v2"] .fixed.inset-0 .text-purple-800 {
-    color: hsl(var(--accent)) !important;
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Phase 9 (broad v1 reskin) — catch common inline Tailwind classes
-     on v1 pages that render inside v2 AppShell's <main>. Scoped under
-     [data-ui="v2"] main to avoid polluting sidebar (plum chrome) or
-     v2 primitives (which use CSS vars natively, no hex literals).
-
-     This isn't a component rewrite — it's a palette translation layer
-     so v1 pages (talents, contacts, calendar, analytics, reports,
-     admin, manager, settings, profile, candidates/compare,
-     clients/[id], jobs/[id], contracts/[id]) pick up Dynaminds accent
-     instead of generic blue without touching their code.
-     ─────────────────────────────────────────────────────────────── */
-  [data-ui="v2"] main .bg-blue-600:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .hover\:bg-blue-700:hover:not([data-ui-v2-primitive]) {
-    background-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] main .text-blue-600:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .text-blue-500:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .text-blue-700:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .text-blue-400:not([data-ui-v2-primitive]) {
-    color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] main .bg-blue-50:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .bg-blue-100:not([data-ui-v2-primitive]) {
-    background-color: hsl(var(--accent-soft)) !important;
-  }
-  [data-ui="v2"] main .border-blue-500:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .border-blue-600:not([data-ui-v2-primitive]) {
-    border-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] main .ring-blue-500:not([data-ui-v2-primitive]) {
-    --tw-ring-color: hsl(var(--accent)) !important;
-  }
-  [data-ui="v2"] main .focus\:ring-blue-500:focus:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .focus-visible\:ring-blue-400:focus-visible:not([data-ui-v2-primitive]) {
-    --tw-ring-color: hsl(var(--accent)) !important;
-  }
-  /* Body surface: keep white; but cream as subtle bg tier */
-  [data-ui="v2"] main .bg-gray-50:not([data-component="kanban-board"] *):not([data-ui-v2-primitive]) {
-    background-color: hsl(var(--bg-canvas)) !important;
-  }
-  /* Borders — generic gray → border-subtle (cream-300) */
-  [data-ui="v2"] main .border-gray-200:not([data-ui-v2-primitive]),
-  [data-ui="v2"] main .dark\:border-gray-700:not([data-ui-v2-primitive]) {
-    border-color: hsl(var(--border-subtle)) !important;
   }
 }
