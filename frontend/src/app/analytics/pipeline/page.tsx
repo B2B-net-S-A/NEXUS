@@ -73,7 +73,7 @@ export default function PipelineAnalyticsPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -83,32 +83,32 @@ export default function PipelineAnalyticsPage() {
     : 1;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-muted dark:bg-card">
       <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         <header>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground">
             Analityka pipeline
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Lejek rekrutacji, time-to-hire i alerty SLA — na podstawie domyślnego procesu.
           </p>
         </header>
 
         {/* SLA alerts */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <section className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-medium flex items-center gap-2">
               <AlertTriangle
-                className={`w-4 h-4 ${sla.length > 0 ? "text-red-500" : "text-gray-400"}`}
+                className={`w-4 h-4 ${sla.length > 0 ? "text-destructive" : "text-muted-foreground"}`}
               />
               Alerty SLA ({sla.length})
             </h2>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted-foreground">
               Kandydaci przekraczający czas maksymalny w etapie
             </span>
           </div>
           {sla.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               Brak alertów — wszystko w normie 🎉
             </p>
           ) : (
@@ -116,18 +116,18 @@ export default function PipelineAnalyticsPage() {
               {sla.slice(0, 10).map((a) => (
                 <li
                   key={a.candidate_stage_id}
-                  className="flex items-center gap-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2"
+                  className="flex items-center gap-2 rounded bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 px-3 py-2"
                 >
-                  <Clock className="w-3.5 h-3.5 text-red-500" />
+                  <Clock className="w-3.5 h-3.5 text-destructive" />
                   <a
                     href={`/candidates/${a.candidate_id}`}
                     className="font-medium hover:underline"
                   >
                     kandydat #{a.candidate_id}
                   </a>
-                  <span className="text-gray-600 dark:text-gray-400">w etapie</span>
+                  <span className="text-muted-foreground dark:text-muted-foreground">w etapie</span>
                   <span className="font-medium">{a.stage_name}</span>
-                  <span className="flex-1 text-right text-red-700 dark:text-red-300">
+                  <span className="flex-1 text-right text-destructive dark:text-red-300">
                     {a.days_in_stage}d (limit {a.sla_max_days}d, spóźnienie{" "}
                     {a.overdue_by_days}d)
                   </span>
@@ -138,9 +138,9 @@ export default function PipelineAnalyticsPage() {
         </section>
 
         {/* Funnel */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <section className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
           <h2 className="font-medium flex items-center gap-2 mb-3">
-            <TrendingUp className="w-4 h-4 text-blue-500" />
+            <TrendingUp className="w-4 h-4 text-primary" />
             Lejek rekrutacyjny (unikalni kandydaci na etap)
           </h2>
           <div className="space-y-1.5">
@@ -148,44 +148,44 @@ export default function PipelineAnalyticsPage() {
               const w = Math.max(2, (f.count / maxCount) * 100);
               return (
                 <div key={f.stage_def_id} className="flex items-center gap-3">
-                  <span className="w-40 text-sm text-gray-700 dark:text-gray-300 truncate">
+                  <span className="w-40 text-sm text-foreground dark:text-muted-foreground truncate">
                     {f.stage_name}
                   </span>
-                  <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-900 rounded-full overflow-hidden">
+                  <div className="flex-1 h-5 bg-muted dark:bg-card rounded-full overflow-hidden">
                     <div
-                      className={`h-full ${f.is_terminal ? "bg-slate-400" : "bg-blue-500"}`}
+                      className={`h-full ${f.is_terminal ? "bg-slate-400" : "bg-primary"}`}
                       style={{ width: `${w}%` }}
                     />
                   </div>
-                  <span className="w-12 text-sm text-gray-800 dark:text-gray-100 text-right">
+                  <span className="w-12 text-sm text-foreground dark:text-foreground text-right">
                     {f.count}
                   </span>
-                  <span className="w-16 text-xs text-gray-500 text-right">
+                  <span className="w-16 text-xs text-muted-foreground text-right">
                     {f.conversion_pct !== null ? `${f.conversion_pct}%` : "—"}
                   </span>
                 </div>
               );
             })}
             {funnel.length === 0 && (
-              <p className="text-sm text-gray-400">Brak danych.</p>
+              <p className="text-sm text-muted-foreground">Brak danych.</p>
             )}
           </div>
         </section>
 
         {/* Time to hire per recruiter */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <section className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
           <h2 className="font-medium flex items-center gap-2 mb-3">
             <BarChart3 className="w-4 h-4 text-green-500" />
             Time-to-hire (180 dni, łącznie {totalPlacements} zatrudnień)
           </h2>
           {tth.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               Brak zatrudnień w okresie — dane pojawią się po pierwszej zamkniętej
               rekrutacji ze stage &quot;Zatrudniony&quot;.
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-gray-500">
+              <thead className="text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="text-left py-1.5">Rekruter</th>
                   <th className="text-right py-1.5">Zatrudnień</th>
@@ -197,7 +197,7 @@ export default function PipelineAnalyticsPage() {
                 {tth.map((r) => (
                   <tr
                     key={r.recruiter_id}
-                    className="border-t border-gray-100 dark:border-gray-700"
+                    className="border-t border-border dark:border-border"
                   >
                     <td className="py-1.5">{r.name}</td>
                     <td className="py-1.5 text-right">{r.placements}</td>

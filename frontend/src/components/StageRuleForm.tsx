@@ -137,15 +137,15 @@ export function StageRuleForm({
   };
 
   return (
-    <div className="space-y-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3">
+    <div className="space-y-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 p-3">
       <div className="space-y-2">
-        <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">
+        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
           Adresat
         </label>
         <select
           value={recipientType}
           onChange={(e) => setRecipientType(e.target.value as RecipientType)}
-          className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm"
+          className="w-full rounded-md border border-border dark:border-border bg-card dark:bg-muted px-2 py-1.5 text-sm"
         >
           {RECIPIENT_ORDER.map((rt) => (
             <option key={rt} value={rt}>
@@ -157,7 +157,7 @@ export function StageRuleForm({
 
       {recipientType === "specific_user" && (
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
             Użytkownik
           </label>
           <select
@@ -165,7 +165,7 @@ export function StageRuleForm({
             onChange={(e) =>
               setSpecificUserId(e.target.value ? Number(e.target.value) : null)
             }
-            className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm"
+            className="w-full rounded-md border border-border dark:border-border bg-card dark:bg-muted px-2 py-1.5 text-sm"
             disabled={usersLoading}
           >
             <option value="">— wybierz —</option>
@@ -176,7 +176,7 @@ export function StageRuleForm({
             ))}
           </select>
           {usersLoading && (
-            <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Ładuję listę…
             </span>
           )}
@@ -185,13 +185,13 @@ export function StageRuleForm({
 
       {recipientType === "role" && (
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-300">
+          <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground">
             Rola
           </label>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm"
+            className="w-full rounded-md border border-border dark:border-border bg-card dark:bg-muted px-2 py-1.5 text-sm"
           >
             <option value="">— wybierz —</option>
             {ROLE_OPTIONS.map((r) => (
@@ -234,7 +234,7 @@ export function StageRuleForm({
       </div>
 
       {error && (
-        <p className="text-xs text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded px-2 py-1">
+        <p className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-700 rounded px-2 py-1">
           {error}
         </p>
       )}
@@ -243,7 +243,7 @@ export function StageRuleForm({
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary text-white text-sm hover:bg-primary/90 disabled:opacity-50"
         >
           {saving ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -254,7 +254,7 @@ export function StageRuleForm({
         </button>
         <button
           onClick={onCancel}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border dark:border-border text-sm hover:bg-muted dark:hover:bg-muted"
         >
           <X className="w-3.5 h-3.5" />
           Anuluj

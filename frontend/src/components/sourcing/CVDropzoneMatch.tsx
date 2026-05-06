@@ -85,18 +85,18 @@ export function CVDropzoneMatch() {
 
   return (
     <section
-      className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4"
+      className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 mb-4"
       data-testid="cv-dropzone-match"
     >
       <div className="flex items-center gap-2 mb-3">
         <Sparkles className="w-4 h-4 text-purple-500" />
-        <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+        <h3 className="font-semibold text-sm text-foreground dark:text-foreground">
           Wrzuć CV — AI dopasuje otwarte projekty
         </h3>
         {result && (
           <button
             onClick={reset}
-            className="ml-auto text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
             <X className="w-3 h-3" /> Wyczyść
           </button>
@@ -112,7 +112,7 @@ export function CVDropzoneMatch() {
           className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
             dragActive
               ? "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
-              : "border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
+              : "border-border dark:border-border hover:border-purple-400 hover:bg-purple-50/50 dark:hover:bg-purple-900/10"
           }`}
           data-testid="cv-dropzone-area"
         >
@@ -127,17 +127,17 @@ export function CVDropzoneMatch() {
             }}
           />
           {loading ? (
-            <div className="flex items-center justify-center gap-2 text-gray-600">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>Parsuję CV{filename ? ` „${filename}"` : ""}…</span>
             </div>
           ) : (
             <>
-              <FileUp className="w-10 h-10 mx-auto text-gray-400 mb-2" />
-              <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+              <FileUp className="w-10 h-10 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-foreground dark:text-muted-foreground font-medium">
                 Przeciągnij CV tutaj lub kliknij, aby wybrać plik
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 PDF / DOCX / TXT, max 10 MB. Kandydat NIE jest tworzony w bazie.
               </p>
             </>
@@ -146,7 +146,7 @@ export function CVDropzoneMatch() {
       )}
 
       {error && (
-        <div className="mt-3 rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+        <div className="mt-3 rounded bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -205,12 +205,12 @@ function CvSummaryCard({
         )}
         {skillNames.length > 0 && (
           <div className="md:col-span-2">
-            <dt className="text-xs text-gray-500">Technologie</dt>
+            <dt className="text-xs text-muted-foreground">Technologie</dt>
             <dd className="flex flex-wrap gap-1 mt-1">
               {skillNames.map((s) => (
                 <span
                   key={s}
-                  className="text-xs bg-white dark:bg-gray-800 border border-gray-300 px-1.5 py-0.5 rounded"
+                  className="text-xs bg-card dark:bg-muted border border-border px-1.5 py-0.5 rounded"
                 >
                   {s}
                 </span>
@@ -227,8 +227,8 @@ function Field({ label, value }: { label: string; value: string | undefined }) {
   if (!value) return null;
   return (
     <div>
-      <dt className="text-xs text-gray-500">{label}</dt>
-      <dd className="text-sm text-gray-900 dark:text-gray-100">{value}</dd>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-sm text-foreground dark:text-foreground">{value}</dd>
     </div>
   );
 }

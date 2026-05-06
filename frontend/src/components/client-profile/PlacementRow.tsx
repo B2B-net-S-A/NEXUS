@@ -28,7 +28,7 @@ export function PlacementRow({ placement, actions }: Props) {
     : null;
 
   return (
-    <div className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:border-purple-300 transition-colors">
+    <div className="group bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 hover:border-purple-300 transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           {c.avatar_url ? (
@@ -39,23 +39,23 @@ export function PlacementRow({ placement, actions }: Props) {
               className="w-9 h-9 rounded-full object-cover flex-shrink-0 opacity-75"
             />
           ) : (
-            <div className="w-9 h-9 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-semibold text-gray-500 dark:text-gray-300">{initials}</span>
+            <div className="w-9 h-9 bg-muted dark:bg-muted rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground">{initials}</span>
             </div>
           )}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href={`/candidates/${c.id}`}
-                className="text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-purple-600 truncate"
+                className="text-sm font-semibold text-foreground dark:text-muted-foreground hover:text-purple-600 truncate"
               >
                 {c.name}
               </Link>
               {placement.job_title && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">· {placement.job_title}</span>
+                <span className="text-xs text-muted-foreground dark:text-muted-foreground">· {placement.job_title}</span>
               )}
             </div>
-            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
               <span>
                 {formatDate(placement.start_date)} → {formatDate(end)}
               </span>
@@ -63,12 +63,12 @@ export function PlacementRow({ placement, actions }: Props) {
                 <span>{placement.duration_months} mc</span>
               )}
               {placement.total_revenue != null && (
-                <span className="font-medium text-gray-700 dark:text-gray-200">
+                <span className="font-medium text-foreground dark:text-muted-foreground">
                   {formatPLN(placement.total_revenue)} przychodu
                 </span>
               )}
               {reasonLabel && (
-                <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
+                <span className="px-1.5 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded">
                   {reasonLabel}
                 </span>
               )}

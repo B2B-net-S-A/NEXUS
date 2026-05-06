@@ -24,11 +24,11 @@ interface Invoice {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  issued: "bg-gray-100 text-gray-700",
-  sent: "bg-blue-100 text-blue-700",
+  issued: "bg-muted text-foreground",
+  sent: "bg-primary/15 text-primary",
   paid: "bg-emerald-100 text-emerald-700",
-  overdue: "bg-red-100 text-red-700",
-  cancelled: "bg-gray-200 text-gray-500 line-through",
+  overdue: "bg-destructive/15 text-destructive",
+  cancelled: "bg-muted text-muted-foreground line-through",
 };
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -88,7 +88,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
         {!showForm ? (
           <button
             onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
           >
             <Plus className="w-4 h-4" /> Dodaj fakturę
           </button>
@@ -102,44 +102,44 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                 due_date: form.due_date || null,
               });
             }}
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 space-y-3"
+            className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3"
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Kierunek</span>
+                <span className="block text-xs text-muted-foreground mb-1">Kierunek</span>
                 <select
                   value={form.direction}
                   onChange={(e) => setForm({ ...form, direction: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 >
                   <option value="to_client">Do klienta</option>
                   <option value="from_contractor">Od kontraktora</option>
                 </select>
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Numer</span>
+                <span className="block text-xs text-muted-foreground mb-1">Numer</span>
                 <input
                   value={form.invoice_number}
                   onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                   placeholder="FV/2026/04/001"
                 />
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Kwota</span>
+                <span className="block text-xs text-muted-foreground mb-1">Kwota</span>
                 <input
                   type="number"
                   value={form.amount}
                   onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Waluta</span>
+                <span className="block text-xs text-muted-foreground mb-1">Waluta</span>
                 <select
                   value={form.currency}
                   onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 >
                   <option>PLN</option>
                   <option>EUR</option>
@@ -148,21 +148,21 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                 </select>
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Data wystawienia</span>
+                <span className="block text-xs text-muted-foreground mb-1">Data wystawienia</span>
                 <input
                   type="date"
                   value={form.issue_date}
                   onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 mb-1">Termin płatności</span>
+                <span className="block text-xs text-muted-foreground mb-1">Termin płatności</span>
                 <input
                   type="date"
                   value={form.due_date}
                   onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
             </div>
@@ -173,14 +173,14 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                   setShowForm(false);
                   setForm(EMPTY);
                 }}
-                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg"
+                className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
               >
                 Anuluj
               </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
                 {createMutation.isPending ? "Zapisywanie…" : "Zapisz"}
               </button>
@@ -190,17 +190,17 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
       </RequireRole>
 
       {isLoading ? (
-        <div className="text-sm text-gray-500 flex items-center gap-2">
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie faktur…
         </div>
       ) : invoices.length === 0 ? (
-        <div className="text-sm text-gray-500 italic bg-white dark:bg-gray-800 rounded-2xl p-6 text-center shadow-sm">
+        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-6 text-center shadow-sm">
           Brak faktur. Dodaj pierwszą, żeby mieć historię rozliczeń z kontraktorem.
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
                 <th className="text-left px-3 py-2">Numer</th>
                 <th className="text-left px-3 py-2">Kierunek</th>
@@ -218,14 +218,14 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                   inv.status !== "paid" &&
                   new Date(inv.due_date).getTime() < Date.now();
                 return (
-                  <tr key={inv.id} className="border-t border-gray-100 dark:border-gray-700">
+                  <tr key={inv.id} className="border-t border-border dark:border-border">
                     <td className="px-3 py-2 font-medium">{inv.invoice_number}</td>
-                    <td className="px-3 py-2 text-gray-500 dark:text-gray-400 text-xs">
+                    <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground text-xs">
                       {inv.direction === "to_client" ? "→ klient" : "← kontraktor"}
                     </td>
                     <td className="px-3 py-2">{formatDate(inv.issue_date)}</td>
                     <td
-                      className={`px-3 py-2 ${overdue ? "text-red-600 font-semibold" : ""}`}
+                      className={`px-3 py-2 ${overdue ? "text-destructive font-semibold" : ""}`}
                     >
                       {inv.due_date ? formatDate(inv.due_date) : "—"}
                     </td>
@@ -258,7 +258,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                                 deleteMutation.mutate(inv.id);
                               }
                             }}
-                            className="p-1.5 rounded hover:bg-red-50 text-red-500"
+                            className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

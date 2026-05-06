@@ -190,9 +190,9 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
 
   const scoreColor = (s: number) => {
     if (s >= 75) return "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300";
-    if (s >= 50) return "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300";
+    if (s >= 50) return "bg-primary/15 text-primary border-primary/30 dark:bg-primary/30 dark:text-primary";
     if (s >= 25) return "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300";
-    return "bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-900/30 dark:text-gray-400";
+    return "bg-muted text-muted-foreground border-border dark:bg-card/30 dark:text-muted-foreground";
   };
 
   const matches = mode === "snapshot" ? snapshotMatches : liveMatches;
@@ -208,28 +208,28 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
   return (
     <div
       id="ai-proposals-section"
-      className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+      className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4"
     >
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-        <h3 className="font-medium flex items-center gap-2 text-gray-900 dark:text-gray-100">
+        <h3 className="font-medium flex items-center gap-2 text-foreground dark:text-foreground">
           <Sparkles className="w-4 h-4 text-violet-500" />
           Rekomendowani kandydaci
           {isSnapReady && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-muted-foreground">
               ({snapshotMatches.length})
             </span>
           )}
           {mode === "fallback-live" && liveLoaded && (
-            <span className="text-xs text-gray-400">({liveMatches.length})</span>
+            <span className="text-xs text-muted-foreground">({liveMatches.length})</span>
           )}
         </h3>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-500">
+          <label className="text-xs text-muted-foreground">
             Top&nbsp;
             <select
               value={topK}
               onChange={(e) => setTopK(Number(e.target.value))}
-              className="rounded border border-gray-300 dark:border-gray-600 px-1.5 py-0.5 text-xs bg-white dark:bg-gray-900"
+              className="rounded border border-border dark:border-border px-1.5 py-0.5 text-xs bg-card dark:bg-card"
             >
               <option value={5}>5</option>
               <option value={10}>10</option>
@@ -280,7 +280,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
       </div>
 
       {mode === "snapshot" && snapshot && (
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-3">
           {isSnapReady && (
             <>
               AI zaproponowało {snapshotMatches.length} kandydatów ·{" "}
@@ -297,7 +297,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
       )}
 
       {displayError && (
-        <div className="text-xs text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-2 mb-2">
+        <div className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 mb-2">
           {displayError}
           {isSnapFailed && (
             <button
@@ -312,17 +312,17 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
       )}
 
       {showLiveEmptyState && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           Uruchom hybrydowe wyszukiwanie: semantic (Qdrant) + skills match + dopasowanie stawki/lokalizacji.
         </p>
       )}
 
       {showLiveNoResults && (
-        <p className="text-sm text-gray-500">Nie znaleziono pasujących kandydatów.</p>
+        <p className="text-sm text-muted-foreground">Nie znaleziono pasujących kandydatów.</p>
       )}
 
       {isSnapReady && snapshotMatches.length === 0 && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           AI nie znalazło pasujących kandydatów w bazie.
         </p>
       )}
@@ -341,16 +341,16 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
             return (
               <li
                 key={cand.id}
-                className="flex items-start gap-3 p-2.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                className="flex items-start gap-3 p-2.5 rounded-lg border border-border dark:border-border hover:border-primary/30 dark:hover:border-primary transition-colors"
               >
-                <span className="text-xs text-gray-400 w-6 text-center mt-1 font-semibold">
+                <span className="text-xs text-muted-foreground w-6 text-center mt-1 font-semibold">
                   #{idx + 1}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <Link
                       href={`/candidates/${cand.id}`}
-                      className="font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 truncate"
+                      className="font-medium text-foreground dark:text-foreground hover:text-primary truncate"
                     >
                       {cand.name} {cand.lastname}
                     </Link>
@@ -358,7 +358,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
                       <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" aria-label="Champion" />
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
                     {cand.location && <span>📍 {cand.location}</span>}
                     {cand.years_it_experience != null && (
                       <span>{cand.years_it_experience}y IT</span>
@@ -383,7 +383,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
                         </span>
                       ))}
                       {m.breakdown.matching_must.length > 4 && (
-                        <span className="text-[10px] text-gray-400">
+                        <span className="text-[10px] text-muted-foreground">
                           +{m.breakdown.matching_must.length - 4}
                         </span>
                       )}
@@ -407,7 +407,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
                     <button
                       onClick={() => handleAssign(cand.id)}
                       disabled={assigning === cand.id}
-                      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 disabled:opacity-50"
+                      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
                       title="Dodaj do procesu rekrutacji"
                     >
                       {assigning === cand.id ? (

@@ -52,18 +52,18 @@ export function EmailDraftDialog({
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-card dark:bg-card rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 p-4">
-          <h2 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+        <header className="flex items-center justify-between border-b border-border dark:border-border p-4">
+          <h2 className="font-semibold text-foreground dark:text-foreground flex items-center gap-2">
             <Mail className="w-5 h-5 text-purple-500" />
             {title}
           </h2>
           <button
             onClick={onClose}
             aria-label="Zamknij"
-            className="text-gray-500 hover:text-gray-800"
+            className="text-muted-foreground hover:text-foreground"
           >
             <X className="w-5 h-5" />
           </button>
@@ -86,7 +86,7 @@ export function EmailDraftDialog({
           </Field>
           <Field label="Treść (plain text)">
             <div className="relative">
-              <pre className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 text-xs whitespace-pre-wrap font-mono max-h-72 overflow-y-auto">
+              <pre className="bg-muted dark:bg-muted border border-border dark:border-border rounded p-3 text-xs whitespace-pre-wrap font-mono max-h-72 overflow-y-auto">
                 {textBody}
               </pre>
               <CopyButton
@@ -100,7 +100,7 @@ export function EmailDraftDialog({
           {htmlBody && (
             <Field label="Podgląd (HTML)">
               <div
-                className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-3 max-h-72 overflow-y-auto"
+                className="bg-muted dark:bg-muted border border-border dark:border-border rounded p-3 max-h-72 overflow-y-auto"
                 // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: htmlBody }}
               />
@@ -113,20 +113,20 @@ export function EmailDraftDialog({
                 href={mailtoHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md inline-flex items-center gap-2"
+                className="bg-primary hover:bg-primary/90 text-white text-sm font-medium px-4 py-2 rounded-md inline-flex items-center gap-2"
               >
                 <Mail className="w-4 h-4" /> Otwórz w kliencie pocztowym
               </a>
             )}
             <button
               onClick={onClose}
-              className="text-sm text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md"
+              className="text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-md"
             >
               Zamknij
             </button>
           </div>
 
-          <p className="text-xs text-gray-500 italic">
+          <p className="text-xs text-muted-foreground italic">
             Draft jest przeglądowy — wyślesz go z własnego klienta poczty
             (Gmail, Outlook, M365), żeby utrzymać tożsamość nadawcy. Nic nie
             zostało jeszcze wysłane.
@@ -146,7 +146,7 @@ function Field({
 }) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold mb-1">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold mb-1">
         {label}
       </div>
       {children}
@@ -169,7 +169,7 @@ function CopyButton({
       className={`text-xs flex items-center gap-1 px-2 py-1 rounded border ${
         copied
           ? "bg-green-100 text-green-700 border-green-300"
-          : "bg-white dark:bg-gray-800 text-gray-600 hover:text-gray-900 border-gray-300"
+          : "bg-card dark:bg-muted text-muted-foreground hover:text-foreground border-border"
       } ${absolute ? "absolute top-2 right-2" : ""}`}
     >
       <Copy className="w-3 h-3" />

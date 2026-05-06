@@ -65,27 +65,27 @@ export default function Microsoft365Card() {
   const hasError = connected && !!status?.last_error;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
       {/* Header */}
       <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-          <Mail className="w-6 h-6 text-blue-600" />
+        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+          <Mail className="w-6 h-6 text-primary" />
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
+            <h3 className="text-base font-bold text-foreground dark:text-foreground">
               Microsoft 365
             </h3>
             <span
               className={cn(
                 "text-xs px-2 py-0.5 rounded-full font-medium",
                 isLoading
-                  ? "bg-gray-100 text-gray-500"
+                  ? "bg-muted text-muted-foreground"
                   : connected && !hasError
                     ? "bg-green-100 text-green-700"
                     : hasError
-                      ? "bg-red-100 text-red-700"
-                      : "bg-gray-100 text-gray-500",
+                      ? "bg-destructive/15 text-destructive"
+                      : "bg-muted text-muted-foreground",
               )}
             >
               {isLoading
@@ -97,7 +97,7 @@ export default function Microsoft365Card() {
                     : "Niepołączony"}
             </span>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
             Wątki email z kandydatami, wysyłka, kalendarz i zaproszenia na interview
           </p>
         </div>
@@ -106,19 +106,19 @@ export default function Microsoft365Card() {
       {/* Connected meta */}
       {connected && (
         <div className="grid grid-cols-2 gap-3 mb-5">
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+          <div className="bg-muted dark:bg-muted rounded-xl p-3">
+            <p className="text-xs text-muted-foreground dark:text-muted-foreground mb-0.5">
               Skrzynka
             </p>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            <p className="text-sm font-medium text-foreground dark:text-foreground truncate">
               {status?.mailbox_upn ?? "—"}
             </p>
           </div>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">
+          <div className="bg-muted dark:bg-muted rounded-xl p-3">
+            <p className="text-xs text-muted-foreground dark:text-muted-foreground mb-0.5">
               Ostatnia synchronizacja
             </p>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            <p className="text-sm font-medium text-foreground dark:text-foreground">
               {status?.last_sync_at
                 ? formatRelativeTime(status.last_sync_at)
                 : "Jeszcze nie synchronizowano"}
@@ -129,11 +129,11 @@ export default function Microsoft365Card() {
 
       {/* Backfill banner */}
       {backfillInProgress && (
-        <div className="flex items-start gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4">
+        <div className="flex items-start gap-2 text-sm text-primary bg-primary/10 border border-primary/20 rounded-xl px-4 py-3 mb-4">
           <Loader2 className="w-4 h-4 flex-shrink-0 mt-0.5 animate-spin" />
           <div>
             <p className="font-medium">Pobieramy historię (ostatnie 12 miesięcy)</p>
-            <p className="text-xs text-blue-600 mt-0.5">
+            <p className="text-xs text-primary mt-0.5">
               Może to chwilę potrwać — wątki zaczną pojawiać się na profilach
               kandydatów po zakończeniu backfilla.
             </p>
@@ -143,11 +143,11 @@ export default function Microsoft365Card() {
 
       {/* Error banner */}
       {hasError && (
-        <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
+        <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 mb-4">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="font-medium">Błąd synchronizacji</p>
-            <p className="text-xs text-red-600 mt-0.5 break-words">
+            <p className="text-xs text-destructive mt-0.5 break-words">
               {status?.last_error}
             </p>
           </div>
@@ -160,7 +160,7 @@ export default function Microsoft365Card() {
           <button
             onClick={() => connectMutation.mutate()}
             disabled={connectMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
           >
             {connectMutation.isPending ? (
               <>
@@ -179,7 +179,7 @@ export default function Microsoft365Card() {
             <button
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending || backfillInProgress}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
               title={
                 backfillInProgress
                   ? "Backfill w toku — poczekaj na jego zakończenie"
@@ -202,13 +202,13 @@ export default function Microsoft365Card() {
             {!confirmDisconnect ? (
               <button
                 onClick={() => setConfirmDisconnect(true)}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-4 py-2 border border-border dark:border-border text-muted-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted rounded-lg text-sm font-medium transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
                 Rozłącz
               </button>
             ) : (
-              <div className="flex items-center gap-2 px-3 py-2 border border-red-200 bg-red-50 text-red-700 rounded-lg text-sm">
+              <div className="flex items-center gap-2 px-3 py-2 border border-destructive/20 bg-destructive/10 text-destructive rounded-lg text-sm">
                 <span>Potwierdź rozłączenie?</span>
                 <button
                   onClick={() => disconnectMutation.mutate()}
@@ -234,7 +234,7 @@ export default function Microsoft365Card() {
             href="https://portal.azure.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 border border-border dark:border-border text-muted-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted rounded-lg text-sm font-medium transition-colors"
           >
             <ExternalLink className="w-4 h-4" />
             Azure Portal

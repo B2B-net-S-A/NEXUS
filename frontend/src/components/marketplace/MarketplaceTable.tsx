@@ -67,7 +67,7 @@ export function MarketplaceTable() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             placeholder="Szukaj po imieniu / nazwisku / email…"
@@ -76,35 +76,35 @@ export function MarketplaceTable() {
               setQ(e.target.value);
               setPage(1);
             }}
-            className="h-10 w-full pl-10 pr-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-gray-800"
+            className="h-10 w-full pl-10 pr-3 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-card dark:bg-muted"
           />
         </div>
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-muted-foreground">
           Razem na targu: <strong>{total}</strong>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-20 text-gray-400 gap-2">
+        <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
           <Loader2 className="w-5 h-5 animate-spin" />
           Ładuję kandydatów…
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 bg-gray-50 dark:bg-gray-900/40 rounded-2xl">
-          <Store className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-          <h3 className="text-lg font-semibold text-gray-500 mb-1">
+        <div className="text-center py-16 bg-muted dark:bg-card/40 rounded-2xl">
+          <Store className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+          <h3 className="text-lg font-semibold text-muted-foreground mb-1">
             Brak kandydatów na targu
           </h3>
-          <p className="text-sm text-gray-400 max-w-md mx-auto">
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
             Dodaj przez profil kandydata („Wrzuć na targ"), albo ustaw
             availability na „Aktywnie szuka" — auto-sync wciągnie ich tu
             sam w ciągu 30 minut.
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden">
+        <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900/40 text-xs uppercase text-gray-500">
+            <thead className="bg-muted dark:bg-card/40 text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="w-6"></th>
                 <th className="text-left px-4 py-3">Kandydat</th>
@@ -124,7 +124,7 @@ export function MarketplaceTable() {
                     <tr
                       key={c.id}
                       className={cn(
-                        "hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors",
+                        "hover:bg-muted dark:hover:bg-muted/40 transition-colors",
                         isOpen && "bg-teal-50/40 dark:bg-teal-900/10"
                       )}
                     >
@@ -132,7 +132,7 @@ export function MarketplaceTable() {
                         <button
                           type="button"
                           onClick={() => setExpanded(isOpen ? null : c.id)}
-                          className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-700"
+                          className="p-1 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground hover:text-foreground"
                           aria-label={isOpen ? "Zwiń" : "Rozwiń matche"}
                         >
                           {isOpen ? (
@@ -145,7 +145,7 @@ export function MarketplaceTable() {
                       <td className="px-4 py-3">
                         <Link
                           href={`/candidates/${c.id}`}
-                          className="flex items-center gap-2 font-medium text-gray-900 dark:text-gray-100 hover:text-teal-600"
+                          className="flex items-center gap-2 font-medium text-foreground dark:text-foreground hover:text-teal-600"
                         >
                           {c.avatar_url ? (
                             <img
@@ -154,7 +154,7 @@ export function MarketplaceTable() {
                               className="w-7 h-7 rounded-full object-cover"
                             />
                           ) : (
-                            <CircleUser className="w-7 h-7 text-gray-300" />
+                            <CircleUser className="w-7 h-7 text-muted-foreground" />
                           )}
                           <span>
                             {c.name} {c.lastname}
@@ -164,25 +164,25 @@ export function MarketplaceTable() {
                       <td className="px-4 py-3">
                         <MarketplaceStatusBadge status={c.availability_status} />
                       </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                      <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
                         {c.competence_category ?? "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                      <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
                         {c.owner?.name ?? (
-                          <span className="text-gray-400">(brak)</span>
+                          <span className="text-muted-foreground">(brak)</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {daysAgo(c.added_at)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-muted-foreground">
                         {c.marketplace_until ? (
                           formatDate(c.marketplace_until)
                         ) : (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
                             auto
                           </span>
                         )}
@@ -192,7 +192,7 @@ export function MarketplaceTable() {
                           type="button"
                           onClick={() => removeMutation.mutate(c.id)}
                           disabled={removeMutation.isPending}
-                          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                           title="Usuń z targu"
                         >
                           <XIcon className="w-4 h-4" />
@@ -200,7 +200,7 @@ export function MarketplaceTable() {
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr className="bg-gray-50/60 dark:bg-gray-900/20">
+                      <tr className="bg-muted/60 dark:bg-card/20">
                         <td colSpan={8} className="px-8">
                           <CandidateMatchesExpansion candidateId={c.id} />
                         </td>
@@ -215,7 +215,7 @@ export function MarketplaceTable() {
       )}
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-gray-500">
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
             Strona {page} z {totalPages}
           </span>
@@ -223,14 +223,14 @@ export function MarketplaceTable() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted"
             >
               Poprzednia
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 rounded-lg border border-border disabled:opacity-50 hover:bg-muted"
             >
               Następna
             </button>

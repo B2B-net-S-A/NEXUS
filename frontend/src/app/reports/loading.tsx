@@ -8,7 +8,7 @@ export default function ReportsLoading() {
           <CardSkeleton key={i} />
         ))}
       </div>
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5">
         <TableSkeleton rows={8} />
       </div>
     </div>

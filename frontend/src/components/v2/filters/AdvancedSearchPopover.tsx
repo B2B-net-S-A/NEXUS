@@ -132,10 +132,10 @@ export function AdvancedSearchPopover({
     <div className={cn("flex flex-col gap-4 p-1", className)}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
             Zaawansowane wyszukiwanie
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
             Enter lub przecinek dodaje frazę. Spacje dozwolone. Zawęża wyniki wyszukiwania prostego.
           </p>
         </div>
@@ -159,10 +159,10 @@ export function AdvancedSearchPopover({
         return (
           <section key={bucket} className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              <label className="text-xs font-semibold text-foreground dark:text-muted-foreground">
                 {meta.label}
                 {chips.length > 0 && (
-                  <span className="ml-1.5 text-gray-400 dark:text-gray-500 font-normal">
+                  <span className="ml-1.5 text-muted-foreground dark:text-muted-foreground font-normal">
                     ({chips.length}/{MAX_PER_BUCKET})
                   </span>
                 )}
@@ -171,7 +171,7 @@ export function AdvancedSearchPopover({
                 <button
                   type="button"
                   onClick={() => clearBucket(bucket)}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  className="text-xs text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
                 >
                   Wyczyść
                 </button>
@@ -194,7 +194,7 @@ export function AdvancedSearchPopover({
                       type="button"
                       onClick={() => removeAt(bucket, i)}
                       title="Usuń frazę"
-                      className="inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10"
+                      className="inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-card/10"
                     >
                       <X className="w-3 h-3" />
                     </button>

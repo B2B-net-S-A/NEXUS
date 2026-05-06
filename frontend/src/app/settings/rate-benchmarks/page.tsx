@@ -81,7 +81,7 @@ function RateBenchmarksAdmin() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Benchmarki stawek</h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Stawki rynkowe z raportów branżowych (Hays, No Fluff Jobs, Just Join
             IT). Używane przez kartę Benchmark na stronie każdego kontraktu.
           </p>
@@ -90,7 +90,7 @@ function RateBenchmarksAdmin() {
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
-            className="inline-flex items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+            className="inline-flex items-center gap-1.5 border border-border dark:border-border rounded-md px-3 py-1.5 text-sm hover:bg-muted dark:hover:bg-muted"
           >
             <Upload className="w-3.5 h-3.5" />
             Import CSV
@@ -109,7 +109,7 @@ function RateBenchmarksAdmin() {
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1.5"
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-sm px-3 py-1.5"
           >
             <Plus className="w-3.5 h-3.5" />
             Dodaj
@@ -118,7 +118,7 @@ function RateBenchmarksAdmin() {
       </header>
 
       {importResult && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-sm bg-gray-50 dark:bg-gray-800">
+        <div className="rounded-lg border border-border dark:border-border p-4 text-sm bg-muted dark:bg-muted">
           <div className="font-medium mb-1">
             Import: {importResult.created} dodanych, {importResult.skipped}{" "}
             pominiętych
@@ -145,7 +145,7 @@ function RateBenchmarksAdmin() {
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
           placeholder="Filtruj po roli…"
-          className="border border-gray-200 dark:border-gray-700 rounded-md px-3 py-1.5 text-sm bg-white dark:bg-gray-900"
+          className="border border-border dark:border-border rounded-md px-3 py-1.5 text-sm bg-card dark:bg-card"
         />
       </div>
 
@@ -157,9 +157,9 @@ function RateBenchmarksAdmin() {
         />
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-x-auto rounded-lg border border-border dark:border-border">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase text-gray-500">
+          <thead className="bg-muted dark:bg-muted text-xs uppercase text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2">Rola</th>
               <th className="text-left px-3 py-2">Seniority</th>
@@ -175,13 +175,13 @@ function RateBenchmarksAdmin() {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
+                <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
                   Ładowanie…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
+                <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
                   Brak wpisów.
                 </td>
               </tr>
@@ -211,7 +211,7 @@ function RateBenchmarksAdmin() {
                   <td className="px-3 py-2">{row.location || "—"}</td>
                   <td className="px-3 py-2">
                     <div className="text-xs">{row.source}</div>
-                    <div className="text-xs text-gray-400">
+                    <div className="text-xs text-muted-foreground">
                       {formatDate(row.source_date)}
                     </div>
                   </td>
@@ -221,7 +221,7 @@ function RateBenchmarksAdmin() {
                       onClick={() => {
                         if (confirm("Usunąć wpis?")) deleteMut.mutate(row.id);
                       }}
-                      className="text-red-600 hover:underline"
+                      className="text-destructive hover:underline"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -233,9 +233,9 @@ function RateBenchmarksAdmin() {
         </table>
       </div>
 
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-muted-foreground">
         CSV header:{" "}
-        <code className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+        <code className="bg-muted dark:bg-muted px-1 py-0.5 rounded">
           role,seniority,currency,rate_unit,market_min,market_median,market_max,source,source_date,location,notes
         </code>
       </div>
@@ -284,21 +284,21 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
   return (
     <form
       onSubmit={submit}
-      className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50 dark:bg-gray-800"
+      className="rounded-lg border border-border dark:border-border p-4 space-y-3 bg-muted dark:bg-muted"
     >
       <div className="grid grid-cols-3 gap-3">
         <label className="block col-span-2">
-          <span className="text-xs text-gray-500">Rola</span>
+          <span className="text-xs text-muted-foreground">Rola</span>
           <input
             value={form.role}
             onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
             placeholder="Java Developer"
             required
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Seniority</span>
+          <span className="text-xs text-muted-foreground">Seniority</span>
           <select
             value={form.seniority}
             onChange={(e) =>
@@ -307,7 +307,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
                 seniority: e.target.value as SeniorityLevel,
               }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           >
             {Object.entries(SENIORITY_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
@@ -317,7 +317,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Jednostka</span>
+          <span className="text-xs text-muted-foreground">Jednostka</span>
           <select
             value={form.rate_unit}
             onChange={(e) =>
@@ -326,7 +326,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
                 rate_unit: e.target.value as "hourly" | "daily" | "monthly",
               }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           >
             <option value="hourly">godz.</option>
             <option value="daily">dzień</option>
@@ -334,80 +334,80 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Waluta</span>
+          <span className="text-xs text-muted-foreground">Waluta</span>
           <input
             value={form.currency}
             onChange={(e) =>
               setForm((f) => ({ ...f, currency: e.target.value.toUpperCase() }))
             }
             maxLength={3}
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950 uppercase"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950 uppercase"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Lokalizacja</span>
+          <span className="text-xs text-muted-foreground">Lokalizacja</span>
           <input
             value={form.location}
             onChange={(e) =>
               setForm((f) => ({ ...f, location: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
             placeholder="Warszawa / Remote"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Min</span>
+          <span className="text-xs text-muted-foreground">Min</span>
           <input
             type="number"
             value={form.market_min}
             onChange={(e) =>
               setForm((f) => ({ ...f, market_min: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Mediana *</span>
+          <span className="text-xs text-muted-foreground">Mediana *</span>
           <input
             type="number"
             value={form.market_median}
             onChange={(e) =>
               setForm((f) => ({ ...f, market_median: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
             required
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Max</span>
+          <span className="text-xs text-muted-foreground">Max</span>
           <input
             type="number"
             value={form.market_max}
             onChange={(e) =>
               setForm((f) => ({ ...f, market_max: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           />
         </label>
         <label className="block col-span-2">
-          <span className="text-xs text-gray-500">Źródło</span>
+          <span className="text-xs text-muted-foreground">Źródło</span>
           <input
             value={form.source}
             onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
             placeholder="Hays Guide 2026"
             required
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Data raportu</span>
+          <span className="text-xs text-muted-foreground">Data raportu</span>
           <input
             type="date"
             value={form.source_date}
             onChange={(e) =>
               setForm((f) => ({ ...f, source_date: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
             required
           />
         </label>
@@ -416,7 +416,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
         <button
           type="button"
           onClick={onCancel}
-          className="text-sm text-gray-600 hover:underline inline-flex items-center gap-1"
+          className="text-sm text-muted-foreground hover:underline inline-flex items-center gap-1"
         >
           <X className="w-3.5 h-3.5" />
           Anuluj
@@ -424,7 +424,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm px-3 py-1.5"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm px-3 py-1.5"
         >
           <Save className="w-3.5 h-3.5" />
           {submitting ? "Zapisywanie…" : "Zapisz"}

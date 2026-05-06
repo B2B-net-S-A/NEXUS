@@ -50,8 +50,8 @@ const TYPE_CONFIG: Record<
   },
   interview_scheduled: {
     icon: <Calendar className="w-3.5 h-3.5" />,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100",
+    color: "text-primary",
+    bgColor: "bg-primary/15",
   },
   candidate_added: {
     icon: <UserPlus className="w-3.5 h-3.5" />,
@@ -81,8 +81,8 @@ const TYPE_CONFIG: Record<
   },
   powercalling_kpi: {
     icon: <PhoneOff className="w-3.5 h-3.5" />,
-    color: "text-red-600",
-    bgColor: "bg-red-100",
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
   },
   candidate_feedback_1h: {
     icon: <StickyNote className="w-3.5 h-3.5" />,
@@ -91,8 +91,8 @@ const TYPE_CONFIG: Record<
   },
   stage_stuck_7d: {
     icon: <Hourglass className="w-3.5 h-3.5" />,
-    color: "text-gray-600",
-    bgColor: "bg-gray-100",
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
   },
   // Phase 14 — post-interview feedback chain
   post_interview_t15: {
@@ -107,8 +107,8 @@ const TYPE_CONFIG: Record<
   },
   post_interview_t2h_escalation: {
     icon: <AlertTriangle className="w-3.5 h-3.5" />,
-    color: "text-red-600",
-    bgColor: "bg-red-100",
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
   },
   suggest_next_step: {
     icon: <ChevronRight className="w-3.5 h-3.5" />,
@@ -150,15 +150,15 @@ function timeAgo(iso?: string): string {
 // ── Toast notification for real-time events ───────────────────────────────────
 function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => void }) {
   return (
-    <div className="fixed bottom-6 right-6 z-[300] max-w-sm w-full bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
-      <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 flex items-center justify-center flex-shrink-0">
+    <div className="fixed bottom-6 right-6 z-[300] max-w-sm w-full bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
+      <div className="w-8 h-8 rounded-full bg-primary/15 dark:bg-primary/40 text-primary flex items-center justify-center flex-shrink-0">
         <Bell className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-gray-900 dark:text-gray-100 leading-tight">{notif.title}</p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{notif.message}</p>
+        <p className="text-sm font-bold text-foreground dark:text-foreground leading-tight">{notif.title}</p>
+        <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2">{notif.message}</p>
       </div>
-      <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 flex-shrink-0">
+      <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground flex-shrink-0">
         <X className="w-4 h-4" />
       </button>
     </div>
@@ -256,13 +256,13 @@ export function NotificationsDropdown() {
           onClick={handleOpen}
           className={cn(
             "relative p-2 rounded-lg transition-colors",
-            open ? "bg-blue-50 text-blue-600" : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            open ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
           )}
           aria-label="Powiadomienia"
         >
           <Bell className="w-5 h-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-destructive/100 text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
@@ -270,14 +270,14 @@ export function NotificationsDropdown() {
 
         {/* Dropdown */}
         {open && (
-          <div className="absolute right-0 top-full mt-2 w-96 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl z-50 overflow-hidden">
+          <div className="absolute right-0 top-full mt-2 w-96 bg-card dark:bg-muted border border-border dark:border-border rounded-2xl shadow-xl z-50 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-gray-500" />
-                <span className="font-bold text-gray-900 dark:text-gray-100 text-sm">Powiadomienia</span>
+                <Bell className="w-4 h-4 text-muted-foreground" />
+                <span className="font-bold text-foreground dark:text-foreground text-sm">Powiadomienia</span>
                 {unreadCount > 0 && (
-                  <span className="px-1.5 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full">
+                  <span className="px-1.5 py-0.5 bg-destructive/15 text-destructive text-xs font-bold rounded-full">
                     {unreadCount}
                   </span>
                 )}
@@ -286,7 +286,7 @@ export function NotificationsDropdown() {
                 <button
                   onClick={() => markAllMutation.mutate()}
                   disabled={markAllMutation.isPending}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
                   Oznacz wszystko jako przeczytane
@@ -297,7 +297,7 @@ export function NotificationsDropdown() {
             {/* List */}
             <div className="max-h-[420px] overflow-y-auto">
               {notifications.length === 0 ? (
-                <div className="text-center py-10 text-gray-400">
+                <div className="text-center py-10 text-muted-foreground">
                   <Bell className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   <p className="text-sm">Brak powiadomień</p>
                 </div>
@@ -310,8 +310,8 @@ export function NotificationsDropdown() {
                         key={notif.id}
                         onClick={() => handleNotificationClick(notif)}
                         className={cn(
-                          "flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-50 dark:border-gray-700 last:border-b-0",
-                          !notif.is_read && "bg-blue-50/40 dark:bg-blue-900/10"
+                          "flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-muted dark:hover:bg-muted border-b border-gray-50 dark:border-border last:border-b-0",
+                          !notif.is_read && "bg-primary/10/40 dark:bg-primary/10"
                         )}
                       >
                         {/* Icon */}
@@ -331,19 +331,19 @@ export function NotificationsDropdown() {
                             <p
                               className={cn(
                                 "text-sm leading-tight",
-                                notif.is_read ? "font-medium text-gray-700 dark:text-gray-300" : "font-bold text-gray-900 dark:text-gray-100"
+                                notif.is_read ? "font-medium text-foreground dark:text-muted-foreground" : "font-bold text-foreground dark:text-foreground"
                               )}
                             >
                               {notif.title}
                             </p>
                             {!notif.is_read && (
-                              <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1.5" />
+                              <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1.5" />
                             )}
                           </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2 leading-relaxed">
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
                             {notif.message}
                           </p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{timeAgo(notif.created_at)}</p>
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{timeAgo(notif.created_at)}</p>
                         </div>
                       </li>
                     );
@@ -354,10 +354,10 @@ export function NotificationsDropdown() {
 
             {/* Footer */}
             {notifications.length > 0 && (
-              <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-2 text-center">
+              <div className="border-t border-border dark:border-border px-4 py-2 text-center">
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  className="text-xs text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors"
                 >
                   Zamknij
                 </button>

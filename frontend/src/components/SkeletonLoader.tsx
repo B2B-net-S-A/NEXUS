@@ -8,7 +8,7 @@ export function Skeleton({ className }: SkeletonProps) {
   return (
     <div
       className={cn(
-        "animate-pulse bg-gray-200 dark:bg-gray-700 rounded",
+        "animate-pulse bg-muted dark:bg-muted rounded",
         className
       )}
     />
@@ -17,7 +17,7 @@ export function Skeleton({ className }: SkeletonProps) {
 
 export function CardSkeleton() {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3 animate-pulse">
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-3 animate-pulse">
       <div className="flex justify-between">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-8 w-8 rounded-lg" />
@@ -30,7 +30,7 @@ export function CardSkeleton() {
 
 export function ListItemSkeleton() {
   return (
-    <div className="flex items-center gap-3 p-3 border-b border-gray-100 dark:border-gray-700 animate-pulse">
+    <div className="flex items-center gap-3 p-3 border-b border-border dark:border-border animate-pulse">
       <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" />
       <div className="flex-1 space-y-2">
         <Skeleton className="h-4 w-32" />
@@ -65,14 +65,14 @@ export function DashboardSkeleton() {
       </div>
       {/* Two column */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-4">
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-10 w-24" />
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-3 w-full" />)}
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-4">
           <Skeleton className="h-5 w-32" />
           <Skeleton className="h-10 w-24" />
           <div className="space-y-2">
@@ -82,7 +82,7 @@ export function DashboardSkeleton() {
       </div>
       {/* Activity + Recruiters */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-3">
           <Skeleton className="h-5 w-40" />
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3">
@@ -94,7 +94,7 @@ export function DashboardSkeleton() {
             </div>
           ))}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-3">
           <Skeleton className="h-5 w-40" />
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 py-2">
@@ -117,8 +117,8 @@ export function CandidatesListSkeleton() {
         <Skeleton className="h-7 w-36" />
         <Skeleton className="h-9 w-32 rounded-lg" />
       </div>
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-700">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+        <div className="p-4 border-b border-border dark:border-border">
           <Skeleton className="h-9 w-full rounded-lg" />
         </div>
         <TableSkeleton rows={8} />
@@ -136,7 +136,7 @@ export function JobsListSkeleton() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+          <div key={i} className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <Skeleton className="h-5 w-36" />
               <Skeleton className="h-5 w-16 rounded-full" />
@@ -162,8 +162,8 @@ interface ErrorBannerProps {
 
 export function ErrorBanner({ message = "Wystąpił błąd podczas ładowania danych.", onRetry }: ErrorBannerProps) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-sm">
-      <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+    <div className="flex items-center justify-between gap-4 px-4 py-3 bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl text-sm">
+      <div className="flex items-center gap-2 text-destructive dark:text-destructive">
         <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
         </svg>

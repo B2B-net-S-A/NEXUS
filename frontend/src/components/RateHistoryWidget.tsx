@@ -91,15 +91,15 @@ export function RateHistoryWidget({ candidateId }: Props) {
     clients.find((c) => c.id === id)?.name ?? (id ? `#${id}` : "—");
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-medium flex items-center gap-2 text-gray-900 dark:text-gray-100">
+        <h3 className="font-medium flex items-center gap-2 text-foreground dark:text-foreground">
           <DollarSign className="w-4 h-4 text-emerald-500" />
           Historia stawek ({rows.length})
         </h3>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+          className="text-xs text-primary hover:underline flex items-center gap-1"
           data-testid="rate-history-add-toggle"
         >
           <Plus className="w-3 h-3" />
@@ -108,13 +108,13 @@ export function RateHistoryWidget({ candidateId }: Props) {
       </div>
 
       {showForm && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 p-3 rounded bg-gray-50 dark:bg-gray-900/40">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 p-3 rounded bg-muted dark:bg-card/40">
           <input
             type="number"
             placeholder="Stawka PLN"
             value={form.rate}
             onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
-            className="col-span-2 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm bg-white dark:bg-gray-800"
+            className="col-span-2 rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-muted"
           />
           <select
             value={form.contract_type}
@@ -124,7 +124,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
                 contract_type: e.target.value as "b2b" | "uop" | "zlecenie",
               }))
             }
-            className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm bg-white dark:bg-gray-800"
+            className="rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-muted"
           >
             <option value="b2b">B2B</option>
             <option value="uop">UoP</option>
@@ -134,12 +134,12 @@ export function RateHistoryWidget({ candidateId }: Props) {
             type="date"
             value={form.start_date}
             onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
-            className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm bg-white dark:bg-gray-800"
+            className="rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-muted"
           />
           <select
             value={form.client_id}
             onChange={(e) => setForm((f) => ({ ...f, client_id: e.target.value }))}
-            className="col-span-2 md:col-span-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm bg-white dark:bg-gray-800"
+            className="col-span-2 md:col-span-1 rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-muted"
           >
             <option value="">-- klient --</option>
             {clients.map((c) => (
@@ -151,7 +151,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
           <button
             onClick={handleCreate}
             disabled={saving}
-            className="rounded bg-blue-600 text-white text-sm px-3 py-1 hover:bg-blue-700 disabled:opacity-50"
+            className="rounded bg-primary text-white text-sm px-3 py-1 hover:bg-primary/90 disabled:opacity-50"
             data-testid="rate-history-save"
           >
             {saving ? "…" : "Zapisz"}
@@ -161,13 +161,13 @@ export function RateHistoryWidget({ candidateId }: Props) {
 
       {loading ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">Brak zapisanych stawek.</p>
+        <p className="text-sm text-muted-foreground">Brak zapisanych stawek.</p>
       ) : (
         <table className="w-full text-sm">
-          <thead className="text-xs uppercase text-gray-500">
+          <thead className="text-xs uppercase text-muted-foreground">
             <tr>
               <th className="text-left py-1">Data startu</th>
               <th className="text-left">Klient</th>
@@ -180,7 +180,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className="border-t border-gray-100 dark:border-gray-700"
+                className="border-t border-border dark:border-border"
               >
                 <td className="py-1.5">{r.start_date}</td>
                 <td>{clientName(r.client_id)}</td>
@@ -191,7 +191,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
                 <td className="text-right">
                   <button
                     onClick={() => handleDelete(r.id)}
-                    className="text-red-400 hover:text-red-600"
+                    className="text-red-400 hover:text-destructive"
                     aria-label="Usuń"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

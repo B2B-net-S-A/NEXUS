@@ -31,7 +31,7 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
       className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
         ok
           ? "bg-green-100 text-green-700 border-green-300"
-          : "bg-red-100 text-red-700 border-red-300"
+          : "bg-destructive/15 text-destructive border-red-300"
       }`}
     >
       {ok ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
@@ -81,12 +81,12 @@ export default function DiagnosticsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-muted dark:bg-card">
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-5">
         <header className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Diagnostyka embeddingu</h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Voyage AI + Qdrant — stan połączeń i kolekcji.
             </p>
           </div>
@@ -94,7 +94,7 @@ export default function DiagnosticsPage() {
             <button
               onClick={load}
               disabled={loading}
-              className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-md border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               Odśwież
@@ -111,20 +111,20 @@ export default function DiagnosticsPage() {
         </header>
 
         {initMsg && (
-          <div className="rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 px-3 py-2 text-sm">
+          <div className="rounded bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/90 px-3 py-2 text-sm">
             {initMsg}
           </div>
         )}
 
         {loading ? (
           <div className="flex justify-center py-10">
-            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
         ) : !report ? (
-          <p className="text-sm text-gray-500">Brak danych.</p>
+          <p className="text-sm text-muted-foreground">Brak danych.</p>
         ) : (
           <>
-            <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
+            <section className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 space-y-2">
               <h2 className="font-medium mb-2">Voyage AI</h2>
               <div className="flex gap-2 flex-wrap items-center">
                 <StatusPill
@@ -136,38 +136,38 @@ export default function DiagnosticsPage() {
                   label={`Ping: ${report.voyage.ping_ok ? "OK" : "FAIL"}`}
                 />
                 {report.voyage.dim !== undefined && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-muted-foreground">
                     dim = {report.voyage.dim}
                   </span>
                 )}
               </div>
               {report.voyage.reason && (
-                <pre className="text-xs text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-2 whitespace-pre-wrap">
+                <pre className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 whitespace-pre-wrap">
                   {report.voyage.reason}
                 </pre>
               )}
             </section>
 
-            <section className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-2">
+            <section className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 space-y-2">
               <h2 className="font-medium mb-2">Qdrant</h2>
               <div className="flex gap-2 flex-wrap items-center">
                 <StatusPill
                   ok={!!report.qdrant.ok}
                   label={`Połączenie: ${report.qdrant.ok ? "OK" : "FAIL"}`}
                 />
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-muted-foreground">
                   {report.qdrant.host}:{report.qdrant.port}
                 </span>
               </div>
               {report.qdrant.reason && (
-                <pre className="text-xs text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-2 whitespace-pre-wrap">
+                <pre className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 whitespace-pre-wrap">
                   {report.qdrant.reason}
                 </pre>
               )}
 
               {report.qdrant.counts && (
                 <table className="w-full text-sm mt-3">
-                  <thead className="text-xs uppercase text-gray-500">
+                  <thead className="text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="text-left py-1">Kolekcja</th>
                       <th className="text-right">Liczba punktów</th>
@@ -175,15 +175,15 @@ export default function DiagnosticsPage() {
                   </thead>
                   <tbody>
                     {Object.entries(report.qdrant.counts).map(([name, count]) => (
-                      <tr key={name} className="border-t border-gray-100 dark:border-gray-700">
+                      <tr key={name} className="border-t border-border dark:border-border">
                         <td className="py-1">
-                          <code className="text-xs bg-gray-100 dark:bg-gray-900 px-1.5 py-0.5 rounded">
+                          <code className="text-xs bg-muted dark:bg-card px-1.5 py-0.5 rounded">
                             {name}
                           </code>
                         </td>
                         <td className="text-right">
                           {count === "MISSING" ? (
-                            <span className="text-red-600 font-medium">BRAK</span>
+                            <span className="text-destructive font-medium">BRAK</span>
                           ) : (
                             <span>{count}</span>
                           )}
@@ -195,7 +195,7 @@ export default function DiagnosticsPage() {
               )}
 
               {report.qdrant.all_collections && (
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   Wszystkie kolekcje: {report.qdrant.all_collections.join(", ") || "—"}
                 </p>
               )}

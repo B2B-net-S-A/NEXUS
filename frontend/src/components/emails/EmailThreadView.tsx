@@ -66,15 +66,15 @@ export default function EmailThreadView({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="p-5 border-b border-gray-200">
+        <DialogHeader className="p-5 border-b border-border">
           <DialogTitle className="text-base font-semibold">
             {thread?.subject ?? "(bez tematu)"}
           </DialogTitle>
           {latest && (
-            <div className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>
-                <span className="text-gray-400">Od:</span>{" "}
-                <span className="font-medium text-gray-700">
+                <span className="text-muted-foreground">Od:</span>{" "}
+                <span className="font-medium text-foreground">
                   {latest.from_name
                     ? `${latest.from_name} <${latest.from_address}>`
                     : latest.from_address}
@@ -83,12 +83,12 @@ export default function EmailThreadView({
               <span>·</span>
               <span>{formatRelativeTime(latest.received_at)}</span>
               {latest.direction === "sent" && (
-                <span className="rounded bg-blue-100 text-blue-700 px-1.5 py-0.5">
+                <span className="rounded bg-primary/15 text-primary px-1.5 py-0.5">
                   Wysłane z ATS
                 </span>
               )}
               {latest.is_private_filtered && (
-                <span className="rounded bg-gray-200 text-gray-600 px-1.5 py-0.5">
+                <span className="rounded bg-muted text-muted-foreground px-1.5 py-0.5">
                   Prywatne (ATS:ignore)
                 </span>
               )}
@@ -98,29 +98,29 @@ export default function EmailThreadView({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {!latest ? (
-            <p className="text-sm text-gray-500">Wczytuję wiadomość...</p>
+            <p className="text-sm text-muted-foreground">Wczytuję wiadomość...</p>
           ) : (
             <>
               {latest.is_private_filtered ? (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500 text-center">
+                <div className="rounded-lg border border-border bg-muted px-4 py-6 text-sm text-muted-foreground text-center">
                   Ta wiadomość jest oznaczona kategorią <code>ATS:ignore</code> w
                   Outlooku — treść nie jest pobierana do Nexusa.
                 </div>
               ) : bodyHtml ? (
                 <div
-                  className="prose prose-sm max-w-none text-gray-800"
+                  className="prose prose-sm max-w-none text-foreground"
                   // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify + server-side bleach
                   dangerouslySetInnerHTML={{ __html: bodyHtml }}
                 />
               ) : (
-                <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans">
+                <pre className="whitespace-pre-wrap text-sm text-foreground font-sans">
                   {fullMessage?.body_text ?? latest.body_text ?? ""}
                 </pre>
               )}
 
               {!!fullMessage?.attachments?.length && (
-                <div className="pt-3 border-t border-gray-100">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                     Załączniki
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -131,12 +131,12 @@ export default function EmailThreadView({
                           fullMessage.id,
                           a.id,
                         )}
-                        className="inline-flex items-center gap-2 text-sm px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100"
+                        className="inline-flex items-center gap-2 text-sm px-3 py-1.5 bg-muted border border-border rounded-lg hover:bg-muted"
                         download
                       >
-                        <Paperclip className="h-3.5 w-3.5 text-gray-400" />
+                        <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
                         <span className="truncate max-w-[20rem]">{a.filename}</span>
-                        <Download className="h-3.5 w-3.5 text-gray-400" />
+                        <Download className="h-3.5 w-3.5 text-muted-foreground" />
                       </a>
                     ))}
                   </div>
@@ -146,10 +146,10 @@ export default function EmailThreadView({
           )}
         </div>
 
-        <div className="border-t border-gray-200 p-4 flex items-center justify-between">
+        <div className="border-t border-border p-4 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-800"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <X className="h-4 w-4" />
             Zamknij
@@ -157,7 +157,7 @@ export default function EmailThreadView({
           {latest && (
             <button
               onClick={() => setReplyTarget(latest)}
-              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-lg"
             >
               <Reply className="h-4 w-4" />
               Odpowiedz

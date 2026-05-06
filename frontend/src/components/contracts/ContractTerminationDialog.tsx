@@ -45,13 +45,13 @@ export function ContractTerminationDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white dark:bg-gray-900 shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="w-full max-w-lg rounded-lg bg-card dark:bg-card shadow-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border dark:border-border">
           <h2 className="text-base font-semibold">Zakończ współpracę</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            className="text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
           >
             <X className="w-4 h-4" />
           </button>
@@ -64,13 +64,13 @@ export function ContractTerminationDialog({
           }}
         >
           <label className="block">
-            <span className="text-xs text-gray-500">Powód zakończenia</span>
+            <span className="text-xs text-muted-foreground">Powód zakończenia</span>
             <select
               value={reason}
               onChange={(e) =>
                 setReason(e.target.value as ContractTerminationReason)
               }
-              className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-950"
+              className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
             >
               {CONTRACT_TERMINATION_REASONS.map((r) => (
                 <option key={r.value} value={r.value}>
@@ -80,28 +80,28 @@ export function ContractTerminationDialog({
             </select>
           </label>
           <label className="block">
-            <span className="text-xs text-gray-500">Data zakończenia</span>
+            <span className="text-xs text-muted-foreground">Data zakończenia</span>
             <input
               type="date"
               value={when}
               onChange={(e) => setWhen(e.target.value)}
-              className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-950"
+              className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-muted-foreground">
               Wnioski / co zrobiliśmy źle albo dobrze (TAC only)
             </span>
             <textarea
               value={lessons}
               onChange={(e) => setLessons(e.target.value)}
-              className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-950"
+              className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
               rows={4}
               placeholder="Np.: klient poprosił o konsultanta na 6 mies., potrzebowali 12 — zbadać wcześniej…"
             />
           </label>
           {mut.isError && (
-            <p className="text-xs text-red-600">
+            <p className="text-xs text-destructive">
               Błąd zapisu. Spróbuj ponownie.
             </p>
           )}
@@ -109,7 +109,7 @@ export function ContractTerminationDialog({
             <button
               type="button"
               onClick={onClose}
-              className="text-sm text-gray-600 hover:underline"
+              className="text-sm text-muted-foreground hover:underline"
             >
               Anuluj
             </button>

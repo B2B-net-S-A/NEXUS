@@ -82,14 +82,14 @@ export function ChampionHistoricalMatchesPanel({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+          <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
             Podobne role z przeszłości
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-muted-foreground">
             Pre-fill Profilu Championa na podstawie zamkniętych ról tego klienta.
           </div>
         </div>
-        <label className="text-xs text-gray-600 dark:text-gray-400 inline-flex items-center gap-1.5 cursor-pointer select-none">
+        <label className="text-xs text-muted-foreground dark:text-muted-foreground inline-flex items-center gap-1.5 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={crossClient}
@@ -101,20 +101,20 @@ export function ChampionHistoricalMatchesPanel({
       </div>
 
       {preview.isLoading && (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" />
           Szukam podobnych ról…
         </div>
       )}
 
       {preview.isError && (
-        <div className="text-sm text-red-600 dark:text-red-400">
+        <div className="text-sm text-destructive dark:text-destructive">
           Nie udało się pobrać podobnych ról. Spróbuj ponownie za chwilę.
         </div>
       )}
 
       {!preview.isLoading && !preview.isError && !hasMatches && (
-        <div className="text-sm italic text-gray-400">
+        <div className="text-sm italic text-muted-foreground">
           Brak zamkniętych ról z Profilem Championa do porównania
           {crossClient ? "" : " u tego klienta"}.
           {!crossClient && (
@@ -160,14 +160,14 @@ export function ChampionHistoricalMatchesPanel({
               Zaproponuj na podstawie historii
             </button>
             {matches.length < 2 && (
-              <span className="text-xs text-gray-500 italic">
+              <span className="text-xs text-muted-foreground italic">
                 Wymagane min. 2 matches — znalezione: {matches.length}
               </span>
             )}
           </div>
 
           {generateMutation.isError && (
-            <div className="text-sm text-red-600 dark:text-red-400">
+            <div className="text-sm text-destructive dark:text-destructive">
               Generowanie nie powiodło się. Spróbuj ponownie lub włącz
               cross-client.
             </div>
@@ -187,12 +187,12 @@ function MatchCard({ match }: { match: HistoricalMatchPreview }) {
       ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
       : similarityPct >= 70
       ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
-      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+      : "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground";
 
   return (
-    <div className="border border-gray-200 dark:border-gray-800 rounded-lg p-3 space-y-2 bg-white dark:bg-gray-900">
+    <div className="border border-border dark:border-border rounded-lg p-3 space-y-2 bg-card dark:bg-card">
       <div className="flex items-start justify-between gap-2">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2">
+        <div className="text-sm font-medium text-foreground dark:text-foreground leading-snug line-clamp-2">
           {match.title}
         </div>
         <span
@@ -202,7 +202,7 @@ function MatchCard({ match }: { match: HistoricalMatchPreview }) {
         </span>
       </div>
 
-      <div className="text-xs text-gray-500 space-y-1">
+      <div className="text-xs text-muted-foreground space-y-1">
         {match.client_name && <div>{match.client_name}</div>}
         {match.closed_at && (
           <div className="inline-flex items-center gap-1">
@@ -246,8 +246,8 @@ function SkillFrequencyRow({
   const topMust = frequency.must.slice(0, 8);
   if (topMust.length === 0) return null;
   return (
-    <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 px-3 py-2 space-y-1">
-      <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+    <div className="rounded-lg bg-muted dark:bg-card/40 border border-border dark:border-border px-3 py-2 space-y-1">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
         Powtarzalne must-have (próba: {frequency.n})
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -269,7 +269,7 @@ function SkillChip({
   const highlighted = entry.fraction >= threshold;
   const cls = highlighted
     ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200 border-purple-300 dark:border-purple-800"
-    : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800";
+    : "bg-card dark:bg-card text-muted-foreground dark:text-muted-foreground border-border dark:border-border";
   return (
     <span
       className={`text-xs px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${cls}`}
@@ -301,7 +301,7 @@ function Badge({
     green:
       "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
     gray:
-      "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+      "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground",
   };
   return (
     <span

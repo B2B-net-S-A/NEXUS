@@ -37,19 +37,19 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
 
   return (
     <ModalShell onClose={onClose} title="Zamknij jako przegraną">
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
         Oferta:{" "}
-        <span className="font-medium text-gray-700 dark:text-gray-200">{jobTitle}</span>
+        <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
       </p>
 
       <div>
-        <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 block mb-1">
+        <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
           Powód zamknięcia *
         </label>
         <select
           value={reason}
           onChange={(e) => setReason(e.target.value as JobCloseReason)}
-          className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         >
           {JOB_CLOSE_REASONS.map((r) => (
             <option key={r.value} value={r.value}>
@@ -60,7 +60,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
       </div>
 
       <div>
-        <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 block mb-1">
+        <label className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground block mb-1">
           Notatki (opcjonalnie)
         </label>
         <textarea
@@ -68,14 +68,14 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Kontekst, co konkretnie się wydarzyło..."
-          className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
         />
       </div>
 
       <div className="flex justify-end gap-2 pt-2">
         <button
           onClick={onClose}
-          className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
         >
           Anuluj
         </button>
@@ -108,12 +108,12 @@ function ModalShell({
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4"
+        className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">{title}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground">
             <X className="w-4 h-4" />
           </button>
         </div>

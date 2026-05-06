@@ -133,7 +133,7 @@ export function KpiNudgeToaster() {
               {typeof toast.progress_pct === "number" &&
                 typeof toast.target === "number" &&
                 toast.target > 0 && (
-                  <div className="mt-2 h-1.5 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+                  <div className="mt-2 h-1.5 rounded-full bg-black/10 dark:bg-card/10 overflow-hidden">
                     <div
                       className={cn(
                         "h-full rounded-full transition-all",

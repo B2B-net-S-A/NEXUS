@@ -38,7 +38,7 @@ export default function AdminGlobalChatsPage() {
 
   if (user?.role !== "admin") {
     return (
-      <div className="p-8 text-center text-gray-500">
+      <div className="p-8 text-center text-muted-foreground">
         Tylko administrator może oglądać globalny widok czatów.
       </div>
     );
@@ -53,14 +53,14 @@ export default function AdminGlobalChatsPage() {
     <div className="max-w-5xl mx-auto p-6 space-y-4">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <MessageCircle className="w-6 h-6 text-blue-500" />
+          <MessageCircle className="w-6 h-6 text-primary" />
           <h1 className="text-xl font-semibold">
             Globalny audyt czatów
           </h1>
         </div>
         <button
           onClick={() => refetch()}
-          className="text-xs text-blue-600 hover:text-blue-800"
+          className="text-xs text-primary hover:text-primary/80"
         >
           Odśwież
         </button>
@@ -76,8 +76,8 @@ export default function AdminGlobalChatsPage() {
               className={cn(
                 "px-3 py-1 rounded text-sm border",
                 filter === f
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-700",
+                  ? "bg-primary text-white border-primary"
+                  : "bg-card dark:bg-card border-border dark:border-border text-foreground",
               )}
             >
               {f === "all" ? "Wszystkie" : f === "job" ? "Projekty" : "Kandydaci"}
@@ -86,13 +86,13 @@ export default function AdminGlobalChatsPage() {
         </div>
         <form onSubmit={handleSubmit} className="flex gap-1">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
               type="text"
               placeholder="Szukaj w treści…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-7 pr-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900"
+              className="pl-7 pr-2 py-1 text-sm rounded border border-border dark:border-border bg-card dark:bg-card"
             />
           </div>
         </form>
@@ -100,12 +100,12 @@ export default function AdminGlobalChatsPage() {
 
       {/* Items */}
       {isLoading && (
-        <div className="text-center text-sm text-gray-400 py-8">
+        <div className="text-center text-sm text-muted-foreground py-8">
           Ładowanie…
         </div>
       )}
       {data && data.items.length === 0 && (
-        <div className="text-center text-sm text-gray-400 py-8">
+        <div className="text-center text-sm text-muted-foreground py-8">
           Brak wiadomości pasujących do filtra.
         </div>
       )}
@@ -120,20 +120,20 @@ export default function AdminGlobalChatsPage() {
             <li
               key={`${item.chat_type}-${item.message_id}`}
               className={cn(
-                "p-3 rounded-lg border bg-white dark:bg-gray-800",
-                "border-gray-200 dark:border-gray-700",
+                "p-3 rounded-lg border bg-card dark:bg-muted",
+                "border-border dark:border-border",
               )}
             >
-              <div className="flex items-center justify-between gap-2 text-xs text-gray-500 mb-1">
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground mb-1">
                 <div className="flex items-center gap-1.5">
                   <Icon className="w-3.5 h-3.5" />
                   <Link
                     href={link}
-                    className="font-medium text-blue-600 hover:underline"
+                    className="font-medium text-primary hover:underline"
                   >
                     {item.parent_label}
                   </Link>
-                  <ChevronRight className="w-3 h-3 text-gray-400" />
+                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
                   <span>{item.author_name ?? "(usunięty użytkownik)"}</span>
                 </div>
                 <span>{formatRelativeTime(item.created_at)}</span>
@@ -141,7 +141,7 @@ export default function AdminGlobalChatsPage() {
               <div
                 className={cn(
                   "text-sm whitespace-pre-wrap break-words",
-                  item.is_deleted && "italic text-gray-400",
+                  item.is_deleted && "italic text-muted-foreground",
                 )}
               >
                 {item.content}
@@ -152,7 +152,7 @@ export default function AdminGlobalChatsPage() {
       </ul>
 
       {data?.has_more && (
-        <div className="text-center text-xs text-gray-500 pt-2">
+        <div className="text-center text-xs text-muted-foreground pt-2">
           Pokazano 100 najnowszych. Użyj filtrów żeby zawęzić wyniki.
         </div>
       )}

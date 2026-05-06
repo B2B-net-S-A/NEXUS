@@ -158,16 +158,16 @@ export function ContractDocumentsTab({ contractId }: Props) {
   return (
     <div className="space-y-4">
       <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 space-y-3">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                 Typ dokumentu
               </label>
               <select
                 value={docType}
                 onChange={(e) => setDocType(e.target.value)}
-                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                className="px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
               >
                 {DOC_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -177,21 +177,21 @@ export function ContractDocumentsTab({ contractId }: Props) {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                 Data ważności (opcjonalnie)
               </label>
               <input
                 type="date"
                 value={expiryDate}
                 onChange={(e) => setExpiryDate(e.target.value)}
-                className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                className="px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
               />
             </div>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadMutation.isPending}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              className="flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               {uploadMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -209,30 +209,30 @@ export function ContractDocumentsTab({ contractId }: Props) {
             />
           </div>
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2 flex items-center gap-2">
+            <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2 flex items-center gap-2">
               <AlertCircle className="w-4 h-4" /> {error}
             </div>
           )}
-          <div className="text-xs text-gray-500 dark:text-gray-400">
+          <div className="text-xs text-muted-foreground dark:text-muted-foreground">
             Maks. 20 MB. PDF / DOCX / JPG / PNG. Dla OC i NIP ustaw datę ważności —
             system powiadomi o wygaśnięciu.
           </div>
         </div>
       </RequireRole>
 
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
             <Loader2 className="w-5 h-5 inline-block animate-spin mr-2" />
             Ładowanie dokumentów…
           </div>
         ) : docs.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
             Brak załączonych dokumentów.
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
                 <th className="text-left px-4 py-2">Plik</th>
                 <th className="text-left px-4 py-2">Typ</th>
@@ -252,16 +252,16 @@ export function ContractDocumentsTab({ contractId }: Props) {
                 return (
                   <tr
                     key={d.id}
-                    className="border-t border-gray-100 dark:border-gray-700"
+                    className="border-t border-border dark:border-border"
                   >
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-gray-400" />
+                        <Icon className="w-4 h-4 text-muted-foreground" />
                         <a
                           href={contractsApi.documentDownloadUrl(contractId, d.id)}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-blue-600 hover:underline dark:text-blue-400"
+                          className="text-primary hover:underline dark:text-primary"
                         >
                           {d.filename}
                         </a>
@@ -270,7 +270,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
                     <td className="px-4 py-2">
                       {DOC_TYPE_LABEL[d.doc_type] ?? d.doc_type}
                     </td>
-                    <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                    <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
                       {formatBytes(d.size_bytes)}
                     </td>
                     <td className="px-4 py-2">
@@ -279,16 +279,16 @@ export function ContractDocumentsTab({ contractId }: Props) {
                           className={
                             isExpiringSoon
                               ? "text-orange-600 font-medium"
-                              : "text-gray-500 dark:text-gray-400"
+                              : "text-muted-foreground dark:text-muted-foreground"
                           }
                         >
                           {formatDate(d.expiry_date)}
                         </span>
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                    <td className="px-4 py-2 text-xs text-muted-foreground dark:text-muted-foreground">
                       {formatDate(d.created_at)}
                       {d.uploaded_by_email && (
                         <span className="block opacity-70">
@@ -302,7 +302,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
                           href={contractsApi.documentDownloadUrl(contractId, d.id)}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground"
                           title="Pobierz"
                         >
                           <Download className="w-4 h-4" />
@@ -311,7 +311,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
                           <button
                             onClick={() => handleDelete(d)}
                             disabled={deleteMutation.isPending}
-                            className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 disabled:opacity-50"
+                            className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
                             title="Usuń"
                           >
                             <Trash2 className="w-4 h-4" />

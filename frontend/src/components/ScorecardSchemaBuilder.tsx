@@ -148,21 +148,21 @@ export function ScorecardSchemaBuilder({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 z-10">
-          <h3 className="font-semibold flex items-center gap-2 text-gray-900 dark:text-gray-100">
-            <ClipboardList className="w-5 h-5 text-blue-500" />
+      <div className="bg-card dark:bg-muted rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b border-border dark:border-border sticky top-0 bg-card dark:bg-muted z-10">
+          <h3 className="font-semibold flex items-center gap-2 text-foreground dark:text-foreground">
+            <ClipboardList className="w-5 h-5 text-primary" />
             Scorecard dla: {stageName}
           </h3>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPreview(v => !v)}
               disabled={questions.length === 0}
-              className="text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 disabled:opacity-40"
+              className="text-xs px-2 py-1 rounded border border-border hover:bg-muted disabled:opacity-40"
             >
               {preview ? "Schowaj podgląd" : "Podgląd wypełnienia"}
             </button>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -171,29 +171,29 @@ export function ScorecardSchemaBuilder({
         <div className="p-4 space-y-4">
           {loading ? (
             <div className="flex justify-center py-8">
-              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                <label className="block text-sm font-medium text-foreground dark:text-muted-foreground mb-1">
                   Tytuł scorecardu (opcjonalnie)
                 </label>
                 <input
                   value={title}
                   onChange={e => setTitle(e.target.value)}
                   placeholder={stageName}
-                  className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+                  className="w-full rounded border border-border dark:border-border px-2 py-1.5 text-sm bg-card dark:bg-card"
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
-                <h4 className="font-medium text-gray-700 dark:text-gray-200">
+              <div className="flex items-center justify-between pt-2 border-t border-border dark:border-border">
+                <h4 className="font-medium text-foreground dark:text-muted-foreground">
                   Pytania ({questions.length})
                 </h4>
                 <button
                   onClick={add}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-sm"
                 >
                   <Plus className="w-4 h-4" />
                   Dodaj pytanie
@@ -201,7 +201,7 @@ export function ScorecardSchemaBuilder({
               </div>
 
               {questions.length === 0 && (
-                <p className="text-sm text-gray-500 py-6 text-center">
+                <p className="text-sm text-muted-foreground py-6 text-center">
                   Brak pytań. Dodaj pierwsze.
                 </p>
               )}
@@ -210,14 +210,14 @@ export function ScorecardSchemaBuilder({
                 {questions.map((q, idx) => (
                   <li
                     key={idx}
-                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 space-y-2"
+                    className="rounded-lg border border-border dark:border-border bg-muted dark:bg-card/40 p-3 space-y-2"
                   >
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col">
                         <button
                           onClick={() => move(idx, -1)}
                           disabled={idx === 0}
-                          className="text-gray-400 hover:text-gray-600 disabled:opacity-20"
+                          className="text-muted-foreground hover:text-muted-foreground disabled:opacity-20"
                           title="W górę"
                         >
                           ▲
@@ -225,14 +225,14 @@ export function ScorecardSchemaBuilder({
                         <button
                           onClick={() => move(idx, 1)}
                           disabled={idx === questions.length - 1}
-                          className="text-gray-400 hover:text-gray-600 disabled:opacity-20"
+                          className="text-muted-foreground hover:text-muted-foreground disabled:opacity-20"
                           title="W dół"
                         >
                           ▼
                         </button>
                       </div>
-                      <GripVertical className="w-4 h-4 text-gray-400" />
-                      <span className="text-xs text-gray-400 font-mono">
+                      <GripVertical className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-mono">
                         #{idx + 1}
                       </span>
                       <input
@@ -247,11 +247,11 @@ export function ScorecardSchemaBuilder({
                           });
                         }}
                         placeholder="Pytanie (np. Komunikacja)"
-                        className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm bg-white dark:bg-gray-900"
+                        className="flex-1 rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-card"
                       />
                       <button
                         onClick={() => remove(idx)}
-                        className="text-red-400 hover:text-red-600"
+                        className="text-red-400 hover:text-destructive"
                         aria-label="Usuń"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -260,24 +260,24 @@ export function ScorecardSchemaBuilder({
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <label className="block text-[11px] text-gray-500 mb-0.5">
+                        <label className="block text-[11px] text-muted-foreground mb-0.5">
                           ID (slug)
                         </label>
                         <input
                           value={q.id}
                           onChange={e => patch(idx, { id: e.target.value })}
                           placeholder="communication"
-                          className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs bg-white dark:bg-gray-900 font-mono"
+                          className="w-full rounded border border-border dark:border-border px-2 py-1 text-xs bg-card dark:bg-card font-mono"
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] text-gray-500 mb-0.5">
+                        <label className="block text-[11px] text-muted-foreground mb-0.5">
                           Typ
                         </label>
                         <select
                           value={q.type}
                           onChange={e => patch(idx, { type: e.target.value as QType })}
-                          className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs bg-white dark:bg-gray-900"
+                          className="w-full rounded border border-border dark:border-border px-2 py-1 text-xs bg-card dark:bg-card"
                         >
                           {(Object.keys(TYPE_LABELS) as QType[]).map(t => (
                             <option key={t} value={t}>
@@ -293,25 +293,25 @@ export function ScorecardSchemaBuilder({
                           onChange={e => patch(idx, { required: e.target.checked })}
                           className="w-3.5 h-3.5 accent-blue-600"
                         />
-                        <span className="text-gray-700 dark:text-gray-300">Wymagane</span>
+                        <span className="text-foreground dark:text-muted-foreground">Wymagane</span>
                       </label>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] text-gray-500 mb-0.5">
+                      <label className="block text-[11px] text-muted-foreground mb-0.5">
                         Opis (podpowiedź dla oceniającego)
                       </label>
                       <input
                         value={q.description ?? ""}
                         onChange={e => patch(idx, { description: e.target.value })}
                         placeholder="np. Oceń jasność i tempo"
-                        className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs bg-white dark:bg-gray-900"
+                        className="w-full rounded border border-border dark:border-border px-2 py-1 text-xs bg-card dark:bg-card"
                       />
                     </div>
 
                     {q.type === "select" && (
                       <div>
-                        <label className="block text-[11px] text-gray-500 mb-0.5">
+                        <label className="block text-[11px] text-muted-foreground mb-0.5">
                           Opcje (po przecinku)
                         </label>
                         <input
@@ -325,7 +325,7 @@ export function ScorecardSchemaBuilder({
                             })
                           }
                           placeholder="Junior, Mid, Senior, Lead"
-                          className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs bg-white dark:bg-gray-900"
+                          className="w-full rounded border border-border dark:border-border px-2 py-1 text-xs bg-card dark:bg-card"
                         />
                       </div>
                     )}
@@ -334,7 +334,7 @@ export function ScorecardSchemaBuilder({
               </ul>
 
               {error && (
-                <div className="text-sm text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-3">
+                <div className="text-sm text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-3">
                   {error}
                 </div>
               )}
@@ -342,18 +342,18 @@ export function ScorecardSchemaBuilder({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-800">
+        <div className="flex justify-end gap-2 p-4 border-t border-border dark:border-border sticky bottom-0 bg-card dark:bg-muted">
           <button
             onClick={onClose}
             disabled={saving}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
           >
             Anuluj
           </button>
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-60"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 animate-spin" />

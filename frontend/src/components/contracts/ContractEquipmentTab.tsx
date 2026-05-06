@@ -36,9 +36,9 @@ const OWNER_LABELS: Record<EquipmentOwner, string> = {
 const STATUS_STYLES: Record<EquipmentReturnStatus, string> = {
   pending: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   returned: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  lost: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+  lost: "bg-destructive/15 text-red-800 dark:bg-red-900 dark:text-red-200",
   written_off:
-    "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground",
 };
 
 const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
@@ -95,13 +95,13 @@ export function ContractEquipmentTab({ contractId }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+        <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
           Sprzęt kontraktora ({items.length})
         </h3>
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
         >
           <Plus className="w-3.5 h-3.5" />
           Dodaj sprzęt
@@ -117,15 +117,15 @@ export function ContractEquipmentTab({ contractId }: Props) {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-gray-500">Ładowanie…</p>
+        <p className="text-sm text-muted-foreground">Ładowanie…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-gray-500 italic">
+        <p className="text-sm text-muted-foreground italic">
           Brak pozycji. Dodaj laptop, telefon, token itp. aby śledzić zwrot.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="overflow-x-auto rounded-lg border border-border dark:border-border">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-800 text-xs uppercase text-gray-500">
+            <thead className="bg-muted dark:bg-muted text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="text-left px-3 py-2">Typ</th>
                 <th className="text-left px-3 py-2">Model / serial</th>
@@ -141,19 +141,19 @@ export function ContractEquipmentTab({ contractId }: Props) {
                   key={item.id}
                   className={
                     isOverdue(item)
-                      ? "bg-red-50 dark:bg-red-950/30"
-                      : "bg-white dark:bg-gray-900"
+                      ? "bg-destructive/10 dark:bg-red-950/30"
+                      : "bg-card dark:bg-card"
                   }
                 >
                   <td className="px-3 py-2">
                     <span className="inline-flex items-center gap-1.5">
-                      <Laptop className="w-3.5 h-3.5 text-gray-400" />
+                      <Laptop className="w-3.5 h-3.5 text-muted-foreground" />
                       {ITEM_TYPE_LABELS[item.item_type]}
                     </span>
                   </td>
                   <td className="px-3 py-2">
                     <div className="font-medium">{item.brand_model || "—"}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {item.serial_number || "—"}
                     </div>
                   </td>
@@ -162,7 +162,7 @@ export function ContractEquipmentTab({ contractId }: Props) {
                     {item.return_due_date ? (
                       <span className="flex items-center gap-1">
                         {isOverdue(item) && (
-                          <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                          <AlertTriangle className="w-3.5 h-3.5 text-destructive" />
                         )}
                         {formatDate(item.return_due_date)}
                       </span>
@@ -204,7 +204,7 @@ export function ContractEquipmentTab({ contractId }: Props) {
                         onClick={() => {
                           if (confirm("Usunąć pozycję?")) deleteMut.mutate(item.id);
                         }}
-                        className="inline-flex items-center text-xs text-red-600 hover:underline"
+                        className="inline-flex items-center text-xs text-destructive hover:underline"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -253,11 +253,11 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50 dark:bg-gray-800"
+      className="rounded-lg border border-border dark:border-border p-4 space-y-3 bg-muted dark:bg-muted"
     >
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
-          <span className="text-xs text-gray-500">Typ</span>
+          <span className="text-xs text-muted-foreground">Typ</span>
           <select
             value={form.item_type}
             onChange={(e) =>
@@ -266,7 +266,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
                 item_type: e.target.value as EquipmentItemType,
               }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           >
             {Object.entries(ITEM_TYPE_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
@@ -276,13 +276,13 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Właściciel</span>
+          <span className="text-xs text-muted-foreground">Właściciel</span>
           <select
             value={form.owner}
             onChange={(e) =>
               setForm((f) => ({ ...f, owner: e.target.value as EquipmentOwner }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           >
             {Object.entries(OWNER_LABELS).map(([k, v]) => (
               <option key={k} value={k}>
@@ -292,57 +292,57 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Model</span>
+          <span className="text-xs text-muted-foreground">Model</span>
           <input
             value={form.brand_model}
             onChange={(e) =>
               setForm((f) => ({ ...f, brand_model: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
             placeholder="ThinkPad X1 Carbon Gen 11"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Numer seryjny</span>
+          <span className="text-xs text-muted-foreground">Numer seryjny</span>
           <input
             value={form.serial_number}
             onChange={(e) =>
               setForm((f) => ({ ...f, serial_number: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Wydany</span>
+          <span className="text-xs text-muted-foreground">Wydany</span>
           <input
             type="date"
             value={form.handed_over_date}
             onChange={(e) =>
               setForm((f) => ({ ...f, handed_over_date: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Termin zwrotu</span>
+          <span className="text-xs text-muted-foreground">Termin zwrotu</span>
           <input
             type="date"
             value={form.return_due_date}
             onChange={(e) =>
               setForm((f) => ({ ...f, return_due_date: e.target.value }))
             }
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           />
         </label>
       </div>
       <label className="block">
-        <span className="text-xs text-gray-500">Notatka</span>
+        <span className="text-xs text-muted-foreground">Notatka</span>
         <textarea
           value={form.description}
           onChange={(e) =>
             setForm((f) => ({ ...f, description: e.target.value }))
           }
-          className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+          className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-card"
           rows={2}
         />
       </label>
@@ -350,14 +350,14 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
         <button
           type="button"
           onClick={onCancel}
-          className="text-sm text-gray-600 hover:underline"
+          className="text-sm text-muted-foreground hover:underline"
         >
           Anuluj
         </button>
         <button
           type="submit"
           disabled={submitting}
-          className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md px-3 py-1.5"
+          className="text-sm bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-md px-3 py-1.5"
         >
           {submitting ? "Zapisywanie…" : "Zapisz"}
         </button>

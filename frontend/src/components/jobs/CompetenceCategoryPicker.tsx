@@ -163,7 +163,7 @@ export function CompetenceCategoryPicker({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+        <label className="text-xs font-medium text-muted-foreground dark:text-muted-foreground">
           Competence Category
         </label>
         {canSuggest && (
@@ -171,7 +171,7 @@ export function CompetenceCategoryPicker({
             type="button"
             onClick={handleSuggest}
             disabled={suggestLoading || loadingCats}
-            className="text-[11px] text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+            className="text-[11px] text-primary hover:text-primary/80 font-medium disabled:opacity-50"
           >
             {suggestLoading ? "Analizuję…" : "✨ Sugeruj AI"}
           </button>
@@ -182,7 +182,7 @@ export function CompetenceCategoryPicker({
         onChange={(e) =>
           onChange(e.target.value ? Number(e.target.value) : null)
         }
-        className="w-full h-10 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full h-10 rounded-lg border border-border dark:border-border bg-card dark:bg-card px-3 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
       >
         <option value="">— wybierz kategorię —</option>
         {categories.map((cc) => (
@@ -207,7 +207,7 @@ export function CompetenceCategoryPicker({
       )}
 
       {suggestions && !suggestions.tie && suggestions.top && (
-        <div className="text-[11px] bg-blue-50 dark:bg-blue-950/30 rounded px-2 py-1.5 flex items-center justify-between">
+        <div className="text-[11px] bg-primary/10 dark:bg-primary/30 rounded px-2 py-1.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ConfidenceBadge
               score={
@@ -218,14 +218,14 @@ export function CompetenceCategoryPicker({
                 suggestions.top.confidence_band
               }
             />
-            <span className="text-gray-700 dark:text-gray-300">
+            <span className="text-foreground dark:text-muted-foreground">
               AI sugeruje: <strong>{suggestions.top.name_pl}</strong>
             </span>
           </div>
           {(suggestions.top.keywords_matched?.length ?? 0) > 0 && (
             <span
               title={`Dopasowane słowa: ${suggestions.top.keywords_matched.join(", ")}`}
-              className="text-gray-500 hover:text-gray-700 cursor-help"
+              className="text-muted-foreground hover:text-foreground cursor-help"
             >
               <Info className="w-3.5 h-3.5" />
             </span>

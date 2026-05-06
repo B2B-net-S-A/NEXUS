@@ -67,14 +67,14 @@ function MetricCard({
   sub?: string;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-5">
-      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-5">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
         <Icon className="w-4 h-4" />
         {label}
       </div>
       <div className="mt-2 text-2xl font-bold">{value}</div>
       {sub && (
-        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</div>
+        <div className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">{sub}</div>
       )}
     </div>
   );
@@ -94,19 +94,19 @@ function MarginLeaderboard({
   linkPrefix: string;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
-      <h2 className="px-4 py-3 text-sm font-semibold border-b border-gray-100 dark:border-gray-700">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
+      <h2 className="px-4 py-3 text-sm font-semibold border-b border-border dark:border-border">
         {title}
       </h2>
       {isLoading ? (
-        <div className="p-6 text-sm text-gray-500 flex items-center gap-2">
+        <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
         </div>
       ) : !rows || rows.length === 0 ? (
-        <div className="p-6 text-sm text-gray-500 italic">Brak danych.</div>
+        <div className="p-6 text-sm text-muted-foreground italic">Brak danych.</div>
       ) : (
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+          <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2">#</th>
               <th className="text-left px-3 py-2">
@@ -123,12 +123,12 @@ function MarginLeaderboard({
               const linkId = (r.candidate_id ?? r.client_id) as number;
               const name = (r[nameKey] ?? "—") as string;
               return (
-                <tr key={linkId} className="border-t border-gray-100 dark:border-gray-700">
-                  <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                <tr key={linkId} className="border-t border-border dark:border-border">
+                  <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                   <td className="px-3 py-2">
                     <Link
                       href={`${linkPrefix}${linkId}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
+                      className="text-primary hover:underline dark:text-primary"
                     >
                       {name}
                     </Link>
@@ -140,7 +140,7 @@ function MarginLeaderboard({
                   <td className="px-3 py-2 text-right font-semibold text-emerald-600">
                     {formatCurrency(r.total_monthly_margin, "PLN")}
                   </td>
-                  <td className="px-3 py-2 text-right text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-2 text-right text-muted-foreground dark:text-muted-foreground">
                     {r.margin_pct !== null ? `${r.margin_pct}%` : "—"}
                   </td>
                 </tr>
@@ -156,12 +156,12 @@ function MarginLeaderboard({
 function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
   if (!forecast || forecast.months.length === 0) {
     return (
-      <div className="p-6 text-sm text-gray-500 italic">Brak danych prognozy.</div>
+      <div className="p-6 text-sm text-muted-foreground italic">Brak danych prognozy.</div>
     );
   }
   const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 overflow-x-auto">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 overflow-x-auto">
       <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
         <LineChart className="w-4 h-4" /> Prognoza przychodu i marży (12 mies.)
       </h2>
@@ -173,10 +173,10 @@ function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
             : 0;
           return (
             <div key={m.month} className="flex flex-col items-center gap-1 min-w-16">
-              <div className="text-[10px] text-gray-400 mb-1">{m.active_count} cnt</div>
-              <div className="relative w-full h-48 bg-gray-50 dark:bg-gray-900/30 rounded-t">
+              <div className="text-[10px] text-muted-foreground mb-1">{m.active_count} cnt</div>
+              <div className="relative w-full h-48 bg-muted dark:bg-card/30 rounded-t">
                 <div
-                  className="absolute bottom-0 left-0 right-0 bg-blue-200 dark:bg-blue-900/40 rounded-t"
+                  className="absolute bottom-0 left-0 right-0 bg-primary/20 dark:bg-primary/40 rounded-t"
                   style={{ height: `${revHeight}%` }}
                   title={`Przychód: ${formatCurrency(m.revenue, "PLN")}`}
                 />
@@ -186,16 +186,16 @@ function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
                   title={`Marża: ${formatCurrency(m.margin, "PLN")}`}
                 />
               </div>
-              <div className="text-[11px] text-gray-500 whitespace-nowrap">
+              <div className="text-[11px] text-muted-foreground whitespace-nowrap">
                 {m.month_label}
               </div>
             </div>
           );
         })}
       </div>
-      <div className="mt-3 flex gap-4 text-xs text-gray-500">
+      <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 bg-blue-200 dark:bg-blue-900/40 rounded" />
+          <span className="inline-block w-3 h-3 bg-primary/20 dark:bg-primary/40 rounded" />
           Przychód
         </span>
         <span className="flex items-center gap-1">
@@ -246,12 +246,12 @@ export default function ContractAnalyticsPage() {
         <div>
           <Link
             href="/contracts"
-            className="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground dark:text-muted-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
           <h1 className="text-2xl font-bold mt-1">Analityka kontraktów</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
             Marża, utylizacja i prognoza dla aktywnych kontraktów.
           </p>
         </div>
@@ -329,14 +329,14 @@ function RoleClientMixCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola × klient…
       </div>
     );
   }
   if (!data || data.rows.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 mb-2">
           <Target className="w-4 h-4" />
           <h3 className="font-semibold">Rola × Klient</h3>
@@ -354,16 +354,16 @@ function RoleClientMixCard() {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
       <div className="flex items-center gap-2 mb-3">
         <Target className="w-4 h-4" />
         <h3 className="font-semibold">Rola × Klient ({data.total_active} aktywnych)</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
-          <thead className="text-left text-gray-500">
+          <thead className="text-left text-muted-foreground">
             <tr>
-              <th className="px-2 py-1 sticky left-0 bg-white dark:bg-gray-800">Rola</th>
+              <th className="px-2 py-1 sticky left-0 bg-card dark:bg-muted">Rola</th>
               {data.clients.map((c) => (
                 <th key={c.id} className="px-2 py-1 whitespace-nowrap">
                   {c.name}
@@ -381,9 +381,9 @@ function RoleClientMixCard() {
               return (
                 <tr
                   key={role}
-                  className="border-t border-gray-100 dark:border-gray-700"
+                  className="border-t border-border dark:border-border"
                 >
-                  <td className="px-2 py-1 font-medium sticky left-0 bg-white dark:bg-gray-800">
+                  <td className="px-2 py-1 font-medium sticky left-0 bg-card dark:bg-muted">
                     {role}
                   </td>
                   {data.clients.map((c) => {
@@ -429,7 +429,7 @@ function LocationDistributionCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie lokalizacji…
       </div>
     );
@@ -437,24 +437,24 @@ function LocationDistributionCard() {
   if (!data) return null;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
       <div className="flex items-center gap-2 mb-3">
-        <MapPin className="w-4 h-4 text-blue-500" />
+        <MapPin className="w-4 h-4 text-primary" />
         <h3 className="font-semibold">
           Lokalizacja konsultantów ({data.total_with_hub}/{data.total} z hubem)
         </h3>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 mb-2">Huby</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">Huby</h4>
           <ul className="space-y-1 text-sm">
             {data.hubs.map((h) => (
               <li
                 key={h.hub_city ?? "unknown"}
                 className="flex items-center justify-between"
               >
-                <span className="text-gray-700 dark:text-gray-200">
-                  {h.hub_city ?? <em className="text-gray-400">Brak hubu</em>}
+                <span className="text-foreground dark:text-muted-foreground">
+                  {h.hub_city ?? <em className="text-muted-foreground">Brak hubu</em>}
                 </span>
                 <span className="font-medium">{h.count}</span>
               </li>
@@ -462,15 +462,15 @@ function LocationDistributionCard() {
           </ul>
         </div>
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 mb-2">Regiony</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">Regiony</h4>
           <ul className="space-y-1 text-sm">
             {data.regions.map((r) => (
               <li
                 key={r.region ?? "unknown"}
                 className="flex items-center justify-between"
               >
-                <span className="text-gray-700 dark:text-gray-200">
-                  {r.region ?? <em className="text-gray-400">Brak regionu</em>}
+                <span className="text-foreground dark:text-muted-foreground">
+                  {r.region ?? <em className="text-muted-foreground">Brak regionu</em>}
                 </span>
                 <span className="font-medium">{r.count}</span>
               </li>
@@ -494,7 +494,7 @@ function TerminationAnalysisCard() {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-sm text-gray-500">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
         zakończeń…
       </div>
@@ -507,7 +507,7 @@ function TerminationAnalysisCard() {
   const maxCount = Math.max(1, ...data.by_reason.map((r) => r.count));
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+    <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
       <div className="flex items-center gap-2 mb-3">
         <AlertTriangle className="w-4 h-4 text-amber-500" />
         <h3 className="font-semibold">
@@ -517,16 +517,16 @@ function TerminationAnalysisCard() {
       </div>
 
       {data.by_reason.length === 0 ? (
-        <p className="text-sm text-gray-500">Brak zakończeń w oknie.</p>
+        <p className="text-sm text-muted-foreground">Brak zakończeń w oknie.</p>
       ) : (
         <>
-          <h4 className="text-xs font-semibold text-gray-500 mt-2 mb-2">
+          <h4 className="text-xs font-semibold text-muted-foreground mt-2 mb-2">
             Powody
           </h4>
           <ul className="space-y-1 mb-5">
             {data.by_reason.map((r) => (
               <li key={r.reason} className="text-sm">
-                <div className="flex justify-between text-xs text-gray-500">
+                <div className="flex justify-between text-xs text-muted-foreground">
                   <span>{reasonLabel(r.reason)}</span>
                   <span>
                     {r.count}
@@ -535,7 +535,7 @@ function TerminationAnalysisCard() {
                     )}
                   </span>
                 </div>
-                <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
                   <div
                     className="h-full bg-amber-500"
                     style={{ width: `${(r.count / maxCount) * 100}%` }}
@@ -545,12 +545,12 @@ function TerminationAnalysisCard() {
             ))}
           </ul>
 
-          <h4 className="text-xs font-semibold text-gray-500 mb-2">
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
             Retencja per klient
           </h4>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="text-left text-gray-500">
+              <thead className="text-left text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1">Klient</th>
                   <th className="px-2 py-1 text-right">Zakończone</th>
@@ -563,14 +563,14 @@ function TerminationAnalysisCard() {
                 {data.client_retention.map((c) => (
                   <tr
                     key={c.client_id}
-                    className="border-t border-gray-100 dark:border-gray-700"
+                    className="border-t border-border dark:border-border"
                   >
                     <td className="px-2 py-1">{c.client_name}</td>
                     <td className="px-2 py-1 text-right">{c.total_ended}</td>
                     <td className="px-2 py-1 text-right text-green-600">
                       {c.kept_to_end}
                     </td>
-                    <td className="px-2 py-1 text-right text-red-600">
+                    <td className="px-2 py-1 text-right text-destructive">
                       {c.ended_early}
                     </td>
                     <td className="px-2 py-1 text-right font-medium">

@@ -22,17 +22,17 @@ export const CandidateCard = memo(function CandidateCard({ candidateId, stage, r
 
   return (
     <Link href={`/candidates/${candidateId}`}>
-      <div className="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-3 hover:border-blue-300 dark:hover:border-blue-500 hover:shadow-sm transition-all cursor-pointer">
+      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-lg p-3 hover:border-primary/30 dark:hover:border-primary hover:shadow-sm transition-all cursor-pointer">
         <div className="flex items-start gap-2">
-          <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0 text-xs font-medium">
+          <div className="w-7 h-7 rounded-full bg-primary/15 dark:bg-primary/40 text-primary dark:text-primary flex items-center justify-center flex-shrink-0 text-xs font-medium">
             {candidate ? candidate.name.charAt(0) : <User className="w-3.5 h-3.5" />}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+            <p className="text-sm font-medium text-foreground dark:text-muted-foreground truncate">
               {candidate ? `${candidate.name} ${candidate.lastname}` : `Kandydat #${candidateId}`}
             </p>
             {candidate?.location && (
-              <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{candidate.location}</p>
+              <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">{candidate.location}</p>
             )}
           </div>
         </div>
@@ -43,16 +43,16 @@ export const CandidateCard = memo(function CandidateCard({ candidateId, stage, r
               {Array.from({ length: 5 }).map((_, i) => (
                 <Star
                   key={i}
-                  className={`w-3 h-3 ${i < rating ? "text-yellow-400 fill-yellow-400" : "text-gray-200 dark:text-gray-600"}`}
+                  className={`w-3 h-3 ${i < rating ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground dark:text-muted-foreground"}`}
                 />
               ))}
             </div>
           ) : <div />}
           {daysInStage !== undefined && daysInStage !== null && (
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-              daysInStage > 7 ? "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400" :
+              daysInStage > 7 ? "bg-destructive/15 text-destructive dark:bg-red-900/40 dark:text-destructive" :
               daysInStage > 3 ? "bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400" :
-              "bg-gray-100 text-gray-500 dark:bg-gray-600 dark:text-gray-400"
+              "bg-muted text-muted-foreground dark:bg-gray-600 dark:text-muted-foreground"
             }`}>
               {daysInStage}d
             </span>

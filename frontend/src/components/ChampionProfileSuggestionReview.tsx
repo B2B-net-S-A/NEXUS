@@ -103,15 +103,15 @@ export function ChampionProfileSuggestionReview({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-gray-900 w-full max-w-5xl rounded-xl shadow-2xl my-8 overflow-hidden flex flex-col">
+      <div className="bg-card dark:bg-card w-full max-w-5xl rounded-xl shadow-2xl my-8 overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-border dark:border-border">
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
               <span>✨ Draft Profilu Championa</span>
               <SourceBadge source={suggestion.source_type} />
             </h2>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Przejrzyj sekcje i zaznacz te, które chcesz zastosować. Aktualna
               zawartość profilu zostanie zachowana dla pozostałych sekcji.
             </p>
@@ -120,17 +120,17 @@ export function ChampionProfileSuggestionReview({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+            className="p-1 rounded hover:bg-muted dark:hover:bg-muted"
             aria-label="Zamknij"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-h-[70vh]">
           {suggestion.error_message ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               Błąd generowania: {suggestion.error_message}
             </div>
           ) : patches.length === 0 ? (
@@ -153,8 +153,8 @@ export function ChampionProfileSuggestionReview({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950">
-          <div className="text-xs text-gray-500">
+        <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-border dark:border-border bg-muted dark:bg-gray-950">
+          <div className="text-xs text-muted-foreground">
             Wybrano: <span className="font-semibold">{acceptedCount}</span> /{" "}
             {patches.length} sekcji
           </div>
@@ -163,7 +163,7 @@ export function ChampionProfileSuggestionReview({
               type="button"
               onClick={() => rejectMutation.mutate()}
               disabled={busy || suggestion.status !== "pending"}
-              className="px-3 py-1.5 text-sm rounded-lg bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-60"
+              className="px-3 py-1.5 text-sm rounded-lg bg-card dark:bg-card border border-border dark:border-border text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted disabled:opacity-60"
             >
               {rejectMutation.isPending ? "Odrzucam…" : "Odrzuć całość"}
             </button>
@@ -175,7 +175,7 @@ export function ChampionProfileSuggestionReview({
                 acceptedCount === 0 ||
                 suggestion.status !== "pending"
               }
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary hover:bg-primary/90 text-white font-medium disabled:opacity-60"
             >
               {applyMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -188,7 +188,7 @@ export function ChampionProfileSuggestionReview({
         </div>
 
         {applyMutation.error ? (
-          <div className="px-6 py-2 text-xs text-red-600 border-t border-red-200 bg-red-50">
+          <div className="px-6 py-2 text-xs text-destructive border-t border-destructive/20 bg-destructive/10">
             Błąd zastosowania: {(applyMutation.error as Error).message}
           </div>
         ) : null}
@@ -225,12 +225,12 @@ function RatingBar({ suggestion }: { suggestion: ChampionProfileSuggestion }) {
   const currentRating = rateMutation.data?.rating ?? suggestion.rating ?? null;
 
   return (
-    <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 space-y-2">
+    <div className="px-6 py-3 border-t border-border dark:border-border bg-muted dark:bg-gray-950 space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-muted-foreground">
           Czy draft był pomocny?
           {currentRating !== null && (
-            <span className="ml-2 text-gray-700 dark:text-gray-300">
+            <span className="ml-2 text-foreground dark:text-muted-foreground">
               Oceniłeś:{" "}
               {currentRating === 1
                 ? "trafione"
@@ -259,7 +259,7 @@ function RatingBar({ suggestion }: { suggestion: ChampionProfileSuggestion }) {
           />
           <button
             type="button"
-            className="text-xs text-gray-500 underline"
+            className="text-xs text-muted-foreground underline"
             onClick={() => setShowCommentBox((v) => !v)}
           >
             {showCommentBox ? "Schowaj komentarz" : "Dodaj komentarz"}
@@ -271,12 +271,12 @@ function RatingBar({ suggestion }: { suggestion: ChampionProfileSuggestion }) {
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="np. trzeba było mocno przeredagować project_context"
-          className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 min-h-[60px]"
+          className="w-full px-2 py-1 text-xs border border-border dark:border-border rounded bg-card dark:bg-card min-h-[60px]"
           maxLength={2000}
         />
       )}
       {rateMutation.isError && (
-        <div className="text-xs text-red-600">
+        <div className="text-xs text-destructive">
           Nie udało się zapisać oceny.
         </div>
       )}
@@ -304,12 +304,12 @@ function RatingButton({
       active:
         "bg-green-600 text-white border-green-700",
       idle:
-        "bg-white dark:bg-gray-900 text-green-700 dark:text-green-300 border-green-300 hover:bg-green-50",
+        "bg-card dark:bg-card text-green-700 dark:text-green-300 border-green-300 hover:bg-green-50",
     },
     red: {
       active: "bg-red-600 text-white border-red-700",
       idle:
-        "bg-white dark:bg-gray-900 text-red-700 dark:text-red-300 border-red-300 hover:bg-red-50",
+        "bg-card dark:bg-card text-destructive dark:text-red-300 border-red-300 hover:bg-destructive/10",
     },
   }[tone];
   return (
@@ -351,7 +351,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
       ? "bg-emerald-100 text-emerald-800"
       : confidence >= 0.5
       ? "bg-amber-100 text-amber-800"
-      : "bg-gray-100 text-gray-600";
+      : "bg-muted text-muted-foreground";
   const icon =
     confidence >= 0.8 ? "🟢" : confidence >= 0.5 ? "🟡" : "🔴";
   return (
@@ -379,11 +379,11 @@ function SectionDiff({ patch, current, accepted, onToggle }: SectionDiffProps) {
       className={cn(
         "border rounded-xl overflow-hidden",
         accepted
-          ? "border-blue-300 dark:border-blue-700"
-          : "border-gray-200 dark:border-gray-800",
+          ? "border-primary/30 dark:border-primary/90"
+          : "border-border dark:border-border",
       )}
     >
-      <div className="flex items-center justify-between gap-3 px-4 py-2 bg-gray-50 dark:bg-gray-900">
+      <div className="flex items-center justify-between gap-3 px-4 py-2 bg-muted dark:bg-card">
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -391,7 +391,7 @@ function SectionDiff({ patch, current, accepted, onToggle }: SectionDiffProps) {
             onChange={(e) => onToggle(e.target.checked)}
             className="w-4 h-4"
           />
-          <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+          <span className="font-medium text-sm text-foreground dark:text-foreground">
             {SECTION_LABELS[patch.section]}
           </span>
           <ConfidenceBadge confidence={patch.confidence} />
@@ -402,7 +402,7 @@ function SectionDiff({ patch, current, accepted, onToggle }: SectionDiffProps) {
         <SideCol title="Proponowane" value={patch.value} highlight />
       </div>
       {patch.rationale ? (
-        <div className="px-4 py-2 text-[11px] text-gray-500 bg-gray-50 dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800">
+        <div className="px-4 py-2 text-[11px] text-muted-foreground bg-muted dark:bg-gray-950 border-t border-border dark:border-border">
           <span className="font-semibold">Uzasadnienie:</span> {patch.rationale}
         </div>
       ) : null}
@@ -425,13 +425,13 @@ function SideCol({
     <div
       className={cn(
         "px-4 py-3 text-sm",
-        highlight && "bg-blue-50 dark:bg-blue-950/30",
+        highlight && "bg-primary/10 dark:bg-primary/30",
       )}
     >
       <div
         className={cn(
           "text-[10px] uppercase tracking-wide font-semibold mb-1",
-          muted ? "text-gray-400" : "text-blue-700 dark:text-blue-400",
+          muted ? "text-muted-foreground" : "text-primary dark:text-primary",
         )}
       >
         {title}
@@ -443,24 +443,24 @@ function SideCol({
 
 function ValuePreview({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === "") {
-    return <span className="text-xs italic text-gray-400">— puste —</span>;
+    return <span className="text-xs italic text-muted-foreground">— puste —</span>;
   }
   if (typeof value === "string") {
     return (
-      <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+      <p className="whitespace-pre-wrap text-foreground dark:text-muted-foreground">
         {value}
       </p>
     );
   }
   if (typeof value === "number" || typeof value === "boolean") {
-    return <p className="text-gray-800 dark:text-gray-200">{String(value)}</p>;
+    return <p className="text-foreground dark:text-muted-foreground">{String(value)}</p>;
   }
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <span className="text-xs italic text-gray-400">— pusta lista —</span>;
+      return <span className="text-xs italic text-muted-foreground">— pusta lista —</span>;
     }
     return (
-      <ul className="list-disc pl-5 space-y-0.5 text-gray-800 dark:text-gray-200">
+      <ul className="list-disc pl-5 space-y-0.5 text-foreground dark:text-muted-foreground">
         {value.map((item, i) => (
           <li key={i}>
             <ValuePreview value={item} />
@@ -474,10 +474,10 @@ function ValuePreview({ value }: { value: unknown }) {
       <dl className="space-y-0.5">
         {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
           <div key={k}>
-            <dt className="text-[10px] uppercase tracking-wide text-gray-400">
+            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
               {k}
             </dt>
-            <dd className="text-gray-800 dark:text-gray-200 pl-2">
+            <dd className="text-foreground dark:text-muted-foreground pl-2">
               <ValuePreview value={v} />
             </dd>
           </div>
@@ -485,5 +485,5 @@ function ValuePreview({ value }: { value: unknown }) {
       </dl>
     );
   }
-  return <p className="text-gray-500">{String(value)}</p>;
+  return <p className="text-muted-foreground">{String(value)}</p>;
 }

@@ -21,7 +21,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-sm text-gray-500">
+      <div className="rounded-lg border border-border dark:border-border p-4 text-sm text-muted-foreground">
         Ładowanie benchmarku…
       </div>
     );
@@ -42,12 +42,12 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
       : null;
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/20">
+    <div className="rounded-lg border border-border dark:border-border p-4 bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/20">
       <div className="flex items-center gap-2 mb-3">
-        <TrendingUp className="w-4 h-4 text-blue-600" />
+        <TrendingUp className="w-4 h-4 text-primary" />
         <h3 className="text-sm font-semibold">Benchmark stawki</h3>
         {data.role_used && (
-          <span className="ml-auto text-xs text-gray-500">
+          <span className="ml-auto text-xs text-muted-foreground">
             rola: {data.role_used}
           </span>
         )}
@@ -73,11 +73,11 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
         />
       </div>
       {!data.market_median && (
-        <p className="mt-3 text-xs text-gray-500">
+        <p className="mt-3 text-xs text-muted-foreground">
           Brak danych rynkowych dla tej roli — dodaj wpis w{" "}
           <a
             href="/settings/rate-benchmarks"
-            className="underline hover:text-gray-700"
+            className="underline hover:text-foreground"
           >
             Ustawieniach &gt; Benchmarki stawek
           </a>
@@ -99,7 +99,7 @@ interface MetricBlockProps {
 function MetricBlock({ label, value, currency, diffPct, extra }: MetricBlockProps) {
   return (
     <div>
-      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-base font-semibold">
         {value != null ? formatCurrency(value, currency) : "—"}
       </div>
@@ -111,7 +111,7 @@ function MetricBlock({ label, value, currency, diffPct, extra }: MetricBlockProp
           {diffPct}%
         </div>
       )}
-      {extra && <div className="text-xs text-gray-400 mt-0.5">{extra}</div>}
+      {extra && <div className="text-xs text-muted-foreground mt-0.5">{extra}</div>}
     </div>
   );
 }

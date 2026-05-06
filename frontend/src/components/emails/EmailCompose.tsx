@@ -49,7 +49,7 @@ export default function EmailCompose(props: EmailComposeProps) {
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none min-h-[200px] focus:outline-none border border-gray-200 rounded-lg px-3 py-2 bg-white",
+          "prose prose-sm max-w-none min-h-[200px] focus:outline-none border border-border rounded-lg px-3 py-2 bg-card",
       },
     },
   });
@@ -113,7 +113,7 @@ export default function EmailCompose(props: EmailComposeProps) {
         <div className="space-y-3">
           {!isReply && (
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
                 Do
               </label>
               <Input
@@ -124,7 +124,7 @@ export default function EmailCompose(props: EmailComposeProps) {
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
               Temat
             </label>
             <Input
@@ -135,16 +135,16 @@ export default function EmailCompose(props: EmailComposeProps) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
               Treść
             </label>
             <EditorContent editor={editor} />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Wysyłka odbywa się z Twojej skrzynki Microsoft 365.
             </p>
           </div>
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
@@ -154,14 +154,14 @@ export default function EmailCompose(props: EmailComposeProps) {
           <button
             onClick={onClose}
             disabled={sendMutation.isPending}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             Anuluj
           </button>
           <button
             onClick={() => sendMutation.mutate()}
             disabled={sendMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
           >
             {sendMutation.isPending ? (
               <>

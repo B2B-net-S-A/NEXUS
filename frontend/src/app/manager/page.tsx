@@ -20,9 +20,9 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  new: "bg-gray-200",
+  new: "bg-muted",
   prep_call: "bg-sky-300",
-  screening: "bg-blue-300",
+  screening: "bg-primary/25",
   interview: "bg-purple-300",
   cv_sent: "bg-indigo-300",
   client_interview: "bg-amber-300",
@@ -84,15 +84,15 @@ export default function ManagerDashboard() {
 
   if (isLoading) return (
     <div className="p-8 animate-pulse">
-      <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-6"></div>
+      <div className="h-8 bg-muted dark:bg-muted rounded w-64 mb-6"></div>
       <div className="grid grid-cols-4 gap-4 mb-6">
-        {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>)}
+        {[1,2,3,4].map(i => <div key={i} className="h-24 bg-muted dark:bg-muted rounded-xl"></div>)}
       </div>
     </div>
   );
 
   if (error || !data) return (
-    <div className="p-8 text-red-500">Błąd ładowania danych pipeline</div>
+    <div className="p-8 text-destructive">Błąd ładowania danych pipeline</div>
   );
 
   const totalActive = data.jobs.reduce((sum, j) => {
@@ -108,10 +108,10 @@ export default function ManagerDashboard() {
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+        <h1 className="text-2xl font-bold text-foreground dark:text-white">
           📊 Panel Managera Rekrutacji
         </h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
           Widok bird&apos;s eye — wszystkie procesy, bottlenecki, workload
         </p>
       </div>
@@ -134,13 +134,13 @@ export default function ManagerDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Bottleneck alerts */}
           {data.bottlenecks.length > 0 && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-              <h3 className="font-semibold text-red-700 dark:text-red-400 flex items-center gap-2 mb-3">
+            <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl p-4">
+              <h3 className="font-semibold text-destructive dark:text-destructive flex items-center gap-2 mb-3">
                 <AlertTriangle className="w-4 h-4" /> Bottlenecki — potrzebna pomoc!
               </h3>
               <div className="space-y-2">
                 {data.bottlenecks.map((b, i) => (
-                  <div key={i} className="text-sm text-red-600 dark:text-red-300 bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                  <div key={i} className="text-sm text-destructive dark:text-red-300 bg-card/60 dark:bg-muted/60 rounded-lg p-2">
                     <span className="font-medium">{b.job_title}</span> → {STAGE_LABELS[b.stage] || b.stage}: <span className="font-bold">{b.count}</span> kandydatów czeka
                   </div>
                 ))}
@@ -156,7 +156,7 @@ export default function ManagerDashboard() {
               </h3>
               <div className="space-y-2">
                 {data.opportunities.map((o, i) => (
-                  <div key={i} className="text-sm text-green-600 dark:text-green-300 bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                  <div key={i} className="text-sm text-green-600 dark:text-green-300 bg-card/60 dark:bg-muted/60 rounded-lg p-2">
                     <span className="font-medium">{o.job_title}</span>: <span className="font-bold">{o.count}</span> kandydat(ów) na etapie akceptacji/negocjacji
                   </div>
                 ))}
@@ -167,29 +167,29 @@ export default function ManagerDashboard() {
       )}
 
       {/* Pipeline heatmap — all jobs × all stages */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-800 dark:text-white">Pipeline — Wszystkie procesy</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border dark:border-border">
+          <h3 className="font-semibold text-foreground dark:text-white">Pipeline — Wszystkie procesy</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-900">
-                <th className="px-3 py-2 text-left font-medium text-gray-500 dark:text-gray-400 min-w-[200px]">Oferta</th>
+              <tr className="bg-muted dark:bg-card">
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground dark:text-muted-foreground min-w-[200px]">Oferta</th>
                 {ACTIVE_STAGES.map(s => (
-                  <th key={s} className="px-2 py-2 text-center font-medium text-gray-500 dark:text-gray-400 text-xs whitespace-nowrap">
+                  <th key={s} className="px-2 py-2 text-center font-medium text-muted-foreground dark:text-muted-foreground text-xs whitespace-nowrap">
                     {STAGE_LABELS[s] || s}
                   </th>
                 ))}
                 <th className="px-2 py-2 text-center font-medium text-green-600 text-xs">✅</th>
-                <th className="px-2 py-2 text-center font-medium text-gray-500 text-xs">Σ</th>
+                <th className="px-2 py-2 text-center font-medium text-muted-foreground text-xs">Σ</th>
               </tr>
             </thead>
             <tbody>
               {data.jobs.map((job) => (
-                <tr key={job.job_id} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750">
+                <tr key={job.job_id} className="border-t border-border dark:border-border hover:bg-muted dark:hover:bg-gray-750">
                   <td className="px-3 py-2">
-                    <a href={`/jobs/${job.job_id}`} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                    <a href={`/jobs/${job.job_id}`} className="text-primary dark:text-primary hover:underline font-medium">
                       {job.title}
                     </a>
                   </td>
@@ -198,11 +198,11 @@ export default function ManagerDashboard() {
                     return (
                       <td key={s} className="px-2 py-2 text-center">
                         {count > 0 ? (
-                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${STAGE_COLORS[s]} text-gray-800`}>
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${STAGE_COLORS[s]} text-foreground`}>
                             {count}
                           </span>
                         ) : (
-                          <span className="text-gray-300 dark:text-gray-600">·</span>
+                          <span className="text-muted-foreground dark:text-muted-foreground">·</span>
                         )}
                       </td>
                     );
@@ -213,10 +213,10 @@ export default function ManagerDashboard() {
                         {job.stages.hired}
                       </span>
                     ) : (
-                      <span className="text-gray-300 dark:text-gray-600">·</span>
+                      <span className="text-muted-foreground dark:text-muted-foreground">·</span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-center font-bold text-gray-700 dark:text-gray-300">{job.total}</td>
+                  <td className="px-2 py-2 text-center font-bold text-foreground dark:text-muted-foreground">{job.total}</td>
                 </tr>
               ))}
             </tbody>
@@ -226,27 +226,27 @@ export default function ManagerDashboard() {
 
       {/* Aging alerts */}
       {data.aging_alerts.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+          <div className="px-4 py-3 border-b border-border dark:border-border">
+            <h3 className="font-semibold text-foreground dark:text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-500" /> Kandydaci czekający zbyt długo
             </h3>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {data.aging_alerts.slice(0, 10).map((a, i) => (
-              <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-750">
+              <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-muted dark:hover:bg-gray-750">
                 <div className="flex items-center gap-3">
-                  <a href={`/candidates/${a.candidate_id}`} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                  <a href={`/candidates/${a.candidate_id}`} className="text-sm text-primary dark:text-primary hover:underline">
                     Kandydat #{a.candidate_id}
                   </a>
-                  <span className="text-xs text-gray-500">w</span>
+                  <span className="text-xs text-muted-foreground">w</span>
                   <span className="text-sm font-medium">{a.job_title}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground">
                     {STAGE_LABELS[a.stage] || a.stage}
                   </span>
                 </div>
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                  a.days > 10 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
+                  a.days > 10 ? "bg-destructive/15 text-destructive" : "bg-amber-100 text-amber-600"
                 }`}>
                   {a.days} dni
                 </span>
@@ -258,16 +258,16 @@ export default function ManagerDashboard() {
 
       {/* Workload per recruiter */}
       {data.workload.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-800 dark:text-white">👤 Workload rekruterów</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+          <div className="px-4 py-3 border-b border-border dark:border-border">
+            <h3 className="font-semibold text-foreground dark:text-white">👤 Workload rekruterów</h3>
           </div>
           <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             {data.workload.map((w, i) => (
-              <div key={i} className="bg-gray-50 dark:bg-gray-750 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-gray-800 dark:text-white">{w.active_candidates}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{w.name}</div>
-                <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+              <div key={i} className="bg-muted dark:bg-gray-750 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-foreground dark:text-white">{w.active_candidates}</div>
+                <div className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{w.name}</div>
+                <div className="mt-2 h-1.5 rounded-full bg-muted dark:bg-gray-600 overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${
                       w.active_candidates > 15 ? "bg-red-400" :
@@ -287,17 +287,17 @@ export default function ManagerDashboard() {
 
 function KPICard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
   const colors: Record<string, string> = {
-    blue: "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400",
+    blue: "bg-primary/10 dark:bg-primary/10 text-primary dark:text-primary",
     purple: "bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400",
     green: "bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400",
-    red: "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400",
+    red: "bg-destructive/10 dark:bg-destructive/15 text-destructive dark:text-destructive",
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+    <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4">
       <div className={`inline-flex p-2 rounded-lg ${colors[color]} mb-2`}>{icon}</div>
-      <div className="text-2xl font-bold text-gray-800 dark:text-white">{value}</div>
-      <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
+      <div className="text-2xl font-bold text-foreground dark:text-white">{value}</div>
+      <div className="text-xs text-muted-foreground dark:text-muted-foreground">{label}</div>
     </div>
   );
 }

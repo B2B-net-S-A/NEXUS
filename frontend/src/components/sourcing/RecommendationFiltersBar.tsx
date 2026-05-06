@@ -70,17 +70,17 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
+    <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 mb-4">
       <div className="flex items-center gap-2 mb-3">
-        <Filter className="w-4 h-4 text-gray-500" />
-        <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+        <Filter className="w-4 h-4 text-muted-foreground" />
+        <h3 className="font-semibold text-sm text-foreground dark:text-foreground">
           Filtry
         </h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+          <span className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">
             Kontrakt kończy się w ciągu (dni)
           </span>
           <input
@@ -94,7 +94,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
         </label>
 
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+          <span className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">
             Lokalizacja
           </span>
           <input
@@ -107,9 +107,9 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
         </label>
 
         <div className="flex flex-col md:col-span-1">
-          <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+          <span className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">
             Kategorie kompetencji{" "}
-            <span className="text-gray-400">(wiele · OR)</span>
+            <span className="text-muted-foreground">(wiele · OR)</span>
           </span>
           <div className="flex flex-wrap gap-1.5">
             {COMPETENCE_CATEGORIES.map((cc) => {
@@ -122,7 +122,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
                   className={`text-xs px-2 py-1 rounded-full border transition-colors ${
                     active
                       ? "bg-purple-600 text-white border-purple-600"
-                      : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 hover:border-purple-400"
+                      : "bg-card dark:bg-muted text-foreground dark:text-muted-foreground border-border hover:border-purple-400"
                   }`}
                   data-testid={`cc-chip-${cc}`}
                   aria-pressed={active}
@@ -135,7 +135,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
         </div>
 
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+          <span className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">
             Stawka min (PLN/mies)
           </span>
           <input
@@ -150,7 +150,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
         </label>
 
         <label className="flex flex-col">
-          <span className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+          <span className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">
             Stawka max (PLN/mies)
           </span>
           <input
@@ -170,7 +170,7 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
             checked={industryBlocklist}
             onChange={(e) => setIndustryBlocklist(e.target.checked)}
           />
-          <span className="text-sm text-gray-700 dark:text-gray-300">
+          <span className="text-sm text-foreground dark:text-muted-foreground">
             Respektuj NDA / blacklist klientów
           </span>
         </label>
@@ -179,13 +179,13 @@ export function RecommendationFiltersBar({ initial, onApply }: Props) {
       <div className="flex gap-2 mt-3">
         <button
           onClick={handleApply}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-md"
+          className="bg-primary hover:bg-primary/90 text-white text-sm font-medium px-4 py-1.5 rounded-md"
         >
           Zastosuj
         </button>
         <button
           onClick={handleReset}
-          className="text-gray-600 hover:text-gray-900 text-sm font-medium px-3 py-1.5 rounded-md flex items-center gap-1"
+          className="text-muted-foreground hover:text-foreground text-sm font-medium px-3 py-1.5 rounded-md flex items-center gap-1"
         >
           <X className="w-3.5 h-3.5" /> Wyczyść
         </button>

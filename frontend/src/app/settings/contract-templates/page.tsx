@@ -75,28 +75,28 @@ function TemplateEditor({
         setError(null);
         saveMutation.mutate(form);
       }}
-      className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 space-y-3"
+      className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3"
     >
       {error && (
-        <div className="text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 rounded px-3 py-2 whitespace-pre-wrap">
+        <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded px-3 py-2 whitespace-pre-wrap">
           {error}
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="block">
-          <span className="block text-xs text-gray-500 mb-1">Nazwa</span>
+          <span className="block text-xs text-muted-foreground mb-1">Nazwa</span>
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+            className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
           />
         </label>
         <label className="block">
-          <span className="block text-xs text-gray-500 mb-1">Typ kontraktu</span>
+          <span className="block text-xs text-muted-foreground mb-1">Typ kontraktu</span>
           <select
             value={form.contract_type}
             onChange={(e) => setForm({ ...form, contract_type: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+            className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
           >
             <option value="b2b">B2B</option>
             <option value="uop">UoP</option>
@@ -106,12 +106,12 @@ function TemplateEditor({
         </label>
       </div>
       <label className="block">
-        <span className="block text-xs text-gray-500 mb-1">Zawartość (Jinja2 + HTML)</span>
+        <span className="block text-xs text-muted-foreground mb-1">Zawartość (Jinja2 + HTML)</span>
         <textarea
           rows={20}
           value={form.content_jinja}
           onChange={(e) => setForm({ ...form, content_jinja: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-xs font-mono bg-white dark:bg-gray-700"
+          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-xs font-mono bg-card dark:bg-muted"
         />
       </label>
       <label className="inline-flex items-center gap-2 text-sm">
@@ -126,20 +126,20 @@ function TemplateEditor({
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg"
+          className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
         >
           <X className="w-4 h-4 inline mr-1" /> Anuluj
         </button>
         <button
           type="submit"
           disabled={saveMutation.isPending}
-          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
         >
           <Save className="w-4 h-4 inline mr-1" />
           {saveMutation.isPending ? "Zapisywanie…" : "Zapisz"}
         </button>
       </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
+      <div className="text-xs text-muted-foreground dark:text-muted-foreground pt-2 border-t border-border dark:border-border">
         Dostępne zmienne: <code>{"{{ contract.* }}"}</code> · <code>{"{{ candidate.* }}"}</code>
         {" · "}<code>{"{{ client.* }}"}</code> · <code>{"{{ job.* }}"}</code>.
         Np. <code>{"{{ candidate.full_name }}"}</code>, <code>{"{{ contract.rate_candidate }}"}</code>.
@@ -168,7 +168,7 @@ export default function ContractTemplatesPage() {
       <div className="space-y-4 max-w-5xl">
         <Link
           href="/settings"
-          className="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700"
+          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Ustawienia
         </Link>
@@ -177,7 +177,7 @@ export default function ContractTemplatesPage() {
           {!editing && (
             <button
               onClick={() => setEditing({})}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+              className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
             >
               <Plus className="w-4 h-4" /> Nowy szablon
             </button>
@@ -196,14 +196,14 @@ export default function ContractTemplatesPage() {
         )}
 
         {!editing && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
             {!data || data.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-500 italic">
+              <div className="p-8 text-center text-sm text-muted-foreground italic">
                 Brak szablonów — utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.
               </div>
             ) : (
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+                <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
                   <tr>
                     <th className="text-left px-3 py-2">Nazwa</th>
                     <th className="text-left px-3 py-2">Typ</th>
@@ -213,19 +213,19 @@ export default function ContractTemplatesPage() {
                 </thead>
                 <tbody>
                   {data.map((t) => (
-                    <tr key={t.id} className="border-t border-gray-100 dark:border-gray-700">
+                    <tr key={t.id} className="border-t border-border dark:border-border">
                       <td className="px-3 py-2 font-medium">{t.name}</td>
-                      <td className="px-3 py-2 uppercase text-xs text-gray-500">
+                      <td className="px-3 py-2 uppercase text-xs text-muted-foreground">
                         {t.contract_type}
                       </td>
-                      <td className="px-3 py-2 text-gray-500">
+                      <td className="px-3 py-2 text-muted-foreground">
                         {t.is_default ? "Tak" : "—"}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="inline-flex gap-1">
                           <button
                             onClick={() => setEditing(t)}
-                            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                            className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted"
                             title="Edytuj"
                           >
                             <Pencil className="w-4 h-4" />
@@ -236,7 +236,7 @@ export default function ContractTemplatesPage() {
                                 deleteMutation.mutate(t.id);
                               }
                             }}
-                            className="p-1.5 rounded hover:bg-red-50 text-red-500"
+                            className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
                             title="Usuń"
                           >
                             <Trash2 className="w-4 h-4" />

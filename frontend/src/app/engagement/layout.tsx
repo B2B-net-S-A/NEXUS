@@ -4,17 +4,17 @@
  */
 
 export default function EngagementLayout({
-  children,
+ children,
 }: {
-  children: React.ReactNode;
+ children: React.ReactNode;
 }) {
-  return (
-    <div
-      data-ui="v2"
-      data-ui-theme="apply-light"
-      className="min-h-screen bg-[hsl(var(--bg-canvas))] text-[hsl(var(--text-body))]"
-    >
-      {children}
-    </div>
-  );
+ return (
+ <div
+ data-ui="v2"
+ data-ui-theme="apply-light"
+ className="min-h-screen bg-background text-foreground"
+ >
+ {children}
+ </div>
+ );
 }

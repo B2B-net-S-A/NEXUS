@@ -254,7 +254,7 @@ export function GlobalSearchBar() {
         }`}>
           <Search
             className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none transition-colors ${
-              aiMode ? "text-purple-400" : "text-gray-400"
+              aiMode ? "text-purple-400" : "text-muted-foreground"
             }`}
           />
           <input
@@ -272,17 +272,17 @@ export function GlobalSearchBar() {
                 : "Szukaj kandydatów, ofert, klientów... (⌘K)"
             }
             data-global-search="true"
-            className={`w-full pl-9 pr-9 py-2.5 border rounded-xl text-sm focus:outline-none bg-white dark:bg-gray-800 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-sm transition-all ${
+            className={`w-full pl-9 pr-9 py-2.5 border rounded-xl text-sm focus:outline-none bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground shadow-sm transition-all ${
               aiMode
                 ? "border-purple-400 dark:border-purple-600 focus:ring-0"
-                : "border-gray-200 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                : "border-border dark:border-border focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             }`}
           />
           {loading && (
             <div className="absolute right-3 top-1/2 -translate-y-1/2">
               <div
                 className={`w-3.5 h-3.5 border-2 border-t-transparent rounded-full animate-spin ${
-                  aiMode ? "border-purple-400" : "border-blue-400"
+                  aiMode ? "border-purple-400" : "border-primary/30"
                 }`}
               />
             </div>
@@ -291,7 +291,7 @@ export function GlobalSearchBar() {
             <button
               onClick={clearSearch}
               title="Wyczyść"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -305,7 +305,7 @@ export function GlobalSearchBar() {
           className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 shrink-0 ${
             aiMode
               ? "bg-purple-600 border-purple-600 text-white shadow-[0_0_10px_2px_rgba(168,85,247,0.4)] hover:bg-purple-700"
-              : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-purple-400 hover:text-purple-500 dark:hover:text-purple-400"
+              : "bg-card dark:bg-muted border-border dark:border-border text-muted-foreground dark:text-muted-foreground hover:border-purple-400 hover:text-purple-500 dark:hover:text-purple-400"
           }`}
         >
           <Sparkles className="w-3.5 h-3.5" />
@@ -320,7 +320,7 @@ export function GlobalSearchBar() {
           <span className="text-xs text-purple-500 font-medium">
             AI Search aktywny
             {searchType === "text_fallback" && (
-              <span className="text-gray-400 font-normal ml-1">(fallback tekstowy)</span>
+              <span className="text-muted-foreground font-normal ml-1">(fallback tekstowy)</span>
             )}
           </span>
         </div>
@@ -328,13 +328,13 @@ export function GlobalSearchBar() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute top-full mt-1.5 left-0 right-0 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-xl z-50 overflow-hidden max-h-[80vh] overflow-y-auto">
+        <div className="absolute top-full mt-1.5 left-0 right-0 bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-xl z-50 overflow-hidden max-h-[80vh] overflow-y-auto">
 
           {/* --- Semantic results --- */}
           {aiMode && (
             <>
               {!hasSemanticResults && !loading && (
-                <div className="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground dark:text-muted-foreground">
                   Brak wyników AI dla „{debouncedQuery}"
                 </div>
               )}
@@ -352,7 +352,7 @@ export function GlobalSearchBar() {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-purple-700 dark:group-hover:text-purple-400 truncate">
+                          <p className="text-sm font-medium text-foreground dark:text-foreground group-hover:text-purple-700 dark:group-hover:text-purple-400 truncate">
                             {hit.candidate.name} {hit.candidate.lastname}
                           </p>
                           {hit.score !== null && hit.score !== undefined && (
@@ -362,7 +362,7 @@ export function GlobalSearchBar() {
                           )}
                         </div>
                         {hit.highlight && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{hit.highlight}</p>
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">{hit.highlight}</p>
                         )}
                       </div>
                     </button>
@@ -376,7 +376,7 @@ export function GlobalSearchBar() {
           {!aiMode && (
             <>
               {!hasTextResults && !loading && (
-                <div className="px-4 py-6 text-center text-sm text-gray-400 dark:text-gray-500">
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground dark:text-muted-foreground">
                   Brak wyników dla „{debouncedQuery}"
                 </div>
               )}
@@ -429,17 +429,17 @@ function ResultGroup({
     <div>
       {/* Group header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">
           {icon}
           {label}
-          <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-[10px] font-bold normal-case tracking-normal">
+          <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground text-[10px] font-bold normal-case tracking-normal">
             {count}
           </span>
         </div>
         <a
           href={allHref}
           onClick={(e) => { e.preventDefault(); onSelect(allHref); }}
-          className="text-[11px] text-blue-500 hover:underline font-medium"
+          className="text-[11px] text-primary hover:underline font-medium"
         >
           Zobacz wszystkie →
         </a>
@@ -454,18 +454,18 @@ function ResultGroup({
             onClick={() => onSelect(item.url)}
             className={`w-full flex items-start gap-3 px-3 py-2 transition-colors text-left group ${
               isActive
-                ? "bg-blue-50 dark:bg-blue-900/30"
-                : "hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                ? "bg-primary/10 dark:bg-primary/30"
+                : "hover:bg-primary/10 dark:hover:bg-primary/30"
             }`}
           >
             <div className="flex-1 min-w-0">
               <p className={`text-sm font-medium truncate ${
-                isActive ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-400"
+                isActive ? "text-primary dark:text-primary" : "text-foreground dark:text-foreground group-hover:text-primary/80 dark:group-hover:text-primary"
               }`}>
                 {item.name}
               </p>
               {item.subtitle && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{item.subtitle}</p>
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">{item.subtitle}</p>
               )}
             </div>
           </button>

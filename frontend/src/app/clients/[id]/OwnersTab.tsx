@@ -144,7 +144,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
 
   if (isLoading) {
     return (
-      <div className="p-6 text-gray-400 text-sm">Ładowanie opiekunów…</div>
+      <div className="p-6 text-muted-foreground text-sm">Ładowanie opiekunów…</div>
     );
   }
 
@@ -172,7 +172,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
   return (
     <div className="space-y-6">
       {!canEdit && (
-        <div className="text-xs text-gray-500 bg-gray-50 dark:bg-gray-900/40 rounded-lg px-3 py-2">
+        <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
           Widok tylko do odczytu. Edycja opiekunów klienta wymaga roli
           <strong> admin</strong> lub <strong>head_of_recruitment</strong>.
         </div>
@@ -181,7 +181,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       {/* ── TAC ──────────────────────────────────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
             TAC (Talent Acquisition Consultants)
           </h3>
           {canEdit && !addingTac && (
@@ -195,10 +195,10 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         </div>
 
         {addingTac && canEdit && (
-          <div className="bg-gray-50 dark:bg-gray-900/40 rounded-lg p-4 mb-3 space-y-3">
-            <label className="block text-xs text-gray-600">Użytkownik</label>
+          <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
+            <label className="block text-xs text-muted-foreground">Użytkownik</label>
             <select
-              className="w-full border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800"
+              className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
               value={tacUserId}
               onChange={(e) => setTacUserId(e.target.value)}
             >
@@ -236,7 +236,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                   setTacUserId("");
                   setTacIsPrimary(false);
                 }}
-                className="text-xs px-3 py-1.5 text-gray-600 hover:text-gray-900"
+                className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
               >
                 Anuluj
               </button>
@@ -245,7 +245,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         )}
 
         {tacs.length === 0 ? (
-          <p className="text-xs text-gray-400 italic">
+          <p className="text-xs text-muted-foreground italic">
             Brak przypisanych TAC-ów.
           </p>
         ) : (
@@ -253,7 +253,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             {tacs.map((t) => (
               <li
                 key={t.id}
-                className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"
+                className="flex items-center justify-between bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
               >
                 <div className="flex items-center gap-3">
                   <UserCircle2 className="w-6 h-6 text-purple-500" />
@@ -266,7 +266,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {t.email} · {t.role}
                     </div>
                   </div>
@@ -275,14 +275,14 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => togglePrimaryTac.mutate(t.user_id)}
-                      className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
                       title={t.is_primary ? "Odznacz primary" : "Ustaw jako primary"}
                     >
                       {t.is_primary ? "Usuń primary" : "Ustaw primary"}
                     </button>
                     <button
                       onClick={() => removeTac.mutate(t.user_id)}
-                      className="text-gray-400 hover:text-red-600"
+                      className="text-muted-foreground hover:text-destructive"
                       title="Usuń przypisanie"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -298,13 +298,13 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       {/* ── Delivery Leads ───────────────────────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
             Delivery Leads
           </h3>
           {canEdit && !addingDl && (
             <button
               onClick={() => setAddingDl(true)}
-              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-primary text-white rounded-lg hover:bg-primary/90"
             >
               <Plus className="w-3.5 h-3.5" /> Dodaj DL
             </button>
@@ -312,10 +312,10 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         </div>
 
         {addingDl && canEdit && (
-          <div className="bg-gray-50 dark:bg-gray-900/40 rounded-lg p-4 mb-3 space-y-3">
-            <label className="block text-xs text-gray-600">Użytkownik</label>
+          <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
+            <label className="block text-xs text-muted-foreground">Użytkownik</label>
             <select
-              className="w-full border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800"
+              className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
               value={dlUserId}
               onChange={(e) => setDlUserId(e.target.value)}
             >
@@ -354,7 +354,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                   setDlUserId("");
                   setDlIsHead(false);
                 }}
-                className="text-xs px-3 py-1.5 text-gray-600 hover:text-gray-900"
+                className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
               >
                 Anuluj
               </button>
@@ -363,7 +363,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         )}
 
         {dls.length === 0 ? (
-          <p className="text-xs text-gray-400 italic">
+          <p className="text-xs text-muted-foreground italic">
             Brak przypisanych Delivery Leadów.
           </p>
         ) : (
@@ -371,10 +371,10 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             {dls.map((d) => (
               <li
                 key={d.id}
-                className="flex items-center justify-between bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2"
+                className="flex items-center justify-between bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
               >
                 <div className="flex items-center gap-3">
-                  <UserCircle2 className="w-6 h-6 text-blue-500" />
+                  <UserCircle2 className="w-6 h-6 text-primary" />
                   <div>
                     <div className="text-sm font-medium flex items-center gap-2">
                       {d.name}
@@ -384,7 +384,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-muted-foreground">
                       {d.email} · {d.role}
                     </div>
                   </div>
@@ -393,14 +393,14 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => toggleHeadDl.mutate(d.id)}
-                      className="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
                       title={d.is_head ? "Odznacz head" : "Ustaw jako head"}
                     >
                       {d.is_head ? "Usuń head" : "Ustaw head"}
                     </button>
                     <button
                       onClick={() => removeDl.mutate(d.id)}
-                      className="text-gray-400 hover:text-red-600"
+                      className="text-muted-foreground hover:text-destructive"
                       title="Usuń przypisanie"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -413,7 +413,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         )}
       </section>
 
-      <div className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-lg px-3 py-2">
+      <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
         <strong>Jak to działa:</strong> przy tworzeniu nowego projektu dla tego
         klienta system automatycznie przypisze <strong>primary TAC</strong> oraz{" "}
         <strong>head Delivery Lead</strong>. Operator może jawnie nadpisać
