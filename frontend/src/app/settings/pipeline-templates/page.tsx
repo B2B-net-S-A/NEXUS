@@ -36,7 +36,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  internal: "bg-blue-100 text-blue-700 border-blue-300",
+  internal: "bg-primary/15 text-primary border-primary/30",
   external: "bg-amber-100 text-amber-700 border-amber-300",
   terminal: "bg-slate-100 text-slate-700 border-slate-300",
 };
@@ -281,21 +281,21 @@ export default function PipelineTemplatesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-muted dark:bg-card">
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <h1 className="text-2xl font-bold text-foreground dark:text-foreground">
               Procesy rekrutacyjne
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Zdefiniuj strukturę pipeline&apos;ów używanych w rekrutacjach. Domyślny proces
               zostaje automatycznie przypisany do nowych ofert.
             </p>
           </div>
           <button
             onClick={handleCreate}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition"
           >
             <Plus className="w-4 h-4" />
             Dodaj proces
@@ -303,15 +303,15 @@ export default function PipelineTemplatesPage() {
         </div>
 
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+          <div className="mb-4 flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
             <AlertCircle className="w-4 h-4" /> {error}
           </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Templates list */}
-          <aside className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
+          <aside className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-3">
+            <h2 className="text-sm font-medium text-foreground dark:text-muted-foreground uppercase tracking-wide mb-2">
               Lista procesów
             </h2>
             <ul className="space-y-1">
@@ -321,8 +321,8 @@ export default function PipelineTemplatesPage() {
                     onClick={() => setSelectedId(t.id)}
                     className={`w-full text-left rounded-md px-3 py-2 text-sm transition ${
                       selectedId === t.id
-                        ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200 font-medium"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-200"
+                        ? "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary font-medium"
+                        : "hover:bg-muted dark:hover:bg-muted/50 text-foreground dark:text-muted-foreground"
                     }`}
                     data-testid={`template-item-${t.id}`}
                   >
@@ -334,14 +334,14 @@ export default function PipelineTemplatesPage() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
+                    <div className="text-xs text-muted-foreground mt-0.5">
                       {t.stage_count} etapów
                     </div>
                   </button>
                 </li>
               ))}
               {templates.length === 0 && (
-                <li className="text-sm text-gray-400 px-3 py-2">Brak procesów</li>
+                <li className="text-sm text-muted-foreground px-3 py-2">Brak procesów</li>
               )}
             </ul>
           </aside>
@@ -349,18 +349,18 @@ export default function PipelineTemplatesPage() {
           {/* Detail view */}
           <main className="md:col-span-3">
             {loading && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg p-8 flex justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              <div className="bg-card dark:bg-muted rounded-lg p-8 flex justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
             )}
             {!loading && detail && (
               <div className="space-y-6">
                 {/* Header */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="text-lg font-semibold">{detail.name}</h2>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-muted-foreground mt-1">
                         {detail.description ?? "Brak opisu."}
                       </p>
                     </div>
@@ -376,7 +376,7 @@ export default function PipelineTemplatesPage() {
                       </label>
                       <button
                         onClick={handleClone}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-border dark:border-border text-sm hover:bg-muted dark:hover:bg-muted"
                         title="Klonuj"
                       >
                         <Copy className="w-4 h-4" />
@@ -385,7 +385,7 @@ export default function PipelineTemplatesPage() {
                       {!detail.is_default && (
                         <button
                           onClick={handleArchive}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-300 text-sm text-red-600 hover:bg-red-50"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-red-300 text-sm text-destructive hover:bg-destructive/10"
                           title="Archiwizuj"
                         >
                           <Archive className="w-4 h-4" />
@@ -397,18 +397,18 @@ export default function PipelineTemplatesPage() {
                 </div>
 
                 {/* Stages */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-medium">Etapy ({detail.stages.length})</h3>
                     <div className="flex items-center gap-2">
                       {savingOrder && (
-                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Loader2 className="w-3 h-3 animate-spin" /> Zapis…
                         </span>
                       )}
                       <button
                         onClick={handleAddStage}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary text-white text-sm hover:bg-primary/90"
                         data-testid="add-stage"
                       >
                         <Plus className="w-4 h-4" />
@@ -435,13 +435,13 @@ export default function PipelineTemplatesPage() {
                                 <li
                                   ref={p.innerRef}
                                   {...p.draggableProps}
-                                  className="flex items-center gap-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-2"
+                                  className="flex items-center gap-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
                                   data-testid={`stage-${stage.id}`}
                                 >
-                                  <span {...p.dragHandleProps} className="cursor-grab text-gray-400">
+                                  <span {...p.dragHandleProps} className="cursor-grab text-muted-foreground">
                                     <GripVertical className="w-4 h-4" />
                                   </span>
-                                  <span className="font-mono text-xs text-gray-400 w-6 text-right">
+                                  <span className="font-mono text-xs text-muted-foreground w-6 text-right">
                                     {idx + 1}
                                   </span>
                                   <span className="font-medium text-sm flex-1">
@@ -465,8 +465,8 @@ export default function PipelineTemplatesPage() {
                                       stage.scorecard_schema &&
                                       Array.isArray(stage.scorecard_schema.questions) &&
                                       stage.scorecard_schema.questions.length > 0
-                                        ? "text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30"
-                                        : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
+                                        ? "text-primary hover:bg-primary/10 dark:hover:bg-primary/30"
+                                        : "text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
                                     }`}
                                   >
                                     <ClipboardList className="w-3.5 h-3.5" />
@@ -474,7 +474,7 @@ export default function PipelineTemplatesPage() {
                                     {stage.scorecard_schema &&
                                       Array.isArray(stage.scorecard_schema.questions) &&
                                       stage.scorecard_schema.questions.length > 0 && (
-                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                                        <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">
                                           {stage.scorecard_schema.questions.length}
                                         </span>
                                       )}
@@ -487,14 +487,14 @@ export default function PipelineTemplatesPage() {
                                       })
                                     }
                                     title="Konfiguruj powiadomienia dla etapu"
-                                    className="text-xs flex items-center gap-1 px-2 py-0.5 rounded text-gray-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 transition-colors"
+                                    className="text-xs flex items-center gap-1 px-2 py-0.5 rounded text-muted-foreground hover:bg-primary/10 dark:hover:bg-primary/30 hover:text-primary transition-colors"
                                   >
                                     <Bell className="w-3.5 h-3.5" />
                                     Powiadomienia
                                   </button>
                                   <button
                                     onClick={() => handleRenameStage(stage)}
-                                    className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
+                                    className="text-xs text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
                                   >
                                     Zmień nazwę
                                   </button>
@@ -506,7 +506,7 @@ export default function PipelineTemplatesPage() {
                                         ? "Nie można usunąć etapu końcowego"
                                         : "Usuń etap"
                                     }
-                                    className="text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    className="text-red-400 hover:text-destructive disabled:opacity-30 disabled:cursor-not-allowed"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
@@ -522,12 +522,12 @@ export default function PipelineTemplatesPage() {
                 </div>
 
                 {/* Rejection reasons */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-medium">Powody odrzucenia / wycofania</h3>
                     <button
                       onClick={handleAddReason}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700"
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary text-white text-sm hover:bg-primary/90"
                     >
                       <Plus className="w-4 h-4" />
                       Dodaj powód
@@ -541,19 +541,19 @@ export default function PipelineTemplatesPage() {
                     if (reasons.length === 0) return null;
                     return (
                       <div key={cat} className="mb-3">
-                        <h4 className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+                        <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
                           {cat === "rejected" ? "Odrzucony" : "Wycofany"}
                         </h4>
                         <ul className="space-y-1">
                           {reasons.map((r) => (
                             <li
                               key={r.id}
-                              className="flex items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-1.5 text-sm"
+                              className="flex items-center justify-between rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-1.5 text-sm"
                             >
                               <span>{r.name}</span>
                               <button
                                 onClick={() => handleDeactivateReason(r)}
-                                className="text-red-400 hover:text-red-600 text-xs"
+                                className="text-red-400 hover:text-destructive text-xs"
                               >
                                 Wyłącz
                               </button>
@@ -567,7 +567,7 @@ export default function PipelineTemplatesPage() {
               </div>
             )}
             {!loading && !detail && (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500">
+              <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-8 text-center text-muted-foreground">
                 Wybierz proces z listy po lewej lub utwórz nowy.
               </div>
             )}

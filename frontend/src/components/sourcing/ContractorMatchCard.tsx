@@ -37,10 +37,10 @@ function ScoreChip({ score }: { score: number }) {
     score >= 80
       ? "bg-green-100 text-green-700 border-green-300"
       : score >= 60
-        ? "bg-blue-100 text-blue-700 border-blue-300"
+        ? "bg-primary/15 text-primary border-primary/30"
         : score >= 40
           ? "bg-amber-100 text-amber-700 border-amber-300"
-          : "bg-gray-100 text-gray-600 border-gray-300";
+          : "bg-muted text-muted-foreground border-border";
   return (
     <span
       className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${color}`}
@@ -60,7 +60,7 @@ function SourceBadge({ row }: { row: SeekingContractorRow }) {
       ),
     );
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300">
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-destructive/15 text-destructive border border-red-300">
         <Calendar className="w-3 h-3" />
         Kontrakt kończy się za {daysLeft} dni
       </span>
@@ -75,7 +75,7 @@ function SourceBadge({ row }: { row: SeekingContractorRow }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-300">
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/30">
       <Sparkles className="w-3 h-3" />
       Otwarty na oferty
     </span>
@@ -167,7 +167,7 @@ export function ContractorMatchCard({ row }: Props) {
 
   return (
     <article
-      className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm hover:shadow-md transition-shadow"
+      className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4 shadow-sm hover:shadow-md transition-shadow"
       data-testid={`contractor-card-${c.id}`}
     >
       {/* Header */}
@@ -189,7 +189,7 @@ export function ContractorMatchCard({ row }: Props) {
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={`/candidates/${c.id}`}
-              className="font-semibold text-gray-900 dark:text-gray-100 hover:underline truncate"
+              className="font-semibold text-foreground dark:text-foreground hover:underline truncate"
             >
               {c.name} {c.lastname}
             </Link>
@@ -199,7 +199,7 @@ export function ContractorMatchCard({ row }: Props) {
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5 flex-wrap">
+          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
             {c.competence_category && (
               <span className="flex items-center gap-1">
                 <User className="w-3 h-3" /> {c.competence_category}
@@ -236,7 +236,7 @@ export function ContractorMatchCard({ row }: Props) {
 
       {/* Top matches */}
       {row.top_matches.length === 0 ? (
-        <div className="rounded bg-gray-50 dark:bg-gray-900/40 p-3 text-sm text-gray-500 text-center">
+        <div className="rounded bg-muted dark:bg-card/40 p-3 text-sm text-muted-foreground text-center">
           Brak ofert spełniających próg dopasowania.
         </div>
       ) : (
@@ -247,18 +247,18 @@ export function ContractorMatchCard({ row }: Props) {
             return (
               <li
                 key={j.id}
-                className="flex items-center gap-3 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-2"
+                className="flex items-center gap-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
                 data-testid={`top-match-${j.id}`}
               >
-                <Briefcase className="w-4 h-4 text-gray-400 shrink-0" />
+                <Briefcase className="w-4 h-4 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">
                   <Link
                     href={`/jobs/${j.id}`}
-                    className="font-medium text-sm text-gray-800 dark:text-gray-100 hover:underline truncate block"
+                    className="font-medium text-sm text-foreground dark:text-foreground hover:underline truncate block"
                   >
                     {j.title}
                   </Link>
-                  <div className="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5">
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
                     {j.location && <span>📍 {j.location}</span>}
                     {j.salary_min && j.salary_max && (
                       <span>
@@ -284,7 +284,7 @@ export function ContractorMatchCard({ row }: Props) {
                   className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
                     assigned
                       ? "bg-green-100 text-green-700 border-green-300"
-                      : "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                      : "bg-primary text-white border-primary hover:bg-primary/90 disabled:opacity-50"
                   }`}
                   data-testid={`assign-${c.id}-${j.id}`}
                 >
@@ -302,17 +302,17 @@ export function ContractorMatchCard({ row }: Props) {
                       setOpenMenuJobId(openMenuJobId === j.id ? null : j.id)
                     }
                     aria-label="Więcej akcji"
-                    className="text-gray-400 hover:text-gray-700 p-1 rounded"
+                    className="text-muted-foreground hover:text-foreground p-1 rounded"
                     data-testid={`actions-menu-${c.id}-${j.id}`}
                   >
                     <MoreVertical className="w-4 h-4" />
                   </button>
                   {openMenuJobId === j.id && (
-                    <div className="absolute right-0 top-full mt-1 z-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg w-56">
+                    <div className="absolute right-0 top-full mt-1 z-10 bg-card dark:bg-muted border border-border dark:border-border rounded-md shadow-lg w-56">
                       <button
                         onClick={() => handleProposal(j.id)}
                         disabled={actionLoading === `proposal-${j.id}`}
-                        className="w-full text-left text-sm px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                        className="w-full text-left text-sm px-3 py-2 hover:bg-muted dark:hover:bg-muted flex items-center gap-2 disabled:opacity-50"
                         data-testid={`proposal-${c.id}-${j.id}`}
                       >
                         {actionLoading === `proposal-${j.id}` ? (
@@ -353,17 +353,17 @@ export function ContractorMatchCard({ row }: Props) {
 function BelowThresholdSection({ count }: { count: number }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+    <div className="mt-3 pt-3 border-t border-border dark:border-border">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
       >
         <TrendingDown className="w-3 h-3" />
         Słabe dopasowania ({count}){" "}
         {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
       </button>
       {open && (
-        <p className="mt-2 text-xs text-gray-500 italic">
+        <p className="mt-2 text-xs text-muted-foreground italic">
           {count} ofert poniżej progu jakości — kliknij &ldquo;Pokaż wszystkie&rdquo;
           przy karcie aby zobaczyć pełną listę (TODO).
         </p>

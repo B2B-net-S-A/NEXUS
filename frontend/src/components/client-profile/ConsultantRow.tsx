@@ -20,7 +20,7 @@ export function ConsultantRow({ consultant, actions }: Props) {
     .toUpperCase();
 
   return (
-    <div className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:border-purple-300 transition-colors">
+    <div className="group bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 hover:border-purple-300 transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
           {c.avatar_url ? (
@@ -39,12 +39,12 @@ export function ConsultantRow({ consultant, actions }: Props) {
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href={`/candidates/${c.id}`}
-                className="text-sm font-semibold text-gray-900 dark:text-gray-100 hover:text-purple-600 truncate"
+                className="text-sm font-semibold text-foreground dark:text-foreground hover:text-purple-600 truncate"
               >
                 {c.name}
               </Link>
               {c.competence_category && (
-                <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
+                <span className="px-1.5 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded text-xs">
                   {c.competence_category}
                 </span>
               )}
@@ -57,7 +57,7 @@ export function ConsultantRow({ consultant, actions }: Props) {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
               {consultant.job_title ? (
                 consultant.job_id ? (
                   <Link href={`/jobs/${consultant.job_id}`} className="hover:text-purple-600">
@@ -74,7 +74,7 @@ export function ConsultantRow({ consultant, actions }: Props) {
                 {consultant.end_date && ` → ${formatDate(consultant.end_date)}`}
               </span>
               {consultant.monthly_rate_client != null && (
-                <span className="font-medium text-gray-700 dark:text-gray-200">
+                <span className="font-medium text-foreground dark:text-muted-foreground">
                   {formatPLN(consultant.monthly_rate_client)}/mc
                 </span>
               )}

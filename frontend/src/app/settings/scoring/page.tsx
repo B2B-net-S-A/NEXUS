@@ -29,7 +29,7 @@ const LAYER_LABELS: Record<keyof ScoringWeights, string> = {
 
 const LAYER_COLORS: Record<keyof ScoringWeights, string> = {
   semantic: "bg-purple-500",
-  skills: "bg-blue-500",
+  skills: "bg-primary",
   salary: "bg-emerald-500",
   location: "bg-amber-500",
   availability: "bg-rose-500",
@@ -114,15 +114,15 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
   const resetDefault = () => setWeights(DEFAULT_WEIGHTS);
 
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 space-y-4">
+    <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="flex-1 font-semibold text-lg text-gray-900 dark:text-gray-100 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-blue-500 px-1"
+          className="flex-1 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-none focus:border-primary px-1"
           placeholder="Nazwa profilu"
         />
-        <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
           <input
             type="checkbox"
             checked={active}
@@ -135,7 +135,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
       {/* Stacked bar preview */}
       <div
-        className="flex h-3 rounded-full overflow-hidden border border-gray-200 dark:border-gray-700"
+        className="flex h-3 rounded-full overflow-hidden border border-border dark:border-border"
         role="img"
         aria-label={`Rozkład wag: ${total}/100`}
       >
@@ -156,7 +156,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
       <div className="space-y-3">
         {(Object.keys(weights) as Array<keyof ScoringWeights>).map((layer) => (
           <div key={layer} className="flex items-center gap-3">
-            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 w-64">
+            <label className="text-xs font-medium text-foreground dark:text-muted-foreground w-64">
               <span
                 className={cn("inline-block w-2 h-2 rounded-full mr-2", LAYER_COLORS[layer])}
                 aria-hidden
@@ -178,7 +178,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
               max={100}
               value={weights[layer]}
               onChange={(e) => updateLayer(layer, Number(e.target.value) || 0)}
-              className="w-16 px-2 py-1 text-xs text-right border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-gray-100"
+              className="w-16 px-2 py-1 text-xs text-right border border-border dark:border-border rounded-md bg-card dark:bg-muted dark:text-foreground"
             />
           </div>
         ))}
@@ -195,30 +195,30 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
         <span>Suma: {total} / 100</span>
         <button
           onClick={resetDefault}
-          className="text-blue-600 hover:text-blue-800 hover:underline"
+          className="text-primary hover:text-primary/80 hover:underline"
         >
           Przywróć domyślne
         </button>
       </div>
 
       {error && (
-        <div className="text-xs px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 flex items-start gap-2">
+        <div className="text-xs px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           {error}
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-border dark:border-border">
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800"
+          className="px-3 py-1.5 text-xs text-muted-foreground dark:text-muted-foreground hover:text-foreground"
         >
           Anuluj
         </button>
         <button
           onClick={handleSubmit}
           disabled={!valid || createMut.isPending || updateMut.isPending}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 font-medium"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary hover:bg-primary/90 text-white rounded-lg disabled:opacity-50 font-medium"
         >
           <Save className="w-3.5 h-3.5" />
           {initial ? "Zapisz zmiany" : "Utwórz profil"}
@@ -240,21 +240,21 @@ function ProfileRow({
   const total = sum(profile.weights);
   return (
     <li
-      className="flex items-center gap-4 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 rounded-lg px-4 py-3"
+      className="flex items-center gap-4 border border-border dark:border-border bg-card dark:bg-muted rounded-lg px-4 py-3"
       data-testid={`scoring-weight-profile-${profile.id}`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+          <p className="font-semibold text-sm text-foreground dark:text-foreground">
             {profile.name}
           </p>
           {!profile.active && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
               nieaktywny
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">
           {(Object.keys(profile.weights) as Array<keyof ScoringWeights>).map((k) => (
             <span key={k}>
               <span
@@ -272,13 +272,13 @@ function ProfileRow({
       </div>
       <button
         onClick={onEdit}
-        className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+        className="text-xs text-primary hover:text-primary/80 hover:underline"
       >
         Edytuj
       </button>
       <button
         onClick={onDelete}
-        className="text-xs text-red-600 hover:text-red-800"
+        className="text-xs text-destructive hover:text-red-800"
         title="Usuń"
       >
         <Trash2 className="w-3.5 h-3.5" />
@@ -310,16 +310,16 @@ export default function ScoringWeightsPage() {
       <div className="flex items-center gap-3">
         <Link
           href="/settings"
-          className="text-gray-500 hover:text-gray-700 dark:text-gray-400"
+          className="text-muted-foreground hover:text-foreground dark:text-muted-foreground"
         >
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profile wag scoringu
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
             Domyślnie: semantic 40 + skills 30 + salary 15 + location 10 +
             availability 5. Własne profile ułatwią tunowanie pod konkretnego
             klienta (np. &quot;klient woli seniorów&quot; → boost skills).
@@ -328,7 +328,7 @@ export default function ScoringWeightsPage() {
         {editing === null && (
           <button
             onClick={() => setEditing("new")}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm"
+            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm"
             data-testid="add-scoring-weight-profile"
           >
             <Plus className="w-4 h-4" />
@@ -352,15 +352,15 @@ export default function ScoringWeightsPage() {
       )}
 
       {isLoading && (
-        <p className="text-sm text-gray-400 text-center py-10">Ładowanie…</p>
+        <p className="text-sm text-muted-foreground text-center py-10">Ładowanie…</p>
       )}
       {error && (
-        <p className="text-sm text-red-600 text-center py-6">
+        <p className="text-sm text-destructive text-center py-6">
           Nie udało się pobrać profili
         </p>
       )}
       {!isLoading && data && data.length === 0 && editing === null && (
-        <div className="text-center py-10 text-gray-500 dark:text-gray-400 text-sm border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+        <div className="text-center py-10 text-muted-foreground dark:text-muted-foreground text-sm border border-dashed border-border dark:border-border rounded-xl">
           Brak profili — scoring używa domyślnych wag (40/30/15/10/5).
         </div>
       )}

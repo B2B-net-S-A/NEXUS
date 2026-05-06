@@ -90,9 +90,9 @@ export function FirefliesTranscriptsWidget({ candidateId }: Props) {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-medium flex items-center gap-2 text-gray-900 dark:text-gray-100">
+        <h3 className="font-medium flex items-center gap-2 text-foreground dark:text-foreground">
           <Mic className="w-4 h-4 text-orange-500" />
           Fireflies transkrypty ({rows.length})
         </h3>
@@ -100,7 +100,7 @@ export function FirefliesTranscriptsWidget({ candidateId }: Props) {
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-border dark:border-border hover:bg-muted dark:hover:bg-muted disabled:opacity-50"
             title="Ręczna synchronizacja z Fireflies"
           >
             {syncing ? (
@@ -114,7 +114,7 @@ export function FirefliesTranscriptsWidget({ candidateId }: Props) {
             href="https://app.fireflies.ai/"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-md border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
           >
             <ExternalLink className="w-3 h-3" />
             Otwórz
@@ -123,17 +123,17 @@ export function FirefliesTranscriptsWidget({ candidateId }: Props) {
       </div>
 
       {error && (
-        <div className="text-xs text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-2 mb-2">
+        <div className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 mb-2">
           {error}
         </div>
       )}
 
       {loading ? (
         <div className="flex justify-center py-4">
-          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           Brak transkryptów dla tego kandydata. Kliknij <strong>Sync</strong> aby
           pociągnąć najnowsze spotkania z Fireflies.
         </p>
@@ -144,22 +144,22 @@ export function FirefliesTranscriptsWidget({ candidateId }: Props) {
             return (
               <li
                 key={t.id}
-                className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                className="border border-border dark:border-border rounded-lg p-3"
               >
                 <button
                   onClick={() => toggle(t.id)}
                   className="w-full text-left flex items-start justify-between gap-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                    <h4 className="font-medium text-sm text-foreground dark:text-foreground">
                       {t.title}
                     </h4>
-                    <p className="text-xs text-gray-400 mt-0.5">{fmt(t.created_at)}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{fmt(t.created_at)}</p>
                   </div>
-                  <span className="text-xs text-blue-600">{isOpen ? "▲" : "▼"}</span>
+                  <span className="text-xs text-primary">{isOpen ? "▲" : "▼"}</span>
                 </button>
                 {isOpen && (
-                  <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 text-xs whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                  <div className="mt-2 pt-2 border-t border-border dark:border-border text-xs whitespace-pre-wrap text-foreground dark:text-muted-foreground">
                     {t.preview}
                   </div>
                 )}

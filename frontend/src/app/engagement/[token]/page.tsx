@@ -107,7 +107,7 @@ export default function EngagementDeclarationPage() {
   if (loading) {
     return (
       <main className="max-w-xl mx-auto p-6 pt-16">
-        <div className="animate-pulse text-center text-sm text-gray-500">
+        <div className="animate-pulse text-center text-sm text-muted-foreground">
           Ładowanie formularza…
         </div>
       </main>
@@ -117,13 +117,13 @@ export default function EngagementDeclarationPage() {
   if (error && !view) {
     return (
       <main className="max-w-xl mx-auto p-6 pt-16">
-        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-6 text-center">
-          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 dark:border-red-900 dark:bg-red-950 p-6 text-center">
+          <AlertCircle className="w-10 h-10 text-destructive mx-auto mb-3" />
           <h1 className="text-lg font-semibold text-red-900 dark:text-red-100">
             Link nieaktywny
           </h1>
-          <p className="text-sm text-red-700 dark:text-red-300 mt-2">{error}</p>
-          <p className="text-xs text-gray-500 mt-4">
+          <p className="text-sm text-destructive dark:text-red-300 mt-2">{error}</p>
+          <p className="text-xs text-muted-foreground mt-4">
             Skontaktuj się z osobą, która Ci go wysłała — wygeneruje nowy link.
           </p>
         </div>
@@ -149,14 +149,14 @@ export default function EngagementDeclarationPage() {
 
   return (
     <main className="max-w-xl mx-auto p-6 pt-12">
-      <div className="rounded-lg border border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-700 p-6 shadow-sm">
+      <div className="rounded-lg border border-border bg-card dark:bg-card dark:border-border p-6 shadow-sm">
         <div className="flex items-start gap-3 mb-5">
           <Sparkles className="w-5 h-5 text-amber-500 mt-1 shrink-0" />
           <div>
             <h1 className="text-lg font-semibold">
               Witaj{view?.candidate_first_name ? `, ${view.candidate_first_name}` : ""}!
             </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
               Zaznacz, w jakich dodatkowych formach zaangażowania chciałbyś z
               nami współpracować — pomożesz mi (rekruterowi) lepiej dobierać
               propozycje. Każda flaga jest opcjonalna.
@@ -168,7 +168,7 @@ export default function EngagementDeclarationPage() {
           {FLAGS.map((f) => (
             <label
               key={f.key}
-              className="flex items-start gap-3 p-3 rounded-md border border-gray-200 dark:border-gray-700 hover:border-amber-400 cursor-pointer transition-colors"
+              className="flex items-start gap-3 p-3 rounded-md border border-border dark:border-border hover:border-amber-400 cursor-pointer transition-colors"
             >
               <input
                 type="checkbox"
@@ -180,7 +180,7 @@ export default function EngagementDeclarationPage() {
               />
               <div className="flex-1">
                 <div className="text-sm font-medium">{f.label}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                <div className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
                   {f.description}
                 </div>
               </div>
@@ -190,19 +190,19 @@ export default function EngagementDeclarationPage() {
 
         <label className="block mt-5">
           <span className="text-sm font-medium">
-            Coś jeszcze? <span className="text-gray-500 font-normal">(opcjonalnie)</span>
+            Coś jeszcze? <span className="text-muted-foreground font-normal">(opcjonalnie)</span>
           </span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-950 focus:border-amber-400 outline-none"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950 focus:border-amber-400 outline-none"
             placeholder="np. tylko Python, max 8h tygodniowo, najchętniej fintech…"
           />
         </label>
 
         {error && (
-          <div className="mt-4 text-xs text-red-600 dark:text-red-400">{error}</div>
+          <div className="mt-4 text-xs text-destructive dark:text-destructive">{error}</div>
         )}
 
         <button
@@ -215,7 +215,7 @@ export default function EngagementDeclarationPage() {
         </button>
 
         {view?.expires_at && (
-          <p className="mt-3 text-[10px] text-center text-gray-400">
+          <p className="mt-3 text-[10px] text-center text-muted-foreground">
             Link ważny do {new Date(view.expires_at).toLocaleDateString("pl-PL")}
           </p>
         )}

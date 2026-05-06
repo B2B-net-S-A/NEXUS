@@ -76,8 +76,8 @@ type KnowledgeCategory = "selling_points" | "interview_questions" | "tech_stack"
 
 const STATUS_COLORS: Record<string, string> = {
   active: "bg-green-100 text-green-700",
-  inactive: "bg-gray-100 text-gray-600",
-  prospect: "bg-blue-100 text-blue-700",
+  inactive: "bg-muted text-muted-foreground",
+  prospect: "bg-primary/15 text-primary",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -104,8 +104,8 @@ const KNOWLEDGE_CATEGORIES: {
     key: "interview_questions",
     label: "Pytania na rozmowie",
     icon: <HelpCircle className="w-4 h-4" />,
-    color: "text-blue-600",
-    bg: "bg-blue-50",
+    color: "text-primary",
+    bg: "bg-primary/10",
   },
   {
     key: "tech_stack",
@@ -125,8 +125,8 @@ const KNOWLEDGE_CATEGORIES: {
     key: "general",
     label: "Ogólne",
     icon: <Info className="w-4 h-4" />,
-    color: "text-gray-600",
-    bg: "bg-gray-100",
+    color: "text-muted-foreground",
+    bg: "bg-muted",
   },
 ];
 
@@ -171,10 +171,10 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Baza wiedzy o kliencie</p>
+        <p className="text-sm text-muted-foreground">Baza wiedzy o kliencie</p>
         <button
           onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
           Dodaj wiedzę
@@ -183,20 +183,20 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
 
       {/* Add form */}
       {showAdd && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-blue-900">Nowy wpis</h3>
-            <button onClick={() => setShowAdd(false)} className="text-blue-400 hover:text-blue-600">
+            <h3 className="text-sm font-semibold text-primary">Nowy wpis</h3>
+            <button onClick={() => setShowAdd(false)} className="text-primary hover:text-primary">
               <X className="w-4 h-4" />
             </button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-gray-600 block mb-1">Kategoria</label>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Kategoria</label>
               <select
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value as KnowledgeCategory })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               >
                 {KNOWLEDGE_CATEGORIES.map((c) => (
                   <option key={c.key} value={c.key}>
@@ -206,34 +206,34 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
               </select>
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-600 block mb-1">Źródło</label>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Źródło</label>
               <input
                 value={form.source}
                 onChange={(e) => setForm({ ...form, source: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
                 placeholder="np. rozmowa z HM 2025-11"
               />
             </div>
           </div>
           <div>
-            <label className="text-xs font-semibold text-gray-600 block mb-1">Treść *</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Treść *</label>
             <textarea
               required
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
               rows={4}
-              className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
               placeholder="Wprowadź wiedzę o kliencie..."
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
               Anuluj
             </button>
             <button
               onClick={() => addMutation.mutate(form)}
               disabled={!form.content || addMutation.isPending}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
             >
               {addMutation.isPending ? "Zapisuję..." : "Zapisz"}
             </button>
@@ -252,20 +252,20 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
               </span>
             </div>
             {cat.entries.map((entry) => (
-              <div key={entry.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 group">
+              <div key={entry.id} className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 group">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed flex-1">
+                  <p className="text-sm text-foreground whitespace-pre-line leading-relaxed flex-1">
                     {entry.content}
                   </p>
                   <DeleteButton
                     onConfirm={() => deleteMutation.mutate(entry.id)}
-                    className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all flex-shrink-0"
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all flex-shrink-0"
                   />
                 </div>
                 {entry.source && (
-                  <p className="text-xs text-gray-400 mt-2 italic">Źródło: {entry.source}</p>
+                  <p className="text-xs text-muted-foreground mt-2 italic">Źródło: {entry.source}</p>
                 )}
-                <p className="text-xs text-gray-300 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   {new Date(entry.created_at).toLocaleDateString("pl-PL")}
                 </p>
               </div>
@@ -275,7 +275,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
       )}
 
       {entries.length === 0 && !showAdd && (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-muted-foreground">
           <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak wpisów wiedzy o tym kliencie</p>
           <p className="text-xs mt-1">Kliknij "Dodaj wiedzę" aby začąć</p>
@@ -357,50 +357,50 @@ function ContactsTab({ clientId }: { clientId: number }) {
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-semibold text-gray-600 block mb-1">Imię i nazwisko *</label>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">Imię i nazwisko *</label>
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             placeholder="Jan Kowalski"
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-gray-600 block mb-1">Stanowisko</label>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">Stanowisko</label>
           <input
             value={form.position}
             onChange={(e) => setForm({ ...form, position: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             placeholder="IT Procurement Manager"
           />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-semibold text-gray-600 block mb-1">Email</label>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">Email</label>
           <input
             type="email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
           />
         </div>
         <div>
-          <label className="text-xs font-semibold text-gray-600 block mb-1">Telefon</label>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">Telefon</label>
           <input
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
           />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-semibold text-gray-600 block mb-1">Dział</label>
+          <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
           <input
             value={form.department}
             onChange={(e) => setForm({ ...form, department: e.target.value })}
-            className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             placeholder="IT / HR"
           />
         </div>
@@ -412,27 +412,27 @@ function ContactsTab({ clientId }: { clientId: number }) {
               onChange={(e) => setForm({ ...form, is_decision_maker: e.target.checked })}
               className="w-4 h-4 rounded accent-blue-600"
             />
-            <span className="text-sm text-gray-700">Decydent</span>
+            <span className="text-sm text-foreground">Decydent</span>
           </label>
         </div>
       </div>
       <div>
-        <label className="text-xs font-semibold text-gray-600 block mb-1">Notatki</label>
+        <label className="text-xs font-semibold text-muted-foreground block mb-1">Notatki</label>
         <textarea
           value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
           rows={2}
-          className="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full border border-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
         />
       </div>
       <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">
+        <button onClick={onCancel} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
           Anuluj
         </button>
         <button
           onClick={onSubmit}
           disabled={!form.name || isLoading}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+          className="px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
         >
           {isLoading ? "Zapisuję..." : "Zapisz"}
         </button>
@@ -443,10 +443,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Osoby kontaktowe</p>
+        <p className="text-sm text-muted-foreground">Osoby kontaktowe</p>
         <button
           onClick={() => { setShowAdd(true); setEditContact(null); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
           Dodaj kontakt
@@ -454,10 +454,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
       </div>
 
       {showAdd && !editContact && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-blue-900">Nowy kontakt</h3>
-            <button onClick={() => setShowAdd(false)} className="text-blue-400 hover:text-blue-600">
+            <h3 className="text-sm font-semibold text-primary">Nowy kontakt</h3>
+            <button onClick={() => setShowAdd(false)} className="text-primary hover:text-primary">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -471,19 +471,19 @@ function ContactsTab({ clientId }: { clientId: number }) {
 
       {/* Contacts list */}
       {contacts.length === 0 && !showAdd ? (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
         </div>
       ) : (
         <div className="space-y-3">
           {contacts.map((contact) => (
-            <div key={contact.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
+            <div key={contact.id} className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl">
               {editContact?.id === contact.id ? (
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-900">Edytuj kontakt</h3>
-                    <button onClick={() => setEditContact(null)} className="text-gray-400 hover:text-gray-600">
+                    <h3 className="text-sm font-semibold text-foreground">Edytuj kontakt</h3>
+                    <button onClick={() => setEditContact(null)} className="text-muted-foreground hover:text-muted-foreground">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -497,14 +497,14 @@ function ContactsTab({ clientId }: { clientId: number }) {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-semibold text-gray-600">
+                      <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-semibold text-muted-foreground">
                           {contact.name.charAt(0).toUpperCase()}
                         </span>
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-gray-900">{contact.name}</span>
+                          <span className="text-sm font-semibold text-foreground">{contact.name}</span>
                           {contact.is_decision_maker && (
                             <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
                               <Crown className="w-3 h-3" />
@@ -513,7 +513,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           )}
                         </div>
                         {contact.position && (
-                          <p className="text-xs text-gray-500 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {contact.position}
                             {contact.department && ` · ${contact.department}`}
                           </p>
@@ -522,7 +522,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           {contact.email && (
                             <a
                               href={`mailto:${contact.email}`}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                              className="flex items-center gap-1 text-xs text-primary hover:underline"
                             >
                               <Mail className="w-3 h-3" />
                               {contact.email}
@@ -531,7 +531,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           {contact.phone && (
                             <a
                               href={`tel:${contact.phone}`}
-                              className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900"
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                             >
                               <Phone className="w-3 h-3" />
                               {contact.phone}
@@ -539,14 +539,14 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           )}
                         </div>
                         {contact.notes && (
-                          <p className="text-xs text-gray-500 mt-2 italic">{contact.notes}</p>
+                          <p className="text-xs text-muted-foreground mt-2 italic">{contact.notes}</p>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
                         onClick={() => openEdit(contact)}
-                        className="text-gray-300 hover:text-blue-500 transition-colors"
+                        className="text-muted-foreground hover:text-primary transition-colors"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -576,7 +576,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
 
   if (isLoading)
     return (
-      <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
+      <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
         <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
         Ładowanie projektów...
       </div>
@@ -584,7 +584,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
 
   if (!jobs.length)
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <Briefcase className="w-10 h-10 mb-3 opacity-40" />
         <p className="text-sm">Brak powiązanych ofert pracy</p>
       </div>
@@ -596,25 +596,25 @@ function ProjectsTab({ clientId }: { clientId: number }) {
         <a
           key={job.id}
           href={`/jobs/${job.id}`}
-          className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-purple-300 transition-colors group"
+          className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group"
         >
           <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
             <Briefcase className="w-4 h-4 text-purple-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{job.title}</p>
+            <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">{job.title}</p>
             {job.location && (
-              <p className="text-xs text-gray-400 truncate">{job.location}</p>
+              <p className="text-xs text-muted-foreground truncate">{job.location}</p>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               job.status === "published" ? "bg-green-100 text-green-700" :
-              job.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-red-100 text-red-600"
+              job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
             }`}>
               {job.status === "published" ? "Aktywna" : job.status === "draft" ? "Szkic" : "Zamknięta"}
             </span>
-            <ExternalLink className="w-3.5 h-3.5 text-gray-300 group-hover:text-purple-500 transition-colors" />
+            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
           </div>
         </a>
       ))}
@@ -635,7 +635,7 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
   if (isLoading)
     return (
-      <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
+      <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
         <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
         Ładowanie kontraktów...
       </div>
@@ -643,7 +643,7 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
   if (!contracts.length)
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <FileText className="w-10 h-10 mb-3 opacity-40" />
         <p className="text-sm">Brak kontraktów dla tego klienta</p>
       </div>
@@ -654,23 +654,23 @@ function ContractsTab({ clientId }: { clientId: number }) {
       {contracts.map((contract: any) => (
         <div
           key={contract.id}
-          className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl"
+          className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl"
         >
           <div className="w-8 h-8 bg-orange-50 dark:bg-orange-900/20 rounded-lg flex items-center justify-center flex-shrink-0">
             <FileText className="w-4 h-4 text-orange-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">
+            <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">
               {contract.title || contract.candidate_name || `Kontrakt #${contract.id}`}
             </p>
             <div className="flex gap-3 mt-0.5">
               {contract.start_date && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Od: {new Date(contract.start_date).toLocaleDateString("pl-PL")}
                 </p>
               )}
               {contract.end_date && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted-foreground">
                   Do: {new Date(contract.end_date).toLocaleDateString("pl-PL")}
                 </p>
               )}
@@ -678,14 +678,14 @@ function ContractsTab({ clientId }: { clientId: number }) {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {contract.monthly_rate && (
-              <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+              <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground">
                 {Number(contract.monthly_rate).toLocaleString("pl-PL")} PLN
               </span>
             )}
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               contract.status === "active" ? "bg-green-100 text-green-700" :
-              contract.status === "completed" ? "bg-blue-100 text-blue-700" :
-              "bg-gray-100 text-gray-600"
+              contract.status === "completed" ? "bg-primary/15 text-primary" :
+              "bg-muted text-muted-foreground"
             }`}>
               {contract.status === "active" ? "Aktywny" :
                contract.status === "completed" ? "Zakończony" : contract.status ?? "—"}
@@ -719,13 +719,13 @@ export default function ClientDetailPage() {
 
   if (isLoading)
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400">
+      <div className="flex items-center justify-center h-64 text-muted-foreground">
         <div className="w-6 h-6 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-3" />
         Ładowanie klienta...
       </div>
     );
   if (!client)
-    return <div className="p-6 text-red-500">Nie znaleziono klienta</div>;
+    return <div className="p-6 text-destructive">Nie znaleziono klienta</div>;
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -744,12 +744,12 @@ export default function ClientDetailPage() {
     <div className="space-y-4 max-w-4xl">
       <Link
         href="/clients"
-        className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 transition-colors"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> Wróć do klientów
       </Link>
 
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+      <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
         <div className="h-1.5 bg-gradient-to-r from-purple-600 via-violet-500 to-purple-400" />
 
         <div className="p-6">
@@ -760,27 +760,27 @@ export default function ClientDetailPage() {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">{client.name}</h1>
+                  <h1 className="text-2xl font-bold text-foreground">{client.name}</h1>
                   {client.industry && (
                     <p className="text-sm text-purple-600 font-medium mt-0.5">{client.industry}</p>
                   )}
                 </div>
                 {client.status && (
                   <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-gray-100 text-gray-600"}`}
+                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
                   >
                     {STATUS_LABELS[client.status] || client.status}
                   </span>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-4 mt-3 text-sm text-gray-600">
+              <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
                 {client.contact_email && (
                   <a
                     href={`mailto:${client.contact_email}`}
-                    className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
+                    className="flex items-center gap-1.5 hover:text-primary transition-colors"
                   >
-                    <Mail className="w-3.5 h-3.5 text-gray-400" />
+                    <Mail className="w-3.5 h-3.5 text-muted-foreground" />
                     {client.contact_email}
                   </a>
                 )}
@@ -789,7 +789,7 @@ export default function ClientDetailPage() {
                     href={`tel:${client.contact_phone}`}
                     className="flex items-center gap-1.5 hover:text-emerald-600 transition-colors"
                   >
-                    <Phone className="w-3.5 h-3.5 text-gray-400" />
+                    <Phone className="w-3.5 h-3.5 text-muted-foreground" />
                     {client.contact_phone}
                   </a>
                 )}
@@ -800,18 +800,18 @@ export default function ClientDetailPage() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 hover:text-purple-600 transition-colors"
                   >
-                    <Globe className="w-3.5 h-3.5 text-gray-400" />
+                    <Globe className="w-3.5 h-3.5 text-muted-foreground" />
                     {client.website}
                   </a>
                 )}
               </div>
 
               <div className="flex items-center gap-3 mt-3">
-                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {client.nda_signed ? (
                     <CheckCircle className="w-4 h-4 text-green-500" />
                   ) : (
-                    <XCircle className="w-4 h-4 text-gray-300" />
+                    <XCircle className="w-4 h-4 text-muted-foreground" />
                   )}
                   NDA {client.nda_signed ? "podpisane" : "niepodpisane"}
                 </span>
@@ -821,7 +821,7 @@ export default function ClientDetailPage() {
         </div>
 
         {/* Tabs */}
-        <div className="border-t border-gray-100">
+        <div className="border-t border-border">
           <div className="flex gap-0 px-6 pt-0">
             {TABS.map((tab) => (
               <button
@@ -831,7 +831,7 @@ export default function ClientDetailPage() {
                   "flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors",
                   activeTab === tab.key
                     ? "border-purple-600 text-purple-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
                 {tab.icon}
@@ -849,13 +849,13 @@ export default function ClientDetailPage() {
             <div className="space-y-6">
               <CooperationStatsSection clientId={Number(id)} />
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                   Notatki
                 </p>
                 {client.notes ? (
-                  <p className="text-sm text-gray-700 whitespace-pre-line">{client.notes}</p>
+                  <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">Brak dodatkowych notatek.</p>
+                  <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
                 )}
               </div>
             </div>
@@ -936,7 +936,7 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
 
   if (isLoading) {
     return (
-      <div className="text-sm text-gray-400">Ładowanie statystyk…</div>
+      <div className="text-sm text-muted-foreground">Ładowanie statystyk…</div>
     );
   }
 
@@ -952,8 +952,8 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
       ? "bg-green-100 text-green-800"
       : row.hit_ratio >= 20
         ? "bg-amber-100 text-amber-800"
-        : "bg-red-100 text-red-800"
-    : "bg-gray-100 text-gray-700";
+        : "bg-destructive/15 text-red-800"
+    : "bg-muted text-foreground";
 
   const trendValues = trendData?.trend.map((p) => p.hit_ratio) ?? [];
   const trendMax = Math.max(...trendValues, 1);
@@ -961,47 +961,47 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Statystyki współpracy
         </p>
-        <span className="text-xs text-gray-400">Ostatnie 12 mies.</span>
+        <span className="text-xs text-muted-foreground">Ostatnie 12 mies.</span>
       </div>
 
       {!hasData ? (
-        <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-6 text-center text-sm text-gray-500">
+        <div className="rounded-lg border border-dashed border-border dark:border-border p-6 text-center text-sm text-muted-foreground">
           Brak zamkniętych zapytań w ostatnich 12 miesiącach.
         </div>
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-              <div className="text-xs text-gray-500 mb-1">Zamknięte zapytania</div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+              <div className="text-xs text-muted-foreground mb-1">Zamknięte zapytania</div>
+              <div className="text-2xl font-bold text-foreground dark:text-foreground">
                 {row!.closed_jobs}
               </div>
-              <div className="text-xs text-gray-400 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {row!.filled_jobs} obsadzonych · {row!.closed_jobs - row!.filled_jobs} przegranych
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-              <div className="text-xs text-gray-500 mb-1">Zatrudnienia</div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+              <div className="text-xs text-muted-foreground mb-1">Zatrudnienia</div>
+              <div className="text-2xl font-bold text-foreground dark:text-foreground">
                 {row!.placements}
               </div>
-              <div className="text-xs text-gray-400 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {row!.total_vacancies > 0
                   ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
                   : "—"}
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-              <div className="text-xs text-gray-500 mb-1">Hit ratio</div>
+            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+              <div className="text-xs text-muted-foreground mb-1">Hit ratio</div>
               <div className="flex items-baseline gap-2">
                 <span className={`text-2xl font-bold px-2 py-0.5 rounded ${tonePill}`}>
                   {row!.closed_jobs >= 3 ? `${row!.hit_ratio.toFixed(1)}%` : `${row!.filled_jobs} / ${row!.closed_jobs}`}
                 </span>
               </div>
-              <div className="text-xs text-gray-400 mt-0.5">
+              <div className="text-xs text-muted-foreground mt-0.5">
                 {row!.closed_jobs >= 3
                   ? row!.target_achieved
                     ? `cel ≥${hitData!.overall.hit_ratio_target_pct}% ✓`
@@ -1009,20 +1009,20 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                   : "Za mało danych (min. 3)"}
               </div>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-              <div className="text-xs text-gray-500 mb-1">Aktywne projekty</div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+              <div className="text-xs text-muted-foreground mb-1">Aktywne projekty</div>
+              <div className="text-2xl font-bold text-foreground dark:text-foreground">
                 {row!.active_jobs}
               </div>
-              <div className="text-xs text-gray-400 mt-0.5">opublikowane</div>
+              <div className="text-xs text-muted-foreground mt-0.5">opublikowane</div>
             </div>
           </div>
 
           {trendValues.length > 0 && (
-            <div className="mt-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <div className="mt-4 bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-gray-500">Trend hit ratio · 6M</p>
-                <span className="text-xs text-gray-400">
+                <p className="text-xs font-semibold text-muted-foreground">Trend hit ratio · 6M</p>
+                <span className="text-xs text-muted-foreground">
                   max {Math.round(trendMax)}% · min {Math.round(Math.min(...trendValues))}%
                 </span>
               </div>
@@ -1034,8 +1034,8 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                       : p.hit_ratio >= 20
                         ? "bg-amber-500"
                         : p.hit_ratio > 0
-                          ? "bg-red-500"
-                          : "bg-gray-200";
+                          ? "bg-destructive/100"
+                          : "bg-muted";
                   const heightPct = trendMax > 0 ? Math.max((p.hit_ratio / trendMax) * 100, 4) : 4;
                   return (
                     <div
@@ -1047,7 +1047,7 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                         className={`w-full rounded-t ${tone}`}
                         style={{ height: `${heightPct}%` }}
                       />
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-[10px] text-muted-foreground">
                         {p.month_label.split(" ")[0]}
                       </span>
                     </div>

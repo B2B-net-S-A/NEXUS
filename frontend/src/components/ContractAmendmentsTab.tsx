@@ -144,7 +144,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                 setForm({ ...EMPTY, amendment_type: "rate_change" });
                 setShowForm(true);
               }}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
+              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
             >
               <Banknote className="w-4 h-4" /> Zmień stawkę
             </button>
@@ -173,34 +173,34 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 space-y-3 border border-blue-200 dark:border-blue-900"
+          className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3 border border-primary/20 dark:border-primary/10"
         >
           <h3 className="text-sm font-semibold">
             {TYPE_LABELS[form.amendment_type]}
           </h3>
           {error && (
-            <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
               <AlertCircle className="w-4 h-4" /> {error}
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                 Data wejścia w życie
               </span>
               <input
                 type="date"
                 value={form.effective_date}
                 onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
 
             {(form.amendment_type === "extension" ||
               form.amendment_type === "early_termination") && (
               <label className="block">
-                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   {form.amendment_type === "extension"
                     ? "Nowa data zakończenia"
                     : "Data faktycznego zakończenia"}
@@ -211,7 +211,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                   onChange={(e) =>
                     setForm({ ...form, new_end_date: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
             )}
@@ -220,7 +220,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
           {form.amendment_type === "rate_change" && (
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   Nowa stawka kandydata
                 </span>
                 <input
@@ -229,11 +229,11 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                   onChange={(e) =>
                     setForm({ ...form, new_rate_candidate: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   Nowa stawka klienta
                 </span>
                 <input
@@ -242,7 +242,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                   onChange={(e) =>
                     setForm({ ...form, new_rate_client: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
             </div>
@@ -251,7 +251,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
           {form.amendment_type === "scope_change" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
-                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   Nowy projekt
                 </span>
                 <input
@@ -260,11 +260,11 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                   onChange={(e) =>
                     setForm({ ...form, new_project_name: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
               <label className="block">
-                <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   Nowy zespół
                 </span>
                 <input
@@ -273,21 +273,21 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                   onChange={(e) =>
                     setForm({ ...form, new_team_name: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
                 />
               </label>
             </div>
           )}
 
           <label className="block">
-            <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+            <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
               Powód / uwagi
             </span>
             <textarea
               rows={2}
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
             />
           </label>
 
@@ -299,14 +299,14 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                 setForm(EMPTY);
                 setError("");
               }}
-              className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg"
+              className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
             >
               Anuluj
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               {createMutation.isPending ? "Zapisywanie…" : "Zapisz aneks"}
             </button>
@@ -315,11 +315,11 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
       )}
 
       {isLoading ? (
-        <div className="text-sm text-gray-500 flex items-center gap-2">
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie aneksów…
         </div>
       ) : amendments.length === 0 ? (
-        <div className="text-sm text-gray-500 italic bg-white dark:bg-gray-800 rounded-2xl p-8 text-center shadow-sm">
+        <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-sm">
           Brak aneksów — użyj przycisków powyżej, żeby przedłużyć, zmienić stawkę,
           zakres lub zakończyć kontrakt wcześniej.
         </div>
@@ -330,43 +330,43 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
             return (
               <li
                 key={a.id}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4"
+                className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-600 flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
                     <Icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
                     <div className="flex flex-wrap items-baseline gap-2">
                       <span className="font-medium">{TYPE_LABELS[a.amendment_type]}</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                      <span className="text-xs text-muted-foreground dark:text-muted-foreground">
                         Wchodzi w życie {formatDate(a.effective_date)}
                       </span>
                     </div>
                     {a.reason && (
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                      <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
                         {a.reason}
                       </p>
                     )}
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                       {a.old_values && (
                         <div>
-                          <div className="text-gray-400 uppercase tracking-wide">Przed</div>
-                          <pre className="mt-1 bg-gray-50 dark:bg-gray-900/50 rounded p-2 overflow-x-auto">
+                          <div className="text-muted-foreground uppercase tracking-wide">Przed</div>
+                          <pre className="mt-1 bg-muted dark:bg-card/50 rounded p-2 overflow-x-auto">
                             {JSON.stringify(a.old_values, null, 2)}
                           </pre>
                         </div>
                       )}
                       {a.new_values && (
                         <div>
-                          <div className="text-gray-400 uppercase tracking-wide">Po</div>
+                          <div className="text-muted-foreground uppercase tracking-wide">Po</div>
                           <pre className="mt-1 bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 overflow-x-auto">
                             {JSON.stringify(a.new_values, null, 2)}
                           </pre>
                         </div>
                       )}
                     </div>
-                    <div className="text-xs text-gray-400 mt-2">
+                    <div className="text-xs text-muted-foreground mt-2">
                       {formatDate(a.created_at)}
                       {a.created_by_email && ` · ${a.created_by_email}`}
                     </div>

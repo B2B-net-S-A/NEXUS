@@ -180,32 +180,32 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       {showForm && (
         <form
           onSubmit={handleSave}
-          className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4 space-y-3 border border-purple-200 dark:border-purple-900"
+          className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4 space-y-3 border border-purple-200 dark:border-purple-900"
         >
           <h3 className="text-sm font-semibold">
             {editingId ? `Edytuj cennik #${editingId}` : "Nowy wpis cennika"}
           </h3>
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
+            <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Rola *</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Rola *</span>
               <input
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
                 placeholder="Senior Java Dev"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Seniority</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Seniority</span>
               <select
                 value={form.seniority}
                 onChange={(e) => setForm({ ...form, seniority: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 {SENIORITIES.map((s) => (
                   <option key={s || "any"} value={s}>
@@ -215,11 +215,11 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
               </select>
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Jednostka</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Jednostka</span>
               <select
                 value={form.rate_unit}
                 onChange={(e) => setForm({ ...form, rate_unit: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 {RATE_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
@@ -231,49 +231,49 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Kandydat od</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Kandydat od</span>
               <input
                 type="number"
                 value={form.rate_candidate_min}
                 onChange={(e) => setForm({ ...form, rate_candidate_min: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Kandydat do</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Kandydat do</span>
               <input
                 type="number"
                 value={form.rate_candidate_max}
                 onChange={(e) => setForm({ ...form, rate_candidate_max: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Klient od</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Klient od</span>
               <input
                 type="number"
                 value={form.rate_client_min}
                 onChange={(e) => setForm({ ...form, rate_client_min: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Klient do</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Klient do</span>
               <input
                 type="number"
                 value={form.rate_client_max}
                 onChange={(e) => setForm({ ...form, rate_client_max: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Waluta</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Waluta</span>
               <select
                 value={form.currency}
                 onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               >
                 <option>PLN</option>
                 <option>EUR</option>
@@ -282,38 +282,38 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
               </select>
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ważny od</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Ważny od</span>
               <input
                 type="date"
                 value={form.valid_from}
                 onChange={(e) => setForm({ ...form, valid_from: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
             <label className="block">
-              <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ważny do</span>
+              <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Ważny do</span>
               <input
                 type="date"
                 value={form.valid_to}
                 onChange={(e) => setForm({ ...form, valid_to: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+                className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
               />
             </label>
           </div>
           <label className="block">
-            <span className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Notatki</span>
+            <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">Notatki</span>
             <textarea
               rows={2}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
             />
           </label>
           <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={handleCancel}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
             >
               <X className="w-4 h-4" /> Anuluj
             </button>
@@ -329,17 +329,17 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       )}
 
       {isLoading ? (
-        <div className="text-sm text-gray-500 flex items-center gap-2">
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie cennika…
         </div>
       ) : cards.length === 0 ? (
-        <div className="text-sm text-gray-500 italic">
+        <div className="text-sm text-muted-foreground italic">
           Brak wpisów cennika — dodaj pierwszy, żeby móc korzystać z auto-suggest przy tworzeniu kontraktu.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-gray-100 dark:border-gray-700">
+        <div className="overflow-hidden rounded-xl border border-border dark:border-border">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
                 <th className="text-left px-3 py-2">Rola</th>
                 <th className="text-left px-3 py-2">Seniority</th>
@@ -351,9 +351,9 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
             </thead>
             <tbody>
               {cards.map((c) => (
-                <tr key={c.id} className="border-t border-gray-100 dark:border-gray-700">
+                <tr key={c.id} className="border-t border-border dark:border-border">
                   <td className="px-3 py-2 font-medium">{c.role}</td>
-                  <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground">
                     {c.seniority ?? "—"}
                   </td>
                   <td className="px-3 py-2">
@@ -368,7 +368,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                       {RATE_UNITS.find((u) => u.value === c.rate_unit)?.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  <td className="px-3 py-2 text-xs text-muted-foreground dark:text-muted-foreground">
                     {c.valid_from || "—"} → {c.valid_to || "∞"}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -376,7 +376,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                       <div className="inline-flex gap-1">
                         <button
                           onClick={() => startEdit(c)}
-                          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground"
                           title="Edytuj"
                         >
                           <Pencil className="w-4 h-4" />
@@ -384,7 +384,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                         <button
                           onClick={() => handleDelete(c)}
                           disabled={deleteMutation.isPending}
-                          className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 disabled:opacity-50"
+                          className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
                           title="Usuń"
                         >
                           <Trash2 className="w-4 h-4" />

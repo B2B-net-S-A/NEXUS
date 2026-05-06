@@ -59,21 +59,21 @@ export function AddToMarketplaceButton({
 
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+              <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
                 <Store className="w-5 h-5 text-teal-600" />
                 Wrzuć na targ
               </h2>
               <button
                 onClick={() => setOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-muted-foreground hover:text-muted-foreground"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-300">
+              <p className="text-sm text-muted-foreground dark:text-muted-foreground">
                 {candidateName ? (
                   <>
                     Kandydat <strong>{candidateName}</strong> zostanie dodany na targ.
@@ -86,25 +86,25 @@ export function AddToMarketplaceButton({
                 (score ≥ 70).
               </p>
               <div>
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                   Ważne do (domyślnie +30 dni)
                 </label>
                 <input
                   type="date"
                   value={until}
                   onChange={(e) => setUntil(e.target.value)}
-                  className="h-10 w-full px-3 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+                  className="h-10 w-full px-3 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-card dark:bg-muted dark:text-foreground"
                   min={new Date().toISOString().slice(0, 10)}
                 />
               </div>
               {error && (
-                <p className="text-xs text-red-600">{error}</p>
+                <p className="text-xs text-destructive">{error}</p>
               )}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="h-10 px-4 text-sm text-gray-600 hover:text-gray-800 rounded-lg"
+                  className="h-10 px-4 text-sm text-muted-foreground hover:text-foreground rounded-lg"
                   disabled={mutation.isPending}
                 >
                   Anuluj

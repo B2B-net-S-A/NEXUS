@@ -288,25 +288,25 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   };
 
   return (
-    <div className="flex flex-col h-[70vh] bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div className="flex flex-col h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border dark:border-border">
         <div className="flex items-center gap-2">
-          <MessageCircle className="w-5 h-5 text-blue-500" />
+          <MessageCircle className="w-5 h-5 text-primary" />
           <h2 className="text-base font-semibold">Chat zespołu</h2>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-muted-foreground">
             {members.length} członków
           </span>
         </div>
         <form onSubmit={handleSearchSubmit} className="flex items-center gap-1">
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input
               type="text"
               placeholder="Szukaj…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-7 pr-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900"
+              className="pl-7 pr-2 py-1 text-sm rounded border border-border dark:border-border bg-card dark:bg-card"
             />
           </div>
           {activeSearch && (
@@ -316,7 +316,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
                 setSearchQuery("");
                 setActiveSearch("");
               }}
-              className="text-xs text-gray-500 hover:text-gray-700"
+              className="text-xs text-muted-foreground hover:text-foreground"
               aria-label="Wyczyść wyszukiwanie"
             >
               <X className="w-3.5 h-3.5" />
@@ -333,7 +333,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
               <Pin className="w-3 h-3 mt-0.5 text-amber-600 flex-shrink-0" />
               <div className="flex-1 truncate">
                 <span className="font-medium">{p.author?.name ?? "?"}: </span>
-                <span className="text-gray-700 dark:text-gray-300">
+                <span className="text-foreground dark:text-muted-foreground">
                   {p.content}
                 </span>
               </div>
@@ -358,13 +358,13 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
         className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
       >
         {messagesQuery.isFetchingNextPage && (
-          <div className="text-center text-xs text-gray-400">
+          <div className="text-center text-xs text-muted-foreground">
             <Loader2 className="w-4 h-4 inline-block animate-spin mr-1" />
             Ładowanie starszych…
           </div>
         )}
         {messages.length === 0 && !messagesQuery.isLoading && (
-          <div className="text-center text-sm text-gray-400 py-12">
+          <div className="text-center text-sm text-muted-foreground py-12">
             Brak wiadomości{activeSearch ? " pasujących do filtra" : ""}.
           </div>
         )}
@@ -395,14 +395,14 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
 
       {/* Reply / edit banner */}
       {(replyTo || editingId !== null) && (
-        <div className="flex items-center justify-between px-4 py-1.5 bg-blue-50 dark:bg-blue-900/30 border-t border-blue-200 dark:border-blue-800 text-xs">
+        <div className="flex items-center justify-between px-4 py-1.5 bg-primary/10 dark:bg-primary/30 border-t border-primary/20 dark:border-primary/30 text-xs">
           <span className="truncate">
             {editingId !== null ? (
               <>Edytujesz wiadomość</>
             ) : (
               <>
                 Odpowiadasz <strong>{replyTo?.author?.name ?? "?"}</strong>:{" "}
-                <span className="text-gray-600 dark:text-gray-400 truncate">
+                <span className="text-muted-foreground dark:text-muted-foreground truncate">
                   {replyTo?.content}
                 </span>
               </>
@@ -413,7 +413,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
               if (editingId !== null) cancelEdit();
               else setReplyTo(null);
             }}
-            className="text-blue-600 hover:text-blue-800"
+            className="text-primary hover:text-primary/80"
             aria-label="Anuluj"
           >
             <X className="w-3.5 h-3.5" />
@@ -424,7 +424,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       {/* Compose */}
       <form
         onSubmit={handleSubmit}
-        className="relative border-t border-gray-200 dark:border-gray-700 px-3 py-2"
+        className="relative border-t border-border dark:border-border px-3 py-2"
       >
         <div className="flex items-end gap-2">
           <div className="flex-1">
@@ -453,7 +453,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
             }
             className={cn(
               "flex items-center justify-center w-10 h-10 rounded-lg",
-              "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed",
+              "bg-primary hover:bg-primary/90 text-white disabled:opacity-50 disabled:cursor-not-allowed",
             )}
             aria-label="Wyślij"
           >
@@ -534,18 +534,18 @@ function MessageRow({
       )}
     >
       {/* Avatar (initials) */}
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-semibold">
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-semibold">
         {(message.author?.name ?? "?").slice(0, 2).toUpperCase()}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className="font-semibold text-gray-900 dark:text-gray-100">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground dark:text-foreground">
             {message.author?.name ?? "(usunięty użytkownik)"}
           </span>
           <span>{formatRelativeTime(message.created_at)}</span>
           {message.is_edited && !message.is_deleted && (
-            <span className="text-gray-400">(edytowano)</span>
+            <span className="text-muted-foreground">(edytowano)</span>
           )}
           {message.pinned && (
             <Pin className="w-3 h-3 text-amber-600" aria-label="Przypięte" />
@@ -553,8 +553,8 @@ function MessageRow({
         </div>
 
         {message.reply_to_preview && (
-          <div className="mt-1 mb-1 text-xs px-2 py-1 border-l-2 border-blue-400 bg-gray-50 dark:bg-gray-900/50 truncate">
-            <CornerUpLeft className="w-3 h-3 inline-block mr-1 text-blue-400" />
+          <div className="mt-1 mb-1 text-xs px-2 py-1 border-l-2 border-primary/30 bg-muted dark:bg-card/50 truncate">
+            <CornerUpLeft className="w-3 h-3 inline-block mr-1 text-primary" />
             {message.reply_to_preview}
           </div>
         )}
@@ -562,7 +562,7 @@ function MessageRow({
         <div
           className={cn(
             "mt-0.5 text-sm whitespace-pre-wrap break-words",
-            message.is_deleted && "italic text-gray-400",
+            message.is_deleted && "italic text-muted-foreground",
           )}
         >
           {message.content}
@@ -581,8 +581,8 @@ function MessageRow({
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs transition-colors",
                     mine
-                      ? "bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/40"
-                      : "bg-gray-100 border-gray-300 text-gray-700 dark:bg-gray-700 dark:border-gray-600",
+                      ? "bg-primary/15 border-primary/30 text-primary dark:bg-primary/40"
+                      : "bg-muted border-border text-foreground dark:bg-muted dark:border-border",
                   )}
                   title={`${r.count} ${r.count === 1 ? "reakcja" : "reakcji"}`}
                 >
@@ -598,7 +598,7 @@ function MessageRow({
           <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-2 text-xs relative">
             <button
               onClick={onReply}
-              className="text-gray-500 hover:text-blue-600 flex items-center gap-1"
+              className="text-muted-foreground hover:text-primary flex items-center gap-1"
             >
               <CornerUpLeft className="w-3 h-3" />
               Odpowiedz
@@ -606,14 +606,14 @@ function MessageRow({
             <div className="relative">
               <button
                 onClick={() => setEmojiOpen((v) => !v)}
-                className="text-gray-500 hover:text-amber-500 flex items-center gap-1"
+                className="text-muted-foreground hover:text-amber-500 flex items-center gap-1"
                 aria-label="Dodaj reakcję"
               >
                 <Smile className="w-3 h-3" />
                 Reakcja
               </button>
               {emojiOpen && (
-                <div className="absolute z-10 mt-1 left-0 flex gap-1 p-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
+                <div className="absolute z-10 mt-1 left-0 flex gap-1 p-1.5 bg-card dark:bg-card border border-border dark:border-border rounded-lg shadow-lg">
                   {QUICK_REACTIONS.map((emoji) => {
                     const mine = hasMyReaction(emoji);
                     return (
@@ -624,7 +624,7 @@ function MessageRow({
                           setEmojiOpen(false);
                         }}
                         className={cn(
-                          "w-7 h-7 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-base",
+                          "w-7 h-7 rounded hover:bg-muted dark:hover:bg-muted flex items-center justify-center text-base",
                           mine && "ring-2 ring-blue-400",
                         )}
                       >
@@ -637,15 +637,15 @@ function MessageRow({
             </div>
             <button
               onClick={showReadBy}
-              className="text-gray-500 hover:text-blue-600 flex items-center gap-1 relative"
+              className="text-muted-foreground hover:text-primary flex items-center gap-1 relative"
               aria-label="Kto przeczytał"
             >
               <Eye className="w-3 h-3" />
               Przeczytane
               {readByOpen && readByList && (
-                <div className="absolute z-10 mt-1 top-full left-0 min-w-[180px] p-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg text-left">
+                <div className="absolute z-10 mt-1 top-full left-0 min-w-[180px] p-2 bg-card dark:bg-card border border-border dark:border-border rounded-lg shadow-lg text-left">
                   {readByList.length === 0 ? (
-                    <span className="text-gray-500 text-xs">
+                    <span className="text-muted-foreground text-xs">
                       Jeszcze nikt nie przeczytał
                     </span>
                   ) : (
@@ -656,7 +656,7 @@ function MessageRow({
                           className="flex justify-between gap-3 text-xs"
                         >
                           <span className="font-medium">{u.name}</span>
-                          <span className="text-gray-500">
+                          <span className="text-muted-foreground">
                             {formatRelativeTime(u.read_at)}
                           </span>
                         </li>
@@ -669,7 +669,7 @@ function MessageRow({
             {canEdit && (
               <button
                 onClick={onEdit}
-                className="text-gray-500 hover:text-blue-600 flex items-center gap-1"
+                className="text-muted-foreground hover:text-primary flex items-center gap-1"
               >
                 <Edit2 className="w-3 h-3" />
                 Edytuj
@@ -678,7 +678,7 @@ function MessageRow({
             {canDelete && (
               <button
                 onClick={onDelete}
-                className="text-gray-500 hover:text-red-600 flex items-center gap-1"
+                className="text-muted-foreground hover:text-destructive flex items-center gap-1"
               >
                 <Trash2 className="w-3 h-3" />
                 Usuń
@@ -687,7 +687,7 @@ function MessageRow({
             {canPin && (
               <button
                 onClick={onPinToggle}
-                className="text-gray-500 hover:text-amber-600 flex items-center gap-1"
+                className="text-muted-foreground hover:text-amber-600 flex items-center gap-1"
               >
                 {message.pinned ? (
                   <>

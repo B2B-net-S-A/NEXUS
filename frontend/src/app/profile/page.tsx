@@ -64,23 +64,23 @@ function Input({
 
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+      <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
         {label}
       </label>
       <div className="relative">
         <input
           type={isPassword ? (show ? "text" : "password") : type}
           {...props}
-          className="h-10 w-full px-3 text-sm border border-gray-200 dark:border-gray-600 rounded-lg
-                     focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700
-                     dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500
-                     focus-visible:ring-2 focus-visible:ring-blue-500 pr-10"
+          className="h-10 w-full px-3 text-sm border border-border dark:border-border rounded-lg
+                     focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted
+                     dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground
+                     focus-visible:ring-2 focus-visible:ring-ring pr-10"
         />
         {isPassword && (
           <button
             type="button"
             onClick={() => setShow(s => !s)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
             aria-label={show ? "Ukryj hasło" : "Pokaż hasło"}
           >
             {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -95,7 +95,7 @@ function Input({
 
 const ACTIVITY_ICONS: Record<string, React.ReactNode> = {
   candidate_added: <UserPlus className="w-4 h-4 text-green-500" aria-hidden="true" />,
-  job_added: <Briefcase className="w-4 h-4 text-blue-500" aria-hidden="true" />,
+  job_added: <Briefcase className="w-4 h-4 text-primary" aria-hidden="true" />,
   note_added: <FileText className="w-4 h-4 text-yellow-500" aria-hidden="true" />,
   status_changed: <BarChart3 className="w-4 h-4 text-purple-500" aria-hidden="true" />,
 };
@@ -109,15 +109,15 @@ const ACTIVITY_LABELS: Record<string, string> = {
 
 function ActivityCard({ type, count }: { type: string; count: number }) {
   return (
-    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-      <div className="w-8 h-8 rounded-full bg-white dark:bg-gray-800 flex items-center justify-center shadow-sm flex-shrink-0">
-        {ACTIVITY_ICONS[type] ?? <BarChart3 className="w-4 h-4 text-gray-400" />}
+    <div className="flex items-center gap-3 p-3 bg-muted dark:bg-muted/50 rounded-lg">
+      <div className="w-8 h-8 rounded-full bg-card dark:bg-muted flex items-center justify-center shadow-sm flex-shrink-0">
+        {ACTIVITY_ICONS[type] ?? <BarChart3 className="w-4 h-4 text-muted-foreground" />}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-500 dark:text-gray-400 leading-tight">
+        <p className="text-xs text-muted-foreground dark:text-muted-foreground leading-tight">
           {ACTIVITY_LABELS[type] ?? type}
         </p>
-        <p className="text-lg font-bold text-gray-900 dark:text-gray-100 leading-tight">{count}</p>
+        <p className="text-lg font-bold text-foreground dark:text-foreground leading-tight">{count}</p>
       </div>
     </div>
   );
@@ -247,7 +247,7 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Profil użytkownika</h1>
+      <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Profil użytkownika</h1>
 
       {/* Force-change-password banner */}
       {mustChangePassword && !pwSuccess && (
@@ -269,8 +269,8 @@ export default function ProfilePage() {
       )}
 
       {/* Profile card */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Informacje o koncie</h2>
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
+        <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">Informacje o koncie</h2>
 
         <div className="flex items-start gap-6">
           {/* Avatar */}
@@ -280,11 +280,11 @@ export default function ProfilePage() {
                 <img
                   src={avatarUrl}
                   alt={`Zdjęcie profilowe: ${displayName}`}
-                  className="w-20 h-20 rounded-full object-cover ring-2 ring-blue-500"
+                  className="w-20 h-20 rounded-full object-cover ring-2 ring-ring"
                 />
               ) : (
                 <div
-                  className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-2xl font-bold text-white ring-2 ring-blue-500"
+                  className="w-20 h-20 rounded-full bg-primary flex items-center justify-center text-2xl font-bold text-white ring-2 ring-ring"
                   aria-label={`Inicjały: ${initials}`}
                 >
                   {initials}
@@ -294,7 +294,7 @@ export default function ProfilePage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Zmień zdjęcie profilowe"
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-blue-400 rounded-full"
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring rounded-full"
               >
                 <Camera className="w-6 h-6 text-white" aria-hidden="true" />
               </button>
@@ -307,7 +307,7 @@ export default function ProfilePage() {
                 onChange={handleAvatarChange}
               />
             </div>
-            <p className="text-center text-xs text-gray-400 mt-1 cursor-pointer hover:text-blue-400 transition-colors" onClick={() => fileRef.current?.click()}>
+            <p className="text-center text-xs text-muted-foreground mt-1 cursor-pointer hover:text-primary transition-colors" onClick={() => fileRef.current?.click()}>
               Zmień
             </p>
           </div>
@@ -315,42 +315,42 @@ export default function ProfilePage() {
           {/* Info grid */}
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-start gap-2">
-              <User className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <User className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Imię i nazwisko</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{displayName}</p>
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Imię i nazwisko</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground">{displayName}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Mail className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Mail className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Email</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 break-all">{displayEmail}</p>
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Email</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground break-all">{displayEmail}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Shield className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Shield className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Rola</p>
-                <span className="inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 capitalize">
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Rola</p>
+                <span className="inline-block text-xs px-2 py-0.5 rounded-full font-medium bg-primary/15 dark:bg-primary/10 text-primary dark:text-primary capitalize">
                   {displayRole}
                 </span>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Clock className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Clock className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Ostatnie logowanie</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Ostatnie logowanie</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground">
                   {formatDate(profile?.last_login)}
                 </p>
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Calendar className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <Calendar className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Konto utworzone</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Konto utworzone</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground">
                   {formatDateShort(profile?.created_at)}
                 </p>
               </div>
@@ -360,8 +360,8 @@ export default function ProfilePage() {
       </div>
 
       {/* Activity summary */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
+        <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">
           Twoja aktywność (30 dni)
         </h2>
 
@@ -372,7 +372,7 @@ export default function ProfilePage() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-gray-400 dark:text-gray-500">
+          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground dark:text-muted-foreground">
             <BarChart3 className="w-12 h-12 mb-3 opacity-30" aria-hidden="true" />
             <p className="text-sm font-medium">Brak danych aktywności</p>
             <p className="text-xs mt-1">Dane pojawią się po pierwszej aktywności</p>
@@ -381,10 +381,10 @@ export default function ProfilePage() {
       </div>
 
       {/* Change password */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm border border-border dark:border-border p-6">
         <div className="flex items-center gap-2 mb-4">
-          <Lock className="w-5 h-5 text-gray-400" aria-hidden="true" />
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Zmień hasło</h2>
+          <Lock className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
+          <h2 className="text-xl font-semibold text-foreground dark:text-foreground">Zmień hasło</h2>
         </div>
 
         <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-md" aria-label="Formularz zmiany hasła">
@@ -416,7 +416,7 @@ export default function ProfilePage() {
           {pwError && (
             <div
               role="alert"
-              className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 rounded-lg px-4 py-2"
+              className="flex items-center gap-2 text-sm text-destructive dark:text-destructive bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2"
             >
               <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
               {pwError}
@@ -436,7 +436,7 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={pwSaving}
-            className="h-10 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+            className="h-10 px-4 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             aria-label="Zapisz nowe hasło"
           >
             {pwSaving ? "Zapisywanie…" : "Zmień hasło"}

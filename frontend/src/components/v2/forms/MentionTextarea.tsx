@@ -180,7 +180,7 @@ export function MentionTextarea({
   return (
     <div className="relative">
       {mention.open && filtered.length > 0 && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-card dark:bg-card border border-border dark:border-border rounded-lg shadow-lg z-20 overflow-hidden">
           {filtered.map((m, idx) => (
             <button
               key={m.id}
@@ -192,14 +192,14 @@ export function MentionTextarea({
               className={cn(
                 "w-full flex items-center gap-2 px-3 py-2 text-left text-sm",
                 idx === mention.highlightIdx
-                  ? "bg-blue-50 dark:bg-blue-900/30"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-800",
+                  ? "bg-primary/10 dark:bg-primary/30"
+                  : "hover:bg-muted dark:hover:bg-muted",
               )}
             >
               <span className="font-medium">{m.name}</span>
-              <span className="text-xs text-gray-500">{m.email}</span>
+              <span className="text-xs text-muted-foreground">{m.email}</span>
               {m.role && (
-                <span className="ml-auto text-[10px] uppercase text-gray-400">
+                <span className="ml-auto text-[10px] uppercase text-muted-foreground">
                   {m.role}
                 </span>
               )}
@@ -219,7 +219,7 @@ export function MentionTextarea({
         disabled={disabled}
         aria-label={ariaLabel}
         className={cn(
-          "w-full resize-none rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50",
+          "w-full resize-none rounded border border-border dark:border-border bg-card dark:bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50",
           className,
         )}
       />

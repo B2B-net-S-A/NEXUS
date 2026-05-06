@@ -20,25 +20,25 @@ export function LostJobRow({ lost, actions }: Props) {
     : "Nie określono";
 
   return (
-    <div className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:border-red-200 transition-colors">
+    <div className="group bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-4 hover:border-destructive/20 transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className="w-9 h-9 bg-red-50 dark:bg-red-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-            <XCircle className="w-4 h-4 text-red-500 dark:text-red-300" />
+          <div className="w-9 h-9 bg-destructive/10 dark:bg-red-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+            <XCircle className="w-4 h-4 text-destructive dark:text-red-300" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href={`/jobs/${lost.job_id}`}
-                className="text-sm font-semibold text-gray-800 dark:text-gray-200 hover:text-purple-600 truncate"
+                className="text-sm font-semibold text-foreground dark:text-muted-foreground hover:text-purple-600 truncate"
               >
                 {lost.title}
               </Link>
-              <span className="px-1.5 py-0.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 rounded text-xs font-semibold">
+              <span className="px-1.5 py-0.5 bg-destructive/10 dark:bg-red-900/30 text-destructive dark:text-red-300 rounded text-xs font-semibold">
                 {reasonLabel}
               </span>
             </div>
-            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
               <span>zamknięta {formatDate(lost.closed_at)}</span>
               <span className="flex items-center gap-1">
                 <Users className="w-3 h-3" />
@@ -46,7 +46,7 @@ export function LostJobRow({ lost, actions }: Props) {
               </span>
             </div>
             {lost.close_notes && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 italic mt-2 line-clamp-2">
+              <p className="text-xs text-muted-foreground dark:text-muted-foreground italic mt-2 line-clamp-2">
                 {lost.close_notes}
               </p>
             )}

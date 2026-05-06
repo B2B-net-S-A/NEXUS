@@ -20,7 +20,7 @@ const SHORTCUTS = [
 
 function ShortcutKey({ k }: { k: string }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs font-mono font-semibold text-gray-700 dark:text-gray-200 shadow-sm">
+    <kbd className="inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 bg-muted dark:bg-muted border border-border dark:border-border rounded text-xs font-mono font-semibold text-foreground dark:text-muted-foreground shadow-sm">
       {k}
     </kbd>
   );
@@ -37,26 +37,26 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
-            <Keyboard className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Skróty klawiszowe</h2>
+            <Keyboard className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground">Skróty klawiszowe</h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
         <div className="p-6 space-y-3">
           {SHORTCUTS.map((shortcut, i) => (
             <div key={i} className="flex items-center justify-between gap-4">
-              <span className="text-sm text-gray-700 dark:text-gray-300">{shortcut.description}</span>
+              <span className="text-sm text-foreground dark:text-muted-foreground">{shortcut.description}</span>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {shortcut.keys.map((k, j) => (
                   <span key={j} className="flex items-center gap-1">
                     <ShortcutKey k={k} />
                     {j < shortcut.keys.length - 1 && (
-                      <span className="text-xs text-gray-400 dark:text-gray-500">+</span>
+                      <span className="text-xs text-muted-foreground dark:text-muted-foreground">+</span>
                     )}
                   </span>
                 ))}
@@ -64,7 +64,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-        <div className="px-6 pb-4 text-xs text-gray-400 dark:text-gray-500">
+        <div className="px-6 pb-4 text-xs text-muted-foreground dark:text-muted-foreground">
           Skróty są nieaktywne gdy kursor jest w polu tekstowym.
         </div>
       </div>

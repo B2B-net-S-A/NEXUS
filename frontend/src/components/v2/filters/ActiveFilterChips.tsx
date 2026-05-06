@@ -1,287 +1,287 @@
 "use client";
 
-import { X } from "lucide-react";
-import type { CandidateFilters } from "@/lib/url-filters";
+import { X } from"lucide-react";
+import type { CandidateFilters } from"@/lib/url-filters";
 
 interface NamedLookup {
-  id: number;
-  name: string;
+ id: number;
+ name: string;
 }
 
 interface ActiveFilterChipsProps {
-  filters: CandidateFilters;
-  onUpdate: (next: Partial<CandidateFilters>) => void;
-  poolsById?: Map<number, string>;
-  usersById?: Map<number, string>;
-  clientsById?: Map<number, string>;
+ filters: CandidateFilters;
+ onUpdate: (next: Partial<CandidateFilters>) => void;
+ poolsById?: Map<number, string>;
+ usersById?: Map<number, string>;
+ clientsById?: Map<number, string>;
 }
 
 const REMOTE_LABELS: Record<string, string> = {
-  remote: "Zdalnie",
-  hybrid: "Hybryda",
-  onsite: "Stacjonarnie",
+ remote:"Zdalnie",
+ hybrid:"Hybryda",
+ onsite:"Stacjonarnie",
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  active: "Aktywni",
-  passive: "Pasywni",
-  blacklisted: "Zablokowani",
+ active:"Aktywni",
+ passive:"Pasywni",
+ blacklisted:"Zablokowani",
 };
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
-  at_client: "U klienta",
-  available: "Dostępni",
+ at_client:"U klienta",
+ available:"Dostępni",
 };
 
 const AVAILABILITY_LABELS: Record<string, string> = {
-  actively_looking: "Aktywnie szuka",
-  open_to_offers: "Otwarty",
-  not_looking: "Nie szuka",
-  unknown: "Nie wiemy",
+ actively_looking:"Aktywnie szuka",
+ open_to_offers:"Otwarty",
+ not_looking:"Nie szuka",
+ unknown:"Nie wiemy",
 };
 
 interface Chip {
-  key: string;
-  label: string;
-  clear: () => void;
+ key: string;
+ label: string;
+ clear: () => void;
 }
 
 function collectChips(
-  filters: CandidateFilters,
-  onUpdate: (next: Partial<CandidateFilters>) => void,
-  poolsById?: Map<number, string>,
-  usersById?: Map<number, string>,
-  clientsById?: Map<number, string>
+ filters: CandidateFilters,
+ onUpdate: (next: Partial<CandidateFilters>) => void,
+ poolsById?: Map<number, string>,
+ usersById?: Map<number, string>,
+ clientsById?: Map<number, string>
 ): Chip[] {
-  const chips: Chip[] = [];
+ const chips: Chip[] = [];
 
-  if (filters.q) {
-    chips.push({
-      key: "q",
-      label: `„${filters.q}"`,
-      clear: () => onUpdate({ q: "", page: 1 }),
-    });
-  }
-  filters.status.forEach((s) => {
-    chips.push({
-      key: `status:${s}`,
-      label: `Status: ${STATUS_LABELS[s] ?? s}`,
-      clear: () =>
-        onUpdate({
-          status: filters.status.filter((x) => x !== s),
-          page: 1,
-        }),
-    });
-  });
-  filters.employment.forEach((e) => {
-    chips.push({
-      key: `employment:${e}`,
-      label: `Zatrudnienie: ${EMPLOYMENT_LABELS[e] ?? e}`,
-      clear: () =>
-        onUpdate({
-          employment: filters.employment.filter((x) => x !== e),
-          page: 1,
-        }),
-    });
-  });
-  filters.availability.forEach((a) => {
-    chips.push({
-      key: `availability:${a}`,
-      label: `Dyspozycyjność: ${AVAILABILITY_LABELS[a] ?? a}`,
-      clear: () =>
-        onUpdate({
-          availability: filters.availability.filter((x) => x !== a),
-          page: 1,
-        }),
-    });
-  });
-  if (filters.location) {
-    chips.push({
-      key: "loc",
-      label: `📍 ${filters.location}`,
-      clear: () => onUpdate({ location: "", page: 1 }),
-    });
-  }
-  filters.remote.forEach((mode) => {
-    chips.push({
-      key: `remote:${mode}`,
-      label: REMOTE_LABELS[mode] ?? mode,
-      clear: () =>
-        onUpdate({
-          remote: filters.remote.filter((m) => m !== mode),
-          page: 1,
-        }),
-    });
-  });
-  filters.skills.forEach((skill) => {
-    chips.push({
-      key: `skill:${skill}`,
-      label: skill,
-      clear: () =>
-        onUpdate({
-          skills: filters.skills.filter((s) => s !== skill),
-          page: 1,
-        }),
-    });
-  });
-  filters.poolIds.forEach((id) => {
-    const name = poolsById?.get(id) ?? `Pula #${id}`;
-    chips.push({
-      key: `pool:${id}`,
-      label: `Pula: ${name}`,
-      clear: () =>
-        onUpdate({
-          poolIds: filters.poolIds.filter((x) => x !== id),
-          page: 1,
-        }),
-    });
-  });
-  filters.addedByIds.forEach((id) => {
-    const name =
-      id === 0
-        ? "Import systemowy"
-        : (usersById?.get(id) ?? `Użytkownik #${id}`);
-    chips.push({
-      key: `added_by:${id}`,
-      label: `Dodał: ${name}`,
-      clear: () =>
-        onUpdate({
-          addedByIds: filters.addedByIds.filter((x) => x !== id),
-          page: 1,
-        }),
-    });
-  });
-  filters.currentCompany.forEach((name) => {
-    chips.push({
-      key: `cur_co:${name}`,
-      label: `Obecna firma: ${name}`,
-      clear: () =>
-        onUpdate({
-          currentCompany: filters.currentCompany.filter((x) => x !== name),
-          page: 1,
-        }),
-    });
-  });
-  filters.pastCompany.forEach((name) => {
-    chips.push({
-      key: `past_co:${name}`,
-      label: `Poprz. firma: ${name}`,
-      clear: () =>
-        onUpdate({
-          pastCompany: filters.pastCompany.filter((x) => x !== name),
-          page: 1,
-        }),
-    });
-  });
-  filters.currentTitle.forEach((role) => {
-    chips.push({
-      key: `title:${role}`,
-      label: `Stanowisko: ${role}`,
-      clear: () =>
-        onUpdate({
-          currentTitle: filters.currentTitle.filter((x) => x !== role),
-          page: 1,
-        }),
-    });
-  });
-  filters.workedAtClientIds.forEach((id) => {
-    const name = clientsById?.get(id) ?? `Klient #${id}`;
-    chips.push({
-      key: `client_hist:${id}`,
-      label: `Klient: ${name}`,
-      clear: () =>
-        onUpdate({
-          workedAtClientIds: filters.workedAtClientIds.filter((x) => x !== id),
-          page: 1,
-        }),
-    });
-  });
-  filters.qAll.forEach((phrase) => {
-    chips.push({
-      key: `q_all:${phrase}`,
-      label: `Wszystkie: „${phrase}"`,
-      clear: () =>
-        onUpdate({
-          qAll: filters.qAll.filter((x) => x !== phrase),
-          page: 1,
-        }),
-    });
-  });
-  filters.qAny.forEach((phrase) => {
-    chips.push({
-      key: `q_any:${phrase}`,
-      label: `Którakolwiek: „${phrase}"`,
-      clear: () =>
-        onUpdate({
-          qAny: filters.qAny.filter((x) => x !== phrase),
-          page: 1,
-        }),
-    });
-  });
-  filters.qNone.forEach((phrase) => {
-    chips.push({
-      key: `q_none:${phrase}`,
-      label: `Żadna: „${phrase}"`,
-      clear: () =>
-        onUpdate({
-          qNone: filters.qNone.filter((x) => x !== phrase),
-          page: 1,
-        }),
-    });
-  });
-  return chips;
+ if (filters.q) {
+ chips.push({
+ key:"q",
+ label: `„${filters.q}"`,
+ clear: () => onUpdate({ q:"", page: 1 }),
+ });
+ }
+ filters.status.forEach((s) => {
+ chips.push({
+ key: `status:${s}`,
+ label: `Status: ${STATUS_LABELS[s] ?? s}`,
+ clear: () =>
+ onUpdate({
+ status: filters.status.filter((x) => x !== s),
+ page: 1,
+ }),
+ });
+ });
+ filters.employment.forEach((e) => {
+ chips.push({
+ key: `employment:${e}`,
+ label: `Zatrudnienie: ${EMPLOYMENT_LABELS[e] ?? e}`,
+ clear: () =>
+ onUpdate({
+ employment: filters.employment.filter((x) => x !== e),
+ page: 1,
+ }),
+ });
+ });
+ filters.availability.forEach((a) => {
+ chips.push({
+ key: `availability:${a}`,
+ label: `Dyspozycyjność: ${AVAILABILITY_LABELS[a] ?? a}`,
+ clear: () =>
+ onUpdate({
+ availability: filters.availability.filter((x) => x !== a),
+ page: 1,
+ }),
+ });
+ });
+ if (filters.location) {
+ chips.push({
+ key:"loc",
+ label: `📍 ${filters.location}`,
+ clear: () => onUpdate({ location:"", page: 1 }),
+ });
+ }
+ filters.remote.forEach((mode) => {
+ chips.push({
+ key: `remote:${mode}`,
+ label: REMOTE_LABELS[mode] ?? mode,
+ clear: () =>
+ onUpdate({
+ remote: filters.remote.filter((m) => m !== mode),
+ page: 1,
+ }),
+ });
+ });
+ filters.skills.forEach((skill) => {
+ chips.push({
+ key: `skill:${skill}`,
+ label: skill,
+ clear: () =>
+ onUpdate({
+ skills: filters.skills.filter((s) => s !== skill),
+ page: 1,
+ }),
+ });
+ });
+ filters.poolIds.forEach((id) => {
+ const name = poolsById?.get(id) ?? `Pula #${id}`;
+ chips.push({
+ key: `pool:${id}`,
+ label: `Pula: ${name}`,
+ clear: () =>
+ onUpdate({
+ poolIds: filters.poolIds.filter((x) => x !== id),
+ page: 1,
+ }),
+ });
+ });
+ filters.addedByIds.forEach((id) => {
+ const name =
+ id === 0
+ ?"Import systemowy"
+ : (usersById?.get(id) ?? `Użytkownik #${id}`);
+ chips.push({
+ key: `added_by:${id}`,
+ label: `Dodał: ${name}`,
+ clear: () =>
+ onUpdate({
+ addedByIds: filters.addedByIds.filter((x) => x !== id),
+ page: 1,
+ }),
+ });
+ });
+ filters.currentCompany.forEach((name) => {
+ chips.push({
+ key: `cur_co:${name}`,
+ label: `Obecna firma: ${name}`,
+ clear: () =>
+ onUpdate({
+ currentCompany: filters.currentCompany.filter((x) => x !== name),
+ page: 1,
+ }),
+ });
+ });
+ filters.pastCompany.forEach((name) => {
+ chips.push({
+ key: `past_co:${name}`,
+ label: `Poprz. firma: ${name}`,
+ clear: () =>
+ onUpdate({
+ pastCompany: filters.pastCompany.filter((x) => x !== name),
+ page: 1,
+ }),
+ });
+ });
+ filters.currentTitle.forEach((role) => {
+ chips.push({
+ key: `title:${role}`,
+ label: `Stanowisko: ${role}`,
+ clear: () =>
+ onUpdate({
+ currentTitle: filters.currentTitle.filter((x) => x !== role),
+ page: 1,
+ }),
+ });
+ });
+ filters.workedAtClientIds.forEach((id) => {
+ const name = clientsById?.get(id) ?? `Klient #${id}`;
+ chips.push({
+ key: `client_hist:${id}`,
+ label: `Klient: ${name}`,
+ clear: () =>
+ onUpdate({
+ workedAtClientIds: filters.workedAtClientIds.filter((x) => x !== id),
+ page: 1,
+ }),
+ });
+ });
+ filters.qAll.forEach((phrase) => {
+ chips.push({
+ key: `q_all:${phrase}`,
+ label: `Wszystkie: „${phrase}"`,
+ clear: () =>
+ onUpdate({
+ qAll: filters.qAll.filter((x) => x !== phrase),
+ page: 1,
+ }),
+ });
+ });
+ filters.qAny.forEach((phrase) => {
+ chips.push({
+ key: `q_any:${phrase}`,
+ label: `Którakolwiek: „${phrase}"`,
+ clear: () =>
+ onUpdate({
+ qAny: filters.qAny.filter((x) => x !== phrase),
+ page: 1,
+ }),
+ });
+ });
+ filters.qNone.forEach((phrase) => {
+ chips.push({
+ key: `q_none:${phrase}`,
+ label: `Żadna: „${phrase}"`,
+ clear: () =>
+ onUpdate({
+ qNone: filters.qNone.filter((x) => x !== phrase),
+ page: 1,
+ }),
+ });
+ });
+ return chips;
 }
 
 export function ActiveFilterChips({
-  filters,
-  onUpdate,
-  poolsById,
-  usersById,
-  clientsById,
+ filters,
+ onUpdate,
+ poolsById,
+ usersById,
+ clientsById,
 }: ActiveFilterChipsProps) {
-  const chips = collectChips(filters, onUpdate, poolsById, usersById, clientsById);
-  if (chips.length === 0) return null;
+ const chips = collectChips(filters, onUpdate, poolsById, usersById, clientsById);
+ if (chips.length === 0) return null;
 
-  const clearAll = () =>
-    onUpdate({
-      q: "",
-      status: [],
-      employment: [],
-      availability: [],
-      location: "",
-      remote: [],
-      skills: [],
-      poolIds: [],
-      addedByIds: [],
-      currentCompany: [],
-      pastCompany: [],
-      currentTitle: [],
-      workedAtClientIds: [],
-      qAll: [],
-      qAny: [],
-      qNone: [],
-      page: 1,
-    });
+ const clearAll = () =>
+ onUpdate({
+ q:"",
+ status: [],
+ employment: [],
+ availability: [],
+ location:"",
+ remote: [],
+ skills: [],
+ poolIds: [],
+ addedByIds: [],
+ currentCompany: [],
+ pastCompany: [],
+ currentTitle: [],
+ workedAtClientIds: [],
+ qAll: [],
+ qAny: [],
+ qNone: [],
+ page: 1,
+ });
 
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {chips.map((chip) => (
-        <button
-          key={chip.key}
-          onClick={chip.clear}
-          className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-[hsl(var(--accent-soft))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))] hover:text-white transition-colors"
-          aria-label={`Usuń filtr: ${chip.label}`}
-        >
-          <span className="truncate max-w-[180px]">{chip.label}</span>
-          <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
-        </button>
-      ))}
-      <button
-        onClick={clearAll}
-        className="text-xs text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] ml-1"
-      >
-        Wyczyść wszystko
-      </button>
-    </div>
-  );
+ return (
+ <div className="flex flex-wrap items-center gap-1.5">
+ {chips.map((chip) => (
+ <button
+ key={chip.key}
+ onClick={chip.clear}
+ className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors"
+ aria-label={`Usuń filtr: ${chip.label}`}
+ >
+ <span className="truncate max-w-[180px]">{chip.label}</span>
+ <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
+ </button>
+ ))}
+ <button
+ onClick={clearAll}
+ className="text-xs text-muted-foreground hover:text-primary ml-1"
+ >
+ Wyczyść wszystko
+ </button>
+ </div>
+ );
 }

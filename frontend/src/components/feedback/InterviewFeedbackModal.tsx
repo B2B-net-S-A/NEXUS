@@ -260,7 +260,7 @@ export function InterviewFeedbackModal({
               {candidate.phone && (
                 <a
                   href={`tel:${candidate.phone}`}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium hover:bg-primary/15 transition-colors"
                 >
                   <Phone className="w-4 h-4" />
                   Zadzwoń: {candidate.phone}
@@ -269,7 +269,7 @@ export function InterviewFeedbackModal({
               {candidate.email && (
                 <a
                   href={`mailto:${candidate.email}`}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100 transition-colors"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-muted text-foreground text-sm font-medium hover:bg-muted transition-colors"
                 >
                   <Mail className="w-4 h-4" />
                   {candidate.email}
@@ -288,8 +288,8 @@ export function InterviewFeedbackModal({
                 className={
                   "px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px " +
                   (source === s
-                    ? "border-blue-600 text-blue-700"
-                    : "border-transparent text-gray-500 hover:text-gray-700")
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground")
                 }
               >
                 {s === "candidate_side"
@@ -433,7 +433,7 @@ export function InterviewFeedbackModal({
 
           {/* Error */}
           {error && (
-            <div className="p-3 rounded-md bg-red-50 text-red-700 text-sm">
+            <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
               {error}
             </div>
           )}
@@ -451,7 +451,7 @@ export function InterviewFeedbackModal({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            className="px-4 py-2 rounded-md border border-border text-sm text-foreground hover:bg-muted"
           >
             Anuluj
           </button>
@@ -459,7 +459,7 @@ export function InterviewFeedbackModal({
             type="button"
             onClick={handleSubmit}
             disabled={createMutation.isPending || submitted}
-            className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 rounded-md bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
           >
             {createMutation.isPending ? "Zapisuję…" : "Zapisz feedback"}
           </button>
@@ -482,7 +482,7 @@ function RatingField({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground mb-1">
         {label}
       </label>
       <div className="flex gap-1">
@@ -494,8 +494,8 @@ function RatingField({
             className={
               "w-10 h-10 rounded-md border text-sm font-semibold transition-colors " +
               (value === n
-                ? "bg-blue-600 text-white border-blue-600"
-                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50")
+                ? "bg-primary text-white border-primary"
+                : "bg-card text-foreground border-border hover:bg-muted")
             }
           >
             {n}
@@ -519,13 +519,13 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground mb-1">
         {label}
       </label>
       <select
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
       >
         <option value="">— wybierz —</option>
         {options.map((opt) => (
@@ -553,16 +553,16 @@ function TextAreaField({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-foreground mb-1">
         {label}
-        {required && <span className="text-red-500"> *</span>}
+        {required && <span className="text-destructive"> *</span>}
       </label>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
       />
     </div>
   );

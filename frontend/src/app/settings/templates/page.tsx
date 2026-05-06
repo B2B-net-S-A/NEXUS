@@ -63,12 +63,12 @@ const CATEGORY_LABELS: Record<EmailCategory, string> = {
 };
 
 const CATEGORY_COLORS: Record<EmailCategory, string> = {
-  application_received: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  application_received: "bg-primary/15 text-primary dark:bg-primary/40 dark:text-primary",
   screening_invite: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
   interview_invite: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-  rejection: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  rejection: "bg-destructive/15 text-destructive dark:bg-red-900/40 dark:text-red-300",
   offer: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-  general: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+  general: "bg-muted text-muted-foreground dark:bg-muted dark:text-muted-foreground",
 };
 
 const AVAILABLE_PLACEHOLDERS = [
@@ -99,33 +99,33 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
             <Eye className="w-5 h-5 text-violet-500" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground">
               Podgląd: {template.name}
             </h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
-            <div className="flex items-center gap-2 text-gray-400 py-8 justify-center">
+            <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
               <Loader2 className="w-5 h-5 animate-spin" /> Generowanie podglądu...
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Temat</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{preview?.subject}</p>
+              <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Temat</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground">{preview?.subject}</p>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Treść</p>
-                <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
+              <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Treść</p>
+                <pre className="text-sm text-foreground dark:text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
                   {preview?.body}
                 </pre>
               </div>
@@ -138,10 +138,10 @@ function PreviewModal({ template, onClose }: { template: EmailTemplate; onClose:
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+        <div className="px-6 py-4 border-t border-border dark:border-border flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:bg-muted dark:hover:bg-gray-600 transition-colors"
           >
             Zamknij
           </button>
@@ -166,23 +166,23 @@ function DeleteConfirmModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-sm p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
-            <Trash2 className="w-5 h-5 text-red-600" />
+          <div className="w-10 h-10 bg-destructive/15 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+            <Trash2 className="w-5 h-5 text-destructive" />
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 dark:text-gray-100">Usuń szablon</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Tej operacji nie można cofnąć</p>
+            <h3 className="font-bold text-foreground dark:text-foreground">Usuń szablon</h3>
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">Tej operacji nie można cofnąć</p>
           </div>
         </div>
-        <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
+        <p className="text-sm text-foreground dark:text-muted-foreground mb-6">
           Czy na pewno chcesz usunąć szablon <span className="font-semibold">&ldquo;{template.name}&rdquo;</span>?
         </p>
         <div className="flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+            className="flex-1 px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:bg-muted dark:hover:bg-gray-600 transition-colors"
           >
             Anuluj
           </button>
@@ -326,10 +326,10 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full">
       {/* Editor header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
         <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-blue-500" />
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">
+          <FileText className="w-5 h-5 text-primary" />
+          <h2 className="font-bold text-foreground dark:text-foreground">
             {isEdit ? "Edytuj szablon" : "Nowy szablon"}
           </h2>
         </div>
@@ -343,7 +343,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
                 "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border",
                 sendTestSuccess
                   ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
-                  : "bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600"
+                  : "bg-card dark:bg-muted text-muted-foreground dark:text-muted-foreground border-border dark:border-border hover:bg-muted dark:hover:bg-gray-600"
               )}
               title="Wyślij testowy email na swój adres"
             >
@@ -371,7 +371,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
         {/* Name + Category */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            <label className="block text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-1.5">
               Nazwa szablonu *
             </label>
             <input
@@ -379,17 +379,17 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="np. Zaproszenie na rozmowę"
-              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            <label className="block text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-1.5">
               Kategoria *
             </label>
             <select
               value={form.category}
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as EmailCategory }))}
-              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
             >
               {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -400,7 +400,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
 
         {/* Subject */}
         <div>
-          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+          <label className="block text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-1.5">
             Temat emaila *
           </label>
           <input
@@ -408,13 +408,13 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             value={form.subject}
             onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
             placeholder="np. Zaproszenie na rozmowę — {{job_title}}"
-            className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
           />
         </div>
 
         {/* Placeholder hints */}
-        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 border border-blue-100 dark:border-blue-800">
-          <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-2">
+        <div className="bg-primary/10 dark:bg-primary/10 rounded-xl p-3 border border-primary/15 dark:border-primary/30">
+          <p className="text-xs font-semibold text-primary dark:text-primary mb-2">
             Zmienne (kliknij aby wstawić w treść):
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -424,7 +424,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
                 type="button"
                 onClick={() => insertPlaceholder(key)}
                 title={desc}
-                className="px-2 py-0.5 bg-white dark:bg-gray-700 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 text-xs font-mono rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                className="px-2 py-0.5 bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 text-primary dark:text-primary text-xs font-mono rounded-lg hover:bg-primary/15 dark:hover:bg-primary/40 transition-colors"
               >
                 {key}
               </button>
@@ -434,7 +434,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
 
         {/* Body */}
         <div>
-          <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+          <label className="block text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-1.5">
             Treść emaila *
           </label>
           <textarea
@@ -443,9 +443,9 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
             placeholder="Wpisz treść emaila..."
             rows={14}
-            className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm resize-y bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono leading-relaxed"
+            className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm resize-y bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent font-mono leading-relaxed"
           />
-          <p className="text-xs text-gray-400 mt-1">{form.body.length} znaków</p>
+          <p className="text-xs text-muted-foreground mt-1">{form.body.length} znaków</p>
         </div>
 
         {/* Default checkbox */}
@@ -454,16 +454,16 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             type="checkbox"
             checked={form.is_default}
             onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
-            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-border text-primary focus-visible:ring-ring"
           />
           <div className="flex items-center gap-1.5">
             <Star className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-sm text-gray-700 dark:text-gray-300">Szablon domyślny</span>
+            <span className="text-sm text-foreground dark:text-muted-foreground">Szablon domyślny</span>
           </div>
         </label>
 
         {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">
+          <div className="flex items-center gap-2 p-3 bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl text-destructive dark:text-destructive text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {error}
           </div>
@@ -471,18 +471,18 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border dark:border-border bg-muted dark:bg-card/50">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+          className="px-4 py-2 text-sm font-medium text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground transition-colors"
         >
           Anuluj
         </button>
         <button
           type="submit"
           disabled={saveMutation.isPending}
-          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+          className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm"
         >
           {saveMutation.isPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -496,28 +496,28 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       {/* Preview Modal */}
       {showPreview && preview && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-violet-500" />
-                <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Podgląd szablonu</h2>
+                <h2 className="text-lg font-bold text-foreground dark:text-foreground">Podgląd szablonu</h2>
               </div>
               <button
                 type="button"
                 onClick={() => setShowPreview(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Temat</p>
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{preview.subject}</p>
+              <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Temat</p>
+                <p className="text-sm font-semibold text-foreground dark:text-foreground">{preview.subject}</p>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Treść</p>
-                <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
+              <div className="bg-muted dark:bg-card rounded-xl border border-border dark:border-border p-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Treść</p>
+                <pre className="text-sm text-foreground dark:text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
                   {preview.body}
                 </pre>
               </div>
@@ -527,11 +527,11 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
                 </p>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <div className="px-6 py-4 border-t border-border dark:border-border flex justify-end">
               <button
                 type="button"
                 onClick={() => setShowPreview(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:bg-muted transition-colors"
               >
                 Zamknij
               </button>
@@ -598,8 +598,8 @@ export default function EmailTemplatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Szablony emaili</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Szablony emaili</h1>
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
             Zarządzaj szablonami komunikacji z kandydatami
           </p>
         </div>
@@ -615,7 +615,7 @@ export default function EmailTemplatesPage() {
           )}
           <button
             onClick={() => setSelectedTemplate(null)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary/90 transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" />
             Nowy szablon
@@ -642,9 +642,9 @@ export default function EmailTemplatesPage() {
       {/* Master-detail layout */}
       <div className="flex-1 flex gap-4 min-h-0">
         {/* Left panel: template list */}
-        <div className="w-80 flex-shrink-0 flex flex-col bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="w-80 flex-shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
           {/* Category tabs */}
-          <div className="flex flex-wrap gap-1 p-3 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex flex-wrap gap-1 p-3 border-b border-border dark:border-border">
             {ALL_CATEGORIES.map(({ value, label }) => (
               <button
                 key={value}
@@ -652,8 +652,8 @@ export default function EmailTemplatesPage() {
                 className={cn(
                   "px-2.5 py-1 text-xs font-medium rounded-lg transition-colors",
                   activeCategory === value
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    ? "bg-primary text-white"
+                    : "text-muted-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted"
                 )}
               >
                 {label}
@@ -664,18 +664,18 @@ export default function EmailTemplatesPage() {
           {/* Template list */}
           <div className="flex-1 overflow-y-auto">
             {isLoading ? (
-              <div className="flex items-center justify-center gap-2 py-12 text-gray-400">
+              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span className="text-sm">Ładowanie...</span>
               </div>
             ) : filteredTemplates.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-muted-foreground">
                 <Mail className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">Brak szablonów</p>
                 {activeCategory === "all" && (
                   <button
                     onClick={handleSeedTemplates}
-                    className="mt-3 text-xs text-blue-500 hover:underline"
+                    className="mt-3 text-xs text-primary hover:underline"
                   >
                     Dodaj domyślne →
                   </button>
@@ -688,17 +688,17 @@ export default function EmailTemplatesPage() {
                     key={t.id}
                     onClick={() => setSelectedTemplate(t)}
                     className={cn(
-                      "group px-4 py-3.5 cursor-pointer transition-colors border-b border-gray-50 dark:border-gray-700/50 last:border-b-0",
+                      "group px-4 py-3.5 cursor-pointer transition-colors border-b border-gray-50 dark:border-border/50 last:border-b-0",
                       selectedTemplate && "id" in selectedTemplate && selectedTemplate.id === t.id
-                        ? "bg-blue-50 dark:bg-blue-900/20 border-l-2 border-l-blue-500"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                        ? "bg-primary/10 dark:bg-primary/10 border-l-2 border-l-blue-500"
+                        : "hover:bg-muted dark:hover:bg-muted/50"
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           {t.is_default && <Star className="w-3 h-3 text-amber-400 flex-shrink-0" />}
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                          <p className="text-sm font-semibold text-foreground dark:text-foreground truncate">
                             {t.name}
                           </p>
                         </div>
@@ -710,7 +710,7 @@ export default function EmailTemplatesPage() {
                         >
                           {CATEGORY_LABELS[t.category]}
                         </span>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate font-mono">
+                        <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1 truncate font-mono">
                           {t.subject}
                         </p>
                       </div>
@@ -718,7 +718,7 @@ export default function EmailTemplatesPage() {
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
-                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 dark:hover:bg-red-900/20 rounded transition-colors"
                           title="Usuń"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -732,8 +732,8 @@ export default function EmailTemplatesPage() {
           </div>
 
           {/* List footer */}
-          <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
-            <p className="text-xs text-gray-400">
+          <div className="px-4 py-3 border-t border-border dark:border-border bg-muted dark:bg-card/30">
+            <p className="text-xs text-muted-foreground">
               {filteredTemplates.length} szablon{filteredTemplates.length !== 1 ? "ów" : ""}
               {activeCategory !== "all" && ` · ${CATEGORY_LABELS[activeCategory as EmailCategory]}`}
             </p>
@@ -741,18 +741,18 @@ export default function EmailTemplatesPage() {
         </div>
 
         {/* Right panel: editor or empty state */}
-        <div className="flex-1 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
           {selectedTemplate === undefined && (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8">
+            <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
               <Mail className="w-16 h-16 mb-4 opacity-20" />
-              <p className="text-lg font-medium mb-2 text-gray-500 dark:text-gray-400">Wybierz szablon</p>
+              <p className="text-lg font-medium mb-2 text-muted-foreground dark:text-muted-foreground">Wybierz szablon</p>
               <p className="text-sm text-center mb-6">
                 Kliknij na szablon po lewej stronie, aby go edytować,<br />
                 lub utwórz nowy.
               </p>
               <button
                 onClick={() => setSelectedTemplate(null)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary dark:text-primary bg-primary/10 dark:bg-primary/10 rounded-xl hover:bg-primary/15 dark:hover:bg-primary/40 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Nowy szablon

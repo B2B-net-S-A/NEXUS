@@ -88,36 +88,36 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             {isEdit ? "Edytuj użytkownika" : "Dodaj użytkownika"}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-300">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Imię i nazwisko</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Imię i nazwisko</label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="Jan Kowalski"
             />
           </div>
 
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Email</label>
               <input
                 type="email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
                 placeholder="jan@example.com"
               />
             </div>
@@ -125,23 +125,23 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
 
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Hasło</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Hasło</label>
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => set("password", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
                 placeholder="••••••••"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Rola systemowa</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Rola systemowa</label>
             <select
               value={form.role}
               onChange={(e) => set("role", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
@@ -150,11 +150,11 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Rola rekrutacyjna</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna</label>
             <select
               value={form.recruiter_role}
               onChange={(e) => set("recruiter_role", e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             >
               {RECRUITER_ROLES.map((r) => (
                 <option key={r} value={r}>{RECRUITER_ROLE_LABELS[r] ?? r}</option>
@@ -166,14 +166,14 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
         <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-900 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-foreground border border-border rounded-lg hover:bg-muted dark:bg-card transition-colors"
           >
             Anuluj
           </button>
           <button
             onClick={() => onSave(form)}
             disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
           >
             {loading ? "Zapisywanie..." : "Zapisz"}
           </button>
@@ -207,27 +207,27 @@ function ResetPasswordModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
+      <div className="bg-card dark:bg-muted rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Reset hasła</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-300">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground dark:text-muted-foreground">
           Reset hasła dla użytkownika <strong>{user.name}</strong> ({user.email}).
         </p>
 
         {/* Tab switcher */}
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+        <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-lg">
           <button
             type="button"
             onClick={() => setMode("manual")}
             className={cn(
               "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
               mode === "manual"
-                ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100"
-                : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                ? "bg-card dark:bg-muted shadow-sm text-foreground dark:text-foreground"
+                : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             )}
           >
             Ustaw ręcznie
@@ -238,8 +238,8 @@ function ResetPasswordModal({
             className={cn(
               "flex-1 px-3 py-2 text-xs font-medium rounded-md transition-colors",
               mode === "send_link"
-                ? "bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100"
-                : "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                ? "bg-card dark:bg-muted shadow-sm text-foreground dark:text-foreground"
+                : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             )}
           >
             Wyślij link mailem
@@ -248,7 +248,7 @@ function ResetPasswordModal({
 
         {mode === "manual" ? (
           <div className="space-y-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground dark:text-muted-foreground">
               Ustaw hasło tymczasowe i przekaż je użytkownikowi (np. na Slacku).
               Po pierwszym logowaniu user zostanie poproszony o zmianę hasła na własne.
             </p>
@@ -256,7 +256,7 @@ function ResetPasswordModal({
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-muted dark:text-foreground rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="Nowe hasło (min. 8 znaków)"
               minLength={8}
               autoFocus
@@ -264,7 +264,7 @@ function ResetPasswordModal({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-gray-700 dark:text-gray-300">
+            <p className="text-sm text-foreground dark:text-muted-foreground">
               Wyślemy na adres <strong>{user.email}</strong> wiadomość z linkiem
               do ustawienia nowego hasła. Link jest ważny <strong>60 minut</strong>.
               User sam wybiera nowe hasło — Ty go nie znasz.
@@ -275,7 +275,7 @@ function ResetPasswordModal({
         <div className="flex justify-end gap-3 pt-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-foreground dark:text-muted-foreground border border-border dark:border-border rounded-lg hover:bg-muted dark:hover:bg-muted transition-colors"
           >
             Anuluj
           </button>
@@ -283,7 +283,7 @@ function ResetPasswordModal({
             <button
               onClick={() => onSaveManual(password)}
               disabled={loading || password.length < 8}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
             >
               {loading ? "Resetowanie…" : "Resetuj hasło"}
             </button>
@@ -291,7 +291,7 @@ function ResetPasswordModal({
             <button
               onClick={onSendLink}
               disabled={loading}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50"
             >
               {loading ? "Wysyłanie…" : "Wyślij link"}
             </button>
@@ -314,9 +314,9 @@ function SystemTab() {
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-1/2 mb-3" />
-            <div className="h-8 bg-gray-200 rounded w-1/3" />
+          <div key={i} className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 animate-pulse">
+            <div className="h-4 bg-muted rounded w-1/2 mb-3" />
+            <div className="h-8 bg-muted rounded w-1/3" />
           </div>
         ))}
       </div>
@@ -335,7 +335,7 @@ function SystemTab() {
 
   // System health panel
   const healthMetrics = [
-    { label: "Rozmiar bazy danych", value: stats.database?.size || "—", icon: Database, color: "bg-blue-50 dark:bg-blue-900/30 text-blue-600" },
+    { label: "Rozmiar bazy danych", value: stats.database?.size || "—", icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
     { label: "Uptime serwera", value: stats.uptime || "—", icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
     { label: "Cache", value: "Redis OK", icon: Cpu, color: "bg-purple-50 dark:bg-purple-900/30 text-purple-600" },
   ];
@@ -345,13 +345,13 @@ function SystemTab() {
       {/* Health panel */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {healthMetrics.map((m) => (
-          <div key={m.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+          <div key={m.label} className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4 flex items-center gap-3">
             <div className={cn("p-2 rounded-lg", m.color)}>
               <m.icon className="w-5 h-5" />
             </div>
             <div className="flex-1">
-              <div className="text-xs text-gray-500 dark:text-gray-400">{m.label}</div>
-              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{m.value}</div>
+              <div className="text-xs text-muted-foreground dark:text-muted-foreground">{m.label}</div>
+              <div className="text-sm font-semibold text-foreground dark:text-foreground">{m.value}</div>
             </div>
             <div className="w-2 h-2 rounded-full bg-green-500" title="Zdrowy" />
           </div>
@@ -361,34 +361,34 @@ function SystemTab() {
       {/* Count cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {statCards.map(({ label, value, icon }) => (
-          <div key={label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-1">
+          <div key={label} className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground dark:text-muted-foreground mb-1">
               <span>{icon}</span>
               <span>{label}</span>
             </div>
-            <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{value?.toLocaleString() ?? "—"}</p>
+            <p className="text-3xl font-bold text-foreground dark:text-foreground">{value?.toLocaleString() ?? "—"}</p>
           </div>
         ))}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-3">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Szczegóły bazy danych</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-3">
+        <h3 className="font-semibold text-foreground dark:text-foreground">Szczegóły bazy danych</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="text-gray-500 dark:text-gray-400">Nazwa</p>
-            <p className="font-medium text-gray-900 dark:text-gray-100">{stats.database.name}</p>
+            <p className="text-muted-foreground dark:text-muted-foreground">Nazwa</p>
+            <p className="font-medium text-foreground dark:text-foreground">{stats.database.name}</p>
           </div>
           <div>
-            <p className="text-gray-500 dark:text-gray-400">Rozmiar</p>
-            <p className="font-medium text-gray-900 dark:text-gray-100">{stats.database.size}</p>
+            <p className="text-muted-foreground dark:text-muted-foreground">Rozmiar</p>
+            <p className="font-medium text-foreground dark:text-foreground">{stats.database.size}</p>
           </div>
           <div>
-            <p className="text-gray-500 dark:text-gray-400">Czas działania serwera</p>
-            <p className="font-medium text-gray-900 dark:text-gray-100">{stats.uptime}</p>
+            <p className="text-muted-foreground dark:text-muted-foreground">Czas działania serwera</p>
+            <p className="font-medium text-foreground dark:text-foreground">{stats.uptime}</p>
           </div>
           <div>
-            <p className="text-gray-500 dark:text-gray-400">Czas serwera (UTC)</p>
-            <p className="font-medium text-gray-900 dark:text-gray-100">{new Date(stats.server_time).toLocaleString("pl-PL")}</p>
+            <p className="text-muted-foreground dark:text-muted-foreground">Czas serwera (UTC)</p>
+            <p className="font-medium text-foreground dark:text-foreground">{new Date(stats.server_time).toLocaleString("pl-PL")}</p>
           </div>
         </div>
       </div>
@@ -410,13 +410,13 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 const ACTION_COLORS: Record<string, string> = {
-  candidate_added: "bg-blue-100 text-blue-700",
+  candidate_added: "bg-primary/15 text-primary",
   stage_changed: "bg-purple-100 text-purple-700",
   call_made: "bg-orange-100 text-orange-700",
   screening_done: "bg-indigo-100 text-indigo-700",
   interview_scheduled: "bg-cyan-100 text-cyan-700",
   placement_closed: "bg-green-100 text-green-700",
-  note_added: "bg-gray-100 text-gray-700",
+  note_added: "bg-muted text-foreground",
   cv_uploaded: "bg-yellow-100 text-yellow-700",
 };
 
@@ -467,7 +467,7 @@ function AuditLogTab() {
 
   if (recentEntries.length === 0) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-400">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-8 text-center text-muted-foreground">
         <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
         <p>Brak aktywności w ostatnim tygodniu</p>
       </div>
@@ -475,31 +475,31 @@ function AuditLogTab() {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
-        <Activity className="w-4 h-4 text-blue-500" />
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Ostatnia aktywność użytkowników</h3>
-        <span className="ml-auto text-xs text-gray-400">Ostatnie 20 zdarzeń</span>
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-border dark:border-border flex items-center gap-2">
+        <Activity className="w-4 h-4 text-primary" />
+        <h3 className="font-semibold text-foreground dark:text-foreground">Ostatnia aktywność użytkowników</h3>
+        <span className="ml-auto text-xs text-muted-foreground">Ostatnie 20 zdarzeń</span>
       </div>
       <div className="divide-y divide-gray-50 dark:divide-gray-700">
         {recentEntries.map((entry, i) => (
-          <div key={i} className="flex items-center gap-4 px-6 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+          <div key={i} className="flex items-center gap-4 px-6 py-3 hover:bg-muted dark:hover:bg-muted/50 transition-colors">
             {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
               {entry.user_name.charAt(0)}
             </div>
             {/* User + action */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{entry.user_name}</span>
-                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", ACTION_COLORS[entry.action] || "bg-gray-100 text-gray-600")}>
+                <span className="text-sm font-medium text-foreground dark:text-foreground">{entry.user_name}</span>
+                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", ACTION_COLORS[entry.action] || "bg-muted text-muted-foreground")}>
                   {ACTION_LABELS[entry.action] || entry.action}
                 </span>
-                <span className="text-xs text-gray-400">#{entry.entity_id}</span>
+                <span className="text-xs text-muted-foreground">#{entry.entity_id}</span>
               </div>
             </div>
             {/* Timestamp */}
-            <div className="text-xs text-gray-400 flex-shrink-0 flex items-center gap-1">
+            <div className="text-xs text-muted-foreground flex-shrink-0 flex items-center gap-1">
               <Clock className="w-3 h-3" />
               {new Date(entry.created_at).toLocaleString("pl-PL", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </div>
@@ -539,13 +539,13 @@ function SystemHealthPanel({ stats }: { stats: any }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
       {healthMetrics.map((m) => (
-        <div key={m.label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-3">
+        <div key={m.label} className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4 flex items-center gap-3">
           <div className="p-2 bg-green-50 dark:bg-green-900/30 rounded-lg">
             <m.icon className="w-5 h-5 text-green-600" />
           </div>
           <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">{m.label}</div>
-            <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{m.value}</div>
+            <div className="text-xs text-muted-foreground dark:text-muted-foreground">{m.label}</div>
+            <div className="text-sm font-semibold text-foreground dark:text-foreground">{m.value}</div>
           </div>
           <div className="ml-auto w-2 h-2 rounded-full bg-green-500" title="Zdrowy" />
         </div>
@@ -598,14 +598,14 @@ function ImportTab() {
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     return (
       <div>
-        <div className="flex justify-between text-xs text-gray-500 mb-1">
+        <div className="flex justify-between text-xs text-muted-foreground mb-1">
           <span>{label}</span>
           <span>
             {done.toLocaleString()} / {total.toLocaleString()} ({pct}%)
           </span>
         </div>
-        <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-          <div className="h-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
+        <div className="w-full h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
+          <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
         </div>
       </div>
     );
@@ -613,12 +613,12 @@ function ImportTab() {
 
   return (
     <div className="space-y-5">
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
         <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
           <Database className="w-5 h-5 text-violet-500" />
           Import z talent-radar (Supabase)
         </h2>
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-muted-foreground mb-4">
           Ściąga kandydatów z projektu <code>talentradar-prod</code>. Pole <code>TALENT_RADAR_DSN</code>{" "}
           musi być ustawione w Coolify env. Embedding copy oszczędza koszt Voyage (~70k requestów).
         </p>
@@ -648,7 +648,7 @@ function ImportTab() {
               type="number"
               value={batchSize}
               onChange={e => setBatchSize(Number(e.target.value) || 500)}
-              className="w-24 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900"
+              className="w-24 px-2 py-1 rounded border border-border dark:border-border bg-card dark:bg-card"
               min={50}
               max={2000}
             />
@@ -670,14 +670,14 @@ function ImportTab() {
         </button>
 
         {startMutation.isError && (
-          <div className="mt-3 text-xs text-red-700 bg-red-50 rounded p-2">
+          <div className="mt-3 text-xs text-destructive bg-destructive/10 rounded p-2">
             {(startMutation.error as { response?: { data?: { detail?: string } } })?.response?.data
               ?.detail ?? "Błąd"}
           </div>
         )}
 
         {task && (
-          <div className="mt-5 space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="mt-5 space-y-4 pt-4 border-t border-border dark:border-border">
             <div className="flex justify-between items-center">
               <span className="text-sm">
                 Zadanie <code className="text-xs">{task.task_id}</code> — status:{" "}
@@ -686,15 +686,15 @@ function ImportTab() {
                     task.status === "done"
                       ? "text-emerald-600"
                       : task.status === "error"
-                      ? "text-red-600"
-                      : "text-blue-600"
+                      ? "text-destructive"
+                      : "text-primary"
                   }
                 >
                   {task.status}
                 </strong>
               </span>
               {task.finished_at && (
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-muted-foreground">
                   {new Date(task.finished_at).toLocaleString("pl-PL")}
                 </span>
               )}
@@ -707,11 +707,11 @@ function ImportTab() {
                   total={candidates.total}
                   label="Kandydaci"
                 />
-                <div className="grid grid-cols-4 gap-2 text-xs text-gray-600">
+                <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground">
                   <span>Inserted: {candidates.inserted.toLocaleString()}</span>
                   <span>Updated: {candidates.updated.toLocaleString()}</span>
                   <span>Skipped: {candidates.skipped.toLocaleString()}</span>
-                  <span className={candidates.errors ? "text-red-600" : ""}>
+                  <span className={candidates.errors ? "text-destructive" : ""}>
                     Errors: {candidates.errors.toLocaleString()}
                   </span>
                 </div>
@@ -725,10 +725,10 @@ function ImportTab() {
                   total={embeddings.total}
                   label="Embeddings (pgvector → Qdrant)"
                 />
-                <div className="grid grid-cols-3 gap-2 text-xs text-gray-600">
+                <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
                   <span>Copied: {embeddings.copied.toLocaleString()}</span>
                   <span>Missing in source: {embeddings.missing_source.toLocaleString()}</span>
-                  <span className={embeddings.errors ? "text-red-600" : ""}>
+                  <span className={embeddings.errors ? "text-destructive" : ""}>
                     Errors: {embeddings.errors.toLocaleString()}
                   </span>
                 </div>
@@ -736,17 +736,17 @@ function ImportTab() {
             )}
 
             {task.error && (
-              <pre className="text-xs text-red-700 bg-red-50 dark:bg-red-900/20 rounded p-2 whitespace-pre-wrap">
+              <pre className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 whitespace-pre-wrap">
                 {task.error}
               </pre>
             )}
 
             {candidates?.error_samples && candidates.error_samples.length > 0 && (
               <details className="text-xs">
-                <summary className="cursor-pointer text-gray-500">
+                <summary className="cursor-pointer text-muted-foreground">
                   Przykładowe błędy ({candidates.error_samples.length})
                 </summary>
-                <pre className="mt-2 p-2 bg-gray-50 dark:bg-gray-900 rounded whitespace-pre-wrap">
+                <pre className="mt-2 p-2 bg-muted dark:bg-card rounded whitespace-pre-wrap">
                   {candidates.error_samples.join("\n")}
                 </pre>
               </details>
@@ -756,28 +756,28 @@ function ImportTab() {
       </div>
 
       {tasks && tasks.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4">
           <h3 className="font-medium mb-2">Historia importów (sesja pamięci)</h3>
           <ul className="space-y-1 text-sm">
             {tasks.map(t => (
               <li
                 key={t.task_id}
-                className="flex items-center gap-3 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900 px-2 rounded"
+                className="flex items-center gap-3 py-1 cursor-pointer hover:bg-muted dark:hover:bg-card px-2 rounded"
                 onClick={() => setActiveTaskId(t.task_id)}
               >
-                <code className="text-xs text-gray-400">{t.task_id}</code>
+                <code className="text-xs text-muted-foreground">{t.task_id}</code>
                 <span
                   className={
                     t.status === "done"
                       ? "text-emerald-600"
                       : t.status === "error"
-                      ? "text-red-600"
-                      : "text-blue-600"
+                      ? "text-destructive"
+                      : "text-primary"
                   }
                 >
                   {t.status}
                 </span>
-                <span className="text-xs text-gray-400 ml-auto">
+                <span className="text-xs text-muted-foreground ml-auto">
                   {new Date(t.started_at).toLocaleString("pl-PL")}
                 </span>
               </li>
@@ -874,7 +874,7 @@ export default function AdminPage() {
 
   if (!user) return (
     <div className="p-8 flex items-center justify-center">
-      <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+      <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
     </div>
   );
   if (user.role !== "admin") return null;
@@ -895,16 +895,16 @@ export default function AdminPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Shield className="w-6 h-6 text-blue-600" />
+          <Shield className="w-6 h-6 text-primary" />
           <div>
             <h1 className="text-2xl font-bold">Panel administracyjny</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Zarządzaj użytkownikami i systemem</p>
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">Zarządzaj użytkownikami i systemem</p>
           </div>
         </div>
         {tab === "users" && (
           <button
             onClick={() => { setSelectedUser(null); setModal("create"); }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4" />
             Dodaj użytkownika
@@ -913,7 +913,7 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-lg w-fit">
         {[
           { id: "users" as Tab, label: "Użytkownicy", icon: Users },
           { id: "system" as Tab, label: "System", icon: Server },
@@ -925,8 +925,8 @@ export default function AdminPage() {
             onClick={() => setTab(id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === id
-                ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm"
-                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+                ? "bg-card dark:bg-gray-600 text-foreground dark:text-foreground shadow-sm"
+                : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
             }`}
           >
             <Icon className="w-4 h-4" />
@@ -937,33 +937,33 @@ export default function AdminPage() {
 
       {/* Users tab */}
       {tab === "users" && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
           {isLoading ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Ładowanie...</div>
+            <div className="p-8 text-center text-muted-foreground dark:text-muted-foreground">Ładowanie...</div>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Imię</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Email</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Rola</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Rola rekrutacyjna</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Ostatnia aktywność</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700">Akcje</th>
+                <tr className="border-b border-border dark:border-border bg-muted dark:bg-card">
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Imię</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Email</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Rola</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Rola rekrutacyjna</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Ostatnia aktywność</th>
+                  <th className="px-4 py-3 text-right font-semibold text-foreground">Akcje</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {(users ?? []).map((u) => (
-                  <tr key={u.id} className="hover:bg-gray-50 dark:bg-gray-900 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{u.name}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
+                  <tr key={u.id} className="hover:bg-muted dark:bg-card transition-colors">
+                    <td className="px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
+                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">{u.email}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/15 text-primary">
                         {ROLE_LABELS[u.role] ?? u.role}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
                       {u.recruiter_role ? (RECRUITER_ROLE_LABELS[u.recruiter_role] ?? u.recruiter_role) : "—"}
                     </td>
                     <td className="px-4 py-3">
@@ -971,16 +971,16 @@ export default function AdminPage() {
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           u.is_active
                             ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
+                            : "bg-destructive/15 text-destructive"
                         }`}
                       >
                         {u.is_active ? "Aktywny" : "Nieaktywny"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground text-xs">
                       {formatDate(u.last_activity)}
                       {u.activity_count > 0 && (
-                        <span className="ml-1 text-gray-400">({u.activity_count})</span>
+                        <span className="ml-1 text-muted-foreground">({u.activity_count})</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -989,7 +989,7 @@ export default function AdminPage() {
                         <button
                           onClick={() => { setSelectedUser(u); setModal("edit"); }}
                           title="Edytuj"
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                         >
                           <PencilLine className="w-4 h-4" />
                         </button>
@@ -998,7 +998,7 @@ export default function AdminPage() {
                         <button
                           onClick={() => { setSelectedUser(u); setModal("reset"); }}
                           title="Resetuj hasło"
-                          className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          className="p-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                         >
                           <KeyRound className="w-4 h-4" />
                         </button>
@@ -1009,8 +1009,8 @@ export default function AdminPage() {
                           title={u.is_active ? "Dezaktywuj" : "Aktywuj"}
                           className={`p-1.5 rounded-lg transition-colors ${
                             u.is_active
-                              ? "text-gray-400 hover:text-red-600 hover:bg-red-50"
-                              : "text-gray-400 hover:text-green-600 hover:bg-green-50"
+                              ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              : "text-muted-foreground hover:text-green-600 hover:bg-green-50"
                           }`}
                         >
                           {u.is_active ? (
@@ -1025,7 +1025,7 @@ export default function AdminPage() {
                 ))}
                 {users?.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       Brak użytkowników
                     </td>
                   </tr>

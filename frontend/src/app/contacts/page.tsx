@@ -116,41 +116,41 @@ function AddContactModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Dodaj kontakt</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:text-gray-300 transition-colors">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground">Dodaj kontakt</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-2">{error}</div>
+            <div className="text-sm text-destructive bg-destructive/10 rounded-lg px-4 py-2">{error}</div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
-                Imię i nazwisko <span className="text-red-500">*</span>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                Imię i nazwisko <span className="text-destructive">*</span>
               </label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => set("name", e.target.value)}
                 placeholder="Jan Kowalski"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
-                Firma <span className="text-red-500">*</span>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                Firma <span className="text-destructive">*</span>
               </label>
               <select
                 value={form.client_id}
                 onChange={(e) => set("client_id", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card"
               >
                 <option value="">— wybierz firmę —</option>
                 {clients.map((c) => (
@@ -162,57 +162,57 @@ function AddContactModal({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Email</label>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">Email</label>
               <input
                 type="email"
                 value={form.email}
                 onChange={(e) => set("email", e.target.value)}
                 placeholder="jan@firma.pl"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Telefon</label>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">Telefon</label>
               <input
                 type="tel"
                 value={form.phone}
                 onChange={(e) => set("phone", e.target.value)}
                 placeholder="+48 500 000 000"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Stanowisko</label>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">Stanowisko</label>
               <input
                 type="text"
                 value={form.position}
                 onChange={(e) => set("position", e.target.value)}
                 placeholder="HR Manager"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Dział</label>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">Dział</label>
               <input
                 type="text"
                 value={form.department}
                 onChange={(e) => set("department", e.target.value)}
                 placeholder="HR / IT"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
 
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Notatki</label>
+              <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">Notatki</label>
               <textarea
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
                 rows={2}
                 placeholder="Dodatkowe informacje..."
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
               />
             </div>
 
@@ -222,9 +222,9 @@ function AddContactModal({
                   type="checkbox"
                   checked={form.is_decision_maker}
                   onChange={(e) => set("is_decision_maker", e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border text-primary focus-visible:ring-ring"
                 />
-                <span className="text-sm text-gray-700">Decision Maker</span>
+                <span className="text-sm text-foreground">Decision Maker</span>
               </label>
             </div>
           </div>
@@ -233,14 +233,14 @@ function AddContactModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 transition-colors"
+              className="px-4 py-2 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground transition-colors"
             >
               Anuluj
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all"
+              className="flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Zapisz
@@ -271,10 +271,10 @@ function ContactRow({
         onClick={onToggle}
         className={cn(
           "cursor-pointer transition-colors",
-          expanded ? "bg-blue-50" : "hover:bg-gray-50 dark:bg-gray-900"
+          expanded ? "bg-primary/10" : "hover:bg-muted dark:bg-card"
         )}
       >
-        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+        <td className="px-4 py-3 text-sm font-medium text-foreground dark:text-foreground">
           <div className="flex items-center gap-2">
             {contact.is_decision_maker && (
               <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 flex-shrink-0" />
@@ -282,48 +282,48 @@ function ContactRow({
             {contact.name}
           </div>
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+        <td className="px-4 py-3 text-sm text-muted-foreground dark:text-muted-foreground">
           <button
             onClick={(e) => {
               e.stopPropagation();
               router.push(`/clients/${contact.client_id}`);
             }}
-            className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+            className="flex items-center gap-1 hover:text-primary transition-colors"
           >
-            <Building2 className="w-3.5 h-3.5 text-gray-300" />
+            <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
             {contact.client_name || `Klient #${contact.client_id}`}
           </button>
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+        <td className="px-4 py-3 text-sm text-muted-foreground dark:text-muted-foreground">
           {contact.email ? (
             <a
               href={`mailto:${contact.email}`}
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
             >
-              <Mail className="w-3.5 h-3.5 text-gray-300" />
+              <Mail className="w-3.5 h-3.5 text-muted-foreground" />
               {contact.email}
             </a>
           ) : (
-            <span className="text-gray-300">—</span>
+            <span className="text-muted-foreground">—</span>
           )}
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+        <td className="px-4 py-3 text-sm text-muted-foreground dark:text-muted-foreground">
           {contact.phone ? (
             <a
               href={`tel:${contact.phone}`}
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 hover:text-blue-600 transition-colors"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
             >
-              <Phone className="w-3.5 h-3.5 text-gray-300" />
+              <Phone className="w-3.5 h-3.5 text-muted-foreground" />
               {contact.phone}
             </a>
           ) : (
-            <span className="text-gray-300">—</span>
+            <span className="text-muted-foreground">—</span>
           )}
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-          {contact.position || <span className="text-gray-300">—</span>}
+        <td className="px-4 py-3 text-sm text-muted-foreground dark:text-muted-foreground">
+          {contact.position || <span className="text-muted-foreground">—</span>}
         </td>
         <td className="px-4 py-3">
           {contact.is_decision_maker ? (
@@ -332,15 +332,15 @@ function ContactRow({
               DM
             </span>
           ) : (
-            <span className="text-gray-300 text-xs">—</span>
+            <span className="text-muted-foreground text-xs">—</span>
           )}
         </td>
-        <td className="px-4 py-3 text-xs text-gray-400">
+        <td className="px-4 py-3 text-xs text-muted-foreground">
           {contact.last_contacted_at
             ? formatRelativeTime(contact.last_contacted_at)
-            : <span className="text-gray-200">brak</span>}
+            : <span className="text-muted-foreground">brak</span>}
         </td>
-        <td className="px-4 py-3 text-gray-400">
+        <td className="px-4 py-3 text-muted-foreground">
           {expanded ? (
             <ChevronUp className="w-4 h-4" />
           ) : (
@@ -349,19 +349,19 @@ function ContactRow({
         </td>
       </tr>
       {expanded && (
-        <tr className="bg-blue-50 border-t border-blue-100">
+        <tr className="bg-primary/10 border-t border-primary/15">
           <td colSpan={8} className="px-6 py-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               {contact.department && (
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Dział</p>
-                  <p className="font-medium text-gray-800">{contact.department}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Dział</p>
+                  <p className="font-medium text-foreground">{contact.department}</p>
                 </div>
               )}
               {contact.notes && (
                 <div className="col-span-2">
-                  <p className="text-xs text-gray-400 mb-0.5">Notatki</p>
-                  <p className="text-gray-700">{contact.notes}</p>
+                  <p className="text-xs text-muted-foreground mb-0.5">Notatki</p>
+                  <p className="text-foreground">{contact.notes}</p>
                 </div>
               )}
               <div className="flex items-end gap-2 md:col-start-4 justify-end">
@@ -370,7 +370,7 @@ function ContactRow({
                     e.stopPropagation();
                     window.open(`/clients/${contact.client_id}`, "_blank");
                   }}
-                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   Przejdź do klienta
@@ -434,14 +434,14 @@ export default function ContactsPage() {
 
   const tableHead = (
     <thead>
-      <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-left">
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Imię</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Firma</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Email</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Telefon</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stanowisko</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">DM</th>
-        <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Ostatni kontakt</th>
+      <tr className="border-b border-border dark:border-border bg-muted dark:bg-card text-left">
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Imię</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Firma</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Email</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Telefon</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Stanowisko</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">DM</th>
+        <th className="px-4 py-3 text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide">Ostatni kontakt</th>
         <th className="px-4 py-3 w-8" />
       </tr>
     </thead>
@@ -452,12 +452,12 @@ export default function ContactsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Kontakty</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{contacts.length} kontaktów</p>
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Kontakty</h1>
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground">{contacts.length} kontaktów</p>
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm"
+          className="flex items-center gap-2 bg-primary hover:bg-primary/90 hover:scale-[1.02] active:scale-95 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm"
         >
           <Plus className="w-4 h-4" />
           Dodaj kontakt
@@ -467,47 +467,47 @@ export default function ContactsPage() {
       {/* Search & filters */}
       <div className="flex gap-3 items-center">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Szukaj po imieniu lub emailu..."
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-300"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground"
             >
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer select-none">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground dark:text-muted-foreground cursor-pointer select-none">
           <input
             type="checkbox"
             checked={groupByCompany}
             onChange={(e) => setGroupByCompany(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-border text-primary focus-visible:ring-ring"
           />
           Grupuj wg firmy
         </label>
       </div>
 
       {/* Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden shadow-sm">
         {isLoading ? (
           <div className="p-12 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
           </div>
         ) : contacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-              <UserSquare2 className="w-8 h-8 text-gray-300" />
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+              <UserSquare2 className="w-8 h-8 text-muted-foreground" />
             </div>
-            <p className="text-gray-500 dark:text-gray-400 font-medium">Brak kontaktów</p>
-            <p className="text-sm text-gray-400 mt-1">
+            <p className="text-muted-foreground dark:text-muted-foreground font-medium">Brak kontaktów</p>
+            <p className="text-sm text-muted-foreground mt-1">
               {search ? "Brak wyników dla podanego wyszukiwania" : "Dodaj pierwszy kontakt aby zacząć"}
             </p>
           </div>
@@ -515,10 +515,10 @@ export default function ContactsPage() {
           // Grouped view
           Array.from(grouped.entries()).map(([companyName, companyContacts]) => (
             <div key={companyName} className="mb-0">
-              <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-                <Building2 className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-semibold text-gray-700">{companyName}</span>
-                <span className="text-xs text-gray-400 ml-1">({companyContacts.length})</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-muted dark:bg-card border-b border-border dark:border-border">
+                <Building2 className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-foreground">{companyName}</span>
+                <span className="text-xs text-muted-foreground ml-1">({companyContacts.length})</span>
               </div>
               <table className="w-full text-sm">
                 {tableHead}

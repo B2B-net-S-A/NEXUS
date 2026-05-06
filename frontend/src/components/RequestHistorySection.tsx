@@ -89,7 +89,7 @@ function similarityTone(pct: number): string {
     return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300";
   if (pct >= 70)
     return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300";
-  return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+  return "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground";
 }
 
 export function RequestHistorySection({ jobId, clientId }: Props) {
@@ -158,14 +158,14 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
   );
 
   return (
-    <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+    <section className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-semibold inline-flex items-center gap-2">
             <History className="w-5 h-5 text-amber-600" />
             Historia requestu
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Bliźniacze requesty tego klienta — outcome, champion, TTH, fee,
             owner.
             {meta && meta.voyage_count > 0 ? (
@@ -178,7 +178,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             ) : null}
           </p>
         </div>
-        <label className="text-xs text-gray-600 dark:text-gray-400 inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
+        <label className="text-xs text-muted-foreground dark:text-muted-foreground inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
           <input
             type="checkbox"
             checked={crossClient}
@@ -191,7 +191,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
       </div>
 
       {/* Bucket tabs */}
-      <div className="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-2 mb-4 border-b border-border dark:border-border">
         <button
           type="button"
           onClick={() => setActiveBucket("closed")}
@@ -199,7 +199,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             "px-3 py-1.5 text-sm font-medium border-b-2 transition-colors " +
             (activeBucket === "closed"
               ? "border-amber-600 text-amber-600"
-              : "border-transparent text-gray-500 hover:text-gray-700")
+              : "border-transparent text-muted-foreground hover:text-foreground")
           }
         >
           Zamknięte ({closed.length})
@@ -211,7 +211,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             "px-3 py-1.5 text-sm font-medium border-b-2 transition-colors " +
             (activeBucket === "in_progress"
               ? "border-amber-600 text-amber-600"
-              : "border-transparent text-gray-500 hover:text-gray-700")
+              : "border-transparent text-muted-foreground hover:text-foreground")
           }
         >
           W toku ({inProgress.length})
@@ -220,13 +220,13 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
 
       {/* Content */}
       {query.isLoading && (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" />
           Szukam siostrzanych requestów…
         </div>
       )}
       {query.isError && (
-        <div className="text-sm text-red-600 dark:text-red-400 inline-flex items-center gap-1.5">
+        <div className="text-sm text-destructive dark:text-destructive inline-flex items-center gap-1.5">
           <AlertCircle className="w-4 h-4" />
           Nie udało się pobrać historii. Spróbuj ponownie.
         </div>
@@ -238,7 +238,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
         />
       )}
       {!query.isLoading && !query.isError && total > 0 && visible.length === 0 && (
-        <p className="text-sm text-gray-500 italic">
+        <p className="text-sm text-muted-foreground italic">
           {activeBucket === "closed"
             ? "Brak zamkniętych siostrzanych requestów."
             : "Brak siostrzanych requestów w toku."}
@@ -309,11 +309,11 @@ function RequestHistoryRow({
   const fee = formatFee(entry.fee_rate, entry.fee_currency, entry.rate_unit);
 
   return (
-    <li className="border border-gray-200 dark:border-gray-800 rounded-lg p-3 bg-white dark:bg-gray-900 space-y-2">
+    <li className="border border-border dark:border-border rounded-lg p-3 bg-card dark:bg-card space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
+            <span className="font-medium text-foreground dark:text-foreground truncate">
               {entry.title}
             </span>
             {entry.train_name && (
@@ -324,7 +324,7 @@ function RequestHistoryRow({
               </span>
             )}
             {entry.seniority && (
-              <span className="text-[10px] uppercase tracking-wide text-gray-500">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {entry.seniority}
               </span>
             )}
@@ -341,7 +341,7 @@ function RequestHistoryRow({
           <button
             type="button"
             onClick={onOpen}
-            className="text-xs px-2 py-1 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 inline-flex items-center gap-1"
+            className="text-xs px-2 py-1 rounded bg-card dark:bg-muted border border-border dark:border-border hover:bg-muted inline-flex items-center gap-1"
           >
             <ArrowUpRight className="w-3 h-3" />
             Otwórz
@@ -388,13 +388,13 @@ function MetaRow({
 }) {
   const closedAt = formatDateShort(entry.closed_at);
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400 mt-1">
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground dark:text-muted-foreground mt-1">
       <span
         className={
           "inline-flex items-center gap-1 px-1.5 py-0.5 rounded " +
           (entry.is_in_progress
-            ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-            : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300")
+            ? "bg-primary/10 text-primary dark:bg-primary/30 dark:text-primary"
+            : "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground")
         }
       >
         {statusLabel(entry.status)}
@@ -432,7 +432,7 @@ function MetaRow({
         </span>
       )}
       {(entry.tac_name || entry.delivery_lead_name) && (
-        <span className="text-gray-500" title="Owner roli">
+        <span className="text-muted-foreground" title="Owner roli">
           {entry.tac_name ? `TAC: ${entry.tac_name}` : ""}
           {entry.tac_name && entry.delivery_lead_name ? " · " : ""}
           {entry.delivery_lead_name ? `DL: ${entry.delivery_lead_name}` : ""}
@@ -444,7 +444,7 @@ function MetaRow({
         </span>
       )}
       {closedAt && !entry.is_in_progress && (
-        <span title="Data zamknięcia" className="text-gray-500">
+        <span title="Data zamknięcia" className="text-muted-foreground">
           zamknięty {closedAt}
         </span>
       )}
@@ -460,7 +460,7 @@ function EmptyState({
   onTryCrossClient: () => void;
 }) {
   return (
-    <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+    <div className="text-sm text-muted-foreground dark:text-muted-foreground italic">
       {crossClient
         ? "Brak siostrzanych requestów w bazie."
         : "Brak historycznych requestów u tego klienta."}

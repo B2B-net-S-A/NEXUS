@@ -149,7 +149,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
   };
 
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-900">
+    <div className="rounded-lg border border-border dark:border-border p-4 bg-card dark:bg-card">
       <div className="flex items-center gap-2 mb-3">
         <Award className="w-4 h-4 text-amber-500" />
         <h3 className="text-sm font-semibold">Zaangażowanie</h3>
@@ -182,10 +182,10 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
                   className="mt-0.5"
                 />
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:underline">
+                  <div className="text-sm font-medium text-foreground dark:text-foreground group-hover:underline">
                     {f.label}
                   </div>
-                  <div className="text-xs text-gray-500">{f.description}</div>
+                  <div className="text-xs text-muted-foreground">{f.description}</div>
                 </div>
               </label>
               {isStale && days !== null && (
@@ -205,13 +205,13 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
         })}
       </div>
       <label className="block mt-3">
-        <span className="text-xs text-gray-500">Notatka do zaangażowania</span>
+        <span className="text-xs text-muted-foreground">Notatka do zaangażowania</span>
         <textarea
           value={flags.engagement_notes ?? ""}
           onChange={(e) =>
             setFlags((prev) => ({ ...prev, engagement_notes: e.target.value }))
           }
-          className="mt-1 w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-sm bg-white dark:bg-gray-950"
+          className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           rows={2}
           placeholder="Jaką rolę chciałby pełnić? Jakie projekty by go interesowały?"
         />
@@ -222,7 +222,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           onClick={generateMagicLink}
           disabled={linkPending}
           title="Wyślij kandydatowi link, gdzie sam zaktualizuje preferencje"
-          className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm px-3 py-1.5 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border dark:border-border hover:bg-muted dark:hover:bg-muted text-sm px-3 py-1.5 disabled:opacity-50"
         >
           <LinkIcon className="w-3.5 h-3.5" />
           {linkPending ? "Generuję…" : "Magic-link"}
@@ -231,7 +231,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           type="button"
           onClick={() => mut.mutate(flags)}
           disabled={mut.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm px-3 py-1.5"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 disabled:opacity-50 text-white text-sm px-3 py-1.5"
         >
           <Save className="w-3.5 h-3.5" />
           {mut.isPending ? "Zapisywanie…" : "Zapisz"}
@@ -245,7 +245,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           <code className="block mt-0.5 text-amber-700 dark:text-amber-400 break-all">
             {linkUrl}
           </code>
-          <div className="mt-1 text-gray-500">
+          <div className="mt-1 text-muted-foreground">
             Wyślij kandydatowi (Slack/email/SMS). Link jednokrotny, ważny 30 dni.
           </div>
         </div>

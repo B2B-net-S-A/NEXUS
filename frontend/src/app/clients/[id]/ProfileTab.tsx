@@ -40,7 +40,7 @@ export function ProfileTab({ clientId }: Props) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-gray-400">
+      <div className="flex items-center justify-center py-12 text-muted-foreground">
         <div className="w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mr-2" />
         Ładowanie profilu...
       </div>
@@ -49,7 +49,7 @@ export function ProfileTab({ clientId }: Props) {
 
   if (isError || !data) {
     return (
-      <div className="text-center py-12 text-red-500 text-sm">
+      <div className="text-center py-12 text-destructive text-sm">
         Nie udało się wczytać profilu klienta.
       </div>
     );
@@ -143,7 +143,7 @@ function OpenJobsSection({
                   <button
                     onClick={() => onCloseAsLost(job)}
                     title="Zamknij jako przegraną"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
                   >
                     <XCircle className="w-3 h-3" />
                     Lost
@@ -192,7 +192,7 @@ function ActiveConsultantsSection({
                   <button
                     onClick={() => onTerminate(c)}
                     title="Zakończ kontrakt"
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
                   >
                     <Trash2 className="w-3 h-3" />
                     Zakończ
@@ -224,12 +224,12 @@ function HistorySection({
   return (
     <section className="space-y-3">
       <SectionHeader
-        icon={<FileText className="w-4 h-4 text-gray-500" />}
+        icon={<FileText className="w-4 h-4 text-muted-foreground" />}
         title="Historia"
         count={total}
       />
 
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex gap-2 border-b border-border dark:border-border">
         <SubTabButton
           active={tab === "placements"}
           onClick={() => setTab("placements")}
@@ -294,10 +294,10 @@ function SectionHeader({
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
         {icon}
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+        <h3 className="text-sm font-semibold text-foreground dark:text-muted-foreground">
           {title}
         </h3>
-        <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold">
+        <span className="text-xs px-2 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded-full font-semibold">
           {count}
         </span>
       </div>
@@ -314,7 +314,7 @@ function EmptyState({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-10 text-gray-400 dark:text-gray-500">
+    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground dark:text-muted-foreground">
       <div className="opacity-40 mb-2">{icon}</div>
       <p className="text-sm">{children}</p>
     </div>
@@ -339,7 +339,7 @@ function SubTabButton({
         "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors",
         active
           ? "border-purple-600 text-purple-600"
-          : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          : "border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
       )}
     >
       {icon}

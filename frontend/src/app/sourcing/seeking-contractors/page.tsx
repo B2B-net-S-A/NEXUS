@@ -12,11 +12,11 @@ export default function SeekingContractorsPage() {
           <div className="bg-purple-100 dark:bg-purple-900/30 p-2 rounded-lg">
             <Search className="w-6 h-6 text-purple-600 dark:text-purple-400" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground">
             Konsultanci szukający projektu
           </h1>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400 max-w-3xl">
+        <p className="text-sm text-muted-foreground dark:text-muted-foreground max-w-3xl">
           Lista konsultantów z kontraktami kończącymi się w najbliższym czasie
           oraz tych, którzy zaznaczyli &ldquo;aktywnie szuka&rdquo; lub &ldquo;otwarty
           na oferty&rdquo;. Dla każdego AI dobiera top dopasowania z otwartych

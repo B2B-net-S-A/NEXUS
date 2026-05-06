@@ -102,10 +102,10 @@ interface RateHistoryEntry {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-700 border border-gray-200 dark:bg-gray-700 dark:text-gray-200",
+  draft: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
   active: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   ending: "bg-orange-100 text-orange-700 border border-orange-200",
-  ended: "bg-red-100 text-red-700 border border-red-200",
+  ended: "bg-destructive/15 text-destructive border border-destructive/20",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -195,7 +195,7 @@ function GenerateDocumentButton({
           if (id) openRendered(id);
           e.target.value = "";
         }}
-        className="flex items-center gap-2 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 px-3 py-2 rounded-lg text-sm font-medium"
+        className="flex items-center gap-2 border border-border dark:border-border text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted px-3 py-2 rounded-lg text-sm font-medium"
       >
         <option value="">Generuj z szablonu…</option>
         {templates.map((t) => (
@@ -266,10 +266,10 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-start gap-3 py-2">
-      <Icon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+      <Icon className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
-        <div className="text-sm text-gray-900 dark:text-gray-100">{children}</div>
+        <div className="text-xs text-muted-foreground dark:text-muted-foreground">{label}</div>
+        <div className="text-sm text-foreground dark:text-foreground">{children}</div>
       </div>
     </div>
   );
@@ -450,14 +450,14 @@ export default function ContractDetailPage() {
   if (Number.isNaN(id)) {
     return (
       <div className="p-6">
-        <p className="text-red-600">Nieprawidłowe ID kontraktu.</p>
+        <p className="text-destructive">Nieprawidłowe ID kontraktu.</p>
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="p-6 flex items-center justify-center text-gray-500">
+      <div className="p-6 flex items-center justify-center text-muted-foreground">
         <Loader2 className="w-5 h-5 animate-spin mr-2" /> Ładowanie kontraktu…
       </div>
     );
@@ -468,11 +468,11 @@ export default function ContractDetailPage() {
       <div className="p-6">
         <Link
           href="/contracts"
-          className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground"
         >
           <ArrowLeft className="w-4 h-4" /> Wróć do listy
         </Link>
-        <p className="mt-4 text-red-600">Nie udało się wczytać kontraktu.</p>
+        <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
       </div>
     );
   }
@@ -493,7 +493,7 @@ export default function ContractDetailPage() {
         <div className="space-y-1">
           <Link
             href="/contracts"
-            className="inline-flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
@@ -501,7 +501,7 @@ export default function ContractDetailPage() {
             Kontrakt #{contract.id}
             <StatusBadge status={contract.status} />
             {complianceRisk.risk === "overdue" && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive border border-destructive/20">
                 Compliance: dokument wygasł
               </span>
             )}
@@ -511,10 +511,10 @@ export default function ContractDetailPage() {
               </span>
             )}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
             {contract.candidate_name ? (
               <Link
-                className="text-blue-600 hover:underline dark:text-blue-400"
+                className="text-primary hover:underline dark:text-primary"
                 href={`/candidates/${contract.candidate_id}`}
               >
                 {contract.candidate_name}
@@ -525,7 +525,7 @@ export default function ContractDetailPage() {
             {" · "}
             {contract.client_name ? (
               <Link
-                className="text-blue-600 hover:underline dark:text-blue-400"
+                className="text-primary hover:underline dark:text-primary"
                 href={`/clients/${contract.client_id}`}
               >
                 {contract.client_name}
@@ -543,7 +543,7 @@ export default function ContractDetailPage() {
             {!editing && (
               <button
                 onClick={handleStartEdit}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
                 <Pencil className="w-4 h-4" /> Edytuj
               </button>
@@ -567,7 +567,7 @@ export default function ContractDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-700 flex gap-1 overflow-x-auto">
+      <div className="border-b border-border dark:border-border flex gap-1 overflow-x-auto">
         {TABS.map((t) => {
           const active = t.key === activeTab;
           const Icon = t.icon;
@@ -577,8 +577,8 @@ export default function ContractDetailPage() {
               onClick={() => setActiveTab(t.key)}
               className={`flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
                 active
-                  ? "border-blue-600 text-blue-600 font-medium"
-                  : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                  ? "border-primary text-primary font-medium"
+                  : "border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -594,15 +594,15 @@ export default function ContractDetailPage() {
           <div className="lg:col-span-2 space-y-4">
             {/* View mode */}
             {!editing && (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-1">
-                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+              <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-1">
+                <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
                   Informacje o kontrakcie
                 </h2>
                 <InfoRow icon={User} label="Kandydat">
                   {contract.candidate_name ? (
                     <Link
                       href={`/candidates/${contract.candidate_id}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
+                      className="text-primary hover:underline dark:text-primary"
                     >
                       {contract.candidate_name}
                     </Link>
@@ -614,7 +614,7 @@ export default function ContractDetailPage() {
                   {contract.client_name ? (
                     <Link
                       href={`/clients/${contract.client_id}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
+                      className="text-primary hover:underline dark:text-primary"
                     >
                       {contract.client_name}
                     </Link>
@@ -626,18 +626,18 @@ export default function ContractDetailPage() {
                   {contract.job_title ? (
                     <Link
                       href={`/jobs/${contract.job_id}`}
-                      className="text-blue-600 hover:underline dark:text-blue-400"
+                      className="text-primary hover:underline dark:text-primary"
                     >
                       {contract.job_title}
                     </Link>
                   ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-muted-foreground">—</span>
                   )}
                 </InfoRow>
                 <InfoRow icon={Calendar} label="Okres">
                   {formatDate(contract.start_date)} –{" "}
                   {contract.end_date ? formatDate(contract.end_date) : (
-                    <span className="italic text-gray-500">bezterminowo</span>
+                    <span className="italic text-muted-foreground">bezterminowo</span>
                   )}
                 </InfoRow>
                 {contract.client_order_end_date && (
@@ -672,25 +672,25 @@ export default function ContractDetailPage() {
 
             {/* Termination info — visible only after the contract is ended */}
             {!editing && contract.status === "ended" && contract.termination_reason && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-2xl p-5">
+              <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-900 rounded-2xl p-5">
                 <h2 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
                   Zakończenie współpracy
                 </h2>
                 <p className="text-sm">
-                  <span className="text-gray-500">Powód: </span>
+                  <span className="text-muted-foreground">Powód: </span>
                   {CONTRACT_TERMINATION_REASONS.find(
                     (r) => r.value === contract.termination_reason,
                   )?.label ?? contract.termination_reason}
                 </p>
                 {contract.terminated_at && (
                   <p className="text-sm">
-                    <span className="text-gray-500">Data: </span>
+                    <span className="text-muted-foreground">Data: </span>
                     {formatDate(contract.terminated_at)}
                   </p>
                 )}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
-                    <span className="text-gray-500 block">Wnioski:</span>
+                    <span className="text-muted-foreground block">Wnioski:</span>
                     {contract.termination_lessons}
                   </p>
                 )}
@@ -699,15 +699,15 @@ export default function ContractDetailPage() {
 
             {/* Assignment context */}
             {!editing && (contract.client_pm_name || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-1">
-                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+              <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-1">
+                <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
                   Osadzenie u klienta
                 </h2>
                 {contract.client_pm_name && (
                   <InfoRow icon={User} label="PM po stronie klienta">
                     {contract.client_pm_name}
                     {contract.client_pm_email && (
-                      <span className="block text-xs text-gray-500 dark:text-gray-400">
+                      <span className="block text-xs text-muted-foreground dark:text-muted-foreground">
                         {contract.client_pm_email}
                       </span>
                     )}
@@ -748,21 +748,21 @@ export default function ContractDetailPage() {
             {editing && form && (
               <form
                 onSubmit={handleSave}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-4"
+                className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-4"
               >
-                <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground">
                   Edycja kontraktu
                 </h2>
 
                 {error && (
-                  <div className="text-sm text-red-700 bg-red-50 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-4 py-2 flex items-center gap-2">
+                  <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-4 py-2 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4" /> {error}
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Data rozpoczęcia
                     </label>
                     <input
@@ -771,11 +771,11 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, start_date: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Data zakończenia
                     </label>
                     <input
@@ -784,11 +784,11 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, end_date: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Koniec zamówienia u klienta
                     </label>
                     <input
@@ -799,11 +799,11 @@ export default function ContractDetailPage() {
                           f ? { ...f, client_order_end_date: e.target.value } : f,
                         )
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Typ kontraktu
                     </label>
                     <select
@@ -811,7 +811,7 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, contract_type: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
                       <option value="b2b">B2B</option>
                       <option value="uop">UoP</option>
@@ -819,7 +819,7 @@ export default function ContractDetailPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Status
                     </label>
                     <select
@@ -827,7 +827,7 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, status: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
                       <option value="draft">Draft</option>
                       <option value="active">Aktywny</option>
@@ -839,7 +839,7 @@ export default function ContractDetailPage() {
 
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka kandydata
                     </label>
                     <input
@@ -850,11 +850,11 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_candidate: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka klienta
                     </label>
                     <input
@@ -865,11 +865,11 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_client: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Widełki docelowe (min)
                     </label>
                     <input
@@ -882,11 +882,11 @@ export default function ContractDetailPage() {
                           f ? { ...f, target_rate_min: e.target.value } : f,
                         )
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Widełki docelowe (max)
                     </label>
                     <input
@@ -899,11 +899,11 @@ export default function ContractDetailPage() {
                           f ? { ...f, target_rate_max: e.target.value } : f,
                         )
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Waluta
                     </label>
                     <select
@@ -911,7 +911,7 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, currency: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
                       <option value="PLN">PLN</option>
                       <option value="EUR">EUR</option>
@@ -923,7 +923,7 @@ export default function ContractDetailPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Jednostka stawki
                     </label>
                     <select
@@ -931,7 +931,7 @@ export default function ContractDetailPage() {
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_unit: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
                       <option value="monthly">Miesięcznie</option>
                       <option value="daily">Dziennie</option>
@@ -940,7 +940,7 @@ export default function ContractDetailPage() {
                   </div>
                   {form.rate_unit === "hourly" && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                         Godziny / miesiąc
                       </label>
                       <input
@@ -951,14 +951,14 @@ export default function ContractDetailPage() {
                         onChange={(e) =>
                           setForm((f) => (f ? { ...f, billing_hours_per_month: e.target.value } : f))
                         }
-                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                        className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                <div className="border-t border-border dark:border-border pt-3">
+                  <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                     Notatki wewnętrzne (widoczne tylko dla TAC/delivery)
                   </label>
                   <textarea
@@ -968,18 +968,18 @@ export default function ContractDetailPage() {
                       setForm((f) => (f ? { ...f, handover_notes: e.target.value } : f))
                     }
                     placeholder="Preferencje kontraktora, quirks, historia relacji z klientem…"
-                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                   />
                 </div>
 
-                <details className="border-t border-gray-100 dark:border-gray-700 pt-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                <details className="border-t border-border dark:border-border pt-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-foreground dark:text-muted-foreground mb-2">
                     Osadzenie u klienta
                   </summary>
                   <div className="space-y-3 mt-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           PM po stronie klienta
                         </label>
                         <input
@@ -988,12 +988,12 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, client_pm_name: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                           placeholder="Jan Kowalski"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Email PM
                         </label>
                         <input
@@ -1002,14 +1002,14 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, client_pm_email: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                           placeholder="jan.kowalski@klient.pl"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Tryb pracy
                         </label>
                         <select
@@ -1017,7 +1017,7 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, work_mode: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                         >
                           <option value="">— nie określono —</option>
                           <option value="remote">Zdalnie</option>
@@ -1026,7 +1026,7 @@ export default function ContractDetailPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Lokalizacja biura
                         </label>
                         <input
@@ -1035,14 +1035,14 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, office_location: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                           placeholder="Warszawa — Domaniewska 50"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Projekt
                         </label>
                         <input
@@ -1051,11 +1051,11 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, project_name: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                           Zespół
                         </label>
                         <input
@@ -1064,7 +1064,7 @@ export default function ContractDetailPage() {
                           onChange={(e) =>
                             setForm((f) => (f ? { ...f, team_name: e.target.value } : f))
                           }
-                          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                         />
                       </div>
                     </div>
@@ -1075,14 +1075,14 @@ export default function ContractDetailPage() {
                   <button
                     type="button"
                     onClick={handleCancelEdit}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 rounded-lg"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
                   >
                     <X className="w-4 h-4" /> Anuluj
                   </button>
                   <button
                     type="submit"
                     disabled={updateMutation.isPending}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+                    className="flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
                   >
                     {updateMutation.isPending ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -1098,11 +1098,11 @@ export default function ContractDetailPage() {
 
           {/* Right sidebar: rates & margin */}
           <div className="space-y-4">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 space-y-3">
-              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+            <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+              <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground flex items-center gap-2">
                 <Banknote className="w-4 h-4" /> Stawki finansowe
               </h2>
-              <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+              <div className="text-xs text-muted-foreground dark:text-muted-foreground flex items-center justify-between">
                 <span>Jednostka: {RATE_UNIT_LABELS[contract.rate_unit] ?? contract.rate_unit}</span>
                 {contract.rate_unit === "hourly" && (
                   <span>{contract.billing_hours_per_month} h/mies.</span>
@@ -1110,26 +1110,26 @@ export default function ContractDetailPage() {
               </div>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-500 dark:text-gray-400">Klient</span>
+                  <span className="text-muted-foreground dark:text-muted-foreground">Klient</span>
                   <span className="font-medium">
                     {formatCurrency(contract.rate_client, contract.currency)}
                     <span className="text-xs opacity-70">{unitSuffix}</span>
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500 dark:text-gray-400">Kandydat</span>
+                  <span className="text-muted-foreground dark:text-muted-foreground">Kandydat</span>
                   <span className="font-medium">
                     {formatCurrency(contract.rate_candidate, contract.currency)}
                     <span className="text-xs opacity-70">{unitSuffix}</span>
                   </span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                <div className="flex justify-between pt-2 border-t border-border dark:border-border">
+                  <span className="text-muted-foreground dark:text-muted-foreground flex items-center gap-1">
                     <TrendingUp className="w-3.5 h-3.5" /> Marża
                   </span>
                   <span
                     className={`font-bold text-right ${
-                      (contract.margin ?? 0) > 0 ? "text-emerald-600" : "text-red-600"
+                      (contract.margin ?? 0) > 0 ? "text-emerald-600" : "text-destructive"
                     }`}
                   >
                     {formatCurrency(contract.margin, contract.currency)}
@@ -1140,7 +1140,7 @@ export default function ContractDetailPage() {
                   </span>
                 </div>
                 {contract.rate_unit !== "monthly" && monthlyMargin !== null && (
-                  <div className="flex justify-between pt-1 text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex justify-between pt-1 text-xs text-muted-foreground dark:text-muted-foreground">
                     <span>Marża miesięcznie (≈)</span>
                     <span>{formatCurrency(monthlyMargin, contract.currency)}</span>
                   </div>
@@ -1148,7 +1148,7 @@ export default function ContractDetailPage() {
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 text-xs text-gray-500 dark:text-gray-400 space-y-1">
+            <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>
               <div>Aktualizacja: {formatDate(contract.updated_at)}</div>
             </div>
@@ -1167,14 +1167,14 @@ export default function ContractDetailPage() {
 
       {/* Tab: Sprzęt */}
       {activeTab === "equipment" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
           <ContractEquipmentTab contractId={id} />
         </div>
       )}
 
       {/* Tab: Notatki / rozmowy */}
       {activeTab === "notes" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
           <ContractNotesTab contractId={id} />
         </div>
       )}
@@ -1184,14 +1184,14 @@ export default function ContractDetailPage() {
 
       {/* Tab: Rate history */}
       {activeTab === "rateHistory" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
           {!rateHistory || rateHistory.length === 0 ? (
-            <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
               Brak historii stawek dla tego kandydata i klienta.
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-700/40 text-xs uppercase text-gray-500 dark:text-gray-400">
+              <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
                 <tr>
                   <th className="text-left px-4 py-2">Od</th>
                   <th className="text-left px-4 py-2">Do</th>
@@ -1204,7 +1204,7 @@ export default function ContractDetailPage() {
                 {rateHistory.map((row) => (
                   <tr
                     key={row.id}
-                    className="border-t border-gray-100 dark:border-gray-700"
+                    className="border-t border-border dark:border-border"
                   >
                     <td className="px-4 py-2">{formatDate(row.start_date)}</td>
                     <td className="px-4 py-2">
@@ -1214,7 +1214,7 @@ export default function ContractDetailPage() {
                     <td className="px-4 py-2 text-right font-medium">
                       {formatCurrency(row.rate, row.currency)}
                     </td>
-                    <td className="px-4 py-2 text-gray-500 dark:text-gray-400">
+                    <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
                       {row.notes ?? "—"}
                     </td>
                   </tr>
@@ -1227,32 +1227,32 @@ export default function ContractDetailPage() {
 
       {/* Tab: Timeline (activity log) */}
       {activeTab === "timeline" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6">
           {!activities || activities.length === 0 ? (
-            <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-6">
+            <div className="text-center text-sm text-muted-foreground dark:text-muted-foreground py-6">
               Brak wpisów w historii.
             </div>
           ) : (
             <ol className="space-y-4">
               {activities.map((a) => (
                 <li key={a.id} className="flex gap-3">
-                  <div className="w-2 h-2 rounded-full bg-blue-500 mt-2 shrink-0" />
+                  <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
                   <div className="flex-1">
-                    <div className="text-sm text-gray-900 dark:text-gray-100">
+                    <div className="text-sm text-foreground dark:text-foreground">
                       <span className="font-medium capitalize">{a.action}</span>
                       {a.user_name && (
-                        <span className="text-gray-500 dark:text-gray-400">
+                        <span className="text-muted-foreground dark:text-muted-foreground">
                           {" "}
                           · {a.user_name}
                         </span>
                       )}
                     </div>
                     {a.details && Object.keys(a.details).length > 0 && (
-                      <pre className="mt-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 rounded px-2 py-1 overflow-x-auto">
+                      <pre className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground bg-muted dark:bg-card/50 rounded px-2 py-1 overflow-x-auto">
                         {JSON.stringify(a.details, null, 2)}
                       </pre>
                     )}
-                    <div className="text-xs text-gray-400 mt-0.5">
+                    <div className="text-xs text-muted-foreground mt-0.5">
                       {formatDate(a.created_at)}
                     </div>
                   </div>

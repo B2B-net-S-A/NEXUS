@@ -71,31 +71,31 @@ export function AddCandidateToJobModal({
 
   return (
     <ModalShell onClose={onClose} title="Dodaj kandydata do oferty">
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
         Oferta:{" "}
-        <span className="font-medium text-gray-700 dark:text-gray-200">{jobTitle}</span>
+        <span className="font-medium text-foreground dark:text-muted-foreground">{jobTitle}</span>
       </p>
 
       <div className="relative">
-        <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
+        <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
         <input
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Szukaj po imieniu, emailu, skillu..."
-          className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-border dark:border-border dark:bg-muted rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
       </div>
 
       <div className="max-h-64 overflow-y-auto space-y-1 -mx-1 px-1">
         {debouncedQ.length < 2 ? (
-          <p className="text-xs text-gray-400 text-center py-6">
+          <p className="text-xs text-muted-foreground text-center py-6">
             Wpisz min. 2 znaki, aby wyszukać kandydata.
           </p>
         ) : isFetching ? (
-          <p className="text-xs text-gray-400 text-center py-6">Szukam...</p>
+          <p className="text-xs text-muted-foreground text-center py-6">Szukam...</p>
         ) : candidates.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-6">
+          <p className="text-xs text-muted-foreground text-center py-6">
             Brak wyników dla „{debouncedQ}".
           </p>
         ) : (
@@ -107,10 +107,10 @@ export function AddCandidateToJobModal({
               className="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors flex items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                <p className="text-sm font-medium text-foreground dark:text-muted-foreground truncate">
                   {c.name} {c.lastname}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">
                   {[c.competence_category, c.location, c.email]
                     .filter(Boolean)
                     .join(" · ") || "—"}
@@ -127,7 +127,7 @@ export function AddCandidateToJobModal({
       <div className="flex justify-end pt-2">
         <button
           onClick={onClose}
-          className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+          className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
         >
           Zamknij
         </button>

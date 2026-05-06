@@ -106,25 +106,25 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               toast.type === "success" &&
                 "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-200",
               toast.type === "error" &&
-                "bg-red-50 border-red-200 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200",
+                "bg-destructive/10 border-destructive/20 text-red-800 dark:bg-red-900/40 dark:border-red-700 dark:text-red-200",
               toast.type === "action" &&
-                "bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100"
+                "bg-primary/10 border-primary/20 text-primary dark:bg-primary/40 dark:border-primary/90 dark:text-primary"
             )}
           >
             {toast.type === "success" && (
               <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
             )}
             {toast.type === "error" && (
-              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0" />
             )}
             {toast.type === "action" && (
-              <Undo2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
+              <Undo2 className="w-4 h-4 text-primary flex-shrink-0" />
             )}
             <span className="flex-1">{toast.message}</span>
             {toast.type === "action" && toast.actionLabel && (
               <button
                 onClick={() => handleAction(toast)}
-                className="text-blue-700 dark:text-blue-100 font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity whitespace-nowrap"
+                className="text-primary dark:text-primary font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity whitespace-nowrap"
               >
                 {toast.actionLabel}
               </button>

@@ -52,7 +52,7 @@ export function AutoAssignedCollaborators({
   if (!competenceCategoryId) return null;
   if (isLoading)
     return (
-      <div className="text-[11px] text-gray-500 italic">
+      <div className="text-[11px] text-muted-foreground italic">
         Ładuję zespół CC…
       </div>
     );
@@ -85,8 +85,8 @@ export function AutoAssignedCollaborators({
     r.is_primary ? "burgundy" : r.priority === 1 ? "success" : "info";
 
   return (
-    <div className="space-y-2 rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/10 px-3 py-2">
-      <div className="flex items-center gap-2 text-[11px] font-medium text-blue-800 dark:text-blue-300">
+    <div className="space-y-2 rounded-lg border border-primary/15 dark:border-primary/40 bg-primary/10/40 dark:bg-primary/10 px-3 py-2">
+      <div className="flex items-center gap-2 text-[11px] font-medium text-primary dark:text-primary">
         <Sparkles className="w-3.5 h-3.5" />
         AI auto-podpina zespół CC (możesz odznaczyć)
       </div>
@@ -97,11 +97,11 @@ export function AutoAssignedCollaborators({
               type="checkbox"
               checked={selectedUserIds.includes(r.user_id)}
               onChange={() => toggle(r.user_id)}
-              className="w-3.5 h-3.5 rounded border-gray-300"
+              className="w-3.5 h-3.5 rounded border-border"
             />
-            <span className="flex-1 text-gray-800 dark:text-gray-200">
+            <span className="flex-1 text-foreground dark:text-muted-foreground">
               {r.name}
-              <span className="text-gray-500"> · {r.email}</span>
+              <span className="text-muted-foreground"> · {r.email}</span>
             </span>
             <Badge size="sm" variant={badgeVariant(r)}>
               {labelFor(r)}
@@ -110,7 +110,7 @@ export function AutoAssignedCollaborators({
         ))}
         {backup.length > 0 && (
           <>
-            <li className="text-[10px] uppercase tracking-wider text-gray-500 pt-1">
+            <li className="text-[10px] uppercase tracking-wider text-muted-foreground pt-1">
               Dostępni dodatkowo
             </li>
             {backup.map((r) => (
@@ -122,11 +122,11 @@ export function AutoAssignedCollaborators({
                   type="checkbox"
                   checked={selectedUserIds.includes(r.user_id)}
                   onChange={() => toggle(r.user_id)}
-                  className="w-3.5 h-3.5 rounded border-gray-300"
+                  className="w-3.5 h-3.5 rounded border-border"
                 />
-                <span className="flex-1 text-gray-700 dark:text-gray-300">
+                <span className="flex-1 text-foreground dark:text-muted-foreground">
                   {r.name}
-                  <span className="text-gray-500"> · {r.email}</span>
+                  <span className="text-muted-foreground"> · {r.email}</span>
                 </span>
                 <Badge size="sm" variant="info">
                   2nd priority

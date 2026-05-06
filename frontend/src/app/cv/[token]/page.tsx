@@ -65,7 +65,7 @@ export default function PublicCvPage() {
   if (loading) {
     return (
       <main className="max-w-4xl mx-auto p-6 pt-16">
-        <div className="animate-pulse text-center text-sm text-gray-500">
+        <div className="animate-pulse text-center text-sm text-muted-foreground">
           Ładowanie CV…
         </div>
       </main>
@@ -77,10 +77,10 @@ export default function PublicCvPage() {
       errorStatus === 410 ? "Link wygasł" : "Link niedostępny";
     return (
       <main className="max-w-xl mx-auto p-6 pt-16">
-        <div className="rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950 p-6 text-center">
-          <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-3" />
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 dark:border-red-900 dark:bg-red-950 p-6 text-center">
+          <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" />
           <h2 className="text-lg font-semibold mb-1">{heading}</h2>
-          <p className="text-sm text-red-700 dark:text-red-300">
+          <p className="text-sm text-destructive dark:text-red-300">
             {error ?? "Skontaktuj się z osobą, która udostępniła Ci ten link."}
           </p>
         </div>
@@ -101,26 +101,26 @@ export default function PublicCvPage() {
       {/* Header */}
       <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
             CV kandydata
           </p>
           <h1 className="text-xl sm:text-2xl font-semibold">
             {view.candidate_first_name ?? "Kandydat"}
             {view.job_title ? (
-              <span className="ml-2 text-base font-normal text-gray-500">
+              <span className="ml-2 text-base font-normal text-muted-foreground">
                 — {view.job_title}
               </span>
             ) : null}
           </h1>
           {expiresLabel ? (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Link aktywny do {expiresLabel}
             </p>
           ) : null}
         </div>
         <button
           onClick={() => window.print()}
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm font-medium shadow-sm"
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-primary hover:bg-primary/90 text-white px-4 py-2 text-sm font-medium shadow-sm"
         >
           <Printer className="h-4 w-4" />
           Drukuj / Zapisz jako PDF
@@ -128,7 +128,7 @@ export default function PublicCvPage() {
       </div>
 
       {/* CV iframe — sandboxed, srcDoc-rendered */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white shadow-sm overflow-hidden">
+      <div className="rounded-lg border border-border dark:border-border bg-card shadow-sm overflow-hidden">
         <iframe
           title="CV"
           srcDoc={view.cv_html}
@@ -139,7 +139,7 @@ export default function PublicCvPage() {
       </div>
 
       {/* Footer brand */}
-      <footer className="mt-6 flex items-center justify-center gap-2 text-xs text-gray-500">
+      <footer className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5" />
         <span>Nexus · B2B.net S.A.</span>
       </footer>

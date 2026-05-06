@@ -225,7 +225,7 @@ function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: str
 }
 
 function ErrorBanner({ error }: { error: string }) {
-  return <div className="text-sm text-destructive dark:text-red-400 bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
+  return <div className="text-sm text-destructive dark:text-destructive bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
 }
 
 // ── Modal: Dodaj / Edytuj kandydata ───────────────────────────────────────────

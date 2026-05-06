@@ -40,7 +40,7 @@ export function SeekingContractorsBoard() {
       />
 
       <div className="flex items-center justify-between mb-3">
-        <div className="text-sm text-gray-600 dark:text-gray-400">
+        <div className="text-sm text-muted-foreground dark:text-muted-foreground">
           {isLoading
             ? "Wyszukuję dopasowania…"
             : data
@@ -50,7 +50,7 @@ export function SeekingContractorsBoard() {
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 disabled:opacity-50"
+          className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 disabled:opacity-50"
           data-testid="refresh-board"
         >
           {isFetching ? (
@@ -63,7 +63,7 @@ export function SeekingContractorsBoard() {
       </div>
 
       {isError && (
-        <div className="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-3">
+        <div className="rounded bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive mb-3">
           Nie udało się załadować listy:{" "}
           {error instanceof Error ? error.message : "nieznany błąd"}
         </div>
@@ -71,20 +71,20 @@ export function SeekingContractorsBoard() {
 
       {isLoading && (
         <div className="flex justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       )}
 
       {!isLoading && data && data.items.length === 0 && (
         <div
-          className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-12 text-center"
+          className="rounded-lg border border-dashed border-border dark:border-border p-12 text-center"
           data-testid="empty-state"
         >
-          <Users className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-          <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-1">
+          <Users className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+          <h3 className="font-semibold text-foreground dark:text-muted-foreground mb-1">
             Brak konsultantów do ulokowania
           </h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto">
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
             Żaden kontrakt nie kończy się w wybranym horyzoncie i nikt nie ma
             statusu &ldquo;aktywnie szuka&rdquo; ani &ldquo;otwarty na oferty&rdquo;.
             Spróbuj zwiększyć horyzont lub poluzować filtry.

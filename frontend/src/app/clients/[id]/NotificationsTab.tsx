@@ -128,7 +128,7 @@ export function NotificationsTab({ clientId }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500 py-6">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
         <Loader2 className="w-4 h-4 animate-spin" />
         Ładuję reguły powiadomień…
       </div>
@@ -137,7 +137,7 @@ export function NotificationsTab({ clientId }: Props) {
 
   if (error) {
     return (
-      <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded px-3 py-2">
+      <p className="text-sm text-destructive bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-700 rounded px-3 py-2">
         {error}
       </p>
     );
@@ -145,12 +145,12 @@ export function NotificationsTab({ clientId }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
         <h2 className="flex items-center gap-2 text-base font-semibold mb-1">
-          <Bell className="w-5 h-5 text-blue-600" />
+          <Bell className="w-5 h-5 text-primary" />
           Powiadomienia per stage
         </h2>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           Override per klient. Jeśli na danym etapie istnieje przynajmniej
           jeden aktywny override poniżej, baseline rules z procesu rekrutacji
           są <strong>całkowicie pomijane</strong> dla tego klienta. Brak
@@ -161,12 +161,12 @@ export function NotificationsTab({ clientId }: Props) {
       {templates.map((tpl) => (
         <div
           key={tpl.id}
-          className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+          className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4"
         >
           <h3 className="font-medium text-sm mb-3">
             Proces: {tpl.name}
             {tpl.is_default && (
-              <span className="ml-2 text-xs text-blue-600">(domyślny)</span>
+              <span className="ml-2 text-xs text-primary">(domyślny)</span>
             )}
           </h3>
 
@@ -177,18 +177,18 @@ export function NotificationsTab({ clientId }: Props) {
               return (
                 <div
                   key={stage.id}
-                  className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40"
+                  className="rounded-md border border-border dark:border-border bg-muted dark:bg-card/40"
                 >
                   <div className="flex items-center gap-3 px-3 py-2">
                     <span className="font-medium text-sm flex-1">
                       {stage.name}
                     </span>
                     {list.length === 0 ? (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-muted-foreground">
                         Baseline z procesu „{tpl.name}"
                       </span>
                     ) : (
-                      <span className="text-xs text-blue-600">
+                      <span className="text-xs text-primary">
                         Override aktywny ({list.length}) — baseline pominięty
                       </span>
                     )}
@@ -196,7 +196,7 @@ export function NotificationsTab({ clientId }: Props) {
                       onClick={() =>
                         setCreatingFor(isCreating ? null : stage.id)
                       }
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-foreground dark:text-muted-foreground hover:bg-primary/10 dark:hover:bg-primary/30"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Dodaj override
@@ -210,14 +210,14 @@ export function NotificationsTab({ clientId }: Props) {
                         return (
                           <li
                             key={o.id}
-                            className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                            className="rounded border border-border dark:border-border bg-card dark:bg-muted"
                           >
                             <div className="flex items-center gap-3 px-2 py-1.5">
                               <span
                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                                   o.is_active
-                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                    : "bg-gray-100 text-gray-500 border border-gray-200"
+                                    ? "bg-primary/10 text-primary border border-primary/20"
+                                    : "bg-muted text-muted-foreground border border-border"
                                 }`}
                               >
                                 {RECIPIENT_LABELS[o.recipient_type]}
@@ -226,7 +226,7 @@ export function NotificationsTab({ clientId }: Props) {
                                   ? ` · #${o.specific_user_id}`
                                   : ""}
                               </span>
-                              <span className="flex items-center gap-2 text-xs text-gray-500">
+                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
                                 {o.notify_inapp && (
                                   <span className="inline-flex items-center gap-1">
                                     <Wifi className="w-3 h-3" /> in-app
@@ -246,14 +246,14 @@ export function NotificationsTab({ clientId }: Props) {
                               <div className="ml-auto flex items-center gap-1">
                                 <button
                                   onClick={() => setEditingId(o.id)}
-                                  className="p-1 text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
+                                  className="p-1 text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
                                   title="Edytuj"
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   onClick={() => handleDelete(o.id)}
-                                  className="p-1 text-red-400 hover:text-red-600"
+                                  className="p-1 text-red-400 hover:text-destructive"
                                   title="Usuń"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
@@ -310,7 +310,7 @@ export function NotificationsTab({ clientId }: Props) {
       ))}
 
       {templates.length === 0 && (
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           Brak procesów rekrutacyjnych w systemie.
         </p>
       )}

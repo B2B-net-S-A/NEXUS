@@ -39,7 +39,7 @@ interface ChampionCardProps {
 const FIT_LABEL: Record<string, { label: string; color: string }> = {
   fit: { label: "Pasuje", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
   uncertain: { label: "Niepewnie", color: "bg-amber-100 text-amber-800 border-amber-200" },
-  miss: { label: "Nie pasuje", color: "bg-red-100 text-red-700 border-red-200" },
+  miss: { label: "Nie pasuje", color: "bg-destructive/15 text-destructive border-destructive/20" },
 };
 
 export function ChampionCard({
@@ -77,7 +77,7 @@ export function ChampionCard({
 
   if (isLoading)
     return (
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800 flex items-center gap-2 text-sm text-gray-400">
+      <div className="rounded-lg border border-border dark:border-border p-4 bg-card dark:bg-muted flex items-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" /> Ładuję screening…
       </div>
     );
@@ -93,7 +93,7 @@ export function ChampionCard({
   // No Champion Profile configured for this job → nothing to show.
   if (questions.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-3 bg-white dark:bg-gray-800 text-xs text-gray-400">
+      <div className="rounded-lg border border-dashed border-border dark:border-border p-3 bg-card dark:bg-muted text-xs text-muted-foreground">
         Delivery Lead nie skonfigurował jeszcze Profilu Championa dla tej
         rekrutacji.
       </div>
@@ -135,11 +135,11 @@ export function ChampionCard({
           >
             {fit.label}
           </span>
-          <span className="text-gray-500">
+          <span className="text-muted-foreground">
             {answered}/{answers.answers.length}
           </span>
           {hasDealBreaker && (
-            <span className="px-1.5 py-0.5 rounded-md border bg-red-100 text-red-700 border-red-200 font-medium inline-flex items-center gap-0.5">
+            <span className="px-1.5 py-0.5 rounded-md border bg-destructive/15 text-destructive border-destructive/20 font-medium inline-flex items-center gap-0.5">
               <AlertTriangle className="w-3 h-3" />
               deal-breaker
             </span>
@@ -161,7 +161,7 @@ export function ChampionCard({
                 shareMut.mutate();
               }}
               disabled={shareMut.isPending}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-300 text-purple-700 hover:bg-purple-100 bg-white dark:bg-gray-900 font-medium"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-purple-300 text-purple-700 hover:bg-purple-100 bg-card dark:bg-card font-medium"
               data-testid="share-champion-card"
               title={
                 employment?.state === "employed_at_client"
@@ -177,7 +177,7 @@ export function ChampionCard({
               <button
                 type="button"
                 onClick={copyToClipboard}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-blue-300 text-blue-700 hover:bg-blue-100 bg-white dark:bg-gray-900 font-medium"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-primary/30 text-primary hover:bg-primary/15 bg-card dark:bg-card font-medium"
                 title={shareUrl}
               >
                 {copied ? (
@@ -194,7 +194,7 @@ export function ChampionCard({
                 href={shareUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-gray-200 text-gray-700 hover:bg-gray-50 bg-white dark:bg-gray-900"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-border text-foreground hover:bg-muted bg-card dark:bg-card"
                 title="Otwórz podgląd"
               >
                 <ExternalLink className="w-3 h-3" />
@@ -210,29 +210,29 @@ export function ChampionCard({
           return (
             <li
               key={q.id}
-              className="rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-2"
+              className="rounded-md bg-card dark:bg-muted border border-border dark:border-border p-2"
             >
               <div className="flex items-start gap-2">
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-mono mt-0.5">
                   Q{i + 1}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-800 dark:text-gray-100">
+                  <p className="text-xs font-medium text-foreground dark:text-foreground">
                     {q.question}
                   </p>
                   <p
                     className={cn(
                       "text-xs mt-1",
                       a?.deal_breaker_hit
-                        ? "text-red-700 font-medium"
-                        : "text-gray-700 dark:text-gray-200"
+                        ? "text-destructive font-medium"
+                        : "text-foreground dark:text-muted-foreground"
                     )}
                   >
                     {a?.response?.trim() || (
-                      <span className="italic text-gray-400">brak odpowiedzi</span>
+                      <span className="italic text-muted-foreground">brak odpowiedzi</span>
                     )}
                     {a?.deal_breaker_hit && (
-                      <span className="ml-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">
+                      <span className="ml-2 text-[10px] px-1 py-0.5 rounded bg-destructive/15 text-destructive border border-destructive/20">
                         deal-breaker ✗
                       </span>
                     )}
@@ -248,7 +248,7 @@ export function ChampionCard({
       </ul>
 
       {answers.notes && (
-        <p className="text-[11px] text-gray-600 dark:text-gray-400 italic border-t border-gray-200 dark:border-gray-700 pt-2">
+        <p className="text-[11px] text-muted-foreground dark:text-muted-foreground italic border-t border-border dark:border-border pt-2">
           {answers.notes}
         </p>
       )}

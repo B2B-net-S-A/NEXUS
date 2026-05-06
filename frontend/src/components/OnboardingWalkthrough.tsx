@@ -9,7 +9,7 @@ import { X, ArrowRight, LayoutDashboard, Users, Briefcase, Sparkles, CheckCircle
 const STEPS = [
   {
     id: "dashboard",
-    icon: <LayoutDashboard className="w-8 h-8 text-blue-500" />,
+    icon: <LayoutDashboard className="w-8 h-8 text-primary" />,
     title: "Dashboard",
     description: "Twoje centrum dowodzenia — statystyki rekrutacji, aktywności i KPI w jednym miejscu. Szybki podgląd pipeline'ów i nadchodzących spotkań.",
     action: "Zobacz Dashboard",
@@ -103,13 +103,13 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
     <div
       className={`fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 transition-opacity duration-200 ${closing ? "opacity-0" : "opacity-100"}`}
     >
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
         <div className="bg-gradient-to-r from-blue-600 to-violet-600 px-6 pt-6 pb-4 text-white">
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-xl font-bold">Witaj w Nexus! 🚀</h2>
-              <p className="text-blue-100 text-sm mt-1">Twój system ATS nowej generacji</p>
+              <p className="text-primary text-sm mt-1">Twój system ATS nowej generacji</p>
             </div>
             <button
               onClick={handleClose}
@@ -126,7 +126,7 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
                 key={s.id}
                 onClick={() => setStep(i)}
                 className={`h-1.5 rounded-full transition-all ${
-                  i === step ? "bg-white w-6" : i < step ? "bg-white/60 w-4" : "bg-white/30 w-4"
+                  i === step ? "bg-card w-6" : i < step ? "bg-card/60 w-4" : "bg-card/30 w-4"
                 }`}
               />
             ))}
@@ -136,21 +136,21 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
         {/* Content */}
         <div className="p-6">
           <div className="flex flex-col items-center text-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gray-50 dark:bg-gray-700 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl bg-muted dark:bg-muted flex items-center justify-center">
               {current.icon}
             </div>
             <div>
-              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+              <h3 className="text-xl font-bold text-foreground dark:text-foreground">
                 {current.title}
               </h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mt-2 leading-relaxed">
+              <p className="text-muted-foreground dark:text-muted-foreground text-sm mt-2 leading-relaxed">
                 {current.description}
               </p>
             </div>
           </div>
 
           {/* Step counter */}
-          <p className="text-center text-xs text-gray-400 mt-4">
+          <p className="text-center text-xs text-muted-foreground mt-4">
             Krok {step + 1} z {STEPS.length}
           </p>
         </div>
@@ -159,13 +159,13 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
         <div className="px-6 pb-6 flex gap-2">
           <button
             onClick={handleNavigate}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border border-border dark:border-border text-foreground dark:text-muted-foreground rounded-xl text-sm font-medium hover:bg-muted dark:hover:bg-muted transition-colors"
           >
             {current.action}
           </button>
           <button
             onClick={handleNext}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
           >
             {isLast ? (
               <><CheckCircle2 className="w-4 h-4" /> Zacznij pracę!</>
@@ -177,7 +177,7 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
 
         {/* Skip */}
         <div className="text-center pb-4">
-          <button onClick={handleClose} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={handleClose} className="text-xs text-muted-foreground hover:text-muted-foreground transition-colors">
             Pomiń przewodnik
           </button>
         </div>

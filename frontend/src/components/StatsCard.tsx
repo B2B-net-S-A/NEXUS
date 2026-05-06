@@ -2,13 +2,13 @@ import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const COLOR_MAP: Record<string, string> = {
-  blue:   "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800",
+  blue:   "bg-primary/10 dark:bg-primary/30 text-primary dark:text-primary border-primary/15 dark:border-primary/30",
   green:  "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-green-100 dark:border-green-800",
   purple: "bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-100 dark:border-purple-800",
   orange: "bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-800",
-  red:    "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800",
+  red:    "bg-destructive/10 dark:bg-red-900/30 text-destructive dark:text-destructive border-red-100 dark:border-red-800",
   teal:   "bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border-teal-100 dark:border-teal-800",
-  gray:   "bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-100 dark:border-gray-600",
+  gray:   "bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground border-border dark:border-border",
 };
 
 const SPARKLINE_COLORS: Record<string, string> = {
@@ -75,9 +75,9 @@ export function StatsCard({ title, value, subtitle, icon, color = "blue", trend,
   const strokeColor = SPARKLINE_COLORS[color] ?? SPARKLINE_COLORS.blue;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 flex flex-col gap-3 hover:shadow-md transition-all duration-200 cursor-default">
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 flex flex-col gap-3 hover:shadow-md transition-all duration-200 cursor-default">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</span>
+        <span className="text-sm font-medium text-muted-foreground dark:text-muted-foreground">{title}</span>
         <div className="flex items-center gap-2">
           {sparkline && <Sparkline values={sparkline} color={strokeColor} />}
           {icon && (
@@ -88,12 +88,12 @@ export function StatsCard({ title, value, subtitle, icon, color = "blue", trend,
         </div>
       </div>
       <div>
-        <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 leading-none">{value}</p>
-        {subtitle && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{subtitle}</p>}
+        <p className="text-3xl font-bold text-foreground dark:text-foreground leading-none">{value}</p>
+        {subtitle && <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{subtitle}</p>}
         {trend != null && (
-          <p className={cn("text-xs mt-1 font-medium", trend.value >= 0 ? "text-green-600" : "text-red-500")}>
+          <p className={cn("text-xs mt-1 font-medium", trend.value >= 0 ? "text-green-600" : "text-destructive")}>
             {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}%
-            {trend.label && <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">{trend.label}</span>}
+            {trend.label && <span className="text-muted-foreground dark:text-muted-foreground font-normal ml-1">{trend.label}</span>}
           </p>
         )}
       </div>

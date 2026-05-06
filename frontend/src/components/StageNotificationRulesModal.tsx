@@ -73,21 +73,21 @@ export function StageNotificationRulesModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white dark:bg-gray-800 shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-5 py-4">
+      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-card dark:bg-muted shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-border dark:border-border bg-card dark:bg-muted px-5 py-4">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Bell className="w-5 h-5 text-blue-600" />
+              <Bell className="w-5 h-5 text-primary" />
               Powiadomienia: {stageName}
             </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Reguły wyzwalane gdy kandydat WCHODZI na ten etap (forward-only,
               real-time).
             </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="rounded p-1 hover:bg-muted dark:hover:bg-muted"
           >
             <X className="w-5 h-5" />
           </button>
@@ -95,20 +95,20 @@ export function StageNotificationRulesModal({
 
         <div className="p-5 space-y-4">
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded px-3 py-2">
+            <p className="text-sm text-destructive bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-700 rounded px-3 py-2">
               {error}
             </p>
           )}
 
           {loading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500 py-6">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
               <Loader2 className="w-4 h-4 animate-spin" />
               Ładuję reguły…
             </div>
           ) : (
             <>
               {rules.length === 0 && editingId !== "new" && (
-                <p className="text-sm text-gray-500 py-2">
+                <p className="text-sm text-muted-foreground py-2">
                   Brak reguł. Dodaj pierwszą — kandydat na tym etapie nie
                   wygeneruje powiadomień, dopóki nie skonfigurujesz adresatów.
                 </p>
@@ -120,14 +120,14 @@ export function StageNotificationRulesModal({
                   return (
                     <li
                       key={r.id}
-                      className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+                      className="rounded-md border border-border dark:border-border bg-card dark:bg-muted"
                     >
                       <div className="flex items-center gap-3 px-3 py-2">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                             r.is_active
-                              ? "bg-blue-50 text-blue-700 border border-blue-200"
-                              : "bg-gray-100 text-gray-500 border border-gray-200"
+                              ? "bg-primary/10 text-primary border border-primary/20"
+                              : "bg-muted text-muted-foreground border border-border"
                           }`}
                         >
                           {RECIPIENT_LABELS[r.recipient_type]}
@@ -136,7 +136,7 @@ export function StageNotificationRulesModal({
                             ? ` · #${r.specific_user_id}`
                             : ""}
                         </span>
-                        <span className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
                           {r.notify_inapp && (
                             <span
                               title="In-app"
@@ -160,14 +160,14 @@ export function StageNotificationRulesModal({
                         <div className="ml-auto flex items-center gap-1">
                           <button
                             onClick={() => setEditingId(r.id)}
-                            className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-300 p-1"
+                            className="text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground p-1"
                             title="Edytuj"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(r.id)}
-                            className="text-red-400 hover:text-red-600 p-1"
+                            className="text-red-400 hover:text-destructive p-1"
                             title="Usuń"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -206,7 +206,7 @@ export function StageNotificationRulesModal({
               ) : (
                 <button
                   onClick={() => setEditingId("new")}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-dashed border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-dashed border-border dark:border-border text-sm text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted"
                 >
                   <Plus className="w-4 h-4" />
                   Dodaj regułę

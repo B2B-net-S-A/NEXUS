@@ -34,10 +34,10 @@ const EVENT_TYPE_CONFIG: Record<
 > = {
   interview: {
     label: "Rozmowa kwalifikacyjna",
-    color: "text-blue-700",
-    bgColor: "bg-blue-100",
-    borderColor: "border-blue-300",
-    dotColor: "bg-blue-500",
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+    borderColor: "border-primary/30",
+    dotColor: "bg-primary",
   },
   screening: {
     label: "Screening",
@@ -55,24 +55,24 @@ const EVENT_TYPE_CONFIG: Record<
   },
   meeting: {
     label: "Spotkanie",
-    color: "text-gray-700",
-    bgColor: "bg-gray-100",
-    borderColor: "border-gray-300",
+    color: "text-foreground",
+    bgColor: "bg-muted",
+    borderColor: "border-border",
     dotColor: "bg-gray-400",
   },
   deadline: {
     label: "Deadline",
-    color: "text-red-700",
-    bgColor: "bg-red-100",
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
     borderColor: "border-red-300",
-    dotColor: "bg-red-500",
+    dotColor: "bg-destructive/100",
   },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  scheduled: { label: "Zaplanowane", color: "bg-blue-100 text-blue-700" },
+  scheduled: { label: "Zaplanowane", color: "bg-primary/15 text-primary" },
   completed: { label: "Zakończone", color: "bg-green-100 text-green-700" },
-  cancelled: { label: "Anulowane", color: "bg-red-100 text-red-700" },
+  cancelled: { label: "Anulowane", color: "bg-destructive/15 text-destructive" },
 };
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 8:00 – 20:00
@@ -216,28 +216,28 @@ export default function CalendarPage() {
       />
 
       {/* ── Main calendar ── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl">
+      <div className="flex-1 flex flex-col overflow-hidden bg-card dark:bg-muted border border-border dark:border-border rounded-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border flex-shrink-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 capitalize">{monthLabel}</h1>
+            <h1 className="text-lg font-bold text-foreground dark:text-foreground capitalize">{monthLabel}</h1>
             <div className="flex items-center gap-1">
               <button
                 onClick={prevWeek}
-                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
+                className="p-1.5 hover:bg-muted rounded-lg transition-colors text-muted-foreground"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 onClick={nextWeek}
-                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
+                className="p-1.5 hover:bg-muted rounded-lg transition-colors text-muted-foreground"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
             <button
               onClick={goToday}
-              className="text-xs font-medium px-3 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+              className="text-xs font-medium px-3 py-1 bg-primary/10 text-primary hover:bg-primary/15 rounded-lg transition-colors"
             >
               Dzisiaj
             </button>
@@ -248,7 +248,7 @@ export default function CalendarPage() {
             {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
               <div key={key} className="flex items-center gap-1.5">
                 <div className={cn("w-2.5 h-2.5 rounded-full", cfg.dotColor)} />
-                <span className="text-xs text-gray-500">{cfg.label}</span>
+                <span className="text-xs text-muted-foreground">{cfg.label}</span>
               </div>
             ))}
           </div>
@@ -260,7 +260,7 @@ export default function CalendarPage() {
           />
           <button
             onClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
           >
             <Plus className="w-4 h-4" />
             Nowe wydarzenie
@@ -268,25 +268,25 @@ export default function CalendarPage() {
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div className="border-r border-gray-100" />
+        <div className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border dark:border-border flex-shrink-0">
+          <div className="border-r border-border" />
           {weekDays.map((day, i) => {
             const isToday = isSameDay(day, today);
             return (
               <div
                 key={i}
                 className={cn(
-                  "text-center py-2 border-r border-gray-100 last:border-r-0",
-                  isToday && "bg-blue-50"
+                  "text-center py-2 border-r border-border last:border-r-0",
+                  isToday && "bg-primary/10"
                 )}
               >
-                <div className="text-xs text-gray-400 font-medium">{DAY_NAMES[i]}</div>
+                <div className="text-xs text-muted-foreground font-medium">{DAY_NAMES[i]}</div>
                 <div
                   className={cn(
                     "text-sm font-bold mx-auto w-7 h-7 flex items-center justify-center rounded-full mt-0.5",
                     isToday
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700"
+                      ? "bg-primary text-white"
+                      : "text-foreground"
                   )}
                 >
                   {day.getDate()}
@@ -299,8 +299,8 @@ export default function CalendarPage() {
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="flex items-center justify-center h-32 text-gray-400">
-              <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mr-2" />
+            <div className="flex items-center justify-center h-32 text-muted-foreground">
+              <div className="w-5 h-5 border-2 border-primary/30 border-t-transparent rounded-full animate-spin mr-2" />
               Ładowanie kalendarza...
             </div>
           ) : (
@@ -366,11 +366,11 @@ function WeekGrid({
   return (
     <div className="grid grid-cols-[48px_repeat(7,1fr)] relative">
       {/* Hour labels */}
-      <div className="border-r border-gray-100">
+      <div className="border-r border-border">
         {hours.map((h) => (
           <div
             key={h}
-            className="h-14 flex items-start justify-end pr-2 pt-0.5 text-xs text-gray-400 font-medium"
+            className="h-14 flex items-start justify-end pr-2 pt-0.5 text-xs text-muted-foreground font-medium"
           >
             {formatHour(h)}
           </div>
@@ -389,15 +389,15 @@ function WeekGrid({
           <div
             key={dayIdx}
             className={cn(
-              "relative border-r border-gray-100 last:border-r-0",
-              isToday && "bg-blue-50/30"
+              "relative border-r border-border last:border-r-0",
+              isToday && "bg-primary/10/30"
             )}
           >
             {/* Hour slots */}
             {hours.map((h) => (
               <div
                 key={h}
-                className="h-14 border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer transition-colors"
+                className="h-14 border-b border-gray-50 hover:bg-primary/10/40 cursor-pointer transition-colors"
                 onClick={() => onSlotClick(day, h)}
               />
             ))}
@@ -409,7 +409,7 @@ function WeekGrid({
                 style={{ top: `${nowTop}px` }}
               >
                 <div className="flex items-center">
-                  <div className="w-2 h-2 rounded-full bg-red-500 -ml-1" />
+                  <div className="w-2 h-2 rounded-full bg-destructive/100 -ml-1" />
                   <div className="flex-1 h-px bg-red-400" />
                 </div>
               </div>
@@ -442,13 +442,13 @@ function WeekGrid({
                     {ev.title}
                   </div>
                   {height > 40 && (
-                    <div className="text-xs text-gray-500 truncate leading-tight">
+                    <div className="text-xs text-muted-foreground truncate leading-tight">
                       {start.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}
                       {end && ` – ${end.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}`}
                     </div>
                   )}
                   {height > 56 && ev.candidate_name && (
-                    <div className="text-xs text-gray-400 truncate flex items-center gap-1">
+                    <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
                       <User className="w-2.5 h-2.5" />
                       {ev.candidate_name}
                     </div>
@@ -486,15 +486,15 @@ function CalendarSidebar({
       {/* Create button */}
       <button
         onClick={onCreateClick}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-sm"
+        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl transition-colors shadow-sm"
       >
         <Plus className="w-4 h-4" />
         Nowe wydarzenie
       </button>
 
       {/* Mini calendar */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
-        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
+        <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
           {today.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })}
         </div>
         <MiniCalendar today={today} events={events} />
@@ -502,8 +502,8 @@ function CalendarSidebar({
 
       {/* Upcoming events */}
       {upcomingEvents.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
-          <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+        <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
+          <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
             Najbliższe
           </div>
           <div className="space-y-2">
@@ -514,8 +514,8 @@ function CalendarSidebar({
                 <div key={ev.id} className="flex items-start gap-2">
                   <div className={cn("w-2 h-2 rounded-full mt-1.5 flex-shrink-0", cfg.dotColor)} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-800 truncate">{ev.title}</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs font-medium text-foreground truncate">{ev.title}</p>
+                    <p className="text-xs text-muted-foreground">
                       {d.toLocaleDateString("pl-PL", { weekday: "short", day: "numeric", month: "short" })}
                       {" "}
                       {d.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}
@@ -529,15 +529,15 @@ function CalendarSidebar({
       )}
 
       {/* Legend */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
-        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
+        <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
           Typy wydarzeń
         </div>
         <div className="space-y-2">
           {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
             <div key={key} className="flex items-center gap-2">
               <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", cfg.dotColor)} />
-              <span className="text-xs text-gray-600">{cfg.label}</span>
+              <span className="text-xs text-muted-foreground">{cfg.label}</span>
             </div>
           ))}
         </div>
@@ -571,7 +571,7 @@ function MiniCalendar({ today, events }: { today: Date; events: CalendarEvent[] 
     <div>
       <div className="grid grid-cols-7 gap-0.5 mb-1">
         {["P", "W", "Ś", "C", "P", "S", "N"].map((d, i) => (
-          <div key={i} className="text-center text-xs text-gray-400 font-medium">
+          <div key={i} className="text-center text-xs text-muted-foreground font-medium">
             {d}
           </div>
         ))}
@@ -587,12 +587,12 @@ function MiniCalendar({ today, events }: { today: Date; events: CalendarEvent[] 
               key={i}
               className={cn(
                 "text-center text-xs py-0.5 rounded-md font-medium relative",
-                isToday ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+                isToday ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"
               )}
             >
               {day}
               {hasEvents && !isToday && (
-                <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full" />
+                <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-primary/30 rounded-full" />
               )}
             </div>
           );
@@ -680,20 +680,20 @@ function CreateEventModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Nowe wydarzenie</h2>
+            <Calendar className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground dark:text-foreground">Nowe wydarzenie</h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               {error}
             </div>
@@ -701,19 +701,19 @@ function CreateEventModal({
 
           {/* Title */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Tytuł *</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Tytuł *</label>
             <input
               required
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="np. Rozmowa z kandydatem"
             />
           </div>
 
           {/* Type */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Typ</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Typ</label>
             <div className="grid grid-cols-5 gap-1.5">
               {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
                 <button
@@ -724,7 +724,7 @@ function CreateEventModal({
                     "px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors text-center",
                     form.event_type === key
                       ? `${cfg.bgColor} ${cfg.color} ${cfg.borderColor}`
-                      : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                      : "bg-muted text-muted-foreground border-border hover:bg-muted"
                   )}
                 >
                   {cfg.label}
@@ -736,33 +736,33 @@ function CreateEventModal({
           {/* Date/time */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">Od *</label>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Od *</label>
               <input
                 required
                 type="datetime-local"
                 value={form.start_time}
                 onChange={(e) => setForm({ ...form, start_time: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
             <div>
-              <label className="text-xs font-semibold text-gray-500 block mb-1">Do</label>
+              <label className="text-xs font-semibold text-muted-foreground block mb-1">Do</label>
               <input
                 type="datetime-local"
                 value={form.end_time}
                 onChange={(e) => setForm({ ...form, end_time: e.target.value })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
 
           {/* Candidate */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Kandydat (opcjonalnie)</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Kandydat (opcjonalnie)</label>
             <select
               value={form.candidate_id}
               onChange={(e) => setForm({ ...form, candidate_id: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             >
               <option value="">— Wybierz kandydata —</option>
               {candidates.map((c: any) => (
@@ -775,57 +775,57 @@ function CreateEventModal({
 
           {/* Location */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Lokalizacja</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Lokalizacja</label>
             <input
               value={form.location}
               onChange={(e) => setForm({ ...form, location: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="np. Google Meet, Telefon, Biuro..."
             />
           </div>
 
           {/* Teams link */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Link Teams/Meet</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Link Teams/Meet</label>
             <input
               value={form.teams_link}
               onChange={(e) => setForm({ ...form, teams_link: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="https://..."
             />
           </div>
 
           {/* Attendees */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">
               Uczestnicy (email, oddzielone przecinkiem)
             </label>
             <input
               value={form.attendees_raw}
               onChange={(e) => setForm({ ...form, attendees_raw: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               placeholder="jan@email.com, anna@email.com"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Opis</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Opis</label>
             <textarea
               rows={2}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-none"
             />
           </div>
 
           {/* Reminder */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1">Przypomnienie</label>
+            <label className="text-xs font-semibold text-muted-foreground block mb-1">Przypomnienie</label>
             <select
               value={form.reminder_minutes}
               onChange={(e) => setForm({ ...form, reminder_minutes: e.target.value })}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             >
               <option value="5">5 minut przed</option>
               <option value="10">10 minut przed</option>
@@ -840,14 +840,14 @@ function CreateEventModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+              className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground"
             >
               Anuluj
             </button>
             <button
               type="submit"
               disabled={mutation.isPending}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition-colors"
+              className="px-5 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition-colors"
             >
               {mutation.isPending ? "Tworzenie..." : "Utwórz wydarzenie"}
             </button>
@@ -891,7 +891,7 @@ function EventDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-md">
         {/* Header stripe */}
         <div className={cn("h-1.5 rounded-t-2xl", cfg.dotColor.replace("bg-", "bg-"))} />
 
@@ -909,9 +909,9 @@ function EventDetailModal({
                 <div className={cn("w-1.5 h-1.5 rounded-full", cfg.dotColor)} />
                 {cfg.label}
               </div>
-              <h2 className="text-lg font-bold text-gray-900">{event.title}</h2>
+              <h2 className="text-lg font-bold text-foreground">{event.title}</h2>
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground flex-shrink-0">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -919,8 +919,8 @@ function EventDetailModal({
           {/* Details */}
           <div className="space-y-3">
             {/* Time */}
-            <div className="flex items-center gap-3 text-sm text-gray-700">
-              <Clock className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <span>
                 {start.toLocaleDateString("pl-PL", {
                   weekday: "long",
@@ -934,7 +934,7 @@ function EventDetailModal({
 
             {/* Status */}
             <div className="flex items-center gap-3">
-              <CheckCircle className="w-4 h-4 text-gray-400" />
+              <CheckCircle className="w-4 h-4 text-muted-foreground" />
               <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", statusCfg.color)}>
                 {statusCfg.label}
               </span>
@@ -942,24 +942,24 @@ function EventDetailModal({
 
             {/* Candidate */}
             {event.candidate_name && (
-              <div className="flex items-center gap-3 text-sm text-gray-700">
-                <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <User className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <span>{event.candidate_name}</span>
               </div>
             )}
 
             {/* Job */}
             {event.job_title && (
-              <div className="flex items-center gap-3 text-sm text-gray-700">
-                <Briefcase className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <Briefcase className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <span>{event.job_title}</span>
               </div>
             )}
 
             {/* Location */}
             {event.location && (
-              <div className="flex items-center gap-3 text-sm text-gray-700">
-                <MapPin className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <span>{event.location}</span>
               </div>
             )}
@@ -967,12 +967,12 @@ function EventDetailModal({
             {/* Teams link */}
             {event.teams_link && (
               <div className="flex items-center gap-3 text-sm">
-                <Video className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <Video className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <a
                   href={event.teams_link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline truncate"
+                  className="text-primary hover:underline truncate"
                 >
                   Dołącz do spotkania
                 </a>
@@ -981,13 +981,13 @@ function EventDetailModal({
 
             {/* Attendees */}
             {event.attendees && event.attendees.length > 0 && (
-              <div className="flex items-start gap-3 text-sm text-gray-700">
-                <Users className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 text-sm text-foreground">
+                <Users className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                 <div className="flex flex-wrap gap-1">
                   {event.attendees.map((email, i) => (
                     <span
                       key={i}
-                      className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs"
+                      className="px-2 py-0.5 bg-muted text-muted-foreground rounded-full text-xs"
                     >
                       {email}
                     </span>
@@ -998,14 +998,14 @@ function EventDetailModal({
 
             {/* Description */}
             {event.description && (
-              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3 leading-relaxed">
+              <p className="text-sm text-muted-foreground bg-muted rounded-lg p-3 leading-relaxed">
                 {event.description}
               </p>
             )}
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 mt-5 pt-4 border-t border-gray-100">
+          <div className="flex gap-2 mt-5 pt-4 border-t border-border">
             {event.status === "scheduled" && (
               <button
                 onClick={() => completeMutation.mutate()}
@@ -1021,14 +1021,14 @@ function EventDetailModal({
               message="Na pewno chcesz usunąć?"
               confirmLabel="Usuń"
               cancelLabel="Anuluj"
-              className={`flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${deleteMutation.isPending ? "opacity-50 pointer-events-none" : ""}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 border border-destructive/20 hover:bg-destructive/15 text-destructive text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${deleteMutation.isPending ? "opacity-50 pointer-events-none" : ""}`}
             >
               <X className="w-3.5 h-3.5" />
               {deleteMutation.isPending ? "Usuwam..." : "Usuń"}
             </ConfirmButton>
             <button
               onClick={onClose}
-              className="ml-auto px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+              className="ml-auto px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground"
             >
               Zamknij
             </button>
@@ -1084,15 +1084,15 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+        className="flex items-center gap-1.5 px-3 py-1.5 border border-border dark:border-border text-sm rounded-lg hover:bg-muted dark:hover:bg-muted"
         title="Importuj z publicznego feedu iCal (Outlook / Google Calendar)"
       >
         <Download className="w-4 h-4" />
         iCal import
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 z-30 space-y-2">
-          <p className="text-xs text-gray-500">
+        <div className="absolute right-0 mt-1 w-96 bg-card dark:bg-muted rounded-lg shadow-xl border border-border dark:border-border p-3 z-30 space-y-2">
+          <p className="text-xs text-muted-foreground">
             Wklej publiczny URL iCal (Outlook → Publikuj kalendarz, albo Google
             Calendar → Private address in iCal format).
           </p>
@@ -1100,15 +1100,15 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://outlook.office365.com/.../calendar.ics"
-            className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm bg-white dark:bg-gray-900"
+            className="w-full rounded border border-border dark:border-border px-2 py-1.5 text-sm bg-card dark:bg-card"
           />
-          <label className="flex items-center gap-2 text-xs text-gray-600">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
             Pomiń starsze niż
             <input
               type="number"
               value={since}
               onChange={(e) => setSince(Number(e.target.value) || 7)}
-              className="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-0.5 text-xs bg-white dark:bg-gray-900"
+              className="w-16 rounded border border-border dark:border-border px-2 py-0.5 text-xs bg-card dark:bg-card"
               min={0}
               max={365}
             />
@@ -1117,14 +1117,14 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setOpen(false)}
-              className="text-xs px-2 py-1 text-gray-500 hover:text-gray-700"
+              className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground"
             >
               Anuluj
             </button>
             <button
               onClick={run}
               disabled={!url.trim() || busy}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-1 text-xs px-2.5 py-1 bg-primary text-white rounded hover:bg-primary/90 disabled:opacity-50"
             >
               {busy ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
@@ -1135,7 +1135,7 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
             </button>
           </div>
           {result && (
-            <div className="text-xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 rounded p-2 font-mono">
+            <div className="text-xs text-foreground dark:text-muted-foreground bg-muted dark:bg-card rounded p-2 font-mono">
               {result}
             </div>
           )}

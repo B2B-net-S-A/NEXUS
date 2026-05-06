@@ -48,18 +48,18 @@ interface JobPosting {
 const PORTAL_CONFIG: Record<Portal, { label: string; color: string; dotColor: string }> = {
   pracuj_pl:   { label: "Pracuj.pl",    color: "bg-orange-100 text-orange-700",  dotColor: "bg-orange-500" },
   justjoinit:  { label: "JustJoinIT",   color: "bg-green-100 text-green-700",    dotColor: "bg-green-500" },
-  linkedin:    { label: "LinkedIn",     color: "bg-blue-100 text-blue-700",      dotColor: "bg-blue-500" },
-  nofluffjobs: { label: "NoFluffJobs",  color: "bg-red-100 text-red-700",        dotColor: "bg-red-500" },
+  linkedin:    { label: "LinkedIn",     color: "bg-primary/15 text-primary",      dotColor: "bg-primary" },
+  nofluffjobs: { label: "NoFluffJobs",  color: "bg-destructive/15 text-destructive",        dotColor: "bg-destructive/100" },
   bulldogjob:  { label: "BulldogJob",   color: "bg-yellow-100 text-yellow-700",  dotColor: "bg-yellow-500" },
 };
 
 const ALL_PORTALS: Portal[] = ["pracuj_pl", "justjoinit", "linkedin", "nofluffjobs", "bulldogjob"];
 
 const STATUS_CONFIG: Record<PostingStatus, { label: string; className: string }> = {
-  draft:     { label: "Szkic",       className: "bg-gray-100 text-gray-600" },
+  draft:     { label: "Szkic",       className: "bg-muted text-muted-foreground" },
   published: { label: "Aktywne",     className: "bg-green-100 text-green-700" },
-  expired:   { label: "Wygasłe",     className: "bg-red-100 text-red-600" },
-  removed:   { label: "Usunięte",    className: "bg-gray-200 text-gray-500" },
+  expired:   { label: "Wygasłe",     className: "bg-destructive/15 text-destructive" },
+  removed:   { label: "Usunięte",    className: "bg-muted text-muted-foreground" },
 };
 
 // ── Publish Modal ─────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ function PublishModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <div className="bg-card rounded-xl shadow-xl w-full max-w-md p-6">
         <h2 className="text-lg font-bold mb-1">Opublikuj ogłoszenie</h2>
         <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
           ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
@@ -110,10 +110,10 @@ function PublishModal({
                 key={p}
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   isActive
-                    ? "opacity-50 cursor-not-allowed border-gray-100 bg-gray-50"
+                    ? "opacity-50 cursor-not-allowed border-border bg-muted"
                     : isSelected
-                    ? "border-blue-400 bg-blue-50"
-                    : "border-gray-200 hover:border-gray-300"
+                    ? "border-primary/30 bg-primary/10"
+                    : "border-border hover:border-border"
                 }`}
               >
                 <input
@@ -134,9 +134,9 @@ function PublishModal({
         </div>
 
         <div className="flex items-center gap-3 mb-5">
-          <label className="text-sm text-gray-600 whitespace-nowrap">Czas trwania:</label>
+          <label className="text-sm text-muted-foreground whitespace-nowrap">Czas trwania:</label>
           <select
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+            className="text-sm border border-border rounded-lg px-3 py-1.5"
             value={expiresDays}
             onChange={(e) => setExpiresDays(Number(e.target.value))}
           >
@@ -150,14 +150,14 @@ function PublishModal({
         <div className="flex gap-2">
           <button
             onClick={() => onClose()}
-            className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="flex-1 px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted"
           >
             Anuluj
           </button>
           <button
             onClick={() => selected.length > 0 && publishMutation.mutate(selected)}
             disabled={selected.length === 0 || publishMutation.isPending}
-            className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {publishMutation.isPending ? "Publikowanie..." : `Publikuj (${selected.length})`}
           </button>
@@ -199,29 +199,29 @@ function PostingsSection({ jobId }: { jobId: number }) {
     .filter((p) => p.status === "published")
     .map((p) => p.portal);
 
-  if (isLoading) return <div className="text-gray-400 text-sm">Ładowanie publikacji...</div>;
+  if (isLoading) return <div className="text-muted-foreground text-sm">Ładowanie publikacji...</div>;
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-blue-500" />
+          <Globe className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-semibold">Portale ogłoszeniowe</h2>
-          <span className="text-xs text-gray-400 ml-1">({postings.length})</span>
+          <span className="text-xs text-muted-foreground ml-1">({postings.length})</span>
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => publishAllMutation.mutate()}
             disabled={publishAllMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-muted text-muted-foreground disabled:opacity-50"
           >
             <Radio className="w-3.5 h-3.5" />
             Publikuj na wszystkich
           </button>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
           >
             <Plus className="w-3.5 h-3.5" />
             Opublikuj ogłoszenie
@@ -236,7 +236,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
 
       {/* Table */}
       {postings.length === 0 ? (
-        <div className="text-center py-8 text-gray-400">
+        <div className="text-center py-8 text-muted-foreground">
           <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm">Brak publikacji. Opublikuj ogłoszenie na portalach rekrutacyjnych.</p>
         </div>
@@ -244,15 +244,15 @@ function PostingsSection({ jobId }: { jobId: number }) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-700">
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Portal</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Status</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Data publ.</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">Wygaśnięcie</th>
-                <th className="text-right py-2 px-3 text-gray-500 font-medium">Wyświetlenia</th>
-                <th className="text-right py-2 px-3 text-gray-500 font-medium">Aplikacje</th>
-                <th className="text-center py-2 px-3 text-gray-500 font-medium">Link</th>
-                <th className="text-center py-2 px-3 text-gray-500 font-medium">Akcje</th>
+              <tr className="border-b border-border dark:border-border">
+                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Portal</th>
+                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Status</th>
+                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Data publ.</th>
+                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Wygaśnięcie</th>
+                <th className="text-right py-2 px-3 text-muted-foreground font-medium">Wyświetlenia</th>
+                <th className="text-right py-2 px-3 text-muted-foreground font-medium">Aplikacje</th>
+                <th className="text-center py-2 px-3 text-muted-foreground font-medium">Link</th>
+                <th className="text-center py-2 px-3 text-muted-foreground font-medium">Akcje</th>
               </tr>
             </thead>
             <tbody>
@@ -260,7 +260,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
                 const portalCfg = PORTAL_CONFIG[posting.portal];
                 const statusCfg = STATUS_CONFIG[posting.status];
                 return (
-                  <tr key={posting.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <tr key={posting.id} className="border-b border-gray-50 hover:bg-muted">
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
                         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${portalCfg.dotColor}`} />
@@ -272,16 +272,16 @@ function PostingsSection({ jobId }: { jobId: number }) {
                         {statusCfg.label}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-gray-500">
+                    <td className="py-2.5 px-3 text-muted-foreground">
                       {posting.published_at ? formatDate(posting.published_at) : "—"}
                     </td>
-                    <td className="py-2.5 px-3 text-gray-500">
+                    <td className="py-2.5 px-3 text-muted-foreground">
                       {posting.expires_at ? formatDate(posting.expires_at) : "—"}
                     </td>
                     <td className="py-2.5 px-3 text-right font-medium">
                       {posting.views.toLocaleString()}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-blue-600">
+                    <td className="py-2.5 px-3 text-right font-medium text-primary">
                       {posting.applications}
                     </td>
                     <td className="py-2.5 px-3 text-center">
@@ -290,12 +290,12 @@ function PostingsSection({ jobId }: { jobId: number }) {
                           href={posting.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-1"
+                          className="text-primary hover:text-primary/80 inline-flex items-center gap-1"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-center">
@@ -368,14 +368,14 @@ function AIJobWriterModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4">
+      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl my-4">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-bold text-gray-900">AI Ogłoszenie</h2>
+            <Wand2 className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground">AI Ogłoszenie</h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -384,27 +384,27 @@ function AIJobWriterModal({
           {/* Form */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Tytuł stanowiska</label>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1">Tytuł stanowiska</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="np. Angular Developer"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Klient</label>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1">Klient</label>
               <input
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="np. Nordea"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Poziom seniority</label>
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">Poziom seniority</label>
             <div className="flex gap-2">
               {["junior", "mid", "senior", "lead"].map((s) => (
                 <button
@@ -412,8 +412,8 @@ function AIJobWriterModal({
                   onClick={() => setSeniority(s)}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${
                     seniority === s
-                      ? "bg-blue-600 text-white"
-                      : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      ? "bg-primary text-white"
+                      : "border border-border text-muted-foreground hover:bg-muted"
                   }`}
                 >
                   {s === "lead" ? "Lead" : s.charAt(0).toUpperCase() + s.slice(1)}
@@ -423,7 +423,7 @@ function AIJobWriterModal({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
+            <label className="block text-xs font-semibold text-muted-foreground mb-1">
               Wymagania / kluczowe umiejętności
             </label>
             <textarea
@@ -431,13 +431,13 @@ function AIJobWriterModal({
               onChange={(e) => setRequirements(e.target.value)}
               rows={4}
               placeholder="Angular 14+&#10;RxJS&#10;TypeScript&#10;Agile/Scrum&#10;Komunikatywny angielski"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus-visible:ring-ring"
             />
-            <p className="text-xs text-gray-400 mt-0.5">Wpisz wymagania po jednym w linii</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Wpisz wymagania po jednym w linii</p>
           </div>
 
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
@@ -445,7 +445,7 @@ function AIJobWriterModal({
           <button
             onClick={handleGenerate}
             disabled={!title.trim() || isLoading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white font-medium rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {isLoading ? (
               <>
@@ -462,15 +462,15 @@ function AIJobWriterModal({
 
           {/* Generated output */}
           {generated && (
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200 dark:border-gray-700">
-                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b border-border dark:border-border">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   Wygenerowane ogłoszenie
                 </span>
                 <div className="flex gap-2">
                   <button
                     onClick={handleCopy}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 rounded-lg hover:bg-white text-gray-600 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-border rounded-lg hover:bg-card text-muted-foreground transition-colors"
                   >
                     {copied ? (
                       <><Check className="w-3.5 h-3.5 text-emerald-500" /> Skopiowano</>
@@ -480,14 +480,14 @@ function AIJobWriterModal({
                   </button>
                   <button
                     onClick={() => { onUse(generated); onClose(); }}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
                   >
                     Użyj jako opis
                   </button>
                 </div>
               </div>
               <div className="p-4 max-h-72 overflow-y-auto">
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                <pre className="text-xs text-foreground whitespace-pre-wrap font-sans leading-relaxed">
                   {generated}
                 </pre>
               </div>
@@ -540,9 +540,9 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
   };
 
   return (
-    <div className="rounded-lg border border-dashed border-blue-300 dark:border-blue-700 bg-blue-50/50 dark:bg-blue-900/10 p-3">
+    <div className="rounded-lg border border-dashed border-primary/30 dark:border-primary/90 bg-primary/10/50 dark:bg-primary/10 p-3">
       <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 mr-2">
+        <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground mr-2">
           AI / Scoring:
         </span>
         <button
@@ -564,7 +564,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
         <button
           onClick={() => run("recompute")}
           disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
           data-testid="recompute-scores"
         >
           {busy === "recompute" ? "Liczę…" : "🧮 Przelicz scoring"}
@@ -580,7 +580,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
         </button>
       </div>
       {last && (
-        <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">{last}</div>
+        <div className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">{last}</div>
       )}
 
       <CriteriaPreviewModal
@@ -600,11 +600,11 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
 
 function MatchScoreBar({ score }: { score: number }) {
   const pct = Math.round(score * 100);
-  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-red-500";
-  const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-yellow-700" : "text-red-600";
+  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-destructive/100";
+  const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-yellow-700" : "text-destructive";
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+      <div className="flex-1 bg-muted dark:bg-muted rounded-full h-2 overflow-hidden">
         <div className={`h-2 rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <span className={`text-xs font-bold w-10 text-right ${textColor}`}>{pct}%</span>
@@ -637,37 +637,37 @@ function EmailTemplateModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg p-6">
+      <div className="bg-card dark:bg-muted rounded-xl shadow-xl w-full max-w-lg p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-gray-900 dark:text-gray-100">Wyślij wiadomość do {fullName}</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+          <h3 className="font-bold text-foreground dark:text-foreground">Wyślij wiadomość do {fullName}</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase">Temat</label>
-            <p className="text-sm mt-1 p-2 bg-gray-50 dark:bg-gray-700 rounded">{subject}</p>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">Temat</label>
+            <p className="text-sm mt-1 p-2 bg-muted dark:bg-muted rounded">{subject}</p>
           </div>
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase">Treść</label>
-            <pre className="text-sm mt-1 p-3 bg-gray-50 dark:bg-gray-700 rounded whitespace-pre-wrap font-sans">{body}</pre>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">Treść</label>
+            <pre className="text-sm mt-1 p-3 bg-muted dark:bg-muted rounded whitespace-pre-wrap font-sans">{body}</pre>
           </div>
           <div className="flex gap-2 pt-2">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg hover:bg-muted"
             >
               {copied ? <><Check className="w-4 h-4 text-green-500" /> Skopiowano</> : <><Copy className="w-4 h-4" /> Kopiuj</>}
             </button>
             {candidate.email && (
               <a
                 href={mailtoLink}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
               >
                 <Mail className="w-4 h-4" />
                 Otwórz w kliencie email
               </a>
             )}
-            <button onClick={onClose} className="ml-auto px-3 py-2 text-sm text-gray-500 hover:text-gray-700">
+            <button onClick={onClose} className="ml-auto px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
               Zamknij
             </button>
           </div>
@@ -697,8 +697,8 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center py-16 text-gray-400 gap-3">
-        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
       </div>
     );
@@ -706,10 +706,10 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   if (isError) {
     return (
-      <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
+      <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
         <AlertCircle className="w-10 h-10 text-red-400" />
         <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
-        <button onClick={() => refetch()} className="text-sm text-blue-600 hover:underline mt-1">Spróbuj ponownie</button>
+        <button onClick={() => refetch()} className="text-sm text-primary hover:underline mt-1">Spróbuj ponownie</button>
       </div>
     );
   }
@@ -726,35 +726,35 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
       {/* Header info */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-muted-foreground">
             Znaleziono <strong>{matches.length}</strong> pasujących kandydatów
           </span>
           {searchType === "semantic" && (
-            <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">Semantic AI</span>
+            <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
           )}
           {searchType === "tag_fallback" && (
-            <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium">Tag-based</span>
+            <span className="text-[10px] px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">Tag-based</span>
           )}
         </div>
-        <button onClick={() => refetch()} className="text-xs text-blue-600 hover:underline">
+        <button onClick={() => refetch()} className="text-xs text-primary hover:underline">
           Odśwież
         </button>
       </div>
 
       {requiredSkills.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          <span className="text-xs text-gray-500 mr-1">Wymagane:</span>
+          <span className="text-xs text-muted-foreground mr-1">Wymagane:</span>
           {requiredSkills.map((s: string) => (
-            <span key={s} className="text-[11px] px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">{s}</span>
+            <span key={s} className="text-[11px] px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-full">{s}</span>
           ))}
         </div>
       )}
 
       {matches.length === 0 ? (
-        <div className="flex flex-col items-center py-12 text-gray-400 gap-2">
+        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
           <UserCheck className="w-12 h-12 opacity-30" />
           <p className="text-sm">Brak pasujących kandydatów w bazie</p>
-          <p className="text-xs text-gray-400">Dodaj kandydatów do systemu i uruchom indeksowanie</p>
+          <p className="text-xs text-muted-foreground">Dodaj kandydatów do systemu i uruchom indeksowanie</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -762,13 +762,13 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
             const c = match.candidate;
             const fullName = `${c.name} ${c.lastname}`.trim();
             const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
-            const AVATAR_COLORS = ["bg-blue-600","bg-violet-600","bg-emerald-600","bg-rose-500","bg-amber-500","bg-cyan-600"];
+            const AVATAR_COLORS = ["bg-primary","bg-violet-600","bg-emerald-600","bg-rose-500","bg-amber-500","bg-cyan-600"];
             const avatarColor = AVATAR_COLORS[(fullName.charCodeAt(0) + (fullName.charCodeAt(1) || 0)) % AVATAR_COLORS.length];
 
             return (
-              <div key={c.id} className="flex items-start gap-4 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-shadow">
+              <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-sm transition-shadow">
                 {/* Rank */}
-                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-500">
+                <div className="flex-shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                   {idx + 1}
                 </div>
 
@@ -781,11 +781,11 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <Link href={`/candidates/${c.id}`} className="font-semibold text-gray-900 dark:text-gray-100 hover:text-blue-600 text-sm">
+                      <Link href={`/candidates/${c.id}`} className="font-semibold text-foreground dark:text-foreground hover:text-primary text-sm">
                         {fullName}
                       </Link>
                       {c.competence_category && (
-                        <p className="text-xs text-gray-500 mt-0.5">{c.competence_category}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{c.competence_category}</p>
                       )}
                     </div>
                     <div className="w-32 flex-shrink-0">
@@ -800,7 +800,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                         <span key={s} className="text-[11px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">✓ {s}</span>
                       ))}
                       {match.gaps.map((s: string) => (
-                        <span key={s} className="text-[11px] px-2 py-0.5 border border-red-300 text-red-500 rounded-full">✗ {s}</span>
+                        <span key={s} className="text-[11px] px-2 py-0.5 border border-red-300 text-destructive rounded-full">✗ {s}</span>
                       ))}
                     </div>
                   )}
@@ -810,14 +810,14 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                     <button
                       onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, jobId })}
                       disabled={addToPipelineMutation.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
                     >
                       <Plus className="w-3 h-3" />
                       Dodaj do pipeline
                     </button>
                     <button
                       onClick={() => setEmailTarget(c)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted transition-colors"
                     >
                       <Mail className="w-3 h-3" />
                       Wyślij wiadomość
@@ -845,7 +845,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 // ── Recruitment type config ───────────────────────────────────────────────────
 
 const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
-  body_leasing: { label: "Body Leasing", color: "bg-blue-100 text-blue-700" },
+  body_leasing: { label: "Body Leasing", color: "bg-primary/15 text-primary" },
   sales_project: { label: "Sprzedaż",    color: "bg-green-100 text-green-700" },
   tender:        { label: "Przetarg",    color: "bg-orange-100 text-orange-700" },
 };
@@ -939,20 +939,20 @@ export default function JobDetailPage() {
     }
   }, [id, queryClient]);
 
-  if (jobLoading) return <div className="p-6 text-gray-400">Ładowanie...</div>;
-  if (!job) return <div className="p-6 text-red-500">Nie znaleziono oferty</div>;
+  if (jobLoading) return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
+  if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
 
   return (
     <div className="space-y-6">
-      <Link href="/jobs" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
+      <Link href="/jobs" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Wróć do ofert
       </Link>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold">{job.title}</h1>
-            <div className="flex gap-4 mt-2 text-sm text-gray-500">
+            <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
               {job.location && (
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" /> {job.location}
@@ -979,14 +979,14 @@ export default function JobDetailPage() {
             />
             <button
               onClick={() => setShowEditJob(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
             >
-              <PencilLine className="w-3.5 h-3.5 text-gray-500" />
+              <PencilLine className="w-3.5 h-3.5 text-muted-foreground" />
               Edytuj
             </button>
             <button
               onClick={() => setShowAIWriter(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
             >
               <Wand2 className="w-3.5 h-3.5" />
               AI Ogłoszenie
@@ -994,10 +994,10 @@ export default function JobDetailPage() {
             {job.status === "published" && (
               <button
                 onClick={() => setShowInviteLink(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
                 title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
               >
-                <Link2 className="w-3.5 h-3.5 text-blue-500" />
+                <Link2 className="w-3.5 h-3.5 text-primary" />
                 Wygeneruj link
               </button>
             )}
@@ -1008,14 +1008,14 @@ export default function JobDetailPage() {
             )}
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${
               job.status === "published" ? "bg-green-100 text-green-700" :
-              job.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-red-100 text-red-700"
+              job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
             }`}>
               {job.status}
             </span>
           </div>
         </div>
 
-        <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="mt-4 border-t border-border dark:border-border pt-4">
           <JobOwnershipPanel
             jobId={Number(id)}
             jobTitle={job.title}
@@ -1025,7 +1025,7 @@ export default function JobDetailPage() {
         </div>
 
         {job.description && (
-          <div className="mt-4 text-sm text-gray-600 whitespace-pre-line">{job.description}</div>
+          <div className="mt-4 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
         )}
       </div>
 
@@ -1058,15 +1058,15 @@ export default function JobDetailPage() {
       />
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-border dark:border-border">
         <div className="flex gap-1">
           <button
             onClick={() => setActiveTab("pipeline")}
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "pipeline"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
             Pipeline kandydatów
@@ -1077,7 +1077,7 @@ export default function JobDetailPage() {
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "history"
                 ? "border-amber-600 text-amber-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             data-testid="tab-history"
           >
@@ -1089,8 +1089,8 @@ export default function JobDetailPage() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "ai-matching"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
             <Sparkles className="w-4 h-4" />
@@ -1101,8 +1101,8 @@ export default function JobDetailPage() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "portals"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
             Portale ogłoszeniowe
@@ -1113,7 +1113,7 @@ export default function JobDetailPage() {
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "champion"
                 ? "border-purple-600 text-purple-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             data-testid="tab-champion"
           >
@@ -1125,8 +1125,8 @@ export default function JobDetailPage() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
               activeTab === "questions"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             data-testid="tab-questions"
           >
@@ -1137,15 +1137,15 @@ export default function JobDetailPage() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors relative",
               activeTab === "chat"
-                ? "border-blue-600 text-blue-600"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             )}
             data-testid="tab-chat"
           >
             <MessageCircle className="w-4 h-4" />
             Chat
             {chatUnread && chatUnread.unread_count > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-red-500 text-white">
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-destructive/100 text-white">
                 {chatUnread.unread_count > 99 ? "99+" : chatUnread.unread_count}
               </span>
             )}
@@ -1157,7 +1157,7 @@ export default function JobDetailPage() {
       {activeTab === "pipeline" && (
         <div>
           {kanbanLoading ? (
-            <div className="text-gray-400">Ładowanie pipeline...</div>
+            <div className="text-muted-foreground">Ładowanie pipeline...</div>
           ) : (
             <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
           )}
@@ -1183,11 +1183,11 @@ export default function JobDetailPage() {
           >
             <SuggestedCandidatesWidget jobId={Number(id)} />
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+          <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
             <div className="flex items-center gap-2 mb-6">
-              <Sparkles className="w-5 h-5 text-blue-500" />
+              <Sparkles className="w-5 h-5 text-primary" />
               <h2 className="text-lg font-semibold">Klasyczne AI Matching (legacy)</h2>
-              <span className="text-xs text-gray-400 ml-1">Prosty semantic + tag fallback</span>
+              <span className="text-xs text-muted-foreground ml-1">Prosty semantic + tag fallback</span>
             </div>
             <AIMatchingSection jobId={Number(id)} job={job} />
           </div>

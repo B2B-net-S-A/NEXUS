@@ -151,16 +151,16 @@ function KpiCard({
   trend?: "up" | "down";
 }) {
   const colorMap = {
-    blue: "bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800",
+    blue: "bg-primary/10 text-primary border-primary/15 dark:bg-primary/30 dark:text-primary dark:border-primary/30",
     green: "bg-green-50 text-green-600 border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
     purple: "bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800",
     orange: "bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
-    red: "bg-red-50 text-red-600 border-red-100 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
+    red: "bg-destructive/10 text-destructive border-red-100 dark:bg-red-900/30 dark:text-destructive dark:border-red-800",
     indigo: "bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800",
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 shadow-sm">
       <div className="flex items-start justify-between mb-3">
         <div className={cn("p-2 rounded-lg border", colorMap[color])}>
           <Icon className="w-5 h-5" />
@@ -168,9 +168,9 @@ function KpiCard({
         {trend === "up" && <TrendingUp className="w-4 h-4 text-green-500" />}
         {trend === "down" && <TrendingDown className="w-4 h-4 text-red-400" />}
       </div>
-      <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</div>
-      <div className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{label}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+      <div className="text-2xl font-bold text-foreground dark:text-foreground">{value}</div>
+      <div className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">{label}</div>
+      {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
     </div>
   );
 }
@@ -183,7 +183,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
     { label: "Rok", value: "year" },
   ];
   return (
-    <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+    <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-lg">
       {options.map((o) => (
         <button
           key={o.value}
@@ -191,8 +191,8 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
           className={cn(
             "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
             value === o.value
-              ? "bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm"
-              : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
+              ? "bg-card dark:bg-gray-600 text-foreground dark:text-foreground shadow-sm"
+              : "text-muted-foreground dark:text-muted-foreground hover:text-foreground"
           )}
         >
           {o.label}
@@ -205,7 +205,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center py-16">
-      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
 }
@@ -226,7 +226,7 @@ function HorizontalBar({
   label,
   value,
   max,
-  color = "bg-blue-500",
+  color = "bg-primary",
   suffix = "",
 }: {
   label: string;
@@ -238,17 +238,17 @@ function HorizontalBar({
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="flex items-center gap-3">
-      <div className="w-32 text-sm text-gray-600 dark:text-gray-300 text-right truncate flex-shrink-0">{label}</div>
-      <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-5 relative overflow-hidden">
+      <div className="w-32 text-sm text-muted-foreground dark:text-muted-foreground text-right truncate flex-shrink-0">{label}</div>
+      <div className="flex-1 bg-muted dark:bg-muted rounded-full h-5 relative overflow-hidden">
         <div
           className={cn("h-5 rounded-full transition-all duration-500", color)}
           style={{ width: `${pct}%` }}
         />
-        <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-gray-700 dark:text-gray-200">
+        <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-foreground dark:text-muted-foreground">
           {suffix ? `${value}${suffix}` : typeof value === "number" && value > 1000 ? formatPLN(value) : value}
         </span>
       </div>
-      <div className="text-xs text-gray-400 w-8 text-right">{pct}%</div>
+      <div className="text-xs text-muted-foreground w-8 text-right">{pct}%</div>
     </div>
   );
 }
@@ -260,7 +260,7 @@ function DonutChart({
   segments: Array<{ label: string; value: number; color: string }>;
 }) {
   const total = segments.reduce((s, x) => s + x.value, 0);
-  if (total === 0) return <div className="text-sm text-gray-400 text-center py-4">Brak danych</div>;
+  if (total === 0) return <div className="text-sm text-muted-foreground text-center py-4">Brak danych</div>;
 
   let accumulated = 0;
   const gradientParts = segments.map((seg) => {
@@ -289,8 +289,8 @@ function DonutChart({
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ background: seg.color }}
               />
-              <span className="text-gray-700 dark:text-gray-300">{seg.label}</span>
-              <span className="text-gray-400 ml-auto">{pct}%</span>
+              <span className="text-foreground dark:text-muted-foreground">{seg.label}</span>
+              <span className="text-muted-foreground ml-auto">{pct}%</span>
             </div>
           );
         })}
@@ -300,7 +300,7 @@ function DonutChart({
 }
 
 /** CSS sparkline bar chart (inline trend) */
-function Sparkline({ values, color = "bg-blue-500" }: { values: number[]; color?: string }) {
+function Sparkline({ values, color = "bg-primary" }: { values: number[]; color?: string }) {
   const max = Math.max(...values, 1);
   return (
     <div className="flex items-end gap-0.5 h-8">
@@ -335,7 +335,7 @@ function RekrutacjaTab({ period }: { period: Period }) {
     : 85;
 
   const funnelSteps = [
-    { label: "Weryfikacje", count: funnel.weryfikacje_count, color: "bg-blue-500" },
+    { label: "Weryfikacje", count: funnel.weryfikacje_count, color: "bg-primary" },
     { label: "Rekomendacje", count: funnel.rekomendacje_count, color: "bg-indigo-500" },
     { label: "Interviews", count: funnel.interviews_count, color: "bg-purple-500" },
     { label: "Placements", count: funnel.placements_count, color: "bg-green-500" },
@@ -395,16 +395,16 @@ function RekrutacjaTab({ period }: { period: Period }) {
       {/* Funnel + Source side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Source Effectiveness Donut */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">
             Źródła kandydatów
           </h3>
           <DonutChart segments={sourceSegments} />
         </div>
 
         {/* Funnel */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-5">Lejek rekrutacyjny</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-5">Lejek rekrutacyjny</h3>
           <div className="flex items-center gap-2">
             {funnelSteps.map((step, i) => (
               <div key={step.label} className="flex items-center gap-2 flex-1">
@@ -416,8 +416,8 @@ function RekrutacjaTab({ period }: { period: Period }) {
                 </div>
                 {i < funnelSteps.length - 1 && (
                   <div className="flex flex-col items-center gap-0.5 flex-shrink-0">
-                    <ArrowRight className="w-4 h-4 text-gray-400" />
-                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground">
                       {efficiencies[i]}%
                     </span>
                   </div>
@@ -429,13 +429,13 @@ function RekrutacjaTab({ period }: { period: Period }) {
       </div>
 
       {/* Liga Mistrzów */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-5">
           <Trophy className="w-5 h-5 text-yellow-500" />
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Liga Mistrzów — Top 3</h3>
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Liga Mistrzów — Top 3</h3>
         </div>
         {top3_liga_mistrzow.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">Brak danych w tym okresie</p>
+          <p className="text-sm text-muted-foreground text-center py-4">Brak danych w tym okresie</p>
         ) : (
           <div className="flex justify-center items-end gap-6 py-4">
             {podiumOrder.map((idx) => {
@@ -447,10 +447,10 @@ function RekrutacjaTab({ period }: { period: Period }) {
               return (
                 <div key={idx} className="flex flex-col items-center gap-2">
                   <div className="text-2xl">{medals[idx]}</div>
-                  <div className="text-sm font-semibold text-gray-800 dark:text-gray-200 text-center max-w-[7rem] truncate">
+                  <div className="text-sm font-semibold text-foreground dark:text-muted-foreground text-center max-w-[7rem] truncate">
                     {person.user_name}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                  <div className="text-xs text-muted-foreground dark:text-muted-foreground">
                     {person.placements} pl. · {person.hit_ratio}%
                   </div>
                   <div className={cn(
@@ -469,16 +469,16 @@ function RekrutacjaTab({ period }: { period: Period }) {
 
       {/* Pipeline po ogłoszeniach */}
       {jobPipeline.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Pipeline po rekruterach</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-border dark:border-border">
+            <h3 className="text-base font-semibold text-foreground dark:text-foreground">Pipeline po rekruterach</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900">
+              <thead className="bg-muted dark:bg-card">
                 <tr>
                   {["Rekruter", "Etapy pipeline", "Dni otwarcia", "Fill rate"].map((h) => (
-                    <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                       {h}
                     </th>
                   ))}
@@ -486,12 +486,12 @@ function RekrutacjaTab({ period }: { period: Period }) {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {jobPipeline.map((row, i) => {
-                  const stageColors = ["bg-blue-400", "bg-indigo-400", "bg-purple-400", "bg-green-400"];
+                  const stageColors = ["bg-primary/30", "bg-indigo-400", "bg-purple-400", "bg-green-400"];
                   const stageLabels = ["Wer", "Rek", "Int", "Pl"];
                   const stageMax = Math.max(...row.stages, 1);
                   return (
-                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                      <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">{row.title}</td>
+                    <tr key={i} className="hover:bg-muted dark:hover:bg-muted/50 transition-colors">
+                      <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">{row.title}</td>
                       <td className="px-6 py-3">
                         <div className="flex items-end gap-1 h-8">
                           {row.stages.map((val, si) => (
@@ -501,18 +501,18 @@ function RekrutacjaTab({ period }: { period: Period }) {
                                 style={{ height: `${Math.max((val / stageMax) * 28, 2)}px` }}
                                 title={`${stageLabels[si]}: ${val}`}
                               />
-                              <span className="text-[9px] text-gray-400">{stageLabels[si]}</span>
+                              <span className="text-[9px] text-muted-foreground">{stageLabels[si]}</span>
                             </div>
                           ))}
                         </div>
                       </td>
-                      <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{row.daysOpen} dni</td>
+                      <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{row.daysOpen} dni</td>
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-16 bg-gray-100 dark:bg-gray-700 rounded-full h-2">
+                          <div className="w-16 bg-muted dark:bg-muted rounded-full h-2">
                             <div className="bg-green-500 h-2 rounded-full" style={{ width: `${Math.min(row.fillRate, 100)}%` }} />
                           </div>
-                          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{row.fillRate}%</span>
+                          <span className="text-xs font-medium text-foreground dark:text-muted-foreground">{row.fillRate}%</span>
                         </div>
                       </td>
                     </tr>
@@ -525,34 +525,34 @@ function RekrutacjaTab({ period }: { period: Period }) {
       )}
 
       {/* Per-recruiter table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Wyniki rekruterów</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border dark:border-border">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Wyniki rekruterów</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
+            <thead className="bg-muted dark:bg-card">
               <tr>
                 {["Rekruter", "Weryfikacje", "Rekomendacje", "Interviews", "Placements", "Hit ratio"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{h}</th>
+                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {per_recruiter.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Brak danych w wybranym okresie</td></tr>
+                <tr><td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">Brak danych w wybranym okresie</td></tr>
               ) : (
                 per_recruiter.map((r) => (
-                  <tr key={r.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">{r.user_name}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{r.weryfikacje}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{r.rekomendacje}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{r.interviews}</td>
+                  <tr key={r.user_id} className="hover:bg-muted dark:hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">{r.user_name}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{r.weryfikacje}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{r.rekomendacje}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{r.interviews}</td>
                     <td className="px-6 py-3"><span className="font-semibold text-green-600">{r.placements}</span></td>
                     <td className="px-6 py-3">
                       <span className={cn(
                         "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                        r.hit_ratio >= 20 ? "bg-green-100 text-green-700" : r.hit_ratio >= 10 ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600 dark:text-gray-300"
+                        r.hit_ratio >= 20 ? "bg-green-100 text-green-700" : r.hit_ratio >= 10 ? "bg-yellow-100 text-yellow-700" : "bg-muted text-muted-foreground dark:text-muted-foreground"
                       )}>
                         {r.hit_ratio}%
                       </span>
@@ -612,12 +612,12 @@ function SalesTab() {
     lost: "Przegrana",
   };
   const stageBadge: Record<string, string> = {
-    lead: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-    qualification: "bg-blue-100 text-blue-700",
+    lead: "bg-muted text-muted-foreground dark:bg-muted dark:text-muted-foreground",
+    qualification: "bg-primary/15 text-primary",
     proposal: "bg-purple-100 text-purple-700",
     negotiation: "bg-orange-100 text-orange-700",
     won: "bg-green-100 text-green-700",
-    lost: "bg-red-100 text-red-700",
+    lost: "bg-destructive/15 text-destructive",
   };
 
   return (
@@ -633,14 +633,14 @@ function SalesTab() {
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Won/Lost ratio donut */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Struktura kontraktów</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Struktura kontraktów</h3>
           <DonutChart segments={wonLostSegments} />
         </div>
 
         {/* Monthly pipeline trend sparkline */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Trend MRR (12 miesięcy)</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-1">Trend MRR (12 miesięcy)</h3>
           {mrrValues.length > 0 ? (
             <>
               <div className="flex items-end gap-0.5 h-24 mt-3">
@@ -649,7 +649,7 @@ function SalesTab() {
                   return (
                     <div
                       key={i}
-                      className="flex-1 bg-blue-500 rounded-t opacity-80 hover:opacity-100 transition-opacity"
+                      className="flex-1 bg-primary rounded-t opacity-80 hover:opacity-100 transition-opacity"
                       style={{ height: `${(v / max) * 100}%` }}
                       title={formatPLN(v)}
                     />
@@ -659,27 +659,27 @@ function SalesTab() {
               <div className="flex gap-0.5 mt-1">
                 {(data.mrr_trend || []).map((t, i) => (
                   <div key={i} className="flex-1 text-center">
-                    <span className="text-[8px] text-gray-400">{t.month_label.slice(0, 3)}</span>
+                    <span className="text-[8px] text-muted-foreground">{t.month_label.slice(0, 3)}</span>
                   </div>
                 ))}
               </div>
             </>
           ) : (
-            <div className="text-sm text-gray-400 text-center py-8">Brak danych trendu</div>
+            <div className="text-sm text-muted-foreground text-center py-8">Brak danych trendu</div>
           )}
         </div>
       </div>
 
       {/* Revenue by client - horizontal bars */}
       {data.top_clients.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-5">
-            <Award className="w-4 h-4 text-blue-500" />
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Przychód wg klienta (MRR)</h3>
+            <Award className="w-4 h-4 text-primary" />
+            <h3 className="text-base font-semibold text-foreground dark:text-foreground">Przychód wg klienta (MRR)</h3>
           </div>
           <div className="space-y-3">
             {data.top_clients.map((c, i) => {
-              const colors = ["bg-blue-500", "bg-indigo-500", "bg-purple-500", "bg-blue-400", "bg-cyan-500"];
+              const colors = ["bg-primary", "bg-indigo-500", "bg-purple-500", "bg-primary/30", "bg-cyan-500"];
               return (
                 <HorizontalBar
                   key={c.client_id}
@@ -705,11 +705,11 @@ function SalesTab() {
           </div>
           <div className="space-y-2">
             {data.ending_contracts_30days.map((c) => (
-              <div key={c.contract_id} className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-lg px-4 py-2.5 text-sm">
-                <span className="font-medium text-gray-800 dark:text-gray-200">{c.client_name}</span>
+              <div key={c.contract_id} className="flex items-center justify-between bg-card dark:bg-muted rounded-lg px-4 py-2.5 text-sm">
+                <span className="font-medium text-foreground dark:text-muted-foreground">{c.client_name}</span>
                 <div className="flex items-center gap-4">
-                  <span className="text-gray-500 dark:text-gray-400">{c.end_date}</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{c.rate_client ? formatPLN(c.rate_client) : "—"}/h</span>
+                  <span className="text-muted-foreground dark:text-muted-foreground">{c.end_date}</span>
+                  <span className="font-semibold text-foreground dark:text-foreground">{c.rate_client ? formatPLN(c.rate_client) : "—"}/h</span>
                 </div>
               </div>
             ))}
@@ -718,24 +718,24 @@ function SalesTab() {
       )}
 
       {/* Szanse sprzedażowe table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Szanse sprzedażowe</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Demo — docelowo z modułu CRM</p>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border dark:border-border">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Szanse sprzedażowe</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Demo — docelowo z modułu CRM</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
+            <thead className="bg-muted dark:bg-card">
               <tr>
                 {["Szansa", "Wartość", "Etap", "Prawdop.", "Opiekun"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{h}</th>
+                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {demoOpps.map((opp, i) => (
-                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                  <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">{opp.name}</td>
+                <tr key={i} className="hover:bg-muted dark:hover:bg-muted/50 transition-colors">
+                  <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">{opp.name}</td>
                   <td className="px-6 py-3 font-semibold text-green-600">{formatPLN(opp.value)}</td>
                   <td className="px-6 py-3">
                     <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium", stageBadge[opp.stage])}>
@@ -744,13 +744,13 @@ function SalesTab() {
                   </td>
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-12 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5">
-                        <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${opp.prob}%` }} />
+                      <div className="w-12 bg-muted dark:bg-muted rounded-full h-1.5">
+                        <div className="bg-primary h-1.5 rounded-full" style={{ width: `${opp.prob}%` }} />
                       </div>
-                      <span className="text-xs text-gray-600 dark:text-gray-300">{opp.prob}%</span>
+                      <span className="text-xs text-muted-foreground dark:text-muted-foreground">{opp.prob}%</span>
                     </div>
                   </td>
-                  <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{opp.owner}</td>
+                  <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{opp.owner}</td>
                 </tr>
               ))}
             </tbody>
@@ -786,36 +786,36 @@ function DeliveryLeadTab({ period }: { period: Period }) {
 
       {/* Side-by-side comparison bars */}
       {data.per_dl.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-5">Porównanie Delivery Leadów</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-5">Porównanie Delivery Leadów</h3>
           <div className="space-y-6">
             {data.per_dl.map((dl) => (
               <div key={dl.user_id} className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">{dl.name}</span>
-                  <span className="text-xs text-gray-400">hit ratio: <strong className="text-gray-700 dark:text-gray-300">{dl.hit_ratio}%</strong></span>
+                  <span className="text-sm font-semibold text-foreground dark:text-muted-foreground">{dl.name}</span>
+                  <span className="text-xs text-muted-foreground">hit ratio: <strong className="text-foreground dark:text-muted-foreground">{dl.hit_ratio}%</strong></span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-xs text-gray-400 mb-1">Zlecenia</div>
-                    <div className="bg-gray-100 dark:bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                    <div className="text-xs text-muted-foreground mb-1">Zlecenia</div>
+                    <div className="bg-muted dark:bg-muted rounded-full h-4 relative overflow-hidden">
                       <div
-                        className="bg-blue-500 h-4 rounded-full"
+                        className="bg-primary h-4 rounded-full"
                         style={{ width: `${(dl.total_requests / maxRequests) * 100}%` }}
                       />
-                      <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-gray-700 dark:text-white">
+                      <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-foreground dark:text-white">
                         {dl.total_requests}
                       </span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-400 mb-1">Placements</div>
-                    <div className="bg-gray-100 dark:bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                    <div className="text-xs text-muted-foreground mb-1">Placements</div>
+                    <div className="bg-muted dark:bg-muted rounded-full h-4 relative overflow-hidden">
                       <div
                         className="bg-green-500 h-4 rounded-full"
                         style={{ width: `${(dl.placements / maxPlacements) * 100}%` }}
                       />
-                      <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-gray-700 dark:text-white">
+                      <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-foreground dark:text-white">
                         {dl.placements}
                       </span>
                     </div>
@@ -823,21 +823,21 @@ function DeliveryLeadTab({ period }: { period: Period }) {
                 </div>
                 {/* Conversion bar */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-20">Conversion</span>
-                  <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-2">
+                  <span className="text-xs text-muted-foreground w-20">Conversion</span>
+                  <div className="flex-1 bg-muted dark:bg-muted rounded-full h-2">
                     <div
                       className={cn("h-2 rounded-full", dl.hit_ratio >= 30 ? "bg-green-500" : dl.hit_ratio >= 15 ? "bg-yellow-500" : "bg-red-400")}
                       style={{ width: `${Math.min(dl.hit_ratio, 100)}%` }}
                     />
                   </div>
-                  <span className="text-xs font-medium text-gray-600 dark:text-gray-300 w-8">{dl.hit_ratio}%</span>
+                  <span className="text-xs font-medium text-muted-foreground dark:text-muted-foreground w-8">{dl.hit_ratio}%</span>
                 </div>
                 {dl.clients.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {dl.clients.slice(0, 4).map((c) => (
-                      <span key={c} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">{c}</span>
+                      <span key={c} className="px-1.5 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded text-xs">{c}</span>
                     ))}
-                    {dl.clients.length > 4 && <span className="text-xs text-gray-400">+{dl.clients.length - 4}</span>}
+                    {dl.clients.length > 4 && <span className="text-xs text-muted-foreground">+{dl.clients.length - 4}</span>}
                   </div>
                 )}
               </div>
@@ -847,50 +847,50 @@ function DeliveryLeadTab({ period }: { period: Period }) {
       )}
 
       {/* DL table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Wyniki Delivery Leadów</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border dark:border-border">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Wyniki Delivery Leadów</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
+            <thead className="bg-muted dark:bg-card">
               <tr>
                 {["Delivery Lead", "Zlecenia", "Placements", "Hit ratio", "Conversion", "Klienci"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{h}</th>
+                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {data.per_dl.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400">Brak danych w wybranym okresie</td></tr>
+                <tr><td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">Brak danych w wybranym okresie</td></tr>
               ) : (
                 data.per_dl.map((dl) => (
-                  <tr key={dl.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">{dl.name}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{dl.total_requests}</td>
+                  <tr key={dl.user_id} className="hover:bg-muted dark:hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">{dl.name}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{dl.total_requests}</td>
                     <td className="px-6 py-3"><span className="font-semibold text-green-600">{dl.placements}</span></td>
                     <td className="px-6 py-3">
                       <span className={cn(
                         "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                        dl.hit_ratio >= 30 ? "bg-green-100 text-green-700" : dl.hit_ratio >= 15 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"
+                        dl.hit_ratio >= 30 ? "bg-green-100 text-green-700" : dl.hit_ratio >= 15 ? "bg-yellow-100 text-yellow-700" : "bg-destructive/15 text-destructive"
                       )}>
                         {dl.hit_ratio}%
                       </span>
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 max-w-[80px] bg-gray-100 dark:bg-gray-700 rounded-full h-2">
-                          <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${Math.min(dl.hit_ratio, 100)}%` }} />
+                        <div className="flex-1 max-w-[80px] bg-muted dark:bg-muted rounded-full h-2">
+                          <div className="bg-primary h-2 rounded-full" style={{ width: `${Math.min(dl.hit_ratio, 100)}%` }} />
                         </div>
-                        <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{dl.hit_ratio}%</span>
+                        <span className="text-xs font-medium text-foreground dark:text-muted-foreground">{dl.hit_ratio}%</span>
                       </div>
                     </td>
                     <td className="px-6 py-3">
                       <div className="flex flex-wrap gap-1">
                         {dl.clients.slice(0, 3).map((c) => (
-                          <span key={c} className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs px-2 py-0.5 rounded-full">{c}</span>
+                          <span key={c} className="inline-block bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground text-xs px-2 py-0.5 rounded-full">{c}</span>
                         ))}
-                        {dl.clients.length > 3 && <span className="text-xs text-gray-400">+{dl.clients.length - 3}</span>}
+                        {dl.clients.length > 3 && <span className="text-xs text-muted-foreground">+{dl.clients.length - 3}</span>}
                       </div>
                     </td>
                   </tr>
@@ -923,8 +923,8 @@ function PrzetargiTab({ period }: { period: Period }) {
   const resultBadge = (result: string) => {
     const map: Record<string, string> = {
       wygrana: "bg-green-100 text-green-700",
-      przegrana: "bg-red-100 text-red-700",
-      w_toku: "bg-blue-100 text-blue-700",
+      przegrana: "bg-destructive/15 text-destructive",
+      w_toku: "bg-primary/15 text-primary",
     };
     const labels: Record<string, string> = {
       wygrana: "Wygrana",
@@ -932,7 +932,7 @@ function PrzetargiTab({ period }: { period: Period }) {
       w_toku: "W toku",
     };
     return (
-      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium", map[result] || "bg-gray-100 text-gray-600 dark:text-gray-300")}>
+      <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium", map[result] || "bg-muted text-muted-foreground dark:text-muted-foreground")}>
         {labels[result] || result}
       </span>
     );
@@ -957,29 +957,29 @@ function PrzetargiTab({ period }: { period: Period }) {
       {/* Stats row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Won/lost donut */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Wyniki przetargów</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Wyniki przetargów</h3>
           {wonLostDonut.length > 0 ? (
             <DonutChart segments={wonLostDonut} />
           ) : (
-            <div className="text-sm text-gray-400 text-center py-8">Brak danych</div>
+            <div className="text-sm text-muted-foreground text-center py-8">Brak danych</div>
           )}
         </div>
 
         {/* Avg value + win rate gauge */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm space-y-4">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Statystyki wartości</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm space-y-4">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Statystyki wartości</h3>
           <div className="flex items-center gap-4">
             <div className="flex-1">
-              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Śr. wartość przetargu</div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">Śr. wartość przetargu</div>
+              <div className="text-2xl font-bold text-foreground dark:text-foreground">
                 {avgTenderValue > 0 ? formatPLN(avgTenderValue) : "—"}
               </div>
             </div>
             <div className="flex-1">
-              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Win rate</div>
+              <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">Win rate</div>
               <div className="flex items-center gap-2">
-                <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                <div className="flex-1 bg-muted dark:bg-muted rounded-full h-4 relative overflow-hidden">
                   <div className="bg-green-500 h-4 rounded-full transition-all" style={{ width: `${data.win_rate}%` }} />
                   <span className="absolute inset-0 flex items-center px-2 text-xs font-bold text-white">{data.win_rate}%</span>
                 </div>
@@ -989,7 +989,7 @@ function PrzetargiTab({ period }: { period: Period }) {
           {/* Submitted/Won/Lost bars */}
           <div className="space-y-2 pt-2">
             {[
-              { label: "Złożone", value: data.total_tenders, color: "bg-blue-500" },
+              { label: "Złożone", value: data.total_tenders, color: "bg-primary" },
               { label: "Wygrane", value: data.won, color: "bg-green-500" },
               { label: "Przegrane", value: data.lost, color: "bg-red-400" },
             ].map((item) => (
@@ -1007,30 +1007,30 @@ function PrzetargiTab({ period }: { period: Period }) {
       </div>
 
       {/* Tenders table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Lista przetargów</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-border dark:border-border">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">Lista przetargów</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900">
+            <thead className="bg-muted dark:bg-card">
               <tr>
                 {["Tytuł", "Klient", "Wynik", "Wartość", "Deadline"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{h}</th>
+                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {data.per_tender.length === 0 ? (
-                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Brak przetargów w wybranym okresie</td></tr>
+                <tr><td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">Brak przetargów w wybranym okresie</td></tr>
               ) : (
                 data.per_tender.map((t) => (
-                  <tr key={t.job_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                    <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">{t.job_title}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{t.client}</td>
+                  <tr key={t.job_id} className="hover:bg-muted dark:hover:bg-muted/50 transition-colors">
+                    <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">{t.job_title}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{t.client}</td>
                     <td className="px-6 py-3">{resultBadge(t.result)}</td>
-                    <td className="px-6 py-3 text-gray-600 dark:text-gray-300">{t.value ? formatPLN(t.value) : "—"}</td>
-                    <td className="px-6 py-3 text-gray-500 dark:text-gray-400">{t.deadline || "—"}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{t.value ? formatPLN(t.value) : "—"}</td>
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">{t.deadline || "—"}</td>
                   </tr>
                 ))
               )}
@@ -1093,12 +1093,12 @@ function ZarzadTab() {
     { label: "Retencja kandydatów w pipeline", level: "yellow", desc: "Wymaga monitoringu" },
   ];
   const riskColors: Record<string, string> = {
-    red: "bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800",
+    red: "bg-destructive/15 dark:bg-red-900/30 border-destructive/20 dark:border-red-800",
     yellow: "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800",
     green: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
   };
   const riskDots: Record<string, string> = {
-    red: "bg-red-500",
+    red: "bg-destructive/100",
     yellow: "bg-yellow-500",
     green: "bg-green-500",
   };
@@ -1122,8 +1122,8 @@ function ZarzadTab() {
 
       {/* Month-over-month comparison */}
       {lastTwo.length === 2 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Porównanie miesiąc do miesiąca</h3>
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Porównanie miesiąc do miesiąca</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Przychód", prev: lastTwo[0].revenue, curr: lastTwo[1].revenue, format: formatPLN, mom: momRevenue },
@@ -1131,20 +1131,20 @@ function ZarzadTab() {
               { label: "Konsultanci", prev: lastTwo[0].consultants, curr: lastTwo[1].consultants, format: (v: number) => String(v), mom: lastTwo[0].consultants > 0 ? Math.round(((lastTwo[1].consultants - lastTwo[0].consultants) / lastTwo[0].consultants) * 100) : 0 },
               { label: "Marża (est.)", prev: lastTwo[0].revenue * 0.15, curr: lastTwo[1].revenue * 0.15, format: formatPLN, mom: momRevenue },
             ].map((item) => (
-              <div key={item.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
-                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{item.label}</div>
-                <div className="text-xl font-bold text-gray-900 dark:text-gray-100">{item.format(item.curr)}</div>
+              <div key={item.label} className="bg-muted dark:bg-muted/50 rounded-lg p-4">
+                <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-1">{item.label}</div>
+                <div className="text-xl font-bold text-foreground dark:text-foreground">{item.format(item.curr)}</div>
                 <div className="flex items-center gap-1 mt-1">
                   {item.mom > 0
                     ? <TrendingUp className="w-3 h-3 text-green-500" />
                     : item.mom < 0
                     ? <TrendingDown className="w-3 h-3 text-red-400" />
                     : null}
-                  <span className={cn("text-xs font-medium", item.mom > 0 ? "text-green-600" : item.mom < 0 ? "text-red-500" : "text-gray-400")}>
+                  <span className={cn("text-xs font-medium", item.mom > 0 ? "text-green-600" : item.mom < 0 ? "text-destructive" : "text-muted-foreground")}>
                     {item.mom > 0 ? "+" : ""}{item.mom}% vs poprzedni miesiąc
                   </span>
                 </div>
-                <div className="text-xs text-gray-400 mt-0.5">Poprzednio: {item.format(item.prev)}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Poprzednio: {item.format(item.prev)}</div>
               </div>
             ))}
           </div>
@@ -1152,13 +1152,13 @@ function ZarzadTab() {
       )}
 
       {/* 12-month revenue trend */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Trend 12-miesięczny — przychód MRR</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Trend 12-miesięczny — przychód MRR</h3>
         <div className="flex items-end gap-1 h-32">
           {data.trends.map((t) => (
             <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
               <div
-                className="w-full bg-blue-500 rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-help"
+                className="w-full bg-primary rounded-t opacity-80 hover:opacity-100 transition-opacity cursor-help"
                 style={{ height: `${(t.revenue / maxRevenue) * 100}%` }}
                 title={`${t.month_label}: ${formatPLN(t.revenue)}`}
               />
@@ -1168,15 +1168,15 @@ function ZarzadTab() {
         <div className="flex gap-1 mt-1">
           {data.trends.map((t) => (
             <div key={t.month} className="flex-1 text-center">
-              <span className="text-[9px] text-gray-400">{t.month_label.slice(0, 3)}</span>
+              <span className="text-[9px] text-muted-foreground">{t.month_label.slice(0, 3)}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* 12-month placements trend */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Trend 12-miesięczny — placements</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Trend 12-miesięczny — placements</h3>
         <div className="flex items-end gap-1 h-24">
           {data.trends.map((t) => (
             <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
@@ -1191,7 +1191,7 @@ function ZarzadTab() {
         <div className="flex gap-1 mt-1">
           {data.trends.map((t) => (
             <div key={t.month} className="flex-1 text-center">
-              <span className="text-[9px] text-gray-400">{t.month_label.slice(0, 3)}</span>
+              <span className="text-[9px] text-muted-foreground">{t.month_label.slice(0, 3)}</span>
             </div>
           ))}
         </div>
@@ -1217,17 +1217,17 @@ function ZarzadTab() {
       </div>
 
       {/* Key risks */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">Kluczowe ryzyka</h3>
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6 shadow-sm">
+        <h3 className="text-base font-semibold text-foreground dark:text-foreground mb-4">Kluczowe ryzyka</h3>
         <div className="space-y-2">
           {risks.map((risk, i) => {
             const Icon = riskIcons[risk.level];
             return (
               <div key={i} className={cn("flex items-center gap-3 p-3 rounded-lg border", riskColors[risk.level])}>
                 <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", riskDots[risk.level])} />
-                <Icon className={cn("w-4 h-4 flex-shrink-0", risk.level === "red" ? "text-red-600" : risk.level === "yellow" ? "text-yellow-600" : "text-green-600")} />
-                <span className="text-sm font-medium text-gray-800 dark:text-gray-200 flex-1">{risk.label}</span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{risk.desc}</span>
+                <Icon className={cn("w-4 h-4 flex-shrink-0", risk.level === "red" ? "text-destructive" : risk.level === "yellow" ? "text-yellow-600" : "text-green-600")} />
+                <span className="text-sm font-medium text-foreground dark:text-muted-foreground flex-1">{risk.label}</span>
+                <span className="text-xs text-muted-foreground dark:text-muted-foreground">{risk.desc}</span>
               </div>
             );
           })}
@@ -1303,12 +1303,12 @@ function InviteLinksTab({ period }: { period: Period }) {
       </div>
 
       {/* Channel table */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border shadow-sm">
+        <div className="px-6 py-4 border-b border-border dark:border-border">
+          <h3 className="text-base font-semibold text-foreground dark:text-foreground">
             Skuteczność kanałów
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
             Linki aplikacyjne grupowane po etykiecie (np. „LinkedIn post
             04/26"). Linki bez etykiety trafiają do „Bez etykiety".
           </p>
@@ -1316,7 +1316,7 @@ function InviteLinksTab({ period }: { period: Period }) {
         {hasData ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wider text-gray-500 bg-gray-50 dark:bg-gray-900/30">
+              <thead className="text-xs uppercase tracking-wider text-muted-foreground bg-muted dark:bg-card/30">
                 <tr>
                   {[
                     "Kanał",
@@ -1335,21 +1335,21 @@ function InviteLinksTab({ period }: { period: Period }) {
                 {data.channels.map((ch) => (
                   <tr
                     key={ch.channel}
-                    className="border-t border-gray-100 dark:border-gray-700/50 hover:bg-gray-50/60 dark:hover:bg-gray-700/30"
+                    className="border-t border-border dark:border-border/50 hover:bg-muted/60 dark:hover:bg-muted/30"
                   >
-                    <td className="px-6 py-3 font-medium text-gray-900 dark:text-gray-100">
+                    <td className="px-6 py-3 font-medium text-foreground dark:text-foreground">
                       {ch.channel}
                     </td>
-                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                    <td className="px-6 py-3 text-foreground dark:text-muted-foreground">
                       {ch.links_count}
                     </td>
-                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                    <td className="px-6 py-3 text-foreground dark:text-muted-foreground">
                       {ch.applications}
                     </td>
-                    <td className="px-6 py-3 text-gray-700 dark:text-gray-300">
+                    <td className="px-6 py-3 text-foreground dark:text-muted-foreground">
                       {ch.conversion_pct}%
                     </td>
-                    <td className="px-6 py-3 text-gray-500 dark:text-gray-400">
+                    <td className="px-6 py-3 text-muted-foreground dark:text-muted-foreground">
                       {ch.last_used_at
                         ? new Date(ch.last_used_at).toLocaleDateString("pl-PL", {
                             day: "2-digit",
@@ -1364,7 +1364,7 @@ function InviteLinksTab({ period }: { period: Period }) {
             </table>
           </div>
         ) : (
-          <div className="px-6 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+          <div className="px-6 py-12 text-center text-sm text-muted-foreground dark:text-muted-foreground">
             Nie wygenerowano jeszcze żadnych linków w tym okresie.
           </div>
         )}
@@ -1428,14 +1428,14 @@ interface KlienciAtRiskResponse {
 function hitRatioTone(value: number): string {
   if (value >= 50) return "bg-green-500";
   if (value >= 20) return "bg-amber-500";
-  return "bg-red-500";
+  return "bg-destructive/100";
 }
 
 function hitRatioBadge(value: number, closed: number, minClosed = 3): string {
-  if (closed < minClosed) return "bg-gray-200 text-gray-700";
+  if (closed < minClosed) return "bg-muted text-foreground";
   if (value >= 50) return "bg-green-100 text-green-800";
   if (value >= 20) return "bg-amber-100 text-amber-800";
-  return "bg-red-100 text-red-800";
+  return "bg-destructive/15 text-red-800";
 }
 
 function KlienciTab({ period }: { period: Period }) {
@@ -1501,26 +1501,26 @@ function KlienciTab({ period }: { period: Period }) {
       </div>
 
       {/* Leaderboard */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h2 className="text-base font-semibold text-foreground dark:text-foreground">
               Leaderboard klientów
             </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
               Top 10 wg hit ratio · min. 3 zamknięte zapytania · okres: {period}
             </p>
           </div>
           <Trophy className="w-5 h-5 text-amber-500" />
         </div>
         {top.length === 0 ? (
-          <div className="text-center py-10 text-sm text-gray-500">
+          <div className="text-center py-10 text-sm text-muted-foreground">
             Brak klientów z minimum 3 zamkniętymi zapytaniami w okresie.
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <tr className="text-xs text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 <th className="text-left pb-2 pr-3">#</th>
                 <th className="text-left pb-2 pr-3">Klient</th>
                 <th className="text-right pb-2 pr-3">Zamknięte</th>
@@ -1534,31 +1534,31 @@ function KlienciTab({ period }: { period: Period }) {
               {top.map((row, idx) => (
                 <tr
                   key={row.client_id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer"
+                  className="hover:bg-muted dark:hover:bg-muted/40 cursor-pointer"
                   onClick={() => {
                     if (typeof window !== "undefined") {
                       window.location.href = `/clients/${row.client_id}`;
                     }
                   }}
                 >
-                  <td className="py-2 pr-3 text-gray-400 font-mono">{idx + 1}</td>
+                  <td className="py-2 pr-3 text-muted-foreground font-mono">{idx + 1}</td>
                   <td className="py-2 pr-3">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                    <span className="font-medium text-foreground dark:text-foreground">
                       {row.client_name}
                     </span>
                     {row.target_achieved && (
                       <Award className="inline-block w-3.5 h-3.5 ml-1.5 text-amber-500" />
                     )}
                   </td>
-                  <td className="py-2 pr-3 text-right text-gray-700 dark:text-gray-300">
+                  <td className="py-2 pr-3 text-right text-foreground dark:text-muted-foreground">
                     {row.closed_jobs}
                   </td>
-                  <td className="py-2 pr-3 text-right text-gray-700 dark:text-gray-300">
+                  <td className="py-2 pr-3 text-right text-foreground dark:text-muted-foreground">
                     {row.filled_jobs}
                   </td>
                   <td className="py-2 pr-3">
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="flex-1 h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
                         <div
                           className={cn("h-full rounded-full", hitRatioTone(row.hit_ratio))}
                           style={{ width: `${Math.min(row.hit_ratio, 100)}%` }}
@@ -1574,13 +1574,13 @@ function KlienciTab({ period }: { period: Period }) {
                       </span>
                     </div>
                   </td>
-                  <td className="py-2 pr-3 text-right text-gray-700 dark:text-gray-300">
+                  <td className="py-2 pr-3 text-right text-foreground dark:text-muted-foreground">
                     {row.fill_rate.toFixed(1)}%
                   </td>
-                  <td className="py-2 text-right text-gray-700 dark:text-gray-300">
+                  <td className="py-2 text-right text-foreground dark:text-muted-foreground">
                     {row.placements}
                     {row.total_vacancies > 0 && (
-                      <span className="text-xs text-gray-400"> / {row.total_vacancies}</span>
+                      <span className="text-xs text-muted-foreground"> / {row.total_vacancies}</span>
                     )}
                   </td>
                 </tr>
@@ -1591,28 +1591,28 @@ function KlienciTab({ period }: { period: Period }) {
       </div>
 
       {/* At-risk */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            <h2 className="text-base font-semibold text-foreground dark:text-foreground">
               Klienci at-risk
             </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
               Spadek hit ratio o &gt; {atRisk?.drop_threshold_pp ?? 20} pp kwartał-do-kwartału
             </p>
           </div>
-          <AlertTriangle className="w-5 h-5 text-red-500" />
+          <AlertTriangle className="w-5 h-5 text-destructive" />
         </div>
         {loadingRisk ? (
-          <div className="text-sm text-gray-500 py-3">Ładowanie…</div>
+          <div className="text-sm text-muted-foreground py-3">Ładowanie…</div>
         ) : !atRisk || atRisk.clients.length === 0 ? (
-          <div className="text-center py-6 text-sm text-gray-500">
+          <div className="text-center py-6 text-sm text-muted-foreground">
             Żaden klient nie spełnia kryterium — stabilnie.
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <tr className="text-xs text-muted-foreground dark:text-muted-foreground uppercase tracking-wider">
                 <th className="text-left pb-2 pr-3">Klient</th>
                 <th className="text-right pb-2 pr-3">Ostatni Q</th>
                 <th className="text-right pb-2 pr-3">Poprzedni Q</th>
@@ -1624,14 +1624,14 @@ function KlienciTab({ period }: { period: Period }) {
               {atRisk.clients.map((row) => (
                 <tr
                   key={row.client_id}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/40 cursor-pointer"
+                  className="hover:bg-muted dark:hover:bg-muted/40 cursor-pointer"
                   onClick={() => {
                     if (typeof window !== "undefined") {
                       window.location.href = `/clients/${row.client_id}`;
                     }
                   }}
                 >
-                  <td className="py-2 pr-3 font-medium text-gray-900 dark:text-gray-100">
+                  <td className="py-2 pr-3 font-medium text-foreground dark:text-foreground">
                     {row.client_name}
                   </td>
                   <td className="py-2 pr-3 text-right">
@@ -1639,16 +1639,16 @@ function KlienciTab({ period }: { period: Period }) {
                       {row.hit_ratio.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-right text-gray-500">
+                  <td className="py-2 pr-3 text-right text-muted-foreground">
                     {row.prev_hit_ratio.toFixed(1)}%
                   </td>
                   <td className="py-2 pr-3 text-right">
-                    <span className="inline-flex items-center gap-1 text-red-600 font-semibold">
+                    <span className="inline-flex items-center gap-1 text-destructive font-semibold">
                       <TrendingDown className="w-3.5 h-3.5" />
                       {row.delta_pp.toFixed(1)} pp
                     </span>
                   </td>
-                  <td className="py-2 text-right text-gray-700 dark:text-gray-300">
+                  <td className="py-2 text-right text-foreground dark:text-muted-foreground">
                     {row.closed_jobs}
                   </td>
                 </tr>
@@ -1692,14 +1692,14 @@ export default function ReportsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Raporty</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Analityka i KPI systemu ATS</p>
+          <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Raporty</h1>
+          <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">Analityka i KPI systemu ATS</p>
         </div>
         {showPeriod && <PeriodSelector value={period} onChange={setPeriod} />}
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-border dark:border-border">
         <nav className="flex gap-6" aria-label="Tabs">
           {TABS.map((tab) => (
             <button
@@ -1708,8 +1708,8 @@ export default function ReportsPage() {
               className={cn(
                 "pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
                 activeTab === tab.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground dark:text-muted-foreground hover:text-foreground hover:border-border"
               )}
             >
               {tab.label}

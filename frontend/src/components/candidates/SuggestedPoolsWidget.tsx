@@ -56,19 +56,19 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
 
   if (isLoading)
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-4 text-sm text-gray-500">
+      <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4 text-sm text-muted-foreground">
         Ładuję sugestie pul…
       </div>
     );
 
   if (suggestions.length === 0)
     return (
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          <Sparkles className="w-4 h-4 text-blue-500" />
+      <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4">
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground dark:text-muted-foreground mb-1">
+          <Sparkles className="w-4 h-4 text-primary" />
           Sugerowane pule
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           Brak trafnych sugestii — pula talentów może być pusta, albo kandydat
           nie ma jeszcze policzonego embedding.
         </p>
@@ -76,11 +76,11 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
     );
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-4 space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
-        <Sparkles className="w-4 h-4 text-blue-500" />
+    <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-foreground dark:text-muted-foreground">
+        <Sparkles className="w-4 h-4 text-primary" />
         Sugerowane pule
-        <span className="text-[11px] text-gray-500 font-normal">
+        <span className="text-[11px] text-muted-foreground font-normal">
           ({suggestions.length})
         </span>
       </div>
@@ -90,10 +90,10 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
           return (
             <li
               key={s.pool_id}
-              className="flex items-center gap-2 text-xs bg-gray-50 dark:bg-gray-900 rounded-lg px-2 py-1.5"
+              className="flex items-center gap-2 text-xs bg-muted dark:bg-card rounded-lg px-2 py-1.5"
             >
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                <div className="font-medium text-foreground dark:text-foreground truncate">
                   {s.pool_name}
                 </div>
                 <div className="mt-0.5 flex items-center gap-1.5">
@@ -108,7 +108,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
                     }
                     withIcon={false}
                   />
-                  <span className="text-gray-500">
+                  <span className="text-muted-foreground">
                     {s.band === "auto" ? "auto-add" : "sugestia"}
                   </span>
                 </div>
@@ -122,7 +122,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
                   type="button"
                   onClick={() => addMutation.mutate(s.pool_id)}
                   disabled={addMutation.isPending}
-                  className="text-[11px] text-blue-600 hover:text-blue-800 dark:text-blue-400 flex items-center gap-1 disabled:opacity-50"
+                  className="text-[11px] text-primary hover:text-primary/80 dark:text-primary flex items-center gap-1 disabled:opacity-50"
                 >
                   <Plus className="w-3 h-3" /> Dodaj
                 </button>

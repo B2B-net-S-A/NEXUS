@@ -24,7 +24,7 @@ export function MentionBadge({ email, user }: MentionBadgeProps) {
   return (
     <span
       title={user ? `${user.name} <${user.email}>` : email}
-      className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 text-[0.95em] font-medium"
+      className="inline-flex items-center px-1.5 py-0.5 rounded bg-primary/15 dark:bg-primary/25 text-primary text-[0.95em] font-medium"
     >
       @{label}
     </span>
@@ -63,7 +63,7 @@ export function renderWithMentions(
       ) : (
         <span
           key={`m${key++}`}
-          className="text-blue-600 dark:text-blue-400 font-medium"
+          className="text-primary font-medium"
         >
           @{match[1]}
         </span>

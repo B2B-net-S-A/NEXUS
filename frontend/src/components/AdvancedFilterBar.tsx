@@ -100,17 +100,17 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
     <div className="space-y-2" ref={wrapperRef}>
       {/* Skills input with autocomplete */}
       <div className="relative">
-        <div className="flex items-center gap-1.5 flex-wrap px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 min-h-[34px]">
+        <div className="flex items-center gap-1.5 flex-wrap px-2 py-1.5 border border-border dark:border-border rounded-lg bg-card dark:bg-muted min-h-[34px]">
           {value.skills.map((skill, idx) => (
             <span
               key={skill}
-              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 font-medium"
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-primary/15 text-primary border border-primary/20 font-medium"
             >
               {idx > 0 && (
                 <button
                   type="button"
                   onClick={toggleCombine}
-                  className="text-[9px] uppercase tracking-wide font-bold px-0.5 mr-0.5 rounded bg-blue-200 hover:bg-blue-300"
+                  className="text-[9px] uppercase tracking-wide font-bold px-0.5 mr-0.5 rounded bg-primary/20 hover:bg-primary/25"
                   title="Zmień AND/OR między chipami"
                 >
                   {value.skillCombine}
@@ -120,7 +120,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
               <button
                 type="button"
                 onClick={() => removeSkill(skill)}
-                className="ml-0.5 hover:text-blue-900"
+                className="ml-0.5 hover:text-primary"
                 aria-label={`Usuń ${skill}`}
               >
                 <X className="w-3 h-3" />
@@ -144,25 +144,25 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
               }
             }}
             placeholder={value.skills.length === 0 ? "Umiejętności (np. Python, AWS)…" : ""}
-            className="flex-1 min-w-[120px] text-xs bg-transparent focus:outline-none dark:text-gray-100"
+            className="flex-1 min-w-[120px] text-xs bg-transparent focus:outline-none dark:text-foreground"
           />
         </div>
 
         {open && suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-full mt-1 z-20 max-h-56 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+          <div className="absolute left-0 right-0 top-full mt-1 z-20 max-h-56 overflow-y-auto bg-card dark:bg-muted border border-border dark:border-border rounded-lg shadow-lg">
             {loadingSuggest && (
-              <div className="px-3 py-1.5 text-[11px] text-gray-400">Szukam…</div>
+              <div className="px-3 py-1.5 text-[11px] text-muted-foreground">Szukam…</div>
             )}
             {suggestions.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 onClick={() => addSkill(s.name)}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 dark:hover:bg-blue-900/30 flex items-center justify-between"
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-primary/10 dark:hover:bg-primary/30 flex items-center justify-between"
               >
                 <span className="capitalize">{s.name}</span>
                 {s.category && (
-                  <span className="text-[9px] text-gray-400 uppercase tracking-wide">
+                  <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
                     {s.category}
                   </span>
                 )}
@@ -174,7 +174,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
 
       {/* Row: remote + salary */}
       <div className="flex gap-2 flex-wrap">
-        <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5 bg-white dark:bg-gray-700">
+        <div className="flex gap-1 border border-border dark:border-border rounded-lg p-0.5 bg-card dark:bg-muted">
           {REMOTE_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             const active = value.remotePolicy === opt.value;
@@ -186,8 +186,8 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
                 className={cn(
                   "inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors",
                   active
-                    ? "bg-blue-600 text-white"
-                    : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600"
+                    ? "bg-primary text-white"
+                    : "text-muted-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-gray-600"
                 )}
                 title={opt.label}
               >
@@ -209,7 +209,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
             })
           }
           placeholder="od PLN"
-          className="w-24 px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
         />
         <input
           type="number"
@@ -223,7 +223,7 @@ export function AdvancedFilterBar({ value, onChange }: AdvancedFilterBarProps) {
             })
           }
           placeholder="do PLN"
-          className="w-24 px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+          className="w-24 px-2 py-1 text-xs border border-border dark:border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
         />
       </div>
     </div>

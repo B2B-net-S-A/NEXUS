@@ -57,13 +57,13 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
         <ChevronDown className="w-3 h-3" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-[120px] py-1">
+        <div className="absolute right-0 top-full mt-1 bg-card dark:bg-muted border border-border dark:border-border rounded-lg shadow-lg z-10 min-w-[120px] py-1">
           {DURATIONS.map((m) => (
             <button
               key={m}
               onClick={() => mutation.mutate(m)}
               className={cn(
-                "block w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-gray-700 dark:text-gray-200"
+                "block w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-foreground dark:text-muted-foreground"
               )}
             >
               + {m} miesięcy

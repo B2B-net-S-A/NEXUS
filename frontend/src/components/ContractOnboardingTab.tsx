@@ -103,14 +103,14 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
     <div className="space-y-4">
       {items.length === 0 && !isLoading && (
         <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded-2xl p-5">
-            <p className="text-sm text-blue-900 dark:text-blue-100 mb-3">
+          <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
+            <p className="text-sm text-primary dark:text-primary mb-3">
               Brak listy onboardingowej. Zacznij od domyślnego zestawu (BHP,
               sprzęt, dostępy, VPN, Slack klient, email, repo) i dostosuj.
             </p>
             <button
               onClick={handleSeed}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
               Wygeneruj domyślny checklist
             </button>
@@ -119,14 +119,14 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
       )}
 
       {items.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-4">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-4">
           <div className="flex items-center justify-between mb-3 text-sm">
-            <span className="text-gray-500 dark:text-gray-400">
+            <span className="text-muted-foreground dark:text-muted-foreground">
               Postęp: <strong>{doneCount}/{activeCount}</strong>{" "}
               {pct}%
             </span>
           </div>
-          <div className="w-full h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
             <div
               className="h-full bg-emerald-500 transition-all"
               style={{ width: `${pct}%` }}
@@ -150,12 +150,12 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
             placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
-            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700"
+            className="flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
           />
           <button
             type="submit"
             disabled={createMutation.isPending || !newLabel.trim()}
-            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
           >
             <Plus className="w-4 h-4" /> Dodaj
           </button>
@@ -163,7 +163,7 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
       </RequireRole>
 
       {isLoading ? (
-        <div className="text-sm text-gray-500 flex items-center gap-2">
+        <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
         </div>
       ) : items.length === 0 ? null : (
@@ -175,7 +175,7 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
             return (
               <li
                 key={item.id}
-                className={`flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm ${
+                className={`flex items-center gap-3 bg-card dark:bg-muted rounded-lg px-3 py-2 shadow-sm ${
                   isNa ? "opacity-50" : ""
                 }`}
               >
@@ -191,8 +191,8 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
                       isDone
                         ? "text-emerald-600"
                         : isNa
-                          ? "text-gray-400"
-                          : "text-gray-400 hover:text-blue-600"
+                          ? "text-muted-foreground"
+                          : "text-muted-foreground hover:text-primary"
                     }
                     title={`Zmień status (obecnie: ${item.status})`}
                   >
@@ -200,12 +200,12 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
                   </button>
                 </RequireRole>
                 <span
-                  className={`flex-1 text-sm ${isDone ? "line-through text-gray-500" : ""}`}
+                  className={`flex-1 text-sm ${isDone ? "line-through text-muted-foreground" : ""}`}
                 >
                   {item.label}
                 </span>
                 {item.due_date && (
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="text-xs text-muted-foreground dark:text-muted-foreground">
                     → {formatDate(item.due_date)}
                   </span>
                 )}
@@ -216,7 +216,7 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
                         deleteMutation.mutate(item.id);
                       }
                     }}
-                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-red-400 hover:text-red-600"
+                    className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
                     title="Usuń"
                   >
                     <Trash2 className="w-4 h-4" />

@@ -112,7 +112,7 @@ export function ChampionProfileSourcesPanel({
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+      <h3 className="text-base font-semibold text-foreground dark:text-foreground flex items-center gap-2">
         <Sparkles className="w-4 h-4 text-purple-500" />
         Źródła AI
       </h3>
@@ -132,13 +132,13 @@ export function ChampionProfileSourcesPanel({
         {(pending.data?.items ?? []).map((s) => (
           <div
             key={s.id}
-            className="flex items-center justify-between gap-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3"
+            className="flex items-center justify-between gap-3 border border-border dark:border-border rounded-lg p-3"
           >
             <div className="text-sm">
-              <div className="font-medium text-gray-900 dark:text-gray-100">
+              <div className="font-medium text-foreground dark:text-foreground">
                 {sourceLabel(s.source_type)}
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-muted-foreground">
                 {new Date(s.created_at).toLocaleString("pl-PL")}
                 {" · "}
                 {s.patches.length} sekcji do akceptacji
@@ -147,7 +147,7 @@ export function ChampionProfileSourcesPanel({
             <button
               type="button"
               onClick={() => setActiveSuggestion(s)}
-              className="px-3 py-1 text-sm rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+              className="px-3 py-1 text-sm rounded-lg bg-primary hover:bg-primary/90 text-white"
             >
               Przejrzyj
             </button>
@@ -165,14 +165,14 @@ export function ChampionProfileSourcesPanel({
           .map((n) => (
             <div
               key={n.id}
-              className="flex items-center gap-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-sm"
+              className="flex items-center gap-3 border border-border dark:border-border rounded-lg p-3 text-sm"
             >
-              <Link2 className="w-4 h-4 text-gray-400" />
+              <Link2 className="w-4 h-4 text-muted-foreground" />
               <div className="flex-1">
-                <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                <div className="font-medium text-foreground dark:text-foreground truncate">
                   {noteTitle(n.content)}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {new Date(n.created_at).toLocaleString("pl-PL")}
                 </div>
               </div>
@@ -188,13 +188,13 @@ export function ChampionProfileSourcesPanel({
         {unlinkedMeetings.slice(0, 10).map((n) => (
           <div
             key={n.id}
-            className="flex items-center gap-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3 text-sm"
+            className="flex items-center gap-3 border border-border dark:border-border rounded-lg p-3 text-sm"
           >
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+              <div className="font-medium text-foreground dark:text-foreground truncate">
                 {noteTitle(n.content)}
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-muted-foreground">
                 {new Date(n.created_at).toLocaleString("pl-PL")}
               </div>
             </div>
@@ -242,13 +242,13 @@ function Section({
   const hasContent = kids.some((c) => c);
   return (
     <div className="space-y-2">
-      <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
         {title}
       </div>
       {hasContent ? (
         <div className="space-y-2">{children}</div>
       ) : (
-        <div className="text-sm italic text-gray-400">{empty}</div>
+        <div className="text-sm italic text-muted-foreground">{empty}</div>
       )}
     </div>
   );

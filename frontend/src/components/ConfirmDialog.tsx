@@ -30,7 +30,7 @@ export function DeleteButton({
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-1 text-xs">
-        <span className="text-gray-500 mr-1">Na pewno?</span>
+        <span className="text-muted-foreground mr-1">Na pewno?</span>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -46,7 +46,7 @@ export function DeleteButton({
             e.stopPropagation();
             setConfirming(false);
           }}
-          className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded font-medium transition-colors"
+          className="px-2 py-0.5 bg-muted hover:bg-muted text-muted-foreground rounded font-medium transition-colors"
         >
           {cancelLabel}
         </button>
@@ -61,7 +61,7 @@ export function DeleteButton({
         setConfirming(true);
       }}
       className={cn(
-        "text-gray-400 hover:text-red-500 transition-colors",
+        "text-muted-foreground hover:text-destructive transition-colors",
         className
       )}
       title="Usuń"
@@ -95,7 +95,7 @@ export function ConfirmButton({
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-1 text-xs">
-        <span className="text-gray-500 mr-1">{message}</span>
+        <span className="text-muted-foreground mr-1">{message}</span>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -111,7 +111,7 @@ export function ConfirmButton({
             e.stopPropagation();
             setConfirming(false);
           }}
-          className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded font-medium transition-colors"
+          className="px-2 py-0.5 bg-muted hover:bg-muted dark:bg-muted dark:hover:bg-gray-600 text-muted-foreground dark:text-muted-foreground rounded font-medium transition-colors"
         >
           {cancelLabel}
         </button>

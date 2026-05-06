@@ -186,13 +186,13 @@ export function ChampionProfileEditor({
   if (isLoading)
     return (
       <div className="flex justify-center py-10">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
       </div>
     );
 
   if (error)
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+      <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
         Nie udało się pobrać profilu Championa.
       </div>
     );
@@ -203,11 +203,11 @@ export function ChampionProfileEditor({
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profil Championa
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
             na pytania screeningowe przed wysłaniem CV do klienta.
           </p>
@@ -217,7 +217,7 @@ export function ChampionProfileEditor({
             type="button"
             onClick={() => mutation.mutate(draft)}
             disabled={mutation.isPending}
-            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-sm disabled:opacity-60"
             data-testid="save-champion-profile"
           >
             <Save className="w-4 h-4" />
@@ -234,7 +234,7 @@ export function ChampionProfileEditor({
 
       {remoteChange && (
         <div
-          className="text-xs px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 inline-flex items-center gap-1.5"
+          className="text-xs px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 text-primary inline-flex items-center gap-1.5"
           role="status"
           data-testid="champion-profile-remote-update"
         >
@@ -264,7 +264,7 @@ export function ChampionProfileEditor({
           </button>
           {showIntake && (
             <div className="px-4 pb-4 space-y-2">
-              <p className="text-xs text-gray-600 dark:text-gray-400">
+              <p className="text-xs text-muted-foreground dark:text-muted-foreground">
                 Wklej opis stanowiska otrzymany od klienta. AI wypełni sekcje
                 Profilu Championa jako draft do Twojej akceptacji.
               </p>
@@ -272,11 +272,11 @@ export function ChampionProfileEditor({
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
                 placeholder="Wklej opis od klienta (min. 50 znaków)…"
-                className="w-full min-h-[140px] text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 font-mono"
+                className="w-full min-h-[140px] text-sm rounded-lg border border-border dark:border-border bg-card dark:bg-card px-3 py-2 font-mono"
                 data-testid="jd-intake-textarea"
               />
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-[11px] text-gray-500">
+                <span className="text-[11px] text-muted-foreground">
                   {jdText.length} znaków
                 </span>
                 <button
@@ -299,7 +299,7 @@ export function ChampionProfileEditor({
                 </button>
               </div>
               {generateMutation.error && (
-                <div className="text-xs px-2 py-1 rounded bg-red-50 border border-red-200 text-red-700 inline-flex items-center gap-1.5">
+                <div className="text-xs px-2 py-1 rounded bg-destructive/10 border border-destructive/20 text-destructive inline-flex items-center gap-1.5">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   Nie udało się wygenerować draftu.
                 </div>
@@ -435,7 +435,7 @@ export function ChampionProfileEditor({
             <button
               type="button"
               onClick={addQuestion}
-              className="text-xs inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
+              className="text-xs inline-flex items-center gap-1 text-primary hover:text-primary/80"
             >
               <Plus className="w-3.5 h-3.5" />
               Dodaj pytanie
@@ -444,7 +444,7 @@ export function ChampionProfileEditor({
         }
       >
         {draft.screening_questions.length === 0 && (
-          <div className="rounded border border-dashed border-gray-200 dark:border-gray-700 p-4 text-xs text-gray-400 text-center">
+          <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
             Brak pytań. Dodaj przynajmniej 1 — rekruter będzie musiał odpowiedzieć
             przed wysłaniem CV.
           </div>
@@ -453,7 +453,7 @@ export function ChampionProfileEditor({
           {draft.screening_questions.map((q, i) => (
             <div
               key={q.id || i}
-              className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-2 bg-gray-50 dark:bg-gray-900/30"
+              className="rounded-lg border border-border dark:border-border p-3 space-y-2 bg-muted dark:bg-card/30"
               data-testid={`screening-q-${i}`}
             >
               <div className="flex items-start gap-2">
@@ -472,7 +472,7 @@ export function ChampionProfileEditor({
                   <button
                     type="button"
                     onClick={() => removeQuestion(i)}
-                    className="p-1 text-red-500 hover:text-red-700 mt-1"
+                    className="p-1 text-destructive hover:text-destructive mt-1"
                     aria-label="Usuń pytanie"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -547,8 +547,8 @@ export function ChampionProfileEditor({
                   className={cn(
                     "text-[11px] px-2 py-1 rounded-md border transition-colors",
                     active
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50"
+                      ? "bg-primary border-primary text-white"
+                      : "bg-card dark:bg-muted border-border dark:border-border text-foreground dark:text-muted-foreground hover:bg-muted"
                   )}
                 >
                   {s.label}
@@ -607,7 +607,7 @@ export function ChampionProfileEditor({
       </Section>
 
       {!canEdit && (
-        <div className="text-xs text-gray-500 inline-flex items-center gap-1.5">
+        <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
           <AlertTriangle className="w-4 h-4" />
           Podgląd — edycja wymaga roli Delivery Lead lub Admin.
         </div>
@@ -615,7 +615,7 @@ export function ChampionProfileEditor({
 
       {/* Phase 14: Fireflies / CloudTalk sources + pending AI suggestions */}
       {canEdit && (
-        <div className="border-t border-gray-200 dark:border-gray-800 pt-6 mt-6">
+        <div className="border-t border-border dark:border-border pt-6 mt-6">
           <ChampionProfileSourcesPanel
             jobId={jobId}
             currentProfile={draft}
@@ -630,7 +630,7 @@ export function ChampionProfileEditor({
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60";
+  "w-full px-2 py-1 text-xs border border-border dark:border-border rounded-md bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-60";
 const textareaClass = inputClass + " resize-y";
 
 function Section({
@@ -643,7 +643,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800">
+    <section className="rounded-xl border border-border dark:border-border p-4 bg-card dark:bg-muted">
       <header className="flex items-center justify-between mb-3">
         <h3 className="text-[11px] uppercase tracking-wide text-purple-700 dark:text-purple-300 font-bold">
           {title}
@@ -664,7 +664,7 @@ function Labeled({
 }) {
   return (
     <label className="block">
-      <span className="block text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+      <span className="block text-[10px] uppercase tracking-wide text-muted-foreground dark:text-muted-foreground mb-1">
         {label}
       </span>
       {children}

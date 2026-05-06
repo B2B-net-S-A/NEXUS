@@ -67,7 +67,7 @@ function AvailabilityBadge({ value }: { value: HistoricalCandidate["current_avai
     );
   }
   return (
-    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
       nieznany status
     </span>
   );
@@ -127,7 +127,7 @@ function CandidateRow({ candidate }: { candidate: HistoricalCandidate }) {
   const initials = `${candidate.name.charAt(0)}${candidate.lastname.charAt(0)}`.toUpperCase();
 
   return (
-    <li className="border border-slate-200 rounded-lg bg-white">
+    <li className="border border-slate-200 rounded-lg bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -164,7 +164,7 @@ function CandidateRow({ candidate }: { candidate: HistoricalCandidate }) {
             ) : null}
             {candidate.negative_signal ? (
               <span
-                className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700"
+                className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive"
                 title="Kandydat został wcześniej odrzucony lub się wycofał w podobnym projekcie"
               >
                 <AlertTriangle className="h-3 w-3" />
