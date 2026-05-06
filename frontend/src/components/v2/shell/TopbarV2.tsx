@@ -18,10 +18,6 @@ interface Props {
   onOpenCommandPalette: () => void;
 }
 
-/**
- * TopbarV2 — sticky top bar with breadcrumb, ⌘K search trigger, notifications,
- * quick actions, and profile. Height 56px. White surface on cream canvas.
- */
 export function TopbarV2({
   onOpenMobileSidebar,
   pendingModal,
@@ -39,34 +35,30 @@ export function TopbarV2({
   return (
     <header
       className={cn(
-        "h-14 shrink-0 flex items-center gap-3 px-4 md:px-5",
-        "bg-[hsl(var(--bg-surface))] border-b border-[hsl(var(--border-subtle))]",
-        "shadow-v2-xs"
+        "h-12 shrink-0 flex items-center gap-3 px-4 md:px-5",
+        "bg-background border-b border-border"
       )}
     >
-      {/* Mobile hamburger */}
       <button
         onClick={onOpenMobileSidebar}
         aria-label="Otwórz menu"
-        className="md:hidden h-9 w-9 flex items-center justify-center rounded-v2-s text-[hsl(var(--text-muted))] hover:bg-[hsl(var(--accent-soft))] hover:text-[hsl(var(--text-title))] transition-colors"
+        className="md:hidden h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-4 w-4" />
       </button>
 
-      {/* Breadcrumb (desktop) */}
       <div className="hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-none">
         <BreadcrumbV2 />
       </div>
 
-      {/* Command palette trigger (center, flex-1) */}
       <button
         onClick={onOpenCommandPalette}
         aria-label="Otwórz wyszukiwanie"
         className={cn(
-          "flex-1 max-w-md mx-auto flex items-center gap-2 h-9 px-3",
-          "rounded-v2-m border border-[hsl(var(--border-subtle))]",
-          "bg-[hsl(var(--bg-canvas))]/60 hover:bg-[hsl(var(--bg-canvas))] transition-colors",
-          "text-left text-sm text-[hsl(var(--text-muted))]"
+          "flex-1 max-w-md mx-auto flex items-center gap-2 h-8 px-3",
+          "rounded-md border border-border",
+          "bg-muted/50 hover:bg-muted transition-colors",
+          "text-left text-sm text-muted-foreground"
         )}
       >
         <Search className="h-4 w-4 shrink-0" />
@@ -77,7 +69,6 @@ export function TopbarV2({
         </div>
       </button>
 
-      {/* Right: KPI widget + notifications + quick actions */}
       <div className="flex items-center gap-2 shrink-0">
         <MyKpiWidget variant="compact" className="hidden md:block" />
         <NotificationsDropdown />
@@ -90,7 +81,5 @@ export function TopbarV2({
   );
 }
 
-// Re-export so AppShellV2 can wire open state
 export { CommandPaletteV2 };
-// Keep Button reference for tree-shaking hint (unused at runtime if not mounted)
 export const _TopbarButton = Button;

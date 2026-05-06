@@ -70,7 +70,7 @@ export function BreadcrumbV2({ className }: { className?: string }) {
 
   if (segments.length === 0) {
     return (
-      <span className={cn("text-sm font-medium text-[hsl(var(--text-title))]", className)}>
+      <span className={cn("text-sm font-medium text-foreground", className)}>
         Dashboard
       </span>
     );
@@ -104,16 +104,16 @@ export function BreadcrumbV2({ className }: { className?: string }) {
         return (
           <div key={c.href} className="flex items-center gap-1 min-w-0">
             {i > 0 && (
-              <ChevronRight className="h-3 w-3 text-[hsl(var(--text-muted))] shrink-0" />
+              <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
             )}
             {isLast ? (
-              <span className="font-medium text-[hsl(var(--text-title))] truncate">
+              <span className="font-medium text-foreground truncate">
                 {c.label}
               </span>
             ) : (
               <Link
                 href={c.href}
-                className="text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] truncate transition-colors"
+                className="text-muted-foreground hover:text-foreground truncate transition-colors"
               >
                 {c.label}
               </Link>

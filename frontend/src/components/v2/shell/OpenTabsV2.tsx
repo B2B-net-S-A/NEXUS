@@ -6,15 +6,15 @@ import { useTabsStore, Tab, TabType } from "@/store/tabs";
 import { cn } from "@/lib/utils";
 
 const TYPE_DOT: Record<TabType, string> = {
-  candidate: "bg-[hsl(var(--accent))]",
+  candidate: "bg-primary",
   job: "bg-emerald-500",
-  client: "bg-plum-500",
+  client: "bg-zinc-500",
 };
 
 const TYPE_ACTIVE_BORDER: Record<TabType, string> = {
-  candidate: "bg-[hsl(var(--accent))]",
+  candidate: "bg-primary",
   job: "bg-emerald-500",
-  client: "bg-plum-500",
+  client: "bg-zinc-500",
 };
 
 function truncate(str: string, max = 20): string {
@@ -37,10 +37,10 @@ function TabPill({
     <button
       onClick={onActivate}
       className={cn(
-        "group relative flex items-center gap-1.5 px-3 h-8 text-sm rounded-t-v2-s border border-b-0 transition-all duration-150 select-none whitespace-nowrap shrink-0",
+        "group relative flex items-center gap-1.5 px-3 h-8 text-sm rounded-t-md border border-b-0 transition-colors duration-150 select-none whitespace-nowrap shrink-0",
         isActive
-          ? "bg-[hsl(var(--bg-surface))] border-[hsl(var(--border-subtle))] text-[hsl(var(--text-title))] font-medium shadow-v2-xs"
-          : "bg-[hsl(var(--bg-canvas))]/60 border-transparent text-[hsl(var(--text-muted))] hover:bg-[hsl(var(--bg-surface))] hover:text-[hsl(var(--text-title))] hover:border-[hsl(var(--border-subtle))]"
+          ? "bg-card border-border text-foreground font-medium"
+          : "bg-muted/30 border-transparent text-muted-foreground hover:bg-card hover:text-foreground hover:border-border"
       )}
     >
       {isActive && (
@@ -57,8 +57,8 @@ function TabPill({
         className={cn(
           "ml-0.5 rounded p-0.5 transition-colors",
           isActive
-            ? "text-[hsl(var(--text-muted))] hover:text-[hsl(var(--text-title))] hover:bg-[hsl(var(--border-subtle))]"
-            : "text-transparent group-hover:text-[hsl(var(--text-muted))] hover:text-[hsl(var(--text-title))] hover:bg-[hsl(var(--border-subtle))]"
+            ? "text-muted-foreground hover:text-foreground hover:bg-muted"
+            : "text-transparent group-hover:text-muted-foreground hover:text-foreground hover:bg-muted"
         )}
       >
         <X className="w-3 h-3" />
@@ -85,9 +85,9 @@ export function OpenTabsV2() {
   };
 
   return (
-    <div className="shrink-0 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--bg-canvas))]/40 px-4">
+    <div className="shrink-0 border-b border-border bg-muted/30 px-4">
       {maxTabsWarning && (
-        <div className="flex items-center gap-2 py-1.5 text-xs text-[hsl(var(--accent-strong))] bg-[hsl(var(--accent-soft))] border-b border-[hsl(var(--border-subtle))] px-2 -mx-4 mb-1">
+        <div className="flex items-center gap-2 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 px-2 -mx-4 mb-1">
           <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           <span>Osiągnięto limit 10 otwartych zakładek. Zamknij jedną, aby otworzyć nową.</span>
           <button onClick={dismissWarning} aria-label="Zamknij" className="ml-auto">
