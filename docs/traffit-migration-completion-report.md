@@ -1,7 +1,46 @@
 # Traffit → Nexus migration — completion report
 
-> Sesja 2026-05-04 / 2026-05-05. Tenant: `b2bnetwork`.
+> Sesja 2026-05-04 / 2026-05-05 / 2026-05-06. Tenant: `b2bnetwork`.
 > Plan: [`traffit-migration-plan.md`](./traffit-migration-plan.md). Discovery: [`traffit-discovery.md`](./traffit-discovery.md).
+> **Faza A** (data layer + frontend) — plan: `~/.claude/plans/zaplanuj-teraz-t-full-calm-journal.md`, PR #86 (backend), PR #87 (frontend), PR #88 (docs).
+
+## ✅ Faza A — wyniki (po A4+A5+A6 ukończeniu)
+
+| Metryka | Przed Fazą A | Po Fazie A | Poprawa |
+|---|---:|---:|---:|
+| **Userów Traffit w Nexus** | 10 / 141 (7%) | **141 / 141 (100%)** | 14× |
+| **Activities z `user_id`** | 1 739 / 343 867 (0.5%) | **310 271 / 344 317 (90.1%)** | 178× |
+| **Notes z `author_id`** | 327 / 43 138 (0.8%) | **40 759 / 43 138 (94.5%)** | 125× |
+| **Stage moves z `moved_by`** | 1 957 / 134 331 (1.5%) | **95 770 / 147 208 (65%)** | 49× |
+| **Pliki kandydatów** | 40 488 (single CV) | **49 323 (multi-file)** | +22% |
+| **Notes promoted z activities** | 0 | **43 138** (notatki + emaile + reply + rozmowy + spotkania) | nowe |
+| **Stage moves total** | 134 331 (-18k batch loss) | **147 208** | +13k recovered |
+| `candidate_documents` | brak tabeli | **49 323** rekordów | nowa tabela |
+
+### Kluczowe zmiany w UX
+
+- ✅ Profil kandydata pokazuje teraz **autora** przy każdej notatce ("Marek Stojecki · 2 min temu")
+- ✅ Stage history pokazuje **kto przesunął** kandydata (95k z 147k stage moves)
+- ✅ Nowa zakładka **"Pliki"** wyświetla wszystkie dokumenty kandydata (multi-file CV) z download
+- ✅ Mention picker `?include_inactive=true` pozwala mention'ować historycznych Traffit-userów
+
+### Operational issues z Fazy A
+
+- ⚠️ **Disk 98% pełny** (75G volume, ~2GB free) — A6 exit=1 z powodu disk-full near końca. Wymaga upgrade Hetzner volume (recommended: dodać 25-50GB). Wszystkie 3 phases zaimportowały dane przed disk fill, ale postgres miał kilka short recovery cycles.
+- A4 ran 1h33m (16:08 → 17:41 UTC, exit 0).
+- A6 ran 5h31m (16:08 → 21:39 UTC, exit 1 mid-write) — i tak pobrał 49k z ~50k plików.
+
+### Architektura Faza A — kluczowe decyzje
+
+- **Persistent containers** — phases A4/A6 odpalone w **osobnych** Docker containerach (nie `docker exec` w main app), żeby przeżyły Coolify rebuild przy każdym push do main.
+- **`commit_every=1`** w pipelines (zamiast batch 100) — eliminuje rollback batch przy check_constraint violations (`withdrawn_requires_reason`). Trade-off: ~2x slower fsync ale recovery 18k stage moves.
+- **`select_all_files_with_priority`** — nowy mapper zwraca listę wszystkich plików (vs single primary), z `is_primary=True` na pierwszym (priority pdf > docx > doc).
+- **Dual-source notes** — notatki w `activities` (timeline) + kopia w `notes` (dedicated UI), bulk INSERT przez Alembic 0077.
+- **`_UPDATE_USER_ADOPT`** — istniejący Nexus user matchowany po email dostaje `external_id` Traffita (mark imported, zachowuje rolę/hasło).
+
+---
+
+## Status (Faza 4-5b): zakończona z udokumentowanymi luckami
 
 ## Status: zakończona z udokumentowanymi luckami
 
