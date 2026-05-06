@@ -27,6 +27,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -35,12 +36,6 @@ import api from "@/lib/api";
 import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-
-/**
- * SidebarV2 — Dynaminds verb-grouped IA.
- * Groups: Sourcing · Pipeline · Delivery · Insights · System.
- * Chrome: plum-700 bg, cream-200 text, burgundy accent for active.
- */
 
 type BadgeCounts = {
   candidates?: number;
@@ -165,7 +160,7 @@ const NAV_SECTIONS: NavSection[] = [
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span className="ml-auto shrink-0 rounded-full bg-[hsl(var(--accent))] text-white text-[10px] font-bold min-w-[18px] h-[18px] px-1.5 flex items-center justify-center leading-none">
+    <span className="ml-auto shrink-0 rounded-md bg-primary text-primary-foreground text-[10px] font-semibold tabular-nums min-w-[18px] h-[18px] px-1.5 flex items-center justify-center leading-none">
       {count > 99 ? "99+" : count}
     </span>
   );
@@ -195,21 +190,15 @@ function NavLink({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex items-center text-sm transition-all duration-150",
-        "rounded-v2-s focus:outline-none",
-        collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 h-9",
+        "relative flex items-center text-sm transition-colors duration-150",
+        "rounded-md focus:outline-none",
+        collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
         active
-          ? "bg-[hsl(var(--accent))]/15 text-[hsl(var(--text-onchrome))] font-semibold"
-          : "text-[hsl(var(--text-onchrome))]/70 hover:bg-white/5 hover:text-[hsl(var(--text-onchrome))]"
+          ? "bg-muted text-foreground font-medium"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >
-      {active && (
-        <span
-          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[hsl(var(--accent))]"
-          aria-hidden="true"
-        />
-      )}
-      <Icon className={cn("shrink-0", collapsed ? "h-4 w-4" : "h-4 w-4")} />
+      <Icon className="shrink-0 h-4 w-4" />
       {!collapsed && (
         <>
           <span className="truncate flex-1">{label}</span>
@@ -218,7 +207,7 @@ function NavLink({
       )}
       {collapsed && badgeCount !== undefined && badgeCount > 0 && (
         <span
-          className="absolute top-1 right-1 w-2 h-2 bg-[hsl(var(--accent))] rounded-full"
+          className="absolute top-1 right-1 w-1.5 h-1.5 bg-primary rounded-full"
           aria-label={`${badgeCount} nowych`}
         />
       )}
@@ -334,37 +323,33 @@ export function SidebarV2({
       onMouseEnter={() => !mobileOpen && setHovered(true)}
       onMouseLeave={() => !mobileOpen && setHovered(false)}
       className={cn(
-        "bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]",
+        "bg-card text-foreground",
         "flex flex-col h-full shrink-0 overflow-hidden",
         "transition-[width] duration-200 ease-in-out",
-        "border-r border-white/5",
+        "border-r border-border",
         mobileOpen ? "w-64" : collapsed ? "w-[60px]" : "w-60"
       )}
     >
-      {/* Logo + collapse toggle */}
       <div
         className={cn(
-          "flex items-center border-b border-white/5 shrink-0 h-14",
-          collapsed && !mobileOpen ? "justify-center px-0" : "px-4 gap-2"
+          "flex items-center border-b border-border shrink-0 h-12",
+          collapsed && !mobileOpen ? "justify-center px-0" : "px-3 gap-2"
         )}
       >
         <Link
           href="/"
           aria-label="Nexus — strona główna"
-          className={cn(
-            "flex items-center gap-2 flex-1 min-w-0 rounded-v2-s",
-            "focus:outline-none"
-          )}
+          className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-none"
         >
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-v2-s bg-[hsl(var(--accent))] text-white font-extrabold text-sm shrink-0">
+          <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-primary text-primary-foreground font-semibold text-sm shrink-0">
             N
           </span>
           {(!collapsed || mobileOpen) && (
             <div className="min-w-0">
-              <div className="font-display font-bold text-sm leading-tight tracking-[-0.01em]">
+              <div className="font-semibold text-sm leading-tight tracking-tight">
                 Nexus
               </div>
-              <div className="text-[10px] opacity-60 leading-none">ATS · B2B.net</div>
+              <div className="text-[10px] text-muted-foreground leading-none">ATS · B2B.net</div>
             </div>
           )}
         </Link>
@@ -374,8 +359,8 @@ export function SidebarV2({
             onClick={togglePinned}
             aria-label={pinned ? "Zwiń sidebar" : "Rozwiń sidebar"}
             className={cn(
-              "text-[hsl(var(--text-onchrome))]/60 hover:text-[hsl(var(--text-onchrome))]",
-              "p-1 rounded-v2-s hover:bg-white/5 transition-all",
+              "text-muted-foreground hover:text-foreground",
+              "p-1 rounded-md hover:bg-muted transition-colors",
               collapsed ? "opacity-0" : "opacity-100"
             )}
           >
@@ -387,14 +372,13 @@ export function SidebarV2({
           <button
             onClick={onClose}
             aria-label="Zamknij menu"
-            className="p-1 rounded-v2-s hover:bg-white/5"
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
-      {/* Nav sections */}
       <nav
         aria-label="Nawigacja główna"
         className={cn(
@@ -410,11 +394,11 @@ export function SidebarV2({
           return (
             <div key={section.title} className="mb-3">
               {(!collapsed || mobileOpen) && (
-                <p className="px-3 pt-2 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--text-onchrome))]/40 select-none">
+                <p className="px-3 pt-2 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground select-none">
                   {section.title}
                 </p>
               )}
-              {collapsed && !mobileOpen && <div className="my-2 border-t border-white/5 mx-2" />}
+              {collapsed && !mobileOpen && <div className="my-2 border-t border-border mx-2" />}
               <div className={cn(collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5")}>
                 {visibleItems.map(({ href, label, icon, badgeKey }) => (
                   <NavLink
@@ -434,11 +418,10 @@ export function SidebarV2({
         })}
       </nav>
 
-      {/* Bottom: user */}
       {user && (
         <div
           className={cn(
-            "border-t border-white/5 shrink-0 py-3",
+            "border-t border-border shrink-0 py-3",
             collapsed && !mobileOpen ? "px-2" : "px-3"
           )}
         >
@@ -446,35 +429,31 @@ export function SidebarV2({
             <Link
               href="/profile"
               aria-label={`Profil: ${user.name}`}
-              className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-[hsl(var(--accent))] text-white text-sm font-semibold hover:bg-[hsl(var(--accent-strong))] transition-colors"
+              className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               {initials}
             </Link>
           ) : (
-            <div className="flex items-center gap-2.5 rounded-v2-s px-2 py-1.5 hover:bg-white/5">
+            <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
               <Link
                 href="/profile"
-                className="h-8 w-8 rounded-full bg-[hsl(var(--accent))] flex items-center justify-center text-sm font-semibold shrink-0 hover:bg-[hsl(var(--accent-strong))] transition-colors"
+                className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shrink-0 hover:bg-primary/90 transition-colors"
                 aria-label="Profil"
               >
                 {initials}
               </Link>
               <div className="flex-1 min-w-0">
-                <Link href="/profile" className="text-sm font-medium truncate block hover:text-[hsl(var(--accent))]">
+                <Link href="/profile" className="text-sm font-medium truncate block hover:text-primary">
                   {user.name}
                 </Link>
-                <span className="text-[10px] opacity-60">{ROLE_LABELS[user.role]}</span>
+                <span className="text-[10px] text-muted-foreground">{ROLE_LABELS[user.role]}</span>
               </div>
               <button
                 onClick={logout}
                 aria-label="Wyloguj"
-                className="text-[hsl(var(--text-onchrome))]/60 hover:text-[hsl(var(--text-onchrome))] p-1 rounded-v2-s hover:bg-white/5"
+                className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/80"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
+                <LogOut className="h-4 w-4" />
               </button>
             </div>
           )}

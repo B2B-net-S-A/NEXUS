@@ -82,7 +82,7 @@ function Breadcrumb() {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) {
-    return <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Dashboard</span>;
+    return <span className="text-sm text-muted-foreground dark:text-muted-foreground font-medium">Dashboard</span>;
   }
 
   const crumbs: { label: React.ReactNode; href: string }[] = [
@@ -111,16 +111,16 @@ function Breadcrumb() {
     <nav className="flex items-center gap-1 text-sm" aria-label="Breadcrumb">
       {crumbs.map((c, i) => (
         <span key={c.href} className="flex items-center gap-1">
-          {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />}
+          {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-muted-foreground dark:text-muted-foreground" />}
           {i < crumbs.length - 1 ? (
             <Link
               href={c.href}
-              className="text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+              className="text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground transition-colors"
             >
               {c.label}
             </Link>
           ) : (
-            <span className="text-gray-900 dark:text-gray-100 font-medium">
+            <span className="text-foreground dark:text-foreground font-medium">
               {c.label}
             </span>
           )}
@@ -157,10 +157,10 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-end sm:items-center justify-center sm:p-4 overflow-y-auto">
-      <div className={`bg-white dark:bg-gray-800 rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+      <div className={`bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:my-4 ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground">{title}</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -173,8 +173,8 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
 function FieldGroup({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
+      <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+        {label} {required && <span className="text-destructive">*</span>}
       </label>
       {children}
     </div>
@@ -185,7 +185,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className="h-10 w-full px-3 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+      className="h-10 w-full px-3 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground"
     />
   );
 }
@@ -194,7 +194,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y bg-white dark:bg-gray-700 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring resize-y bg-card dark:bg-muted dark:text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground"
     />
   );
 }
@@ -203,7 +203,7 @@ function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectEle
   return (
     <select
       {...props}
-      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 dark:text-gray-100"
+      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring bg-card dark:bg-muted dark:text-foreground"
     >
       {children}
     </select>
@@ -216,7 +216,7 @@ function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: str
       type="submit"
       disabled={saving}
       aria-label={label}
-      className="flex items-center gap-2 h-10 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2"
+      className="flex items-center gap-2 h-10 px-4 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white rounded-lg text-sm font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {saving && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
       {label}
@@ -225,7 +225,7 @@ function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: str
 }
 
 function ErrorBanner({ error }: { error: string }) {
-  return <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
+  return <div className="text-sm text-destructive dark:text-red-400 bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
 }
 
 // ── Modal: Dodaj / Edytuj kandydata ───────────────────────────────────────────
@@ -392,7 +392,7 @@ function CandidateFormFields({
     const arr = form[field];
     const checked = arr.includes(value);
     return (
-      <label className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+      <label className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-border dark:border-border cursor-pointer hover:bg-muted dark:hover:bg-muted">
         <input
           type="checkbox"
           checked={checked}
@@ -476,7 +476,7 @@ function CandidateFormFields({
           </Select>
         </FieldGroup>
         <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
-          <div className="text-xs text-gray-500 dark:text-gray-400 px-3 py-2 bg-gray-50 dark:bg-gray-900/40 rounded-lg">
+          <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
             Oznacz w zakładce <strong>Konflikty</strong> w profilu —
             typ <code>current_employment</code>. Dzięki temu karta dostanie
             burgundowy alert „U KLIENTA”.
@@ -491,8 +491,8 @@ function CandidateFormFields({
       </FieldGroup>
 
       {/* ── Dane strukturalne ───────────────────────────────────────────── */}
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+      <div className="pt-2 border-t border-border dark:border-border">
+        <h4 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-2">
           Dane strukturalne
         </h4>
         <div className="grid grid-cols-3 gap-3">
@@ -524,7 +524,7 @@ function CandidateFormFields({
               onChange={e => onToggle("champion", e.target.checked)}
               className="w-4 h-4 accent-yellow-500"
             />
-            <span className="text-sm text-gray-700 dark:text-gray-300">
+            <span className="text-sm text-foreground dark:text-muted-foreground">
               Champion (ulubieniec)
             </span>
           </label>
@@ -539,8 +539,8 @@ function CandidateFormFields({
       </div>
 
       {/* ── Preferencje kontraktowe ─────────────────────────────────────── */}
-      <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+      <div className="pt-2 border-t border-border dark:border-border">
+        <h4 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-2">
           Preferencje kontraktowe
         </h4>
         <FieldGroup label="Tryb pracy">
@@ -601,7 +601,7 @@ function CandidateFormFields({
               </option>
             ))}
           </Select>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-muted-foreground mt-1">
             Ctrl/⌘+klik aby zaznaczyć wielu klientów.
           </p>
         </FieldGroup>
@@ -695,7 +695,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
             <ul className="space-y-1 text-sm">
               {duplicates.slice(0, 5).map((d) => (
                 <li key={d.candidate_id} className="flex items-center justify-between">
-                  <span className="text-gray-800 dark:text-gray-200">
+                  <span className="text-foreground dark:text-muted-foreground">
                     {d.name} {d.lastname}
                     {d.email ? ` (${d.email})` : ""}
                     <span className="ml-2 text-xs text-amber-700">
@@ -706,7 +706,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
                     href={`/candidates/${d.candidate_id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-blue-600 hover:underline text-xs"
+                    className="text-primary hover:underline text-xs"
                   >
                     Otwórz profil ↗
                   </a>
@@ -730,12 +730,12 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           <button
             type="button"
             onClick={checkDuplicates}
-            className="h-9 px-3 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+            className="h-9 px-3 text-xs text-primary dark:text-primary hover:bg-primary/10 dark:hover:bg-primary/15 rounded-md transition-colors"
           >
             {dupeChecked ? "Sprawdź duplikaty ponownie" : "Sprawdź duplikaty"}
           </button>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+            <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
             <SaveButton saving={saving} label="Dodaj kandydata" />
           </div>
         </div>
@@ -799,7 +799,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
           clients={clients}
         />
         <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
         </div>
       </form>
@@ -977,7 +977,7 @@ function JobFormFields({
             <option key={name} value={name} />
           ))}
         </datalist>
-        <p className="text-[11px] text-gray-400 mt-1">
+        <p className="text-[11px] text-muted-foreground mt-1">
           Programme / Agile Release Train. Pomaga Champion Profile znaleźć
           podobne historyczne role z tego samego programu. Zostaw puste,
           a AI spróbuje wyekstrahować z opisu.
@@ -1071,7 +1071,7 @@ function JobFormFields({
           </p>
         )}
         {form.tac_id && primaryTac && Number(form.tac_id) !== primaryTac.user_id && (
-          <p className="text-[11px] text-blue-600 mt-1">
+          <p className="text-[11px] text-primary mt-1">
             Nadpisane (primary TAC klienta: {primaryTac.name})
           </p>
         )}
@@ -1092,7 +1092,7 @@ function JobFormFields({
           </p>
         )}
         {form.delivery_lead_id && headDl && Number(form.delivery_lead_id) !== headDl.user_id && (
-          <p className="text-[11px] text-blue-600 mt-1">
+          <p className="text-[11px] text-primary mt-1">
             Nadpisane (head DL klienta: {headDl.name})
           </p>
         )}
@@ -1112,9 +1112,9 @@ function JobFormFields({
               </option>
             ))}
         </Select>
-        <p className="text-[11px] text-gray-400 mt-1">
+        <p className="text-[11px] text-muted-foreground mt-1">
           Definiuje etapy kanbana i powody odrzucenia. Zmień w{" "}
-          <a href="/settings/pipeline-templates" target="_blank" className="text-blue-500 underline">
+          <a href="/settings/pipeline-templates" target="_blank" className="text-primary underline">
             Ustawieniach →
           </a>
         </p>
@@ -1362,22 +1362,22 @@ export function AddJobModal({
               <><Sparkles className="w-4 h-4" /> ✨ Generuj AI</>
             )}
           </button>
-          <span className="text-xs text-gray-400">Wypełni opis i wymagania automatycznie</span>
+          <span className="text-xs text-muted-foreground">Wypełni opis i wymagania automatycznie</span>
         </div>
-        {aiError && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{aiError}</div>}
+        {aiError && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{aiError}</div>}
         {previewTotal > 0 && previewQuery.data && (
           <div
-            className="rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs"
+            className="rounded-lg bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 px-3 py-2 text-xs"
             data-testid="request-history-banner"
           >
-            <div className="flex items-center gap-1.5 text-blue-900 dark:text-blue-200 font-medium">
+            <div className="flex items-center gap-1.5 text-primary dark:text-primary font-medium">
               <Sparkles className="inline w-4 h-4" />
               U tego klienta było już {previewTotal}{" "}
               {previewTotal === 1 ? "podobny request" : "podobnych requestów"}
               {" "}({previewQuery.data.in_progress.length} w toku,{" "}
               {previewQuery.data.closed.length} zamkniętych)
             </div>
-            <ul className="mt-1.5 space-y-0.5 pl-5 list-disc text-blue-800 dark:text-blue-300">
+            <ul className="mt-1.5 space-y-0.5 pl-5 list-disc text-primary dark:text-primary">
               {[...previewQuery.data.in_progress, ...previewQuery.data.closed]
                 .slice(0, 3)
                 .map((r) => (
@@ -1386,11 +1386,11 @@ export function AddJobModal({
                       href={`/jobs/${r.job_id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="underline hover:text-blue-700"
+                      className="underline hover:text-primary/80"
                     >
                       {r.title}
                     </a>{" "}
-                    <span className="text-blue-600 dark:text-blue-400">
+                    <span className="text-primary dark:text-primary">
                       ({r.is_in_progress ? "w toku" : r.outcome ?? "zamknięty"}
                       {r.tth_days != null ? `, ${r.tth_days}d` : ""})
                     </span>
@@ -1409,7 +1409,7 @@ export function AddJobModal({
           onAutoCollaboratorsChange={setAutoCollaboratorIds}
         />
         <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj ofertę" />
         </div>
       </form>
@@ -1485,7 +1485,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         {error && <ErrorBanner error={error} />}
         <JobFormFields form={form} onChange={onChange} clients={clients} users={users} templates={templates} />
         <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
         </div>
       </form>
@@ -1585,7 +1585,7 @@ function ClientFormFields({ form, onChange, onCheckbox }: {
           onChange={e => onCheckbox("nda_signed", e.target.checked)}
           className="w-4 h-4 rounded accent-blue-600"
         />
-        <span className="text-sm text-gray-700 dark:text-gray-300">NDA podpisane</span>
+        <span className="text-sm text-foreground dark:text-muted-foreground">NDA podpisane</span>
       </label>
     </>
   );
@@ -1630,7 +1630,7 @@ export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; on
         {error && <ErrorBanner error={error} />}
         <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
         <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Dodaj firmę" />
         </div>
       </form>
@@ -1709,7 +1709,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
           </Select>
         </FieldGroup>
         <div className="flex justify-end gap-3 pt-1">
-          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zaplanuj" />
         </div>
       </form>
@@ -1772,21 +1772,21 @@ function QuickActionsButton({
       <div className="relative" ref={ref}>
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 shadow-sm"
+          className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 active:scale-95 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 shadow-sm"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden sm:inline">Dodaj</span>
         </button>
 
         {open && (
-          <div className="absolute right-0 top-full mt-2 w-52 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-1.5 z-50">
+          <div className="absolute right-0 top-full mt-2 w-52 bg-card dark:bg-muted border border-border dark:border-border rounded-xl shadow-lg py-1.5 z-50">
             {QUICK_ACTIONS.map(({ label, icon: Icon, modal: m }) => (
               <button
                 key={m}
                 onClick={() => { setOpen(false); setModal(m); }}
-                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted transition-colors"
               >
-                <Icon className="w-4 h-4 text-gray-400" />
+                <Icon className="w-4 h-4 text-muted-foreground" />
                 {label}
               </button>
             ))}

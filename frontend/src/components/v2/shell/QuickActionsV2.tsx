@@ -105,10 +105,10 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
 
       {toast && (
         <div
-          className={`fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-v2-m shadow-v2-xl text-sm ${
+          className={`fixed bottom-4 right-4 z-[9999] px-4 py-3 rounded-md shadow-md text-sm border ${
             toast.type === "success"
-              ? "bg-[hsl(var(--bg-chrome))] text-[hsl(var(--text-onchrome))]"
-              : "bg-[hsl(var(--accent))] text-white"
+              ? "bg-card text-foreground border-border"
+              : "bg-destructive text-destructive-foreground border-destructive"
           }`}
           role="alert"
         >

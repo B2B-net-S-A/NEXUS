@@ -10,19 +10,11 @@ import {
   Eye,
   EyeOff,
   KeyRound,
-  Sparkles,
 } from "lucide-react";
 import { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
-
-/**
- * Reset-password page — niezalogowany user trafia tu z linka mailowego
- * (?token=xxx). Token jest sprawdzany dopiero przy submit (server-side).
- * Token z URL trzymamy w state, ale nie usuwamy z URL — Next.js
- * useSearchParams nie ma natywnego "replace state" przed user-action.
- */
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -36,7 +28,6 @@ function ResetPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  // Token o złej długości — niech user kliknie "wyślij nowy link".
   const tokenInvalid = token.length !== 64;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,7 +47,6 @@ function ResetPasswordForm() {
     try {
       await authApi.resetPasswordWithToken(token, newPassword);
       setDone(true);
-      // Po 2s redirect do /login. Dajemy chwilę na przeczytanie sukcesu.
       setTimeout(() => router.push("/login"), 2000);
     } catch (err: unknown) {
       const detail =
@@ -76,12 +66,12 @@ function ResetPasswordForm() {
       <div className="space-y-4">
         <div
           role="status"
-          className="flex items-start gap-3 text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-v2-s px-4 py-3"
+          className="flex items-start gap-3 text-sm bg-muted/50 border border-border rounded-md px-4 py-3"
         >
-          <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600" />
+          <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
           <div>
-            <p className="font-medium">Hasło zostało zmienione</p>
-            <p className="text-emerald-800/80">
+            <p className="font-medium text-foreground">Hasło zostało zmienione</p>
+            <p className="text-muted-foreground">
               Za chwilę przekierujemy Cię do strony logowania.
             </p>
           </div>
@@ -95,20 +85,17 @@ function ResetPasswordForm() {
       <div className="space-y-4">
         <div
           role="alert"
-          className="flex items-start gap-3 text-sm text-[hsl(var(--accent-strong))] bg-[hsl(var(--accent-soft))] border border-[hsl(var(--accent))]/20 rounded-v2-s px-4 py-3"
+          className="flex items-start gap-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-4 py-3"
         >
           <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
           <div>
             <p className="font-medium">Link jest nieprawidłowy</p>
-            <p>
-              Token w adresie URL ma niepoprawny format. Poproś o nowy link
-              resetowy.
-            </p>
+            <p>Token ma niepoprawny format. Poproś o nowy link resetowy.</p>
           </div>
         </div>
         <Link
           href="/login/forgot-password"
-          className="flex items-center justify-center gap-2 text-sm text-[hsl(var(--accent))] hover:underline"
+          className="flex items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
         >
           Wyślij nowy link resetowy
         </Link>
@@ -121,7 +108,7 @@ function ResetPasswordForm() {
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 text-sm text-[hsl(var(--accent-strong))] bg-[hsl(var(--accent-soft))] border border-[hsl(var(--accent))]/20 rounded-v2-s px-3 py-2"
+          className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2"
         >
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>{error}</span>
@@ -149,14 +136,10 @@ function ResetPasswordForm() {
           <button
             type="button"
             onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-muted))] hover:text-[hsl(var(--text-body))]"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             aria-label={showPassword ? "Ukryj hasło" : "Pokaż hasło"}
           >
-            {showPassword ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
       </FormField>
@@ -191,7 +174,7 @@ function ResetPasswordForm() {
 
       <Link
         href="/login"
-        className="flex items-center justify-center gap-2 text-sm text-[hsl(var(--text-muted))] hover:text-[hsl(var(--accent))] hover:underline"
+        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
         Wróć do logowania
@@ -202,39 +185,24 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div
-      data-ui="v2"
-      className="min-h-screen flex items-center justify-center px-4 py-10 bg-[hsl(var(--bg-canvas))]"
-    >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 50% 10%, hsl(var(--accent-soft)) 0%, transparent 60%)",
-        }}
-        aria-hidden="true"
-      />
-
-      <div className="relative z-10 w-full max-w-md">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-v2-m bg-[hsl(var(--bg-chrome))] text-[hsl(var(--accent))] flex items-center justify-center shadow-v2-l mb-4">
-            <span className="font-display font-extrabold text-2xl">N</span>
+    <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
+      <div className="w-full max-w-sm">
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-10 h-10 rounded-md bg-primary text-primary-foreground flex items-center justify-center mb-5">
+            <span className="font-semibold text-base">N</span>
           </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[hsl(var(--accent))]">
-            B2B.net · Nexus
-          </p>
-          <h1 className="font-display text-3xl font-extrabold tracking-[-0.025em] text-[hsl(var(--text-title))] mt-1">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
             Ustaw nowe hasło
           </h1>
-          <p className="text-sm text-[hsl(var(--text-muted))] mt-1 text-center">
-            Wybierz nowe hasło dla swojego konta w NEXUS.
+          <p className="text-sm text-muted-foreground mt-1.5 text-center">
+            Wybierz nowe hasło dla swojego konta w Nexus.
           </p>
         </div>
 
-        <div className="bg-[hsl(var(--bg-surface))] border border-[hsl(var(--border-subtle))] rounded-v2-l shadow-v2-xl p-6">
+        <div className="bg-card border border-border rounded-xl shadow-sm p-6">
           <Suspense
             fallback={
-              <div className="text-sm text-[hsl(var(--text-muted))] text-center">
+              <div className="text-sm text-muted-foreground text-center">
                 Ładowanie…
               </div>
             }
@@ -243,13 +211,7 @@ export default function ResetPasswordPage() {
           </Suspense>
         </div>
 
-        <div className="mt-6 flex items-center justify-center gap-2 text-xs text-[hsl(var(--text-muted))]">
-          <Sparkles className="h-3 w-3 text-[hsl(var(--accent))]" />
-          <span>
-            Nexus ·{" "}
-            <strong className="text-[hsl(var(--text-title))]">Define tomorrow.</strong>
-          </span>
-        </div>
+        <p className="mt-6 text-center text-xs text-muted-foreground">Nexus · B2B.net</p>
       </div>
     </div>
   );
