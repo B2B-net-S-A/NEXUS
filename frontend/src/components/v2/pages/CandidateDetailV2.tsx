@@ -541,7 +541,7 @@ export function CandidateDetailV2({
               </div>
 
               {/* Tags */}
-              {candidate.tags && candidate.tags.length > 0 && (
+              {Array.isArray(candidate.tags) && candidate.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-3">
                   {candidate.tags.map((t: any, i: number) => (
                     <span
@@ -1581,10 +1581,17 @@ function ConfirmModal({
 }
 
 function ProfilTab({ candidate }: { candidate: any }) {
-  const skills: any[] = candidate.skills ?? [];
-  const experience: any[] = candidate.experience ?? [];
+  // Defensive: legacy/imported candidates may have these as string/object
+  // instead of array (e.g. Traffit-imported with raw text). Array.isArray
+  // guard prevents `string.map is not a function` crash.
+  const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
+  const experience: any[] = Array.isArray(candidate.experience)
+    ? candidate.experience
+    : [];
   const aiSummary: string | null = candidate.ai_summary ?? null;
-  const aiCompanies: string[] = candidate.cv_extracted_data?.companies ?? [];
+  const aiCompanies: string[] = Array.isArray(candidate.cv_extracted_data?.companies)
+    ? candidate.cv_extracted_data.companies
+    : [];
   const aiSource: string = candidate.cv_extracted_data?._source ?? "";
   const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
 
@@ -2237,6 +2244,59 @@ function RozmowyTab({ calls }: { calls: any[] }) {
   );
 }
 
+/**
+ * Unwrap Traffit-imported note content. Some notes have nested
+ * `{"content":"<html>"}` (Traffit "Notatka" type with HTML body) or
+ * `{"content":{"content":"<html>","state":{...}}}` (state-change notes).
+ * Plus strips HTML tags for plain-text rendering in NotatkiTab.
+ */
+function unwrapNoteContent(raw: unknown): string {
+  if (!raw) return "";
+  let s = String(raw);
+  // Try unwrap up to 2 levels of {content: ...} nesting
+  for (let i = 0; i < 2; i++) {
+    if (!s.startsWith("{")) break;
+    try {
+      const parsed = JSON.parse(s);
+      if (parsed && typeof parsed === "object" && "content" in parsed) {
+        const inner = (parsed as { content?: unknown }).content;
+        if (typeof inner === "string") {
+          s = inner;
+          continue;
+        }
+        if (inner && typeof inner === "object" && "content" in inner) {
+          const innerStr = (inner as { content?: unknown }).content;
+          if (typeof innerStr === "string") {
+            s = innerStr;
+            continue;
+          }
+        }
+      }
+      break;
+    } catch {
+      break;
+    }
+  }
+  // Strip HTML tags + normalize whitespace
+  return s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+      String.fromCharCode(parseInt(hex, 16)),
+    )
+    .replace(/\\\//g, "/")
+    .replace(/\\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function NotatkiTab({
   timeline,
   noteText,
@@ -2332,7 +2392,7 @@ function NotatkiTab({
                 <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
               </div>
               <p className="text-sm text-[hsl(var(--text-body))] mt-1 whitespace-pre-line">
-                {renderWithMentions(n.content ?? "", usersByEmail)}
+                {renderWithMentions(unwrapNoteContent(n.content), usersByEmail)}
               </p>
             </div>
           ))}

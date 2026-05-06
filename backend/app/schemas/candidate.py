@@ -343,6 +343,10 @@ class CandidateResponse(BaseModel):
     notes_count: int
     last_contacted_at: Optional[datetime]
     embedding_id: Optional[str]
+    # External-source attribution (Faza A migracji Traffit). Frontend używa
+    # tego do badge "z Traffita" w nagłówku profilu kandydata.
+    external_source: Optional[str] = None
+    external_id: Optional[str] = None
     created_by: Optional[int] = None
     # Reads from ORM attribute `creator` (Candidate.creator relationship).
     # Populated when the endpoint eager-loads `selectinload(Candidate.creator)`.
