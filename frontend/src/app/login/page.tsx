@@ -58,10 +58,8 @@ function LoginForm() {
   };
 
   return (
-    <div
-      data-ui="v2"
-      className="min-h-screen flex items-center justify-center px-4 py-10 bg-[hsl(var(--bg-canvas))]"
-    >
+    <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
+
       {/* Subtle cinematic overlay — cream→plum-50 gradient, no bold gradient per brandbook */}
       <div
         className="absolute inset-0 pointer-events-none"

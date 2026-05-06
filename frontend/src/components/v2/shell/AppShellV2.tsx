@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
-import { useThemeStore } from "@/store/theme";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
@@ -45,12 +44,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) hydrateAuth();
   }, [hydrated, hydrateAuth]);
-
-  // V2 is light-only; ensure theme is light even if store persisted dark.
-  const setTheme = useThemeStore((s) => s.setTheme);
-  useEffect(() => {
-    setTheme("light");
-  }, [setTheme]);
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -100,11 +93,11 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (needsOnboarding) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[hsl(var(--bg-canvas))] text-[hsl(var(--text-body))]">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div
-          className="fixed inset-0 bg-[hsl(var(--bg-chrome))]/50 z-40 md:hidden backdrop-blur-[2px]"
+          className="fixed inset-0 bg-foreground/50 z-40 md:hidden backdrop-blur-[2px]"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
