@@ -9,7 +9,15 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 # NEXT_PUBLIC_* vars MUST be present at build time for Next.js to inline them.
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_GIT_SHA
+ARG SENTRY_AUTH_TOKEN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
+ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+# SENTRY_AUTH_TOKEN is consumed by withSentryConfig at build time only.
+# Not exported to runtime image (omitted from `runner` stage env block).
+ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
