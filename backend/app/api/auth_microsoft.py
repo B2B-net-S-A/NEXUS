@@ -266,7 +266,7 @@ async def callback(
 
     # Domain whitelist — empty list rejects every domain (fail-closed).
     domain = email.split("@")[-1].lower()
-    allowed = [d.lower() for d in (settings.SSO_ALLOWED_DOMAINS or [])]
+    allowed = settings.sso_allowed_domains_list
     if domain not in allowed:
         logger.info("sso domain rejected: %s (allowed=%s)", domain, allowed)
         return RedirectResponse(
