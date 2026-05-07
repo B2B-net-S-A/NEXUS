@@ -30,19 +30,43 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Trigger deployment
+        id: trigger
         run: |
-          response=$(curl -fsSL -X GET \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false")
+          # Retry: Coolify webhook bywa flaky (HTTP 500 przejściowe — patrz audit-2026-05-07
+          # — 2× failed deploy 2026-05-07 07:11+07:20 z dokładnie tego powodu, każdy
+          # następny retry przeszedł). Exponential backoff: 5s, 15s, 45s. 3 próby.
+          backoffs=(5 15 45)
+          response=""
+          http_code=""
+          for attempt in 1 2 3; do
+            raw=$(curl -sS -X GET \
+              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -w $'\nHTTP_CODE:%{http_code}' \
+              "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false" \
+              2>&1 || true)
+            http_code=$(echo "$raw" | grep -oE 'HTTP_CODE:[0-9]+' | tail -1 | cut -d: -f2)
+            response=$(echo "$raw" | sed -E 's/HTTP_CODE:[0-9]+$//')
+            if [ "$http_code" = "200" ] || [ "$http_code" = "201" ]; then
+              echo "Coolify responded $http_code on attempt $attempt"
+              break
+            fi
+            echo "::warning::Attempt $attempt — Coolify HTTP $http_code, body: $response"
+            if [ $attempt -lt 3 ]; then
+              sleep "${backoffs[$((attempt - 1))]}"
+            fi
+          done
+          if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
+            echo "::error::Coolify deploy webhook failed after 3 attempts (last HTTP $http_code)"
+            exit 1
+          fi
           echo "Response: $response"
           deployment_uuid=$(echo "$response" | jq -r '.deployments[0].deployment_uuid')
           if [ -z "$deployment_uuid" ] || [ "$deployment_uuid" = "null" ]; then
-            echo "::error::Failed to start deployment"
+            echo "::error::Failed to start deployment (no deployment_uuid in response)"
             exit 1
           fi
           echo "Deployment queued: $deployment_uuid"
           echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
-        id: trigger
 
   smoke-test:
     name: Smoke test /api/health

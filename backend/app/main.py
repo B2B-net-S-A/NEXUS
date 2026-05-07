@@ -426,6 +426,33 @@ async def health_check():
     return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}
 
 
+def _resolve_deployed_at() -> str:
+    """Return ISO-8601 deployedAt string.
+
+    Prefer BUILT_AT env var when it looks like a valid ISO timestamp (set by
+    Coolify/CI). Fallback to filesystem mtime of __file__ — kontener freshly
+    rebuilt at each deploy gets fresh mtime, so health "świeżość" reflects
+    actual deploy moment instead of static env var that may be stale.
+    """
+    import os
+    from datetime import datetime, timezone
+
+    explicit = os.environ.get("BUILT_AT", "").strip()
+    if explicit and explicit != "unknown":
+        try:
+            datetime.fromisoformat(explicit.replace("Z", "+00:00"))
+            return explicit
+        except ValueError:
+            pass
+    try:
+        mtime = os.path.getmtime(__file__)
+        return datetime.fromtimestamp(mtime, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+    except OSError:
+        return "unknown"
+
+
 @app.get("/api/health")
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
@@ -459,7 +486,7 @@ async def api_health_check():
         content={
             "status": overall,
             "version": os.environ.get("GIT_SHA", "unknown"),
-            "deployedAt": os.environ.get("BUILT_AT", "unknown"),
+            "deployedAt": _resolve_deployed_at(),
             "checks": checks,
         },
         status_code=http_status.HTTP_200_OK
