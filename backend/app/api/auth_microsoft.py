@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -333,7 +333,7 @@ async def callback(
 @limiter.limit("5/minute")
 async def exchange(
     request: Request,
-    payload: ExchangeRequest,
+    payload: ExchangeRequest = Body(...),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
