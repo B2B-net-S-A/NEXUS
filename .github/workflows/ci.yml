@@ -88,6 +88,9 @@ jobs:
                  tests/test_autenti_webhook_verify.py \
                  tests/test_autenti_webhook_handler.py \
                  tests/test_autenti_webhook.py \
+                 tests/test_m365_encryption.py \
+                 tests/test_m365_oauth_state.py \
+                 tests/test_auth_microsoft.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

@@ -47,7 +47,8 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
     )
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Nullable since migration 0081 — SSO-only userzy nie mają bcrypt hasha.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="userrole"),
@@ -97,6 +98,16 @@ class User(Base, TimestampMixin):
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
+
+    # ── SSO identity provider (Faza B, migracja 0081) ────────────────────────
+    # NULL = legacy email/password user. Set to "microsoft" przy SSO login;
+    # razem z external_id (Azure ``oid``) tworzy partial-unique key.
+    oauth_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    external_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    azure_oid: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    microsoft_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Relationships
     authored_notes = relationship(

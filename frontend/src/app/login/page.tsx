@@ -16,14 +16,34 @@ function safeNextPath(raw: string | null): string {
   return raw;
 }
 
+function ssoErrorMessage(rawCode: string | null): string | null {
+  if (!rawCode) return null;
+  const code = rawCode.toLowerCase();
+  if (code === "domain_forbidden") {
+    return "Twoja domena email nie jest dopuszczona do logowania przez Microsoft. Skontaktuj się z administratorem.";
+  }
+  if (code.includes("missing identity claims")) {
+    return "Microsoft nie zwrócił wymaganych danych identyfikacyjnych. Spróbuj ponownie.";
+  }
+  if (code.includes("state expired")) {
+    return "Sesja logowania wygasła. Kliknij ponownie 'Zaloguj się przez Microsoft'.";
+  }
+  if (code.includes("token exchange failed")) {
+    return "Microsoft odrzucił prośbę o token. Spróbuj ponownie lub zgłoś administratorowi.";
+  }
+  return decodeURIComponent(rawCode);
+}
+
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
+  const ssoErrorRaw = searchParams.get("error");
   const { setAuth, token } = useAuthStore();
 
   useEffect(() => {
@@ -33,6 +53,29 @@ function LoginForm() {
       router.replace(nextPath);
     }
   }, [token, router, nextPath]);
+
+  useEffect(() => {
+    const msg = ssoErrorMessage(ssoErrorRaw);
+    if (msg) setError(msg);
+  }, [ssoErrorRaw]);
+
+  const handleMicrosoftLogin = async () => {
+    setSsoLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.get("/api/auth/microsoft/authorize");
+      if (!data?.authorize_url) throw new Error("Brak authorize_url w odpowiedzi");
+      window.location.href = data.authorize_url;
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      setError(
+        e.response?.data?.detail ||
+          e.message ||
+          "Nie udało się uruchomić logowania Microsoft",
+      );
+      setSsoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,6 +165,35 @@ function LoginForm() {
               </Link>
             </div>
           </form>
+
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-2 text-muted-foreground">lub</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleMicrosoftLogin}
+            disabled={ssoLoading}
+            className="w-full flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 21 21"
+              className="h-4 w-4"
+              fill="none"
+            >
+              <path d="M0 0h10v10H0z" fill="#F25022" />
+              <path d="M11 0h10v10H11z" fill="#7FBA00" />
+              <path d="M0 11h10v10H0z" fill="#00A4EF" />
+              <path d="M11 11h10v10H11z" fill="#FFB900" />
+            </svg>
+            {ssoLoading ? "Przekierowanie…" : "Zaloguj się przez Microsoft"}
+          </button>
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
