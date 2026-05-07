@@ -98,21 +98,21 @@ import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopo
 import { ROLE_LABELS, type UserRole } from"@/store/auth";
 
 const STATUS_LABELS: Record<string, string> = {
- active:"Aktywny",
- passive:"Pasywny",
- blacklisted:"Zablokowany",
+ active: "Aktywny",
+ passive: "Pasywny",
+ blacklisted: "Zablokowany",
 };
 
-const STATUS_VARIANT: Record<string,"success" |"warning" |"danger"> = {
- active:"success",
- passive:"warning",
- blacklisted:"danger",
+const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
+ active: "success",
+ passive: "warning",
+ blacklisted: "danger",
 };
 
 const SORT_OPTIONS = [
- { value:"newest", label:"Najnowsi" },
- { value:"oldest", label:"Najstarsi" },
- { value:"name", label:"Nazwisko (A-Z)" },
+ { value: "newest", label: "Najnowsi" },
+ { value: "oldest", label: "Najstarsi" },
+ { value: "name", label: "Nazwisko (A-Z)" },
 ];
 
 function parseEnumCsv<T extends string>(
@@ -152,22 +152,22 @@ interface Candidate {
 // Role scopes the admin can target when saving candidates-columns as default.
 // Order matches the user hierarchy (admin → user).
 const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = [
- { value:"_global", label:"Dla wszystkich (domyślne)" },
- { value:"admin", label: `Dla: ${ROLE_LABELS.admin}` },
- { value:"head_of_recruitment", label: `Dla: ${ROLE_LABELS.head_of_recruitment}` },
- { value:"delivery_lead", label: `Dla: ${ROLE_LABELS.delivery_lead}` },
- { value:"tac", label: `Dla: ${ROLE_LABELS.tac}` },
- { value:"recruiter", label: `Dla: ${ROLE_LABELS.recruiter}` },
- { value:"sourcer", label: `Dla: ${ROLE_LABELS.sourcer}` },
- { value:"user", label: `Dla: ${ROLE_LABELS.user}` },
+ { value: "_global", label: "Dla wszystkich (domyślne)" },
+ { value: "admin", label: `Dla: ${ROLE_LABELS.admin}` },
+ { value: "head_of_recruitment", label: `Dla: ${ROLE_LABELS.head_of_recruitment}` },
+ { value: "delivery_lead", label: `Dla: ${ROLE_LABELS.delivery_lead}` },
+ { value: "tac", label: `Dla: ${ROLE_LABELS.tac}` },
+ { value: "recruiter", label: `Dla: ${ROLE_LABELS.recruiter}` },
+ { value: "sourcer", label: `Dla: ${ROLE_LABELS.sourcer}` },
+ { value: "user", label: `Dla: ${ROLE_LABELS.user}` },
 ];
 
 function sourceIcon(source?: string) {
  if (source ==="linkedin")
- return <Linkedin className="h-3.5 w-3.5" style={{ color:"#0A66C2" }} />;
+ return <Linkedin className="h-3.5 w-3.5" style={{ color: "#0A66C2" }} />;
  if (source ==="pracuj")
  return (
- <span className="text-[10px] font-bold leading-none" style={{ color:"#FF6600" }}>
+ <span className="text-[10px] font-bold leading-none" style={{ color: "#FF6600" }}>
  P
  </span>
  );
@@ -176,7 +176,7 @@ function sourceIcon(source?: string) {
 
 function matchBadgeVariant(
  topScore: number
-):"success" |"soft" |"neutral" |"outline" {
+): "success" |"soft" |"neutral" |"outline" {
  if (topScore >= 75) return"success";
  if (topScore >= 50) return"soft";
  return"neutral";
@@ -184,12 +184,12 @@ function matchBadgeVariant(
 
 // All columns that can be shown/hidden via the"Kolumny" popover.
 const ALL_COLUMNS = [
- { id:"candidate", label:"Kandydat", required: true },
- { id:"position", label:"Pozycja", required: false },
- { id:"status", label:"Status", required: false },
- { id:"match", label:"Match", required: false },
- { id:"created", label:"Dodano", required: false },
- { id:"added_by", label:"Dodał", required: false },
+ { id: "candidate", label: "Kandydat", required: true },
+ { id: "position", label: "Pozycja", required: false },
+ { id: "status", label: "Status", required: false },
+ { id: "match", label: "Match", required: false },
+ { id: "created", label: "Dodano", required: false },
+ { id: "added_by", label: "Dodał", required: false },
 ] as const;
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
@@ -367,7 +367,7 @@ export function CandidatesListV2() {
  if (qAny.length) params.set("q_any", qAny.join("|"));
  if (qNone.length) params.set("q_none", qNone.join("|"));
  const qs = params.toString();
- window.history.replaceState(null,"", qs ? `/candidates?${qs}` :"/candidates");
+ window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
  }, [
  search,
  statusFilter,
@@ -549,7 +549,7 @@ export function CandidatesListV2() {
  };
 
  // Export
- const doExport = async (format:"csv" |"xlsx") => {
+ const doExport = async (format: "csv" |"xlsx") => {
  const params = new URLSearchParams();
  if (search) params.set("q", search);
  if (statusFilter.length) {
@@ -612,7 +612,7 @@ export function CandidatesListV2() {
  page,
  remote: remoteFilter as CandidateFilters["remote"],
  skills: skillsFilter,
- skillCombine:"and",
+ skillCombine: "and",
  location: locationFilter,
  poolIds,
  addedByIds,
@@ -620,7 +620,7 @@ export function CandidatesListV2() {
  pastCompany: pastCompanyFilter,
  currentTitle: currentTitleFilter,
  workedAtClientIds,
- view:"list",
+ view: "list",
  savedSearchId: null,
  qAll,
  qAny,
@@ -699,7 +699,7 @@ export function CandidatesListV2() {
  </Button>
  <Link
  href="/candidates/bulk-import"
- className={buttonVariants({ size:"sm", variant:"outline" })}
+ className={buttonVariants({ size: "sm", variant: "outline" })}
  >
  <FileArchive className="h-4 w-4" /> Bulk CV
  </Link>
@@ -947,10 +947,10 @@ export function CandidatesListV2() {
  <div className="flex gap-1.5 flex-wrap">
  {(
  [
- { value:"", label:"Wszyscy" },
- { value:"1", label:"1 mies." },
- { value:"2", label:"2 mies." },
- { value:"3", label:"3 mies." },
+ { value: "", label: "Wszyscy" },
+ { value: "1", label: "1 mies." },
+ { value: "2", label: "2 mies." },
+ { value: "3", label: "3 mies." },
  ] as const
  ).map((opt) => {
  const active = recentlyChangedJobs === opt.value;
@@ -1370,7 +1370,7 @@ export function CandidatesListV2() {
  ) : (
  <div
  ref={parentRef}
- style={{ height:"calc(100vh - 340px)", minHeight: 360 }}
+ style={{ height: "calc(100vh - 340px)", minHeight: 360 }}
  className="overflow-auto"
  >
  {isLoading ? (
@@ -1393,8 +1393,8 @@ export function CandidatesListV2() {
  <div
  style={{
  height: `${virtualizer.getTotalSize()}px`,
- width:"100%",
- position:"relative",
+ width: "100%",
+ position: "relative",
  }}
  >
  {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -1414,10 +1414,10 @@ export function CandidatesListV2() {
  key={candidate.id}
  data-index={virtualRow.index}
  style={{
- position:"absolute",
+ position: "absolute",
  top: 0,
  left: 0,
- width:"100%",
+ width: "100%",
  height: `${virtualRow.size}px`,
  transform: `translateY(${virtualRow.start}px)`,
  }}

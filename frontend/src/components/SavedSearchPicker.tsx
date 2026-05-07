@@ -25,7 +25,7 @@ export function SavedSearchPicker({ entity, currentFilters, onApply }: Props) {
       const r = await savedSearchesApi.list(entity);
       setItems(r.data);
     } catch (e) {
-      console.error("saved-searches load failed:", e);
+      console.error("saved-searches load failed: ", e);
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ export function SavedSearchPicker({ entity, currentFilters, onApply }: Props) {
       setShowSave(false);
       await load();
     } catch (e) {
-      console.error("saved-search save failed:", e);
+      console.error("saved-search save failed: ", e);
     } finally {
       setSaving(false);
     }
@@ -59,7 +59,7 @@ export function SavedSearchPicker({ entity, currentFilters, onApply }: Props) {
 
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Usunąć filtr?")) return;
+    if (!confirm("Usunąć filtr ? ")) return;
     try {
       await savedSearchesApi.delete(id);
       await load();

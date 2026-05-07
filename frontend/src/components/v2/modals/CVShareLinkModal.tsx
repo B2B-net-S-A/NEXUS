@@ -100,9 +100,9 @@ export function CVShareLinkModal({
 
  const expiresLabel = token?.expires_at
  ? new Date(token.expires_at).toLocaleDateString("pl-PL", {
- day:"numeric",
- month:"long",
- year:"numeric",
+ day: "numeric",
+ month: "long",
+ year: "numeric",
  })
  : null;
 

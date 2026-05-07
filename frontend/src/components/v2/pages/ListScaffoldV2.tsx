@@ -23,7 +23,7 @@ import { Input } from"@/components/ui/input";
  * title="Klienci"
  * subtitle={`${total} firm`}
  * actions={<Button>Nowy klient</Button>}
- * search={{ value, onChange, placeholder:"…" }}
+ * search={{ value, onChange, placeholder: "…" }}
  * filters={<MyFilters />}
  * >
  * <MyTable />

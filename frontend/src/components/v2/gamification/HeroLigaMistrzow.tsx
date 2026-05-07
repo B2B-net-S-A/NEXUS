@@ -49,28 +49,28 @@ interface HeroLigaMistrzowProps {
 
 const RANK_STYLE = {
  1: {
- bg:"from-amber-400 to-amber-500",
- text:"text-amber-950",
- medal:"🥇",
+ bg: "from-amber-400 to-amber-500",
+ text: "text-amber-950",
+ medal: "🥇",
  crown: true,
- height:"h-40",
- rankColor:"bg-amber-500 text-white",
+ height: "h-40",
+ rankColor: "bg-amber-500 text-white",
  },
  2: {
- bg:"from-slate-300 to-slate-400",
- text:"text-slate-900",
- medal:"🥈",
+ bg: "from-slate-300 to-slate-400",
+ text: "text-slate-900",
+ medal: "🥈",
  crown: false,
- height:"h-32",
- rankColor:"bg-slate-400 text-white",
+ height: "h-32",
+ rankColor: "bg-slate-400 text-white",
  },
  3: {
- bg:"from-orange-400 to-orange-500",
- text:"text-orange-950",
- medal:"🥉",
+ bg: "from-orange-400 to-orange-500",
+ text: "text-orange-950",
+ medal: "🥉",
  crown: false,
- height:"h-28",
- rankColor:"bg-orange-500 text-white",
+ height: "h-28",
+ rankColor: "bg-orange-500 text-white",
  },
 } as const
 

@@ -17,27 +17,27 @@ interface ActiveFilterChipsProps {
 }
 
 const REMOTE_LABELS: Record<string, string> = {
- remote:"Zdalnie",
- hybrid:"Hybryda",
- onsite:"Stacjonarnie",
+ remote: "Zdalnie",
+ hybrid: "Hybryda",
+ onsite: "Stacjonarnie",
 };
 
 const STATUS_LABELS: Record<string, string> = {
- active:"Aktywni",
- passive:"Pasywni",
- blacklisted:"Zablokowani",
+ active: "Aktywni",
+ passive: "Pasywni",
+ blacklisted: "Zablokowani",
 };
 
 const EMPLOYMENT_LABELS: Record<string, string> = {
- at_client:"U klienta",
- available:"Dostępni",
+ at_client: "U klienta",
+ available: "Dostępni",
 };
 
 const AVAILABILITY_LABELS: Record<string, string> = {
- actively_looking:"Aktywnie szuka",
- open_to_offers:"Otwarty",
- not_looking:"Nie szuka",
- unknown:"Nie wiemy",
+ actively_looking: "Aktywnie szuka",
+ open_to_offers: "Otwarty",
+ not_looking: "Nie szuka",
+ unknown: "Nie wiemy",
 };
 
 interface Chip {
@@ -57,9 +57,9 @@ function collectChips(
 
  if (filters.q) {
  chips.push({
- key:"q",
+ key: "q",
  label: `„${filters.q}"`,
- clear: () => onUpdate({ q:"", page: 1 }),
+ clear: () => onUpdate({ q: "", page: 1 }),
  });
  }
  filters.status.forEach((s) => {
@@ -97,9 +97,9 @@ function collectChips(
  });
  if (filters.location) {
  chips.push({
- key:"loc",
+ key: "loc",
  label: `📍 ${filters.location}`,
- clear: () => onUpdate({ location:"", page: 1 }),
+ clear: () => onUpdate({ location: "", page: 1 }),
  });
  }
  filters.remote.forEach((mode) => {
@@ -244,11 +244,11 @@ export function ActiveFilterChips({
 
  const clearAll = () =>
  onUpdate({
- q:"",
+ q: "",
  status: [],
  employment: [],
  availability: [],
- location:"",
+ location: "",
  remote: [],
  skills: [],
  poolIds: [],

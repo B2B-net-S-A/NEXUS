@@ -13,8 +13,8 @@ const ALLOWED_CV_EXT = [".pdf",".doc",".docx"] as const;
 const MAX_CV_BYTES = 10 * 1024 * 1024;
 
 const schema = z.object({
- first_name: z.string().trim().min(1,"Imię jest wymagane").max(100),
- last_name: z.string().trim().min(1,"Nazwisko jest wymagane").max(100),
+ first_name: z.string().trim().min(1, "Imię jest wymagane").max(100),
+ last_name: z.string().trim().min(1, "Nazwisko jest wymagane").max(100),
  email: z.string().trim().email("Nieprawidłowy email"),
  phone: z
  .string()
@@ -100,7 +100,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  // Raw fetch — do NOT reuse the internal axios client. This page must
  // not attach the recruiter's Authorization token to a public endpoint.
  const res = await fetch(`${apiBase()}/api/public/apply/${token}`, {
- method:"POST",
+ method: "POST",
  body: fd,
  });
  if (res.status === 201) {
@@ -113,12 +113,12 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  return;
  }
  if (res.status === 413) {
- setErrors({ cv:"CV jest większe niż 10 MB." });
+ setErrors({ cv: "CV jest większe niż 10 MB." });
  setStatus("idle");
  return;
  }
  if (res.status === 415) {
- setErrors({ cv:"CV musi być w formacie PDF, DOC lub DOCX." });
+ setErrors({ cv: "CV musi być w formacie PDF, DOC lub DOCX." });
  setStatus("idle");
  return;
  }

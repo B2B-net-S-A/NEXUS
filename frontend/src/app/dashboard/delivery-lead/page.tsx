@@ -98,28 +98,28 @@ interface DlClientsSummary {
 
 const KPI_COLORS = {
  slate: {
- bg:"bg-slate-50 border-slate-200",
- icon:"bg-slate-100 text-slate-700",
- title:"text-slate-900",
- value:"text-slate-950",
+ bg: "bg-slate-50 border-slate-200",
+ icon: "bg-slate-100 text-slate-700",
+ title: "text-slate-900",
+ value: "text-slate-950",
  },
  amber: {
- bg:"bg-amber-50 border-amber-200",
- icon:"bg-amber-100 text-amber-700",
- title:"text-amber-900",
- value:"text-amber-950",
+ bg: "bg-amber-50 border-amber-200",
+ icon: "bg-amber-100 text-amber-700",
+ title: "text-amber-900",
+ value: "text-amber-950",
  },
  purple: {
- bg:"bg-purple-50 border-purple-200",
- icon:"bg-purple-100 text-purple-700",
- title:"text-purple-900",
- value:"text-purple-950",
+ bg: "bg-purple-50 border-purple-200",
+ icon: "bg-purple-100 text-purple-700",
+ title: "text-purple-900",
+ value: "text-purple-950",
  },
  emerald: {
- bg:"bg-emerald-50 border-emerald-200",
- icon:"bg-emerald-100 text-emerald-700",
- title:"text-emerald-900",
- value:"text-emerald-950",
+ bg: "bg-emerald-50 border-emerald-200",
+ icon: "bg-emerald-100 text-emerald-700",
+ title: "text-emerald-900",
+ value: "text-emerald-950",
  },
 } as const
 
@@ -336,7 +336,7 @@ function TeamHistoryChart({
  type,
 }: {
  trend: TrendPoint[]
- type:"line" |"bar"
+ type: "line" |"bar"
 }) {
  const Chart = type ==="line" ? LineChart : BarChart
  return (

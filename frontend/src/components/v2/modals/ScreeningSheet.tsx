@@ -33,9 +33,9 @@ import {
 } from"@/components/v2/forms";
 
 const FIT_OPTIONS = [
- { value:"fit" as const, label:"Pasuje", description:"Spełnia wszystkie kluczowe kryteria." },
- { value:"uncertain" as const, label:"Niepewne", description:"Warto dopytać lub zostawić do decyzji klienta." },
- { value:"miss" as const, label:"Nie pasuje", description:"Nie rekomenduję — deal-breaker lub brak kompetencji." },
+ { value: "fit" as const, label: "Pasuje", description: "Spełnia wszystkie kluczowe kryteria." },
+ { value: "uncertain" as const, label: "Niepewne", description: "Warto dopytać lub zostawić do decyzji klienta." },
+ { value: "miss" as const, label: "Nie pasuje", description: "Nie rekomenduję — deal-breaker lub brak kompetencji." },
 ];
 
 interface Props {
@@ -48,7 +48,7 @@ interface Props {
 
 interface FormValues {
  answers: Record<string, { response: string; deal_breaker_hit: boolean }>;
- overall_fit:"fit" |"uncertain" |"miss";
+ overall_fit: "fit" |"uncertain" |"miss";
  notes: string;
 }
 
@@ -57,7 +57,7 @@ function makeSchema(questions: ScreeningQuestion[]) {
  questions.map((q) => [
  q.id,
  z.object({
- response: z.string().min(1,"Odpowiedź jest wymagana"),
+ response: z.string().min(1, "Odpowiedź jest wymagana"),
  deal_breaker_hit: z.boolean(),
  }),
  ])
@@ -92,8 +92,8 @@ export function ScreeningSheet({
  resolver: zodResolver(makeSchema(questions)) as any,
  defaultValues: {
  answers: {},
- overall_fit:"uncertain",
- notes:"",
+ overall_fit: "uncertain",
+ notes: "",
  },
  });
 
@@ -203,7 +203,7 @@ export function ScreeningSheet({
  <TextareaField
  name={`answers.${q.id}.response`}
  rows={3}
- placeholder="Jak odpowiedział kandydat?"
+ placeholder="Jak odpowiedział kandydat ? "
  />
  </FormField>
  <label className="inline-flex items-center gap-2 text-xs cursor-pointer">

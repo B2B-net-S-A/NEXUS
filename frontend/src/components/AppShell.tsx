@@ -663,7 +663,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       setDuplicates(Array.isArray(res.data) ? res.data : []);
       setDupeChecked(true);
     } catch (err) {
-      console.error("Duplicate check failed:", err);
+      console.error("Duplicate check failed: ", err);
       setDupeChecked(true); // Fail-open: don't block save on service error
     }
   };

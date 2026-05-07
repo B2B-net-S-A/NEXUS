@@ -27,9 +27,9 @@ interface PowerCallingSectionProps {
 }
 
 const ROLE_COLOR: Record<string, string> = {
- sourcer:"bg-sky-100 text-sky-900",
- tac:"bg-teal-100 text-teal-900",
- recruiter:"bg-purple-100 text-purple-900",
+ sourcer: "bg-sky-100 text-sky-900",
+ tac: "bg-teal-100 text-teal-900",
+ recruiter: "bg-purple-100 text-purple-900",
 }
 
 export function PowerCallingSection({

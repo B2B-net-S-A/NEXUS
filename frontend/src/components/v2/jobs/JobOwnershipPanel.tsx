@@ -48,9 +48,9 @@ export function JobOwnershipPanel({
  const [addOpen, setAddOpen] = useState(false);
  const [error, setError] = useState<string | null>(null);
 
- const canReassign = hasMinRole(currentUser,"delivery_lead");
+ const canReassign = hasMinRole(currentUser, "delivery_lead");
  const canClaim =
- primaryOwner === null && !!currentUser && !hasRole(currentUser,"user");
+ primaryOwner === null && !!currentUser && !hasRole(currentUser, "user");
  const isPrimary = !!currentUser && primaryOwner?.id === currentUser.id;
  const canManageCollaborators = canReassign || isPrimary;
 

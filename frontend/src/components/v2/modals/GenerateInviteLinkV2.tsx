@@ -70,33 +70,33 @@ interface InviteLink {
 }
 
 const EXPIRY_OPTIONS = [
- { value: 7, label:"7 dni" },
- { value: 14, label:"14 dni" },
- { value: 30, label:"30 dni" },
- { value: 90, label:"90 dni" },
+ { value: 7, label: "7 dni" },
+ { value: 14, label: "14 dni" },
+ { value: 30, label: "30 dni" },
+ { value: 90, label: "90 dni" },
 ] as const;
 
 const STATUS_LABEL: Record<InviteStatus, string> = {
- active:"Aktywny",
- used:"Używany",
- revoked:"Wycofany",
- expired:"Wygasł",
+ active: "Aktywny",
+ used: "Używany",
+ revoked: "Wycofany",
+ expired: "Wygasł",
 };
 
 const STATUS_VARIANT: Record<
- InviteStatus,"success" |"soft" |"neutral" |"danger"
+ InviteStatus, "success" |"soft" |"neutral" |"danger"
 > = {
- active:"success",
- used:"soft",
- revoked:"danger",
- expired:"neutral",
+ active: "success",
+ used: "soft",
+ revoked: "danger",
+ expired: "neutral",
 };
 
 function formatDate(iso: string) {
  return new Date(iso).toLocaleDateString("pl-PL", {
- day:"2-digit",
- month:"short",
- year:"numeric",
+ day: "2-digit",
+ month: "short",
+ year: "numeric",
  });
 }
 
@@ -136,7 +136,7 @@ export function GenerateInviteLinkV2({
  queryKey: ["jobs","published"],
  queryFn: async () => {
  const res = await api.get("/api/jobs", {
- params: { status:"published", page_size: 100 },
+ params: { status: "published", page_size: 100 },
  });
  const data = res.data;
  // jobs endpoint can return either {items: [...]} or raw array — normalize.

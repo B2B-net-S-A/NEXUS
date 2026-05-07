@@ -107,24 +107,24 @@ import {
  encodeNavContext,
 } from"@/lib/url-filters";
 
-const STATUS_VARIANT: Record<string,"success" |"warning" |"danger" |"neutral"> = {
- active:"success",
- passive:"warning",
- blacklisted:"danger",
+const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
+ active: "success",
+ passive: "warning",
+ blacklisted: "danger",
 };
 const STATUS_LABELS: Record<string, string> = {
- active:"Aktywny",
- passive:"Pasywny",
- blacklisted:"Zablokowany",
+ active: "Aktywny",
+ passive: "Pasywny",
+ blacklisted: "Zablokowany",
 };
 
 const SKILL_LEVEL_VARIANT: Record<
- string,"burgundy" |"success" |"warning" |"neutral"
+ string, "burgundy" |"success" |"warning" |"neutral"
 > = {
- expert:"burgundy",
- senior:"success",
- mid:"warning",
- junior:"neutral",
+ expert: "burgundy",
+ senior: "success",
+ mid: "warning",
+ junior: "neutral",
 };
 
 /**
@@ -185,7 +185,7 @@ export function CandidateDetailV2({
  }, [embedded, searchParamsForNav]);
 
  const navContext: CandidateDetailNavigation | null = navigation ?? null;
- const navMode:"embedded" |"url" |"off" = navContext
+ const navMode: "embedded" |"url" |"off" = navContext
  ?"embedded"
  : urlNav
  ?"url"
@@ -229,7 +229,7 @@ export function CandidateDetailV2({
  const candidateNav = useCandidateNavigation(
  navMode ==="embedded" && navContext
  ? {
- mode:"embedded",
+ mode: "embedded",
  enabled: true,
  filters: navContext.filters,
  position: navContext.position,
@@ -241,7 +241,7 @@ export function CandidateDetailV2({
  }
  : navMode ==="url" && urlNav
  ? {
- mode:"url",
+ mode: "url",
  enabled: true,
  filters: urlNav.filters,
  position: urlPosition,
@@ -249,7 +249,7 @@ export function CandidateDetailV2({
  }
  : {
  // Disabled — no nav context available.
- mode:"url",
+ mode: "url",
  enabled: false,
  filters: DEFAULT_FILTERS,
  position: 1,
@@ -365,7 +365,7 @@ export function CandidateDetailV2({
  await api.post("/api/notes/", {
  candidate_id: Number(id),
  content: noteText.trim(),
- note_type:"general",
+ note_type: "general",
  });
  setNoteText("");
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
@@ -910,11 +910,11 @@ interface JDGPanelInitial {
 }
 
 const BUSINESS_FORM_OPTIONS: { value: string; label: string }[] = [
- { value:"jdg", label:"JDG (jednoosobowa)" },
- { value:"sp_zoo", label:"Sp. z o.o." },
- { value:"sa", label:"S.A." },
- { value:"sc", label:"Spółka cywilna" },
- { value:"osoba_fizyczna", label:"Osoba fizyczna (UoP/zlecenie)" },
+ { value: "jdg", label: "JDG (jednoosobowa)" },
+ { value: "sp_zoo", label: "Sp. z o.o." },
+ { value: "sa", label: "S.A." },
+ { value: "sc", label: "Spółka cywilna" },
+ { value: "osoba_fizyczna", label: "Osoba fizyczna (UoP/zlecenie)" },
 ];
 
 function JDGPanel({
@@ -1040,10 +1040,10 @@ function JDGPanel({
 // ─── Zakładka Umowa ──────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
- draft:"Draft",
- active:"Aktywna",
- ending:"Wygasa",
- ended:"Zakończona",
+ draft: "Draft",
+ active: "Aktywna",
+ ending: "Wygasa",
+ ended: "Zakończona",
 };
 
 function formatRate(
@@ -1328,10 +1328,10 @@ function DraftEditor({
 
  const editor = useEditor({
  extensions: [StarterKit],
- content:"",
+ content: "",
  editorProps: {
  attributes: {
- class:"prose prose-sm max-w-none min-h-[400px] focus:outline-none border border-border rounded-lg bg-card p-4",
+ class: "prose prose-sm max-w-none min-h-[400px] focus:outline-none border border-border rounded-lg bg-card p-4",
  },
  },
  });
@@ -1509,7 +1509,7 @@ function DraftEditor({
  {/* Modal: confirm template swap (overwrites manual edits) */}
  {confirmTemplateId !== null && (
  <ConfirmModal
- title="Wczytać nowy szablon?"
+ title="Wczytać nowy szablon ? "
  message="Przełączenie szablonu nadpisze obecną treść draftu. Zapisane edycje zostaną stracone."
  confirmLabel="Wczytaj szablon"
  onConfirm={() => {
@@ -1523,7 +1523,7 @@ function DraftEditor({
  {/* Modal: confirm finalize */}
  {confirmFinalize && (
  <ConfirmModal
- title="Sfinalizować draft?"
+ title="Sfinalizować draft ? "
  message="Bieżąca treść zostanie zapisana jako dokument umowy, a status kontraktu zmieni się z draft na active. Edycja w tym widoku nie będzie już możliwa."
  confirmLabel={finalize.isPending ?"Finalizuję…" :"Tak, finalizuj"}
  onConfirm={() => finalize.mutate()}
@@ -1782,19 +1782,19 @@ function ProfilTab({ candidate }: { candidate: any }) {
 }
 
 const TIMELINE_LABEL: Record<string, string> = {
- note:"Notatka",
- stage_change:"Zmiana etapu",
- activity:"Aktywność",
- user_activity:"Akcja użytkownika",
+ note: "Notatka",
+ stage_change: "Zmiana etapu",
+ activity: "Aktywność",
+ user_activity: "Akcja użytkownika",
 };
 
 // 0045_rejection_emails — map scheduler activity actions to Polish labels.
 const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
- rejection_email_scheduled:"Zaplanowano email odrzucenia (wyśle się za 15 min)",
- rejection_email_sent:"Wysłano email odrzucenia do kandydata",
- rejection_email_cancelled:"Anulowano wysyłkę email odrzucenia",
- rejection_email_skipped:"Email odrzucenia pominięty — brak skrzynki MS365",
- rejection_email_failed:"Email odrzucenia — błąd wysyłki",
+ rejection_email_scheduled: "Zaplanowano email odrzucenia (wyśle się za 15 min)",
+ rejection_email_sent: "Wysłano email odrzucenia do kandydata",
+ rejection_email_cancelled: "Anulowano wysyłkę email odrzucenia",
+ rejection_email_skipped: "Email odrzucenia pominięty — brak skrzynki MS365",
+ rejection_email_failed: "Email odrzucenia — błąd wysyłki",
 };
 
 function timelineItemLabel(item: any): string {
@@ -2106,11 +2106,11 @@ function RekrutacjaCard({
 }
 
 const SCREENING_TYPE_LABELS: Record<string, string> = {
- first_contact:"Pierwszy kontakt",
- technical:"Techniczny",
- soft_skills:"Soft skills",
- offer_negotiation:"Negocjacja oferty",
- general:"Ogólny",
+ first_contact: "Pierwszy kontakt",
+ technical: "Techniczny",
+ soft_skills: "Soft skills",
+ offer_negotiation: "Negocjacja oferty",
+ general: "Ogólny",
 };
 
 function ScreeningsTab({ screenings }: { screenings: any[] }) {
@@ -2207,7 +2207,7 @@ function RozmowyTab({ calls }: { calls: any[] }) {
  const mins = dur != null ? Math.floor(dur / 60) : null;
  const secs = dur != null ? dur % 60 : null;
  const durationLabel =
- mins != null ? `${mins}:${String(secs).padStart(2,"0")}` : null;
+ mins != null ? `${mins}:${String(secs).padStart(2, "0")}` : null;
  return (
  <div
  key={c.id}
@@ -2274,21 +2274,21 @@ function unwrapNoteContent(raw: unknown): string {
  }
  // Strip HTML tags + normalize whitespace
  return s
- .replace(/<br\s*\/?>/gi,"\n")
- .replace(/<\/p>/gi,"\n\n")
- .replace(/<\/li>/gi,"\n")
- .replace(/<[^>]+>/g,"")
- .replace(/&nbsp;/g,"")
- .replace(/&amp;/g,"&")
- .replace(/&lt;/g,"<")
- .replace(/&gt;/g,">")
+ .replace(/<br\s*\/?>/gi, "\n")
+ .replace(/<\/p>/gi, "\n\n")
+ .replace(/<\/li>/gi, "\n")
+ .replace(/<[^>]+>/g, "")
+ .replace(/&nbsp;/g, "")
+ .replace(/&amp;/g, "&")
+ .replace(/&lt;/g, "<")
+ .replace(/&gt;/g, ">")
  .replace(/&quot;/g, '"')
  .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
  String.fromCharCode(parseInt(hex, 16)),
  )
- .replace(/\\\//g,"/")
- .replace(/\\n/g,"\n")
- .replace(/\n{3,}/g,"\n\n")
+ .replace(/\\\//g, "/")
+ .replace(/\\n/g, "\n")
+ .replace(/\n{3,}/g, "\n\n")
  .trim();
 }
 
@@ -2320,7 +2320,7 @@ function NotatkiTab({
 
  // Mentionable users dla autocomplete + render badge'y w liście notatek.
  // Reużywamy jednego query — staleTime 60s w hooku.
- const { data: users = [] } = useMentionableUsers({ kind:"global" });
+ const { data: users = [] } = useMentionableUsers({ kind: "global" });
  const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
 
  return (
@@ -2329,7 +2329,7 @@ function NotatkiTab({
  <MentionTextarea
  value={noteText}
  onChange={setNoteText}
- scope={{ kind:"global" }}
+ scope={{ kind: "global" }}
  onFocus={() => setEditing?.("notes", true)}
  onBlur={() => setEditing?.("notes", false)}
  placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
@@ -2519,26 +2519,26 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
 // ── Screening summary (sticky, always visible across tabs) ─────────────
 
 const MOTIVATION_LABEL_PL: Record<string, string> = {
- money:"Pieniądze",
- growth:"Rozwój",
- project:"Projekt",
- team:"Zespół",
- work_mode:"Tryb pracy",
- stability:"Stabilność",
- technology:"Technologia",
- location:"Lokalizacja",
+ money: "Pieniądze",
+ growth: "Rozwój",
+ project: "Projekt",
+ team: "Zespół",
+ work_mode: "Tryb pracy",
+ stability: "Stabilność",
+ technology: "Technologia",
+ location: "Lokalizacja",
 };
 
 const RISK_LABEL_PL: Record<string, string> = {
- low:"Niskie",
- medium:"Średnie",
- high:"Wysokie",
+ low: "Niskie",
+ medium: "Średnie",
+ high: "Wysokie",
 };
 
-const RISK_VARIANT: Record<string,"success" |"warning" |"danger"> = {
- low:"success",
- medium:"warning",
- high:"danger",
+const RISK_VARIANT: Record<string, "success" |"warning" |"danger"> = {
+ low: "success",
+ medium: "warning",
+ high: "danger",
 };
 
 interface VerifiedSkillAgg {

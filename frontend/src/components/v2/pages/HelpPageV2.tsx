@@ -32,7 +32,7 @@ import { ProcedureEditorModal } from"@/components/v2/modals/ProcedureEditorModal
  */
 export function HelpPageV2() {
  const { user } = useAuthStore();
- const isAdmin = hasRole(user,"admin");
+ const isAdmin = hasRole(user, "admin");
  const queryClient = useQueryClient();
 
  const [rawQuery, setRawQuery] = useState("");

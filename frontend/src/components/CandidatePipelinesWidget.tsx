@@ -28,7 +28,7 @@ export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
         const res = await phase3Api.candidatePipelines(candidateId);
         setRows(res.data.pipelines);
       } catch (e) {
-        console.error("pipelines load failed:", e);
+        console.error("pipelines load failed: ", e);
       } finally {
         setLoading(false);
       }

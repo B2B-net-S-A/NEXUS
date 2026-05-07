@@ -45,9 +45,9 @@ export interface HighlightableCandidate {
  */
 function formatLinkedinJobChange(days: number): {
  label: string;
- variant:"warning" |"info" |"neutral";
+ variant: "warning" |"info" |"neutral";
 } {
- const variant:"warning" |"info" |"neutral" =
+ const variant: "warning" |"info" |"neutral" =
  days < 30 ?"warning" : days < 60 ?"info" :"neutral";
  let label: string;
  if (days < 7) {
@@ -90,7 +90,7 @@ export function CandidateHighlights({
  const isBlacklisted = status ==="blacklisted";
 
  // LinkedIn job-change badge: show for changes detected within the last 90d.
- let linkedinJobChange: { label: string; variant:"warning" |"info" |"neutral" } | null = null;
+ let linkedinJobChange: { label: string; variant: "warning" |"info" |"neutral" } | null = null;
  if (candidate.linkedin_employment_changed_at) {
  const changedAt = new Date(candidate.linkedin_employment_changed_at);
  if (!Number.isNaN(changedAt.getTime())) {
@@ -195,27 +195,27 @@ export function CandidateHighlights({
 
 /** Polish label for a raw availability value. Used by filter dropdowns + edit form. */
 export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
- actively_looking:"Aktywnie szuka",
- open_to_offers:"Otwarty na projekty",
- not_looking:"Nie szuka",
- unknown:"Nie wiemy",
+ actively_looking: "Aktywnie szuka",
+ open_to_offers: "Otwarty na projekty",
+ not_looking: "Nie szuka",
+ unknown: "Nie wiemy",
 };
 
 export const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] =
  [
- { value:"actively_looking", label:"Aktywnie szuka" },
- { value:"open_to_offers", label:"Otwarty na projekty" },
- { value:"not_looking", label:"Nie szuka" },
- { value:"unknown", label:"Nie wiemy" },
+ { value: "actively_looking", label: "Aktywnie szuka" },
+ { value: "open_to_offers", label: "Otwarty na projekty" },
+ { value: "not_looking", label: "Nie szuka" },
+ { value: "unknown", label: "Nie wiemy" },
  ];
 
 export const EMPLOYMENT_FILTER_OPTIONS: {
- value:"all" |"at_client" |"available";
+ value: "all" |"at_client" |"available";
  label: string;
 }[] = [
- { value:"all", label:"Dowolne" },
- { value:"at_client", label:"U naszego klienta" },
- { value:"available", label:"Dostępni (bez projektu)" },
+ { value: "all", label: "Dowolne" },
+ { value: "at_client", label: "U naszego klienta" },
+ { value: "available", label: "Dostępni (bez projektu)" },
 ];
 
 /**

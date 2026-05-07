@@ -8,20 +8,20 @@ const cardVariants = cva(
  {
  variants: {
  variant: {
- default:"shadow-sm",
- elevated:"shadow-sm",
- flat:"shadow-none",
- interactive:"shadow-sm hover:shadow-sm transition-all cursor-pointer",
+ default: "shadow-sm",
+ elevated: "shadow-sm",
+ flat: "shadow-none",
+ interactive: "shadow-sm hover:shadow-sm transition-all cursor-pointer",
  },
  size: {
- sm:"rounded-md p-3",
- md:"rounded-lg p-5",
- lg:"rounded-xl p-6",
+ sm: "rounded-md p-3",
+ md: "rounded-lg p-5",
+ lg: "rounded-xl p-6",
  },
  },
  defaultVariants: {
- variant:"default",
- size:"md",
+ variant: "default",
+ size: "md",
  },
  }
 );

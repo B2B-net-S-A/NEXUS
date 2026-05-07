@@ -27,8 +27,8 @@ import {
 } from"@/lib/api/procedures";
 
 const procedureSchema = z.object({
- title: z.string().min(3,"Tytuł jest za krótki").max(255,"Tytuł za długi"),
- content: z.string().min(1,"Treść jest wymagana"),
+ title: z.string().min(3, "Tytuł jest za krótki").max(255, "Tytuł za długi"),
+ content: z.string().min(1, "Treść jest wymagana"),
  sort_order: z.coerce.number().int(),
  is_published: z.boolean(),
 });

@@ -44,12 +44,12 @@ interface EmailTemplate {
 }
 
 const CATEGORY_LABELS: Record<EmailCategory, string> = {
- application_received:"Potwierdzenie aplikacji",
- screening_invite:"Zaproszenie na screening",
- interview_invite:"Zaproszenie na rozmowę",
- rejection:"Odrzucenie",
- offer:"Oferta współpracy",
- general:"Ogólna wiadomość",
+ application_received: "Potwierdzenie aplikacji",
+ screening_invite: "Zaproszenie na screening",
+ interview_invite: "Zaproszenie na rozmowę",
+ rejection: "Odrzucenie",
+ offer: "Oferta współpracy",
+ general: "Ogólna wiadomość",
 };
 
 interface Props {

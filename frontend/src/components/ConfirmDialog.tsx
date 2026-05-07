@@ -85,7 +85,7 @@ interface ConfirmButtonProps {
 export function ConfirmButton({
   children,
   onConfirm,
-  message = "Na pewno chcesz usunąć?",
+  message = "Na pewno chcesz usunąć ? ",
   confirmLabel = "Usuń",
   cancelLabel = "Anuluj",
   className,

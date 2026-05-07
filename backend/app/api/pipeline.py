@@ -92,8 +92,17 @@ def _days_in_stage(moved_at: datetime) -> int:
     return max(0, (now - moved_at).days)
 
 
-def _stage_response(stage: CandidateStage) -> dict:
-    """Convert a CandidateStage to response dict with days_in_stage."""
+def _stage_response(
+    stage: CandidateStage,
+    *,
+    candidate_name: Optional[str] = None,
+    candidate_lastname: Optional[str] = None,
+) -> dict:
+    """Convert a CandidateStage to response dict with days_in_stage.
+
+    Candidate name/lastname are optional — populated by the Kanban endpoint
+    so the frontend can render card titles without an extra round-trip.
+    """
     return {
         "id": stage.id,
         "candidate_id": stage.candidate_id,
@@ -118,6 +127,8 @@ def _stage_response(stage: CandidateStage) -> dict:
         "rejected_by": stage.rejected_by,
         "rejected_at": stage.rejected_at,
         "rejection_note": stage.rejection_note,
+        "name": candidate_name,
+        "lastname": candidate_lastname,
     }
 
 
@@ -625,6 +636,22 @@ async def get_kanban(
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
 
+    # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
+    candidate_ids = list(seen.keys())
+    name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
+    if candidate_ids:
+        rows = await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                Candidate.id.in_(candidate_ids)
+            )
+        )
+        for cid, cname, clastname in rows.all():
+            name_by_id[cid] = (cname, clastname)
+
+    def _stage_resp_with_name(e: CandidateStage) -> dict:
+        n, ln = name_by_id.get(e.candidate_id, (None, None))
+        return _stage_response(e, candidate_name=n, candidate_lastname=ln)
+
     # Resolve target template
     template_id = job.pipeline_template_id or await _default_template_id(db)
 
@@ -672,7 +699,8 @@ async def get_kanban(
                     category=sd.category,
                     count=len(entries),
                     items=[
-                        CandidateStageResponse(**_stage_response(e)) for e in entries
+                        CandidateStageResponse(**_stage_resp_with_name(e))
+                        for e in entries
                     ],
                     stage_def_id=sd.id,
                     name=sd.name,
@@ -699,7 +727,10 @@ async def get_kanban(
                 stage=stage,
                 category=STAGE_CATEGORY[stage],
                 count=len(entries),
-                items=[CandidateStageResponse(**_stage_response(e)) for e in entries],
+                items=[
+                    CandidateStageResponse(**_stage_resp_with_name(e))
+                    for e in entries
+                ],
                 name=STAGE_LABELS[stage],
             )
         )

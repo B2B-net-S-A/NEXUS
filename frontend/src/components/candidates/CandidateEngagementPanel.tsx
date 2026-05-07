@@ -213,7 +213,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
           }
           className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           rows={2}
-          placeholder="Jaką rolę chciałby pełnić? Jakie projekty by go interesowały?"
+          placeholder="Jaką rolę chciałby pełnić? Jakie projekty by go interesowały ? "
         />
       </label>
       <div className="flex justify-between items-center mt-3 gap-2">
@@ -240,7 +240,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
       {linkUrl && (
         <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded text-[11px]">
           <div className="text-amber-800 dark:text-amber-300 font-medium">
-            {linkCopied ? "Skopiowano do schowka:" : "Link wygenerowany:"}
+            {linkCopied ? "Skopiowano do schowka: " : "Link wygenerowany: "}
           </div>
           <code className="block mt-0.5 text-amber-700 dark:text-amber-400 break-all">
             {linkUrl}

@@ -46,21 +46,21 @@ export interface LinkedinAwareCandidate {
 }
 
 const STATUS_LABEL: Record<LinkedinSyncStatus, string> = {
- ok:"Zsynchronizowano",
- not_found:"Profil nie znaleziony",
- error:"Błąd synchronizacji",
- rate_limited:"Limit API — spróbujemy ponownie",
- disabled:"Synchronizacja wyłączona",
+ ok: "Zsynchronizowano",
+ not_found: "Profil nie znaleziony",
+ error: "Błąd synchronizacji",
+ rate_limited: "Limit API — spróbujemy ponownie",
+ disabled: "Synchronizacja wyłączona",
 };
 
 const STATUS_VARIANT: Record<
- LinkedinSyncStatus,"success" |"warning" |"danger" |"neutral"
+ LinkedinSyncStatus, "success" |"warning" |"danger" |"neutral"
 > = {
- ok:"success",
- not_found:"warning",
- error:"danger",
- rate_limited:"warning",
- disabled:"neutral",
+ ok: "success",
+ not_found: "warning",
+ error: "danger",
+ rate_limited: "warning",
+ disabled: "neutral",
 };
 
 interface Props {

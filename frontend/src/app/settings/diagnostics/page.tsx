@@ -52,7 +52,7 @@ export default function DiagnosticsPage() {
       const r = await phase5Api.diagnostics();
       setReport(r.data as DiagReport);
     } catch (e) {
-      console.error("diagnostics failed:", e);
+      console.error("diagnostics failed: ", e);
     } finally {
       setLoading(false);
     }

@@ -41,30 +41,30 @@ import {
 type JobType ="all" |"body_leasing" |"sales" |"tenders";
 
 const FILTER_TABS: { value: JobType; label: string }[] = [
- { value:"all", label:"Wszystkie" },
- { value:"body_leasing", label:"Body leasing" },
- { value:"sales", label:"Sales" },
- { value:"tenders", label:"Przetargi" },
+ { value: "all", label: "Wszystkie" },
+ { value: "body_leasing", label: "Body leasing" },
+ { value: "sales", label: "Sales" },
+ { value: "tenders", label: "Przetargi" },
 ];
 
 const STATUS_VARIANT: Record<
- string,"success" |"soft" |"neutral" |"warning" |"danger"
+ string, "success" |"soft" |"neutral" |"warning" |"danger"
 > = {
- open:"success",
- published:"success",
- closed:"neutral",
- draft:"soft",
- on_hold:"warning",
- lost:"danger",
+ open: "success",
+ published: "success",
+ closed: "neutral",
+ draft: "soft",
+ on_hold: "warning",
+ lost: "danger",
 };
 
 const STATUS_LABEL: Record<string, string> = {
- open:"Otwarta",
- published:"Opublikowana",
- closed:"Zamknięta",
- draft:"Draft",
- on_hold:"Wstrzymana",
- lost:"Utracona",
+ open: "Otwarta",
+ published: "Opublikowana",
+ closed: "Zamknięta",
+ draft: "Draft",
+ on_hold: "Wstrzymana",
+ lost: "Utracona",
 };
 
 function extractSkills(must: unknown): string[] {

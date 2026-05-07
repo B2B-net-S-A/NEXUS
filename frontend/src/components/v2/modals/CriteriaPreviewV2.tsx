@@ -61,7 +61,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  };
  }, [open, jobId]);
 
- const addSkill = (list:"must" |"nice", input: string) => {
+ const addSkill = (list: "must" |"nice", input: string) => {
  const n = input.trim();
  if (!n) return;
  const setter = list ==="must" ? setMust : setNice;
@@ -72,12 +72,12 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  else setNewNice("");
  };
 
- const remove = (list:"must" |"nice", idx: number) => {
+ const remove = (list: "must" |"nice", idx: number) => {
  if (list ==="must") setMust(must.filter((_, i) => i !== idx));
  else setNice(nice.filter((_, i) => i !== idx));
  };
 
- const move = (from:"must" |"nice", idx: number) => {
+ const move = (from: "must" |"nice", idx: number) => {
  if (from ==="must") {
  const s = must[idx];
  setMust(must.filter((_, i) => i !== idx));
@@ -184,7 +184,7 @@ function SkillColumn({
  moveLabel,
 }: {
  title: string;
- color:"burgundy" |"soft";
+ color: "burgundy" |"soft";
  skills: Skill[];
  input: string;
  onInputChange: (v: string) => void;

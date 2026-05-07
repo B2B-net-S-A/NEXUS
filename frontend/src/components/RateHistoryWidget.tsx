@@ -38,7 +38,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
       setRows(rRes.data);
       setClients(cRes.data);
     } catch (e) {
-      console.error("rate history load failed:", e);
+      console.error("rate history load failed: ", e);
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Usunąć rekord stawki?")) return;
+    if (!confirm("Usunąć rekord stawki ? ")) return;
     try {
       await phase5Api.rateHistory.delete(id);
       await load();

@@ -58,13 +58,13 @@ interface ContractRow {
 }
 
 const STATUS_VARIANT: Record<
- string,"success" |"warning" |"neutral" |"danger" |"soft"
+ string, "success" |"warning" |"neutral" |"danger" |"soft"
 > = {
- active:"success",
- expiring:"warning",
- ended:"neutral",
- terminated:"danger",
- draft:"soft",
+ active: "success",
+ expiring: "warning",
+ ended: "neutral",
+ terminated: "danger",
+ draft: "soft",
 };
 
 function marginColor(margin: number | undefined) {

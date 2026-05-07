@@ -25,9 +25,9 @@ const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment",
 ]);
 
 const UNIT_LABEL: Record<string, string> = {
- hourly:"/h",
- daily:"/dz.",
- monthly:"/mies.",
+ hourly: "/h",
+ daily: "/dz.",
+ monthly: "/mies.",
 };
 
 function formatRate(item: PendingVerificationItem): string {
@@ -45,11 +45,11 @@ function formatRate(item: PendingVerificationItem): string {
 function formatDate(iso: string): string {
  try {
  return new Date(iso).toLocaleString("pl-PL", {
- day:"2-digit",
- month:"2-digit",
- year:"numeric",
- hour:"2-digit",
- minute:"2-digit",
+ day: "2-digit",
+ month: "2-digit",
+ year: "numeric",
+ hour: "2-digit",
+ minute: "2-digit",
  });
  } catch {
  return iso;
@@ -215,7 +215,7 @@ export default function PendingVerificationsPage() {
  <Button
  size="sm"
  variant="outline"
- onClick={() => setRejectTarget({ item: row, note:"" })}
+ onClick={() => setRejectTarget({ item: row, note: "" })}
  className="text-rose-700 border-rose-300 hover:bg-rose-50"
  >
  <XCircle className="h-3.5 w-3.5" />

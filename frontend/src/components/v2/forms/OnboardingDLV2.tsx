@@ -65,7 +65,7 @@ export function OnboardingDLV2() {
  queryFn: () =>
  api
  .get<JobsResponse>("/api/jobs", {
- params: { status:"published", page: 1, page_size: 100 },
+ params: { status: "published", page: 1, page_size: 100 },
  })
  .then((r) => r.data),
  staleTime: 60_000,

@@ -202,7 +202,7 @@ export function ContractEquipmentTab({ contractId }: Props) {
                       <button
                         type="button"
                         onClick={() => {
-                          if (confirm("Usunąć pozycję?")) deleteMut.mutate(item.id);
+                          if (confirm("Usunąć pozycję ? ")) deleteMut.mutate(item.id);
                         }}
                         className="inline-flex items-center text-xs text-destructive hover:underline"
                       >

@@ -61,7 +61,7 @@ export function StageNotificationRulesModal({
   };
 
   const handleDelete = async (ruleId: number) => {
-    if (!confirm("Usunąć regułę?")) return;
+    if (!confirm("Usunąć regułę ? ")) return;
     try {
       await stageNotificationRulesApi.delete(templateId, stageDefId, ruleId);
       await loadRules();

@@ -46,11 +46,11 @@ const EVENT_ICON: Record<string, React.ReactNode> = {
 };
 
 const EVENT_LABEL: Record<string, string> = {
- interview:"Rozmowa",
- screening:"Screening",
- call:"Call",
- meeting:"Spotkanie",
- deadline:"Deadline",
+ interview: "Rozmowa",
+ screening: "Screening",
+ call: "Call",
+ meeting: "Spotkanie",
+ deadline: "Deadline",
 };
 
 // ── Sparkline (inline SVG) ─────────────────────────────────────────────
@@ -145,11 +145,11 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
 function FunnelV2({ data }: { data?: any }) {
  const funnel = data?.funnel ?? data?.pipeline ?? null;
  const stages = [
- { key:"new", label:"Nowy", count: funnel?.new ?? funnel?.total_entered ?? 120 },
- { key:"screening", label:"Screening", count: funnel?.screening ?? funnel?.screening_done ?? 78 },
- { key:"interview", label:"Interview", count: funnel?.interview ?? funnel?.interviews ?? 45 },
- { key:"offer", label:"Oferta", count: funnel?.offer ?? funnel?.offers ?? 18 },
- { key:"hired", label:"Zatrudniony", count: funnel?.hired ?? funnel?.hired_count ?? 9 },
+ { key: "new", label: "Nowy", count: funnel?.new ?? funnel?.total_entered ?? 120 },
+ { key: "screening", label: "Screening", count: funnel?.screening ?? funnel?.screening_done ?? 78 },
+ { key: "interview", label: "Interview", count: funnel?.interview ?? funnel?.interviews ?? 45 },
+ { key: "offer", label: "Oferta", count: funnel?.offer ?? funnel?.offers ?? 18 },
+ { key: "hired", label: "Zatrudniony", count: funnel?.hired ?? funnel?.hired_count ?? 9 },
  ];
  const max = Math.max(...stages.map((s) => s.count), 1);
  return (
@@ -386,7 +386,7 @@ function ContractorDraftsWidget() {
 
  // Gate visibility to roles that actually fill in contracts; recruiters
  // and sourcers don't own the draft completion step.
- if (!hasRole(user,"admin","delivery_lead","tac","head_of_recruitment")) {
+ if (!hasRole(user, "admin","delivery_lead","tac","head_of_recruitment")) {
  return null;
  }
 
@@ -530,7 +530,7 @@ export function DashboardV2() {
  value={stats?.candidates?.total ??"—"}
  subtitle={`${stats?.candidates?.active ?? 0} aktywnych`}
  icon={Users}
- trend={{ value: 8, label:"vs. poprzedni miesiąc" }}
+ trend={{ value: 8, label: "vs. poprzedni miesiąc" }}
  sparkline={seedSparkline(candidatesBase, 1)}
  href="/candidates"
  />
@@ -539,7 +539,7 @@ export function DashboardV2() {
  value={stats?.jobs?.open ??"—"}
  subtitle={`${stats?.jobs?.total ?? 0} łącznie`}
  icon={Briefcase}
- trend={{ value: 5, label:"vs. poprzedni miesiąc" }}
+ trend={{ value: 5, label: "vs. poprzedni miesiąc" }}
  sparkline={seedSparkline(jobsBase, 3)}
  href="/jobs"
  />
@@ -548,7 +548,7 @@ export function DashboardV2() {
  value={stats?.clients?.total ??"—"}
  subtitle="aktywne konta"
  icon={Building2}
- trend={{ value: -2, label:"vs. poprzedni miesiąc" }}
+ trend={{ value: -2, label: "vs. poprzedni miesiąc" }}
  sparkline={seedSparkline(clientsBase, 5)}
  href="/clients"
  />
@@ -557,7 +557,7 @@ export function DashboardV2() {
  value={stats?.contracts?.active ??"—"}
  subtitle={`${stats?.contracts?.expiring_soon ?? 0} kończących się`}
  icon={FileText}
- trend={{ value: 12, label:"vs. poprzedni miesiąc" }}
+ trend={{ value: 12, label: "vs. poprzedni miesiąc" }}
  sparkline={seedSparkline(contractsBase, 7)}
  href="/contracts"
  />

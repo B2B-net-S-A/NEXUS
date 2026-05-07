@@ -50,10 +50,10 @@ interface HitRatioResponse {
  overall: { avg_hit_ratio: number; hit_ratio_target_pct: number };
 }
 
-const STATUS_VARIANT: Record<string,"success" |"neutral" |"soft"> = {
- active:"success",
- inactive:"neutral",
- prospect:"soft",
+const STATUS_VARIANT: Record<string, "success" |"neutral" |"soft"> = {
+ active: "success",
+ inactive: "neutral",
+ prospect: "soft",
 };
 
 const MIN_CLOSED_FOR_RATIO = 3;
@@ -114,7 +114,7 @@ export function ClientsListV2() {
  queryKey: ["clients-hit-ratio","year"],
  queryFn: () =>
  api
- .get("/api/reports/clients", { params: { period:"year", min_closed: 0 } })
+ .get("/api/reports/clients", { params: { period: "year", min_closed: 0 } })
  .then((r) => r.data),
  staleTime: 5 * 60 * 1000, // backend cache is 5min, match it
  retry: false, // 403 for recruiters — just hide the column data

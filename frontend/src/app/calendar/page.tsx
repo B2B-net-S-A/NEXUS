@@ -1018,7 +1018,7 @@ function EventDetailModal({
             )}
             <ConfirmButton
               onConfirm={() => deleteMutation.mutate()}
-              message="Na pewno chcesz usunąć?"
+              message="Na pewno chcesz usunąć ? "
               confirmLabel="Usuń"
               cancelLabel="Anuluj"
               className={`flex items-center gap-1.5 px-3 py-1.5 bg-destructive/10 border border-destructive/20 hover:bg-destructive/15 text-destructive text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${deleteMutation.isPending ? "opacity-50 pointer-events-none" : ""}`}
