@@ -154,7 +154,7 @@ export function ChampionCard({
                     : "";
                   const ok = window.confirm(
                     `Uwaga: konsultant jest obecnie zatrudniony u naszego klienta${clientLabel}. ` +
-                      "Tworzysz link share — upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować?"
+                      "Tworzysz link share — upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować ? "
                   );
                   if (!ok) return;
                 }

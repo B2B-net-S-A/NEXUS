@@ -33,7 +33,7 @@ function apiBase(): string {
 async function fetchMeta(token: string): Promise<ApplyMeta | null> {
  const url = `${apiBase()}/api/public/apply/${token}`;
  try {
- const res = await fetch(url, { cache:"no-store" });
+ const res = await fetch(url, { cache: "no-store" });
  if (!res.ok) return null;
  return (await res.json()) as ApplyMeta;
  } catch {
@@ -42,17 +42,17 @@ async function fetchMeta(token: string): Promise<ApplyMeta | null> {
 }
 
 const REMOTE_LABEL: Record<string, string> = {
- remote:"Zdalnie",
- hybrid:"Hybrydowo",
- onsite:"Stacjonarnie",
+ remote: "Zdalnie",
+ hybrid: "Hybrydowo",
+ onsite: "Stacjonarnie",
 };
 
 const SENIORITY_LABEL: Record<string, string> = {
- junior:"Junior",
- mid:"Mid",
- senior:"Senior",
- lead:"Lead",
- architect:"Architect",
+ junior: "Junior",
+ mid: "Mid",
+ senior: "Senior",
+ lead: "Lead",
+ architect: "Architect",
 };
 
 export default async function ApplyPage({ params }: PageProps) {
@@ -61,9 +61,9 @@ export default async function ApplyPage({ params }: PageProps) {
  if (!meta) notFound();
 
  const expiresLabel = new Date(meta.expires_at).toLocaleDateString("pl-PL", {
- day:"2-digit",
- month:"short",
- year:"numeric",
+ day: "2-digit",
+ month: "short",
+ year: "numeric",
  });
 
  return (

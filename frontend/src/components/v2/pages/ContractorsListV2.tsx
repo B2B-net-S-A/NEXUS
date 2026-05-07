@@ -33,18 +33,18 @@ import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal
 type Tab = ContractorStatus;
 
 const TAB_LABELS: Record<Tab, string> = {
- draft:"Do uzupełnienia",
- active:"Aktywni",
- ending:"Kończący się",
+ draft: "Do uzupełnienia",
+ active: "Aktywni",
+ ending: "Kończący się",
 };
 
 const FIELD_LABELS: Record<string, string> = {
- start_date:"Data start",
- end_date:"Data koniec",
- rate_candidate:"Stawka kandydat",
- rate_client:"Stawka klient",
- contract_type:"Typ umowy",
- work_mode:"Tryb pracy",
+ start_date: "Data start",
+ end_date: "Data koniec",
+ rate_candidate: "Stawka kandydat",
+ rate_client: "Stawka klient",
+ contract_type: "Typ umowy",
+ work_mode: "Tryb pracy",
 };
 
 function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
@@ -234,12 +234,12 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
- ? `${formatCurrency(c.rate_client,"PLN")}${rateUnitLabel(c.rate_unit)}`
+ ? `${formatCurrency(c.rate_client, "PLN")}${rateUnitLabel(c.rate_unit)}`
  :"—"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.margin != null
- ? formatCurrency(c.margin,"PLN")
+ ? formatCurrency(c.margin, "PLN")
  :"—"}
  </TableCell>
  <TableCell>

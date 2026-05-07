@@ -407,7 +407,7 @@ export function ChampionProfileEditor({
               className={textareaClass}
             />
           </Labeled>
-          <Labeled label="Co przekona kandydata?">
+          <Labeled label="Co przekona kandydata ? ">
             <textarea
               disabled={disabled}
               value={draft.project_context.selling_points}

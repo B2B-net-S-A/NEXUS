@@ -75,13 +75,13 @@ interface Props {
 const LOW_CONFIDENCE = 0.7;
 
 const FIELD_LABELS: Record<string, string> = {
- first_name:"Imię",
- last_name:"Nazwisko",
- email:"Email",
- phone:"Telefon",
- city:"Miasto",
- linkedin_url:"LinkedIn",
- years_it_experience:"Lata w IT",
+ first_name: "Imię",
+ last_name: "Nazwisko",
+ email: "Email",
+ phone: "Telefon",
+ city: "Miasto",
+ linkedin_url: "LinkedIn",
+ years_it_experience: "Lata w IT",
 };
 
 function formatSkill(s: { name: string } | string): string {
@@ -239,37 +239,37 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <ConfidenceRow
  label={FIELD_LABELS.first_name}
  value={c.name}
- low={isLow(conf,"first_name")}
+ low={isLow(conf, "first_name")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.last_name}
  value={c.lastname}
- low={isLow(conf,"last_name")}
+ low={isLow(conf, "last_name")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.email}
  value={c.email}
- low={isLow(conf,"email")}
+ low={isLow(conf, "email")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.phone}
  value={c.phone}
- low={isLow(conf,"phone")}
+ low={isLow(conf, "phone")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.city}
  value={c.location}
- low={isLow(conf,"city")}
+ low={isLow(conf, "city")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.linkedin_url}
  value={c.linkedin}
- low={isLow(conf,"linkedin_url")}
+ low={isLow(conf, "linkedin_url")}
  />
  <ConfidenceRow
  label={FIELD_LABELS.years_it_experience}
  value={c.years_it_experience ?? null}
- low={isLow(conf,"years_it_experience")}
+ low={isLow(conf, "years_it_experience")}
  />
  </dl>
  {skills.length > 0 && (

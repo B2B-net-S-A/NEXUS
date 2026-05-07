@@ -53,7 +53,7 @@ function addDays(d: Date, n: number) {
 }
 
 function fmtDay(d: Date) {
- return d.toLocaleDateString("pl-PL", { weekday:"short", day:"numeric", month:"numeric" })
+ return d.toLocaleDateString("pl-PL", { weekday: "short", day: "numeric", month: "numeric" })
 }
 
 // ── Page ───────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ export default function AdminLinkedInMetricsPage() {
  onChange={(e) =>
  setCell(
  u.id,
- dateIso,"cv_added",
+ dateIso, "cv_added",
  Math.max(0, Number(e.target.value || 0)),
  )
  }
@@ -314,7 +314,7 @@ export default function AdminLinkedInMetricsPage() {
  onChange={(e) =>
  setCell(
  u.id,
- dateIso,"messages_sent",
+ dateIso, "messages_sent",
  Math.max(0, Number(e.target.value || 0)),
  )
  }
@@ -328,7 +328,7 @@ export default function AdminLinkedInMetricsPage() {
  onChange={(e) =>
  setCell(
  u.id,
- dateIso,"responses_received",
+ dateIso, "responses_received",
  Math.max(0, Number(e.target.value || 0)),
  )
  }

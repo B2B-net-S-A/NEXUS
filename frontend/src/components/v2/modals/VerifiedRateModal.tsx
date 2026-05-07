@@ -36,9 +36,9 @@ interface Props {
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
- hourly:"PLN / h",
- daily:"PLN / dzień",
- monthly:"PLN / miesiąc",
+ hourly: "PLN / h",
+ daily: "PLN / dzień",
+ monthly: "PLN / miesiąc",
 };
 
 export function VerifiedRateModal({

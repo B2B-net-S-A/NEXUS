@@ -39,7 +39,7 @@ const MAX_POOL_CHIPS = 2;
 
 function matchBadgeVariant(
  topScore: number
-):"success" |"soft" |"neutral" |"outline" {
+): "success" |"soft" |"neutral" |"outline" {
  if (topScore >= 75) return"success";
  if (topScore >= 50) return"soft";
  return"neutral";
@@ -90,14 +90,14 @@ export function CandidatesTiles({
  return (
  <div
  ref={parentRef}
- style={{ height:"calc(100vh - 340px)", minHeight: 360 }}
+ style={{ height: "calc(100vh - 340px)", minHeight: 360 }}
  className="overflow-auto p-3"
  >
  <div
  style={{
  height: `${virtualizer.getTotalSize()}px`,
- position:"relative",
- width:"100%",
+ position: "relative",
+ width: "100%",
  }}
  >
  {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -106,13 +106,13 @@ export function CandidatesTiles({
  <div
  key={virtualRow.index}
  style={{
- position:"absolute",
+ position: "absolute",
  top: 0,
  left: 0,
- width:"100%",
+ width: "100%",
  height: `${virtualRow.size}px`,
  transform: `translateY(${virtualRow.start}px)`,
- display:"grid",
+ display: "grid",
  gridTemplateColumns: `repeat(${lanes}, minmax(0, 1fr))`,
  gap: `${TILE_GAP}px`,
  paddingBottom: `${TILE_GAP}px`,

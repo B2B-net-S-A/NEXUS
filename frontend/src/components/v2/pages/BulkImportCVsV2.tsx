@@ -66,28 +66,28 @@ function StatusBadge({ status }: { status: Status }) {
  { label: string; className: string; icon: React.ReactNode }
  > = {
  pending: {
- label:"W kolejce",
- className:"bg-[hsl(var(--border))]/40 text-muted-foreground",
+ label: "W kolejce",
+ className: "bg-[hsl(var(--border))]/40 text-muted-foreground",
  icon: null,
  },
  parsing: {
- label:"Parsowanie…",
- className:"bg-primary/10 text-primary",
+ label: "Parsowanie…",
+ className: "bg-primary/10 text-primary",
  icon: <Loader2 className="h-3 w-3 animate-spin" />,
  },
  success: {
- label:"Dodano",
- className:"bg-emerald-50 text-emerald-700 border border-emerald-200",
+ label: "Dodano",
+ className: "bg-emerald-50 text-emerald-700 border border-emerald-200",
  icon: <CheckCircle2 className="h-3 w-3" />,
  },
  duplicate: {
- label:"Duplikat",
- className:"bg-amber-50 text-amber-800 border border-amber-200",
+ label: "Duplikat",
+ className: "bg-amber-50 text-amber-800 border border-amber-200",
  icon: <UserCheck className="h-3 w-3" />,
  },
  error: {
- label:"Błąd",
- className:"bg-destructive/10 text-destructive border border-destructive/20",
+ label: "Błąd",
+ className: "bg-destructive/10 text-destructive border border-destructive/20",
  icon: <XCircle className="h-3 w-3" />,
  },
  };
@@ -135,7 +135,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  (v) => typeof v ==="number" && v < LOW_CONFIDENCE
  ).length;
  return {
- status:"success",
+ status: "success",
  candidateId: r.data.candidate.id,
  candidateName: `${r.data.candidate.name} ${r.data.candidate.lastname}`,
  lowConfidenceCount: low,
@@ -147,7 +147,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  if (detail && typeof detail ==="object" &&"existing_candidate_id" in detail) {
  const top = detail.matches?.[0];
  return {
- status:"duplicate",
+ status: "duplicate",
  duplicateOfId: detail.existing_candidate_id,
  duplicateOfName: top
  ? `${top.name ??""} ${top.lastname ??""}`.trim()
@@ -159,7 +159,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  typeof axiosErr.response?.data?.detail ==="string"
  ? axiosErr.response.data.detail
  : axiosErr.message ||"Nie udało się przetworzyć pliku.";
- return { status:"error", error: msg };
+ return { status: "error", error: msg };
  }
 }
 
@@ -176,7 +176,7 @@ export function BulkImportCVsV2() {
  const next = allowed.map<Row>((f) => ({
  id: newId(),
  file: f,
- status:"pending",
+ status: "pending",
  }));
  setRows((prev) => [...prev, ...next]);
  if (rejected > 0) {
@@ -186,7 +186,7 @@ export function BulkImportCVsV2() {
  {
  id: newId(),
  file: new File([], `(pominięto ${rejected} plików o nieobsługiwanym formacie)`),
- status:"error",
+ status: "error",
  error: `Dozwolone: ${ALLOWED_EXT.join(",")}`,
  },
  ]);
@@ -210,7 +210,7 @@ export function BulkImportCVsV2() {
  // activity across all slots, not just the first.
  setRows((prev) =>
  prev.map((r) =>
- batchIds.includes(r.id) ? { ...r, status:"parsing" } : r
+ batchIds.includes(r.id) ? { ...r, status: "parsing" } : r
  )
  );
 

@@ -36,8 +36,8 @@ interface FormState {
  end_date: string;
  rate_candidate: string;
  rate_client: string;
- contract_type:"b2b" |"uop" |"uzlecenie";
- work_mode:"remote" |"hybrid" |"onsite";
+ contract_type: "b2b" |"uop" |"uzlecenie";
+ work_mode: "remote" |"hybrid" |"onsite";
 }
 
 function toFormState(c: ContractorListItem): FormState {

@@ -57,7 +57,7 @@ interface ShareResponse {
  };
  screening_answers: {
  answers: AnswerItem[];
- overall_fit:"fit" |"uncertain" |"miss";
+ overall_fit: "fit" |"uncertain" |"miss";
  notes: string;
  } | null;
  expires_at: string | null;
@@ -68,21 +68,21 @@ const FIT_META: Record<
  { label: string; chipBg: string; chipText: string; icon: React.ReactNode }
 > = {
  fit: {
- label:"Pasuje",
- chipBg:"bg-[#1d5e31]/20 border border-[#1d5e31]/40",
- chipText:"text-[#7fcf8e]",
+ label: "Pasuje",
+ chipBg: "bg-[#1d5e31]/20 border border-[#1d5e31]/40",
+ chipText: "text-[#7fcf8e]",
  icon: <CheckCircle2 className="h-3.5 w-3.5" />,
  },
  uncertain: {
- label:"Niepewnie",
- chipBg:"bg-amber-500/15 border border-amber-500/40",
- chipText:"text-amber-300",
+ label: "Niepewnie",
+ chipBg: "bg-amber-500/15 border border-amber-500/40",
+ chipText: "text-amber-300",
  icon: <AlertCircle className="h-3.5 w-3.5" />,
  },
  miss: {
- label:"Nie pasuje",
- chipBg:"bg-primary/20 border border-primary/40",
- chipText:"text-[#d48b95]",
+ label: "Nie pasuje",
+ chipBg: "bg-primary/20 border border-primary/40",
+ chipText: "text-[#d48b95]",
  icon: <XCircle className="h-3.5 w-3.5" />,
  },
 };
@@ -90,7 +90,7 @@ const FIT_META: Record<
 async function fetchShare(token: string): Promise<ShareResponse | null> {
  const url = `${apiBase()}/api/public/champion-card/${token}`;
  try {
- const res = await fetch(url, { cache:"no-store" });
+ const res = await fetch(url, { cache: "no-store" });
  if (!res.ok) {
  console.error("[share] upstream", res.status, url);
  return null;
@@ -122,7 +122,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  <div
  className="pointer-events-none fixed inset-0"
  style={{
- background:"radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--primary))/15, transparent 70%)",
+ background: "radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--primary))/15, transparent 70%)",
  }}
  aria-hidden="true"
  />
@@ -145,9 +145,9 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  <Calendar className="h-3 w-3" />
  Ważne do{""}
  {new Date(data.expires_at).toLocaleDateString("pl-PL", {
- day:"2-digit",
- month:"short",
- year:"numeric",
+ day: "2-digit",
+ month: "short",
+ year: "numeric",
  })}
  </div>
  )}

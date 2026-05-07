@@ -9,20 +9,20 @@ import {
  type QuestionRating,
 } from"@/lib/api";
 
-const TIER_LABELS: Record<SuggestionTier, { label: string; variant:"soft" |"info" |"warning" |"outline" |"success" }> = {
- pinned: { label:"Przypięte", variant:"success" },
- legacy_champion: { label:"Champion profile", variant:"soft" },
- tier_1_same_cc: { label:"Z podobnego projektu (ta sama CC)", variant:"info" },
- tier_2_secondary_cc: { label:"Z podobnego projektu (secondary CC)", variant:"info" },
- tier_3_client_knowledge: { label:"Baza wiedzy o kliencie", variant:"soft" },
- tier_4_auto_generated: { label:"Auto-wygenerowane", variant:"outline" },
+const TIER_LABELS: Record<SuggestionTier, { label: string; variant: "soft" |"info" |"warning" |"outline" |"success" }> = {
+ pinned: { label: "Przypięte", variant: "success" },
+ legacy_champion: { label: "Champion profile", variant: "soft" },
+ tier_1_same_cc: { label: "Z podobnego projektu (ta sama CC)", variant: "info" },
+ tier_2_secondary_cc: { label: "Z podobnego projektu (secondary CC)", variant: "info" },
+ tier_3_client_knowledge: { label: "Baza wiedzy o kliencie", variant: "soft" },
+ tier_4_auto_generated: { label: "Auto-wygenerowane", variant: "outline" },
 };
 
 const TYPE_LABELS: Record<string, string> = {
- technical:"Techniczne",
- behavioral:"Behawioralne",
- motivation:"Motywacja",
- experience:"Doświadczenie",
+ technical: "Techniczne",
+ behavioral: "Behawioralne",
+ motivation: "Motywacja",
+ experience: "Doświadczenie",
 };
 
 interface QuestionCardProps {

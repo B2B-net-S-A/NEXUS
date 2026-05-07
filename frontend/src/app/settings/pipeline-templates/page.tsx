@@ -92,7 +92,7 @@ export default function PipelineTemplatesPage() {
   }, [selectedId, loadDetail]);
 
   const handleCreate = async () => {
-    const name = prompt("Nazwa nowego procesu rekrutacyjnego:");
+    const name = prompt("Nazwa nowego procesu rekrutacyjnego: ");
     if (!name?.trim()) return;
     try {
       const res = await pipelineTemplatesApi.create({ name: name.trim() });
@@ -154,10 +154,10 @@ export default function PipelineTemplatesPage() {
 
   const handleAddStage = async () => {
     if (!detail) return;
-    const name = prompt("Nazwa nowego etapu:");
+    const name = prompt("Nazwa nowego etapu: ");
     if (!name?.trim()) return;
     const category =
-      (prompt("Kategoria (internal / external / terminal):", "internal") ?? "").trim() as
+      (prompt("Kategoria (internal / external / terminal): ", "internal") ?? "").trim() as
         | "internal"
         | "external"
         | "terminal";
@@ -202,7 +202,7 @@ export default function PipelineTemplatesPage() {
 
   const handleRenameStage = async (stage: StageDef) => {
     if (!detail) return;
-    const name = prompt("Nowa nazwa etapu:", stage.name);
+    const name = prompt("Nowa nazwa etapu: ", stage.name);
     if (!name?.trim() || name === stage.name) return;
     try {
       await pipelineTemplatesApi.updateStage(detail.id, stage.id, { name: name.trim() });
@@ -240,9 +240,9 @@ export default function PipelineTemplatesPage() {
 
   const handleAddReason = async () => {
     if (!detail) return;
-    const name = prompt("Powód (np. Za wysokie oczekiwania):");
+    const name = prompt("Powód (np. Za wysokie oczekiwania): ");
     if (!name?.trim()) return;
-    const cat = (prompt("Kategoria (rejected / withdrawn):", "rejected") ?? "").trim() as
+    const cat = (prompt("Kategoria (rejected / withdrawn): ", "rejected") ?? "").trim() as
       | "rejected"
       | "withdrawn";
     if (!["rejected", "withdrawn"].includes(cat)) {

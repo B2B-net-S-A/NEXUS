@@ -219,7 +219,7 @@ function RateBenchmarksAdmin() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm("Usunąć wpis?")) deleteMut.mutate(row.id);
+                        if (confirm("Usunąć wpis ? ")) deleteMut.mutate(row.id);
                       }}
                       className="text-destructive hover:underline"
                     >

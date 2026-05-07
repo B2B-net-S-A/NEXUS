@@ -32,35 +32,35 @@ interface RiskBadgeProps {
  className?: string;
 }
 
-const LEVEL_COPY: Record<RiskLevel, { label: string; variant:"success" |"warning" |"danger" }> = {
- low: { label:"Niskie ryzyko", variant:"success" },
- medium: { label:"Średnie ryzyko", variant:"warning" },
- high: { label:"Wysokie ryzyko", variant:"danger" },
+const LEVEL_COPY: Record<RiskLevel, { label: string; variant: "success" |"warning" |"danger" }> = {
+ low: { label: "Niskie ryzyko", variant: "success" },
+ medium: { label: "Średnie ryzyko", variant: "warning" },
+ high: { label: "Wysokie ryzyko", variant: "danger" },
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
- early:"Wycofania na początku procesu",
- interview:"Wycofania po interview",
- post_accept:"Wycofania po akceptacji oferty",
+ early: "Wycofania na początku procesu",
+ interview: "Wycofania po interview",
+ post_accept: "Wycofania po akceptacji oferty",
 };
 
 const REASON_LABEL: Record<string, string> = {
- accepted_other_offer:"Zaakceptował inną ofertę",
- counter_offer:"Counter-offer obecnego pracodawcy",
- personal_reasons:"Powody osobiste",
- lost_interest:"Stracił zainteresowanie",
- salary_mismatch:"Niedopasowanie wynagrodzenia",
- process_too_long:"Proces za długi",
- legacy_unknown:"Nieznany (legacy)",
+ accepted_other_offer: "Zaakceptował inną ofertę",
+ counter_offer: "Counter-offer obecnego pracodawcy",
+ personal_reasons: "Powody osobiste",
+ lost_interest: "Stracił zainteresowanie",
+ salary_mismatch: "Niedopasowanie wynagrodzenia",
+ process_too_long: "Proces za długi",
+ legacy_unknown: "Nieznany (legacy)",
 };
 
 function formatDate(iso: string): string {
  const d = new Date(iso);
  if (Number.isNaN(d.getTime())) return iso;
  return d.toLocaleDateString("pl-PL", {
- day:"2-digit",
- month:"2-digit",
- year:"numeric",
+ day: "2-digit",
+ month: "2-digit",
+ year: "numeric",
  });
 }
 

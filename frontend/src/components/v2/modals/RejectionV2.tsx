@@ -34,7 +34,7 @@ export type CandidateOfferResponse ="pending" |"accepted" |"declined";
 interface Props {
  open: boolean;
  onOpenChange: (open: boolean) => void;
- terminalType:"rejected" |"withdrawn";
+ terminalType: "rejected" |"withdrawn";
  reasons: RejectionReason[];
  // Stage the candidate is coming FROM. Drives the default state of the
  //"send email" checkbox: pre-checked for external (= client-visible)
@@ -55,8 +55,8 @@ interface Props {
 }
 
 const TYPE_LABEL: Record<string, string> = {
- rejected:"Odrzuć kandydata",
- withdrawn:"Kandydat wycofany",
+ rejected: "Odrzuć kandydata",
+ withdrawn: "Kandydat wycofany",
 };
 
 export function RejectionV2({
@@ -152,9 +152,9 @@ export function RejectionV2({
  >
  {(
  [
- { v:"declined", label:"Wycofał się PO akceptacji oferty" },
- { v:"accepted", label:"Zaakceptował, potem się wycofał z innego powodu" },
- { v:"pending", label:"Jeszcze nie odpowiedział na ofertę" },
+ { v: "declined", label: "Wycofał się PO akceptacji oferty" },
+ { v: "accepted", label: "Zaakceptował, potem się wycofał z innego powodu" },
+ { v: "pending", label: "Jeszcze nie odpowiedział na ofertę" },
  ] as const
  ).map(({ v, label }) => (
  <label

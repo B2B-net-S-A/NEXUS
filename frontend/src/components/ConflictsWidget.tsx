@@ -44,7 +44,7 @@ export function ConflictsWidget({ candidateId }: Props) {
       setRows(cRes.data);
       setClients(clRes.data);
     } catch (e) {
-      console.error("conflicts load failed:", e);
+      console.error("conflicts load failed: ", e);
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export function ConflictsWidget({ candidateId }: Props) {
   };
 
   const handleDeactivate = async (id: number) => {
-    if (!confirm("Zdezaktywować konflikt?")) return;
+    if (!confirm("Zdezaktywować konflikt ? ")) return;
     try {
       await phase5Api.conflicts.deactivate(id);
       await load();

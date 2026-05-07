@@ -6,13 +6,13 @@ import { cn } from"@/lib/utils";
 type Density ="cozy" |"compact";
 
 const densityRowClass: Record<Density, string> = {
- cozy:"h-12",
- compact:"h-9",
+ cozy: "h-12",
+ compact: "h-9",
 };
 
 const densityCellClass: Record<Density, string> = {
- cozy:"px-4 py-2",
- compact:"px-3 py-1.5",
+ cozy: "px-4 py-2",
+ compact: "px-3 py-1.5",
 };
 
 const densityContext = React.createContext<Density>("cozy");

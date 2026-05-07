@@ -97,15 +97,15 @@ interface KanbanBoardV2Props {
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
- internal:"bg-primary",
- external:"bg-card",
- terminal:"bg-[hsl(var(--muted-foreground))]",
+ internal: "bg-primary",
+ external: "bg-card",
+ terminal: "bg-[hsl(var(--muted-foreground))]",
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
- internal:"Wewnętrzny",
- external:"Zewnętrzny",
- terminal:"Terminalny",
+ internal: "Wewnętrzny",
+ external: "Zewnętrzny",
+ terminal: "Terminalny",
 };
 
 const EXTERNAL_STAGES_FOR_SCREENING = new Set(["cv_sent","client_interview","acceptance","negotiation","onboarding",
@@ -123,7 +123,7 @@ interface CardProps {
  selected: boolean;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density:"cozy" |"compact";
+ density: "cozy" |"compact";
  canScreen: boolean;
  isApprover: boolean;
  onAcceptVerification?: (item: KanbanItem) => void;
@@ -292,7 +292,7 @@ interface ColProps {
  selectedIds: Set<number>;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
- density:"cozy" |"compact";
+ density: "cozy" |"compact";
  isApprover: boolean;
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
@@ -412,7 +412,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  item: KanbanItem;
  destCol: KanbanColumn;
  srcColId: string;
- terminalType:"rejected" |"withdrawn";
+ terminalType: "rejected" |"withdrawn";
  } | null>(null);
  // Pending verification flow (migracja 0056)
  const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
@@ -526,7 +526,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  if (scheduledId) {
  showActionToast("Email odrzucenia zostanie wysłany za 15 minut.",
  {
- actionLabel:"Cofnij wysyłkę",
+ actionLabel: "Cofnij wysyłkę",
  onAction: async () => {
  try {
  await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
@@ -612,7 +612,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const res = await pipelineApi.move({
  candidate_id: item.candidate_id,
  job_id: jobId,
- stage:"verified",
+ stage: "verified",
  stage_def_id: destCol.stage_def_id ?? undefined,
  expected_rate_value: payload.rate,
  expected_rate_unit: payload.unit,
@@ -668,7 +668,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  prev.map((c) => ({
  ...c,
  items: c.items.map((i) =>
- i.id === item.id ? { ...i, verification_status:"active" } : i
+ i.id === item.id ? { ...i, verification_status: "active" } : i
  ),
  }))
  );
@@ -768,10 +768,10 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  <div className="inline-flex gap-1 bg-card rounded-lg p-1 border border-border">
  {(
  [
- { v:"all" as const, label:"Wszystkie" },
- { v:"internal" as const, label:"Wewnętrzne" },
- { v:"external" as const, label:"Zewnętrzne" },
- { v:"terminal" as const, label:"Zakończone" },
+ { v: "all" as const, label: "Wszystkie" },
+ { v: "internal" as const, label: "Wewnętrzne" },
+ { v: "external" as const, label: "Zewnętrzne" },
+ { v: "terminal" as const, label: "Zakończone" },
  ]
  ).map((t) => (
  <button
@@ -886,7 +886,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  isApprover={isApprover}
  onAcceptVerification={handleAcceptVerification}
  onRejectVerification={(item) =>
- setPendingRejectVerification({ item, note:"" })
+ setPendingRejectVerification({ item, note: "" })
  }
  />
  ))

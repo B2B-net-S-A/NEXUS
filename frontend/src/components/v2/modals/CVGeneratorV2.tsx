@@ -57,8 +57,8 @@ export function CVGeneratorV2({
 
  const generateMut = useMutation({
  mutationFn: (data: {
- template:"standard" |"blind";
- language:"pl" |"en";
+ template: "standard" |"blind";
+ language: "pl" |"en";
  job_id?: number;
  }) => cvGeneratorApi.generateCV(candidateId, data),
  onSuccess: (res) => {
@@ -89,11 +89,11 @@ export function CVGeneratorV2({
 
  const handleDownload = () => {
  if (!previewHtml) return;
- const blob = new Blob([previewHtml], { type:"text/html;charset=utf-8" });
+ const blob = new Blob([previewHtml], { type: "text/html;charset=utf-8" });
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
  a.href = url;
- a.download = `CV_${candidateName.replace(/ /g,"_")}_${template}.html`;
+ a.download = `CV_${candidateName.replace(/ /g, "_")}_${template}.html`;
  a.click();
  URL.revokeObjectURL(url);
  };

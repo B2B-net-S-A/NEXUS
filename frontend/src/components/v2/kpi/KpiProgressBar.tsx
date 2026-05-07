@@ -17,19 +17,19 @@ interface Props {
 }
 
 const STATE_BAR_CLASS: Record<KpiState, string> = {
- hit:"bg-emerald-500",
- ahead:"bg-emerald-500",
- on_track:"bg-primary",
- behind:"bg-amber-500",
- missed:"bg-neutral-400",
+ hit: "bg-emerald-500",
+ ahead: "bg-emerald-500",
+ on_track: "bg-primary",
+ behind: "bg-amber-500",
+ missed: "bg-neutral-400",
 };
 
 const STATE_TEXT_CLASS: Record<KpiState, string> = {
- hit:"text-emerald-700",
- ahead:"text-emerald-700",
- on_track:"text-primary",
- behind:"text-amber-700",
- missed:"text-neutral-500",
+ hit: "text-emerald-700",
+ ahead: "text-emerald-700",
+ on_track: "text-primary",
+ behind: "text-amber-700",
+ missed: "text-neutral-500",
 };
 
 /**

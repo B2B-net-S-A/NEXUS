@@ -114,28 +114,28 @@ interface LinkedInMySummary {
 
 const KPI_COLORS = {
  blue: {
- bg:"bg-sky-50 border-sky-200",
- icon:"bg-sky-100 text-sky-700",
- title:"text-sky-900",
- value:"text-sky-950",
+ bg: "bg-sky-50 border-sky-200",
+ icon: "bg-sky-100 text-sky-700",
+ title: "text-sky-900",
+ value: "text-sky-950",
  },
  purple: {
- bg:"bg-purple-50 border-purple-200",
- icon:"bg-purple-100 text-purple-700",
- title:"text-purple-900",
- value:"text-purple-950",
+ bg: "bg-purple-50 border-purple-200",
+ icon: "bg-purple-100 text-purple-700",
+ title: "text-purple-900",
+ value: "text-purple-950",
  },
  amber: {
- bg:"bg-amber-50 border-amber-200",
- icon:"bg-amber-100 text-amber-700",
- title:"text-amber-900",
- value:"text-amber-950",
+ bg: "bg-amber-50 border-amber-200",
+ icon: "bg-amber-100 text-amber-700",
+ title: "text-amber-900",
+ value: "text-amber-950",
  },
  emerald: {
- bg:"bg-emerald-50 border-emerald-200",
- icon:"bg-emerald-100 text-emerald-700",
- title:"text-emerald-900",
- value:"text-emerald-950",
+ bg: "bg-emerald-50 border-emerald-200",
+ icon: "bg-emerald-100 text-emerald-700",
+ title: "text-emerald-900",
+ value: "text-emerald-950",
  },
 } as const
 

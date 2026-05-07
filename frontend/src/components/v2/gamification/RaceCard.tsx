@@ -18,7 +18,7 @@ interface RaceCardProps {
  title: string
  period: string
  daysRemaining: number
- variant:"blue" |"green"
+ variant: "blue" |"green"
  prize: { amount_pln: number; name: string }
  requirements: string[]
  ranking: RaceEntry[]
@@ -28,25 +28,25 @@ interface RaceCardProps {
 
 const VARIANT = {
  blue: {
- headerBg:"from-indigo-500 via-blue-600 to-indigo-700",
- accent:"text-primary",
- badge:"bg-primary/15 text-primary",
+ headerBg: "from-indigo-500 via-blue-600 to-indigo-700",
+ accent: "text-primary",
+ badge: "bg-primary/15 text-primary",
  rankBg: {
- 1:"bg-amber-400 text-amber-950",
- 2:"bg-slate-300 text-slate-900",
- 3:"bg-orange-400 text-orange-950",
- other:"bg-primary/20 text-primary",
+ 1: "bg-amber-400 text-amber-950",
+ 2: "bg-slate-300 text-slate-900",
+ 3: "bg-orange-400 text-orange-950",
+ other: "bg-primary/20 text-primary",
  },
  },
  green: {
- headerBg:"from-emerald-500 via-teal-600 to-emerald-700",
- accent:"text-emerald-200",
- badge:"bg-emerald-100 text-emerald-900",
+ headerBg: "from-emerald-500 via-teal-600 to-emerald-700",
+ accent: "text-emerald-200",
+ badge: "bg-emerald-100 text-emerald-900",
  rankBg: {
- 1:"bg-amber-400 text-amber-950",
- 2:"bg-slate-300 text-slate-900",
- 3:"bg-orange-400 text-orange-950",
- other:"bg-emerald-200 text-emerald-900",
+ 1: "bg-amber-400 text-amber-950",
+ 2: "bg-slate-300 text-slate-900",
+ 3: "bg-orange-400 text-orange-950",
+ other: "bg-emerald-200 text-emerald-900",
  },
  },
 } as const

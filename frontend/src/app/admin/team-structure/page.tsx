@@ -66,14 +66,14 @@ function SourcerCategorySection({
  users: UserBrief[]
 }) {
  const invalidate = useInvalidate()
- const [form, setForm] = useState({ user_id:"", category_id:"", priority:"1" })
+ const [form, setForm] = useState({ user_id: "", category_id: "", priority: "1" })
 
  const assign = useMutation({
  mutationFn: (body: { user_id: number; competence_category_id: number; priority: number }) =>
  api.post("/api/team-structure/sourcer-categories", body).then((r) => r.data),
  onSuccess: () => {
  invalidate()
- setForm({ user_id:"", category_id:"", priority:"1" })
+ setForm({ user_id: "", category_id: "", priority: "1" })
  },
  })
 
@@ -218,15 +218,15 @@ function TacDlSection({
  categories: Category[]
 }) {
  const invalidate = useInvalidate()
- const [form, setForm] = useState({ tac_user_id:"", delivery_lead_user_id:"" })
- const [farmForm, setFarmForm] = useState({ tac_user_id:"", category_id:"" })
+ const [form, setForm] = useState({ tac_user_id: "", delivery_lead_user_id: "" })
+ const [farmForm, setFarmForm] = useState({ tac_user_id: "", category_id: "" })
 
  const assign = useMutation({
  mutationFn: (body: { tac_user_id: number; delivery_lead_user_id: number }) =>
  api.post("/api/team-structure/tac-delivery-leads", body).then((r) => r.data),
  onSuccess: () => {
  invalidate()
- setForm({ tac_user_id:"", delivery_lead_user_id:"" })
+ setForm({ tac_user_id: "", delivery_lead_user_id: "" })
  },
  })
 
@@ -241,7 +241,7 @@ function TacDlSection({
  api.post("/api/team-structure/tac-linkedin-farming", body).then((r) => r.data),
  onSuccess: () => {
  invalidate()
- setFarmForm({ tac_user_id:"", category_id:"" })
+ setFarmForm({ tac_user_id: "", category_id: "" })
  },
  })
 
@@ -450,8 +450,8 @@ function DlClientsSection({
 }) {
  const invalidate = useInvalidate()
  const [form, setForm] = useState({
- delivery_lead_user_id:"",
- client_id:"",
+ delivery_lead_user_id: "",
+ client_id: "",
  is_head: false,
  })
 
@@ -463,7 +463,7 @@ function DlClientsSection({
  }) => api.post("/api/team-structure/dl-clients", body).then((r) => r.data),
  onSuccess: () => {
  invalidate()
- setForm({ delivery_lead_user_id:"", client_id:"", is_head: false })
+ setForm({ delivery_lead_user_id: "", client_id: "", is_head: false })
  },
  })
 

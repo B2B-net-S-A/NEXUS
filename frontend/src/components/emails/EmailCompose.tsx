@@ -36,7 +36,7 @@ export default function EmailCompose(props: EmailComposeProps) {
   );
   const [subject, setSubject] = useState(
     isReply
-      ? props.replyTo.subject?.toLowerCase().startsWith("re:")
+      ? props.replyTo.subject?.toLowerCase().startsWith("re: ")
         ? (props.replyTo.subject ?? "")
         : `Re: ${props.replyTo.subject ?? ""}`
       : `Kontakt — ${candidateName}`,

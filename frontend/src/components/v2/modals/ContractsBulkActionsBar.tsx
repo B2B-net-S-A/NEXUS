@@ -134,7 +134,7 @@ export function ContractsBulkActionsBarV2({
  <ConfirmV2
  open={confirmEnd}
  onOpenChange={setConfirmEnd}
- title="Oznaczyć jako zakończone?"
+ title="Oznaczyć jako zakończone ? "
  description={`Zmieni status ${selectedIds.size} kontraktów na"ended". Operację można cofnąć ręcznie.`}
  confirmLabel="Zakończ"
  variant="destructive"

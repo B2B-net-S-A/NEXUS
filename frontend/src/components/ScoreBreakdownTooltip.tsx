@@ -53,7 +53,7 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
         aria-label="Pokaż rozbicie punktów"
       >
         <Info className="w-3.5 h-3.5" />
-        {!compact && "dlaczego?"}
+        {!compact && "dlaczego ? "}
       </button>
       {open && (
         <div

@@ -316,7 +316,7 @@ function TypographySection() {
  </p>
  <h1
  className="font-[var(--font-poppins)] font-extrabold text-foreground"
- style={{ fontSize:"clamp(2.88rem, 4.49vw, 7.58rem)", lineHeight: 1.02, letterSpacing:"-0.025em" }}
+ style={{ fontSize: "clamp(2.88rem, 4.49vw, 7.58rem)", lineHeight: 1.02, letterSpacing: "-0.025em" }}
  >
  Define tomorrow.
  </h1>
@@ -657,10 +657,10 @@ function TabsSection() {
 function TableSection() {
  type BadgeVariant ="neutral" |"plum" |"burgundy" |"soft" |"success" |"warning" |"danger" |"info" |"outline";
  const rows: { id: number; name: string; role: string; stage: string; status: BadgeVariant; match: number }[] = [
- { id: 1, name:"Anna Kowalska", role:"Senior React Dev", stage:"Screening", status:"soft", match: 94 },
- { id: 2, name:"Marcin Nowak", role:"DevOps Lead", stage:"CV wysłane", status:"plum", match: 87 },
- { id: 3, name:"Katarzyna Piekarska", role:"Product Designer", stage:"Interview", status:"burgundy", match: 81 },
- { id: 4, name:"Olaf Zielski", role:"Data Engineer", stage:"Negotiation", status:"success", match: 78 },
+ { id: 1, name: "Anna Kowalska", role: "Senior React Dev", stage: "Screening", status: "soft", match: 94 },
+ { id: 2, name: "Marcin Nowak", role: "DevOps Lead", stage: "CV wysłane", status: "plum", match: 87 },
+ { id: 3, name: "Katarzyna Piekarska", role: "Product Designer", stage: "Interview", status: "burgundy", match: 81 },
+ { id: 4, name: "Olaf Zielski", role: "Data Engineer", stage: "Negotiation", status: "success", match: 78 },
  ];
  return (
  <Section num={10} title="Table — cozy + compact">
@@ -842,7 +842,7 @@ function DialogSheetSection() {
  </SheetHeader>
  <SheetBody>
  <div className="space-y-4">
- <FormField label="Dlaczego ten projekt?" htmlFor="scr-1">
+ <FormField label="Dlaczego ten projekt ? " htmlFor="scr-1">
  <Textarea id="scr-1" rows={3} placeholder="Odpowiedź kandydata…" />
  </FormField>
  <FormField label="Oczekiwania finansowe" htmlFor="scr-2">

@@ -20,7 +20,7 @@ import type { CandidateRiskProfile } from"@/types/candidate-risk";
 
 function scoreVariant(
  score: number
-):"success" |"soft" |"warning" |"neutral" {
+): "success" |"soft" |"warning" |"neutral" {
  if (score >= 75) return"success";
  if (score >= 60) return"soft";
  if (score >= 40) return"warning";

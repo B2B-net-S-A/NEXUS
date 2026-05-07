@@ -30,17 +30,17 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName ="SheetOverlay";
 
 const sheetSideClasses: Record<"right" |"left" |"top" |"bottom", string> = {
- right:"inset-y-0 right-0 h-full w-full sm:max-w-xl border-l data-[state=open]:animate-slide-in-right",
- left:"inset-y-0 left-0 h-full w-full sm:max-w-xl border-r data-[state=open]:animate-slide-in-right",
- top:"inset-x-0 top-0 h-auto max-h-[85vh] border-b data-[state=open]:animate-fadeIn",
- bottom:"inset-x-0 bottom-0 h-auto max-h-[85vh] border-t data-[state=open]:animate-slide-in-bottom",
+ right: "inset-y-0 right-0 h-full w-full sm:max-w-xl border-l data-[state=open]:animate-slide-in-right",
+ left: "inset-y-0 left-0 h-full w-full sm:max-w-xl border-r data-[state=open]:animate-slide-in-right",
+ top: "inset-x-0 top-0 h-auto max-h-[85vh] border-b data-[state=open]:animate-fadeIn",
+ bottom: "inset-x-0 bottom-0 h-auto max-h-[85vh] border-t data-[state=open]:animate-slide-in-bottom",
 };
 
 const sheetWidths: Record<string, string> = {
- sm:"sm:max-w-md",
- md:"sm:max-w-xl",
- lg:"sm:max-w-2xl",
- xl:"sm:max-w-3xl","2xl":"sm:max-w-5xl",
+ sm: "sm:max-w-md",
+ md: "sm:max-w-xl",
+ lg: "sm:max-w-2xl",
+ xl: "sm:max-w-3xl","2xl":"sm:max-w-5xl",
 };
 
 interface SheetContentProps

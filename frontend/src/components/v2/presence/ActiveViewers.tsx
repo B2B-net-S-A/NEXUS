@@ -74,7 +74,7 @@ function ViewerAvatar({
  <Avatar
  size={small ?"xs" :"sm"}
  className={cn("border-2 border-[hsl(var(--bg-default))]",
- ring,"cursor-default",
+ ring, "cursor-default",
  )}
  >
  <AvatarFallback

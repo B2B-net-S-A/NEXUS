@@ -22,7 +22,7 @@ export function MatchHistoryWidget({ jobId, candidateId }: Props) {
         const r = await matchHistoryApi.list(jobId, candidateId, 10);
         if (!cancel) setRows(r.data);
       } catch (e) {
-        console.error("match history load failed:", e);
+        console.error("match history load failed: ", e);
       } finally {
         if (!cancel) setLoading(false);
       }

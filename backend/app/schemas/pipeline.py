@@ -67,6 +67,9 @@ class CandidateStageResponse(BaseModel):
     rating: Optional[int]
     created_at: datetime
     days_in_stage: Optional[int] = None
+    # Candidate name/lastname — populated by Kanban endpoint to render card titles.
+    name: Optional[str] = None
+    lastname: Optional[str] = None
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None

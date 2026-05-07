@@ -69,7 +69,7 @@ function parsePoolName(name: string): ParsedPoolName {
  if (name.endsWith(" — Inne")) {
  const maybeSeniority = name.replace(" — Inne","") as SeniorityLabel;
  if ((SENIORITY_LABELS as readonly string[]).includes(maybeSeniority)) {
- return { subcategory:"Inne", seniority: maybeSeniority };
+ return { subcategory: "Inne", seniority: maybeSeniority };
  }
  }
 
@@ -91,24 +91,24 @@ function parsePoolName(name: string): ParsedPoolName {
 function getPoolTypeBadge(name: string): { label: string; color: string } {
  const n = name.toLowerCase();
  if (n.includes("senior") || n.includes("lead") || n.includes("principal")) {
- return { label:"Senior", color:"bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" };
+ return { label: "Senior", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" };
  }
  if (n.includes("junior") || n.includes("mid")) {
- return { label:"Junior/Mid", color:"bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary" };
+ return { label: "Junior/Mid", color: "bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary" };
  }
  if (n.includes("devops") || n.includes("cloud") || n.includes("infra")) {
- return { label:"DevOps/Cloud", color:"bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" };
+ return { label: "DevOps/Cloud", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" };
  }
  if (n.includes("qa") || n.includes("test")) {
- return { label:"QA/Test", color:"bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" };
+ return { label: "QA/Test", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" };
  }
  if (n.includes("pm") || n.includes("project") || n.includes("manager")) {
- return { label:"PM", color:"bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" };
+ return { label: "PM", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" };
  }
  if (n.includes("data") || n.includes("ml") || n.includes("ai")) {
- return { label:"Data/AI", color:"bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" };
+ return { label: "Data/AI", color: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" };
  }
- return { label:"Technologia", color:"bg-muted text-muted-foreground dark:bg-muted dark:text-muted-foreground" };
+ return { label: "Technologia", color: "bg-muted text-muted-foreground dark:bg-muted dark:text-muted-foreground" };
 }
 
 function formatRelativeDate(iso: string): string {
@@ -118,7 +118,7 @@ function formatRelativeDate(iso: string): string {
  if (days === 1) return"wczoraj";
  if (days < 7) return `${days} dni temu`;
  if (days < 30) return `${Math.floor(days / 7)} tyg. temu`;
- return new Date(iso).toLocaleDateString("pl-PL", { day:"numeric", month:"short" });
+ return new Date(iso).toLocaleDateString("pl-PL", { day: "numeric", month: "short" });
 }
 
 interface CandidateInPool {
@@ -489,7 +489,7 @@ function TalentsPageContent() {
  const oa = pa.seniority ? SENIORITY_ORDER[pa.seniority] : 99;
  const ob = pb.seniority ? SENIORITY_ORDER[pb.seniority] : 99;
  if (oa !== ob) return oa - ob;
- return a.name.localeCompare(b.name,"pl");
+ return a.name.localeCompare(b.name, "pl");
  });
  groups.set(key, sorted);
  }
@@ -498,7 +498,7 @@ function TalentsPageContent() {
  const entries = Array.from(groups.entries()).sort(([a], [b]) => {
  if (a ==="Inne") return 1;
  if (b ==="Inne") return -1;
- return a.localeCompare(b,"pl");
+ return a.localeCompare(b, "pl");
  });
  return entries;
  }, [filteredPools]);

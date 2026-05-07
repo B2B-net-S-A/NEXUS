@@ -34,7 +34,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  mutationFn: (name: string) =>
  savedSearchesApi.create({
  name,
- entity:"candidates",
+ entity: "candidates",
  filters: { qs: currentQs },
  }),
  onSuccess: () => {

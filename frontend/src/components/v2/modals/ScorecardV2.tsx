@@ -72,7 +72,7 @@ export function ScorecardV2({
  defaultValues: {
  answers: {},
  overall_rating: 0,
- notes:"",
+ notes: "",
  },
  });
 
@@ -85,7 +85,7 @@ export function ScorecardV2({
  else if (q.type ==="checkbox") defaults[q.id] = false;
  else defaults[q.id] ="";
  }
- methods.reset({ answers: defaults, overall_rating: 0, notes:"" });
+ methods.reset({ answers: defaults, overall_rating: 0, notes: "" });
  }, [schema.questions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
  const submitMut = useMutation({

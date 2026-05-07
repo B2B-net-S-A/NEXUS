@@ -63,7 +63,7 @@ export default function PipelineAnalyticsPage() {
         setTotalPlacements(tData.total_placements || 0);
         setSla(sData.alerts || []);
       } catch (e) {
-        console.error("analytics load failed:", e);
+        console.error("analytics load failed: ", e);
       } finally {
         setLoading(false);
       }

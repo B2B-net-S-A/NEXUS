@@ -31,21 +31,21 @@ import {
 
 const SENIORITY_OPTIONS: { value: InterviewQuestionSeniority; label: string }[] =
  [
- { value:"junior", label:"Junior" },
- { value:"mid", label:"Mid" },
- { value:"senior", label:"Senior" },
- { value:"lead", label:"Lead" },
- { value:"architect", label:"Architect" },
+ { value: "junior", label: "Junior" },
+ { value: "mid", label: "Mid" },
+ { value: "senior", label: "Senior" },
+ { value: "lead", label: "Lead" },
+ { value: "architect", label: "Architect" },
  ];
 
 const TYPE_OPTIONS: {
  value: InterviewQuestionTypeLiteral;
  label: string;
 }[] = [
- { value:"technical", label:"Techniczne" },
- { value:"behavioral", label:"Behawioralne" },
- { value:"motivation", label:"Motywacja" },
- { value:"experience", label:"Doświadczenie" },
+ { value: "technical", label: "Techniczne" },
+ { value: "behavioral", label: "Behawioralne" },
+ { value: "motivation", label: "Motywacja" },
+ { value: "experience", label: "Doświadczenie" },
 ];
 
 interface QuestionBankTabProps {
@@ -90,7 +90,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  }
  };
 
- const handleMove = async (questionId: number, direction:"up" |"down") => {
+ const handleMove = async (questionId: number, direction: "up" |"down") => {
  const idx = pinned.findIndex((p) => p.question.id === questionId);
  if (idx === -1) return;
  const swap = direction ==="up" ? idx - 1 : idx + 1;
@@ -166,7 +166,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  <button
  type="button"
  aria-label="Przesuń w górę"
- onClick={() => handleMove(link.question.id,"up")}
+ onClick={() => handleMove(link.question.id, "up")}
  disabled={idx === 0}
  className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border))] disabled:opacity-40"
  >
@@ -175,7 +175,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  <button
  type="button"
  aria-label="Przesuń w dół"
- onClick={() => handleMove(link.question.id,"down")}
+ onClick={() => handleMove(link.question.id, "down")}
  disabled={idx === pinned.length - 1}
  className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border))] disabled:opacity-40"
  >
@@ -336,7 +336,7 @@ function CreateQuestionDialog({
  id="q-text"
  value={text}
  onChange={(e) => setText(e.target.value)}
- placeholder="np. Jak zaimplementowałbyś idempotentny endpoint?"
+ placeholder="np. Jak zaimplementowałbyś idempotentny endpoint ? "
  rows={3}
  />
  </div>
