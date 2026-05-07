@@ -80,6 +80,25 @@ _ENUM_STATEMENTS = [
     # tej wartości w INSERT, więc brak w enum => InvalidTextRepresentationError
     # i crash-loop feature'a dla DL-i.
     "ALTER TYPE champion_suggestion_source ADD VALUE IF NOT EXISTS 'historical_jobs'",
+    # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
+    # notificationtype + dedykowany enum signaturestatus. Bez tego safety-netu
+    # POST /api/autenti/contracts/{id}/send wywala się na insercie Notification
+    # (notification_type='signature_sent') gdy alembic upgrade nie wszedł na
+    # prod (np. multi-head w dev gałęziach 0036).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_sent'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_signed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_rejected'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_failed'",
+    # signaturestatus enum (CREATE TYPE wymaga DO $$ bo PG nie ma IF NOT EXISTS).
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'signaturestatus') THEN
+            CREATE TYPE signaturestatus AS ENUM (
+                'draft', 'sending', 'sent', 'in_progress',
+                'completed', 'rejected', 'withdrawn', 'failed', 'expired'
+            );
+        END IF;
+    END $$""",
     # Phase 15 / Phase D (migration 0055_job_train_name): train_name column
     # na jobs + partial index. Safety-net: /api/jobs create/update oraz
     # /champion-profile/historical-matches czytają/piszą tę kolumnę; brak
@@ -668,6 +687,54 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NULL",
     "CREATE INDEX IF NOT EXISTS ix_users_last_seen_at ON users (last_seen_at)",
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS email_sent_at TIMESTAMPTZ NULL",
+    # Autenti e-signature (migracja 0079_autenti_signatures): document_signatures
+    # + document_signature_events. Idempotent CREATE TABLE z all FK + indexes.
+    # Bez tego prod safety-net (DEBUG=false → brak Base.metadata.create_all)
+    # nie utworzy tabel jeśli alembic upgrade pada na multi-head.
+    """CREATE TABLE IF NOT EXISTS document_signatures (
+        id SERIAL PRIMARY KEY,
+        contract_id INTEGER NOT NULL
+            REFERENCES contracts(id) ON DELETE CASCADE,
+        contract_document_id INTEGER NOT NULL
+            REFERENCES contract_documents(id) ON DELETE RESTRICT,
+        autenti_process_id VARCHAR(64) UNIQUE,
+        autenti_signature_type VARCHAR(16) NOT NULL DEFAULT 'SES',
+        status signaturestatus NOT NULL DEFAULT 'draft',
+        sent_at TIMESTAMPTZ NULL,
+        completed_at TIMESTAMPTZ NULL,
+        expires_at TIMESTAMPTZ NULL,
+        sender_user_id INTEGER NOT NULL REFERENCES users(id),
+        signer_email VARCHAR(255) NOT NULL,
+        signer_first_name VARCHAR(120) NOT NULL,
+        signer_last_name VARCHAR(120) NOT NULL,
+        signer_phone VARCHAR(30) NULL,
+        signed_document_id INTEGER NULL
+            REFERENCES contract_documents(id) ON DELETE SET NULL,
+        signed_document_url VARCHAR(1000) NULL,
+        last_error TEXT NULL,
+        retry_count SMALLINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_contract ON document_signatures(contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_status ON document_signatures(status)",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_autenti_process "
+    "ON document_signatures(autenti_process_id) WHERE autenti_process_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS document_signature_events (
+        id SERIAL PRIMARY KEY,
+        signature_id INTEGER NOT NULL
+            REFERENCES document_signatures(id) ON DELETE CASCADE,
+        event_id VARCHAR(128) NOT NULL,
+        event_type VARCHAR(64) NOT NULL,
+        status VARCHAR(32) NULL,
+        payload JSONB NOT NULL,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMPTZ NULL
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_doc_sig_event_unique "
+    "ON document_signature_events(event_id)",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_event_signature "
+    "ON document_signature_events(signature_id)",
 ]
 
 _DATA_STATEMENTS = [

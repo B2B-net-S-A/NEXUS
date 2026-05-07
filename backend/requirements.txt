@@ -32,3 +32,7 @@ cryptography==44.0.0
 bleach==6.2.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.10.1
+# Autenti e-signature integration — server-side HTML→PDF for contract drafts
+# before upload. python-jose already pinned above (used by JWT auth + webhook
+# JWKS verification).
+weasyprint==63.0
