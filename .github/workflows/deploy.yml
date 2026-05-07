@@ -72,10 +72,13 @@ jobs:
     name: Smoke test /api/health
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Wait for Coolify build + restart
-        run: sleep 90
+        # Bumped from 90s → 180s. Pierwszy build z WeasyPrint apt deps na
+        # ARM CAX21 może trwać 4-6 min (libpango+cairo+gdk-pixbuf+fonts).
+        # Subsequent builds są szybsze przez Docker layer cache.
+        run: sleep 180
 
       - name: Healthcheck (standard shape + version match)
         env:
@@ -86,7 +89,10 @@ jobs:
             exit 1
           fi
           EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          for i in $(seq 1 12); do
+          # 24 attempts × 15s = 6 min total polling window. Combined with
+          # the 180s pre-sleep this gives Coolify up to 9 min to finish
+          # build+restart on ARM with new heavy native deps.
+          for i in $(seq 1 24); do
             response=$(curl -fsSL "$APP_URL/api/health" 2>/dev/null || echo '')
             if [ -n "$response" ]; then
               status=$(echo "$response" | jq -r '.status // "missing"')
@@ -106,5 +112,5 @@ jobs:
             fi
             sleep 15
           done
-          echo "::error::Smoke test failed after 12 attempts (3 min)"
+          echo "::error::Smoke test failed after 24 attempts (6 min)"
           exit 1
