@@ -118,7 +118,7 @@ export function QuestionCard({
  className={`px-2 py-1 rounded text-sm transition-colors ${
  rated ==="up"
  ?"bg-green-100 text-green-700"
- :"hover:bg-[hsl(var(--border-subtle))] text-muted-foreground"
+ :"hover:bg-[hsl(var(--border))] text-muted-foreground"
  } disabled:opacity-50 disabled:cursor-not-allowed`}
  >
  👍
@@ -131,7 +131,7 @@ export function QuestionCard({
  className={`px-2 py-1 rounded text-sm transition-colors ${
  rated ==="down"
  ?"bg-destructive/15 text-destructive"
- :"hover:bg-[hsl(var(--border-subtle))] text-muted-foreground"
+ :"hover:bg-[hsl(var(--border))] text-muted-foreground"
  } disabled:opacity-50 disabled:cursor-not-allowed`}
  >
  👎
@@ -159,7 +159,7 @@ export function QuestionCard({
  {question.skill_tags.map((tag) => (
  <span
  key={tag}
- className="text-xs text-muted-foreground px-1.5 py-0.5 bg-[hsl(var(--border-subtle))] rounded-sm"
+ className="text-xs text-muted-foreground px-1.5 py-0.5 bg-[hsl(var(--border))] rounded-sm"
  >
  #{tag}
  </span>

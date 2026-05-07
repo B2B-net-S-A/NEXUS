@@ -66,7 +66,7 @@ export function PowerCallingSection({
  </div>
 
  {/* List */}
- <div className="divide-y divide-[hsl(var(--border-subtle))]">
+ <div className="divide-y divide-border">
  {entries.length === 0 && (
  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
  Brak aktywności w tym tygodniu.
@@ -114,7 +114,7 @@ export function PowerCallingSection({
  )}
  </div>
  <div className="mt-1 flex items-center gap-2">
- <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border-subtle))] overflow-hidden max-w-xs">
+ <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border))] overflow-hidden max-w-xs">
  <div
  className={cn("h-full rounded-full transition-all",
  e.meets_target

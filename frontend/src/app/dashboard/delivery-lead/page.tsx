@@ -261,7 +261,7 @@ function DlRanking({
  <Header col="fill_rate" label="Fill Rate" />
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {sorted.map((r, idx) => {
  const isMe = highlightUserId === r.user_id
  return (
@@ -346,22 +346,22 @@ function TeamHistoryChart({
  data={trend}
  margin={{ top: 10, right: 20, bottom: 0, left: -10 }}
  >
- <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border-subtle))" />
+ <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
  <XAxis
  dataKey="month_label"
  tick={{ fontSize: 11 }}
- stroke="hsl(var(--text-muted))"
+ stroke="hsl(var(--muted-foreground))"
  />
  <YAxis
  yAxisId="left"
  tick={{ fontSize: 11 }}
- stroke="hsl(var(--text-muted))"
+ stroke="hsl(var(--muted-foreground))"
  />
  <YAxis
  yAxisId="right"
  orientation="right"
  tick={{ fontSize: 11 }}
- stroke="hsl(var(--text-muted))"
+ stroke="hsl(var(--muted-foreground))"
  />
  <Tooltip />
  <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -674,7 +674,7 @@ export default function DeliveryLeadDashboard() {
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {(dlClients ?? []).map((row) => {
  const initials = row.delivery_lead.name
  .split("")

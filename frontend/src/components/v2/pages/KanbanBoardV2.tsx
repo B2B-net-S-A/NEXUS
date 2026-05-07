@@ -99,7 +99,7 @@ interface KanbanBoardV2Props {
 const CATEGORY_COLOR: Record<string, string> = {
  internal:"bg-primary",
  external:"bg-card",
- terminal:"bg-[hsl(var(--text-muted))]",
+ terminal:"bg-[hsl(var(--muted-foreground))]",
 };
 
 const CATEGORY_LABEL: Record<string, string> = {

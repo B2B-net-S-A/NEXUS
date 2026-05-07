@@ -577,7 +577,7 @@ export default function RecruiterDashboard() {
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {(report?.per_recruiter ?? []).map((r, idx) => {
  const isMe = r.user_id === user.id
  return (

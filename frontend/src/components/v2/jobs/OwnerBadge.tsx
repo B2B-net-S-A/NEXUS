@@ -44,7 +44,7 @@ export function OwnerBadge({
  className={cn("inline-flex items-center rounded-full font-medium",
  isAssigned
  ?"bg-primary/10 text-primary"
- :"bg-[hsl(var(--border-subtle))] text-muted-foreground",
+ :"bg-[hsl(var(--border))] text-muted-foreground",
  dims,
  className
  )}
@@ -54,7 +54,7 @@ export function OwnerBadge({
  className={cn("inline-flex items-center justify-center rounded-full font-semibold",
  isAssigned
  ?"bg-primary text-white"
- :"bg-[hsl(var(--text-muted))] text-white/90",
+ :"bg-[hsl(var(--muted-foreground))] text-white/90",
  avatarSize
  )}
  aria-hidden

@@ -246,7 +246,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  className="rounded-lg border border-border bg-background/40 p-4"
  >
  <div className="flex items-start gap-2 mb-2">
- <span className="text-[10px] px-1.5 py-0.5 rounded-v2-xs font-mono bg-primary/20 text-primary mt-0.5 shrink-0">
+ <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono bg-primary/20 text-primary mt-0.5 shrink-0">
  Q{i + 1}
  </span>
  <p className="text-sm font-semibold text-foreground flex-1">
@@ -264,7 +264,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  <span className="italic opacity-50">brak odpowiedzi</span>
  )}
  {a?.deal_breaker_hit && (
- <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-v2-xs bg-primary/20 text-[#d48b95] border border-primary/40">
+ <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-md bg-primary/20 text-[#d48b95] border border-primary/40">
  deal-breaker
  </span>
  )}

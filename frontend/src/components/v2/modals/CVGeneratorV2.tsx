@@ -250,7 +250,7 @@ export function CVGeneratorV2({
  </aside>
 
  {/* Right — preview */}
- <div className="overflow-hidden bg-[hsl(var(--border-subtle))]/20">
+ <div className="overflow-hidden bg-[hsl(var(--border))]/20">
  {previewHtml ? (
  <iframe
  srcDoc={previewHtml}

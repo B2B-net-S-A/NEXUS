@@ -235,7 +235,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  </span>
  </div>
  )}
- <dl className="divide-y divide-[hsl(var(--border-subtle))]">
+ <dl className="divide-y divide-border">
  <ConfidenceRow
  label={FIELD_LABELS.first_name}
  value={c.name}

@@ -60,26 +60,10 @@
     --ring: 263 70% 50%;
     --radius: 0.5rem;
 
-    /* Legacy V2 aliases — kept until all V2 components migrate to shadcn tokens.
-       Removed once `bg-[hsl(var(--bg-canvas))]` / `--bg-chrome` / `--text-title` etc.
-       are gone from the codebase (Fazes 1-7). */
-    --bg-canvas: var(--background);
-    --bg-surface: var(--card);
-    --bg-chrome: var(--card);
-    --text-title: var(--foreground);
-    --text-body: var(--foreground);
-    --text-muted: var(--muted-foreground);
-    --text-onchrome: var(--foreground);
-    --border-subtle: var(--border);
-    --border-strong: var(--border);
-    --accent-strong: var(--primary);
-    --accent-soft: var(--muted);
     --success: 142 71% 45%;
     --success-foreground: 0 0% 98%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 98%;
-    --danger: var(--destructive);
-    --danger-foreground: var(--destructive-foreground);
   }
 
   .dark {

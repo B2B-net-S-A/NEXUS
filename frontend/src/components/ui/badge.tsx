@@ -8,7 +8,7 @@ const badgeVariants = cva(
  {
  variants: {
  variant: {
- neutral:"bg-[hsl(var(--border-subtle))] text-foreground",
+ neutral:"bg-[hsl(var(--border))] text-foreground",
  plum:"bg-card text-foreground",
  burgundy:"bg-primary text-primary-foreground",
  soft:"bg-primary/10 text-primary",
@@ -17,7 +17,7 @@ const badgeVariants = cva(
  danger:"bg-[#f4e0e3] text-[#6b1120]",
  info:"bg-[#e3dfe5] text-foreground",
  outline:"border border-border text-foreground",
- alert:"bg-primary text-white border border-[hsl(var(--accent-strong))] animate-pulse-subtle font-semibold","alert-dark":"bg-card text-white border border-[hsl(var(--card))] font-semibold",
+ alert:"bg-primary text-white border border-[hsl(var(--primary))] animate-pulse-subtle font-semibold","alert-dark":"bg-card text-white border border-[hsl(var(--card))] font-semibold",
  },
  size: {
  sm:"px-2 py-0 text-[10px] h-4",

@@ -1862,7 +1862,7 @@ function TimelineTab({ items }: { items: any[] }) {
  className={cn("h-3.5 w-3.5",
  n <= item.rating
  ?"text-amber-500 fill-amber-500"
- :"text-[hsl(var(--border-subtle))] fill-[hsl(var(--border-subtle))]"
+ :"text-[hsl(var(--border))] fill-[hsl(var(--border))]"
  )}
  />
  ))}
@@ -2142,7 +2142,7 @@ function ScreeningsTab({ screenings }: { screenings: any[] }) {
  className={cn("h-3 w-3",
  n <= s.overall_impression
  ?"text-amber-500 fill-amber-500"
- :"text-[hsl(var(--border-subtle))] fill-[hsl(var(--border-subtle))]"
+ :"text-[hsl(var(--border))] fill-[hsl(var(--border))]"
  )}
  />
  ))}

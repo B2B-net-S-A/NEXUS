@@ -111,7 +111,7 @@ export function ImportCandidatesV2({ open, onOpenChange, onImported }: Props) {
  {result.skipped ?? 0}
  </dd>
  </div>
- <div className="rounded-lg bg-[hsl(var(--border-subtle))]/40 p-3">
+ <div className="rounded-lg bg-[hsl(var(--border))]/40 p-3">
  <dt className="text-xs text-muted-foreground uppercase tracking-wider">
  Wierszy łącznie
  </dt>

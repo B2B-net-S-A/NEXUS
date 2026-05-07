@@ -16,8 +16,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
  ref={ref}
  type={type}
  aria-invalid={invalid || undefined}
- className={cn("w-full h-10 px-3 py-2 text-sm bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border-subtle))]/30 disabled:cursor-not-allowed disabled:text-muted-foreground",
- invalid &&"border-primary focus:border-[hsl(var(--accent-strong))]",
+ className={cn("w-full h-10 px-3 py-2 text-sm bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed disabled:text-muted-foreground",
+ invalid &&"border-primary focus:border-[hsl(var(--primary))]",
  leadingIcon &&"pl-9",
  trailingIcon &&"pr-9",
  className

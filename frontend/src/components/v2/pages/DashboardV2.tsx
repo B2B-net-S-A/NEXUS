@@ -163,7 +163,7 @@ function FunnelV2({ data }: { data?: any }) {
  <span className="w-20 text-xs font-medium text-foreground text-right shrink-0">
  {stage.label}
  </span>
- <div className="flex-1 h-5 rounded-full bg-[hsl(var(--border-subtle))]/60 overflow-hidden">
+ <div className="flex-1 h-5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden">
  <div
  className="h-full rounded-full bg-gradient-to-r from-[hsl(var(--primary))] to-[hsl(var(--card))] transition-all duration-500"
  style={{ width: `${pct}%` }}
@@ -224,7 +224,7 @@ function PerformersV2({ data }: { data?: any }) {
  <p className="text-sm font-medium text-foreground truncate">
  {rec.user_name}
  </p>
- <div className="mt-1 h-1.5 rounded-full bg-[hsl(var(--border-subtle))]/60 overflow-hidden">
+ <div className="mt-1 h-1.5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden">
  <div
  className="h-full rounded-full bg-primary transition-all duration-500"
  style={{ width: `${barW}%` }}
@@ -253,7 +253,7 @@ function RecentHiresV2({ data }: { data?: any[] }) {
  );
  }
  return (
- <div className="divide-y divide-[hsl(var(--border-subtle))]">
+ <div className="divide-y divide-border">
  {hires.map((hire: any, idx: number) => (
  <Link
  key={hire.id ?? idx}
@@ -349,7 +349,7 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
  {Object.entries(byClient).slice(0, 4).map(([client, count]) => (
  <div key={client} className="flex items-center gap-3 text-xs">
  <span className="flex-1 truncate text-foreground">{client}</span>
- <div className="w-24 rounded-full bg-[hsl(var(--border-subtle))]/60 h-1.5 overflow-hidden">
+ <div className="w-24 rounded-full bg-[hsl(var(--border))]/60 h-1.5 overflow-hidden">
  <div
  className="h-full rounded-full bg-primary"
  style={{ width: `${Math.min(100, ((count as number) / max) * 100)}%` }}
@@ -518,8 +518,8 @@ export function DashboardV2() {
  <>
  {Array.from({ length: 4 }).map((_, i) => (
  <Card key={i} className="animate-pulse">
- <div className="h-4 bg-[hsl(var(--border-subtle))] rounded w-24 mb-3" />
- <div className="h-8 bg-[hsl(var(--border-subtle))] rounded w-20" />
+ <div className="h-4 bg-[hsl(var(--border))] rounded w-24 mb-3" />
+ <div className="h-8 bg-[hsl(var(--border))] rounded w-20" />
  </Card>
  ))}
  </>

@@ -98,7 +98,7 @@ export function RaceCard({
  </div>
 
  {/* Prize + requirements */}
- <div className="divide-y divide-[hsl(var(--border-subtle))]">
+ <div className="divide-y divide-border">
  <div className="px-4 py-2.5 flex items-center gap-2 text-sm text-foreground">
  <Gift className="h-4 w-4 text-primary shrink-0" />
  <span className="font-medium">{prize.name}</span>
@@ -115,7 +115,7 @@ export function RaceCard({
  </div>
 
  {/* Ranking */}
- <div className="divide-y divide-[hsl(var(--border-subtle))]">
+ <div className="divide-y divide-border">
  {ranking.length === 0 && (
  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
  Brak zakwalifikowanych osób w tym miesiącu.
