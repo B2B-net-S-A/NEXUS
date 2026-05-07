@@ -165,7 +165,11 @@ async def list_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
-    query = select(Contract)
+    query = select(Contract).options(
+        selectinload(Contract.candidate),
+        selectinload(Contract.client),
+        selectinload(Contract.job),
+    )
     if status:
         query = query.where(Contract.status.in_(status))
     if client_id:
@@ -200,9 +204,27 @@ async def list_contracts(
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
-    return ContractList(
-        items=list(result.scalars().all()), total=total, page=page, page_size=page_size
-    )
+    contracts = list(result.scalars().all())
+    items = [
+        ContractResponse.model_validate(
+            {
+                **{
+                    k: getattr(c, k, None)
+                    for k in ContractResponse.model_fields.keys()
+                    if k not in ("candidate_name", "client_name", "job_title")
+                },
+                "candidate_name": (
+                    f"{c.candidate.name} {c.candidate.lastname}".strip()
+                    if c.candidate
+                    else None
+                ),
+                "client_name": c.client.name if c.client else None,
+                "job_title": c.job.title if c.job else None,
+            }
+        )
+        for c in contracts
+    ]
+    return ContractList(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)

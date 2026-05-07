@@ -100,6 +100,10 @@ class ContractResponse(BaseModel):
     draft_updated_by: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+    # Denormalized names — populated when relations are eager-loaded.
+    candidate_name: Optional[str] = None
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

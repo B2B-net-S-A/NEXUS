@@ -67,9 +67,10 @@ const STATUS_VARIANT: Record<
  draft: "soft",
 };
 
-function marginColor(margin: number | undefined) {
+function marginColor(margin: number | undefined, rateClient: number | undefined) {
  if (margin == null) return"text-muted-foreground";
- const pct = margin * 100;
+ if (rateClient == null || rateClient === 0) return"text-foreground";
+ const pct = (margin / rateClient) * 100;
  if (pct < 15) return"text-primary font-bold";
  if (pct < 25) return"text-amber-600 font-semibold";
  return"text-[#1d5e31] font-semibold";
@@ -338,8 +339,8 @@ export function ContractsListV2() {
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "—"}
  </TableCell>
- <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin))}>
- {c.margin != null ? `${(c.margin * 100).toFixed(1)}%` :"—"}
+ <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin, c.rate_client))}>
+ {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"—"}
  </TableCell>
  <TableCell>
  {c.status ? (
