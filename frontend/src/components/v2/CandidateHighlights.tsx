@@ -86,8 +86,8 @@ export function CandidateHighlights({
 }: Props) {
  const { status, availability_status, employment } = candidate;
  const employmentState = employment?.state ??"unknown";
- const isEmployedAtClient = employmentState ==="employed_at_client";
- const isBlacklisted = status ==="blacklisted";
+ const isEmployedAtClient = employmentState === "employed_at_client";
+ const isBlacklisted = status === "blacklisted";
 
  // LinkedIn job-change badge: show for changes detected within the last 90d.
  let linkedinJobChange: { label: string; variant: "warning" |"info" |"neutral" } | null = null;
@@ -112,7 +112,7 @@ export function CandidateHighlights({
  size="sm"
  uppercase
  title={
- employment?.source ==="conflict"
+ employment?.source === "conflict"
  ?"Oznaczone ręcznie jako zatrudniony u tego klienta"
  :"Aktywny kontrakt z naszym klientem"
  }
@@ -129,12 +129,12 @@ export function CandidateHighlights({
  )}
 
  {/* ── Tier 2: employment state (informational) ─────────────────── */}
- {employmentState ==="on_bench" && (
+ {employmentState === "on_bench" && (
  <Badge variant="success" size="sm">
  Bez projektu
  </Badge>
  )}
- {variant ==="full" && employmentState ==="external" && (
+ {variant === "full" && employmentState === "external" && (
  <Badge variant="soft" size="sm">
  Zewnętrzny
  </Badge>
@@ -173,18 +173,18 @@ export function CandidateHighlights({
  })()}
 
  {/* ── Tier 3: availability (postawa) ───────────────────────────── */}
- {availability_status ==="actively_looking" && (
+ {availability_status === "actively_looking" && (
  <Badge variant="success" size="sm">
  <Circle className="h-1.5 w-1.5 fill-current" />
  {isEmployedAtClient ?"Rozgląda się" :"Aktywnie szuka"}
  </Badge>
  )}
- {availability_status ==="open_to_offers" && (
+ {availability_status === "open_to_offers" && (
  <Badge variant="info" size="sm">
  {isEmployedAtClient ?"Otwarty na dodatkowe" :"Otwarty na projekty"}
  </Badge>
  )}
- {variant ==="full" && availability_status ==="not_looking" && (
+ {variant === "full" && availability_status === "not_looking" && (
  <Badge variant="neutral" size="sm">
  Nie szuka
  </Badge>
@@ -230,7 +230,7 @@ export function AtOurClientBanner({
  employment: EmploymentInfo;
  className?: string;
 }) {
- if (employment.state !=="employed_at_client") return null;
+ if (employment.state !== "employed_at_client") return null;
  const endText = employment.contract_end_date
  ? `Kontrakt do: ${employment.contract_end_date}`
  :"Ręcznie oznaczony jako zatrudniony u klienta";

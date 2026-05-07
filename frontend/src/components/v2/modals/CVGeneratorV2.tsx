@@ -115,7 +115,7 @@ export function CVGeneratorV2({
  Generator CV
  </h2>
  <p className="text-xs text-muted-foreground">
- {candidateName} · {template ==="blind" ?"Blind (anonimowe)" :"Standard"} ·{""}
+ {candidateName} · {template === "blind" ?"Blind (anonimowe)" :"Standard"} ·{""}
  {language.toUpperCase()}
  </p>
  </div>
@@ -147,7 +147,7 @@ export function CVGeneratorV2({
  <button
  onClick={() => setTemplate("standard")}
  className={cn("flex flex-col items-start gap-1 p-3 rounded-lg border text-sm transition-colors text-left",
- template ==="standard"
+ template === "standard"
  ?"border-primary bg-primary/10"
  :"border-border hover:border-primary/40"
  )}
@@ -161,7 +161,7 @@ export function CVGeneratorV2({
  <button
  onClick={() => setTemplate("blind")}
  className={cn("flex flex-col items-start gap-1 p-3 rounded-lg border text-sm transition-colors text-left",
- template ==="blind"
+ template === "blind"
  ?"border-primary bg-primary/10"
  :"border-border hover:border-primary/40"
  )}
@@ -202,7 +202,7 @@ export function CVGeneratorV2({
  </Label>
  <Select
  value={jobId ||"_none"}
- onValueChange={(v) => setJobId(v ==="_none" ?"" : v)}
+ onValueChange={(v) => setJobId(v === "_none" ?"" : v)}
  >
  <SelectTrigger id="cv-job">
  <SelectValue placeholder="Bez dopasowania" />

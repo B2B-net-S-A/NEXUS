@@ -75,7 +75,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  type="button"
  onClick={() => {
  const qs =
- typeof ss.filters.qs ==="string" ? ss.filters.qs :"";
+ typeof ss.filters.qs === "string" ? ss.filters.qs : "";
  onApply(qs, ss.id);
  setOpen(false);
  }}

@@ -163,9 +163,9 @@ const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = 
 ];
 
 function sourceIcon(source?: string) {
- if (source ==="linkedin")
+ if (source === "linkedin")
  return <Linkedin className="h-3.5 w-3.5" style={{ color: "#0A66C2" }} />;
- if (source ==="pracuj")
+ if (source === "pracuj")
  return (
  <span className="text-[10px] font-bold leading-none" style={{ color: "#FF6600" }}>
  P
@@ -240,7 +240,7 @@ export function CandidatesListV2() {
  api
  .put("/api/settings/candidates-columns", {
  columns: args.columns,
- role: args.role ==="_global" ? null : args.role,
+ role: args.role === "_global" ? null : args.role,
  })
  .then((r) => r.data),
  onSuccess: (_data, variables) => {
@@ -248,7 +248,7 @@ export function CandidatesListV2() {
  queryKey: ["settings","candidates-columns"],
  });
  const label =
- variables.role ==="_global"
+ variables.role === "_global"
  ?"dla wszystkich"
  : `dla roli: ${ROLE_LABELS[variables.role]}`;
  setToast?.(`Zapisano jako domyślne ${label}.`);
@@ -327,7 +327,7 @@ export function CandidatesListV2() {
  (searchParams.get("open_to") ??"")
  .split(",")
  .filter((v): v is OpenToValue =>
- v ==="side_projects" || v ==="sales_support" || v ==="expert_consult"
+ v === "side_projects" || v === "sales_support" || v === "expert_consult"
  )
  );
  // Traffit-style boolean buckets — pipe-separated in URL, serialized as repeating
@@ -348,7 +348,7 @@ export function CandidatesListV2() {
  const params = new URLSearchParams();
  if (search) params.set("q", search);
  if (statusFilter.length) params.set("status", statusFilter.join(","));
- if (sortBy && sortBy !=="newest") params.set("sort", sortBy);
+ if (sortBy && sortBy !== "newest") params.set("sort", sortBy);
  if (page > 1) params.set("page", String(page));
  if (remoteFilter.length) params.set("remote", remoteFilter.join(","));
  if (skillsFilter.length) params.set("skills", skillsFilter.join(","));
@@ -456,7 +456,7 @@ export function CandidatesListV2() {
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
  // Virtualization ---------------------------------------------
- const rowHeight = density ==="compact" ? 52 : 72;
+ const rowHeight = density === "compact" ? 52 : 72;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
@@ -511,7 +511,7 @@ export function CandidatesListV2() {
  if (added) parts.push(`dodano ${added}`);
  if (already_in_pool) parts.push(`już w puli: ${already_in_pool}`);
  if (not_found) parts.push(`brak: ${not_found}`);
- toastOnSuccess(parts.length ? parts.join(",") :"Brak zmian");
+ toastOnSuccess(parts.length ? parts.join(",") : "Brak zmian");
  queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
  queryClient.invalidateQueries({ queryKey: ["talent-pools"] });
  setShowBulkPool(false);
@@ -540,8 +540,7 @@ export function CandidatesListV2() {
  } catch (e) {
  toastOnSuccess(
  e instanceof BulkCvDownloadError
- ? e.message
- :"Pobieranie nie powiodło się."
+ ? e.message : "Pobieranie nie powiodło się."
  );
  } finally {
  setIsDownloadingZip(false);
@@ -558,7 +557,7 @@ export function CandidatesListV2() {
  }
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL ||"";
- const token = typeof window !=="undefined" ? localStorage.getItem("auth_token") : null;
+ const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
  const res = await fetch(`${apiBase}/api/candidates/export?${params}`, {
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });
@@ -1042,7 +1041,7 @@ export function CandidatesListV2() {
  :"bg-card text-foreground border-border hover:border-primary"
  )}
  >
- {v ==="remote" ?"Zdalnie" : v ==="hybrid" ?"Hybryda" :"Stacjonarnie"}
+ {v === "remote" ?"Zdalnie" : v === "hybrid" ?"Hybryda" :"Stacjonarnie"}
  </button>
  );
  })}
@@ -1070,7 +1069,7 @@ export function CandidatesListV2() {
  value={skillInput}
  onChange={(e) => setSkillInput(e.target.value)}
  onKeyDown={(e) => {
- if (e.key ==="Enter") {
+ if (e.key === "Enter") {
  e.preventDefault();
  addSkill(skillInput);
  }
@@ -1272,9 +1271,9 @@ export function CandidatesListV2() {
  <button
  onClick={() => setCandidatesView("list")}
  title="Widok tabeli"
- aria-pressed={candidatesView ==="list"}
+ aria-pressed={candidatesView === "list"}
  className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- candidatesView ==="list"
+ candidatesView === "list"
  ?"bg-primary text-white"
  :"text-muted-foreground hover:bg-primary/10"
  )}
@@ -1284,9 +1283,9 @@ export function CandidatesListV2() {
  <button
  onClick={() => setCandidatesView("tiles")}
  title="Widok kafelków"
- aria-pressed={candidatesView ==="tiles"}
+ aria-pressed={candidatesView === "tiles"}
  className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- candidatesView ==="tiles"
+ candidatesView === "tiles"
  ?"bg-primary text-white"
  :"text-muted-foreground hover:bg-primary/10"
  )}
@@ -1295,7 +1294,7 @@ export function CandidatesListV2() {
  </button>
  </div>
  <button
- onClick={() => setDensity(density ==="cozy" ?"compact" :"cozy")}
+ onClick={() => setDensity(density === "cozy" ?"compact" :"cozy")}
  title="Przełącz gęstość"
  className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground"
  >
@@ -1310,10 +1309,10 @@ export function CandidatesListV2() {
  {/* Data grid (virtualized) */}
  <div className="rounded-lg border border-border bg-card overflow-hidden">
  {/* Header row (list view only) */}
- {candidatesView ==="list" && (
+ {candidatesView === "list" && (
  <div
  className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground bg-background/60 border-b border-border",
- density ==="compact" ?"h-9" :"h-10","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]"
+ density === "compact" ?"h-9" :"h-10","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]"
  )}
  >
  <div className="flex items-center">
@@ -1339,7 +1338,7 @@ export function CandidatesListV2() {
  )}
 
  {/* Virtualized body — list or tiles */}
- {candidatesView ==="tiles" ? (
+ {candidatesView === "tiles" ? (
  items.length === 0 && !isLoading ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
@@ -1421,7 +1420,7 @@ export function CandidatesListV2() {
  height: `${virtualRow.size}px`,
  transform: `translateY(${virtualRow.start}px)`,
  }}
- className={cn("grid items-center gap-4 px-4 border-b border-border/50 transition-colors","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]","hover:bg-primary/10/40",
+ className={cn("grid items-center gap-4 px-4 border-b border-border/50 transition-colors","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]","hover:bg-primary/10",
  isSelected &&"bg-primary/10 hover:bg-primary/10"
  )}
  >
@@ -1445,7 +1444,7 @@ export function CandidatesListV2() {
  }}
  className="flex items-center gap-3 min-w-0 text-left"
  >
- <Avatar size={density ==="compact" ?"sm" :"md"}>
+ <Avatar size={density === "compact" ?"sm" :"md"}>
  <AvatarFallback>{initials}</AvatarFallback>
  </Avatar>
  <div className="min-w-0">
@@ -1484,7 +1483,7 @@ export function CandidatesListV2() {
  </div>
  <div className="min-w-0 leading-tight">
  <div className="text-xs text-muted-foreground truncate">
- {candidate.created_at ? formatRelativeTime(candidate.created_at) :"—"}
+ {candidate.created_at ? formatRelativeTime(candidate.created_at) : "—"}
  </div>
  {!hiddenColumns.has("added_by") && (
  <div
@@ -1497,8 +1496,7 @@ export function CandidatesListV2() {
  >
  Dodał:{""}
  {candidate.created_by_user
- ? candidate.created_by_user.name
- :"System"}
+ ? candidate.created_by_user.name : "System"}
  </div>
  )}
  </div>

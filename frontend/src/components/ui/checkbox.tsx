@@ -17,7 +17,7 @@ export const Checkbox = React.forwardRef<
  {...props}
  >
  <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
- {props.checked ==="indeterminate" ? (
+ {props.checked === "indeterminate" ? (
  <Minus className="h-3 w-3" />
  ) : (
  <Check className="h-3 w-3" />

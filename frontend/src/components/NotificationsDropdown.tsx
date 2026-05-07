@@ -311,7 +311,7 @@ export function NotificationsDropdown() {
                         onClick={() => handleNotificationClick(notif)}
                         className={cn(
                           "flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-muted dark:hover:bg-muted border-b border-gray-50 dark:border-border last:border-b-0",
-                          !notif.is_read && "bg-primary/10/40 dark:bg-primary/10"
+                          !notif.is_read && "bg-primary/10 dark:bg-primary/10"
                         )}
                       >
                         {/* Icon */}

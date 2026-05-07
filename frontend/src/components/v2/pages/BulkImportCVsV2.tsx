@@ -49,7 +49,7 @@ const LOW_CONFIDENCE = 0.7;
 
 function newId(): string {
  // crypto.randomUUID is available in all supported browsers/Node 18+.
- if (typeof crypto !=="undefined" &&"randomUUID" in crypto) {
+ if (typeof crypto !== "undefined" &&"randomUUID" in crypto) {
  return crypto.randomUUID();
  }
  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -132,7 +132,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  headers: {"Content-Type":"multipart/form-data" },
  });
  const low = Object.values(r.data.confidence || {}).filter(
- (v) => typeof v ==="number" && v < LOW_CONFIDENCE
+ (v) => typeof v === "number" && v < LOW_CONFIDENCE
  ).length;
  return {
  status: "success",
@@ -144,7 +144,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  const axiosErr = err as AxiosError<{ detail?: ConflictDetail | string }>;
  if (axiosErr.response?.status === 409) {
  const detail = axiosErr.response.data?.detail;
- if (detail && typeof detail ==="object" &&"existing_candidate_id" in detail) {
+ if (detail && typeof detail === "object" &&"existing_candidate_id" in detail) {
  const top = detail.matches?.[0];
  return {
  status: "duplicate",
@@ -156,7 +156,7 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  }
  }
  const msg =
- typeof axiosErr.response?.data?.detail ==="string"
+ typeof axiosErr.response?.data?.detail === "string"
  ? axiosErr.response.data.detail
  : axiosErr.message ||"Nie udało się przetworzyć pliku.";
  return { status: "error", error: msg };
@@ -201,7 +201,7 @@ export function BulkImportCVsV2() {
  // the next — this keeps DB + LLM pressure bounded and gives steady UI
  // updates.
  const queue = rows
- .filter((r) => r.status ==="pending")
+ .filter((r) => r.status === "pending")
  .map((r) => r.id);
  for (let i = 0; i < queue.length; i += CONCURRENCY) {
  const batchIds = queue.slice(i, i + CONCURRENCY);
@@ -252,9 +252,9 @@ export function BulkImportCVsV2() {
  let error = 0;
  let pending = 0;
  for (const r of rows) {
- if (r.status ==="success") success += 1;
- else if (r.status ==="duplicate") duplicate += 1;
- else if (r.status ==="error") error += 1;
+ if (r.status === "success") success += 1;
+ else if (r.status === "duplicate") duplicate += 1;
+ else if (r.status === "error") error += 1;
  else pending += 1;
  }
  return { success, duplicate, error, pending, total: rows.length };
@@ -297,7 +297,7 @@ export function BulkImportCVsV2() {
  role="button"
  tabIndex={0}
  onKeyDown={(e) => {
- if (e.key ==="Enter" || e.key ==="") fileInputRef.current?.click();
+ if (e.key === "Enter" || e.key === "") fileInputRef.current?.click();
  }}
  className={cn("cursor-pointer rounded-lg border-2 border-dashed p-10 text-center transition-colors",
  dragOver
@@ -407,7 +407,7 @@ export function BulkImportCVsV2() {
  <StatusBadge status={r.status} />
  </td>
  <td className="px-4 py-2">
- {r.status ==="success" && r.candidateId && (
+ {r.status === "success" && r.candidateId && (
  <Link
  href={`/candidates/${r.candidateId}`}
  className="text-primary hover:underline"
@@ -415,7 +415,7 @@ export function BulkImportCVsV2() {
  {r.candidateName}
  </Link>
  )}
- {r.status ==="duplicate" && r.duplicateOfId && (
+ {r.status === "duplicate" && r.duplicateOfId && (
  <Link
  href={`/candidates/${r.duplicateOfId}`}
  className="text-amber-700 hover:underline"
@@ -425,20 +425,20 @@ export function BulkImportCVsV2() {
  )}
  </td>
  <td className="px-4 py-2 text-muted-foreground">
- {r.status ==="success" &&
- typeof r.lowConfidenceCount ==="number" &&
+ {r.status === "success" &&
+ typeof r.lowConfidenceCount === "number" &&
  r.lowConfidenceCount > 0 ? (
  <span className="inline-flex items-center gap-1 text-amber-700">
  <AlertTriangle className="h-3 w-3" />
  {r.lowConfidenceCount} pól do weryfikacji
  </span>
  ) : null}
- {r.status ==="error" && r.error ? (
+ {r.status === "error" && r.error ? (
  <span className="text-destructive">{r.error}</span>
  ) : null}
  </td>
  <td className="px-4 py-2 text-right">
- {r.status ==="pending" && !running && (
+ {r.status === "pending" && !running && (
  <button
  type="button"
  onClick={() => removeRow(r.id)}

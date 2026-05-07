@@ -101,12 +101,12 @@ export function MyJobsWidget() {
  ) : null}
  </div>
  <div className="flex items-center gap-2 shrink-0">
- {job.priority && job.priority !=="medium" ? (
+ {job.priority && job.priority !== "medium" ? (
  <Badge size="sm" variant="plum">
  {job.priority}
  </Badge>
  ) : null}
- {typeof job.candidate_count ==="number" ? (
+ {typeof job.candidate_count === "number" ? (
  <span className="text-[10px] font-mono text-muted-foreground">
  {job.candidate_count}/{job.headcount ?? 1}
  </span>

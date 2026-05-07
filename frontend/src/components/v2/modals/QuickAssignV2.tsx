@@ -72,9 +72,8 @@ export function QuickAssignV2({
  } catch (e: unknown) {
  if (cancelled) return;
  const msg =
- e && typeof e ==="object" &&"response" in e
- ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??"Błąd")
- :"Błąd";
+ e && typeof e === "object" &&"response" in e
+ ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??"Błąd") : "Błąd";
  setError(msg);
  } finally {
  if (!cancelled) setLoading(false);
@@ -112,7 +111,7 @@ export function QuickAssignV2({
  </SheetHeader>
 
  <SheetBody>
- {risk?.level ==="high" && (
+ {risk?.level === "high" && (
  <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
  <div>

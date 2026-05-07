@@ -65,10 +65,10 @@ export function ChipsField({ name, placeholder, maxItems }: Props) {
  value={input}
  onChange={(e) => setInput(e.target.value)}
  onKeyDown={(e) => {
- if (e.key ==="Enter" || e.key ===",") {
+ if (e.key === "Enter" || e.key === ",") {
  e.preventDefault();
  add(input);
- } else if (e.key ==="Backspace" && !input && chips.length) {
+ } else if (e.key === "Backspace" && !input && chips.length) {
  remove(chips[chips.length - 1]);
  }
  }}
@@ -83,15 +83,15 @@ export function ChipsField({ name, placeholder, maxItems }: Props) {
 
 export function normalize(raw: unknown): string[] {
  if (!raw) return [];
- if (typeof raw ==="string") return raw ? [raw] : [];
+ if (typeof raw === "string") return raw ? [raw] : [];
  if (Array.isArray(raw)) {
  return raw
  .map((x) =>
- typeof x ==="string" ? x : (x as any)?.name ?? (x as any)?.skill ?? null
+ typeof x === "string" ? x : (x as any)?.name ?? (x as any)?.skill ?? null
  )
  .filter(Boolean) as string[];
  }
- if (typeof raw ==="object" && raw !== null) {
+ if (typeof raw === "object" && raw !== null) {
  const r = raw as any;
  if (Array.isArray(r.technologies)) return r.technologies;
  if (Array.isArray(r.skills)) return normalize(r.skills);

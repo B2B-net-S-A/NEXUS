@@ -13,7 +13,7 @@ interface Props {
 
 export function RatingField({ name, max = 5, size ="md" }: Props) {
  const { control } = useFormContext();
- const sizeClass = size ==="sm" ?"h-4 w-4" : size ==="lg" ?"h-7 w-7" :"h-5 w-5";
+ const sizeClass = size === "sm" ?"h-4 w-4" : size === "lg" ?"h-7 w-7" :"h-5 w-5";
 
  return (
  <Controller

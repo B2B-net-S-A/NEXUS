@@ -42,7 +42,7 @@ export function QuestionCard({
 }: QuestionCardProps) {
  const [rated, setRated] = useState<QuestionRating | null>(null);
  const [pinning, setPinning] = useState(false);
- const [pinned, setPinned] = useState(question.source_tier ==="pinned");
+ const [pinned, setPinned] = useState(question.source_tier === "pinned");
  const [error, setError] = useState<string | null>(null);
 
  const tierMeta = TIER_LABELS[question.source_tier];
@@ -62,7 +62,7 @@ export function QuestionCard({
  setPinned(true);
  onPin?.(question.question_id);
  } catch (err) {
- const message = err instanceof Error ? err.message :"Nie udało się przypiąć";
+ const message = err instanceof Error ? err.message : "Nie udało się przypiąć";
  setError(message);
  } finally {
  setPinning(false);
@@ -80,7 +80,7 @@ export function QuestionCard({
  setRated(rating);
  onRated?.();
  } catch (err) {
- const message = err instanceof Error ? err.message :"Nie udało się ocenić";
+ const message = err instanceof Error ? err.message : "Nie udało się ocenić";
  setError(message);
  }
  };
@@ -116,7 +116,7 @@ export function QuestionCard({
  onClick={() => handleRate("up")}
  disabled={rated !== null || !question.question_id}
  className={`px-2 py-1 rounded text-sm transition-colors ${
- rated ==="up"
+ rated === "up"
  ?"bg-green-100 text-green-700"
  :"hover:bg-[hsl(var(--border))] text-muted-foreground"
  } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -129,7 +129,7 @@ export function QuestionCard({
  onClick={() => handleRate("down")}
  disabled={rated !== null || !question.question_id}
  className={`px-2 py-1 rounded text-sm transition-colors ${
- rated ==="down"
+ rated === "down"
  ?"bg-destructive/15 text-destructive"
  :"hover:bg-[hsl(var(--border))] text-muted-foreground"
  } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -167,7 +167,7 @@ export function QuestionCard({
  </div>
  )}
 
- {question.source_tier !=="pinned" && question.question_id && (
+ {question.source_tier !== "pinned" && question.question_id && (
  <div className="mt-3 flex items-center gap-2 print:hidden">
  <Button
  variant="outline"

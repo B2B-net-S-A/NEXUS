@@ -81,8 +81,8 @@ export function ScorecardV2({
  if (!schema.questions.length) return;
  const defaults: Record<string, unknown> = {};
  for (const q of schema.questions) {
- if (q.type ==="rating") defaults[q.id] = 0;
- else if (q.type ==="checkbox") defaults[q.id] = false;
+ if (q.type === "rating") defaults[q.id] = 0;
+ else if (q.type === "checkbox") defaults[q.id] = false;
  else defaults[q.id] ="";
  }
  methods.reset({ answers: defaults, overall_rating: 0, notes: "" });

@@ -47,7 +47,7 @@ export function RecruiterPickerField({
  const error = name
  .split(".")
  .reduce<unknown>((acc, key) => {
- if (acc && typeof acc ==="object") {
+ if (acc && typeof acc === "object") {
  return (acc as Record<string, unknown>)[key];
  }
  return undefined;
@@ -70,9 +70,9 @@ export function RecruiterPickerField({
  control={control}
  render={({ field }) => (
  <Select
- value={field.value != null ? String(field.value) :"__none__"}
+ value={field.value != null ? String(field.value) : "__none__"}
  onValueChange={(v) => {
- if (v ==="__none__") {
+ if (v === "__none__") {
  field.onChange(allowEmpty ? null : undefined);
  } else {
  field.onChange(Number(v));

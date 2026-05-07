@@ -20,7 +20,7 @@ import type {
 interface RiskBadgeProps {
  profile: CandidateRiskProfile;
  /**
- * Hide entirely when level ==="low". Set this for list/table views to
+ * Hide entirely when level === "low". Set this for list/table views to
  * reduce visual noise — only flag medium/high candidates there.
  */
  hideLow?: boolean;
@@ -74,14 +74,14 @@ export function RiskBadge({
  highOnly = false,
  className,
 }: RiskBadgeProps) {
- if (highOnly && profile.level !=="high") return null;
- if (hideLow && profile.level ==="low") return null;
+ if (highOnly && profile.level !== "high") return null;
+ if (hideLow && profile.level === "low") return null;
 
  const { label, variant } = LEVEL_COPY[profile.level];
  const Icon =
- profile.level ==="high"
+ profile.level === "high"
  ? ShieldAlert
- : profile.level ==="medium"
+ : profile.level === "medium"
  ? AlertTriangle
  : ShieldCheck;
 

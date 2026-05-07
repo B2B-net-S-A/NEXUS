@@ -45,7 +45,7 @@ export function ConfirmV2({
  <DialogContent size="sm">
  <DialogHeader>
  <div className="flex items-center gap-2">
- {variant ==="destructive" && (
+ {variant === "destructive" && (
  <AlertTriangle className="h-4 w-4 text-primary" />
  )}
  <DialogTitle>{title}</DialogTitle>
@@ -64,7 +64,7 @@ export function ConfirmV2({
  {cancelLabel}
  </Button>
  <Button
- variant={variant ==="destructive" ?"destructive" :"primary"}
+ variant={variant === "destructive" ?"destructive" :"primary"}
  onClick={onConfirm}
  loading={loading}
  >

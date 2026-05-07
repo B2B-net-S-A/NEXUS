@@ -258,7 +258,7 @@ function RecentHiresV2({ data }: { data?: any[] }) {
  <Link
  key={hire.id ?? idx}
  href={hire.candidate_id ? `/candidates/${hire.candidate_id}` :"#"}
- className="group flex items-center gap-3 py-2.5 hover:bg-primary/10/60 transition-colors rounded-md -mx-2 px-2"
+ className="group flex items-center gap-3 py-2.5 hover:bg-primary/10 transition-colors rounded-md -mx-2 px-2"
  >
  <Avatar size="sm">
  <AvatarFallback>
@@ -276,8 +276,7 @@ function RecentHiresV2({ data }: { data?: any[] }) {
  </div>
  <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
  {hire.hired_at ?? hire.timestamp ?? hire.created_at
- ? formatRelativeTime(hire.hired_at ?? hire.timestamp ?? hire.created_at)
- :""}
+ ? formatRelativeTime(hire.hired_at ?? hire.timestamp ?? hire.created_at) : ""}
  </span>
  </Link>
  ))}
@@ -311,7 +310,7 @@ function UpcomingEventsV2({ events }: { events?: any[] }) {
  {e.title ?? e.subject ?? EVENT_LABEL[e.type] ??"Wydarzenie"}
  </p>
  <p className="text-xs text-muted-foreground">
- {when ? formatRelativeTime(when) :""}
+ {when ? formatRelativeTime(when) : ""}
  </p>
  </div>
  </div>
@@ -473,7 +472,7 @@ export function DashboardV2() {
  });
 
  const recentHires = (activity ?? []).filter(
- (a: any) => a.action ==="hired" || a.action_type ==="hired"
+ (a: any) => a.action === "hired" || a.action_type === "hired"
  );
 
  const ir = kpis?.infrareporter;

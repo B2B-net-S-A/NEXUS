@@ -85,7 +85,7 @@ export function AutoAssignedCollaborators({
     r.is_primary ? "burgundy" : r.priority === 1 ? "success" : "info";
 
   return (
-    <div className="space-y-2 rounded-lg border border-primary/15 dark:border-primary/40 bg-primary/10/40 dark:bg-primary/10 px-3 py-2">
+    <div className="space-y-2 rounded-lg border border-primary/15 dark:border-primary/40 bg-primary/10 dark:bg-primary/10 px-3 py-2">
       <div className="flex items-center gap-2 text-[11px] font-medium text-primary dark:text-primary">
         <Sparkles className="w-3.5 h-3.5" />
         AI auto-podpina zespół CC (możesz odznaczyć)

@@ -202,19 +202,19 @@ function DlRanking({
  data.sort((a, b) => {
  const va = a[sortBy] as number | string
  const vb = b[sortBy] as number | string
- if (typeof va ==="string" && typeof vb ==="string") {
- return sortDir ==="asc" ? va.localeCompare(vb) : vb.localeCompare(va)
+ if (typeof va === "string" && typeof vb === "string") {
+ return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va)
  }
  const na = Number(va) || 0
  const nb = Number(vb) || 0
- return sortDir ==="asc" ? na - nb : nb - na
+ return sortDir === "asc" ? na - nb : nb - na
  })
  return data
  }, [rows, sortBy, sortDir])
 
  function toggleSort(key: SortKey) {
  if (sortBy === key) {
- setSortDir(sortDir ==="asc" ?"desc" :"asc")
+ setSortDir(sortDir === "asc" ?"desc" :"asc")
  } else {
  setSortBy(key)
  setSortDir("desc")
@@ -229,7 +229,7 @@ function DlRanking({
  <span className="inline-flex items-center gap-1">
  {label}
  {sortBy === col &&
- (sortDir ==="asc" ? (
+ (sortDir === "asc" ? (
  <ChevronUp className="h-3 w-3" />
  ) : (
  <ChevronDown className="h-3 w-3" />
@@ -267,8 +267,8 @@ function DlRanking({
  return (
  <tr
  key={r.user_id}
- className={cn("hover:bg-primary/10/40",
- isMe &&"bg-primary/10/60",
+ className={cn("hover:bg-primary/10",
+ isMe &&"bg-primary/10",
  )}
  >
  <td className="px-3 py-2">
@@ -338,7 +338,7 @@ function TeamHistoryChart({
  trend: TrendPoint[]
  type: "line" |"bar"
 }) {
- const Chart = type ==="line" ? LineChart : BarChart
+ const Chart = type === "line" ? LineChart : BarChart
  return (
  <div className="h-80">
  <ResponsiveContainer width="100%" height="100%">
@@ -365,7 +365,7 @@ function TeamHistoryChart({
  />
  <Tooltip />
  <Legend wrapperStyle={{ fontSize: 12 }} />
- {type ==="line" ? (
+ {type === "line" ? (
  <>
  <Line
  yAxisId="left"
@@ -433,7 +433,7 @@ export default function DeliveryLeadDashboard() {
  const isAllowed =
  !!user &&
  ["delivery_lead","admin","head_of_recruitment"].includes(user.role)
- const isMeDl = user?.role ==="delivery_lead"
+ const isMeDl = user?.role === "delivery_lead"
 
  const [chartType, setChartType] = useState<"line" |"bar">("line")
 
@@ -450,7 +450,7 @@ export default function DeliveryLeadDashboard() {
  // Nexus nie ma (jeszcze) team-wide trendu; używamy trendu zalogowanego DL
  // jako proxy. Dla admina/HoR zwróci null (endpoint wymaga dl_id).
  queryFn: async () => {
- if (!user || user.role !=="delivery_lead") return null
+ if (!user || user.role !== "delivery_lead") return null
  const r = await api.get(
  `/api/reports/delivery-leads/${user.id}/trend?months=6`,
  )
@@ -602,14 +602,14 @@ export default function DeliveryLeadDashboard() {
  <CardTitle>Moja historia 6 miesięcy</CardTitle>
  <div className="ml-auto flex gap-1">
  <Button
- variant={chartType ==="line" ?"primary" :"outline"}
+ variant={chartType === "line" ?"primary" :"outline"}
  size="sm"
  onClick={() => setChartType("line")}
  >
  Liniowy
  </Button>
  <Button
- variant={chartType ==="bar" ?"primary" :"outline"}
+ variant={chartType === "bar" ?"primary" :"outline"}
  size="sm"
  onClick={() => setChartType("bar")}
  >

@@ -85,7 +85,7 @@ export default function EmailThreadList({
  <button
  onClick={() => setOpenConversation(t.conversation_id)}
  className={cn("w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-muted transition",
- t.unread_count > 0 &&"bg-primary/10/40",
+ t.unread_count > 0 &&"bg-primary/10",
  )}
  >
  <div className="w-9 h-9 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
@@ -111,8 +111,8 @@ export default function EmailThreadList({
  {t.latest.has_attachments && (
  <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
  )}
- {t.latest.match_method !=="strict" &&
- t.latest.match_method !=="manual" && (
+ {t.latest.match_method !== "strict" &&
+ t.latest.match_method !== "manual" && (
  <span
  className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded"
  title={`Dopasowanie: ${t.latest.match_method}`}

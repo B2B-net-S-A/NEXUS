@@ -222,7 +222,7 @@ function AddCollaboratorInner({
  Dodaj współpracownika
  </div>
  <Select
- value={selected != null ? String(selected) :""}
+ value={selected != null ? String(selected) : ""}
  onValueChange={(v) => setSelected(v ? Number(v) : null)}
  >
  <SelectTrigger>
@@ -273,7 +273,7 @@ function AddCollaboratorInner({
 }
 
 function extractDetail(err: unknown): string | null {
- if (err && typeof err ==="object" &&"response" in err) {
+ if (err && typeof err === "object" &&"response" in err) {
  const resp = (err as { response?: { data?: { detail?: string } } }).response;
  if (resp?.data?.detail) return resp.data.detail;
  }

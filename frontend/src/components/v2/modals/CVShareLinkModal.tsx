@@ -81,7 +81,7 @@ export function CVShareLinkModal({
  });
 
  const fullUrl = token
- ? `${typeof window !=="undefined" ? window.location.origin :""}${
+ ? `${typeof window !== "undefined" ? window.location.origin : ""}${
  token.share_url_suffix
  }`
  :"";

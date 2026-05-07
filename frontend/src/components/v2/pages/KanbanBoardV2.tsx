@@ -141,7 +141,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onAcceptVerification,
  onRejectVerification,
 }: CardProps) {
- const isPending = item.verification_status ==="pending";
+ const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  const initials = fullName
  .split(/\s+/)
@@ -162,7 +162,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
- density ==="compact" ?"p-2" :"p-3",
+ density === "compact" ?"p-2" :"p-3",
  isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
  )}
  title={
@@ -191,10 +191,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className="block"
  onClick={(e) => e.stopPropagation()}
  >
- <div className={cn("flex items-start gap-2", density ==="compact" ?"pl-5" :"pl-5")}>
+ <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density ==="compact" ?"h-6 w-6 text-[10px]" :"h-8 w-8 text-xs"
+ density === "compact" ?"h-6 w-6 text-[10px]" :"h-8 w-8 text-xs"
  )}
  >
  {initials}
@@ -202,7 +202,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className="min-w-0 flex-1">
  <div
  className={cn("font-medium text-foreground truncate",
- density ==="compact" ?"text-xs" :"text-sm"
+ density === "compact" ?"text-xs" :"text-sm"
  )}
  >
  {fullName}
@@ -220,9 +220,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {daysBadge && (
  <span
  className={cn("inline-flex items-center gap-0.5",
- daysBadge ==="danger"
+ daysBadge === "danger"
  ?"text-primary"
- : daysBadge ==="warning"
+ : daysBadge === "warning"
  ?"text-amber-600"
  :""
  )}
@@ -236,7 +236,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  </Link>
 
- {canScreen && density !=="compact" && !isPending && (
+ {canScreen && density !== "compact" && !isPending && (
  <button
  type="button"
  onClick={(e) => {
@@ -251,7 +251,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  Screening
  </button>
  )}
- {isPending && isApprover && density !=="compact" && (
+ {isPending && isApprover && density !== "compact" && (
  <div className="mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5">
  <button
  type="button"
@@ -312,7 +312,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <div
  className={cn("flex-shrink-0 rounded-lg bg-background/60 border border-border",
- density ==="compact" ?"w-52" :"w-60"
+ density === "compact" ?"w-52" :"w-60"
  )}
  >
  <div className="px-3 py-2 border-b border-border flex items-center gap-2">
@@ -343,7 +343,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn("p-2 space-y-2 min-h-[180px] max-h-[540px] overflow-y-auto rounded-b-v2-m transition-colors",
- snapshot.isDraggingOver &&"bg-primary/10/60"
+ snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
  {col.items.map((item, index) => (
@@ -442,7 +442,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  try {
  const jobRes = await api.get(`/api/jobs/${jobId}`);
  const sMax = jobRes.data?.salary_max;
- setJobBudgetMax(typeof sMax ==="number" ? sMax : null);
+ setJobBudgetMax(typeof sMax === "number" ? sMax : null);
  const tid = jobRes.data?.pipeline_template_id;
  if (!tid) return;
  const detail = await pipelineTemplatesApi.get(tid);
@@ -469,7 +469,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
 
  const filtered = useMemo(
  () =>
- activeTab ==="all"
+ activeTab === "all"
  ? cols
  : cols.filter((c) => c.category === activeTab),
  [cols, activeTab]
@@ -578,7 +578,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  // Pending verification (migracja 0056) — najpierw zapytaj o rate,
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
- if (dst.stage ==="verified") {
+ if (dst.stage === "verified") {
  setVerifiedRatePrompt({
  item,
  destCol: dst,
@@ -589,7 +589,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
 
  applyOptimistic(item, colId(src), dst);
 
- if (dst.category ==="terminal" && (dst.stage ==="rejected" || dst.stage ==="withdrawn")) {
+ if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
  setPendingRejection({
  item,
  destCol: dst,
@@ -646,7 +646,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  return c;
  })
  );
- if (verifStatus ==="pending") {
+ if (verifStatus === "pending") {
  showSuccess("Wysłano do akceptacji delivery_lead. Karta będzie aktywna po zatwierdzeniu."
  );
  }
@@ -752,8 +752,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  } catch (e) {
  showStatus(
  e instanceof BulkCvDownloadError
- ? e.message
- :"Pobieranie nie powiodło się."
+ ? e.message : "Pobieranie nie powiodło się."
  );
  } finally {
  setBulkDownloadBusy(false);
@@ -792,10 +791,10 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  <Tooltip>
  <TooltipTrigger asChild>
  <button
- onClick={() => setDensity(density ==="cozy" ?"compact" :"cozy")}
+ onClick={() => setDensity(density === "cozy" ?"compact" :"cozy")}
  className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground"
  >
- {density ==="compact" ? (
+ {density === "compact" ? (
  <LayoutGrid className="h-4 w-4" />
  ) : (
  <Rows3 className="h-4 w-4" />
@@ -803,7 +802,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  </button>
  </TooltipTrigger>
  <TooltipContent>
- Gęstość: {density ==="compact" ?"kompaktowa" :"cozy"}
+ Gęstość: {density === "compact" ?"kompaktowa" :"cozy"}
  </TooltipContent>
  </Tooltip>
  </div>
@@ -904,7 +903,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  if (!pendingRejection) return null;
  const cat = cols.find((c) => colId(c) === pendingRejection.srcColId)
  ?.category;
- return cat ==="external" ?"external" : cat ==="internal" ?"internal" : null;
+ return cat === "external" ?"external" : cat === "internal" ?"internal" : null;
  })()}
  previousStage={
  pendingRejection

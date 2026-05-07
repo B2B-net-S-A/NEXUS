@@ -58,7 +58,7 @@ export function MyKpiWidget({ variant ="compact", className }: Props) {
 
  const sorted = sortKpis(data);
 
- if (variant ==="dashboard") {
+ if (variant === "dashboard") {
  return (
  <section
  className={cn("rounded-lg border border-border","bg-card p-4",

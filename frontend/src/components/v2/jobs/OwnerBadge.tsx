@@ -34,10 +34,10 @@ export function OwnerBadge({
 }: OwnerBadgeProps) {
  const isAssigned = Boolean(user);
  const dims =
- size ==="md"
+ size === "md"
  ?"h-7 text-xs gap-2 pr-2.5 pl-1"
  :"h-6 text-[11px] gap-1.5 pr-2 pl-0.5";
- const avatarSize = size ==="md" ?"h-6 w-6 text-[10px]" :"h-5 w-5 text-[9px]";
+ const avatarSize = size === "md" ?"h-6 w-6 text-[10px]" :"h-5 w-5 text-[9px]";
 
  return (
  <span
@@ -59,7 +59,7 @@ export function OwnerBadge({
  )}
  aria-hidden
  >
- {user ? initialsFor(user.name) :"·"}
+ {user ? initialsFor(user.name) : "·"}
  </span>
  <span className="truncate max-w-[10rem]">{user?.name ?? unassignedLabel}</span>
  {showRole && user ? (

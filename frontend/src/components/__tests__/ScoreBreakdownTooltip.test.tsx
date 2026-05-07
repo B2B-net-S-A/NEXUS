@@ -20,7 +20,7 @@ const FIXTURE: ScoreBreakdown = {
 };
 
 describe("ScoreBreakdownTooltip", () => {
-  it("renders trigger with 'dlaczego?' label", () => {
+  it("renders trigger with 'dlaczego ? ' label", () => {
     render(<ScoreBreakdownTooltip breakdown={FIXTURE} />);
     expect(screen.getByText(/dlaczego/i)).toBeInTheDocument();
   });

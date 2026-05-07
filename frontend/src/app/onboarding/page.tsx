@@ -39,7 +39,7 @@ export default function OnboardingPage() {
  if (!hydrated) return <FullScreenLoader />
  if (!user || !requiresOnboarding(user)) return <FullScreenLoader />
 
- if (user.role ==="delivery_lead") return <OnboardingDLV2 />
- if (user.role ==="recruiter") return <OnboardingRecruiterV2 />
+ if (user.role === "delivery_lead") return <OnboardingDLV2 />
+ if (user.role === "recruiter") return <OnboardingRecruiterV2 />
  return <FullScreenLoader />
 }

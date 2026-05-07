@@ -69,7 +69,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  setPinned(res.data);
  } catch (err) {
  const message =
- err instanceof Error ? err.message :"Błąd wczytywania pytań";
+ err instanceof Error ? err.message : "Błąd wczytywania pytań";
  setError(message);
  } finally {
  setLoading(false);
@@ -85,7 +85,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  await interviewQuestionsApi.unpinFromJob(jobId, questionId);
  await loadPinned();
  } catch (err) {
- const message = err instanceof Error ? err.message :"Błąd odpięcia";
+ const message = err instanceof Error ? err.message : "Błąd odpięcia";
  setError(message);
  }
  };
@@ -93,7 +93,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  const handleMove = async (questionId: number, direction: "up" |"down") => {
  const idx = pinned.findIndex((p) => p.question.id === questionId);
  if (idx === -1) return;
- const swap = direction ==="up" ? idx - 1 : idx + 1;
+ const swap = direction === "up" ? idx - 1 : idx + 1;
  if (swap < 0 || swap >= pinned.length) return;
 
  const a = pinned[idx];
@@ -105,7 +105,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  ]);
  await loadPinned();
  } catch (err) {
- const message = err instanceof Error ? err.message :"Błąd zmiany kolejności";
+ const message = err instanceof Error ? err.message : "Błąd zmiany kolejności";
  setError(message);
  }
  };
@@ -310,12 +310,12 @@ function CreateQuestionDialog({
  seniority: seniority || null,
  question_type: qType || null,
  skill_tags: skillTags,
- client_id: scope ==="client" ? clientId : null,
+ client_id: scope === "client" ? clientId : null,
  job_id: jobId,
  });
  onCreated();
  } catch (e) {
- const msg = e instanceof Error ? e.message :"Błąd zapisu";
+ const msg = e instanceof Error ? e.message : "Błąd zapisu";
  setErr(msg);
  } finally {
  setSaving(false);
@@ -422,7 +422,7 @@ function CreateQuestionDialog({
  <input
  type="radio"
  name="scope"
- checked={scope ==="client"}
+ checked={scope === "client"}
  onChange={() => setScope("client")}
  disabled={clientId === null}
  />
@@ -432,7 +432,7 @@ function CreateQuestionDialog({
  <input
  type="radio"
  name="scope"
- checked={scope ==="global"}
+ checked={scope === "global"}
  onChange={() => setScope("global")}
  />
  Globalne
@@ -495,7 +495,7 @@ function SearchGlobalQuestionsDialog({
  );
  setResults(safe);
  } catch (e) {
- const msg = e instanceof Error ? e.message :"Błąd wyszukiwania";
+ const msg = e instanceof Error ? e.message : "Błąd wyszukiwania";
  setErr(msg);
  } finally {
  setSearching(false);
@@ -507,7 +507,7 @@ function SearchGlobalQuestionsDialog({
  await interviewQuestionsApi.pinToJob(jobId, { question_id: qid });
  onPinned();
  } catch (e) {
- const msg = e instanceof Error ? e.message :"Błąd przypięcia";
+ const msg = e instanceof Error ? e.message : "Błąd przypięcia";
  setErr(msg);
  }
  };
@@ -525,7 +525,7 @@ function SearchGlobalQuestionsDialog({
  onChange={(e) => setQuery(e.target.value)}
  placeholder="Wpisz frazę (lub pozostaw puste by zobaczyć ostatnie)"
  onKeyDown={(e) => {
- if (e.key ==="Enter") void handleSearch();
+ if (e.key === "Enter") void handleSearch();
  }}
  />
  <Button variant="primary" size="sm" onClick={handleSearch}>

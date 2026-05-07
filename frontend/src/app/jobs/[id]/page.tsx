@@ -540,7 +540,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
   };
 
   return (
-    <div className="rounded-lg border border-dashed border-primary/30 dark:border-primary/90 bg-primary/10/50 dark:bg-primary/10 p-3">
+    <div className="rounded-lg border border-dashed border-primary/30 dark:border-primary/90 bg-primary/10 dark:bg-primary/10 p-3">
       <div className="flex flex-wrap gap-2 items-center">
         <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground mr-2">
           AI / Scoring:

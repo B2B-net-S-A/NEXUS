@@ -100,7 +100,7 @@ export function HelpPageV2() {
  };
 
  const handleDelete = (proc: Procedure) => {
- if (typeof window !=="undefined") {
+ if (typeof window !== "undefined") {
  const ok = window.confirm(`Usunąć procedurę"${proc.title}"? Operacja nieodwracalna.`);
  if (!ok) return;
  }

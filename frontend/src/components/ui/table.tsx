@@ -83,7 +83,7 @@ export const TableRow = React.forwardRef<
  data-selected={selected || undefined}
  className={cn("border-b border-border/60 transition-colors",
  densityRowClass[density],
- interactive &&"cursor-pointer hover:bg-primary/10/40",
+ interactive &&"cursor-pointer hover:bg-primary/10",
  selected &&"bg-primary/10 hover:bg-primary/10",
  className
  )}

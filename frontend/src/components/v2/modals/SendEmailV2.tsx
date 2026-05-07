@@ -183,7 +183,7 @@ export function SendEmailV2({
  <Select
  value={selectedTemplateId ||"_blank"}
  onValueChange={(v) =>
- setSelectedTemplateId(v ==="_blank" ?"" : v)
+ setSelectedTemplateId(v === "_blank" ?"" : v)
  }
  >
  <SelectTrigger id="email-template">

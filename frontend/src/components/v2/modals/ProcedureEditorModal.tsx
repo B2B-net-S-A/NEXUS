@@ -96,7 +96,7 @@ export function ProcedureEditorModal({ procedure, open, onOpenChange, onSaved }:
  },
  onError: (err: unknown) => {
  const msg =
- err instanceof Error ? err.message :"Nie udało się zapisać procedury.";
+ err instanceof Error ? err.message : "Nie udało się zapisać procedury.";
  setApiError(msg);
  },
  });

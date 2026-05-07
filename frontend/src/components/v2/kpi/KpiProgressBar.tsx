@@ -46,9 +46,9 @@ export function KpiProgressBar({
 }: Props) {
  const clamped = Math.min(100, Math.max(0, progressPct));
  const trackClass =
- variant ==="compact" ?"h-1.5" :"h-2";
+ variant === "compact" ?"h-1.5" :"h-2";
  const rootPad =
- variant ==="compact" ?"gap-0.5" :"gap-1";
+ variant === "compact" ?"gap-0.5" :"gap-1";
 
  return (
  <div className={cn("flex flex-col min-w-0", rootPad, className)}>
