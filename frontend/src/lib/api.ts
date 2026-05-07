@@ -601,6 +601,91 @@ export const contractsApi = {
     }),
 };
 
+// ── Autenti e-signature integration ─────────────────────────────────────────
+// Plan: ~/.claude/plans/zaplanuj-wszystko-zgodnie-z-tranquil-torvalds.md
+// Backend mounts /api/autenti/* only when AUTENTI_ENABLED=true; the FE feature
+// is gated by the same flag (sourced from a future /api/health/features
+// endpoint or an env-injected build flag — Phase 2 just hides the button when
+// the request returns 404 / 503).
+
+export type AutentiSignatureType ="SES" | "AdES" | "QES";
+
+export type SignatureStatus =
+  |"draft"
+  |"sending"
+  |"sent"
+  |"in_progress"
+  |"completed"
+  |"rejected"
+  |"withdrawn"
+  |"failed"
+  |"expired";
+
+export interface DocumentSignatureEvent {
+  id: number;
+  event_id: string;
+  event_type: string;
+  status: string | null;
+  received_at: string;
+  processed_at: string | null;
+}
+
+export interface DocumentSignature {
+  id: number;
+  contract_id: number;
+  contract_document_id: number;
+  autenti_process_id: string | null;
+  autenti_signature_type: AutentiSignatureType;
+  status: SignatureStatus;
+  sent_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
+  sender_user_id: number;
+  signer_email: string;
+  signer_first_name: string;
+  signer_last_name: string;
+  signer_phone: string | null;
+  signed_document_id: number | null;
+  signed_document_url: string | null;
+  last_error: string | null;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentSignatureDetail extends DocumentSignature {
+  events: DocumentSignatureEvent[];
+}
+
+export interface AutentiSendRequest {
+  signature_type: AutentiSignatureType;
+  expires_in_days?: number;
+  message_pl?: string | null;
+  return_url?: string | null;
+}
+
+export interface AutentiSendResponse {
+  signature_id: number;
+  contract_id: number;
+  status: SignatureStatus;
+}
+
+export const autentiApi = {
+  send: (contractId: number, payload: AutentiSendRequest) =>
+    api.post<AutentiSendResponse>(
+      `/api/autenti/contracts/${contractId}/send`,
+      payload,
+    ),
+  list: (contractId: number) =>
+    api.get<DocumentSignature[]>(
+      `/api/autenti/contracts/${contractId}/signatures`,
+    ),
+  get: (signatureId: number) =>
+    api.get<DocumentSignatureDetail>(
+      `/api/autenti/signatures/${signatureId}`,
+    ),
+};
+
 // ── Contractors (Delivery module) ───────────────────────────────────────────
 
 export type ContractorStatus = "draft" | "active" | "ending";
