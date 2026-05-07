@@ -275,9 +275,7 @@ async def test_idempotency_key_propagated(monkeypatch):
     monkeypatch.setattr("httpx.AsyncClient.request", fake_request)
 
     async with AutentiClient(config) as client:
-        await client.create_document_process(
-            {"parties": []}, idempotency_key="sig-7"
-        )
+        await client.create_document_process({"parties": []}, idempotency_key="sig-7")
 
     assert captured_headers.get("Idempotency-Key") == "sig-7"
 
@@ -294,9 +292,7 @@ async def test_download_signed_file_returns_bytes(monkeypatch):
 
     async def fake_request(self, method, url, **kwargs):
         captured_headers.update(kwargs.get("headers", {}))
-        return _FakeResponse(
-            status_code=200, content_bytes=b"%PDF-1.7\n...binary..."
-        )
+        return _FakeResponse(status_code=200, content_bytes=b"%PDF-1.7\n...binary...")
 
     monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
     monkeypatch.setattr("httpx.AsyncClient.request", fake_request)

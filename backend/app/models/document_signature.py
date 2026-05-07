@@ -108,9 +108,7 @@ class DocumentSignature(Base, TimestampMixin):
     # ── Sender (NEXUS user who clicked "Send") ─────────────────────────────
     # NEVER NULL — audit trail anchor. Independent of who sent on the
     # Autenti side (which may be the org for ``bpa`` scope).
-    sender_user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"), nullable=False
-    )
+    sender_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     # ── Signer snapshot (denormalized) ─────────────────────────────────────
     # Candidate JDG fields can change after we send — keep a frozen copy

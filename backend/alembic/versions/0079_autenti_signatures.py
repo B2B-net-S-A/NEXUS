@@ -36,20 +36,16 @@ def upgrade() -> None:
     # 1) Rozszerz enum NotificationType (PG: ADD VALUE wymaga autocommit).
     with op.get_context().autocommit_block():
         op.execute(
-            "ALTER TYPE notificationtype "
-            "ADD VALUE IF NOT EXISTS 'signature_sent'"
+            "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_sent'"
         )
         op.execute(
-            "ALTER TYPE notificationtype "
-            "ADD VALUE IF NOT EXISTS 'signature_signed'"
+            "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_signed'"
         )
         op.execute(
-            "ALTER TYPE notificationtype "
-            "ADD VALUE IF NOT EXISTS 'signature_rejected'"
+            "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_rejected'"
         )
         op.execute(
-            "ALTER TYPE notificationtype "
-            "ADD VALUE IF NOT EXISTS 'signature_failed'"
+            "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_failed'"
         )
 
     # 2) signaturestatus enum (CREATE TYPE IF NOT EXISTS unsupported in PG;
@@ -103,8 +99,7 @@ def upgrade() -> None:
         "ON document_signatures(contract_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_doc_sig_status "
-        "ON document_signatures(status)"
+        "CREATE INDEX IF NOT EXISTS ix_doc_sig_status ON document_signatures(status)"
     )
     # Partial index — szybki lookup webhook handlera po Autenti process_id.
     op.execute(

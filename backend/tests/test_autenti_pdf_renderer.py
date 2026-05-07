@@ -79,9 +79,7 @@ def test_strip_print_script_handles_no_script():
 
 def test_render_strips_print_script_in_pipeline():
     """Auto-print script from `_wrap_printable()` shouldn't leak into PDF."""
-    html_with_script = (
-        "<script>window.print()</script><p>signed contract body</p>"
-    )
+    html_with_script = "<script>window.print()</script><p>signed contract body</p>"
     pdf = render_contract_pdf(html_with_script)
     assert pdf.startswith(b"%PDF-")
 
