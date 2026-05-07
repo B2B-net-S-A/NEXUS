@@ -728,8 +728,7 @@ async def get_kanban(
                 category=STAGE_CATEGORY[stage],
                 count=len(entries),
                 items=[
-                    CandidateStageResponse(**_stage_resp_with_name(e))
-                    for e in entries
+                    CandidateStageResponse(**_stage_resp_with_name(e)) for e in entries
                 ],
                 name=STAGE_LABELS[stage],
             )
