@@ -169,9 +169,12 @@ class Settings(BaseSettings):
     # Reuses M365 Azure AD app — same client_id/secret/tenant, different redirect.
     # Empty in dev → /api/auth/microsoft/* return 503.
     MICROSOFT_LOGIN_REDIRECT_URI: str = ""
-    # Email-domain whitelist for auto-provisioning. Accepts CSV ("b2bnetwork.pl,foo.com")
-    # or JSON list. Empty → SSO callback rejects every domain (403).
-    SSO_ALLOWED_DOMAINS: List[str] = []
+    # Email-domain whitelist for auto-provisioning. CSV string ("b2bnetwork.pl,foo.com")
+    # — kept as ``str`` instead of ``List[str]`` because pydantic-settings v2 forces
+    # JSON parsing for List types from env vars, which broke a plain ``b2bnetwork.pl``
+    # value at startup. Use ``settings.sso_allowed_domains_list`` to get the parsed
+    # list of lowercased, stripped domains.
+    SSO_ALLOWED_DOMAINS: str = ""
 
     # ── Autenti e-signature integration (Phase Autenti.1) ───────────────────
     # Kill-switch: when False, /api/autenti/* router is not mounted, send/webhook
@@ -227,17 +230,14 @@ class Settings(BaseSettings):
     # company" — guards against rebrand false-positives.
     PROXYCURL_COMPANY_FUZZ_THRESHOLD: int = 90
 
-    @field_validator("SSO_ALLOWED_DOMAINS", mode="before")
-    @classmethod
-    def _split_sso_domains(cls, v):
-        # Accept CSV string from env ("b2bnetwork.pl,foo.com") or JSON list.
-        # Pydantic-settings parses List[str] as JSON by default; fall through to
-        # split-on-comma when the env is plain text.
-        if v is None or v == "":
+    @property
+    def sso_allowed_domains_list(self) -> list[str]:
+        """Parse SSO_ALLOWED_DOMAINS CSV into a list of lowercased domains."""
+        if not self.SSO_ALLOWED_DOMAINS:
             return []
-        if isinstance(v, str):
-            return [d.strip().lower() for d in v.split(",") if d.strip()]
-        return [str(d).strip().lower() for d in v if str(d).strip()]
+        return [
+            d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
+        ]
 
     @field_validator("SECRET_KEY")
     @classmethod
