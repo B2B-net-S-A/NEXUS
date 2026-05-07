@@ -60,7 +60,7 @@ def _force_sso_config(monkeypatch):
         "MICROSOFT_LOGIN_REDIRECT_URI",
         "https://api.test.example/api/auth/microsoft/callback",
     )
-    monkeypatch.setattr(settings, "SSO_ALLOWED_DOMAINS", ["b2bnetwork.pl"])
+    monkeypatch.setattr(settings, "SSO_ALLOWED_DOMAINS", "b2bnetwork.pl")
     monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "https://app.test.example")
     monkeypatch.setattr(
         settings,
