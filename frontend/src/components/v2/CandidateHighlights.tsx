@@ -240,7 +240,7 @@ export function AtOurClientBanner({
  return (
  <div
  role="alert"
- className={cn("rounded-lg border border-[hsl(var(--accent-strong))] bg-primary text-white shadow-sm","animate-pulse-subtle px-4 py-3",
+ className={cn("rounded-lg border border-[hsl(var(--primary))] bg-primary text-white shadow-sm","animate-pulse-subtle px-4 py-3",
  className
  )}
  >

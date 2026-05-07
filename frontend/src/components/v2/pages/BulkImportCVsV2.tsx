@@ -67,7 +67,7 @@ function StatusBadge({ status }: { status: Status }) {
  > = {
  pending: {
  label:"W kolejce",
- className:"bg-[hsl(var(--border-subtle))]/40 text-muted-foreground",
+ className:"bg-[hsl(var(--border))]/40 text-muted-foreground",
  icon: null,
  },
  parsing: {
@@ -390,7 +390,7 @@ export function BulkImportCVsV2() {
  <th className="px-4 py-2 font-semibold"></th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {rows.map((r) => (
  <tr key={r.id} className="align-top">
  <td className="px-4 py-2">

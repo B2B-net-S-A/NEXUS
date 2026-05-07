@@ -104,7 +104,7 @@ const CommandSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <CommandPrimitive.Separator
  ref={ref}
- className={cn("h-px bg-[hsl(var(--border-subtle))]", className)}
+ className={cn("h-px bg-[hsl(var(--border))]", className)}
  {...props}
  />
 ));

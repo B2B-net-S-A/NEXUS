@@ -170,7 +170,7 @@ export function HelpPageV2() {
  </p>
  </div>
  ) : (
- <ul className="divide-y divide-[hsl(var(--border-subtle))]">
+ <ul className="divide-y divide-border">
  {items.map((item) => {
  const active = item.id === selectedId;
  return (

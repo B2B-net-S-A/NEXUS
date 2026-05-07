@@ -122,7 +122,7 @@ export function ChampionsPodium({
  className={cn("w-full rounded-lg border-2 p-3 flex flex-col items-center justify-end transition-all",
  style.height,
  style.bg,
- isMe ?"border-primary ring-2 ring-[hsl(var(--accent-soft))]" : style.border,
+ isMe ?"border-primary ring-2 ring-[hsl(var(--muted))]" : style.border,
  )}
  >
  <div className="text-3xl mb-1" aria-hidden>

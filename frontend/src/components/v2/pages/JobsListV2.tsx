@@ -223,8 +223,8 @@ export function JobsListV2() {
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
  {Array.from({ length: 6 }).map((_, i) => (
  <Card key={i} className="animate-pulse h-48">
- <div className="h-4 bg-[hsl(var(--border-subtle))] rounded w-3/4 mb-3" />
- <div className="h-3 bg-[hsl(var(--border-subtle))] rounded w-1/2" />
+ <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
+ <div className="h-3 bg-[hsl(var(--border))] rounded w-1/2" />
  </Card>
  ))}
  </div>
@@ -325,7 +325,7 @@ export function JobsListV2() {
  </span>
  ))}
  {skills.length > 5 && (
- <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--border-subtle))] text-muted-foreground">
+ <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[hsl(var(--border))] text-muted-foreground">
  +{skills.length - 5}
  </span>
  )}
@@ -336,7 +336,7 @@ export function JobsListV2() {
  {targetCount > 0 && (
  <div className="flex items-center gap-2">
  <Users className="h-3 w-3 text-muted-foreground" />
- <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border-subtle))]/60 overflow-hidden">
+ <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden">
  <div
  className="h-full bg-primary rounded-full transition-all"
  style={{ width: `${progress}%` }}

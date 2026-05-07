@@ -41,7 +41,7 @@ export function RatingField({ name, max = 5, size ="md" }: Props) {
  className={cn("transition-colors focus:outline-none",
  active
  ?"text-amber-500"
- :"text-[hsl(var(--border-subtle))] hover:text-amber-300"
+ :"text-[hsl(var(--border))] hover:text-amber-300"
  )}
  >
  <Star

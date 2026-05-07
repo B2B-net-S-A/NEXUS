@@ -265,7 +265,7 @@ export default function AdminLinkedInMetricsPage() {
  ))}
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {users.length === 0 && (
  <tr>
  <td

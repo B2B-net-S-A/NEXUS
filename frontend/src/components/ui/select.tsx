@@ -16,7 +16,7 @@ const SelectTrigger = React.forwardRef<
  <SelectPrimitive.Trigger
  ref={ref}
  aria-invalid={invalid || undefined}
- className={cn("flex w-full h-10 items-center justify-between gap-2 px-3 py-2 text-sm","bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border-subtle))]/30 disabled:cursor-not-allowed","data-[placeholder]:text-muted-foreground",
+ className={cn("flex w-full h-10 items-center justify-between gap-2 px-3 py-2 text-sm","bg-card text-foreground","border border-border rounded-lg","placeholder:text-muted-foreground","transition-colors duration-150","focus:outline-none focus:border-primary","disabled:bg-[hsl(var(--border))]/30 disabled:cursor-not-allowed","data-[placeholder]:text-muted-foreground",
  invalid &&"border-primary",
  className
  )}
@@ -124,7 +124,7 @@ const SelectSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <SelectPrimitive.Separator
  ref={ref}
- className={cn("-mx-1 my-1 h-px bg-[hsl(var(--border-subtle))]", className)}
+ className={cn("-mx-1 my-1 h-px bg-[hsl(var(--border))]", className)}
  {...props}
  />
 ));

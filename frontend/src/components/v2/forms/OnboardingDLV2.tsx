@@ -185,7 +185,7 @@ export function OnboardingDLV2() {
  {Array.from({ length: 6 }).map((_, i) => (
  <div
  key={i}
- className="h-12 rounded-lg bg-[hsl(var(--border-subtle))]/60"
+ className="h-12 rounded-lg bg-[hsl(var(--border))]/60"
  />
  ))}
  </div>
@@ -202,7 +202,7 @@ export function OnboardingDLV2() {
  Brak ofert pasujących do „{search}".
  </p>
  ) : (
- <ul className="divide-y divide-[hsl(var(--border-subtle))]">
+ <ul className="divide-y divide-border">
  {filtered.map((job) => {
  const checked = activeSet.has(job.id)
  return (

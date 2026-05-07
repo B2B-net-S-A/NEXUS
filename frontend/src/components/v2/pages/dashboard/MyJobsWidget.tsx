@@ -67,7 +67,7 @@ export function MyJobsWidget() {
  {Array.from({ length: 3 }).map((_, i) => (
  <div
  key={i}
- className="h-12 rounded-lg bg-[hsl(var(--border-subtle))] animate-pulse"
+ className="h-12 rounded-lg bg-[hsl(var(--border))] animate-pulse"
  />
  ))}
  </div>

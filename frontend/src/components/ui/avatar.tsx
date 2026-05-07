@@ -23,7 +23,7 @@ export const Avatar = React.forwardRef<
 >(({ className, size ="md", ...props }, ref) => (
  <AvatarPrimitive.Root
  ref={ref}
- className={cn("relative flex shrink-0 overflow-hidden rounded-full","bg-[hsl(var(--border-subtle))]",
+ className={cn("relative flex shrink-0 overflow-hidden rounded-full","bg-[hsl(var(--border))]",
  sizeClasses[size],
  className
  )}

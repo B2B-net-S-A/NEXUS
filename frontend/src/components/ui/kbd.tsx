@@ -12,7 +12,7 @@ export function Kbd({
 }: React.HTMLAttributes<HTMLElement>) {
  return (
  <kbd
- className={cn("inline-flex items-center justify-center","h-5 min-w-[1.25rem] px-1.5","text-[10px] font-mono font-medium","rounded-md bg-[hsl(var(--border-subtle))] text-foreground","border border-border shadow-sm",
+ className={cn("inline-flex items-center justify-center","h-5 min-w-[1.25rem] px-1.5","text-[10px] font-mono font-medium","rounded-md bg-[hsl(var(--border))] text-foreground","border border-border shadow-sm",
  className
  )}
  {...props}

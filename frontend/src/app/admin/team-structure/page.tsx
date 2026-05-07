@@ -166,7 +166,7 @@ function SourcerCategorySection({
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {(summary?.categories ?? []).map((row) => (
  <tr key={row.category.id}>
  <td className="px-3 py-2 font-semibold">{row.category.name_pl}</td>
@@ -323,7 +323,7 @@ function TacDlSection({
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {(summary?.delivery_leads ?? []).map((row) =>
  row.tacs.length === 0 ? (
  <tr key={row.delivery_lead.id}>
@@ -551,7 +551,7 @@ function DlClientsSection({
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {(summary?.dl_clients ?? []).map((row) => (
  <tr key={row.delivery_lead.id}>
  <td className="px-3 py-2 font-semibold align-top">

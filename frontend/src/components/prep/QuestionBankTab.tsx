@@ -168,7 +168,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  aria-label="Przesuń w górę"
  onClick={() => handleMove(link.question.id,"up")}
  disabled={idx === 0}
- className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border-subtle))] disabled:opacity-40"
+ className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border))] disabled:opacity-40"
  >
  ▲
  </button>
@@ -177,7 +177,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  aria-label="Przesuń w dół"
  onClick={() => handleMove(link.question.id,"down")}
  disabled={idx === pinned.length - 1}
- className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border-subtle))] disabled:opacity-40"
+ className="px-1.5 py-0.5 text-xs rounded hover:bg-[hsl(var(--border))] disabled:opacity-40"
  >
  ▼
  </button>

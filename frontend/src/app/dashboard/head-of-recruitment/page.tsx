@@ -125,7 +125,7 @@ function SourcerCategoryMatrix({ rows }: { rows: SourcerCategoryRow[] }) {
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {rows.map((row) => (
  <tr key={row.category.id}>
  <td className="px-3 py-2 font-semibold text-foreground">
@@ -192,7 +192,7 @@ function TacDlMatrix({ rows }: { rows: DlWithTacsRow[] }) {
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {rows.map((row) => {
  if (row.tacs.length === 0) {
  return (
@@ -254,7 +254,7 @@ function DlClientsMatrix({ rows }: { rows: DlClientsRow[] }) {
  </th>
  </tr>
  </thead>
- <tbody className="divide-y divide-[hsl(var(--border-subtle))]">
+ <tbody className="divide-y divide-border">
  {rows.map((row) => (
  <tr key={row.delivery_lead.id}>
  <td className="px-3 py-2 font-semibold text-foreground align-top">
