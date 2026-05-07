@@ -9,11 +9,12 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X, Loader2, Sparkles, ChevronRight, Plus,
+  UserPlus, Briefcase, Building2, CalendarPlus,
 } from "lucide-react";
 import api, {
   aiWriterApi,

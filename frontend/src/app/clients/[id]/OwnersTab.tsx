@@ -73,24 +73,21 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     mutationFn: (body: { user_id: number; is_primary: boolean }) =>
       api.post(`/api/clients/${clientId}/tacs`, body),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "TAC dodany" });
+      toast.showSuccess("TAC dodany");
       setAddingTac(false);
       setTacUserId("");
       setTacIsPrimary(false);
       invalidate();
     },
     onError: (e: any) =>
-      toast.show({
-        kind: "error",
-        message: e?.response?.data?.detail || "Błąd dodawania TAC",
-      }),
+      toast.showError(e?.response?.data?.detail || "Błąd dodawania TAC"),
   });
 
   const removeTac = useMutation({
     mutationFn: (userId: number) =>
       api.delete(`/api/clients/${clientId}/tacs/${userId}`),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "TAC usunięty" });
+      toast.showSuccess("TAC usunięty");
       invalidate();
     },
   });
@@ -99,7 +96,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     mutationFn: (userId: number) =>
       api.put(`/api/clients/${clientId}/tacs/${userId}/toggle-primary`),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "Primary TAC zmieniony" });
+      toast.showSuccess("Primary TAC zmieniony");
       invalidate();
     },
   });
@@ -111,24 +108,21 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       is_head: boolean;
     }) => api.post(`/api/team-structure/dl-clients`, body),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "Delivery Lead dodany" });
+      toast.showSuccess("Delivery Lead dodany");
       setAddingDl(false);
       setDlUserId("");
       setDlIsHead(false);
       invalidate();
     },
     onError: (e: any) =>
-      toast.show({
-        kind: "error",
-        message: e?.response?.data?.detail || "Błąd dodawania DL",
-      }),
+      toast.showError(e?.response?.data?.detail || "Błąd dodawania DL"),
   });
 
   const removeDl = useMutation({
     mutationFn: (assignmentId: number) =>
       api.delete(`/api/team-structure/dl-clients/${assignmentId}`),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "DL usunięty" });
+      toast.showSuccess("DL usunięty");
       invalidate();
     },
   });
@@ -137,7 +131,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
     mutationFn: (assignmentId: number) =>
       api.put(`/api/team-structure/dl-clients/${assignmentId}/toggle-head`),
     onSuccess: () => {
-      toast.show({ kind: "success", message: "Head DL zmieniony" });
+      toast.showSuccess("Head DL zmieniony");
       invalidate();
     },
   });
