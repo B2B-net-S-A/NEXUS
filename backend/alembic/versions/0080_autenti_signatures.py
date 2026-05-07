@@ -26,8 +26,8 @@ values pozostają (PG nie wspiera usuwania enum values bez rekreacji typu).
 from alembic import op
 
 
-revision = "0079_autenti_signatures"
-down_revision = "0078_password_reset_infrastructure"
+revision = "0080_autenti_signatures"
+down_revision = "0079_candidate_documents_storage_key"
 branch_labels = None
 depends_on = None
 

@@ -63,7 +63,7 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
           SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
-        run: alembic -c alembic/alembic.ini upgrade head
+        run: alembic -c alembic/alembic.ini upgrade heads
       - name: Import smoke check
         env:
           DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
