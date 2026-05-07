@@ -265,13 +265,27 @@ async def funnel_report(
             q = q.where(PipelineStageDef.template_id == default_id)
     stage_defs = (await db.execute(q)).scalars().all()
 
+    # Denominator: liczba unikalnych kandydatów którzy *kiedykolwiek* byli w
+    # tym pipeline (suma distinct candidate_id across all stage_defs w template).
+    # Stary algorytm (count/prev_count) dawał wartości 1700%+ gdy etap miał
+    # więcej kandydatów niż bezpośrednio poprzedni etap (Preparation Call
+    # opcjonalna z count=1, Screening z count=17 → 1700%). Pierwszy fix
+    # użył count z entry stage — ale to wciąż >100% bo kandydaci wpadają na
+    # różne stagey bez przechodzenia przez "Nowi/Analiza CV" (referrals,
+    # sourcing pipeline). Total distinct gwarantuje że każdy stage ≤100%.
+    stage_def_id_set = {sd.id for sd in stage_defs}
+    total_unique = 0
+    if stage_def_id_set:
+        total_unique = (
+            await db.scalar(
+                select(func.count(func.distinct(CandidateStage.candidate_id))).where(
+                    CandidateStage.stage_def_id.in_(stage_def_id_set)
+                )
+            )
+            or 0
+        )
+
     funnel: list[dict] = []
-    # Denominator dla % konwersji = liczba kandydatów w pierwszym (entry) etapie.
-    # Stary algorytm (count/prev_count) dawał wartości >100% gdy etap miał
-    # więcej kandydatów niż bezpośrednio poprzedni etap (np. Preparation Call
-    # opcjonalna z count=1, Screening obowiązkowa z count=17 → 1700%).
-    # Semantyka "lejka rekrutacyjnego" wymaga stałego denominatora = total entered.
-    first_count: int | None = None
     prev_count: int | None = None
     for sd in stage_defs:
         count = await db.scalar(
@@ -280,10 +294,10 @@ async def funnel_report(
             )
         )
         count = count or 0
-        if first_count is None and count > 0:
-            first_count = count
-        # Overall conversion: % wszystkich, którzy weszli do pipeline.
-        conversion_pct = round(count / first_count * 100.0, 1) if first_count else None
+        # Overall conversion: % unikalnych kandydatów którzy ever weszli do pipeline.
+        conversion_pct = (
+            round(count / total_unique * 100.0, 1) if total_unique else None
+        )
         # Step conversion: % z poprzedniego etapu, capped 100% (gdy etap był
         # opcjonalny, kandydaci omijają go i suma current > prev).
         step_pct = (
