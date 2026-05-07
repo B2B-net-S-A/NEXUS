@@ -2,11 +2,13 @@
 
 import * as React from "react";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Bell,
   CheckCircle2,
   Clock,
+  RotateCcw,
   Send,
   XCircle,
 } from "lucide-react";
@@ -15,6 +17,7 @@ import { AxiosError } from "axios";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useToast } from "@/components/Toast";
 import {
   autentiApi,
   type DocumentSignature,
@@ -80,11 +83,63 @@ function formatTimestamp(value: string | null): string {
   }
 }
 
-function SignatureRow({ signature }: { signature: DocumentSignature }) {
+interface SignatureRowProps {
+  signature: DocumentSignature;
+  onResend: () => void;
+  contractId: number;
+}
+
+function SignatureRow({
+  signature,
+  onResend,
+  contractId,
+}: SignatureRowProps) {
   const Icon = STATUS_ICON[signature.status];
-  const sentAt =
-    signature.sent_at ?? signature.created_at;
+  const sentAt = signature.sent_at ?? signature.created_at;
   const completedAt = signature.completed_at;
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+
+  const isPending = ["sent", "in_progress"].includes(signature.status);
+  const isFailed = signature.status === "failed";
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["autenti-signatures", contractId],
+    });
+
+  const withdrawMutation = useMutation({
+    mutationFn: () => autentiApi.withdraw(signature.id).then((r) => r.data),
+    onSuccess: () => {
+      showSuccess("Wycofano wysyłkę");
+      invalidate();
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      showError(
+        `Nie udało się wycofać: ${axiosError.response?.data?.detail ?? "spróbuj ponownie"}`,
+      );
+    },
+  });
+
+  const remindMutation = useMutation({
+    mutationFn: () => autentiApi.remind(signature.id).then((r) => r.data),
+    onSuccess: () => {
+      showSuccess("Wysłano przypomnienie");
+      invalidate();
+    },
+    onError: (error: unknown) => {
+      const axiosError = error as AxiosError<{ detail?: string }>;
+      const detail = axiosError.response?.data?.detail;
+      if (axiosError.response?.status === 429) {
+        showError(
+          "Przypomnienie zostało już wysłane w ciągu ostatniej godziny.",
+        );
+      } else {
+        showError(`Nie udało się przypomnieć: ${detail ?? "spróbuj ponownie"}`);
+      }
+    },
+  });
 
   return (
     <div className="rounded-md border border-border bg-card p-3 space-y-2">
@@ -123,7 +178,7 @@ function SignatureRow({ signature }: { signature: DocumentSignature }) {
         </div>
       </div>
 
-      {signature.last_error && signature.status === "failed" && (
+      {signature.last_error && isFailed && (
         <div className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-900">
           {signature.last_error}
         </div>
@@ -139,6 +194,39 @@ function SignatureRow({ signature }: { signature: DocumentSignature }) {
           >
             Otwórz w Autenti →
           </a>
+        </div>
+      )}
+
+      {(isPending || isFailed) && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {isPending && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => remindMutation.mutate()}
+                disabled={remindMutation.isPending}
+              >
+                <Bell className="h-3.5 w-3.5 mr-1" />
+                {remindMutation.isPending ? "Przypominam…" : "Przypomnij"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => withdrawMutation.mutate()}
+                disabled={withdrawMutation.isPending}
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1" />
+                {withdrawMutation.isPending ? "Wycofuję…" : "Wycofaj"}
+              </Button>
+            </>
+          )}
+          {isFailed && (
+            <Button size="sm" variant="outline" onClick={onResend}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />
+              Wyślij ponownie
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -214,7 +302,12 @@ export function AutentiEnvelopeCard({
         {signatures.length > 0 && (
           <div className="space-y-2">
             {signatures.map((sig) => (
-              <SignatureRow key={sig.id} signature={sig} />
+              <SignatureRow
+                key={sig.id}
+                signature={sig}
+                contractId={contractId}
+                onResend={() => setDialogOpen(true)}
+              />
             ))}
           </div>
         )}

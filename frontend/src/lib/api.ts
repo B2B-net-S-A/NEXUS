@@ -684,6 +684,14 @@ export const autentiApi = {
     api.get<DocumentSignatureDetail>(
       `/api/autenti/signatures/${signatureId}`,
     ),
+  withdraw: (signatureId: number) =>
+    api.post<DocumentSignature>(
+      `/api/autenti/signatures/${signatureId}/withdraw`,
+    ),
+  remind: (signatureId: number) =>
+    api.post<DocumentSignature>(
+      `/api/autenti/signatures/${signatureId}/remind`,
+    ),
 };
 
 // ── Contractors (Delivery module) ───────────────────────────────────────────
