@@ -77,6 +77,33 @@ services:
     depends_on:
       - backend
 
+  # Grafana Alloy log shipper. Profile-gated so this PR is safe to merge
+  # before Grafana Cloud credentials land in Coolify env vault. Once
+  # GRAFANA_LOKI_* are set, flip COMPOSE_PROFILES=observability and Alloy
+  # boots up. See ~/.claude/rules/observability.md.
+  alloy:
+    image: grafana/alloy:latest
+    container_name: nexus-alloy
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+    environment:
+      GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL}
+      GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER}
+      GRAFANA_LOKI_TOKEN: ${GRAFANA_LOKI_TOKEN}
+      HOSTNAME: ${ALLOY_HOSTNAME:-nexus-prod}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
 volumes:
   postgres_data:
   qdrant_data:
