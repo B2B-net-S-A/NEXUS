@@ -20,11 +20,12 @@ from typing import AsyncIterator
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.activity import Activity
+from app.models.notification import Notification
 from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User, UserRole
 
@@ -55,12 +56,15 @@ async def fresh_user() -> AsyncIterator[dict]:
 
     yield {"id": user_id, "email": email, "password": password}
 
-    # Cleanup
+    # Cleanup — wipe FK references first (notifications + activities default to
+    # RESTRICT on user delete; password_reset_tokens cascade automatically)
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(Notification).where(Notification.user_id == user_id))
+        await db.execute(delete(Activity).where(Activity.user_id == user_id))
         u = await db.scalar(select(User).where(User.id == user_id))
         if u is not None:
             await db.delete(u)
-            await db.commit()
+        await db.commit()
 
 
 @pytest.fixture(autouse=True)

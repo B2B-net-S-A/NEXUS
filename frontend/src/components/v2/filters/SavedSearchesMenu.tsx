@@ -3,7 +3,7 @@
 import { useState } from"react";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { Bookmark, ChevronDown, Plus, Trash2 } from"lucide-react";
-import { savedSearchesApi, type SavedSearch } from"@/lib/api";
+import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { useAuthStore } from"@/store/auth";
 import { Button } from"@/components/ui/button";
 import { Input } from"@/components/ui/input";
@@ -24,7 +24,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const currentUser = useAuthStore((s) => s.user);
  const queryClient = useQueryClient();
 
- const { data: searches = [] } = useQuery<SavedSearch[]>({
+ const { data: searches = [] } = useQuery<SavedSearchRow[]>({
  queryKey: ["saved-searches","candidates"],
  queryFn: () => savedSearchesApi.list("candidates").then((r) => r.data),
  staleTime: 30_000,
@@ -66,7 +66,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  createMutation.mutate(name);
  };
 
- const renderRow = (ss: SavedSearch, isMine: boolean) => (
+ const renderRow = (ss: SavedSearchRow, isMine: boolean) => (
  <div
  key={ss.id}
  className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-primary/10"
