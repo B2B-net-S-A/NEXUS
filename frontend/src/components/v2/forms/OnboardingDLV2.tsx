@@ -115,8 +115,8 @@ export function OnboardingDLV2() {
  [allJobs, search],
  )
 
- const activeSet = step ==="priority" ? prioritySelected : sourcingSelected
- const setActive = step ==="priority" ? setPrioritySelected : setSourcingSelected
+ const activeSet = step === "priority" ? prioritySelected : sourcingSelected
+ const setActive = step === "priority" ? setPrioritySelected : setSourcingSelected
 
  function toggle(id: number) {
  setActive((prev) => {
@@ -131,7 +131,7 @@ export function OnboardingDLV2() {
  const submitting = mutation.isPending
 
  const header =
- step ==="priority" ? (
+ step === "priority" ? (
  <>
  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
  Krok 1 z 2 · Lista priorytetów
@@ -258,7 +258,7 @@ export function OnboardingDLV2() {
  Wybrano: <strong className="text-foreground">{activeSet.size}</strong>
  </p>
  <div className="flex items-center gap-2">
- {step ==="sourcing" && (
+ {step === "sourcing" && (
  <Button
  variant="ghost"
  onClick={() => setStep("priority")}
@@ -267,7 +267,7 @@ export function OnboardingDLV2() {
  <ArrowLeft className="h-4 w-4" /> Wstecz
  </Button>
  )}
- {step ==="priority" ? (
+ {step === "priority" ? (
  <Button variant="primary" onClick={() => setStep("sourcing")}>
  Dalej <ArrowRight className="h-4 w-4" />
  </Button>

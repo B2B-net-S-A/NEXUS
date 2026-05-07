@@ -104,7 +104,7 @@ export function CVBrandedEditModal({
  // Disable editor when finalized.
  useEffect(() => {
  if (!editor) return;
- editor.setEditable(data?.status !=="finalized");
+ editor.setEditable(data?.status !== "finalized");
  }, [editor, data?.status]);
 
  // Debounced autosave for manual edits.
@@ -121,7 +121,7 @@ export function CVBrandedEditModal({
  useEffect(() => {
  if (!editor) return;
  const handler = () => {
- if (data?.status ==="finalized") return;
+ if (data?.status === "finalized") return;
  dirtyRef.current = true;
  };
  editor.on("update", handler);
@@ -136,7 +136,7 @@ export function CVBrandedEditModal({
  if (
  dirtyRef.current &&
  !saveMut.isPending &&
- data?.status !=="finalized"
+ data?.status !== "finalized"
  ) {
  dirtyRef.current = false;
  saveMut.mutate(editor.getHTML());
@@ -169,13 +169,13 @@ export function CVBrandedEditModal({
  });
 
  const handleTemplateChange = (val: CVTemplate) => {
- if (data?.status ==="finalized") return;
+ if (data?.status === "finalized") return;
  if (val === data?.template) return;
  setPendingTemplate(val);
  };
 
  const handleLanguageChange = (val: CVLanguage) => {
- if (data?.status ==="finalized") return;
+ if (data?.status === "finalized") return;
  if (val === data?.language) return;
  setPendingLanguage(val);
  };
@@ -188,10 +188,10 @@ export function CVBrandedEditModal({
  };
 
  const handlePrint = () => {
- window.open(candidateStageCvApi.branded.printableUrl(stageId),"_blank");
+ window.open(candidateStageCvApi.branded.printableUrl(stageId), "_blank");
  };
 
- const isFinalized = data?.status ==="finalized";
+ const isFinalized = data?.status === "finalized";
 
  return (
  <>
@@ -218,7 +218,7 @@ export function CVBrandedEditModal({
  <CheckCircle2 className="h-3 w-3 mr-1" />
  Sfinalizowane
  </Badge>
- ) : data?.status ==="draft" ? (
+ ) : data?.status === "draft" ? (
  <Badge variant="info" size="sm">
  Draft
  </Badge>

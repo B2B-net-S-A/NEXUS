@@ -88,7 +88,7 @@ function SourcerCategorySection({
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
- <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10/40 rounded-lg">
+ <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10 rounded-lg">
  <div className="flex-1 min-w-[200px]">
  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1">
  Użytkownik
@@ -254,7 +254,7 @@ function TacDlSection({
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
- <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10/40 rounded-lg">
+ <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10 rounded-lg">
  <div className="flex-1 min-w-[180px]">
  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1">
  TAC
@@ -379,7 +379,7 @@ function TacDlSection({
  <h4 className="text-sm font-semibold mb-2">
  Dodaj kategorię LinkedIn farming dla TAC
  </h4>
- <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10/40 rounded-lg">
+ <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10 rounded-lg">
  <div className="flex-1 min-w-[180px]">
  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1">
  TAC
@@ -478,7 +478,7 @@ function DlClientsSection({
  </CardDescription>
  </CardHeader>
  <CardContent className="space-y-4">
- <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10/40 rounded-lg">
+ <div className="flex flex-wrap items-end gap-3 p-3 bg-primary/10 rounded-lg">
  <div className="flex-1 min-w-[180px]">
  <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground block mb-1">
  Delivery Lead
@@ -590,7 +590,7 @@ function DlClientsSection({
 export default function AdminTeamStructurePage() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
- const isAllowed = !!user && (user.role ==="admin" || user.role ==="head_of_recruitment")
+ const isAllowed = !!user && (user.role === "admin" || user.role === "head_of_recruitment")
 
  const { data: summary } = useQuery<TeamStructureSummary>({
  queryKey: ["admin-team-structure-summary"],
@@ -634,8 +634,8 @@ export default function AdminTeamStructurePage() {
  )
  }
 
- const tacs = assignableUsers.filter((u) => u.role ==="tac")
- const dls = assignableUsers.filter((u) => u.role ==="delivery_lead")
+ const tacs = assignableUsers.filter((u) => u.role === "tac")
+ const dls = assignableUsers.filter((u) => u.role === "delivery_lead")
  const sourcerAndAbove = assignableUsers.filter((u) =>
  ["sourcer","tac","recruiter"].includes(u.role ??"")
  )

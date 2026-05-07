@@ -44,8 +44,8 @@ function toFormState(c: ContractorListItem): FormState {
  return {
  start_date: c.start_date ??"",
  end_date: c.end_date ??"",
- rate_candidate: c.rate_candidate != null ? String(c.rate_candidate) :"",
- rate_client: c.rate_client != null ? String(c.rate_client) :"",
+ rate_candidate: c.rate_candidate != null ? String(c.rate_candidate) : "",
+ rate_client: c.rate_client != null ? String(c.rate_client) : "",
  contract_type: c.contract_type ??"b2b",
  work_mode: c.work_mode ??"remote",
  };
@@ -107,12 +107,12 @@ export function DraftCompletionModal({
  response?: { data?: { detail?: unknown } };
  };
  const detail = axiosErr.response?.data?.detail;
- if (detail && typeof detail ==="object" &&"missing" in detail) {
+ if (detail && typeof detail === "object" &&"missing" in detail) {
  const missing = (detail as { missing: string[] }).missing;
  setError(`Brakuje pól: ${missing.join(",")}`);
  return;
  }
- if (typeof detail ==="string") {
+ if (typeof detail === "string") {
  setError(detail);
  return;
  }

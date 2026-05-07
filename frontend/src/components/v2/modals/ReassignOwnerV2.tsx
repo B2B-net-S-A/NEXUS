@@ -198,7 +198,7 @@ export function ReassignOwnerV2({
 }
 
 function extractDetail(err: unknown): string | null {
- if (err && typeof err ==="object" &&"response" in err) {
+ if (err && typeof err === "object" &&"response" in err) {
  const resp = (err as { response?: { data?: { detail?: string } } }).response;
  if (resp?.data?.detail) return resp.data.detail;
  }

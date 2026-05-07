@@ -84,11 +84,11 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  .then((r) => r.data),
  onSuccess: (data) => {
  const kind = (data?.message ??"") as string;
- if (kind ==="new_company") {
+ if (kind === "new_company") {
  showSuccess("Wykryto zmianę pracodawcy — profil zaktualizowany.");
- } else if (kind ==="new_title_same_company") {
+ } else if (kind === "new_title_same_company") {
  showSuccess("Wykryto zmianę stanowiska w tej samej firmie.");
- } else if (kind ==="first_snapshot") {
+ } else if (kind === "first_snapshot") {
  showSuccess("Zapisano pierwszy snapshot profilu LinkedIn.");
  } else {
  showSuccess("Profil LinkedIn zsynchronizowany.");
@@ -97,7 +97,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  },
  onError: (err: unknown) => {
  const message =
- err instanceof Error ? err.message :"Nie udało się odświeżyć profilu.";
+ err instanceof Error ? err.message : "Nie udało się odświeżyć profilu.";
  showError(message);
  },
  });
@@ -107,7 +107,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  const syncedAt = candidate.linkedin_synced_at;
  const changedAt = candidate.linkedin_employment_changed_at;
  const changeSnapshots = (candidate.linkedin_snapshots ?? []).filter(
- (s) => s.change_kind ==="new_company"
+ (s) => s.change_kind === "new_company"
  );
 
  return (
@@ -165,7 +165,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  </div>
  )}
 
- {status ==="ok" && (
+ {status === "ok" && (
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
  <div>
  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -206,13 +206,13 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  </div>
  )}
 
- {status ==="not_found" && (
+ {status === "not_found" && (
  <p className="text-sm text-muted-foreground">
  Proxycurl nie znalazł tego profilu (prywatny / usunięty). Sprawdź
  poprawność adresu.
  </p>
  )}
- {(status ==="error" || status ==="rate_limited") &&
+ {(status === "error" || status === "rate_limited") &&
  candidate.linkedin_sync_error && (
  <p className="text-sm text-muted-foreground">
  Szczegóły błędu: {candidate.linkedin_sync_error}

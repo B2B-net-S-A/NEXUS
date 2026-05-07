@@ -64,21 +64,21 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  const addSkill = (list: "must" |"nice", input: string) => {
  const n = input.trim();
  if (!n) return;
- const setter = list ==="must" ? setMust : setNice;
- const arr = list ==="must" ? must : nice;
+ const setter = list === "must" ? setMust : setNice;
+ const arr = list === "must" ? must : nice;
  if (arr.some((s) => s.name.toLowerCase() === n.toLowerCase())) return;
  setter([...arr, { name: n }]);
- if (list ==="must") setNewMust("");
+ if (list === "must") setNewMust("");
  else setNewNice("");
  };
 
  const remove = (list: "must" |"nice", idx: number) => {
- if (list ==="must") setMust(must.filter((_, i) => i !== idx));
+ if (list === "must") setMust(must.filter((_, i) => i !== idx));
  else setNice(nice.filter((_, i) => i !== idx));
  };
 
  const move = (from: "must" |"nice", idx: number) => {
- if (from ==="must") {
+ if (from === "must") {
  const s = must[idx];
  setMust(must.filter((_, i) => i !== idx));
  setNice([...nice, s]);
@@ -112,7 +112,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  <DialogTitle>Kryteria AI — must-have / nice-to-have</DialogTitle>
  {source && (
  <Badge variant="soft" size="sm">
- {source ==="ollama" ?"Ollama" :"heurystyka"}
+ {source === "ollama" ?"Ollama" :"heurystyka"}
  </Badge>
  )}
  </div>
@@ -234,7 +234,7 @@ function SkillColumn({
  value={input}
  onChange={(e) => onInputChange(e.target.value)}
  onKeyDown={(e) => {
- if (e.key ==="Enter") {
+ if (e.key === "Enter") {
  e.preventDefault();
  onAdd();
  }

@@ -48,8 +48,8 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
- if (unit ==="hourly") return"/h";
- if (unit ==="daily") return"/dz";
+ if (unit === "hourly") return"/h";
+ if (unit === "daily") return"/dz";
  return"/mies";
 }
 
@@ -57,7 +57,7 @@ export function ContractorsListV2() {
  const searchParams = useSearchParams();
  const initialTab = (searchParams.get("tab") as Tab) ||"active";
  const [tab, setTab] = useState<Tab>(
- ["draft","active","ending"].includes(initialTab) ? initialTab :"active"
+ ["draft","active","ending"].includes(initialTab) ? initialTab : "active"
  );
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
@@ -104,7 +104,7 @@ export function ContractorsListV2() {
  </div>
  </div>
 
- {incompleteCount > 0 && tab !=="draft" && (
+ {incompleteCount > 0 && tab !== "draft" && (
  <Card className="bg-amber-50 border-amber-200 flex items-center gap-3 !p-4">
  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
  <div className="flex-1">
@@ -134,7 +134,7 @@ export function ContractorsListV2() {
  >
  {(["draft","active","ending"] as Tab[]).map((t) => {
  const count =
- t ==="draft" ? draftCount : t ==="active" ? activeCount : endingCount;
+ t === "draft" ? draftCount : t === "active" ? activeCount : endingCount;
  const isActive = t === tab;
  return (
  <button
@@ -185,9 +185,9 @@ export function ContractorsListV2() {
  <TableCell colSpan={8} className="text-center py-10">
  <UserCog className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
- {tab ==="draft"
+ {tab === "draft"
  ?"Brak draftów do uzupełnienia — wszystko aktywne."
- : tab ==="active"
+ : tab === "active"
  ?"Brak aktywnych kontraktorów."
  :"Żaden kontrakt nie kończy się w najbliższym czasie."}
  </p>
@@ -195,7 +195,7 @@ export function ContractorsListV2() {
  </TableRow>
  ) : (
  items.map((c) => {
- const isDraft = c.status ==="draft";
+ const isDraft = c.status === "draft";
  const readyToActivate = isDraft && c.missing_fields.length === 0;
  return (
  <TableRow key={c.contract_id} interactive>
@@ -239,8 +239,7 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.margin != null
- ? formatCurrency(c.margin, "PLN")
- :"—"}
+ ? formatCurrency(c.margin, "PLN") : "—"}
  </TableCell>
  <TableCell>
  {isDraft && c.missing_fields.length > 0 ? (
@@ -255,7 +254,7 @@ export function ContractorsListV2() {
  ) : (
  <Badge
  size="sm"
- variant={c.status ==="active" ?"success" :"warning"}
+ variant={c.status === "active" ?"success" :"warning"}
  >
  {c.status}
  </Badge>
@@ -292,7 +291,7 @@ export function ContractorsListV2() {
 
  <div className="text-xs text-muted-foreground pt-2">
  {total} wynik{total === 1 ?"" : total < 5 ?"i" :"ów"} ·{""}
- {tab ==="draft" && incompleteCount > 0 && (
+ {tab === "draft" && incompleteCount > 0 && (
  <>braki: {Object.keys(FIELD_LABELS).join(" /")}</>
  )}
  </div>

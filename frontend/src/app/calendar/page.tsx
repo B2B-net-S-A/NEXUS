@@ -390,14 +390,14 @@ function WeekGrid({
             key={dayIdx}
             className={cn(
               "relative border-r border-border last:border-r-0",
-              isToday && "bg-primary/10/30"
+              isToday && "bg-primary/10"
             )}
           >
             {/* Hour slots */}
             {hours.map((h) => (
               <div
                 key={h}
-                className="h-14 border-b border-gray-50 hover:bg-primary/10/40 cursor-pointer transition-colors"
+                className="h-14 border-b border-gray-50 hover:bg-primary/10 cursor-pointer transition-colors"
                 onClick={() => onSlotClick(day, h)}
               />
             ))}

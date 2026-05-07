@@ -23,7 +23,7 @@ const schema = z.object({
  .optional()
  .or(z.literal(""))
  .refine(
- (v) => !v || /^\+?[0-9 ()-]{6,30}$/.test(v),"Nieprawidłowy format telefonu"
+ (v) => !v || /^\+?[0-9 ()-]{6,30}$/.test(v), "Nieprawidłowy format telefonu"
  ),
  linkedin: z
  .string()
@@ -32,7 +32,7 @@ const schema = z.object({
  .optional()
  .or(z.literal(""))
  .refine(
- (v) => !v || /^https?:\/\/.+/.test(v),"LinkedIn URL musi zaczynać się od https://"
+ (v) => !v || /^https?:\/\/.+/.test(v), "LinkedIn URL musi zaczynać się od https://"
  ),
  message: z.string().trim().max(2000).optional(),
 });
@@ -137,7 +137,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  }
  }
 
- if (status ==="success") {
+ if (status === "success") {
  return (
  <div className="py-10 text-center space-y-4">
  <div className="mx-auto h-14 w-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
@@ -154,7 +154,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  );
  }
 
- const busy = status ==="submitting";
+ const busy = status === "submitting";
 
  return (
  <form onSubmit={onSubmit} className="space-y-5" noValidate>

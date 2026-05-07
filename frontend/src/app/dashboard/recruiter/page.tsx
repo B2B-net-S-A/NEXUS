@@ -212,7 +212,7 @@ export default function RecruiterDashboard() {
  const recruiterRoles = ["sourcer","tac","recruiter"] as const
  const isMeRecruiter = !!user && (recruiterRoles as readonly string[]).includes(user.role)
  const isAllowed =
- !!user && (isMeRecruiter || user.role ==="admin" || user.role ==="head_of_recruitment")
+ !!user && (isMeRecruiter || user.role === "admin" || user.role === "head_of_recruitment")
 
  const { data: report, refetch: refetchReport } = useQuery<RecruitmentReport>({
  queryKey: ["report-recruitment","month"],
@@ -280,7 +280,7 @@ export default function RecruiterDashboard() {
  <CardTitle>Brak dostępu</CardTitle>
  <CardDescription>
  Panel dla ról: sourcer, TAC, rekruter. Twoja rola:{""}
- {user ? ROLE_LABELS[user.role] :"—"}.
+ {user ? ROLE_LABELS[user.role] : "—"}.
  </CardDescription>
  </CardHeader>
  </Card>
@@ -466,7 +466,7 @@ export default function RecruiterDashboard() {
  {hallOfFame.top3.slice(0, 5).map((h, idx) => (
  <div
  key={h.user_id}
- className={cn("rounded-md px-3 py-2 bg-primary/10/40",
+ className={cn("rounded-md px-3 py-2 bg-primary/10",
  h.user_id === user.id &&"ring-2 ring-primary",
  )}
  >
@@ -583,8 +583,8 @@ export default function RecruiterDashboard() {
  return (
  <tr
  key={r.user_id}
- className={cn("hover:bg-primary/10/40",
- isMe &&"bg-primary/10/60 font-semibold",
+ className={cn("hover:bg-primary/10",
+ isMe &&"bg-primary/10 font-semibold",
  )}
  >
  <td className="px-3 py-2 text-muted-foreground">
@@ -602,11 +602,11 @@ export default function RecruiterDashboard() {
  {r.role ? (
  <span
  className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide",
- r.role ==="sourcer"
+ r.role === "sourcer"
  ?"bg-sky-100 text-sky-900"
- : r.role ==="tac"
+ : r.role === "tac"
  ?"bg-teal-100 text-teal-900"
- : r.role ==="recruiter"
+ : r.role === "recruiter"
  ?"bg-purple-100 text-purple-900"
  :"bg-slate-100 text-slate-900",
  )}

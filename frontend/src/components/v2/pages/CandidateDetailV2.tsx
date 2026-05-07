@@ -227,7 +227,7 @@ export function CandidateDetailV2({
  );
 
  const candidateNav = useCandidateNavigation(
- navMode ==="embedded" && navContext
+ navMode === "embedded" && navContext
  ? {
  mode: "embedded",
  enabled: true,
@@ -239,7 +239,7 @@ export function CandidateDetailV2({
  pageSize: navContext.pageSize,
  onNavigate: navOnNavigate,
  }
- : navMode ==="url" && urlNav
+ : navMode === "url" && urlNav
  ? {
  mode: "url",
  enabled: true,
@@ -257,7 +257,7 @@ export function CandidateDetailV2({
  },
  );
 
- const showNav = navMode !=="off";
+ const showNav = navMode !== "off";
 
  const [activeTab, setActiveTab] = useState("profil");
  const [emailOpen, setEmailOpen] = useState(false);
@@ -294,7 +294,7 @@ export function CandidateDetailV2({
  queryKey: ["candidate-timeline", id],
  queryFn: () =>
  api.get(`/api/candidates/${id}/timeline?limit=50`).then((r) => r.data),
- enabled: !!id && (activeTab ==="timeline" || activeTab ==="notatki"),
+ enabled: !!id && (activeTab === "timeline" || activeTab === "notatki"),
  });
  const timeline: any[] = Array.isArray(timelineRaw)
  ? timelineRaw
@@ -304,7 +304,7 @@ export function CandidateDetailV2({
  const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
  queryKey: ["candidate-history", id],
  queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
- enabled: !!id && activeTab ==="rekrutacje",
+ enabled: !!id && activeTab === "rekrutacje",
  });
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
@@ -327,7 +327,7 @@ export function CandidateDetailV2({
  const { data: screeningsRaw } = useQuery<{ items?: any[] } | any[]>({
  queryKey: ["candidate-screenings", id],
  queryFn: () => api.get(`/api/candidates/${id}/screenings`).then((r) => r.data),
- enabled: !!id && activeTab ==="screeningi",
+ enabled: !!id && activeTab === "screeningi",
  });
  const screenings: any[] = Array.isArray(screeningsRaw)
  ? screeningsRaw
@@ -336,7 +336,7 @@ export function CandidateDetailV2({
  const { data: callsRaw } = useQuery<{ items?: any[] } | any[]>({
  queryKey: ["candidate-calls", id],
  queryFn: () => api.get(`/api/candidates/${id}/calls`).then((r) => r.data),
- enabled: !!id && activeTab ==="rozmowy",
+ enabled: !!id && activeTab === "rozmowy",
  });
  const calls: any[] = Array.isArray(callsRaw) ? callsRaw : (callsRaw?.items ?? []);
 
@@ -352,7 +352,7 @@ export function CandidateDetailV2({
  queryKey: ["candidate-contracts", id],
  queryFn: () =>
  contractsApi.byCandidate(Number(id)).then((r: any) => r.data),
- enabled: !!id && activeTab ==="umowa",
+ enabled: !!id && activeTab === "umowa",
  });
  const candidateContracts: any[] = Array.isArray(candidateContractsRaw)
  ? candidateContractsRaw
@@ -470,7 +470,7 @@ export function CandidateDetailV2({
  )}
  {riskProfile && <RiskBadge profile={riskProfile} />}
  <CandidateHighlights candidate={candidate} variant="full" />
- {candidate.source ==="linkedin" && (
+ {candidate.source === "linkedin" && (
  <Badge variant="plum" size="sm">
  <Linkedin className="h-3 w-3" />
  LinkedIn
@@ -547,7 +547,7 @@ export function CandidateDetailV2({
  key={i}
  className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
  >
- #{typeof t ==="string" ? t : t.name}
+ #{typeof t === "string" ? t : t.name}
  </span>
  ))}
  </div>
@@ -645,8 +645,7 @@ export function CandidateDetailV2({
  label="Dostępność"
  value={
  candidate.available_from
- ? formatDate(candidate.available_from)
- :"—"
+ ? formatDate(candidate.available_from) : "—"
  }
  />
  <StatTile
@@ -738,7 +737,7 @@ export function CandidateDetailV2({
  <FileSignature className="h-3.5 w-3.5" />
  Umowa
  {candidateContracts.some(
- (c: any) => c.status ==="draft",
+ (c: any) => c.status === "draft",
  ) && (
  <Badge size="sm" variant="warning">
  draft
@@ -1053,7 +1052,7 @@ function formatRate(
 ): string {
  if (amount == null) return"—";
  const unitLabel =
- unit ==="hourly" ?"/h" : unit ==="daily" ?"/d" :"/mies.";
+ unit === "hourly" ?"/h" : unit === "daily" ?"/d" :"/mies.";
  return `${amount.toLocaleString("pl-PL")} ${currency ??"PLN"}${unitLabel}`;
 }
 
@@ -1085,10 +1084,10 @@ function UmowaTab({
  }, [contracts]);
 
  const current = sorted.find(
- (c) => c.status ==="active" || c.status ==="ending",
+ (c) => c.status === "active" || c.status === "ending",
  );
- const draft = sorted.find((c) => c.status ==="draft");
- const history = sorted.filter((c) => c.status ==="ended");
+ const draft = sorted.find((c) => c.status === "draft");
+ const history = sorted.filter((c) => c.status === "ended");
  const [historyOpen, setHistoryOpen] = useState(false);
 
  return (
@@ -1179,7 +1178,7 @@ function UmowaTab({
  </div>
  <div className="text-xs text-muted-foreground">
  {formatDate(c.start_date)} —{""}
- {c.end_date ? formatDate(c.end_date) :"?"} ·{""}
+ {c.end_date ? formatDate(c.end_date) : "?"} ·{""}
  {c.contract_type?.toUpperCase()}
  </div>
  </div>
@@ -1217,12 +1216,12 @@ function CurrentContractCard({ contract }: { contract: any }) {
  </div>
  <div className="text-xs text-muted-foreground">
  {formatDate(contract.start_date)} —{""}
- {contract.end_date ? formatDate(contract.end_date) :"open-ended"}
+ {contract.end_date ? formatDate(contract.end_date) : "open-ended"}
  </div>
  </div>
  <div className="flex gap-2 items-center">
  <Badge
- variant={contract.status ==="ending" ?"warning" :"success"}
+ variant={contract.status === "ending" ?"warning" :"success"}
  size="md"
  >
  {STATUS_LABEL[contract.status] ?? contract.status}
@@ -1405,10 +1404,10 @@ function DraftEditor({
  },
  onError: (err: unknown) => {
  const detail =
- err && typeof err ==="object" &&"response" in err
+ err && typeof err === "object" &&"response" in err
  ? (err as any).response?.data?.detail
  : null;
- if (detail && typeof detail ==="object" && Array.isArray(detail.missing)) {
+ if (detail && typeof detail === "object" && Array.isArray(detail.missing)) {
  showError(`Uzupełnij wymagane pola: ${detail.missing.join(",")}`);
  } else {
  showError("Nie udało się sfinalizować draftu");
@@ -1471,7 +1470,7 @@ function DraftEditor({
  variant="outline"
  onClick={() =>
  window.open(
- contractsApi.draft.printableUrl(contractId),"_blank",
+ contractsApi.draft.printableUrl(contractId), "_blank",
  )
  }
  disabled={!data.content_html}
@@ -1761,8 +1760,8 @@ function ProfilTab({ candidate }: { candidate: any }) {
  </div>
  {(start || end) && (
  <div className="text-xs text-muted-foreground whitespace-nowrap">
- {start ? formatDate(start) :""} —{""}
- {end ? formatDate(end) :"obecnie"}
+ {start ? formatDate(start) : ""} —{""}
+ {end ? formatDate(end) : "obecnie"}
  </div>
  )}
  </div>
@@ -1798,11 +1797,11 @@ const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
 };
 
 function timelineItemLabel(item: any): string {
- if (item.type ==="note") return `Notatka${item.note_type ? ` — ${item.note_type}` :""}`;
- if (item.type ==="stage_change")
+ if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` :""}`;
+ if (item.type === "stage_change")
  return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` :""}`;
- if (item.type ==="activity") {
- if (item.action ==="applied_via_invite") {
+ if (item.type === "activity") {
+ if (item.action === "applied_via_invite") {
  const owner = item.user_name ??"rekruter";
  const prev = item.previous_created_by_name;
  return prev
@@ -1813,7 +1812,7 @@ function timelineItemLabel(item: any): string {
  if (rejectionLabel) return rejectionLabel;
  return item.action ??"Aktywność";
  }
- if (item.type ==="user_activity") return item.action_type ??"Akcja";
+ if (item.type === "user_activity") return item.action_type ??"Akcja";
  return TIMELINE_LABEL[item.type] ?? item.type ??"Zdarzenie";
 }
 
@@ -1841,7 +1840,7 @@ function TimelineTab({ items }: { items: any[] }) {
  {timelineItemLabel(item)}
  </span>
  <span className="ml-auto text-xs text-muted-foreground">
- {item.timestamp ? formatRelativeTime(item.timestamp) :""}
+ {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
  </span>
  </div>
  {item.content && (
@@ -1986,11 +1985,11 @@ function RekrutacjaCard({
  </Badge>
  )
  ) : null}
- {brandedStatus ==="finalized" ? (
+ {brandedStatus === "finalized" ? (
  <Badge size="sm" variant="success">
  Brandowane: gotowe
  </Badge>
- ) : brandedStatus ==="draft" ? (
+ ) : brandedStatus === "draft" ? (
  <Badge size="sm" variant="info">
  Brandowane: draft
  </Badge>
@@ -2018,16 +2017,16 @@ function RekrutacjaCard({
  variant="outline"
  onClick={() => setOpenBranded(true)}
  >
- {brandedStatus ==="none"
+ {brandedStatus === "none"
  ?"Stwórz brandowane"
  :"Edytuj brandowane"}
  </Button>
  <Button
  size="sm"
- disabled={brandedStatus !=="finalized"}
+ disabled={brandedStatus !== "finalized"}
  onClick={() => setOpenShare(true)}
  title={
- brandedStatus !=="finalized"
+ brandedStatus !== "finalized"
  ?"Najpierw sfinalizuj brandowane CV"
  : undefined
  }
@@ -2150,7 +2149,7 @@ function ScreeningsTab({ screenings }: { screenings: any[] }) {
  )}
  </div>
  <div className="text-xs text-muted-foreground mt-1">
- {s.created_at ? formatDate(s.created_at) :"brak daty"}
+ {s.created_at ? formatDate(s.created_at) : "brak daty"}
  {s.salary_expectation && (
  <>
  {" ·"}
@@ -2165,17 +2164,17 @@ function ScreeningsTab({ screenings }: { screenings: any[] }) {
  <Badge
  size="sm"
  variant={
- s.counteroffer_risk ==="low"
+ s.counteroffer_risk === "low"
  ?"success"
- : s.counteroffer_risk ==="medium"
+ : s.counteroffer_risk === "medium"
  ?"warning"
  :"danger"
  }
  >
  Counteroffer:{""}
- {s.counteroffer_risk ==="low"
+ {s.counteroffer_risk === "low"
  ?"Niskie"
- : s.counteroffer_risk ==="medium"
+ : s.counteroffer_risk === "medium"
  ?"Średnie"
  :"Wysokie"}
  </Badge>
@@ -2216,7 +2215,7 @@ function RozmowyTab({ calls }: { calls: any[] }) {
  <div className="flex items-center gap-2 flex-wrap">
  <PhoneCall className="h-3.5 w-3.5 text-primary" />
  <span className="text-sm font-medium text-foreground">
- {c.direction ==="outbound" ?"↗ Wychodząca" :"↙ Przychodząca"}
+ {c.direction === "outbound" ?"↗ Wychodząca" :"↙ Przychodząca"}
  </span>
  {durationLabel && (
  <Badge size="sm" variant="soft">
@@ -2224,7 +2223,7 @@ function RozmowyTab({ calls }: { calls: any[] }) {
  </Badge>
  )}
  <span className="ml-auto text-xs text-muted-foreground">
- {c.created_at ? formatRelativeTime(c.created_at) :""}
+ {c.created_at ? formatRelativeTime(c.created_at) : ""}
  </span>
  </div>
  {c.summary && (
@@ -2253,15 +2252,15 @@ function unwrapNoteContent(raw: unknown): string {
  if (!s.startsWith("{")) break;
  try {
  const parsed = JSON.parse(s);
- if (parsed && typeof parsed ==="object" &&"content" in parsed) {
+ if (parsed && typeof parsed === "object" &&"content" in parsed) {
  const inner = (parsed as { content?: unknown }).content;
- if (typeof inner ==="string") {
+ if (typeof inner === "string") {
  s = inner;
  continue;
  }
- if (inner && typeof inner ==="object" &&"content" in inner) {
+ if (inner && typeof inner === "object" &&"content" in inner) {
  const innerStr = (inner as { content?: unknown }).content;
- if (typeof innerStr ==="string") {
+ if (typeof innerStr === "string") {
  s = innerStr;
  continue;
  }
@@ -2312,7 +2311,7 @@ function NotatkiTab({
  setEditing?: (field: string, active: boolean) => void;
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
- const notes = items.filter((t: any) => t.type ==="note");
+ const notes = items.filter((t: any) => t.type === "note");
 
  const othersEditingNotes = viewers.filter(
  (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
@@ -2384,7 +2383,7 @@ function NotatkiTab({
  </>
  )}
  <span>·</span>
- <span>{n.timestamp ? formatRelativeTime(n.timestamp) :""}</span>
+ <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
  </div>
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
  {renderWithMentions(unwrapNoteContent(n.content), usersByEmail)}
@@ -2477,7 +2476,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  primary
  </Badge>
  )}
- {doc.external_source ==="traffit" && (
+ {doc.external_source === "traffit" && (
  <Badge size="sm" variant="info">
  z Traffita
  </Badge>
@@ -2730,7 +2729,7 @@ function ScreeningSummary({
  {topSkills.map((sk, i) => (
  <Badge
  key={i}
- variant={sk.level ==="confirmed" ?"success" :"soft"}
+ variant={sk.level === "confirmed" ?"success" :"soft"}
  size="sm"
  >
  {sk.skill}

@@ -71,10 +71,10 @@ function extractSkills(must: unknown): string[] {
  if (!must) return [];
  if (Array.isArray(must)) {
  return must
- .map((x) => (typeof x ==="string" ? x : (x as any)?.name ?? null))
+ .map((x) => (typeof x === "string" ? x : (x as any)?.name ?? null))
  .filter(Boolean) as string[];
  }
- if (typeof must ==="object" && (must as any).technologies) {
+ if (typeof must === "object" && (must as any).technologies) {
  return Array.isArray((must as any).technologies) ? (must as any).technologies : [];
  }
  return [];
@@ -106,7 +106,7 @@ export function JobsListV2() {
  params: {
  q: search || undefined,
  status: statusFilter.length ? statusFilter : undefined,
- recruitment_type: typeFilter !=="all" ? typeFilter : undefined,
+ recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
  mine: mine ? true : undefined,
  owner_id: ownerIds.length ? ownerIds : undefined,
  page,
@@ -270,7 +270,7 @@ export function JobsListV2() {
  )}
  </div>
  <div className="flex items-center gap-1 shrink-0">
- {job.status ==="published" && (
+ {job.status === "published" && (
  <button
  type="button"
  onClick={(e) => {
@@ -355,7 +355,7 @@ export function JobsListV2() {
  )}
  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border">
  <span>
- {job.created_at ? formatRelativeTime(job.created_at) :"—"}
+ {job.created_at ? formatRelativeTime(job.created_at) : "—"}
  </span>
  <Sparkles className="h-3 w-3 text-primary" />
  </div>

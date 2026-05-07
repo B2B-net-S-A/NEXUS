@@ -78,7 +78,7 @@ function ViewerAvatar({
  )}
  >
  <AvatarFallback
- className={cn(colorFor(viewer),"text-white font-semibold")}
+ className={cn(colorFor(viewer), "text-white font-semibold")}
  >
  {initialsOf(viewer.name)}
  </AvatarFallback>

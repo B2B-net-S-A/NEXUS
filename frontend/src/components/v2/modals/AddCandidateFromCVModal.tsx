@@ -85,12 +85,12 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function formatSkill(s: { name: string } | string): string {
- return typeof s ==="string" ? s : s.name;
+ return typeof s === "string" ? s : s.name;
 }
 
 function isLow(confidence: Record<string, number>, key: string): boolean {
  const v = confidence?.[key];
- return typeof v ==="number" && v < LOW_CONFIDENCE;
+ return typeof v === "number" && v < LOW_CONFIDENCE;
 }
 
 function ConfidenceRow({
@@ -165,16 +165,15 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  // 409 → structured duplicate alert; other errors → plain message.
  if (err.response?.status === 409) {
  const detail = err.response.data?.detail;
- if (detail && typeof detail ==="object" &&"matches" in detail) {
+ if (detail && typeof detail === "object" &&"matches" in detail) {
  setConflict(detail);
  setError(null);
  return;
  }
  }
  const msg =
- typeof err.response?.data?.detail ==="string"
- ? err.response.data.detail
- :"Nie udało się przetworzyć pliku. Sprawdź format i spróbuj ponownie.";
+ typeof err.response?.data?.detail === "string"
+ ? err.response.data.detail : "Nie udało się przetworzyć pliku. Sprawdź format i spróbuj ponownie.";
  setError(msg);
  },
  });
@@ -204,7 +203,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  ? c.skills.slice(0, 12).map(formatSkill)
  : [];
  const lowCount = Object.values(conf).filter(
- (v) => typeof v ==="number" && v < LOW_CONFIDENCE
+ (v) => typeof v === "number" && v < LOW_CONFIDENCE
  ).length;
 
  return (
@@ -403,7 +402,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  role="button"
  tabIndex={0}
  onKeyDown={(e) => {
- if (e.key ==="Enter" || e.key ==="") fileInputRef.current?.click();
+ if (e.key === "Enter" || e.key === "") fileInputRef.current?.click();
  }}
  className={cn("cursor-pointer rounded-lg border-2 border-dashed p-8 text-center transition-colors",
  dragOver

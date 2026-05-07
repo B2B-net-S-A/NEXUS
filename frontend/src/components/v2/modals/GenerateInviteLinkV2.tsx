@@ -110,7 +110,7 @@ export function GenerateInviteLinkV2({
 
  // Create-tab state
  const [jobId, setJobId] = useState<string>(
- defaultJobId ? String(defaultJobId) :""
+ defaultJobId ? String(defaultJobId) : ""
  );
  const [label, setLabel] = useState("");
  const [expiresInDays, setExpiresInDays] = useState<7 | 14 | 30 | 90>(30);
@@ -120,7 +120,7 @@ export function GenerateInviteLinkV2({
 
  useEffect(() => {
  if (!open) {
- setJobId(defaultJobId ? String(defaultJobId) :"");
+ setJobId(defaultJobId ? String(defaultJobId) : "");
  setLabel("");
  setExpiresInDays(30);
  setResult(null);
@@ -157,7 +157,7 @@ export function GenerateInviteLinkV2({
  });
  return res.data as InviteLink[];
  },
- enabled: open && activeTab ==="history",
+ enabled: open && activeTab === "history",
  });
 
  const createMutation = useMutation({
@@ -217,7 +217,7 @@ export function GenerateInviteLinkV2({
  };
 
  const publishedJobs = useMemo(
- () => (jobsQuery.data ?? []).filter((j) => !j.status || j.status ==="published"),
+ () => (jobsQuery.data ?? []).filter((j) => !j.status || j.status === "published"),
  [jobsQuery.data]
  );
 
@@ -432,7 +432,7 @@ export function GenerateInviteLinkV2({
  size="sm"
  variant="outline"
  onClick={() => handleCopy(link.url)}
- disabled={link.status !=="active" && link.status !=="used"}
+ disabled={link.status !== "active" && link.status !== "used"}
  >
  <Copy className="h-3.5 w-3.5" />
  </Button>
@@ -442,7 +442,7 @@ export function GenerateInviteLinkV2({
  onClick={() => revokeMutation.mutate(link.token)}
  disabled={
  link.revoked ||
- link.status ==="expired" ||
+ link.status === "expired" ||
  revokeMutation.isPending
  }
  title="Wycofaj link"

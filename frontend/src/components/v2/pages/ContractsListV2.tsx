@@ -322,7 +322,7 @@ export function ContractsListV2() {
  <TableCell>
  <div className="flex items-center gap-1 text-xs text-foreground">
  <Calendar className="h-3 w-3" />
- {c.start_date ? formatDate(c.start_date) :"—"}
+ {c.start_date ? formatDate(c.start_date) : "—"}
  </div>
  {c.end_date && (
  <div className="text-xs text-muted-foreground">
@@ -336,7 +336,7 @@ export function ContractsListV2() {
  </Badge>
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
- {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") :"—"}
+ {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "—"}
  </TableCell>
  <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin))}>
  {c.margin != null ? `${(c.margin * 100).toFixed(1)}%` :"—"}

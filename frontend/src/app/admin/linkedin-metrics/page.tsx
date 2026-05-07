@@ -61,7 +61,7 @@ function fmtDay(d: Date) {
 export default function AdminLinkedInMetricsPage() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
- const isAllowed = !!user && (user.role ==="admin" || user.role ==="head_of_recruitment")
+ const isAllowed = !!user && (user.role === "admin" || user.role === "head_of_recruitment")
  const qc = useQueryClient()
 
  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
@@ -277,7 +277,7 @@ export default function AdminLinkedInMetricsPage() {
  </tr>
  )}
  {users.map((u) => (
- <tr key={u.id} className="hover:bg-primary/10/20">
+ <tr key={u.id} className="hover:bg-primary/10">
  <td className="px-2 py-2 font-medium sticky left-0 bg-card">
  <div>{u.name}</div>
  <div className="text-[10px] text-muted-foreground uppercase">

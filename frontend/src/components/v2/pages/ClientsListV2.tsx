@@ -141,7 +141,7 @@ export function ClientsListV2() {
  if (!aHas) return 1;
  if (!bHas) return -1;
  const diff = (a.r!.hit_ratio ?? 0) - (b.r!.hit_ratio ?? 0);
- return hitSort ==="asc" ? diff : -diff;
+ return hitSort === "asc" ? diff : -diff;
  });
  return withRatio.map((x) => x.c);
  }, [rawItems, hitSort, ratioByClient]);
@@ -150,7 +150,7 @@ export function ClientsListV2() {
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
  const toggleHitSort = () =>
- setHitSort((prev) => (prev ==="desc" ?"asc" : prev ==="asc" ? null :"desc"));
+ setHitSort((prev) => (prev === "desc" ?"asc" : prev === "asc" ? null : "desc"));
 
  const onAdded = (msg: string) => {
  setShowAdd(false);
@@ -208,8 +208,8 @@ export function ClientsListV2() {
  title="Hit ratio = % zamkniętych zapytań z co najmniej jednym zatrudnieniem (ostatnie 12 mies.)"
  >
  Hit ratio
- {hitSort ==="desc" && <ArrowDown className="h-3.5 w-3.5" />}
- {hitSort ==="asc" && <ArrowUp className="h-3.5 w-3.5" />}
+ {hitSort === "desc" && <ArrowDown className="h-3.5 w-3.5" />}
+ {hitSort === "asc" && <ArrowUp className="h-3.5 w-3.5" />}
  </button>
  </TableHead>
  <TableHead>NDA</TableHead>
@@ -288,7 +288,7 @@ export function ClientsListV2() {
  )}
  </TableCell>
  <TableCell className="text-xs text-muted-foreground">
- {c.created_at ? formatRelativeTime(c.created_at) :"—"}
+ {c.created_at ? formatRelativeTime(c.created_at) : "—"}
  </TableCell>
  </TableRow>
  );

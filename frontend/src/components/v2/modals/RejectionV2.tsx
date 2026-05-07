@@ -75,12 +75,12 @@ export function RejectionV2({
  // the candidate, no notification needed from our side. For `rejected`,
  // we pre-check when the previous stage was external (client-visible).
  const emailAvailable =
- terminalType ==="rejected" && previousStageCategory ==="external";
+ terminalType === "rejected" && previousStageCategory === "external";
  const [sendEmail, setSendEmail] = useState<boolean>(emailAvailable);
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
- terminalType ==="withdrawn" &&
+ terminalType === "withdrawn" &&
  !!previousStage &&
  POST_ACCEPT_STAGES.has(previousStage);
  const [offerResponse, setOfferResponse] =

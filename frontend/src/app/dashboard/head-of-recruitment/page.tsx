@@ -297,7 +297,7 @@ export default function HeadOfRecruitmentDashboard() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
 
- const isAllowed = !!user && (user.role ==="head_of_recruitment" || user.role ==="admin")
+ const isAllowed = !!user && (user.role === "head_of_recruitment" || user.role === "admin")
 
  const { data: summary } = useQuery<SummaryResponse>({
  queryKey: ["team-structure-summary"],

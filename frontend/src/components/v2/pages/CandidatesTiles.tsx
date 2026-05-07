@@ -141,7 +141,7 @@ export function CandidatesTiles({
  key={candidate.id}
  className={cn("group relative flex flex-col items-center text-center gap-2 rounded-lg border bg-card p-4 transition-colors",
  isSelected
- ?"border-primary bg-primary/10/30"
+ ?"border-primary bg-primary/10"
  :"border-border hover:border-primary/60"
  )}
  >

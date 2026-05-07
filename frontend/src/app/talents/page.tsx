@@ -325,7 +325,7 @@ function PoolDetailView({
  const skills = Array.isArray(c.skills) ? c.skills : [];
  const topSkills = skills
  .slice(0, 4)
- .map((s) => (typeof s ==="object" ? s.name : s));
+ .map((s) => (typeof s === "object" ? s.name : s));
 
  return (
  <div
@@ -379,7 +379,7 @@ function PoolDetailView({
  </div>
 
  <div className="flex items-center gap-3 flex-shrink-0">
- {c.source_event ==="cv_sent" && (
+ {c.source_event === "cv_sent" && (
  c.source_job_id ? (
  <Link
  href={`/jobs/${c.source_job_id}`}
@@ -399,16 +399,16 @@ function PoolDetailView({
  )}
  <span
  className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
- c.status ==="active"
+ c.status === "active"
  ?"bg-emerald-100 text-emerald-700"
- : c.status ==="passive"
+ : c.status === "passive"
  ?"bg-amber-100 text-amber-700"
  :"bg-destructive/15 text-destructive"
  )}
  >
- {c.status ==="active"
+ {c.status === "active"
  ?"Aktywny"
- : c.status ==="passive"
+ : c.status === "passive"
  ?"Pasywny"
  :"Zablokowany"}
  </span>
@@ -496,8 +496,8 @@ function TalentsPageContent() {
 
  // Sort group keys alphabetically (pl);"Inne" stays last
  const entries = Array.from(groups.entries()).sort(([a], [b]) => {
- if (a ==="Inne") return 1;
- if (b ==="Inne") return -1;
+ if (a === "Inne") return 1;
+ if (b === "Inne") return -1;
  return a.localeCompare(b, "pl");
  });
  return entries;

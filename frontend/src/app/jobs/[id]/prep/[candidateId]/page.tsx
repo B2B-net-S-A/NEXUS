@@ -47,7 +47,7 @@ export default function PrepPage() {
  setState("ready");
  } catch (err) {
  const message =
- err instanceof Error ? err.message :"Błąd wczytywania prep-kita";
+ err instanceof Error ? err.message : "Błąd wczytywania prep-kita";
  setError(message);
  setState("error");
  }
@@ -64,7 +64,7 @@ export default function PrepPage() {
  () =>
  suggestions.filter(
  (s) =>
- s.source_tier ==="pinned" || s.source_tier ==="legacy_champion",
+ s.source_tier === "pinned" || s.source_tier === "legacy_champion",
  ),
  [suggestions],
  );
@@ -73,7 +73,7 @@ export default function PrepPage() {
  () =>
  suggestions.filter(
  (s) =>
- s.source_tier !=="pinned" && s.source_tier !=="legacy_champion",
+ s.source_tier !== "pinned" && s.source_tier !== "legacy_champion",
  ),
  [suggestions],
  );
@@ -120,13 +120,13 @@ export default function PrepPage() {
  </div>
  </header>
 
- {state ==="loading" && (
+ {state === "loading" && (
  <Card variant="default" size="md">
  <CardDescription>Wczytywanie prep-kita…</CardDescription>
  </Card>
  )}
 
- {state ==="error" && (
+ {state === "error" && (
  <Card variant="default" size="md">
  <CardTitle>Nie udało się wczytać prep-kita</CardTitle>
  <CardDescription>{error}</CardDescription>
@@ -138,7 +138,7 @@ export default function PrepPage() {
  </Card>
  )}
 
- {state ==="ready" && prepKit && (
+ {state === "ready" && prepKit && (
  <div className="grid gap-4">
  {/* Client overview */}
  <Card variant="default" size="md">
