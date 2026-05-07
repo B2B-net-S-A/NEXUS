@@ -236,9 +236,7 @@ class Settings(BaseSettings):
         if not self.SSO_ALLOWED_DOMAINS:
             return []
         return [
-            d.strip().lower()
-            for d in self.SSO_ALLOWED_DOMAINS.split(",")
-            if d.strip()
+            d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
         ]
 
     @field_validator("SECRET_KEY")
