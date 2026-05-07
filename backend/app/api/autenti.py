@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -29,10 +29,16 @@ from app.models.document_signature import DocumentSignature
 from app.schemas.document_signature import (
     AutentiSendRequest,
     AutentiSendResponse,
+    AutentiWebhookResponse,
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
 )
 from app.services.autenti.sender import prepare_send, send_to_autenti
+from app.services.autenti.webhook_handler import handle_event
+from app.services.autenti.webhook_verify import (
+    AutentiWebhookError,
+    verify_jwt,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -112,3 +118,46 @@ async def get_signature_detail(
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
     return sig
+
+
+@router.post("/webhook", response_model=AutentiWebhookResponse)
+async def receive_autenti_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AutentiWebhookResponse:
+    """Receive a JWT-signed webhook from Autenti.
+
+    No FastAPI auth dependency — the JWT signature IS the auth. Body is the
+    raw JWT (Autenti uses a compact JWS over JSON).
+
+    Returns 200 with ``status: "ok" | "duplicate" | "ignored"``. Always 200
+    (or 401 on bad signature) — Autenti retries 4xx/5xx, so unknown
+    process_id MUST 200 to break the retry loop.
+    """
+    raw = await request.body()
+    token = raw.decode("utf-8", errors="replace").strip()
+    # Some Autenti deployments wrap the JWT in JSON: {"jwt": "..."}
+    if token.startswith("{"):
+        try:
+            import json
+
+            parsed = json.loads(token)
+            token = parsed.get("jwt") or parsed.get("token") or token
+        except json.JSONDecodeError:
+            pass
+
+    if not token:
+        logger.warning("Empty Autenti webhook body")
+        raise HTTPException(status_code=400, detail="Empty body")
+
+    try:
+        claims = await verify_jwt(token)
+    except AutentiWebhookError as exc:
+        logger.warning("Autenti webhook JWT verification failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Webhook signature invalid: {exc}",
+        )
+
+    outcome = await handle_event(db, claims)
+    return AutentiWebhookResponse(status=outcome)
