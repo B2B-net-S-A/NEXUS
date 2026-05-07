@@ -249,9 +249,15 @@ export function AutentiEnvelopeCard({
     refetchOnWindowFocus: false,
   });
 
-  // Hide the entire card when the feature is off (404 from router not mounted).
+  // Hide the entire card when the feature is off. The router is now mounted
+  // unconditionally; write endpoints return 503 when disabled. The list
+  // endpoint stays live and returns []. Treat both 503 (legacy) and an empty
+  // list with no creds as "soft hidden".
   const axiosError = error as AxiosError | undefined;
-  if (axiosError?.response?.status === 404) {
+  if (
+    axiosError?.response?.status === 404 ||
+    axiosError?.response?.status === 503
+  ) {
     return null;
   }
 

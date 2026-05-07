@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, TacPlus
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
@@ -47,6 +48,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _require_enabled() -> None:
+    """Guard for write/IO endpoints. Read-only endpoints stay live."""
+    if not settings.AUTENTI_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Autenti integration is disabled (AUTENTI_ENABLED=false)",
+        )
+
+
 @router.post(
     "/contracts/{contract_id}/send",
     response_model=AutentiSendResponse,
@@ -64,6 +74,7 @@ async def send_contract_for_signature(
     The actual API call happens in :func:`send_to_autenti` background task,
     which transitions ``status=draft → sending → sent`` (or ``failed``).
     """
+    _require_enabled()
     sig = await prepare_send(
         db,
         contract_id=contract_id,
@@ -133,6 +144,7 @@ async def withdraw_signature(
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Cancel a sent process. Calls Autenti `withdraw` action."""
+    _require_enabled()
     sig = await db.scalar(
         select(DocumentSignature).where(DocumentSignature.id == signature_id)
     )
@@ -191,6 +203,7 @@ async def remind_signer(
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Trigger Autenti `remind` action. Throttled at 1 reminder / hour."""
+    _require_enabled()
     sig = await db.scalar(
         select(DocumentSignature).where(DocumentSignature.id == signature_id)
     )
@@ -298,7 +311,11 @@ async def receive_autenti_webhook(
     Returns 200 with ``status: "ok" | "duplicate" | "ignored"``. Always 200
     (or 401 on bad signature) — Autenti retries 4xx/5xx, so unknown
     process_id MUST 200 to break the retry loop.
+
+    503 when AUTENTI_ENABLED=false (Autenti will retry 5xx — webhook
+    payload isn't lost during a rolling rollback).
     """
+    _require_enabled()
     raw = await request.body()
     token = raw.decode("utf-8", errors="replace").strip()
     # Some Autenti deployments wrap the JWT in JSON: {"jwt": "..."}

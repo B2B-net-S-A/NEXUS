@@ -421,10 +421,12 @@ if settings.M365_INTEGRATION_ENABLED:
     app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
 
 # Phase Autenti.1 — e-signature integration (Autenti, eIDAS-compliant).
-# Router is silently absent (404 framework default) when AUTENTI_ENABLED=false,
-# matching the M365 pattern above. No behaviour change to existing endpoints.
-if settings.AUTENTI_ENABLED:
-    app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
+# Router mounted unconditionally so write/IO endpoints can return 503 at
+# runtime when AUTENTI_ENABLED=false (rolling rollback friendly — Autenti
+# retries 5xx, so webhook payload survives a temporary kill-switch).
+# Each write/IO handler invokes _require_enabled() internally; read-only
+# GETs stay live so the FE can show empty timelines.
+app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 
 
 @app.get("/health")
