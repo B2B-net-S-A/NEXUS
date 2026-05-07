@@ -17,7 +17,10 @@ in the query string would leak them into proxy logs / browser history /
 Sentry breadcrumbs. The UUID is jednorazowy (60s TTL, ``consumed_at`` flag).
 """
 
-from __future__ import annotations
+# NB: nie używamy ``from __future__ import annotations`` — FastAPI body
+# inference + Pydantic nie potrafi rozwiązać ForwardRef przy lazy
+# annotacjach (PydanticUserError "TypeAdapter[Annotated[ForwardRef(...)]]
+# is not fully defined"). Eager annotacje są tu OK — plik jest mały.
 
 import logging
 import secrets
