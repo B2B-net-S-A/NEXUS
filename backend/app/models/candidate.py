@@ -256,6 +256,11 @@ class Candidate(Base, TimestampMixin):
         String(50), default="manual", index=True
     )
     cv_file_content: Mapped[Optional[bytes]] = mapped_column(LargeBinary)
+    # Klucz w Hetzner Object Storage (audit-2026-05-07 round 2, migracja 0080).
+    # Po finalize-delete-bytea cv_file_content = NULL dla zmigrowanych rekordów.
+    cv_storage_key: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, index=True
+    )
     cv_language: Mapped[Optional[str]] = mapped_column(String(10))
     cv_extracted_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 

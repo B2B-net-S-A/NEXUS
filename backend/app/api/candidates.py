@@ -2131,6 +2131,26 @@ async def bulk_cv_download(
                     logger.warning(
                         "bulk_cv_download: failed to read %s: %s", file_path, err
                     )
+            elif candidate.cv_storage_key:
+                # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.
+                from app.services.object_storage import (
+                    download_cv as _download_cv,
+                    is_available as _storage_available,
+                )
+
+                if _storage_available():
+                    try:
+                        data = _download_cv(candidate.cv_storage_key)
+                    except Exception as err:
+                        logger.warning(
+                            "bulk_cv_download: storage fetch failed for %s: %s",
+                            candidate.id,
+                            err,
+                        )
+                # Fallback do BYTEA jeśli storage nie odpowiada — przed
+                # finalize-delete-bytea oba mogą współistnieć.
+                if data is None and candidate.cv_file_content:
+                    data = candidate.cv_file_content
             elif candidate.cv_file_content:
                 data = candidate.cv_file_content
 
