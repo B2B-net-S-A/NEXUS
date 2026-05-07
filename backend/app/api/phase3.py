@@ -266,7 +266,13 @@ async def funnel_report(
     stage_defs = (await db.execute(q)).scalars().all()
 
     funnel: list[dict] = []
-    prev_count = None
+    # Denominator dla % konwersji = liczba kandydatów w pierwszym (entry) etapie.
+    # Stary algorytm (count/prev_count) dawał wartości >100% gdy etap miał
+    # więcej kandydatów niż bezpośrednio poprzedni etap (np. Preparation Call
+    # opcjonalna z count=1, Screening obowiązkowa z count=17 → 1700%).
+    # Semantyka "lejka rekrutacyjnego" wymaga stałego denominatora = total entered.
+    first_count: int | None = None
+    prev_count: int | None = None
     for sd in stage_defs:
         count = await db.scalar(
             select(func.count(func.distinct(CandidateStage.candidate_id))).where(
@@ -274,7 +280,17 @@ async def funnel_report(
             )
         )
         count = count or 0
-        conversion = (count / prev_count * 100.0) if prev_count else 100.0
+        if first_count is None and count > 0:
+            first_count = count
+        # Overall conversion: % wszystkich, którzy weszli do pipeline.
+        conversion_pct = (
+            round(count / first_count * 100.0, 1) if first_count else None
+        )
+        # Step conversion: % z poprzedniego etapu, capped 100% (gdy etap był
+        # opcjonalny, kandydaci omijają go i suma current > prev).
+        step_pct = (
+            round(min(count / prev_count * 100.0, 100.0), 1) if prev_count else None
+        )
         funnel.append(
             {
                 "stage_def_id": sd.id,
@@ -283,7 +299,8 @@ async def funnel_report(
                 "category": sd.category.value,
                 "is_terminal": sd.is_terminal,
                 "count": count,
-                "conversion_pct": round(conversion, 1) if prev_count else None,
+                "conversion_pct": conversion_pct,
+                "step_conversion_pct": step_pct,
             }
         )
         if not sd.is_terminal:
