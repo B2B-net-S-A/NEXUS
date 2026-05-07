@@ -65,7 +65,14 @@ async def login(
     """Authenticate user and return JWT tokens. Rate-limited: 5 req/min per IP."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(data.password, user.password_hash):
+    # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
+    # konto zalogowane przez Microsoft SSO i bez bcrypt hash — odmów cicho,
+    # nie ujawniając czy konto istnieje.
+    if (
+        not user
+        or not user.password_hash
+        or not verify_password(data.password, user.password_hash)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )

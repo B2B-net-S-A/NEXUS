@@ -88,6 +88,7 @@ from app.api import interview_questions as interview_questions_api
 from app.api import interview_feedback as interview_feedback_api
 from app.api import rejection_emails as rejection_emails_api
 from app.api import microsoft365 as microsoft365_api
+from app.api import auth_microsoft as auth_microsoft_api
 from app.api import email_threads as email_threads_api
 from app.api import marketplace as marketplace_api
 from app.api import presence as presence_api
@@ -419,6 +420,12 @@ if settings.M365_INTEGRATION_ENABLED:
         microsoft365_api.router, prefix="/api/microsoft365", tags=["microsoft365"]
     )
     app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
+    # Faza B — "Sign in with Microsoft" SSO. Reuses M365 Azure AD app.
+    app.include_router(
+        auth_microsoft_api.router,
+        prefix="/api/auth/microsoft",
+        tags=["auth-microsoft"],
+    )
 
 # Phase Autenti.1 — e-signature integration (Autenti, eIDAS-compliant).
 # Router mounted unconditionally so write/IO endpoints can return 503 at
@@ -471,17 +478,19 @@ def _resolve_deployed_at() -> str:
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
 
-    Shape: {status, version, deployedAt, checks: {database}}.
-    HTTP 503 on `unhealthy`, 200 on `healthy`/`degraded`.
-    Database ping is bounded to 2s to avoid blocking k8s/Docker probes.
+    Shape: {status, version, deployedAt, checks: {database, m365}}.
+    HTTP 503 only when `database` is unhealthy (uptime-probe contract);
+    `m365` is informational and does not affect the gate.
+    Database ping is bounded to 2s; M365 connection count to 1s.
     """
     import asyncio
     import os
 
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
-    from sqlalchemy import text
+    from sqlalchemy import func, select, text
 
+    from app.core.config import settings
     from app.core.database import AsyncSessionLocal
 
     checks: dict[str, str] = {}
@@ -493,8 +502,30 @@ async def api_health_check():
     except Exception:
         checks["database"] = "unhealthy"
 
-    is_healthy = all(v == "healthy" for v in checks.values())
-    overall = "healthy" if is_healthy else "unhealthy"
+    # M365 status — informational only (does not affect HTTP 503 gate).
+    if not settings.M365_INTEGRATION_ENABLED:
+        checks["m365"] = "disabled"
+    elif not settings.M365_SYNC_LOOP_ENABLED:
+        checks["m365"] = "degraded"
+    else:
+        try:
+            from app.models.m365 import M365Connection
+
+            async with AsyncSessionLocal() as session:
+                count = await asyncio.wait_for(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(M365Connection)
+                        .where(M365Connection.is_active.is_(True))
+                    ),
+                    timeout=1.0,
+                )
+            checks["m365"] = "healthy" if (count or 0) >= 1 else "degraded"
+        except Exception:
+            checks["m365"] = "degraded"
+
+    db_healthy = checks.get("database") == "healthy"
+    overall = "healthy" if db_healthy else "unhealthy"
 
     return JSONResponse(
         content={
@@ -504,6 +535,6 @@ async def api_health_check():
             "checks": checks,
         },
         status_code=http_status.HTTP_200_OK
-        if is_healthy
+        if db_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
