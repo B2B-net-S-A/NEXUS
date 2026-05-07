@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.microsoft365_sync import microsoft365_sync_loop
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
+    from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -215,6 +216,9 @@ async def lifespan(app: FastAPI):
     microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
     marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
     chat_email_fallback_task = asyncio.create_task(chat_email_fallback_loop())
+    # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
+    # spawn unconditionally (mirrors LinkedIn/M365 patterns).
+    autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
 
     yield
 
@@ -234,6 +238,7 @@ async def lifespan(app: FastAPI):
         microsoft365_sync_task,
         marketplace_sweeper_task,
         chat_email_fallback_task,
+        autenti_sweeper_task,
     )
     for t in tasks:
         t.cancel()

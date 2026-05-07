@@ -258,6 +258,33 @@ async def remind_signer(
     return sig
 
 
+@router.get("/health")
+async def autenti_health(
+    current_user: CurrentUser,
+) -> dict:
+    """Lightweight health probe for the Autenti integration.
+
+    Returns ``{healthy, has_credentials, last_token_refresh_seconds_ago}``.
+    Useful for the on-call playbook (see docs/autenti-integration.md).
+    """
+    from app.services.autenti.webhook_verify import _jwks_fetched_at
+
+    has_creds = bool(
+        getattr(
+            __import__("app.core.config", fromlist=["settings"]), "settings"
+        ).AUTENTI_CLIENT_ID
+    )
+    age = None
+    if _jwks_fetched_at:
+        age = int(datetime.now(timezone.utc).timestamp() - _jwks_fetched_at)
+
+    return {
+        "enabled": True,  # Router only mounts when enabled, so this is implicit.
+        "has_credentials": has_creds,
+        "jwks_cache_age_seconds": age,
+    }
+
+
 @router.post("/webhook", response_model=AutentiWebhookResponse)
 async def receive_autenti_webhook(
     request: Request,

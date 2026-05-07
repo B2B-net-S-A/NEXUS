@@ -193,6 +193,11 @@ class Settings(BaseSettings):
     # hours of "now" to be accepted. Defends against replay of old webhook
     # bodies. 24h is generous (Autenti retries up to ~10× over hours).
     AUTENTI_WEBHOOK_IAT_MAX_AGE_HOURS: int = 24
+    # Background sweeper cadence (Phase 5 belt-and-braces). Polls expired
+    # signatures + retries failed signed-PDF downloads. Clamped to >=300s
+    # to avoid Autenti API hammering. 1h tick is plenty since the primary
+    # state pump is the webhook handler.
+    AUTENTI_SWEEPER_INTERVAL_SECONDS: int = 3600
 
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
