@@ -340,9 +340,9 @@ export default function ProfilePage() {
             <div className="flex items-start gap-2">
               <Clock className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" aria-hidden="true" />
               <div>
-                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Ostatnie logowanie</p>
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground">Ostatnia aktywność</p>
                 <p className="text-sm font-semibold text-foreground dark:text-foreground">
-                  {formatDate(profile?.last_login)}
+                  {formatDate(profile?.last_seen_at)}
                 </p>
               </div>
             </div>

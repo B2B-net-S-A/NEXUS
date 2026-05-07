@@ -31,6 +31,10 @@ class UserResponse(BaseModel):
     # ustawiamy True; frontend redirectuje do /profile dopóki nie zmieni.
     force_password_change: bool = False
     force_password_change_at: Optional[datetime] = None
+    # Ostatnia aktywność (WS connection time z `ConnectionManager`). Pełni rolę
+    # proxy "ostatniego logowania" w UI profilu — true `last_login` wymagałby
+    # osobnej kolumny + login event hook (kandydat na osobne enhancement).
+    last_seen_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu, Search } from "lucide-react";
+import { Menu, Moon, Search, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -10,6 +10,32 @@ import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
+import { useThemeStore } from "@/store/theme";
+
+function ThemeToggleButton() {
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch — theme is read from localStorage on client only.
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return <div className="h-8 w-8" aria-hidden />;
+  }
+
+  const isDark = theme === "dark";
+  return (
+    <button
+      onClick={toggleTheme}
+      aria-label={isDark ? "Włącz tryb jasny" : "Włącz tryb ciemny"}
+      title={isDark ? "Tryb jasny" : "Tryb ciemny"}
+      className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
+  );
+}
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -71,6 +97,7 @@ export function TopbarV2({
 
       <div className="flex items-center gap-2 shrink-0">
         <MyKpiWidget variant="compact" className="hidden md:block" />
+        <ThemeToggleButton />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}

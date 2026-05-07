@@ -41,17 +41,34 @@ interface DialogContentProps
 const DialogContent = React.forwardRef<
  React.ComponentRef<typeof DialogPrimitive.Content>,
  DialogContentProps
->(({ className, children, size ="md", hideClose, ...props }, ref) => (
+>(({
+ className,
+ children,
+ size ="md",
+ hideClose,
+ // Radix Dialog wymaga `<DialogDescription>` lub explicit `aria-describedby={undefined}`,
+ // inaczej loguje warning. Pass-through z defaultem undefined wycisza warning.
+ "aria-describedby": ariaDescribedBy,
+ ...props
+}, ref) => (
  <DialogPortal>
  <DialogOverlay />
  <DialogPrimitive.Content
  ref={ref}
+ aria-describedby={ariaDescribedBy}
  className={cn("fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%]",
  dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90vh] overflow-hidden","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}
  >
+ {/* Fallback opis dla a11y — wymóg radix-ui Dialog. Klient może override */}
+ {/* poprzez <DialogDescription> w children. */}
+ {!ariaDescribedBy && (
+ <DialogPrimitive.Description className="sr-only">
+ Dialog
+ </DialogPrimitive.Description>
+ )}
  {children}
  {!hideClose && (
  <DialogPrimitive.Close
