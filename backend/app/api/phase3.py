@@ -283,9 +283,7 @@ async def funnel_report(
         if first_count is None and count > 0:
             first_count = count
         # Overall conversion: % wszystkich, którzy weszli do pipeline.
-        conversion_pct = (
-            round(count / first_count * 100.0, 1) if first_count else None
-        )
+        conversion_pct = round(count / first_count * 100.0, 1) if first_count else None
         # Step conversion: % z poprzedniego etapu, capped 100% (gdy etap był
         # opcjonalny, kandydaci omijają go i suma current > prev).
         step_pct = (
