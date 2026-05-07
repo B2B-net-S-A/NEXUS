@@ -32,3 +32,6 @@ cryptography==44.0.0
 bleach==6.2.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.10.1
+
+# Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
+boto3==1.35.0
