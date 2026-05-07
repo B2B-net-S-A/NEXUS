@@ -16,6 +16,12 @@ import {
   Clock,
   HelpCircle,
   Sparkles,
+  Sliders,
+  Coins,
+  FileSignature,
+  Workflow,
+  Stethoscope,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -24,13 +30,59 @@ import Microsoft365Card from "@/components/settings/Microsoft365Card";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
-type Tab = "integracje" | "szablony" | "coaching" | "onboarding";
+type Tab = "integracje" | "szablony" | "coaching" | "onboarding" | "zaawansowane";
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: "integracje", label: "Integracje", icon: <Plug className="w-4 h-4" /> },
   { id: "szablony", label: "Szablony email", icon: <Mail className="w-4 h-4" /> },
   { id: "coaching", label: "Coaching KPI", icon: <Sparkles className="w-4 h-4" /> },
+  { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
   { id: "onboarding", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
+];
+
+// Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
+const ADVANCED_LINKS: Array<{
+  href: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    href: "/settings/pipeline-templates",
+    title: "Procesy rekrutacyjne",
+    description: "Pipeline templates: definicje stagey i przepływów per ofertę.",
+    icon: <Workflow className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/scoring",
+    title: "Profile wag scoringu",
+    description: "Tunowanie semantic / skills / salary / location / availability per klient.",
+    icon: <Sliders className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/rate-benchmarks",
+    title: "Stawki rynkowe",
+    description: "Import i zarządzanie benchmarkami stawek (No Fluff Jobs, Bulldogjob, własne).",
+    icon: <Coins className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/contract-templates",
+    title: "Szablony umów",
+    description: "Edytor szablonów kontraktów (B2B, body leasing, fixed-price).",
+    icon: <FileSignature className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/templates",
+    title: "Szablony email",
+    description: "Wiadomości szablonowe — outreach, follow-up, rejection.",
+    icon: <Mail className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/diagnostics",
+    title: "Diagnostyka",
+    description: "Status komponentów, kolejki, background tasks.",
+    icon: <Stethoscope className="w-5 h-5" />,
+  },
 ];
 
 // ── Fireflies Card ────────────────────────────────────────────────────────────
@@ -263,6 +315,35 @@ export default function SettingsPage() {
 
       {activeTab === "coaching" && (
         <CoachingSettings />
+      )}
+
+      {activeTab === "zaawansowane" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {ADVANCED_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="group bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-sm transition-all"
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  {link.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
+                      {link.title}
+                    </h3>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                  </div>
+                  <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">
+                    {link.description}
+                  </p>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
       )}
 
       {activeTab === "onboarding" && (
