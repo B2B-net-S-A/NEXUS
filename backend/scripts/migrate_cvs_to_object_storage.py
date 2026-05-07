@@ -34,6 +34,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from sqlalchemy import func, select, update  # noqa: E402
+from sqlalchemy.orm import undefer  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.candidate_document import CandidateDocument  # noqa: E402
@@ -81,6 +82,9 @@ async def copy_phase(commit: bool, batch: int) -> int:
                 .where(CandidateDocument.file_content.isnot(None))
                 .order_by(CandidateDocument.id)
                 .limit(batch)
+                # Eager-load deferred BYTEA column — async session nie może
+                # lazy-loadować `deferred()` columns bez greenlet wrapper.
+                .options(undefer(CandidateDocument.file_content))
             )
             rows = (await session.execute(stmt)).scalars().all()
             if not rows:
