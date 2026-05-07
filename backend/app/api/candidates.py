@@ -1382,7 +1382,27 @@ async def download_candidate_document(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # `file_content` is deferred — explicit refresh
+    filename = doc.filename or f"document-{doc.id}"
+
+    # Po migracji do Hetzner Object Storage (audit-2026-05-07 Faza 3): jeśli
+    # `storage_key` jest set, klient ściąga bezpośrednio przez presigned URL
+    # — backend nie pośredniczy w bytestream.
+    if doc.storage_key:
+        from fastapi.responses import RedirectResponse
+
+        from app.services.object_storage import (
+            get_presigned_download_url,
+            is_available,
+        )
+
+        if is_available():
+            url = get_presigned_download_url(doc.storage_key, filename=filename)
+            return RedirectResponse(url, status_code=302)
+        # Storage env nie skonfigurowane — fallback do BYTEA jeśli jeszcze jest.
+
+    # Legacy path: stream from postgres BYTEA. Po --finalize-delete-bytea
+    # ta gałąź zwróci 404 dla zmigrowanych rekordów (file_content = NULL),
+    # ale wtedy storage_key jest set i pierwsza gałąź obsługuje request.
     await db.refresh(doc, attribute_names=["file_content"])
     if not doc.file_content:
         raise HTTPException(status_code=404, detail="Document content not available")
@@ -1390,7 +1410,6 @@ async def download_candidate_document(
     import io
 
     media_type = doc.content_type or "application/octet-stream"
-    filename = doc.filename or f"document-{doc.id}"
     return StreamingResponse(
         io.BytesIO(doc.file_content),
         media_type=media_type,
