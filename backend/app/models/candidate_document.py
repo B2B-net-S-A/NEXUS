@@ -44,8 +44,17 @@ class CandidateDocument(Base, TimestampMixin):
 
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     # Lazy-loaded — nie pobieraj BYTEA przy SELECT * (kilkadziesiąt MB per row).
+    # Po migracji do Hetzner Object Storage (audit-2026-05-07, migracja 0079)
+    # file_content jest NULL dla rekordów ze ``storage_key`` set; nowy upload
+    # idzie bezpośrednio do object storage. Zostawiamy nullable=True jako
+    # tymczasowy fallback dla legacy rows do czasu finalize-delete-bytea.
     file_content: Mapped[Optional[bytes]] = deferred(
         mapped_column(LargeBinary, nullable=True)
+    )
+    # Klucz w Hetzner Object Storage (np. 'cv/2026/05/abc123-cv.pdf').
+    # NULL = legacy row z file_content w postgres BYTEA (przed migracją).
+    storage_key: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, index=True
     )
     content_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

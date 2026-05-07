@@ -36,3 +36,6 @@ rapidfuzz==3.10.1
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==63.0
+
+# Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
+boto3==1.35.0
