@@ -165,6 +165,40 @@ class Settings(BaseSettings):
     # Whether to auto-parse CV attachments via cv_parser (Claude calls = $$).
     M365_AUTO_PARSE_CV: bool = True
 
+    # ── Autenti e-signature integration (Phase Autenti.1) ───────────────────
+    # Kill-switch: when False, /api/autenti/* router is not mounted, send/webhook
+    # endpoints return 503, sweeper loop exits immediately. Default OFF until
+    # API credentials are provisioned by Autenti sales (paid add-on).
+    AUTENTI_ENABLED: bool = False
+    # OAuth2 endpoints + REST base. Production defaults; sandbox URLs differ
+    # only in subdomain — set via env on dev/staging deployments.
+    AUTENTI_BASE_URL: str = "https://api.autenti.com/api/v2"
+    AUTENTI_OAUTH_URL: str = "https://api.autenti.com/oauth2/token"
+    # Client credentials (Plan A: client_credentials grant w/ `bpa` scope).
+    # Empty in dev — sender service raises 503 before any HTTP call when blank.
+    AUTENTI_CLIENT_ID: str = ""
+    AUTENTI_CLIENT_SECRET: str = ""
+    # OAuth scope — `bpa` = enterprise feature (sender as organization). If
+    # Autenti sales doesn't grant it we fall back to authorization_code per
+    # user (Phase 2 alternative — see plan).
+    AUTENTI_OAUTH_SCOPE: str = "bpa"
+    # JWKS URL used to verify webhook JWT signatures. Public key endpoint
+    # documented at developers.autenti.com.
+    AUTENTI_WEBHOOK_JWKS_URL: str = "https://autenti.com/developers/keys/webhook.jwks"
+    # Default signature type (Pydantic Literal in API requests overrides).
+    # Per plan §3: SES = Basic Electronic Signature by Autenti — sufficient
+    # for B2B with JDG (98% of cases). UI offers SES | AdES | QES dropdown.
+    AUTENTI_DEFAULT_SIGNATURE_TYPE: str = "SES"
+    # Webhook clock skew tolerance — `iat` claim must be within this many
+    # hours of "now" to be accepted. Defends against replay of old webhook
+    # bodies. 24h is generous (Autenti retries up to ~10× over hours).
+    AUTENTI_WEBHOOK_IAT_MAX_AGE_HOURS: int = 24
+    # Background sweeper cadence (Phase 5 belt-and-braces). Polls expired
+    # signatures + retries failed signed-PDF downloads. Clamped to >=300s
+    # to avoid Autenti API hammering. 1h tick is plenty since the primary
+    # state pump is the webhook handler.
+    AUTENTI_SWEEPER_INTERVAL_SECONDS: int = 3600
+
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
     # and on-demand sync returns 503. Used for roll-back without redeploy.

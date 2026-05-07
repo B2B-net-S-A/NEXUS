@@ -134,6 +134,8 @@ from app.models.client_required_document import (
     ClientDocStatus,
     ClientRequiredDocument,
 )
+from app.models.document_signature import DocumentSignature, SignatureStatus
+from app.models.document_signature_event import DocumentSignatureEvent
 
 __all__ = [
     "User",
@@ -260,4 +262,7 @@ __all__ = [
     "RequiredDocumentTemplate",
     "ClientRequiredDocument",
     "ClientDocStatus",
+    "DocumentSignature",
+    "DocumentSignatureEvent",
+    "SignatureStatus",
 ]

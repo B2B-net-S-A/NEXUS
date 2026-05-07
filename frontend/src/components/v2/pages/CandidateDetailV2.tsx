@@ -69,6 +69,7 @@ import {
 import { EditCandidateModal } from"@/components/AppShell";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from"@/components/v2/modals/SendEmailV2";
+import { AutentiEnvelopeCard } from"@/components/v2/contract/AutentiEnvelopeCard";
 import { CVGeneratorV2 } from"@/components/v2/modals/CVGeneratorV2";
 import { CVOriginalPreviewModal } from"@/components/v2/modals/CVOriginalPreviewModal";
 import { CVBrandedEditModal } from"@/components/v2/modals/CVBrandedEditModal";
@@ -808,6 +809,7 @@ export function CandidateDetailV2({
  <UmowaTab
  candidateId={Number(id)}
  candidateName={fullName}
+ candidatePhone={candidate.phone ?? null}
  contracts={candidateContracts}
  jdgComplete={Boolean(
  candidate.legal_name && candidate.nip,
@@ -1059,12 +1061,14 @@ function formatRate(
 function UmowaTab({
  candidateId,
  candidateName,
+ candidatePhone,
  contracts,
  jdgComplete,
  onJumpToProfile,
 }: {
  candidateId: number;
  candidateName: string;
+ candidatePhone: string | null;
  contracts: any[];
  jdgComplete: boolean;
  onJumpToProfile: () => void;
@@ -1113,7 +1117,11 @@ function UmowaTab({
  Aktualna umowa
  </h3>
  {current ? (
- <CurrentContractCard contract={current} />
+ <CurrentContractCard
+ contract={current}
+ candidateName={candidateName}
+ candidatePhone={candidatePhone}
+ />
  ) : (
  <Card variant="default" size="md">
  <CardContent className="py-6 text-center text-sm text-muted-foreground">
@@ -1198,7 +1206,15 @@ function UmowaTab({
  );
 }
 
-function CurrentContractCard({ contract }: { contract: any }) {
+function CurrentContractCard({
+ contract,
+ candidateName,
+ candidatePhone,
+}: {
+ contract: any;
+ candidateName: string;
+ candidatePhone: string | null;
+}) {
  const { data: docs } = useQuery<any[]>({
  queryKey: ["contract-docs", contract.id],
  queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
@@ -1299,6 +1315,11 @@ function CurrentContractCard({ contract }: { contract: any }) {
  </ul>
  )}
  </div>
+ <AutentiEnvelopeCard
+ contractId={contract.id}
+ candidateName={candidateName}
+ candidatePhone={candidatePhone}
+ />
  </CardContent>
  </Card>
  );

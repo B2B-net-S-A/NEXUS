@@ -78,6 +78,15 @@ class NotificationType(str, enum.Enum):
     # zresetował hasło ręcznie; user dostaje in-app + email.
     password_reset_requested = "password_reset_requested"
     password_changed_by_admin = "password_changed_by_admin"
+    # Autenti e-signature flow (migracja 0079_autenti_signatures).
+    # `signature_sent` — kontrakt wysłany do podpisu (do sender_user_id).
+    # `signature_signed` — kandydat (lub każdy signer) podpisał (do sender + recruiter).
+    # `signature_rejected` — signer odmówił podpisu (do sender_user_id).
+    # `signature_failed` — wysyłka nie powiodła się po retries (do sender_user_id).
+    signature_sent = "signature_sent"
+    signature_signed = "signature_signed"
+    signature_rejected = "signature_rejected"
+    signature_failed = "signature_failed"
 
 
 class Notification(Base, TimestampMixin):

@@ -95,6 +95,7 @@ from app.api import job_chat as job_chat_api
 from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
+from app.api import autenti as autenti_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -198,6 +199,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.microsoft365_sync import microsoft365_sync_loop
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
+    from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -214,6 +216,9 @@ async def lifespan(app: FastAPI):
     microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
     marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
     chat_email_fallback_task = asyncio.create_task(chat_email_fallback_loop())
+    # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
+    # spawn unconditionally (mirrors LinkedIn/M365 patterns).
+    autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
 
     yield
 
@@ -233,6 +238,7 @@ async def lifespan(app: FastAPI):
         microsoft365_sync_task,
         marketplace_sweeper_task,
         chat_email_fallback_task,
+        autenti_sweeper_task,
     )
     for t in tasks:
         t.cancel()
@@ -413,6 +419,14 @@ if settings.M365_INTEGRATION_ENABLED:
         microsoft365_api.router, prefix="/api/microsoft365", tags=["microsoft365"]
     )
     app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
+
+# Phase Autenti.1 — e-signature integration (Autenti, eIDAS-compliant).
+# Router mounted unconditionally so write/IO endpoints can return 503 at
+# runtime when AUTENTI_ENABLED=false (rolling rollback friendly — Autenti
+# retries 5xx, so webhook payload survives a temporary kill-switch).
+# Each write/IO handler invokes _require_enabled() internally; read-only
+# GETs stay live so the FE can show empty timelines.
+app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 
 
 @app.get("/health")
