@@ -26,7 +26,9 @@ def env_with_metadata(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_api_health_returns_standard_shape(env_with_metadata):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         response = await ac.get("/api/health")
 
     body = response.json()
@@ -40,7 +42,9 @@ async def test_api_health_returns_standard_shape(env_with_metadata):
 
 @pytest.mark.asyncio
 async def test_api_health_returns_metadata_from_env(env_with_metadata):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         response = await ac.get("/api/health")
 
     body = response.json()
@@ -49,16 +53,27 @@ async def test_api_health_returns_metadata_from_env(env_with_metadata):
 
 
 @pytest.mark.asyncio
-async def test_api_health_falls_back_to_unknown_without_env(monkeypatch):
+async def test_api_health_falls_back_to_filesystem_mtime_without_env(monkeypatch):
+    """Bez BUILT_AT env, deployedAt fallback na file mtime ISO (audit-2026-05-07
+    fix P1-D — statyczny BUILT_AT przed fix'em pokazywał 6 dni stary timestamp
+    mimo że kontener był freshly deployed)."""
+    import re
+
     monkeypatch.delenv("GIT_SHA", raising=False)
     monkeypatch.delenv("BUILT_AT", raising=False)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         response = await ac.get("/api/health")
 
     body = response.json()
     assert body["version"] == "unknown"
-    assert body["deployedAt"] == "unknown"
+    # Fallback: ISO 8601 z fileystem mtime, lub "unknown" gdy mtime nie odczytany
+    iso_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+    assert body["deployedAt"] == "unknown" or re.match(
+        iso_pattern, body["deployedAt"]
+    ), f"Expected 'unknown' or ISO timestamp, got {body['deployedAt']!r}"
 
 
 @pytest.mark.asyncio
@@ -66,7 +81,9 @@ async def test_api_health_includes_database_check(env_with_metadata):
     """W CI postgres service jest dostępny → expect database == healthy.
     Lokalnie bez DB → expect database == unhealthy + HTTP 503.
     """
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         response = await ac.get("/api/health")
 
     body = response.json()
@@ -84,7 +101,9 @@ async def test_api_health_includes_database_check(env_with_metadata):
 @pytest.mark.asyncio
 async def test_legacy_health_endpoint_still_works():
     """Backwards compat: /health zachowany jako alias przez 7 dni."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         response = await ac.get("/health")
 
     assert response.status_code == 200
