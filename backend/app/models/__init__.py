@@ -152,6 +152,10 @@ from app.models.ai_feature import (
     AIUsageLog,
 )
 from app.models.oauth_client import OAuthClient, OAuthScope
+from app.models.candidate_source_event import (
+    CandidateSourceEvent,
+    SourceChannel,
+)
 
 __all__ = [
     "User",
@@ -294,4 +298,6 @@ __all__ = [
     "AIUsageLog",
     "OAuthClient",
     "OAuthScope",
+    "CandidateSourceEvent",
+    "SourceChannel",
 ]

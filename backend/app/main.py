@@ -106,6 +106,7 @@ from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
 from app.api import ai_settings as ai_settings_api
 from app.api import oauth_clients as oauth_clients_api
+from app.api import candidate_sources as candidate_sources_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -502,6 +503,16 @@ app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
 # OAuth2 client manager (Settings → API integration). Admin-only CRUD.
 # Token issuance endpoint (POST /api/oauth/token) lands in a follow-up.
 app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
+
+# Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.
+app.include_router(
+    candidate_sources_api.router, prefix="/api", tags=["candidate-sources"]
+)
+app.include_router(
+    candidate_sources_api.reports_router,
+    prefix="/api/reports",
+    tags=["reports-sources"],
+)
 
 
 @app.get("/health")
