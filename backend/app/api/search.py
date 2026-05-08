@@ -1,182 +1,204 @@
+import time
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.job import Job
 from app.models.client import Client
+from app.models.competence_category import CompetenceCategory
 from app.models.contact import Contact
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.api.deps import CurrentUser
+from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage
+from app.schemas.candidate_search import (
+    CandidateSearchItem,
+    CandidateSearchRequest,
+    CandidateSearchResponse,
+    CompetenceCategoryFacet,
+    SearchFacets,
+    SearchMeta,
+)
+from app.services.advanced_candidate_search import build_advanced_filter
+from app.services.structured_candidate_search import build_structured_filter
 
 router = APIRouter()
 
 
-class CandidateSearchRequest(BaseModel):
-    q: Optional[str] = None
-    technologies: Optional[List[str]] = None
-    experience_years_min: Optional[int] = None
-    experience_years_max: Optional[int] = None
-    location: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    source: Optional[str] = None
-    availability: Optional[str] = None  # "immediate", "2weeks", "1month", etc.
-    stage: Optional[str] = None
-    recruiter_id: Optional[int] = None
-    page: int = 1
-    page_size: int = 20
+def _fts_clause(q: str) -> Any:
+    """Match candidates whose ``fts_doc`` matches the user query.
+
+    Uses ``websearch_to_tsquery`` (postgres 11+) so the user can pass natural
+    multi-word input like ``"python fastapi -junior"`` without learning the
+    raw tsquery syntax.
+    """
+    return text("fts_doc @@ websearch_to_tsquery('simple', :q)").bindparams(q=q)
 
 
-@router.post("/candidates")
+def _fts_rank_expr() -> Any:
+    """``ts_rank`` weighted with a recency tie-breaker (decay over days)."""
+    return text(
+        "ts_rank(fts_doc, websearch_to_tsquery('simple', :q)) * 0.7"
+        " + 1.0 / (1.0 + EXTRACT(epoch FROM (now() - candidates.updated_at))"
+        " / 86400.0) * 0.3"
+    )
+
+
+def _candidate_to_item(c: Candidate, score: float) -> CandidateSearchItem:
+    return CandidateSearchItem(
+        id=c.id,
+        name=c.name,
+        lastname=c.lastname,
+        email=c.email,
+        phone=c.phone,
+        location=c.location,
+        status=c.status.value if c.status else None,
+        availability_status=(
+            c.availability_status.value if c.availability_status else None
+        ),
+        source=c.source,
+        competence_category=c.competence_category,
+        competence_category_id=c.competence_category_id,
+        salary_expectation=c.salary_expectation,
+        salary_currency=c.salary_currency,
+        availability_date=c.availability_date.isoformat()
+        if c.availability_date
+        else None,
+        years_it_experience=c.years_it_experience,
+        tags=c.tags,
+        skills=c.skills,
+        languages=c.languages,
+        ai_summary=c.ai_summary,
+        avatar_url=c.avatar_url,
+        relevance_score=score,
+        has_cv=bool(c.cv_filename),
+        has_linkedin=bool(c.linkedin),
+        is_champion=bool(c.champion),
+        created_at=c.created_at.isoformat() if c.created_at else None,
+        updated_at=c.updated_at.isoformat() if c.updated_at else None,
+    )
+
+
+async def _competence_facets(
+    db: AsyncSession, candidate_filter: Any
+) -> list[CompetenceCategoryFacet]:
+    """Aggregate counts per competence category across the filtered set.
+
+    The ``candidate_filter`` is the same WHERE clause applied to the main
+    query (everything except CC itself); facets reflect what the user *would*
+    see if they switched the CC chip — standard faceted-search semantics.
+    """
+    facet_query = (
+        select(
+            CompetenceCategory.id,
+            CompetenceCategory.name_pl,
+            func.count(Candidate.id).label("cnt"),
+        )
+        .join(
+            Candidate,
+            Candidate.competence_category_id == CompetenceCategory.id,
+        )
+        .where(candidate_filter)
+        .group_by(CompetenceCategory.id, CompetenceCategory.name_pl)
+        .order_by(CompetenceCategory.display_order)
+    )
+    result = await db.execute(facet_query)
+    return [
+        CompetenceCategoryFacet(id=row.id, name=row.name_pl, count=row.cnt)
+        for row in result.all()
+    ]
+
+
+@router.post("/candidates", response_model=CandidateSearchResponse)
 async def advanced_candidate_search(
     body: CandidateSearchRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-):
+) -> CandidateSearchResponse:
+    """Hybrid candidate search.
+
+    Composes three filter layers (AND-ed together) and orders by either
+    ``ts_rank`` (when a free-text query is present and ``sort=relevance``),
+    ``updated_at DESC``, or ``lastname ASC`` — all postgres-side, so paging
+    is consistent across pages.
     """
-    Advanced candidate search with filters and full-text search.
-    POST /api/search/candidates
-    Returns results with relevance scoring.
-    """
-    from sqlalchemy import func
+    started_at = time.monotonic()
 
-    query = select(Candidate)
-    filters = []
+    clauses: list[Any] = []
 
-    # Full-text search across name, email, raw_cv_text
-    if body.q:
-        q = body.q.strip()
-        full_text_filter = or_(
-            Candidate.name.ilike(f"%{q}%"),
-            Candidate.lastname.ilike(f"%{q}%"),
-            Candidate.email.ilike(f"%{q}%"),
-            Candidate.raw_cv_text.ilike(f"%{q}%"),
-            Candidate.competence_category.ilike(f"%{q}%"),
-            Candidate.ai_summary.ilike(f"%{q}%"),
+    # === Layer 1: boolean buckets (Traffit-style ILIKE) ======================
+    boolean_clause = build_advanced_filter(body.q_all, body.q_any, body.q_none)
+    if boolean_clause is not None:
+        clauses.append(boolean_clause)
+
+    # === Layer 2: structured chips ===========================================
+    clauses.extend(build_structured_filter(body))
+
+    # === Layer 3: free-text — postgres FTS (when set) ========================
+    q_text = (body.q or "").strip() if body.q else ""
+    if q_text:
+        clauses.append(_fts_clause(q_text))
+
+    # === Job-context exclusion — subquery on candidate_stages ================
+    if body.exclude_in_job_id is not None:
+        already_in_job = (
+            select(CandidateStage.candidate_id)
+            .where(CandidateStage.job_id == body.exclude_in_job_id)
+            .distinct()
         )
-        filters.append(full_text_filter)
+        clauses.append(Candidate.id.notin_(already_in_job))
 
-    # Location filter
-    if body.location:
-        filters.append(Candidate.location.ilike(f"%{body.location}%"))
+    where_clause = and_(*clauses) if clauses else text("true")
 
-    # Salary range filter
-    if body.salary_min is not None:
-        filters.append(Candidate.salary_expectation >= body.salary_min)
-    if body.salary_max is not None:
-        filters.append(Candidate.salary_expectation <= body.salary_max)
+    # === Count total =========================================================
+    count_query = (
+        select(func.count(Candidate.id)).select_from(Candidate).where(where_clause)
+    )
+    if q_text:
+        count_query = count_query.params(q=q_text)
+    total = (await db.execute(count_query)).scalar() or 0
 
-    # Source filter
-    if body.source:
-        filters.append(Candidate.source.ilike(f"%{body.source}%"))
+    # === Sort ================================================================
+    base = select(Candidate).where(where_clause)
+    if body.sort == "relevance" and q_text:
+        base = base.order_by(_fts_rank_expr().desc(), Candidate.updated_at.desc())
+    elif body.sort == "name":
+        base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
+    else:
+        base = base.order_by(Candidate.updated_at.desc())
 
-    # Technologies/skills filter — search in skills JSONB
-    if body.technologies:
-        for tech in body.technologies:
-            filters.append(
-                or_(
-                    Candidate.skills.cast(text("text")).ilike(f"%{tech}%"),
-                    Candidate.tags.cast(text("text")).ilike(f"%{tech}%"),
-                )
-            )
+    # === Page ================================================================
+    base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)
+    if q_text:
+        base = base.params(q=q_text)
+    candidates = (await db.execute(base)).scalars().all()
 
-    if filters:
-        from sqlalchemy import and_
+    # Best-effort per-row score: use ts_rank when we have a query, otherwise 0.
+    # Computing the score requires a second query if we want it on a populated
+    # set — skip it for now since the postgres-side ORDER BY already returns
+    # rows in score-descending order.
+    items = [_candidate_to_item(c, 0.0) for c in candidates]
 
-        query = query.where(and_(*filters))
+    facets_clause = where_clause  # facets reflect current filter set
+    facets = SearchFacets(
+        competence_categories=await _competence_facets(db, facets_clause)
+        if not body.competence_category_ids
+        else []
+    )
 
-    # Stage filter — join with pipeline stages
-    if body.stage:
-        try:
-            stage_enum = PipelineStage(body.stage)
-            stage_subq = (
-                select(CandidateStage.candidate_id)
-                .where(CandidateStage.stage == stage_enum)
-                .distinct()
-            )
-            query = query.where(Candidate.id.in_(stage_subq))
-        except ValueError:
-            pass  # ignore invalid stage
+    took_ms = int((time.monotonic() - started_at) * 1000)
 
-    # Count total
-    count_query = select(func.count()).select_from(query.subquery())
-    total = (await db.execute(count_query)).scalar()
-
-    # Pagination
-    query = query.offset((body.page - 1) * body.page_size).limit(body.page_size)
-    result = await db.execute(query)
-    candidates = result.scalars().all()
-
-    # Build results with simple relevance scoring
-    items = []
-    for c in candidates:
-        score = 0
-        if body.q:
-            q_lower = body.q.lower()
-            full_name = f"{c.name} {c.lastname}".lower()
-            if q_lower in full_name:
-                score += 10
-            if c.email and q_lower in c.email.lower():
-                score += 5
-            if c.raw_cv_text and q_lower in c.raw_cv_text.lower():
-                score += 3
-            if c.competence_category and q_lower in c.competence_category.lower():
-                score += 8
-
-        if body.technologies:
-            skills_text = str(c.skills or "").lower() + " " + str(c.tags or "").lower()
-            for tech in body.technologies:
-                if tech.lower() in skills_text:
-                    score += 5
-
-        items.append(
-            {
-                "id": c.id,
-                "name": c.name,
-                "lastname": c.lastname,
-                "email": c.email,
-                "phone": c.phone,
-                "location": c.location,
-                "status": c.status.value if c.status else None,
-                "source": c.source,
-                "competence_category": c.competence_category,
-                "salary_expectation": c.salary_expectation,
-                "salary_currency": c.salary_currency,
-                "availability_date": c.availability_date.isoformat()
-                if c.availability_date
-                else None,
-                "tags": c.tags,
-                "skills": c.skills,
-                "ai_summary": c.ai_summary,
-                "avatar_url": c.avatar_url,
-                "relevance_score": score,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-            }
-        )
-
-    # Sort by relevance score (descending)
-    items.sort(key=lambda x: x["relevance_score"], reverse=True)
-
-    return {
-        "total": total,
-        "page": body.page,
-        "page_size": body.page_size,
-        "query": body.q,
-        "filters_applied": {
-            "technologies": body.technologies,
-            "location": body.location,
-            "salary_min": body.salary_min,
-            "salary_max": body.salary_max,
-            "source": body.source,
-            "stage": body.stage,
-        },
-        "items": items,
-    }
+    return CandidateSearchResponse(
+        total=int(total),
+        page=body.page,
+        page_size=body.page_size,
+        items=items,
+        facets=facets,
+        meta=SearchMeta(ai_status="ok", took_ms=took_ms),
+    )
 
 
 @router.get("/")
