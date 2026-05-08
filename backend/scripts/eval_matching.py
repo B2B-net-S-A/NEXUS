@@ -48,7 +48,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import case, func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
@@ -207,16 +207,28 @@ class DataQuality:
 
 async def _audit_data_quality(db: AsyncSession) -> DataQuality:
     total_jobs = await db.scalar(select(func.count(Job.id))) or 0
-    missing_must = await db.scalar(
-        select(func.count(Job.id)).where(
-            func.coalesce(func.jsonb_array_length(Job.must_skills), 0) == 0
-        )
+    # Guard with CASE — prod has rows where must_skills/nice_skills are scalar
+    # values (not arrays). Postgres does not short-circuit AND in WHERE, so a
+    # plain `jsonb_typeof = 'array' AND jsonb_array_length(...)` crashes when
+    # the planner evaluates jsonb_array_length first on a scalar row.
+    must_len = case(
+        (func.jsonb_typeof(Job.must_skills) == "array",
+         func.jsonb_array_length(Job.must_skills)),
+        else_=0,
+    )
+    nice_len = case(
+        (func.jsonb_typeof(Job.nice_skills) == "array",
+         func.jsonb_array_length(Job.nice_skills)),
+        else_=0,
+    )
+    present_must = await db.scalar(
+        select(func.count(Job.id)).where(must_len > 0)
     ) or 0
-    missing_nice = await db.scalar(
-        select(func.count(Job.id)).where(
-            func.coalesce(func.jsonb_array_length(Job.nice_skills), 0) == 0
-        )
+    missing_must = total_jobs - present_must
+    present_nice = await db.scalar(
+        select(func.count(Job.id)).where(nice_len > 0)
     ) or 0
+    missing_nice = total_jobs - present_nice
 
     total_candidates = await db.scalar(select(func.count(Candidate.id))) or 0
     list_fmt = await db.scalar(

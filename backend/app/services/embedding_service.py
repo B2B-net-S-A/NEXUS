@@ -23,6 +23,11 @@ VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
 JOBS_COLLECTION = "nexus_jobs"
 
 
+def _voyage_model() -> str:
+    """Read Voyage embedding model from settings (default voyage-3-large)."""
+    return getattr(settings, "VOYAGE_MODEL", None) or "voyage-3-large"
+
+
 def _collection() -> str:
     """Return configured Qdrant collection name (default: nexus_candidates)."""
     name = getattr(settings, "QDRANT_COLLECTION", "nexus_candidates")
@@ -92,8 +97,8 @@ def init_qdrant_collection() -> None:
 OLLAMA_EMBED_MODEL = "mxbai-embed-large"  # 1024-dim, compatible with Qdrant collection
 
 
-async def _voyage_embed(text: str) -> Optional[list[float]]:
-    """Generate embedding via Voyage AI voyage-3."""
+async def _voyage_embed(text: str, *, input_type: str = "document") -> Optional[list[float]]:
+    """Generate embedding via Voyage AI (model from EMBEDDING_MODEL env, default voyage-3-large)."""
     if not settings.VOYAGE_API_KEY:
         return None
     try:
@@ -105,9 +110,10 @@ async def _voyage_embed(text: str) -> Optional[list[float]]:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "voyage-3",
+                    "model": _voyage_model(),
                     "input": [text],
-                    "input_type": "document",
+                    "input_type": input_type,
+                    "output_dimension": VECTOR_SIZE,
                 },
             )
             response.raise_for_status()
@@ -154,15 +160,21 @@ async def _ollama_embed(text: str) -> Optional[list[float]]:
         return None
 
 
-async def generate_embedding(text: str) -> Optional[list[float]]:
+async def generate_embedding(
+    text: str, *, input_type: str = "document"
+) -> Optional[list[float]]:
     """
     Generate a 1024-dim embedding for *text*. Tries Voyage first (if key present),
     falls back to local Ollama (mxbai-embed-large). Returns None only if both fail.
+
+    `input_type` should be "document" when indexing entities (candidates, jobs)
+    and "query" when embedding a search query — Voyage 3-large applies different
+    instruction prompts for each, improving retrieval quality.
     """
     if not text or not text.strip():
         return None
 
-    emb = await _voyage_embed(text)
+    emb = await _voyage_embed(text, input_type=input_type)
     if emb is not None:
         return emb
 
@@ -339,7 +351,7 @@ async def search_candidates_semantic(
     from app.services.ai_health import AiCallTimer
 
     with AiCallTimer() as timer:
-        embedding = await generate_embedding(query)
+        embedding = await generate_embedding(query, input_type="query")
         if embedding is None:
             timer.failed = True
             logger.warning(
