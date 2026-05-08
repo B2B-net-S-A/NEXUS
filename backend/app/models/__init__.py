@@ -151,6 +151,7 @@ from app.models.ai_feature import (
     AIMasterToggle,
     AIUsageLog,
 )
+from app.models.oauth_client import OAuthClient, OAuthScope
 
 __all__ = [
     "User",
@@ -291,4 +292,6 @@ __all__ = [
     "AIFeatureKey",
     "AIMasterToggle",
     "AIUsageLog",
+    "OAuthClient",
+    "OAuthScope",
 ]
