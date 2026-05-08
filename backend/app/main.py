@@ -46,6 +46,8 @@ from app.api import calls
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
+from app.api import client_framework_contracts
+from app.api import client_contract_amendments
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -304,6 +306,16 @@ app.include_router(public_engagement.router, prefix="/api", tags=["public-engage
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
+app.include_router(
+    client_framework_contracts.router,
+    prefix="/api/clients",
+    tags=["client-framework-contracts"],
+)
+app.include_router(
+    client_contract_amendments.router,
+    prefix="/api/clients",
+    tags=["client-contract-amendments"],
+)
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
