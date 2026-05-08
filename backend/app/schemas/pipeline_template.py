@@ -94,6 +94,8 @@ class PipelineTemplateCreate(BaseModel):
     name: str = Field(..., max_length=100)
     description: Optional[str] = None
     is_default: bool = False
+    # Per-client default (Traffit gap #1). NULL = global template.
+    client_id: Optional[int] = None
 
 
 class PipelineTemplateUpdate(BaseModel):
@@ -101,6 +103,7 @@ class PipelineTemplateUpdate(BaseModel):
     description: Optional[str] = None
     is_default: Optional[bool] = None
     archived: Optional[bool] = None
+    client_id: Optional[int] = None
 
 
 class PipelineTemplateSummary(BaseModel):
@@ -109,6 +112,7 @@ class PipelineTemplateSummary(BaseModel):
     description: Optional[str]
     is_default: bool
     archived: bool
+    client_id: Optional[int] = None
     stage_count: int
     created_at: datetime
     updated_at: datetime
@@ -122,6 +126,7 @@ class PipelineTemplateDetail(BaseModel):
     description: Optional[str]
     is_default: bool
     archived: bool
+    client_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     stages: List[StageDefResponse]

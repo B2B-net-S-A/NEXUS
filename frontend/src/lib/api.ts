@@ -2659,4 +2659,363 @@ export const candidateStageCvApi = {
   },
 };
 
+// ── Settings → AI (Traffit gap #5) ───────────────────────────────────────────
+
+export type AIFeatureKey =
+  | "scoring"
+  | "job_description_generator"
+  | "cv_parser"
+  | "candidate_summary"
+  | "champion_draft";
+
+export interface AIFeatureConfigDto {
+  feature: AIFeatureKey;
+  enabled: boolean;
+  monthly_limit: number;
+  label: string;
+  data_sent_to_ai: string[];
+}
+
+export interface AIFeatureUsageDto {
+  feature: AIFeatureKey;
+  used: number;
+  limit: number;
+  period_start: string;
+  period_end: string;
+}
+
+export interface AISettingsResponse {
+  master_enabled: boolean;
+  features: AIFeatureConfigDto[];
+  usage: AIFeatureUsageDto[];
+}
+
+export interface AIFeatureUpdate {
+  enabled?: boolean;
+  monthly_limit?: number;
+}
+
+export const aiSettingsApi = {
+  get: () => api.get<AISettingsResponse>("/api/settings/ai"),
+  setMaster: (enabled: boolean) =>
+    api.patch<AISettingsResponse>("/api/settings/ai/master", { enabled }),
+  updateFeature: (feature: AIFeatureKey, payload: AIFeatureUpdate) =>
+    api.patch<AISettingsResponse>(
+      `/api/settings/ai/features/${feature}`,
+      payload,
+    ),
+};
+
+// ── Settings → API integration / OAuth clients (Traffit gap #6) ──────────────
+
+export interface OAuthClientDto {
+  id: number;
+  name: string;
+  client_id: string;
+  scopes: string[];
+  enabled: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface OAuthClientCreatePayload {
+  name: string;
+  scopes: string[];
+}
+
+export interface OAuthClientCreateResponse {
+  client: OAuthClientDto;
+  client_secret: string;
+}
+
+export interface OAuthClientUpdate {
+  name?: string;
+  scopes?: string[];
+  enabled?: boolean;
+}
+
+export interface ScopeInfoDto {
+  value: string;
+  label: string;
+}
+
+export const oauthClientsApi = {
+  list: () => api.get<OAuthClientDto[]>("/api/settings/oauth-clients"),
+  scopes: () => api.get<ScopeInfoDto[]>("/api/settings/oauth-clients/scopes"),
+  create: (payload: OAuthClientCreatePayload) =>
+    api.post<OAuthClientCreateResponse>(
+      "/api/settings/oauth-clients",
+      payload,
+    ),
+  update: (id: number, payload: OAuthClientUpdate) =>
+    api.patch<OAuthClientDto>(`/api/settings/oauth-clients/${id}`, payload),
+  remove: (id: number) =>
+    api.delete<void>(`/api/settings/oauth-clients/${id}`),
+};
+
+// ── Multi-source attribution (Traffit gap #4) ────────────────────────────────
+
+export type SourceChannel =
+  | "manual"
+  | "aktywny_search"
+  | "cv_upload"
+  | "email"
+  | "posting"
+  | "referral"
+  | "import_csv";
+
+export interface CandidateSourceEventDto {
+  id: number;
+  candidate_id: number;
+  channel: SourceChannel;
+  channel_label: string;
+  job_id: number | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_term: string | null;
+  utm_content: string | null;
+  note: string | null;
+  captured_at: string;
+  created_at: string;
+}
+
+export interface CandidateSourceCreatePayload {
+  channel: SourceChannel;
+  job_id?: number | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_term?: string | null;
+  utm_content?: string | null;
+  note?: string | null;
+  captured_at?: string | null;
+}
+
+export interface SourceFunnelRow {
+  channel: SourceChannel;
+  channel_label: string;
+  utm_source: string | null;
+  utm_campaign: string | null;
+  candidates_total: number;
+  hired: number;
+  hire_rate_pct: number;
+}
+
+export interface SourceReportResponse {
+  period_start: string;
+  period_end: string;
+  rows: SourceFunnelRow[];
+}
+
+export const candidateSourcesApi = {
+  list: (candidateId: number) =>
+    api.get<CandidateSourceEventDto[]>(
+      `/api/candidates/${candidateId}/sources`,
+    ),
+  create: (candidateId: number, payload: CandidateSourceCreatePayload) =>
+    api.post<CandidateSourceEventDto>(
+      `/api/candidates/${candidateId}/sources`,
+      payload,
+    ),
+};
+
+export const sourcesReportApi = {
+  funnel: (days: number = 30, groupByUtm: boolean = false) =>
+    api.get<SourceReportResponse>("/api/reports/sources", {
+      params: { days, group_by_utm: groupByUtm },
+    }),
+};
+
+// ── Bulk candidate actions (Traffit gap #3) ──────────────────────────────────
+
+export type BulkActionType =
+  | "add_tags"
+  | "assign_talent_pool"
+  | "assign_to_job"
+  | "anonymize_pii";
+
+export interface BulkActionRequest {
+  action: BulkActionType;
+  candidate_ids: number[];
+  params?: Record<string, unknown>;
+}
+
+export interface BulkActionItemResult {
+  candidate_id: number;
+  ok: boolean;
+  reason?: string | null;
+}
+
+export interface BulkActionResponse {
+  action: BulkActionType;
+  requested: number;
+  succeeded: number;
+  skipped: number;
+  items: BulkActionItemResult[];
+}
+
+export const candidatesBulkApi = {
+  dispatch: (payload: BulkActionRequest) =>
+    api.post<BulkActionResponse>("/api/candidates/bulk", payload),
+};
+
+// ── Editable dictionaries (Traffit gap #8) ───────────────────────────────────
+
+export interface DictionaryItemDto {
+  id: number;
+  key: string;
+  label_pl: string;
+  label_en: string | null;
+  ordinal: number;
+  archived: boolean;
+  last_edited_at: string | null;
+}
+
+export interface DictionaryDto {
+  id: number;
+  slug: string;
+  label_pl: string;
+  description: string | null;
+  enforced: boolean;
+  items: DictionaryItemDto[];
+}
+
+export interface DictionarySummaryDto {
+  slug: string;
+  label_pl: string;
+  description: string | null;
+  enforced: boolean;
+  item_count: number;
+}
+
+export interface DictionaryItemCreatePayload {
+  key: string;
+  label_pl: string;
+  label_en?: string | null;
+  ordinal?: number;
+}
+
+export interface DictionaryItemUpdatePayload {
+  key?: string;
+  label_pl?: string;
+  label_en?: string | null;
+  ordinal?: number;
+  archived?: boolean;
+}
+
+// ── Custom field schema editor (Traffit gap #7) ──────────────────────────────
+
+export type EntityType = "candidate" | "job";
+export type FieldType =
+  | "text"
+  | "long_text"
+  | "number"
+  | "checkbox"
+  | "radio"
+  | "select"
+  | "multi_select"
+  | "date"
+  | "datetime"
+  | "file"
+  | "files"
+  | "location"
+  | "link";
+
+export interface EntityFieldDefDto {
+  id: number;
+  entity_type: EntityType;
+  key: string;
+  label_pl: string;
+  label_en: string | null;
+  help_text: string | null;
+  field_type: FieldType;
+  options: Record<string, unknown>;
+  required: boolean;
+  section: string | null;
+  ordinal: number;
+  archived: boolean;
+  last_edited_at: string | null;
+}
+
+export interface EntityFieldDefCreatePayload {
+  entity_type: EntityType;
+  key: string;
+  label_pl: string;
+  label_en?: string | null;
+  help_text?: string | null;
+  field_type: FieldType;
+  options?: Record<string, unknown>;
+  required?: boolean;
+  section?: string;
+  ordinal?: number;
+}
+
+export interface EntityFieldDefUpdatePayload {
+  label_pl?: string;
+  label_en?: string | null;
+  help_text?: string | null;
+  options?: Record<string, unknown>;
+  required?: boolean;
+  section?: string;
+  ordinal?: number;
+  archived?: boolean;
+}
+
+export interface FieldTypeInfoDto {
+  value: FieldType;
+  label: string;
+}
+
+export interface SchemaListResponseDto {
+  entity_type: EntityType;
+  fields: EntityFieldDefDto[];
+}
+
+export const entityFieldsApi = {
+  schema: (entity: EntityType, includeArchived = false) =>
+    api.get<SchemaListResponseDto>(`/api/entity-schema/${entity}`, {
+      params: { include_archived: includeArchived },
+    }),
+  fieldTypes: () =>
+    api.get<FieldTypeInfoDto[]>("/api/settings/entity-fields/types"),
+  create: (payload: EntityFieldDefCreatePayload) =>
+    api.post<EntityFieldDefDto>("/api/settings/entity-fields", payload),
+  update: (id: number, payload: EntityFieldDefUpdatePayload) =>
+    api.patch<EntityFieldDefDto>(
+      `/api/settings/entity-fields/${id}`,
+      payload,
+    ),
+};
+
+export const dictionariesApi = {
+  // Public-ish (any authenticated user) — used by form pickers.
+  itemsBySlug: (slug: string, includeArchived = false) =>
+    api.get<DictionaryItemDto[]>(`/api/dictionaries/${slug}/items`, {
+      params: { include_archived: includeArchived },
+    }),
+
+  // Admin
+  list: () =>
+    api.get<DictionarySummaryDto[]>("/api/settings/dictionaries"),
+  get: (slug: string) =>
+    api.get<DictionaryDto>(`/api/settings/dictionaries/${slug}`),
+  createItem: (slug: string, payload: DictionaryItemCreatePayload) =>
+    api.post<DictionaryItemDto>(
+      `/api/settings/dictionaries/${slug}/items`,
+      payload,
+    ),
+  updateItem: (
+    slug: string,
+    itemId: number,
+    payload: DictionaryItemUpdatePayload,
+  ) =>
+    api.patch<DictionaryItemDto>(
+      `/api/settings/dictionaries/${slug}/items/${itemId}`,
+      payload,
+    ),
+};
+
 export default api;

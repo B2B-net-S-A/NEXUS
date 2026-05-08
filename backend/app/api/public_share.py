@@ -287,6 +287,14 @@ async def submit_public_apply(
     linkedin: Optional[str] = Form(None, max_length=500),
     message: Optional[str] = Form(None, max_length=2000),
     cv: UploadFile = File(...),
+    # UTM attribution (Traffit gap #4) — sent by the public /apply page from
+    # the URL query string (?utm_source=linkedin&utm_campaign=...). All five
+    # are optional Form fields so old applications without UTM still validate.
+    utm_source: Optional[str] = Form(None, max_length=120),
+    utm_medium: Optional[str] = Form(None, max_length=120),
+    utm_campaign: Optional[str] = Form(None, max_length=120),
+    utm_term: Optional[str] = Form(None, max_length=120),
+    utm_content: Optional[str] = Form(None, max_length=120),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Accept a public application via an invite link.
@@ -415,6 +423,28 @@ async def submit_public_apply(
     # Increment usage counters on the link.
     link.use_count += 1
     link.last_used_at = datetime.now(timezone.utc)
+
+    # Record source attribution event (Traffit gap #4). Channel is always
+    # ``posting`` for invite-link apply — this is the public landing page
+    # for a published job. UTM params come from the URL the candidate
+    # followed; absent = direct apply.
+    from app.models.candidate_source_event import (
+        CandidateSourceEvent,
+        SourceChannel,
+    )
+
+    db.add(
+        CandidateSourceEvent(
+            candidate_id=candidate.id,
+            channel=SourceChannel.posting,
+            job_id=link.job_id,
+            utm_source=utm_source,
+            utm_medium=utm_medium,
+            utm_campaign=utm_campaign,
+            utm_term=utm_term,
+            utm_content=utm_content,
+        )
+    )
 
     await db.commit()
 

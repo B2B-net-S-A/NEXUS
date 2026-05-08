@@ -15,6 +15,24 @@ paths = [
   '''QA_STRATEGY\.md''',
   '''\.github/workflows/ci\.yml''',
   '''\.github/workflows/backup-drill\.yml''',
+  # Build artefacts + per-developer scratch files. These are gitignored on
+  # disk; the path entry is a belt-and-suspenders for the CI scanner which
+  # walks the checked-out tree, not just ``git log``.
+  '''__pycache__/''',
+  '''\.pyc$''',
+  '''\.claude/''',
+  # Local dev default DSN (``postgresql+asyncpg://nexus:nexus@``) appears
+  # in seed scripts, entrypoint.sh, and the Settings() Pydantic default.
+  # Production DATABASE_URL is injected by Coolify env vault — it never
+  # matches the local default. Allowlisting paths instead of regexes
+  # because gitleaks' per-rule regex allowlist did not pick up the match
+  # in CI.
+  '''\.env\.example''',
+  '''backend/app/core/config\.py''',
+  '''backend/embed_all\.py''',
+  '''backend/scripts/.+\.py''',
+  '''backend/seed.*\.py''',
+  '''backend/entrypoint\.sh''',
 ]
 regexes = [
   '''change-me''',
@@ -23,6 +41,10 @@ regexes = [
   # CI-only test creds (clearly marked, no prod secret value)
   '''nexus:nexus-ci-password''',
   '''drill:drill-password''',
+  # Local dev defaults — used by seed scripts, entrypoint, and Settings()
+  # default. Documented as local-only in backend/CLAUDE.md; the production
+  # DATABASE_URL is injected by Coolify env vault and never matches this.
+  '''postgresql\+asyncpg://nexus:nexus@''',
   # Placeholder examples in docstrings / error messages (no real secret)
   '''postgresql://user:pass@db\.<project-ref>\.supabase\.co''',
 ]
@@ -44,9 +66,15 @@ id = "hardcoded-db-password"
 description = "Postgres URL with password embedded"
 regex = '''postgresql(\+asyncpg)?://[a-zA-Z0-9_]+:[^@:/\s"]+@'''
 tags = ["db", "password"]
-# Allow docs that demonstrate the variable placeholder, not actual secrets.
+# Per-rule allowlist OVERRIDES the top-level [allowlist] for this rule —
+# every legitimate placeholder must appear here too.
 [rules.allowlist]
 regexes = [
   '''postgresql\+asyncpg://nexus:change-me-to-a-strong-password@''',
   '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
+  # Local dev default — used by seed scripts, entrypoint.sh, and the
+  # ``Settings()`` Pydantic default in backend/app/core/config.py. Never
+  # used in production: Coolify env vault overrides DATABASE_URL on every
+  # deploy. Documented in backend/CLAUDE.md "Local dev" section.
+  '''postgresql\+asyncpg://nexus:nexus@''',
 ]

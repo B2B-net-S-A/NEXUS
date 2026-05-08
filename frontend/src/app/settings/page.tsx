@@ -22,6 +22,7 @@ import {
   Workflow,
   Stethoscope,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -76,6 +77,30 @@ const ADVANCED_LINKS: Array<{
     title: "Szablony email",
     description: "Wiadomości szablonowe — outreach, follow-up, rejection.",
     icon: <Mail className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/ai",
+    title: "Funkcje AI",
+    description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
+    icon: <Sparkles className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/api-integration",
+    title: "Integracja z API",
+    description: "Klucze OAuth2 dla zewnętrznych systemów (n8n, ChatGPT, Zapier, ...) z fine-grained scopes.",
+    icon: <Plug className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/dictionaries",
+    title: "Słowniki",
+    description: "Edytowalne taksonomie — branże, powody odrzucenia. Dodaj wartości bez deploya.",
+    icon: <FileText className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/entity-fields",
+    title: "Konfiguracja pól",
+    description: "Dodaj własne pola na profilu kandydata / rekrutacji. Drag-drop layout.",
+    icon: <Sliders className="w-5 h-5" />,
   },
   {
     href: "/settings/diagnostics",

@@ -105,6 +105,13 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
+from app.api import ai_settings as ai_settings_api
+from app.api import oauth_clients as oauth_clients_api
+from app.api import oauth_token as oauth_token_api
+from app.api import candidate_sources as candidate_sources_api
+from app.api import candidates_bulk as candidates_bulk_api
+from app.api import dictionaries as dictionaries_api
+from app.api import entity_fields as entity_fields_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -485,6 +492,37 @@ if settings.M365_INTEGRATION_ENABLED:
 # Each write/IO handler invokes _require_enabled() internally; read-only
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
+
+# AI features panel (Settings → AI). Admin-only. Routes mounted at
+# /api/settings/ai (prefix is declared on the router itself; we add /api here).
+app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
+
+# OAuth2 client manager (Settings → API integration). Admin-only CRUD.
+app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
+
+# OAuth2 token endpoint (client_credentials grant). Public — auth is via
+# client_id + client_secret in the request body, not Authorization header.
+app.include_router(oauth_token_api.router, prefix="/api", tags=["oauth-token"])
+
+# Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.
+app.include_router(
+    candidate_sources_api.router, prefix="/api", tags=["candidate-sources"]
+)
+app.include_router(
+    candidate_sources_api.reports_router,
+    prefix="/api/reports",
+    tags=["reports-sources"],
+)
+
+# Bulk actions on candidates list (#3): single dispatch endpoint
+# POST /api/candidates/bulk routes to per-action handlers.
+app.include_router(candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"])
+
+# Editable taxonomies (#8): Settings → Słowniki + GET /api/dictionaries/{slug}
+app.include_router(dictionaries_api.router, prefix="/api", tags=["dictionaries"])
+
+# Custom-field schema editor (#7): Settings → Konfiguracja pól.
+app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields"])
 
 
 @app.get("/health")
