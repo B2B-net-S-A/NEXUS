@@ -76,7 +76,9 @@ def _extract_pdf_native(path: str) -> Optional[str]:
         if out:
             return "\n\n".join(out)
     except Exception as e:  # pragma: no cover — defensive
-        logger.info("[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e)
+        logger.info(
+            "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e
+        )
 
     # Legacy fallback for rare PDFs that pdfplumber chokes on.
     try:
@@ -106,7 +108,9 @@ def _extract_pdf_ocr(path: str) -> Optional[str]:
             if txt:
                 out.append(txt)
         return "\n\n".join(out) if out else ""
-    except Exception as e:  # pragma: no cover — defensive (system tesseract may be missing)
+    except (
+        Exception
+    ) as e:  # pragma: no cover — defensive (system tesseract may be missing)
         logger.warning("[cv_text_extractor] OCR fallback failed on %s: %s", path, e)
         return None
 
@@ -123,7 +127,9 @@ def _extract_pdf(path: str) -> Optional[str]:
     # Either native extraction failed, or yielded near-empty output → OCR.
     ocr = _extract_pdf_ocr(path)
     if ocr and len(ocr.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
-        logger.info("[cv_text_extractor] PDF %s extracted via OCR (native too short)", path)
+        logger.info(
+            "[cv_text_extractor] PDF %s extracted via OCR (native too short)", path
+        )
         return ocr
     # Return whichever has more content (could still be empty).
     return (native or "") if (len(native or "") >= len(ocr or "")) else (ocr or "")

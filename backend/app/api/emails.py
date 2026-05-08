@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.email_template import EmailCategory, EmailTemplate
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser, TacPlus
 
 logger = logging.getLogger(__name__)
 
@@ -341,10 +341,16 @@ async def get_email_template(
 )
 async def create_email_template(
     data: EmailTemplateCreate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Utwórz nowy szablon emaila."""
+    """Utwórz nowy szablon emaila.
+
+    Security: TAC+ only. Templates are shared system-wide and used for
+    candidate-facing emails (rejection, offer, scheduling). Sourcer/recruiter
+    must not be able to author them — separation of duties for outbound
+    candidate communications.
+    """
     template = EmailTemplate(
         **data.model_dump(),
         created_by=current_user.id,
@@ -368,10 +374,13 @@ async def create_email_template(
 async def update_email_template(
     template_id: int,
     data: EmailTemplateUpdate,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Zaktualizuj szablon emaila."""
+    """Zaktualizuj szablon emaila.
+
+    Security: TAC+ only — same rationale as create_email_template.
+    """
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)
     )
@@ -397,10 +406,15 @@ async def update_email_template(
 @router.delete("/email-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_email_template(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Usuń szablon emaila."""
+    """Usuń szablon emaila.
+
+    Security: admin only — templates are shared system-wide; deletion is
+    irreversible and may break ongoing campaigns. Recruiters/TACs who want a
+    template gone should ask an admin or update it instead.
+    """
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)
     )
@@ -478,12 +492,17 @@ async def send_test_email(
 
 @router.post("/email-templates/seed")
 async def seed_default_templates(
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Seed default Polish email templates if none exist.
     Idempotent — won't duplicate if templates already exist.
+
+    Security: admin only — seed creates the canonical rejection/offer/etc
+    templates that every recruiter uses. Should be run once per environment
+    by an admin during initial provisioning, not by arbitrary authenticated
+    users.
     """
     existing = (await db.execute(select(EmailTemplate))).scalars().all()
     if existing:
@@ -524,19 +543,18 @@ async def send_email(
     Tworzy wpis Activity dla kandydata (jeśli podano candidate_id).
     """
     # ⚠️ EMAIL SIMULATION — wypisuje do konsoli, nie wysyła przez SMTP
-    logger.info("=" * 60)
-    logger.info("[EMAIL SIMULATION] — Email NIE został fizycznie wysłany")
-    logger.info(f"  Do:      {data.to_email}")
-    logger.info(f"  Temat:   {data.subject}")
-    logger.info(f"  Treść:\n{data.body}")
-    logger.info("=" * 60)
-
-    print("\n" + "=" * 60)
-    print("[EMAIL SIMULATION] — Email NIE został fizycznie wysłany")
-    print(f"  Do:      {data.to_email}")
-    print(f"  Temat:   {data.subject}")
-    print(f"  Treść:\n{data.body}")
-    print("=" * 60 + "\n")
+    # Security/RODO: candidate emails + bodies must NOT land in stdout (Alloy
+    # ships stdout to Loki, where it's indexed and searchable). Log only the
+    # bare minimum needed for debugging — body length + recipient domain (not
+    # local-part).
+    _to_domain = (data.to_email or "").split("@", 1)[-1] or "?"
+    logger.info(
+        "[EMAIL SIMULATION] subject=%r to_domain=%s body_len=%d candidate_id=%s",
+        data.subject,
+        _to_domain,
+        len(data.body or ""),
+        data.candidate_id,
+    )
 
     # Create Activity record if candidate_id provided
     if data.candidate_id:
