@@ -133,6 +133,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: FileBarChart,
         roles: ["admin", "delivery_lead", "tac"],
       },
+      {
+        href: "/admin/clients-overview",
+        label: "Przegląd klientów",
+        icon: BarChart3,
+        roles: ["admin", "head_of_recruitment"],
+      },
     ],
   },
   {
