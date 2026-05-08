@@ -60,6 +60,9 @@ Long-term: matching kandydat ↔ stanowisko opieramy na Champion Profile (już i
 ✅ ~~Włączyć RERANKER_ENABLED=true~~ — done (default true w config.py, [PR #122](https://github.com/artur-t-96/Nexus/pull/122))
 ✅ ~~Backfill must_skills~~ — done (fix + run, 456 jobs backfilled regex-only; 3384 nadal puste — większość z brakującym `description`/`requirements` text)
 ✅ ~~Champion-driven scoring (semantic side)~~ — done przez `_build_job_text` z champion_profile narrative
+✅ ~~Champion-driven scoring (skills layer)~~ — done [PR #125](https://github.com/artur-t-96/Nexus/pull/125) + [#126](https://github.com/artur-t-96/Nexus/pull/126). `_score_skills` ma 3-tier fallback: Champion Profile → JD text → title. Word-boundary regex match na seed taxonomy (153 + 277 aliases).
+
+**Eval po Champion-driven scoring:** brak dodatkowego improvement vs poprzedni run. Powód: 0 jobów ma `champion_profile` populated (feature unused przez DLs). Importowane joby (1391+) mają puste `description`/`requirements` AND title to głównie polskie role biznesowe ("Tester Manualny", "Analityk Biznesowy", "Kierownik Projektu") — nie pokryte naszą IT-skills taxonomią. **Architektura jest poprawna i zacznie działać gdy:** (a) DLs wypełnią Champion Profile dla nowych jobów, lub (b) rozszerzymy taxonomy o polskie role biznesowe (Tester, Analityk, Programista, etc).
 
 Pozostały:
 
