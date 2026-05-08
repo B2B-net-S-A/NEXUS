@@ -108,6 +108,7 @@ from app.api import ai_settings as ai_settings_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
+from app.api import candidates_bulk as candidates_bulk_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -516,6 +517,12 @@ app.include_router(
     candidate_sources_api.reports_router,
     prefix="/api/reports",
     tags=["reports-sources"],
+)
+
+# Bulk actions on candidates list (#3): single dispatch endpoint
+# POST /api/candidates/bulk routes to per-action handlers.
+app.include_router(
+    candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"]
 )
 
 

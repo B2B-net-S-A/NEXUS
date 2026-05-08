@@ -2829,4 +2829,37 @@ export const sourcesReportApi = {
     }),
 };
 
+// ── Bulk candidate actions (Traffit gap #3) ──────────────────────────────────
+
+export type BulkActionType =
+  | "add_tags"
+  | "assign_talent_pool"
+  | "assign_to_job"
+  | "anonymize_pii";
+
+export interface BulkActionRequest {
+  action: BulkActionType;
+  candidate_ids: number[];
+  params?: Record<string, unknown>;
+}
+
+export interface BulkActionItemResult {
+  candidate_id: number;
+  ok: boolean;
+  reason?: string | null;
+}
+
+export interface BulkActionResponse {
+  action: BulkActionType;
+  requested: number;
+  succeeded: number;
+  skipped: number;
+  items: BulkActionItemResult[];
+}
+
+export const candidatesBulkApi = {
+  dispatch: (payload: BulkActionRequest) =>
+    api.post<BulkActionResponse>("/api/candidates/bulk", payload),
+};
+
 export default api;
