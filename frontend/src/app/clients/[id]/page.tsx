@@ -40,6 +40,9 @@ import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
 import { NotificationsTab } from "./NotificationsTab";
+import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
+import { OrdersTab } from "@/components/OrdersTab";
+import { AnalyticsTab } from "@/components/AnalyticsTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
@@ -699,7 +702,20 @@ function ContractsTab({ clientId }: { clientId: number }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "profil" | "info" | "projekty" | "opiekunowie" | "powiadomienia" | "wiedza" | "kontakty" | "kontrakty" | "materialy" | "cennik";
+type Tab =
+  | "profil"
+  | "info"
+  | "projekty"
+  | "opiekunowie"
+  | "powiadomienia"
+  | "wiedza"
+  | "kontakty"
+  | "kontrakty"
+  | "umowy-ramowe"
+  | "zamowienia"
+  | "analityka"
+  | "materialy"
+  | "cennik";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -731,6 +747,9 @@ export default function ClientDetailPage() {
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
+    { key: "umowy-ramowe", label: "Umowy ramowe", icon: <FileText className="w-4 h-4" /> },
+    { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "opiekunowie", label: "Opiekunowie", icon: <UserCog className="w-4 h-4" /> },
     { key: "powiadomienia", label: "Powiadomienia", icon: <Bell className="w-4 h-4" /> },
     { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
@@ -862,6 +881,9 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
+          {activeTab === "umowy-ramowe" && <FrameworkContractsTab clientId={Number(id)} />}
+          {activeTab === "zamowienia" && <OrdersTab clientId={Number(id)} />}
+          {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
           {activeTab === "opiekunowie" && <OwnersTab clientId={Number(id)} />}
           {activeTab === "powiadomienia" && <NotificationsTab clientId={Number(id)} />}
           {activeTab === "wiedza" && <KnowledgeTab clientId={Number(id)} />}

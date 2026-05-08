@@ -88,6 +88,12 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Handshake,
     items: [
       { href: "/clients", label: "Klienci", icon: Building2 },
+      {
+        href: "/my-clients",
+        label: "Moi klienci",
+        icon: Briefcase,
+        roles: ["delivery_lead", "admin", "head_of_recruitment"],
+      },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
       {
         href: "/contractors",
@@ -126,6 +132,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Raporty",
         icon: FileBarChart,
         roles: ["admin", "delivery_lead", "tac"],
+      },
+      {
+        href: "/admin/clients-overview",
+        label: "Przegląd klientów",
+        icon: BarChart3,
+        roles: ["admin", "head_of_recruitment"],
       },
     ],
   },

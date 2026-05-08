@@ -24,6 +24,9 @@ CONTRACTS_DIR = STORAGE_ROOT / "contracts"
 CLIENT_ONE_PAGERS_DIR = STORAGE_ROOT / "client_one_pagers"
 BRANDED_CVS_DIR = STORAGE_ROOT / "branded_cvs"
 CLIENT_REQUIRED_DOCS_DIR = STORAGE_ROOT / "client_required_docs"
+CLIENT_FRAMEWORK_CONTRACTS_DIR = STORAGE_ROOT / "client_framework_contracts"
+CLIENT_CONTRACT_AMENDMENTS_DIR = STORAGE_ROOT / "client_contract_amendments"
+CLIENT_ORDER_POS_DIR = STORAGE_ROOT / "client_orders"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -267,3 +270,119 @@ def delete_branded_cv(relative_path: str) -> None:
         logger.info("Deleted branded CV: %s", relative_path)
     except OSError:
         logger.exception("Failed to delete %s", relative_path)
+
+
+# ── Generic storage helpers (factor for new doc types) ───────────────────────
+
+
+def _save_to(
+    target_dir: Path, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Stream-save into ``target_dir`` with sanitized name + uuid prefix."""
+    safe = _sanitize_filename(upload_filename)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4().hex[:8]}-{safe}"
+    target_path = target_dir / stored_name
+    size = 0
+    with target_path.open("wb") as dst:
+        while True:
+            chunk = source.read(1024 * 64)
+            if not chunk:
+                break
+            dst.write(chunk)
+            size += len(chunk)
+    return str(target_path.relative_to(STORAGE_ROOT)), size
+
+
+def _resolve_under_root(relative_path: str) -> Path:
+    """Resolve ``relative_path`` under STORAGE_ROOT with traversal guard."""
+    abs_path = (STORAGE_ROOT / relative_path).resolve()
+    try:
+        abs_path.relative_to(STORAGE_ROOT.resolve())
+    except ValueError as exc:
+        raise FileNotFoundError(f"Invalid storage path: {relative_path}") from exc
+    if not abs_path.is_file():
+        raise FileNotFoundError(f"File missing on disk: {relative_path}")
+    return abs_path
+
+
+def _delete_relative(relative_path: str, label: str) -> None:
+    """Best-effort delete by relative path — never raises."""
+    try:
+        abs_path = _resolve_under_root(relative_path)
+    except FileNotFoundError:
+        logger.warning("Delete requested for missing %s: %s", label, relative_path)
+        return
+    try:
+        abs_path.unlink()
+        logger.info("Deleted %s: %s", label, relative_path)
+    except OSError:
+        logger.exception("Failed to delete %s", relative_path)
+
+
+# ── Client framework contracts (MSA PDFs) ────────────────────────────────────
+
+
+def save_client_framework_contract(
+    client_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save MSA PDF under /client_framework_contracts/{client_id}/{uuid}-{name}."""
+    rel, size = _save_to(
+        CLIENT_FRAMEWORK_CONTRACTS_DIR / str(client_id), upload_filename, source
+    )
+    logger.info("Saved client framework contract: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_client_framework_contract_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_client_framework_contract(relative_path: str) -> None:
+    _delete_relative(relative_path, "client framework contract")
+
+
+# ── Client contract amendments (aneksy PDF) ──────────────────────────────────
+
+
+def save_client_contract_amendment(
+    framework_contract_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save aneks under /client_contract_amendments/{fc_id}/{uuid}-{name}."""
+    rel, size = _save_to(
+        CLIENT_CONTRACT_AMENDMENTS_DIR / str(framework_contract_id),
+        upload_filename,
+        source,
+    )
+    logger.info("Saved client contract amendment: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_client_contract_amendment_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_client_contract_amendment(relative_path: str) -> None:
+    _delete_relative(relative_path, "client contract amendment")
+
+
+# ── Client orders (PO PDFs from clients) ─────────────────────────────────────
+
+
+def save_client_order_po(
+    order_id: int, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Save PO PDF under /client_orders/{order_id}/{uuid}-{name}."""
+    rel, size = _save_to(
+        CLIENT_ORDER_POS_DIR / str(order_id), upload_filename, source
+    )
+    logger.info("Saved client order PO: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_client_order_po_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
+
+
+def delete_client_order_po(relative_path: str) -> None:
+    _delete_relative(relative_path, "client order PO")

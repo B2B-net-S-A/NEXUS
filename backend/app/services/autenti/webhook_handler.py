@@ -213,8 +213,13 @@ async def _dispatch_side_effects(
 async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> None:
     # Download the signed PDF — best-effort. If download fails, the row stays
     # with status=completed, signed_document_id=NULL; the Phase 5 sweeper
-    # retries the download.
-    if sig.autenti_process_id and sig.signed_document_id is None:
+    # retries the download. Skipped for client-level dokumenty bo nie mamy
+    # `contract_documents` row dla nich (ten kod-path tylko dla candidate Contract).
+    if (
+        sig.contract_id
+        and sig.autenti_process_id
+        and sig.signed_document_id is None
+    ):
         try:
             await _download_and_attach_signed_file(db, sig)
         except Exception as exc:  # noqa: BLE001
@@ -225,73 +230,239 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
                 exc,
             )
 
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_completed",
-            user_id=sig.sender_user_id,
-            external_source="autenti",
-            external_id=sig.autenti_process_id,
-            details={"signer_email": sig.signer_email},
+    # Side-effects branch by target_kind
+    if sig.contract_id is not None:
+        # Original candidate-contract flow
+        db.add(
+            Activity(
+                entity_type="contract",
+                entity_id=sig.contract_id,
+                action="signature_completed",
+                user_id=sig.sender_user_id,
+                external_source="autenti",
+                external_id=sig.autenti_process_id,
+                details={"signer_email": sig.signer_email},
+            )
         )
-    )
-    await emit_notification(
-        db,
-        user_id=sig.sender_user_id,
-        title="Umowa podpisana",
-        message=(
-            f"{sig.signer_first_name} {sig.signer_last_name} podpisał(a) "
-            f"umowę kontraktu #{sig.contract_id}."
-        ),
-        ntype=NotificationType.signature_signed,
-        related_entity_type="document_signature",
-        related_entity_id=sig.id,
-        link=f"/candidates?contract={sig.contract_id}",
-    )
+        await emit_notification(
+            db,
+            user_id=sig.sender_user_id,
+            title="Umowa podpisana",
+            message=(
+                f"{sig.signer_first_name} {sig.signer_last_name} podpisał(a) "
+                f"umowę kontraktu #{sig.contract_id}."
+            ),
+            ntype=NotificationType.signature_signed,
+            related_entity_type="document_signature",
+            related_entity_id=sig.id,
+            link=f"/candidates?contract={sig.contract_id}",
+        )
+    elif sig.client_framework_contract_id is not None:
+        # Client framework contract — flip status to active
+        from app.models.client_framework_contract import (  # noqa: PLC0415
+            ClientFrameworkContract,
+            FrameworkContractStatus,
+        )
+
+        fc = await db.scalar(
+            select(ClientFrameworkContract).where(
+                ClientFrameworkContract.id == sig.client_framework_contract_id
+            )
+        )
+        if fc is not None:
+            fc.status = FrameworkContractStatus.active
+            client_id = fc.client_id
+            db.add(
+                Activity(
+                    entity_type="client",
+                    entity_id=client_id,
+                    action="framework_contract_signed",
+                    user_id=sig.sender_user_id,
+                    external_source="autenti",
+                    external_id=sig.autenti_process_id,
+                    details={
+                        "framework_contract_id": fc.id,
+                        "signer_email": sig.signer_email,
+                    },
+                )
+            )
+            await emit_notification(
+                db,
+                user_id=sig.sender_user_id,
+                title="Umowa ramowa podpisana",
+                message=(
+                    f"{sig.signer_first_name} {sig.signer_last_name} podpisał(a) "
+                    f"umowę ramową '{fc.name}'."
+                ),
+                ntype=NotificationType.framework_contract_signed,
+                related_entity_type="client_framework_contract",
+                related_entity_id=fc.id,
+                link=f"/clients/{client_id}?tab=framework-contracts",
+            )
+    elif sig.client_contract_amendment_id is not None:
+        from app.models.client_contract_amendment import (  # noqa: PLC0415
+            ClientContractAmendment,
+        )
+        from app.models.client_framework_contract import (  # noqa: PLC0415
+            ClientFrameworkContract,
+        )
+
+        a = await db.scalar(
+            select(ClientContractAmendment).where(
+                ClientContractAmendment.id == sig.client_contract_amendment_id
+            )
+        )
+        if a is not None:
+            fc = await db.scalar(
+                select(ClientFrameworkContract).where(
+                    ClientFrameworkContract.id == a.framework_contract_id
+                )
+            )
+            client_id = fc.client_id if fc else 0
+            db.add(
+                Activity(
+                    entity_type="client",
+                    entity_id=client_id,
+                    action="amendment_signed",
+                    user_id=sig.sender_user_id,
+                    external_source="autenti",
+                    external_id=sig.autenti_process_id,
+                    details={"amendment_id": a.id},
+                )
+            )
+            await emit_notification(
+                db,
+                user_id=sig.sender_user_id,
+                title="Aneks podpisany",
+                message=(
+                    f"{sig.signer_first_name} {sig.signer_last_name} podpisał(a) "
+                    f"aneks '{a.name}'."
+                ),
+                ntype=NotificationType.signature_signed,
+                related_entity_type="client_contract_amendment",
+                related_entity_id=a.id,
+                link=f"/clients/{client_id}?tab=framework-contracts",
+            )
 
 
 async def _on_rejected(db: AsyncSession, sig: DocumentSignature) -> None:
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_rejected",
-            user_id=sig.sender_user_id,
-            external_source="autenti",
-            external_id=sig.autenti_process_id,
-            details={"signer_email": sig.signer_email},
-        )
+    # Choose entity_type/id and link based on target_kind
+    entity_type = "contract"
+    entity_id: Optional[int] = sig.contract_id
+    link = (
+        f"/candidates?contract={sig.contract_id}" if sig.contract_id else None
     )
+    title = "Kandydat odrzucił umowę"
+    msg_target = f"umowy kontraktu #{sig.contract_id}"
+
+    if sig.client_framework_contract_id is not None:
+        from app.models.client_framework_contract import (  # noqa: PLC0415
+            ClientFrameworkContract,
+            FrameworkContractStatus,
+        )
+
+        fc = await db.scalar(
+            select(ClientFrameworkContract).where(
+                ClientFrameworkContract.id == sig.client_framework_contract_id
+            )
+        )
+        if fc is not None:
+            # Cofnij status pending_signature → draft (DL musi zdecydować co dalej)
+            if fc.status == FrameworkContractStatus.pending_signature:
+                fc.status = FrameworkContractStatus.draft
+            entity_type = "client"
+            entity_id = fc.client_id
+            link = f"/clients/{fc.client_id}?tab=framework-contracts"
+            title = "Klient odrzucił umowę ramową"
+            msg_target = f"umowy ramowej '{fc.name}'"
+    elif sig.client_contract_amendment_id is not None:
+        from app.models.client_contract_amendment import (  # noqa: PLC0415
+            ClientContractAmendment,
+        )
+        from app.models.client_framework_contract import (  # noqa: PLC0415
+            ClientFrameworkContract,
+        )
+
+        a = await db.scalar(
+            select(ClientContractAmendment).where(
+                ClientContractAmendment.id == sig.client_contract_amendment_id
+            )
+        )
+        if a is not None:
+            fc = await db.scalar(
+                select(ClientFrameworkContract).where(
+                    ClientFrameworkContract.id == a.framework_contract_id
+                )
+            )
+            client_id = fc.client_id if fc else 0
+            entity_type = "client"
+            entity_id = client_id
+            link = f"/clients/{client_id}?tab=framework-contracts"
+            title = "Klient odrzucił aneks"
+            msg_target = f"aneksu '{a.name}'"
+
+    if entity_id is not None:
+        db.add(
+            Activity(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action="signature_rejected",
+                user_id=sig.sender_user_id,
+                external_source="autenti",
+                external_id=sig.autenti_process_id,
+                details={"signer_email": sig.signer_email},
+            )
+        )
     await emit_notification(
         db,
         user_id=sig.sender_user_id,
-        title="Kandydat odrzucił umowę",
+        title=title,
         message=(
             f"{sig.signer_first_name} {sig.signer_last_name} odrzucił(a) "
-            f"podpisanie umowy kontraktu #{sig.contract_id}. Skontaktuj się "
-            "z kandydatem, aby ustalić dalsze kroki."
+            f"podpisanie {msg_target}."
         ),
         ntype=NotificationType.signature_rejected,
         related_entity_type="document_signature",
         related_entity_id=sig.id,
-        link=f"/candidates?contract={sig.contract_id}",
+        link=link,
     )
 
 
 async def _on_withdrawn(db: AsyncSession, sig: DocumentSignature) -> None:
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_withdrawn",
-            user_id=sig.sender_user_id,
-            external_source="autenti",
-            external_id=sig.autenti_process_id,
+    # entity_type/id branched by target_kind
+    entity_type = "contract"
+    entity_id: Optional[int] = sig.contract_id
+    if sig.client_framework_contract_id is not None:
+        from app.models.client_framework_contract import (  # noqa: PLC0415
+            ClientFrameworkContract,
+            FrameworkContractStatus,
         )
-    )
-    # No notification — the user who clicked "Wycofaj" already saw the result
-    # in their UI flow; an in-app notification would be noise.
+
+        fc = await db.scalar(
+            select(ClientFrameworkContract).where(
+                ClientFrameworkContract.id == sig.client_framework_contract_id
+            )
+        )
+        if fc:
+            if fc.status == FrameworkContractStatus.pending_signature:
+                fc.status = FrameworkContractStatus.draft
+            entity_type = "client"
+            entity_id = fc.client_id
+    elif sig.client_contract_amendment_id is not None:
+        entity_type = "client"
+        entity_id = None  # nie znamy client_id bez extra query — pomiń
+
+    if entity_id is not None:
+        db.add(
+            Activity(
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action="signature_withdrawn",
+                user_id=sig.sender_user_id,
+                external_source="autenti",
+                external_id=sig.autenti_process_id,
+            )
+        )
 
 
 async def _download_and_attach_signed_file(

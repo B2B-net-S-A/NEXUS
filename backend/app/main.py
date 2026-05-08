@@ -46,6 +46,11 @@ from app.api import calls
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
+from app.api import client_framework_contracts
+from app.api import client_contract_amendments
+from app.api import client_orders as client_orders_api
+from app.api import my_clients as my_clients_api
+from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -225,6 +230,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
+    from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -244,6 +250,7 @@ async def lifespan(app: FastAPI):
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
     autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
+    dl_portal_expiry_task = asyncio.create_task(dl_portal_expiry_loop())
 
     yield
 
@@ -264,6 +271,7 @@ async def lifespan(app: FastAPI):
         marketplace_sweeper_task,
         chat_email_fallback_task,
         autenti_sweeper_task,
+        dl_portal_expiry_task,
     )
     for t in tasks:
         t.cancel()
@@ -304,6 +312,31 @@ app.include_router(public_engagement.router, prefix="/api", tags=["public-engage
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
+app.include_router(
+    client_framework_contracts.router,
+    prefix="/api/clients",
+    tags=["client-framework-contracts"],
+)
+app.include_router(
+    client_contract_amendments.router,
+    prefix="/api/clients",
+    tags=["client-contract-amendments"],
+)
+app.include_router(
+    client_orders_api.router,
+    prefix="/api/clients",
+    tags=["client-orders"],
+)
+app.include_router(
+    my_clients_api.router,
+    prefix="/api/my-clients",
+    tags=["my-clients"],
+)
+app.include_router(
+    admin_clients_overview_api.router,
+    prefix="/api/admin/clients-overview",
+    tags=["admin-clients-overview"],
+)
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
