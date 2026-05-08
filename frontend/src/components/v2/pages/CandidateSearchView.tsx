@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Bookmark, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AiStatusBanner } from "@/components/jobs/AiStatusBanner";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
@@ -237,12 +237,13 @@ export function CandidateSearchView({
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {backHref && (
-            <Button asChild variant="ghost" size="sm" className="gap-1">
-              <Link href={backHref}>
-                <ArrowLeft className="h-4 w-4" />
-                Wstecz
-              </Link>
-            </Button>
+            <Link
+              href={backHref}
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Wstecz
+            </Link>
           )}
           <h1 className="text-xl font-semibold tracking-tight flex items-center gap-2">
             <Search className="h-5 w-5" />
