@@ -36,7 +36,7 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@tiptap/react": "^2.10.4",
     "@tiptap/starter-kit": "^2.10.4",
-    "axios": "^1.7.9",
+    "axios": "^1.15.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
