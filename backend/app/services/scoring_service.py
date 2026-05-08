@@ -21,6 +21,7 @@ lists, and active penalties so the UI can render a "why" tooltip.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence
 
@@ -254,6 +255,105 @@ def set_alias_map(mapping: dict[str, str]) -> None:
     """Replace the in-memory alias map atomically (called from FastAPI startup)."""
     ALIAS_MAP.clear()
     ALIAS_MAP.update({k.lower(): v.lower() for k, v in mapping.items()})
+    # Invalidate the compiled regex used for Champion Profile skill extraction.
+    global _CHAMPION_ALIAS_PATTERN
+    _CHAMPION_ALIAS_PATTERN = None
+
+
+# Compiled union regex: \b(alias1|alias2|...)\b. Built lazily, invalidated when
+# `set_alias_map` rebuilds ALIAS_MAP. Used by `_extract_skills_from_champion`.
+_CHAMPION_ALIAS_PATTERN: Optional[re.Pattern] = None
+
+
+def _alias_pattern() -> Optional[re.Pattern]:
+    global _CHAMPION_ALIAS_PATTERN
+    if not ALIAS_MAP:
+        return None
+    if _CHAMPION_ALIAS_PATTERN is None:
+        # Sort longer aliases first so "kubernetes" matches before its substring
+        # "kube"; regex alternation is greedy left-to-right.
+        sorted_aliases = sorted(ALIAS_MAP.keys(), key=len, reverse=True)
+        # \b doesn't anchor on punctuation like # in "C#"; use lookarounds that
+        # treat any non-word char OR start/end as the boundary.
+        pattern = (
+            r"(?<![A-Za-z0-9_])("
+            + "|".join(re.escape(a) for a in sorted_aliases)
+            + r")(?![A-Za-z0-9_])"
+        )
+        _CHAMPION_ALIAS_PATTERN = re.compile(pattern, re.IGNORECASE)
+    return _CHAMPION_ALIAS_PATTERN
+
+
+def _extract_skills_from_champion(job: Job) -> list[dict]:
+    """Return [{name: canonical}, ...] derived from job narrative text.
+
+    Fallback chain (first hit wins):
+      1. `job.champion_profile` — Traffit-style curated profile (highest signal)
+      2. `job.requirements` + `job.description` — narrative from JD itself
+
+    Used as implicit must_skills when `job.must_skills` is empty (the case for
+    ~88% of prod jobs as of 2026-05-08). Without this fallback the skills
+    layer in scoring short-circuits to max points → all candidates score the
+    same → matching is decided purely by semantic + metadata signals.
+
+    Pattern matching uses the seed taxonomy (153 canonical skills + 277
+    aliases). Word-boundary regex avoids false hits like "java" in "javascript".
+    """
+    pattern = _alias_pattern()
+    if pattern is None:
+        return []
+
+    parts: list[str] = []
+
+    # Tier 1: Champion Profile narrative (when populated by recruiter).
+    champion = getattr(job, "champion_profile", None)
+    if isinstance(champion, dict) and champion:
+        ctx = champion.get("project_context") or {}
+        if isinstance(ctx, dict):
+            for k in ("about", "responsibilities", "selling_points"):
+                v = ctx.get(k)
+                if isinstance(v, str):
+                    parts.append(v)
+        questions = champion.get("screening_questions") or []
+        if isinstance(questions, list):
+            for q in questions:
+                if isinstance(q, dict):
+                    for k in ("question", "ideal_answer", "deal_breaker"):
+                        v = q.get(k)
+                        if isinstance(v, str):
+                            parts.append(v)
+        sourcing = champion.get("sourcing") or {}
+        if isinstance(sourcing, dict):
+            for k in ("keywords", "target_companies", "notes"):
+                v = sourcing.get(k)
+                if isinstance(v, str):
+                    parts.append(v)
+        for k in ("historical_client_questions", "internal_consultant_insight"):
+            v = champion.get(k)
+            if isinstance(v, str):
+                parts.append(v)
+
+    # Tier 2: JD text (when Champion not yet populated — current prod state).
+    if not parts:
+        for attr in ("requirements", "description"):
+            v = getattr(job, attr, None)
+            if isinstance(v, str) and v.strip():
+                # Cap each field at 4K chars — long JDs (8K+) drag regex time
+                # and add little signal beyond the headline requirements.
+                parts.append(v[:4000])
+
+    text = " ".join(parts)
+    if not text.strip():
+        return []
+
+    found_canonicals: set[str] = set()
+    for match in pattern.finditer(text):
+        alias = match.group(1).lower()
+        canonical = ALIAS_MAP.get(alias)
+        if canonical:
+            found_canonicals.add(canonical)
+
+    return [{"name": c} for c in sorted(found_canonicals)]
 
 
 def canonical_skill_names(raw) -> List[str]:
@@ -314,6 +414,25 @@ def _score_skills(
     """Return (LayerResult, matching_must, gap_must, matching_nice, gap_nice)."""
     must = canonical_skill_names(job.must_skills)
     nice = canonical_skill_names(job.nice_skills)
+
+    # Champion-driven fallback: when `must_skills` is empty (the case for ~88%
+    # of prod jobs as of 2026-05-08 baseline), derive implicit must skills
+    # from the Champion Profile narrative or — failing that — the JD text
+    # itself (description + requirements). Eliminates the "skills layer
+    # short-circuits to max" pattern that flattened candidate ranking on
+    # imported jobs. See `_extract_skills_from_champion` for source priority.
+    must_source = "structured"
+    if not must:
+        derived = _extract_skills_from_champion(job)
+        if derived:
+            must = canonical_skill_names(derived)
+            must_source = (
+                "champion"
+                if isinstance(getattr(job, "champion_profile", None), dict)
+                and (job.champion_profile or {})
+                else "jd_text"
+            )
+
     cand_skills = set(
         canonical_skill_names(candidate.skills)
         + canonical_skill_names(candidate.verified_tech)
@@ -335,7 +454,12 @@ def _score_skills(
     total = must_pts + nice_pts
     reason_bits = []
     if must:
-        reason_bits.append(f"must {len(must_match)}/{len(must)}")
+        suffix = ""
+        if must_source == "champion":
+            suffix = " (z Championa)"
+        elif must_source == "jd_text":
+            suffix = " (z opisu)"
+        reason_bits.append(f"must {len(must_match)}/{len(must)}{suffix}")
     else:
         reason_bits.append("must n/a")
     if nice:
