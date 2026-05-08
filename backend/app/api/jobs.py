@@ -964,13 +964,34 @@ async def generate_champion_from_jd(
 
     Returns the newly-created `ChampionProfileSuggestion` (status=pending,
     unless the LLM / validation fails — then status=rejected).
+
+    Subject to the Settings → AI quota for `champion_draft`.
     """
+    from app.models.ai_feature import AIFeatureKey
     from app.schemas.champion_suggestion import (
         ChampionProfileSuggestionOut,
         GenerateFromJdPayload,
         patches_from_payload,
     )
+    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
     from app.services.champion_draft_service import generate_from_jd
+
+    try:
+        await check_and_increment(
+            db, AIFeatureKey.champion_draft, user_id=current_user.id
+        )
+        await db.commit()
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
 
     body = GenerateFromJdPayload.model_validate(payload or {})
     suggestion = await generate_from_jd(
@@ -997,13 +1018,34 @@ async def generate_champion_from_history(
     data from historical roles with populated `champion_profile`. When there
     are too few matches for the job's client, returns a `rejected` suggestion
     with an explanatory `error_message` so the UI can tell the DL why.
+
+    Subject to the Settings → AI quota for `champion_draft`.
     """
+    from app.models.ai_feature import AIFeatureKey
     from app.schemas.champion_suggestion import (
         ChampionProfileSuggestionOut,
         GenerateFromHistoryPayload,
         patches_from_payload,
     )
+    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
     from app.services.champion_draft_service import generate_from_historical_jobs
+
+    try:
+        await check_and_increment(
+            db, AIFeatureKey.champion_draft, user_id=current_user.id
+        )
+        await db.commit()
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
 
     body = GenerateFromHistoryPayload.model_validate(payload or {})
     suggestion = await generate_from_historical_jobs(
