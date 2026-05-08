@@ -15,7 +15,7 @@ import secrets
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,12 +127,16 @@ async def update_client(
     return client
 
 
-@router.delete("/{client_pk}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{client_pk}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_client(
     client_pk: int,
     _: AdminUser,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """Hard-delete an OAuth client. All issued JWTs remain valid until expiry —
     the only way to immediately revoke is to set ``enabled=False`` (PATCH)
     *before* the next token request, since the token endpoint reads the row.
@@ -146,3 +150,4 @@ async def delete_client(
 
     await db.delete(client)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
