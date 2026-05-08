@@ -230,6 +230,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
+    from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.services.fx_service import fx_refresh_loop
 
     reminder_task = asyncio.create_task(calendar_reminder_loop())
@@ -249,6 +250,7 @@ async def lifespan(app: FastAPI):
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
     autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
+    dl_portal_expiry_task = asyncio.create_task(dl_portal_expiry_loop())
 
     yield
 
@@ -269,6 +271,7 @@ async def lifespan(app: FastAPI):
         marketplace_sweeper_task,
         chat_email_fallback_task,
         autenti_sweeper_task,
+        dl_portal_expiry_task,
     )
     for t in tasks:
         t.cancel()
