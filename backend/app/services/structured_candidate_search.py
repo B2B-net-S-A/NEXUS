@@ -51,9 +51,11 @@ def _skills_text() -> ColumnElement:
     (``{name, level, years}``). Casting to ``text`` returns the raw JSON dump,
     which is good enough for ILIKE substring matching across both shapes.
     """
-    return func.coalesce(
-        cast(Candidate.skills, String), ""
-    ) + " " + func.coalesce(cast(Candidate.tags, String), "")
+    return (
+        func.coalesce(cast(Candidate.skills, String), "")
+        + " "
+        + func.coalesce(cast(Candidate.tags, String), "")
+    )
 
 
 def _skill_match(skill: str) -> ColumnElement:
@@ -82,8 +84,7 @@ def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
     # levels in one expression efficiently — rely on text fallback below.
     text_blob = func.coalesce(cast(Candidate.languages, String), "")
     pattern_clauses = [
-        text_blob.ilike(f'%"{code_upper}"%"{lvl}"%')
-        for lvl in accepted_levels
+        text_blob.ilike(f'%"{code_upper}"%"{lvl}"%') for lvl in accepted_levels
     ]
     pattern_clauses += [
         text_blob.ilike(f'%"{lvl}"%"{code_upper}"%') for lvl in accepted_levels
@@ -200,9 +201,7 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
     if side_proj_clause is not None:
         clauses.append(side_proj_clause)
 
-    sales_clause = _bool_eq(
-        Candidate.open_to_sales_support, req.open_to_sales_support
-    )
+    sales_clause = _bool_eq(Candidate.open_to_sales_support, req.open_to_sales_support)
     if sales_clause is not None:
         clauses.append(sales_clause)
 

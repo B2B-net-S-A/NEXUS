@@ -66,16 +66,12 @@ class _AiHealthTracker:
                 return "ok"
             tail = list(self._samples)[-CONSECUTIVE_FAILURE_THRESHOLD:]
 
-        if (
-            len(tail) >= CONSECUTIVE_FAILURE_THRESHOLD
-            and all(s.failed for s in tail)
-        ):
+        if len(tail) >= CONSECUTIVE_FAILURE_THRESHOLD and all(s.failed for s in tail):
             return "down"
 
         slow_tail = tail[-CONSECUTIVE_SLOW_THRESHOLD:]
-        if (
-            len(slow_tail) >= CONSECUTIVE_SLOW_THRESHOLD
-            and all(s.elapsed_ms >= SLOW_THRESHOLD_MS for s in slow_tail)
+        if len(slow_tail) >= CONSECUTIVE_SLOW_THRESHOLD and all(
+            s.elapsed_ms >= SLOW_THRESHOLD_MS for s in slow_tail
         ):
             return "degraded"
 

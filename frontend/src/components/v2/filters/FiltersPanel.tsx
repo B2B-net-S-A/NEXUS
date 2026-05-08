@@ -219,7 +219,7 @@ export function FiltersPanel({
                 {items.map((s, i) => (
                   <Badge
                     key={`${s}-${i}`}
-                    variant="secondary"
+                    variant="neutral"
                     className={cn(
                       "gap-1",
                       tone === "emerald" &&
@@ -353,7 +353,7 @@ export function FiltersPanel({
           </Label>
           <div className="flex flex-wrap items-center gap-1.5">
             {(value.location_cities ?? []).map((c, i) => (
-              <Badge key={`${c}-${i}`} variant="secondary" className="gap-1">
+              <Badge key={`${c}-${i}`} variant="neutral" className="gap-1">
                 {c}
                 <button
                   type="button"
@@ -551,7 +551,7 @@ export function FiltersPanel({
               </Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {(value.tags ?? []).map((t, i) => (
-                  <Badge key={`${t}-${i}`} variant="secondary" className="gap-1">
+                  <Badge key={`${t}-${i}`} variant="neutral" className="gap-1">
                     {t}
                     <button
                       type="button"

@@ -282,7 +282,7 @@ export function CandidateSearchView({
                 {ss.name}
               </button>
               {ss.pinned_to_job_id !== null && (
-                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                <Badge variant="neutral" className="h-4 px-1 text-[10px]">
                   pin
                 </Badge>
               )}
@@ -539,7 +539,7 @@ function CandidateSearchRow({
             {item.name} {item.lastname}
           </Link>
           {item.competence_category && (
-            <Badge variant="secondary">{item.competence_category}</Badge>
+            <Badge variant="neutral">{item.competence_category}</Badge>
           )}
           {item.is_champion && (
             <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">

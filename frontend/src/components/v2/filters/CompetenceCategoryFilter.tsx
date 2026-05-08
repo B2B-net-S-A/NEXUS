@@ -118,7 +118,7 @@ export function CompetenceCategoryFilter({
             <span>{cc.name_pl}</span>
             {count !== undefined && (
               <Badge
-                variant="secondary"
+                variant="neutral"
                 className="ml-1 h-5 px-1.5 text-xs tabular-nums"
               >
                 {count}
