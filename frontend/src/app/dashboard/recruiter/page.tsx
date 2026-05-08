@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/comp
 import { HeroLigaMistrzow, type HeroPodiumEntry } from"@/components/v2/gamification/HeroLigaMistrzow"
 import { PowerCallingSection } from"@/components/v2/gamification/PowerCallingSection"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
+import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
 import { ROLE_LABELS, useAuthStore } from"@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -214,7 +215,12 @@ export default function RecruiterDashboard() {
  const isAllowed =
  !!user && (isMeRecruiter || user.role === "admin" || user.role === "head_of_recruitment")
 
- const { data: report, refetch: refetchReport } = useQuery<RecruitmentReport>({
+ const {
+ data: report,
+ isError: reportIsError,
+ error: reportError,
+ refetch: refetchReport,
+ } = useQuery<RecruitmentReport>({
  queryKey: ["report-recruitment","month"],
  queryFn: () =>
  api.get("/api/reports/recruitment?period=month").then((r) => r.data),
@@ -224,7 +230,12 @@ export default function RecruiterDashboard() {
 
  const myStats = report?.per_recruiter.find((r) => r.user_id === user?.id)
 
- const { data: quarterChampions, refetch: refetchQ } = useQuery<CompetitionResponse>({
+ const {
+ data: quarterChampions,
+ isError: qIsError,
+ error: qError,
+ refetch: refetchQ,
+ } = useQuery<CompetitionResponse>({
  queryKey: ["competitions-current","quarterly_champions_recruiter"],
  queryFn: () =>
  api
@@ -234,7 +245,12 @@ export default function RecruiterDashboard() {
  staleTime: 5 * 60 * 1000,
  })
 
- const { data: races, refetch: refetchRaces } = useQuery<MonthlyRacesResponse>({
+ const {
+ data: races,
+ isError: racesIsError,
+ error: racesError,
+ refetch: refetchRaces,
+ } = useQuery<MonthlyRacesResponse>({
  queryKey: ["monthly-races","current"],
  queryFn: () =>
  api.get("/api/competitions/monthly-races").then((r) => r.data),
@@ -321,6 +337,19 @@ export default function RecruiterDashboard() {
  </Button>
  </div>
 
+ {/* Report-driven sections (KPI + lejka). Without explicit error handling
+ these would silently render zeros when the report endpoint errors — making
+ the dashboard look broken instead of failed. */}
+ {reportIsError ? (
+ <Card>
+ <WidgetErrorBlock
+ title="Nie udało się załadować raportu rekrutacji."
+ error={reportError}
+ onRetry={() => refetchReport()}
+ />
+ </Card>
+ ) : (
+ <>
  {/* KPI row — pastel cards */}
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
  <PastelKpi
@@ -385,9 +414,19 @@ export default function RecruiterDashboard() {
  />
  </div>
  </div>
+ </>
+ )}
 
  {/* Hero Liga Mistrzów */}
- {quarterChampions && (
+ {qIsError ? (
+ <Card>
+ <WidgetErrorBlock
+ title="Nie udało się załadować Ligi Mistrzów."
+ error={qError}
+ onRetry={() => refetchQ()}
+ />
+ </Card>
+ ) : quarterChampions ? (
  <HeroLigaMistrzow
  title="Liga Mistrzów"
  period={quarterChampions.period}
@@ -409,10 +448,18 @@ export default function RecruiterDashboard() {
  requirement={quarterChampions.requirement}
  highlightUserId={isMeRecruiter ? user.id : null}
  />
- )}
+ ) : null}
 
  {/* 2 wyścigi miesięczne side-by-side */}
- {races && (
+ {racesIsError ? (
+ <Card>
+ <WidgetErrorBlock
+ title="Nie udało się załadować wyścigów miesięcznych."
+ error={racesError}
+ onRetry={() => refetchRaces()}
+ />
+ </Card>
+ ) : races ? (
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <RaceCard
  title="Wyścig Rekomendacji"
@@ -437,7 +484,7 @@ export default function RecruiterDashboard() {
  highlightUserId={isMeRecruiter ? user.id : null}
  />
  </div>
- )}
+ ) : null}
 
  {/* Power Calling — pomarańczowy gradient, weryfikacje/dzień w ubiegłym tygodniu */}
  {powerCalling && (
@@ -544,6 +591,13 @@ export default function RecruiterDashboard() {
  <CardDescription>Ranking po placementach</CardDescription>
  </CardHeader>
  <CardContent>
+ {reportIsError ? (
+ <WidgetErrorBlock
+ title="Nie udało się załadować zespołu."
+ error={reportError}
+ onRetry={() => refetchReport()}
+ />
+ ) : (
  <div className="overflow-x-auto">
  <table className="w-full text-sm">
  <thead className="border-b border-border">
@@ -650,6 +704,7 @@ export default function RecruiterDashboard() {
  </p>
  )}
  </div>
+ )}
  </CardContent>
  </Card>
  </div>
