@@ -148,11 +148,22 @@ async def update_user(
     _admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Update user details (name, role, is_active)."""
+    """Update user details (name, role, is_active).
+
+    Security: writes Activity rows for role changes, deactivations and
+    name changes so admin actions are auditable. Reset-password already
+    logs separately. RODO accountability requires an audit trail for any
+    privilege escalation or account state change.
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Capture pre-change state for audit log
+    original_role = user.role
+    original_active = user.is_active
+    original_name = user.name
 
     if data.name is not None:
         user.name = data.name
@@ -160,6 +171,54 @@ async def update_user(
         user.role = data.role
     if data.is_active is not None:
         user.is_active = data.is_active
+
+    # Audit: write one Activity per attribute that actually changed
+    if data.role is not None and data.role != original_role:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="role_changed",
+                user_id=_admin.id,
+                details={
+                    "from": original_role.value
+                    if hasattr(original_role, "value")
+                    else str(original_role),
+                    "to": data.role.value
+                    if hasattr(data.role, "value")
+                    else str(data.role),
+                    "target_email": user.email,
+                },
+            )
+        )
+    if data.is_active is not None and data.is_active != original_active:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="active_changed",
+                user_id=_admin.id,
+                details={
+                    "from": original_active,
+                    "to": data.is_active,
+                    "target_email": user.email,
+                },
+            )
+        )
+    if data.name is not None and data.name != original_name:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="name_changed",
+                user_id=_admin.id,
+                details={
+                    "from": original_name,
+                    "to": data.name,
+                    "target_email": user.email,
+                },
+            )
+        )
 
     await db.flush()
     await db.refresh(user)
@@ -172,7 +231,12 @@ async def deactivate_user(
     admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete user by setting is_active=False."""
+    """Soft-delete user by setting is_active=False.
+
+    Security: writes Activity row for the soft-delete so the action is
+    auditable. RODO accountability + incident response require knowing
+    who deactivated whom and when.
+    """
     if admin.id == user_id:
         raise HTTPException(
             status_code=400, detail="Cannot deactivate your own account"
@@ -184,6 +248,15 @@ async def deactivate_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.is_active = False
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=user.id,
+            action="user_deactivated",
+            user_id=admin.id,
+            details={"target_email": user.email},
+        )
+    )
     await db.flush()
 
 
