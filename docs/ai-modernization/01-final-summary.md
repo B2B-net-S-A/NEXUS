@@ -64,18 +64,26 @@ Long-term: matching kandydat ↔ stanowisko opieramy na Champion Profile (już i
 
 **Eval po Champion-driven scoring:** brak dodatkowego improvement vs poprzedni run. Powód: 0 jobów ma `champion_profile` populated (feature unused przez DLs). Importowane joby (1391+) mają puste `description`/`requirements` AND title to głównie polskie role biznesowe ("Tester Manualny", "Analityk Biznesowy", "Kierownik Projektu") — nie pokryte naszą IT-skills taxonomią. **Architektura jest poprawna i zacznie działać gdy:** (a) DLs wypełnią Champion Profile dla nowych jobów, lub (b) rozszerzymy taxonomy o polskie role biznesowe (Tester, Analityk, Programista, etc).
 
-Pozostały:
+✅ ~~Wire hybrid_search.py do UI~~ — done [PR #129](https://github.com/artur-t-96/Nexus/pull/129). `/api/search/candidates` przyjmuje `search_mode=hybrid` → BM25+dense+RRF+rerank pipeline. Toggle "Semantycznie" w `FiltersPanel` listy kandydatów.
 
-1. **Wire hybrid_search.py do UI** — backend gotowy (`/api/candidates?search_type=hybrid` można dodać), toggle w listy kandydatów to osobny FE PR.
-2. **Champion-driven scoring (skills layer)** — gdy `job.champion_profile` istnieje, ekstraktować implied skills z `screening_questions.ideal_answer` + `sourcing.keywords` zamiast polegać na must_skills/nice_skills. Wymaga LLM call lub keyword extraction w `scoring_service`.
-3. **Rerank w eval_matching** — eval bypasses API endpoints. Refactor żeby szedł przez `hybrid_candidates()` z `hybrid_search.py` da nam offline measurable rerank delta.
-4. **Re-run backfill z Ollama** — current run używał regex fallback. Ollama-driven extraction dałby lepszej jakości must_skills. Wymaga włączonego Ollama na serwerze.
-5. **Champion Profile dla starych jobów** — ale to praca DL (manual review), nie automatyzacja.
+✅ ~~Polskie role biznesowe w taxonomy~~ — done [PR #129](https://github.com/artur-t-96/Nexus/pull/129). 41 nowych canonical roles + 156 aliases (Tester Manualny, Analityk Biznesowy, Kierownik Projektu, Architekt, DevOps, SAP Consultant, etc). Łącznie taxonomy: **194 canonical + 433 aliases**.
+
+Pozostają (poza scope tego sprintu — wymagają zewnętrznych danych / pracy ludzkiej):
+
+1. **Backfill descriptions z Traffit** — 88% jobów ma empty `description`/`requirements`. Pull oryginalnych JD z Traffit API jeśli dostępne. **Bez tego R@20 capped przez retrieval pool quality** (kandydaci GT nie trafiają do top-200).
+2. **CV upload dla 10 470 kandydatów z null skills + null raw_cv_text** — niewidzialni w Qdrant search. Wymaga manual CV upload przez recruterów lub batch import z innego źródła.
+3. **Champion Profile dla istniejących jobów** — auto-generation by Claude Opus z opisu (~$200 jednorazowo) lub manual fill przez DL. Po tym Champion-driven scoring zacznie aktywnie działać.
+4. **Re-run backfill_job_criteria z Ollama** — current run używał regex fallback (456/3839 trafień). Ollama-driven extraction dałoby lepsze pokrycie. Wymaga aktywnego Ollama na serwerze.
+5. **Rerank w eval_matching** — eval bypasses API endpoints. Refactor żeby szedł przez `hybrid_candidates()` da nam offline measurable rerank delta.
 
 ## PR-y zamergowane
 
 - [#119](https://github.com/artur-t-96/Nexus/pull/119) — Items 1-2 (eval bugfix + voyage-3-large)
 - [#120](https://github.com/artur-t-96/Nexus/pull/120) — Items 3-8 (rerank, cache, OCR, skills, hybrid, chunking) + batching + jobs FTS migration
+- [#122](https://github.com/artur-t-96/Nexus/pull/122) — Item 9 (Champion-driven embeddings + rerank default ON + backfill SQL fix)
+- [#125](https://github.com/artur-t-96/Nexus/pull/125) — Champion Profile / JD-text fallback w skills scoring layer
+- [#126](https://github.com/artur-t-96/Nexus/pull/126) — Title-only fallback (3-tier extraction chain)
+- [#129](https://github.com/artur-t-96/Nexus/pull/129) — Hybrid mode wiring (BE+FE) + Polish business roles taxonomy
 
 ## Verification (E2E)
 
