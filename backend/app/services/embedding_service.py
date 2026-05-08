@@ -99,10 +99,28 @@ OLLAMA_EMBED_MODEL = "mxbai-embed-large"  # 1024-dim, compatible with Qdrant col
 
 async def _voyage_embed(text: str, *, input_type: str = "document") -> Optional[list[float]]:
     """Generate embedding via Voyage AI (model from EMBEDDING_MODEL env, default voyage-3-large)."""
+    out = await _voyage_embed_batch([text], input_type=input_type)
+    if not out:
+        return None
+    return out[0]
+
+
+async def _voyage_embed_batch(
+    texts: list[str], *, input_type: str = "document"
+) -> Optional[list[Optional[list[float]]]]:
+    """Batch-embed up to 128 texts in one Voyage call.
+
+    Returns a list aligned with input order; entries are None if the slot was
+    blank. Returns None if the API call failed entirely.
+    """
     if not settings.VOYAGE_API_KEY:
         return None
+    if not texts:
+        return []
+    # Voyage accepts blank strings poorly; replace blanks with single space.
+    payload_texts = [t if (t and t.strip()) else " " for t in texts]
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 VOYAGE_API_URL,
                 headers={
@@ -111,13 +129,17 @@ async def _voyage_embed(text: str, *, input_type: str = "document") -> Optional[
                 },
                 json={
                     "model": _voyage_model(),
-                    "input": [text],
+                    "input": payload_texts,
                     "input_type": input_type,
                     "output_dimension": VECTOR_SIZE,
+                    "truncation": True,
                 },
             )
             response.raise_for_status()
-            return response.json()["data"][0]["embedding"]
+            data = response.json().get("data") or []
+            # Voyage returns items with `index` field; reorder to input order.
+            by_idx = {int(item["index"]): item["embedding"] for item in data if "embedding" in item}
+            return [by_idx.get(i) for i in range(len(texts))]
     except httpx.HTTPStatusError as e:
         logger.warning(
             "[Voyage] HTTP %s — %s", e.response.status_code, e.response.text[:200]
@@ -161,7 +183,7 @@ async def _ollama_embed(text: str) -> Optional[list[float]]:
 
 
 async def generate_embedding(
-    text: str, *, input_type: str = "document"
+    text: str, *, input_type: str = "document", use_cache: bool = True
 ) -> Optional[list[float]]:
     """
     Generate a 1024-dim embedding for *text*. Tries Voyage first (if key present),
@@ -170,21 +192,50 @@ async def generate_embedding(
     `input_type` should be "document" when indexing entities (candidates, jobs)
     and "query" when embedding a search query — Voyage 3-large applies different
     instruction prompts for each, improving retrieval quality.
+
+    Cache: "document" embeddings hit a Postgres SHA-256 cache (Item 4) so
+    duplicate uploads skip Voyage. Queries skip the cache (unique per call).
+    Set `use_cache=False` for batch reembed paths that intentionally rewrite.
     """
     if not text or not text.strip():
         return None
 
+    # Document cache lookup (queries are usually unique — skip).
+    cache_eligible = use_cache and input_type == "document"
+    if cache_eligible:
+        try:
+            from app.services.embedding_cache import get as _cache_get
+
+            cached = await _cache_get(
+                text, model=_voyage_model(), input_type=input_type, dim=VECTOR_SIZE
+            )
+            if cached is not None:
+                return cached
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[embedding] cache miss path error: %s", e)
+
     emb = await _voyage_embed(text, input_type=input_type)
-    if emb is not None:
-        return emb
+    if emb is None:
+        emb = await _ollama_embed(text)
+        if emb is not None:
+            logger.info("[embedding] using Ollama fallback (Voyage unavailable)")
 
-    emb = await _ollama_embed(text)
-    if emb is not None:
-        logger.info("[embedding] using Ollama fallback (Voyage unavailable)")
-        return emb
+    if emb is None:
+        logger.warning("[embedding] both Voyage and Ollama unavailable")
+        return None
 
-    logger.warning("[embedding] both Voyage and Ollama unavailable")
-    return None
+    # Best-effort cache write (only for Voyage results — Ollama may differ).
+    if cache_eligible:
+        try:
+            from app.services.embedding_cache import store as _cache_store
+
+            await _cache_store(
+                text, emb, model=_voyage_model(), input_type=input_type
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[embedding] cache store error: %s", e)
+
+    return emb
 
 
 # ---------------------------------------------------------------------------

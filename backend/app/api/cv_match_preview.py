@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, CandidateStatus
@@ -44,11 +45,16 @@ from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.services.cv_parser import parse_cv
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
-from app.services.embedding_service import generate_embedding, search_jobs_semantic
+from app.services.embedding_service import (
+    _build_job_text,
+    generate_embedding,
+    search_jobs_semantic,
+)
 from app.services.recommendation_filters import (
     RecommendationFilters,
     apply_user_filters,
 )
+from app.services.reranker_service import rerank_or_passthrough
 from app.services.scoring_service import rank_jobs_for_candidate
 
 logger = logging.getLogger(__name__)
@@ -221,7 +227,11 @@ async def cv_upload_preview(
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
         emb_ok = await generate_embedding(query_text) is not None
-        hits = await search_jobs_semantic(query_text, top_k=top_k * 4) if emb_ok else []
+        # Wider Qdrant pool when reranker is on so the cross-encoder has room
+        # to reorder; otherwise keep the historical 4x multiplier behaviour.
+        rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
+        retrieval_k = 50 if rerank_enabled else top_k * 4
+        hits = await search_jobs_semantic(query_text, top_k=retrieval_k) if emb_ok else []
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
 
@@ -242,6 +252,18 @@ async def cv_upload_preview(
             select(Job).where(Job.id.in_(job_ids), Job.status == JobStatus.published)
         )
         jobs = jobs_res.scalars().all()
+
+        # Voyage Rerank 2.5 — re-order semantic candidates with a cross-encoder
+        # when enabled. Replaces Qdrant cosine in similarity_map; downstream
+        # scoring still applies (semantic 40 / skills 30 / salary 15 / loc 10 / avail 5).
+        if rerank_enabled and jobs:
+            ordered_jobs = [j for j in sorted(jobs, key=lambda j: -similarity_map.get(j.id, 0.0))]
+            docs = [_build_job_text(j)[:4000] for j in ordered_jobs]
+            pairs = await rerank_or_passthrough(query_text, docs, top_k=len(ordered_jobs))
+            if pairs and any(score != 1.0 for _, score in pairs):
+                similarity_map = {
+                    ordered_jobs[idx].id: float(score) for idx, score in pairs
+                }
 
         candidate = _ephemeral_candidate_from_parsed(parsed, cv_text)
         filters = RecommendationFilters(

@@ -138,10 +138,119 @@ async def _call_claude_json(
 
 
 def _truncate_transcript(text: str, limit: int = MAX_TRANSCRIPT_CHARS) -> str:
+    """Legacy hard-truncate. Kept for callers that don't yet pass the chunked
+    summary through `_summarize_transcript_for_champion`. Prefer that function
+    for transcripts > MAX_TRANSCRIPT_CHARS."""
     if len(text) <= limit:
         return text
-    # Hard truncate — in the future we can summarise earlier sentences first.
     return text[:limit] + "\n\n[... transkrypt skrócony ...]"
+
+
+def _split_transcript_into_chunks(
+    text: str, *, max_chunk_chars: int = 30000, overlap_chars: int = 200
+) -> list[str]:
+    """Semantic-ish split: prefer paragraph boundaries, then sentences, then
+    hard cut. Yields chunks ≤ max_chunk_chars with overlap_chars carry-over so
+    cross-chunk context isn't fully lost.
+
+    Fireflies transcripts include speaker labels (e.g. "Speaker 1: …") on
+    separate lines, so paragraph splits land on speaker turns — natural
+    semantic boundary for meeting notes.
+    """
+    if len(text) <= max_chunk_chars:
+        return [text]
+
+    chunks: list[str] = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(start + max_chunk_chars, n)
+        if end < n:
+            # Prefer breaking at paragraph (\n\n), then newline, then sentence end.
+            for sep in ("\n\n", "\n", ". ", "; "):
+                cut = text.rfind(sep, start + max_chunk_chars // 2, end)
+                if cut > start:
+                    end = cut + len(sep)
+                    break
+        chunks.append(text[start:end].strip())
+        if end >= n:
+            break
+        start = max(end - overlap_chars, start + 1)
+    return chunks
+
+
+_CHUNK_SYSTEM_PROMPT = (
+    "You are an expert recruiter assistant. Extract concrete facts from this "
+    "meeting transcript chunk: client priorities, must-have skills, nice-to-have "
+    "skills, deal-breakers, candidate profile hints, compensation signals, "
+    "screening questions mentioned. Skip pleasantries. Output Polish bullet "
+    "points only — no preamble, no JSON."
+)
+
+
+def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
+    """Sync chunk summary. Wrapped in `asyncio.to_thread` by the async caller —
+    matches the sync `anthropic.Anthropic` pattern used by `_call_claude_json`."""
+    import anthropic  # noqa: PLC0415
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model=model,
+        max_tokens=1500,
+        system=_CHUNK_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": chunk}],
+    )
+    parts: list[str] = []
+    for block in getattr(message, "content", []) or []:
+        if getattr(block, "type", None) == "text":
+            parts.append(block.text or "")
+    return "\n".join(p for p in parts if p.strip())
+
+
+async def _summarize_transcript_for_champion(
+    transcript: str, *, summarize_model: str = "claude-haiku-4-5-20251001"
+) -> str:
+    """Map-reduce: chunk → per-chunk summary → concat.
+
+    Used by `enrich_from_meeting` / `enrich_from_call` so transcripts longer
+    than MAX_TRANSCRIPT_CHARS don't lose context past the legacy hard cutoff.
+    Short transcripts return verbatim — same output shape as the legacy path.
+
+    Uses Claude Haiku (cheap + fast) for the per-chunk extraction; the merged
+    output is then fed into the existing Opus-based Champion prompt template.
+    """
+    import asyncio as _asyncio  # noqa: PLC0415 — local rename, avoid shadowing top import
+
+    if len(transcript) <= MAX_TRANSCRIPT_CHARS:
+        return transcript
+    chunks = _split_transcript_into_chunks(transcript)
+    logger.info(
+        "champion_draft: transcript len=%d -> %d chunks (map-reduce, model=%s)",
+        len(transcript),
+        len(chunks),
+        summarize_model,
+    )
+    summaries: list[str] = []
+    for i, chunk in enumerate(chunks):
+        try:
+            s = await _asyncio.to_thread(
+                _summarize_chunk_sync, chunk, model=summarize_model
+            )
+            summaries.append(f"[Część {i + 1}/{len(chunks)}]\n{s}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "champion_draft: chunk %d/%d summary failed: %s — including raw slice",
+                i + 1,
+                len(chunks),
+                e,
+            )
+            summaries.append(
+                f"[Część {i + 1}/{len(chunks)} — surowy fragment]\n{chunk[:5000]}"
+            )
+    return "\n\n".join(summaries)
 
 
 # ── Core: generate / apply / reject ─────────────────────────────────────────
@@ -347,6 +456,11 @@ async def enrich_from_meeting(
     client_name = await _client_name(db, job.client_id)
     current_profile_json = json.dumps(job.champion_profile or {}, ensure_ascii=False)
 
+    # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
+    # don't silently lose context past the cutoff.
+    transcript_text = await _summarize_transcript_for_champion(
+        meeting_transcript or ""
+    )
     return await _generate_enrichment_suggestion(
         db,
         template=CHAMPION_PROFILE_ENRICH_FROM_MEETING,
@@ -356,7 +470,7 @@ async def enrich_from_meeting(
             "client_name": client_name,
             "meeting_title": meeting_title or "brak tytułu",
             "meeting_summary": meeting_summary or "brak podsumowania",
-            "meeting_transcript": _truncate_transcript(meeting_transcript or ""),
+            "meeting_transcript": transcript_text,
         },
         job_id=job_id,
         source_type=SuggestionSource.fireflies_meeting,
@@ -380,6 +494,7 @@ async def enrich_from_call(
     client_name = await _client_name(db, job.client_id)
     current_profile_json = json.dumps(job.champion_profile or {}, ensure_ascii=False)
 
+    transcript_text = await _summarize_transcript_for_champion(call_transcript or "")
     return await _generate_enrichment_suggestion(
         db,
         template=CHAMPION_PROFILE_ENRICH_FROM_CALL,
@@ -389,7 +504,7 @@ async def enrich_from_call(
             "client_name": client_name,
             "call_participants": call_participants or "nieznani",
             "call_summary": call_summary or "brak podsumowania",
-            "call_transcript": _truncate_transcript(call_transcript or ""),
+            "call_transcript": transcript_text,
         },
         job_id=job_id,
         source_type=SuggestionSource.cloudtalk_call,

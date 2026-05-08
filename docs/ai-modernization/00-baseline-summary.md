@@ -72,6 +72,22 @@ Każdy Item 2-8 wymaga re-run tego eval na 30 jobs default profile. Akceptujemy 
 - Któraś z kluczowych metryk (P@5 / R@20 / nDCG@10) wzrośnie o min +2 pkt absolutnych
 - Latency p95 nie wzrośnie >800ms (rerank exception)
 
+## Mid-execution updates (2026-05-08)
+
+**Discovery during Item 7 prep:** existing infrastructure already has Postgres FTS for candidates:
+- Migration `0083_candidate_fts_index.py` — `candidates.fts_doc` tsvector + GIN index (commit dziś rano)
+- `backend/app/api/search.py` — używa `websearch_to_tsquery` + `ts_rank` z weighting A/B/C
+- `backend/app/schemas/candidate_search.py` — schema już dokumentowany dla FTS
+
+To zmniejsza scope Item 7 (Hybrid Search):
+- ❌ Stara sub-task: napisać tsvector + GIN dla candidates (już zrobione)
+- ✅ Pozostaje: analogiczna FTS migracja dla `jobs` table
+- ✅ Pozostaje: `hybrid_search.py` orchestrator łączący `search.py` BM25 z Qdrant dense via RRF
+- ✅ Pozostaje: integracja z reranker (Item 3)
+- ✅ Pozostaje: UI toggle dla recruterów
+
+**Reembed running:** start 14:40 UTC, target jobs (3840) + candidates (50K). Jobs ETA 16 min, candidates ETA ~5h. Push Item 3+ wstrzymany do końca reembed (deploy by zabił proces).
+
 ## Eval reproduce command
 
 ```bash

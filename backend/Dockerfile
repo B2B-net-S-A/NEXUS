@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     fonts-liberation \
     fonts-dejavu \
+    tesseract-ocr \
+    tesseract-ocr-pol \
+    tesseract-ocr-eng \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

@@ -53,19 +53,80 @@ def _normalize(text: str) -> str:
     return text.strip()
 
 
-def _extract_pdf(path: str) -> Optional[str]:
-    """Extract text from a PDF file via pdfminer.six.
+# Threshold below which we suspect the PDF is a scan / image-only and fall
+# back to OCR. 100 chars is enough to capture page-numbers/headers from a
+# corrupt extraction; real CV text starts at >1KB.
+_OCR_FALLBACK_THRESHOLD_CHARS = 100
 
-    Returns None on any failure so the dispatcher can degrade to an empty
-    string rather than raising into the upload response.
-    """
+
+def _extract_pdf_native(path: str) -> Optional[str]:
+    """Try pdfplumber first (better multi-column / layout), fall back to
+    pdfminer.six on any failure. Both are pure-text extractors — return None
+    if PDF is image-only (caller will trigger OCR)."""
+    # pdfplumber preserves layout columns better than pdfminer for modern CVs.
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        out: list[str] = []
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                txt = page.extract_text() or ""
+                if txt:
+                    out.append(txt)
+        if out:
+            return "\n\n".join(out)
+    except Exception as e:  # pragma: no cover — defensive
+        logger.info("[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e)
+
+    # Legacy fallback for rare PDFs that pdfplumber chokes on.
     try:
         from pdfminer.high_level import extract_text as _pdfminer_extract
 
         return _pdfminer_extract(path) or ""
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] pdfminer failed on %s: %s", path, e)
+        logger.warning("[cv_text_extractor] pdfminer also failed on %s: %s", path, e)
         return None
+
+
+def _extract_pdf_ocr(path: str) -> Optional[str]:
+    """Render PDF pages to images and OCR them via tesseract.
+
+    Used when native text extraction yields too little — typical for scanned
+    CVs or image-only PDFs. Polish + English language packs cover most cases.
+    Heavy: ~2-5s per page; we cap to first 10 pages (CVs are short).
+    """
+    try:
+        import pytesseract  # type: ignore[import-untyped]
+        from pdf2image import convert_from_path  # type: ignore[import-untyped]
+
+        pages = convert_from_path(path, dpi=200, last_page=10)
+        out: list[str] = []
+        for img in pages:
+            txt = pytesseract.image_to_string(img, lang="pol+eng")
+            if txt:
+                out.append(txt)
+        return "\n\n".join(out) if out else ""
+    except Exception as e:  # pragma: no cover — defensive (system tesseract may be missing)
+        logger.warning("[cv_text_extractor] OCR fallback failed on %s: %s", path, e)
+        return None
+
+
+def _extract_pdf(path: str) -> Optional[str]:
+    """Extract PDF text — native first (pdfplumber→pdfminer), OCR fallback if
+    output is suspiciously short (likely a scan).
+
+    Returns None only on total failure so the dispatcher degrades to "".
+    """
+    native = _extract_pdf_native(path)
+    if native and len(native.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        return native
+    # Either native extraction failed, or yielded near-empty output → OCR.
+    ocr = _extract_pdf_ocr(path)
+    if ocr and len(ocr.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        logger.info("[cv_text_extractor] PDF %s extracted via OCR (native too short)", path)
+        return ocr
+    # Return whichever has more content (could still be empty).
+    return (native or "") if (len(native or "") >= len(ocr or "")) else (ocr or "")
 
 
 def _extract_docx(path: str) -> Optional[str]:
