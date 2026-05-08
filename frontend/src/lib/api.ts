@@ -2706,4 +2706,53 @@ export const aiSettingsApi = {
     ),
 };
 
+// ── Settings → API integration / OAuth clients (Traffit gap #6) ──────────────
+
+export interface OAuthClientDto {
+  id: number;
+  name: string;
+  client_id: string;
+  scopes: string[];
+  enabled: boolean;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface OAuthClientCreatePayload {
+  name: string;
+  scopes: string[];
+}
+
+export interface OAuthClientCreateResponse {
+  client: OAuthClientDto;
+  client_secret: string;
+}
+
+export interface OAuthClientUpdate {
+  name?: string;
+  scopes?: string[];
+  enabled?: boolean;
+}
+
+export interface ScopeInfoDto {
+  value: string;
+  label: string;
+}
+
+export const oauthClientsApi = {
+  list: () => api.get<OAuthClientDto[]>("/api/settings/oauth-clients"),
+  scopes: () => api.get<ScopeInfoDto[]>("/api/settings/oauth-clients/scopes"),
+  create: (payload: OAuthClientCreatePayload) =>
+    api.post<OAuthClientCreateResponse>(
+      "/api/settings/oauth-clients",
+      payload,
+    ),
+  update: (id: number, payload: OAuthClientUpdate) =>
+    api.patch<OAuthClientDto>(`/api/settings/oauth-clients/${id}`, payload),
+  remove: (id: number) =>
+    api.delete<void>(`/api/settings/oauth-clients/${id}`),
+};
+
 export default api;

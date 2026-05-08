@@ -84,6 +84,12 @@ const ADVANCED_LINKS: Array<{
     icon: <Sparkles className="w-5 h-5" />,
   },
   {
+    href: "/settings/api-integration",
+    title: "Integracja z API",
+    description: "Klucze OAuth2 dla zewnętrznych systemów (n8n, ChatGPT, Zapier, ...) z fine-grained scopes.",
+    icon: <Plug className="w-5 h-5" />,
+  },
+  {
     href: "/settings/diagnostics",
     title: "Diagnostyka",
     description: "Status komponentów, kolejki, background tasks.",
