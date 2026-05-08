@@ -27,8 +27,13 @@ class Settings(BaseSettings):
 
     # Voyage AI (embeddings)
     VOYAGE_API_KEY: str = ""
-    VOYAGE_MODEL: str = "voyage-3"
+    # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
+    # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
+    VOYAGE_MODEL: str = "voyage-3-large"
     EMBEDDING_DIMENSION: int = 1024
+    # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
+    VOYAGE_RERANK_MODEL: str = "rerank-2.5"
+    RERANKER_ENABLED: bool = False  # canary flag — enable per-item rollout
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
