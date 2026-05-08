@@ -59,6 +59,11 @@ export interface CandidateSearchRequest {
   sort?: SortMode;
   page?: number;
   page_size?: number;
+  /**
+   * "boolean" — Postgres FTS only (default).
+   * "hybrid"  — BM25 + Voyage dense + RRF + rerank-2.5. Higher recall, +rerank latency.
+   */
+  search_mode?: "boolean" | "hybrid";
 }
 
 export interface CandidateSearchItem {

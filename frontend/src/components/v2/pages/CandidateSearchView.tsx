@@ -37,6 +37,7 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   sort: "relevance",
   page: 1,
   page_size: 50,
+  search_mode: "boolean",
 };
 
 interface CandidateSearchViewProps {
