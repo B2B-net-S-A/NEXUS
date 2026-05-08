@@ -7,6 +7,17 @@
 #   `docker-compose.prod.yml`.
 #
 # Secrets are read from .env (see .env.example). Never commit the real .env.
+
+# Standardized log driver — bounded rotation + tag consumed by Grafana Alloy
+# (~/.claude/rules/deployment.md + observability rollout plan). Tag emits
+# the `service`/`app` Loki label so LogQL can filter per-container.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+    tag: "{{.ImageName}}/{{.Name}}/{{.ID}}"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -24,12 +35,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: *default-logging
 
   qdrant:
     image: qdrant/qdrant:latest
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
+    logging: *default-logging
 
   backend:
     build:
@@ -57,6 +70,7 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/tmp/nexus/uploads
+    logging: *default-logging
 
   frontend:
     build:
@@ -76,6 +90,7 @@ services:
       - "3000"
     depends_on:
       - backend
+    logging: *default-logging
 
 volumes:
   postgres_data:
