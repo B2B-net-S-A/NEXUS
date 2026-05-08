@@ -91,9 +91,23 @@ def _safe_pct(numerator: int, denominator: int) -> float:
 # ── Recruitment Report ─────────────────────────────────────────────────────────
 
 
+# Read-only team funnel report — recruiter dashboard renders this for everyone
+# on the recruitment team. FE gate (frontend/src/app/dashboard/recruiter/page.tsx)
+# allows sourcer | tac | recruiter | admin | head_of_recruitment; BE must match
+# or the dashboard skeleton hangs forever (FE has no 403 fallback). Data is a
+# team-wide aggregate; per-user privacy already handled at row level.
 @router.get("/recruitment")
 async def report_recruitment(
-    current_user: TacPlus,
+    current_user: User = Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+            UserRole.head_of_recruitment,
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
     recruitment_type: Optional[str] = Query(None),
@@ -1610,9 +1624,20 @@ def _iso_week_bounds(
     return target_monday, target_next_monday, iso.week, iso.year
 
 
+# Power Calling weekly metric — same audience as /recruitment above. Recruiter
+# dashboard widget; FE skeleton hangs on 403, so BE must allow recruiter+sourcer.
 @router.get("/power-calling")
 async def report_power_calling(
-    current_user: TacPlus,
+    current_user: User = Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+            UserRole.head_of_recruitment,
+        )
+    ),
     db: AsyncSession = Depends(get_db),
     offset_weeks: int = Query(
         1,
