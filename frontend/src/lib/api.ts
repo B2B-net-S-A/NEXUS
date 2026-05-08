@@ -2755,4 +2755,78 @@ export const oauthClientsApi = {
     api.delete<void>(`/api/settings/oauth-clients/${id}`),
 };
 
+// ── Multi-source attribution (Traffit gap #4) ────────────────────────────────
+
+export type SourceChannel =
+  | "manual"
+  | "aktywny_search"
+  | "cv_upload"
+  | "email"
+  | "posting"
+  | "referral"
+  | "import_csv";
+
+export interface CandidateSourceEventDto {
+  id: number;
+  candidate_id: number;
+  channel: SourceChannel;
+  channel_label: string;
+  job_id: number | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_term: string | null;
+  utm_content: string | null;
+  note: string | null;
+  captured_at: string;
+  created_at: string;
+}
+
+export interface CandidateSourceCreatePayload {
+  channel: SourceChannel;
+  job_id?: number | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_term?: string | null;
+  utm_content?: string | null;
+  note?: string | null;
+  captured_at?: string | null;
+}
+
+export interface SourceFunnelRow {
+  channel: SourceChannel;
+  channel_label: string;
+  utm_source: string | null;
+  utm_campaign: string | null;
+  candidates_total: number;
+  hired: number;
+  hire_rate_pct: number;
+}
+
+export interface SourceReportResponse {
+  period_start: string;
+  period_end: string;
+  rows: SourceFunnelRow[];
+}
+
+export const candidateSourcesApi = {
+  list: (candidateId: number) =>
+    api.get<CandidateSourceEventDto[]>(
+      `/api/candidates/${candidateId}/sources`,
+    ),
+  create: (candidateId: number, payload: CandidateSourceCreatePayload) =>
+    api.post<CandidateSourceEventDto>(
+      `/api/candidates/${candidateId}/sources`,
+      payload,
+    ),
+};
+
+export const sourcesReportApi = {
+  funnel: (days: number = 30, groupByUtm: boolean = false) =>
+    api.get<SourceReportResponse>("/api/reports/sources", {
+      params: { days, group_by_utm: groupByUtm },
+    }),
+};
+
 export default api;
