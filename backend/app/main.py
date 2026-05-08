@@ -48,6 +48,9 @@ from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
 from app.api import client_contract_amendments
+from app.api import client_orders as client_orders_api
+from app.api import my_clients as my_clients_api
+from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -315,6 +318,21 @@ app.include_router(
     client_contract_amendments.router,
     prefix="/api/clients",
     tags=["client-contract-amendments"],
+)
+app.include_router(
+    client_orders_api.router,
+    prefix="/api/clients",
+    tags=["client-orders"],
+)
+app.include_router(
+    my_clients_api.router,
+    prefix="/api/my-clients",
+    tags=["my-clients"],
+)
+app.include_router(
+    admin_clients_overview_api.router,
+    prefix="/api/admin/clients-overview",
+    tags=["admin-clients-overview"],
 )
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
