@@ -1,9 +1,9 @@
-2026-05-08 18:36:17,067 [INFO] httpx: HTTP Request: POST http://qdrant:6333/collections/nexus_jobs/points "HTTP/1.1 200 OK"
-2026-05-08 18:36:17,071 [INFO] httpx: HTTP Request: POST http://qdrant:6333/collections/nexus_jobs/points/search "HTTP/1.1 200 OK"
-2026-05-08 18:36:17,139 [INFO] eval_matching: Report written to /tmp/eval-final.md
+2026-05-08 19:17:07,868 [INFO] httpx: HTTP Request: POST http://qdrant:6333/collections/nexus_jobs/points "HTTP/1.1 200 OK"
+2026-05-08 19:17:07,874 [INFO] httpx: HTTP Request: POST http://qdrant:6333/collections/nexus_jobs/points/search "HTTP/1.1 200 OK"
+2026-05-08 19:17:08,025 [INFO] eval_matching: Report written to /tmp/eval-final3.md
 # Matching Quality Audit — Phase 0
 
-Generated at: `2026-05-08T18:36:17.138043+00:00`
+Generated at: `2026-05-08T19:17:08.025256+00:00`
 
 ## Data quality snapshot
 
