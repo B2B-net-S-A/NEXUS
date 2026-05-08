@@ -51,7 +51,12 @@ def _bytes_to_floats(b: bytes, dim: int) -> list[float]:
 
 
 async def get(
-    text: str, *, model: str, input_type: str, dim: int, db: Optional[AsyncSession] = None
+    text: str,
+    *,
+    model: str,
+    input_type: str,
+    dim: int,
+    db: Optional[AsyncSession] = None,
 ) -> Optional[list[float]]:
     """Look up a cached embedding. Returns None on miss or any failure."""
     if not text:
@@ -60,9 +65,7 @@ async def get(
     own_session = db is None
     sess = db or AsyncSessionLocal()
     try:
-        stmt = select(_table_row(sess)).where(
-            _row_pk(sess) == key
-        )
+        stmt = select(_table_row(sess)).where(_row_pk(sess) == key)
         result = await sess.execute(stmt)
         row = result.first()
         if row is None:

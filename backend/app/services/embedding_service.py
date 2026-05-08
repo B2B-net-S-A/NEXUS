@@ -97,7 +97,9 @@ def init_qdrant_collection() -> None:
 OLLAMA_EMBED_MODEL = "mxbai-embed-large"  # 1024-dim, compatible with Qdrant collection
 
 
-async def _voyage_embed(text: str, *, input_type: str = "document") -> Optional[list[float]]:
+async def _voyage_embed(
+    text: str, *, input_type: str = "document"
+) -> Optional[list[float]]:
     """Generate embedding via Voyage AI (model from EMBEDDING_MODEL env, default voyage-3-large)."""
     out = await _voyage_embed_batch([text], input_type=input_type)
     if not out:
@@ -138,7 +140,11 @@ async def _voyage_embed_batch(
             response.raise_for_status()
             data = response.json().get("data") or []
             # Voyage returns items with `index` field; reorder to input order.
-            by_idx = {int(item["index"]): item["embedding"] for item in data if "embedding" in item}
+            by_idx = {
+                int(item["index"]): item["embedding"]
+                for item in data
+                if "embedding" in item
+            }
             return [by_idx.get(i) for i in range(len(texts))]
     except httpx.HTTPStatusError as e:
         logger.warning(
@@ -229,9 +235,7 @@ async def generate_embedding(
         try:
             from app.services.embedding_cache import store as _cache_store
 
-            await _cache_store(
-                text, emb, model=_voyage_model(), input_type=input_type
-            )
+            await _cache_store(text, emb, model=_voyage_model(), input_type=input_type)
         except Exception as e:  # noqa: BLE001
             logger.debug("[embedding] cache store error: %s", e)
 

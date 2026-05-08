@@ -458,9 +458,7 @@ async def enrich_from_meeting(
 
     # Long transcripts (>MAX_TRANSCRIPT_CHARS) go through map-reduce so we
     # don't silently lose context past the cutoff.
-    transcript_text = await _summarize_transcript_for_champion(
-        meeting_transcript or ""
-    )
+    transcript_text = await _summarize_transcript_for_champion(meeting_transcript or "")
     return await _generate_enrichment_suggestion(
         db,
         template=CHAMPION_PROFILE_ENRICH_FROM_MEETING,

@@ -231,7 +231,9 @@ async def cv_upload_preview(
         # to reorder; otherwise keep the historical 4x multiplier behaviour.
         rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
         retrieval_k = 50 if rerank_enabled else top_k * 4
-        hits = await search_jobs_semantic(query_text, top_k=retrieval_k) if emb_ok else []
+        hits = (
+            await search_jobs_semantic(query_text, top_k=retrieval_k) if emb_ok else []
+        )
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
 
@@ -257,9 +259,13 @@ async def cv_upload_preview(
         # when enabled. Replaces Qdrant cosine in similarity_map; downstream
         # scoring still applies (semantic 40 / skills 30 / salary 15 / loc 10 / avail 5).
         if rerank_enabled and jobs:
-            ordered_jobs = [j for j in sorted(jobs, key=lambda j: -similarity_map.get(j.id, 0.0))]
+            ordered_jobs = [
+                j for j in sorted(jobs, key=lambda j: -similarity_map.get(j.id, 0.0))
+            ]
             docs = [_build_job_text(j)[:4000] for j in ordered_jobs]
-            pairs = await rerank_or_passthrough(query_text, docs, top_k=len(ordered_jobs))
+            pairs = await rerank_or_passthrough(
+                query_text, docs, top_k=len(ordered_jobs)
+            )
             if pairs and any(score != 1.0 for _, score in pairs):
                 similarity_map = {
                     ordered_jobs[idx].id: float(score) for idx, score in pairs
