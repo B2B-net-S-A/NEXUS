@@ -130,6 +130,10 @@ async def advanced_candidate_search(
     ``ts_rank`` (when a free-text query is present and ``sort=relevance``),
     ``updated_at DESC``, or ``lastname ASC`` — all postgres-side, so paging
     is consistent across pages.
+
+    ``search_mode="hybrid"`` switches the free-text retrieval to the
+    BM25 + Voyage dense + RRF fusion + Voyage Rerank 2.5 pipeline, which
+    research benchmarks at 91% recall@10 vs 78% dense-only.
     """
     started_at = time.monotonic()
 
@@ -143,9 +147,27 @@ async def advanced_candidate_search(
     # === Layer 2: structured chips ===========================================
     clauses.extend(build_structured_filter(body))
 
-    # === Layer 3: free-text — postgres FTS (when set) ========================
+    # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
     q_text = (body.q or "").strip() if body.q else ""
-    if q_text:
+    hybrid_order: list[int] = []
+    use_hybrid = body.search_mode == "hybrid" and bool(q_text)
+    if use_hybrid:
+        # Pull a generous pool so multi-page results stay consistent without
+        # re-querying the orchestrator on every page change. Pool = 200 covers
+        # the first 4 pages at default page_size=50.
+        from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
+
+        pairs = await hybrid_candidates(
+            db, q_text, pool=200, final_top_k=200, use_rerank=None
+        )
+        hybrid_order = [cid for cid, _ in pairs]
+        if hybrid_order:
+            clauses.append(Candidate.id.in_(hybrid_order))
+        else:
+            # Empty hybrid result — short-circuit to no candidates so we don't
+            # show the full base table when the user typed a specific query.
+            clauses.append(text("false"))
+    elif q_text:
         clauses.append(_fts_clause(q_text))
 
     # === Job-context exclusion — subquery on candidate_stages ================
@@ -168,19 +190,35 @@ async def advanced_candidate_search(
     total = (await db.execute(count_query)).scalar() or 0
 
     # === Sort ================================================================
-    base = select(Candidate).where(where_clause)
-    if body.sort == "relevance" and q_text:
-        base = base.order_by(_fts_rank_order(), Candidate.updated_at.desc())
-    elif body.sort == "name":
-        base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
+    if use_hybrid:
+        # Hybrid path: respect the orchestrator's RRF/rerank ordering. Load
+        # *all* matching rows from the slice, then reorder in Python by
+        # `hybrid_order` and slice by page.
+        page_start = (body.page - 1) * body.page_size
+        page_end = page_start + body.page_size
+        page_ids = hybrid_order[page_start:page_end]
+        if page_ids:
+            base = select(Candidate).where(
+                Candidate.id.in_(page_ids), where_clause
+            )
+            loaded = (await db.execute(base)).scalars().all()
+            by_id = {c.id: c for c in loaded}
+            candidates = [by_id[cid] for cid in page_ids if cid in by_id]
+        else:
+            candidates = []
     else:
-        base = base.order_by(Candidate.updated_at.desc())
+        base = select(Candidate).where(where_clause)
+        if body.sort == "relevance" and q_text:
+            base = base.order_by(_fts_rank_order(), Candidate.updated_at.desc())
+        elif body.sort == "name":
+            base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
+        else:
+            base = base.order_by(Candidate.updated_at.desc())
 
-    # === Page ================================================================
-    base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)
-    if q_text:
-        base = base.params(q=q_text)
-    candidates = (await db.execute(base)).scalars().all()
+        base = base.offset((body.page - 1) * body.page_size).limit(body.page_size)
+        if q_text:
+            base = base.params(q=q_text)
+        candidates = (await db.execute(base)).scalars().all()
 
     # Best-effort per-row score: use ts_rank when we have a query, otherwise 0.
     # Computing the score requires a second query if we want it on a populated

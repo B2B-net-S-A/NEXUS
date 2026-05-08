@@ -172,9 +172,31 @@ export function FiltersPanel({
         <Input
           value={value.q ?? ""}
           onChange={(e) => patch({ q: e.target.value || null })}
-          placeholder="Szukaj w CV (full-text)…"
+          placeholder={
+            value.search_mode === "hybrid"
+              ? "Szukaj semantycznie (BM25 + dense + rerank)…"
+              : "Szukaj w CV (full-text)…"
+          }
           className="flex-1 min-w-[16rem]"
         />
+        <Button
+          type="button"
+          variant={value.search_mode === "hybrid" ? "default" : "outline"}
+          size="sm"
+          onClick={() =>
+            patch({
+              search_mode:
+                value.search_mode === "hybrid" ? "boolean" : "hybrid",
+            })
+          }
+          title={
+            value.search_mode === "hybrid"
+              ? "Tryb hybrydowy: Postgres FTS + Voyage embeddings + RRF fusion + Voyage Rerank 2.5. Wyższa jakość, dłuższa latencja (~600ms rerank)."
+              : "Włącz wyszukiwanie semantyczne (BM25 + dense + rerank)."
+          }
+        >
+          {value.search_mode === "hybrid" ? "Semantycznie ✓" : "Semantycznie"}
+        </Button>
         <AdvancedSearchPopover value={advanced} onChange={setAdvanced} />
         <Button variant="ghost" size="sm" onClick={clearAll}>
           Wyczyść

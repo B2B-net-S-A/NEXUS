@@ -86,6 +86,13 @@ class CandidateSearchRequest(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
 
+    # === Search mode ==========================================================
+    # "boolean" — current default, ts_rank FTS over fts_doc.
+    # "hybrid"  — BM25 (Postgres FTS) + dense (Voyage/Qdrant) parallel + RRF
+    #             fusion (k=60) + Voyage Rerank 2.5 on top-100 → top-K.
+    # Hybrid only kicks in when `q` is non-empty; otherwise behaves as boolean.
+    search_mode: Literal["boolean", "hybrid"] = "boolean"
+
 
 class CandidateSearchItem(BaseModel):
     id: int

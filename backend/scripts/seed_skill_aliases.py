@@ -214,6 +214,265 @@ SKILL_TAXONOMY: dict[str, dict[str, list[str]]] = {
         "OWASP": ["owasp"],
         "Penetration Testing": ["pentesting", "penetration testing", "pen testing"],
     },
+    # ── Roles (covers Polish business titles common in Traffit imports) ──
+    "role_qa": {
+        "Manual Testing": [
+            "tester manualny",
+            "testowanie manualne",
+            "manual tester",
+            "qa manualny",
+            "manual qa",
+        ],
+        "Test Automation": [
+            "tester automatyczny",
+            "tester automatyzujący",
+            "automatyzacja testów",
+            "automation tester",
+            "qa automation",
+            "test automation engineer",
+        ],
+        "Performance Testing": [
+            "tester wydajnościowy",
+            "performance tester",
+            "load testing",
+        ],
+    },
+    "role_analysis": {
+        "Business Analysis": [
+            "analityk biznesowy",
+            "analityk biznesowo-systemowy",
+            "analityk biznesowo systemowy",
+            "business analyst",
+            "ba",
+        ],
+        "Systems Analysis": [
+            "analityk systemowy",
+            "systems analyst",
+            "system analyst",
+        ],
+        "Data Analysis": [
+            "analityk danych",
+            "data analyst",
+            "analityk data",
+        ],
+        "Requirements Analysis": [
+            "analiza wymagań",
+            "requirements engineering",
+            "inżynieria wymagań",
+        ],
+    },
+    "role_dev": {
+        "Software Developer": [
+            "programista",
+            "deweloper",
+            "developer",
+            "software engineer",
+            "inżynier oprogramowania",
+        ],
+        "Frontend Developer": [
+            "programista frontend",
+            "frontend developer",
+            "fe developer",
+            "front-end developer",
+        ],
+        "Backend Developer": [
+            "programista backend",
+            "backend developer",
+            "be developer",
+            "back-end developer",
+        ],
+        "Fullstack Developer": [
+            "programista fullstack",
+            "fullstack developer",
+            "full-stack developer",
+            "full stack developer",
+        ],
+        "Mobile Developer": [
+            "programista mobile",
+            "mobile developer",
+            "android developer",
+            "ios developer",
+        ],
+    },
+    "role_management": {
+        "Project Management": [
+            "kierownik projektu",
+            "kierownik projektów",
+            "project manager",
+            "pm",
+            "zarządzanie projektami",
+            "kierowanie projektem",
+            "kierowanie projektami",
+        ],
+        "Program Management": [
+            "kierownik programu",
+            "program manager",
+            "programme manager",
+        ],
+        "Product Ownership": [
+            "product owner",
+            "po",
+            "właściciel produktu",
+            "product manager",
+            "menedżer produktu",
+        ],
+        "Team Lead": [
+            "team lead",
+            "tech lead",
+            "lider zespołu",
+            "lead developer",
+            "team leader",
+        ],
+        "Engineering Management": [
+            "engineering manager",
+            "manager inżynierii",
+            "head of engineering",
+            "kierownik zespołu deweloperów",
+        ],
+    },
+    "role_consult": {
+        "IT Consulting": [
+            "konsultant it",
+            "it consultant",
+            "konsultant",
+            "consultant",
+        ],
+        "Solution Consulting": [
+            "konsultant rozwiązań",
+            "solution consultant",
+            "consulting solutions",
+        ],
+    },
+    "role_architecture": {
+        "Software Architecture": [
+            "architekt oprogramowania",
+            "software architect",
+            "solution architect",
+            "architekt rozwiązań",
+        ],
+        "Enterprise Architecture": [
+            "architekt enterprise",
+            "enterprise architect",
+            "ea",
+        ],
+        "Cloud Architecture": [
+            "architekt chmury",
+            "cloud architect",
+            "aws architect",
+            "azure architect",
+        ],
+        "Data Architecture": [
+            "architekt danych",
+            "data architect",
+        ],
+    },
+    "role_ops": {
+        "DevOps Engineering": [
+            "devops engineer",
+            "inżynier devops",
+            "devops",
+        ],
+        "Site Reliability Engineering": [
+            "site reliability engineer",
+            "sre",
+        ],
+        "Database Administration": [
+            "dba",
+            "database administrator",
+            "administrator bazy danych",
+            "administrator baz danych",
+        ],
+        "Network Engineering": [
+            "network engineer",
+            "inżynier sieci",
+            "administrator sieci",
+            "network administrator",
+        ],
+        "System Administration": [
+            "system administrator",
+            "sysadmin",
+            "administrator systemu",
+            "administrator systemów",
+            "administrator linux",
+            "administrator windows",
+        ],
+    },
+    "role_specialty": {
+        "SAP Consulting": [
+            "sap consultant",
+            "konsultant sap",
+            "sap fi",
+            "sap mm",
+            "sap hr",
+            "sap sd",
+        ],
+        "Salesforce Development": [
+            "salesforce developer",
+            "deweloper salesforce",
+            "sfdc",
+        ],
+        "ServiceNow Development": [
+            "servicenow developer",
+            "deweloper servicenow",
+        ],
+        "Power Platform": [
+            "power platform developer",
+            "power apps",
+            "power automate",
+            "power bi developer",
+        ],
+        "Mainframe": [
+            "mainframe",
+            "cobol",
+            "midrange",
+            "as/400",
+            "as400",
+        ],
+        "ERP Implementation": [
+            "wdrożenie erp",
+            "erp implementation",
+            "konsultant erp",
+        ],
+    },
+    "role_methodology": {
+        "Scrum Master": [
+            "scrum master",
+            "sm",
+        ],
+        "Agile Coach": [
+            "agile coach",
+            "coach agile",
+        ],
+        "Compliance Specialist": [
+            "compliance",
+            "specjalista compliance",
+            "specjalista ds. compliance",
+        ],
+        "Risk Management": [
+            "risk management",
+            "zarządzanie ryzykiem",
+            "specjalista ds. ryzyka",
+            "ict risk",
+        ],
+    },
+    "role_design": {
+        "UX Design": [
+            "ux designer",
+            "projektant ux",
+            "ux/ui designer",
+            "ux ui",
+        ],
+        "UI Design": [
+            "ui designer",
+            "projektant ui",
+            "graphic designer",
+            "projektant graficzny",
+        ],
+        "Product Design": [
+            "product designer",
+            "projektant produktu",
+        ],
+    },
 }
 
 
