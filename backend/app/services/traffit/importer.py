@@ -345,17 +345,21 @@ _UPDATE_USER_ADOPT = text(
 # Insert/UPSERT candidate document. external_id format: "<emp_id>-<file_id>".
 # `is_primary` może być TRUE tylko dla jednego pliku per kandydat (caller
 # odpowiada za logikę markowania — patrz select_all_files_with_priority).
+#
+# Po migracji do Hetzner Object Storage (audit-2026-05-07): file_content jest
+# NULL (legacy fallback), a binary content trzymany w S3 pod kluczem
+# `storage_key`. Caller wysyła plik do S3 PRZED wywołaniem tego UPSERT.
 _UPSERT_CANDIDATE_DOCUMENT = text(
     """
     INSERT INTO candidate_documents (
-        candidate_id, filename, file_content, content_type,
+        candidate_id, filename, storage_key, content_type,
         size_bytes, is_primary, uploaded_at,
         external_id, external_source,
         created_at, updated_at
     ) VALUES (
         CAST(:candidate_id AS integer),
         CAST(:filename AS varchar(500)),
-        :file_content,
+        CAST(:storage_key AS varchar(500)),
         CAST(:content_type AS varchar(100)),
         CAST(:size_bytes AS integer),
         CAST(:is_primary AS boolean),
@@ -367,7 +371,7 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         filename     = EXCLUDED.filename,
-        file_content = COALESCE(EXCLUDED.file_content, candidate_documents.file_content),
+        storage_key  = COALESCE(EXCLUDED.storage_key, candidate_documents.storage_key),
         content_type = COALESCE(EXCLUDED.content_type, candidate_documents.content_type),
         size_bytes   = COALESCE(EXCLUDED.size_bytes, candidate_documents.size_bytes),
         is_primary   = EXCLUDED.is_primary,
@@ -1392,12 +1396,25 @@ class TraffitImporter:
 
                     uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
 
+                    # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
+                    # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
+                    # mamy 49k rekordów już w S3, więc dla spójności wymagamy
+                    # storage_key set. Brak envów → propagated wyjątek z upload_cv,
+                    # cron retry później gdy env vars są dostępne.
+                    from app.services.object_storage import upload_cv
+
+                    storage_key = upload_cv(
+                        content=file_bytes,
+                        filename=filename[:500],
+                        content_type=content_type[:100] if content_type else None,
+                    )
+
                     await self.db.execute(
                         _UPSERT_CANDIDATE_DOCUMENT,
                         {
                             "candidate_id": row.id,
                             "filename": filename[:500],
-                            "file_content": file_bytes,
+                            "storage_key": storage_key,
                             "content_type": content_type[:100]
                             if content_type
                             else None,
