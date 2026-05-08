@@ -110,6 +110,7 @@ from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
+from app.api import entity_fields as entity_fields_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -529,6 +530,11 @@ app.include_router(
 # Editable taxonomies (#8): Settings → Słowniki + GET /api/dictionaries/{slug}
 app.include_router(
     dictionaries_api.router, prefix="/api", tags=["dictionaries"]
+)
+
+# Custom-field schema editor (#7): Settings → Konfiguracja pól.
+app.include_router(
+    entity_fields_api.router, prefix="/api", tags=["entity-fields"]
 )
 
 

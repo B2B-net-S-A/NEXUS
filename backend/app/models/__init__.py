@@ -157,6 +157,7 @@ from app.models.candidate_source_event import (
     SourceChannel,
 )
 from app.models.dictionary import Dictionary, DictionaryItem
+from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 
 __all__ = [
     "User",
@@ -303,4 +304,7 @@ __all__ = [
     "SourceChannel",
     "Dictionary",
     "DictionaryItem",
+    "EntityFieldDef",
+    "EntityType",
+    "FieldType",
 ]
