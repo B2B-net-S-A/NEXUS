@@ -51,6 +51,7 @@ import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
 import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
+import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
 import { useTabsStore } from"@/store/tabs";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
@@ -1641,6 +1642,10 @@ function ProfilTab({ candidate }: { candidate: any }) {
  hub_city: candidate.hub_city,
  }}
  />
+ </div>
+
+ <div className="rounded-xl bg-card border border-border p-4">
+ <CandidateSourcesPanel candidateId={candidate.id} />
  </div>
 
  <JDGPanel

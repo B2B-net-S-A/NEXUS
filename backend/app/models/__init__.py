@@ -137,6 +137,27 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
+from app.models.client_framework_contract import (
+    ClientFrameworkContract,
+    FrameworkContractSignedVia,
+    FrameworkContractStatus,
+)
+from app.models.client_contract_amendment import ClientContractAmendment
+from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_contract import ClientOrderContract
+from app.models.ai_feature import (
+    AIFeatureConfig,
+    AIFeatureKey,
+    AIMasterToggle,
+    AIUsageLog,
+)
+from app.models.oauth_client import OAuthClient, OAuthScope
+from app.models.candidate_source_event import (
+    CandidateSourceEvent,
+    SourceChannel,
+)
+from app.models.dictionary import Dictionary, DictionaryItem
+from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 
 __all__ = [
     "User",
@@ -266,4 +287,24 @@ __all__ = [
     "DocumentSignature",
     "DocumentSignatureEvent",
     "SignatureStatus",
+    "ClientFrameworkContract",
+    "FrameworkContractStatus",
+    "FrameworkContractSignedVia",
+    "ClientContractAmendment",
+    "ClientOrder",
+    "ClientOrderStatus",
+    "ClientOrderContract",
+    "AIFeatureConfig",
+    "AIFeatureKey",
+    "AIMasterToggle",
+    "AIUsageLog",
+    "OAuthClient",
+    "OAuthScope",
+    "CandidateSourceEvent",
+    "SourceChannel",
+    "Dictionary",
+    "DictionaryItem",
+    "EntityFieldDef",
+    "EntityType",
+    "FieldType",
 ]

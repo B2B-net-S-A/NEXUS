@@ -1,8 +1,20 @@
 "use client";
 
-import { useRef, useState } from"react";
+import { useEffect, useRef, useState } from"react";
 import { CheckCircle2, Loader2, Paperclip } from"lucide-react";
 import { z } from"zod";
+
+// UTM query params we forward to the apply endpoint (Traffit gap #4).
+// Standard Google Analytics dimensions; backend stores these on the
+// CandidateSourceEvent row created at apply time so /reports/sources can
+// attribute candidates to channels + campaigns.
+const UTM_KEYS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+] as const;
 
 interface ApplyFormProps {
  token: string;
@@ -51,6 +63,20 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  const [cvName, setCvName] = useState<string | null>(null);
  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+ // Capture UTM query params on mount and stash for the eventual submit.
+ // We snapshot once — if the user navigates away and back the URL might
+ // have changed; sticking with first-touch matches GA conventions.
+ const utmRef = useRef<Record<string, string>>({});
+ useEffect(() => {
+   const params = new URLSearchParams(window.location.search);
+   const captured: Record<string, string> = {};
+   for (const key of UTM_KEYS) {
+     const v = params.get(key);
+     if (v) captured[key] = v.slice(0, 120);
+   }
+   utmRef.current = captured;
+ }, []);
+
  const validateCv = (file: File | undefined | null): string | null => {
  if (!file) return"Dodaj swoje CV (PDF, DOC lub DOCX).";
  const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0] ??"";
@@ -93,6 +119,11 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  if (Object.keys(nextErrors).length > 0) {
  setErrors(nextErrors);
  return;
+ }
+
+ // Append UTM params captured on mount (Traffit gap #4 attribution).
+ for (const [key, value] of Object.entries(utmRef.current)) {
+ fd.append(key, value);
  }
 
  setStatus("submitting");

@@ -1,0 +1,15 @@
+# Dynaminds ops config for NEXUS (ATS)
+# Used by ~/.claude/scripts/sync-ops-commands.sh to generate .claude/commands/ops-*.md
+# Re-run after editing: ~/.claude/scripts/sync-ops-commands.sh .
+
+repo_name: nexus
+repo_name_upper: NEXUS
+app_url: https://api.nexus.dynaminds.pl
+coolify_url: https://coolify-nexus.dynaminds.pl
+app_uuid: ocgkwcbovpve9wvf9smxl0kx
+server_ip: 91.99.199.112
+db_user: claude_ro
+health_path: /api/health
+snapshot_token_env: NEXUS_SNAPSHOT_TOKEN
+primary_service_name: backend
+db_query_instructions: Use mcp__postgres-nexus MCP server (Phase 4 — read-only role claude_ro via Tailscale). Until Phase 4 ships, use Coolify Terminal panel.

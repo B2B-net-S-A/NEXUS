@@ -87,6 +87,17 @@ class NotificationType(str, enum.Enum):
     signature_signed = "signature_signed"
     signature_rejected = "signature_rejected"
     signature_failed = "signature_failed"
+    # Client framework contract (MSA) lifecycle (migracja 0092).
+    # Daily scheduler emituje 30/14/7 dni przed `expiry_date` do każdego DL
+    # przypisanego do klienta + admin/HoR. Dedup przez (type, related_entity_id, lokalny dzień).
+    framework_contract_expiring_30d = "framework_contract_expiring_30d"
+    framework_contract_expiring_14d = "framework_contract_expiring_14d"
+    framework_contract_expiring_7d = "framework_contract_expiring_7d"
+    framework_contract_signed = "framework_contract_signed"
+    # ClientOrder ending — `client_order_ending_30d` istniał już od 0037, tu dokładamy
+    # 14/7 dni dla dokładniejszego escalation.
+    client_order_ending_14d = "client_order_ending_14d"
+    client_order_ending_7d = "client_order_ending_7d"
 
 
 class Notification(Base, TimestampMixin):

@@ -57,6 +57,7 @@ async def list_templates(
         PipelineTemplate.description,
         PipelineTemplate.is_default,
         PipelineTemplate.archived,
+        PipelineTemplate.client_id,
         PipelineTemplate.created_at,
         PipelineTemplate.updated_at,
         func.count(PipelineStageDef.id).label("stage_count"),
@@ -78,6 +79,7 @@ async def list_templates(
             description=r.description,
             is_default=r.is_default,
             archived=r.archived,
+            client_id=r.client_id,
             stage_count=r.stage_count,
             created_at=r.created_at,
             updated_at=r.updated_at,
@@ -118,6 +120,7 @@ async def get_template(
         description=template.description,
         is_default=template.is_default,
         archived=template.archived,
+        client_id=template.client_id,
         created_at=template.created_at,
         updated_at=template.updated_at,
         stages=[
@@ -158,6 +161,7 @@ async def create_template(
         name=data.name,
         description=data.description,
         is_default=data.is_default,
+        client_id=data.client_id,
         created_by=current_user.id,
     )
     db.add(template)
@@ -175,6 +179,7 @@ async def create_template(
         description=template.description,
         is_default=template.is_default,
         archived=template.archived,
+        client_id=template.client_id,
         created_at=template.created_at,
         updated_at=template.updated_at,
         stages=[],
@@ -229,6 +234,7 @@ async def update_template(
         description=template.description,
         is_default=template.is_default,
         archived=template.archived,
+        client_id=template.client_id,
         stage_count=stages_count or 0,
         created_at=template.created_at,
         updated_at=template.updated_at,

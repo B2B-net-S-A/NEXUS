@@ -46,6 +46,12 @@ from app.api import calls
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
+from app.api import client_framework_contracts
+from app.api import client_contract_amendments
+from app.api import client_orders as client_orders_api
+from app.api import my_clients as my_clients_api
+from app.api import admin_clients_overview as admin_clients_overview_api
+from app.api import admin_snapshot
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -99,6 +105,13 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
+from app.api import ai_settings as ai_settings_api
+from app.api import oauth_clients as oauth_clients_api
+from app.api import oauth_token as oauth_token_api
+from app.api import candidate_sources as candidate_sources_api
+from app.api import candidates_bulk as candidates_bulk_api
+from app.api import dictionaries as dictionaries_api
+from app.api import entity_fields as entity_fields_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -225,46 +238,36 @@ async def lifespan(app: FastAPI):
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
+    from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.services.fx_service import fx_refresh_loop
 
-    reminder_task = asyncio.create_task(calendar_reminder_loop())
-    ttl_task = asyncio.create_task(match_history_ttl_loop())
-    slack_task = asyncio.create_task(slack_sla_alerts_loop())
-    contract_task = asyncio.create_task(contract_alerts_loop())
-    fx_task = asyncio.create_task(fx_refresh_loop())
-    competition_freeze_task = asyncio.create_task(competition_autofreeze_loop())
-    cc_centroid_task = asyncio.create_task(cc_centroid_sync_loop())
-    kpi_coach_task = asyncio.create_task(kpi_coach_nudger_loop())
-    notif_triggers_task = asyncio.create_task(notification_triggers_loop())
-    rejection_email_task = asyncio.create_task(rejection_email_loop())
-    linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
-    microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
-    marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
-    chat_email_fallback_task = asyncio.create_task(chat_email_fallback_loop())
+    # Background tasks registry — exposed via app.state so /api/admin/snapshot
+    # can introspect running/expected counts. Order matches shutdown order.
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
-    autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
+    app.state.background_tasks = {
+        "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
+        "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
+        "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
+        "contract_alerts": asyncio.create_task(contract_alerts_loop()),
+        "fx_refresh": asyncio.create_task(fx_refresh_loop()),
+        "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
+        "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
+        "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
+        "notification_triggers": asyncio.create_task(notification_triggers_loop()),
+        "rejection_email": asyncio.create_task(rejection_email_loop()),
+        "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
+        "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
+        "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
+        "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
+        "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
+        "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+    }
 
     yield
 
     # Shutdown
-    tasks = (
-        reminder_task,
-        ttl_task,
-        slack_task,
-        contract_task,
-        fx_task,
-        competition_freeze_task,
-        cc_centroid_task,
-        kpi_coach_task,
-        notif_triggers_task,
-        rejection_email_task,
-        linkedin_sync_task,
-        microsoft365_sync_task,
-        marketplace_sweeper_task,
-        chat_email_fallback_task,
-        autenti_sweeper_task,
-    )
+    tasks = tuple(app.state.background_tasks.values())
     for t in tasks:
         t.cancel()
     for t in tasks:
@@ -304,6 +307,36 @@ app.include_router(public_engagement.router, prefix="/api", tags=["public-engage
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
+app.include_router(
+    client_framework_contracts.router,
+    prefix="/api/clients",
+    tags=["client-framework-contracts"],
+)
+app.include_router(
+    client_contract_amendments.router,
+    prefix="/api/clients",
+    tags=["client-contract-amendments"],
+)
+app.include_router(
+    client_orders_api.router,
+    prefix="/api/clients",
+    tags=["client-orders"],
+)
+app.include_router(
+    my_clients_api.router,
+    prefix="/api/my-clients",
+    tags=["my-clients"],
+)
+app.include_router(
+    admin_clients_overview_api.router,
+    prefix="/api/admin/clients-overview",
+    tags=["admin-clients-overview"],
+)
+app.include_router(
+    admin_snapshot.router,
+    prefix="/api/admin",
+    tags=["admin-snapshot"],
+)
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
     rejection_emails_api.router,
@@ -459,6 +492,37 @@ if settings.M365_INTEGRATION_ENABLED:
 # Each write/IO handler invokes _require_enabled() internally; read-only
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
+
+# AI features panel (Settings → AI). Admin-only. Routes mounted at
+# /api/settings/ai (prefix is declared on the router itself; we add /api here).
+app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
+
+# OAuth2 client manager (Settings → API integration). Admin-only CRUD.
+app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
+
+# OAuth2 token endpoint (client_credentials grant). Public — auth is via
+# client_id + client_secret in the request body, not Authorization header.
+app.include_router(oauth_token_api.router, prefix="/api", tags=["oauth-token"])
+
+# Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.
+app.include_router(
+    candidate_sources_api.router, prefix="/api", tags=["candidate-sources"]
+)
+app.include_router(
+    candidate_sources_api.reports_router,
+    prefix="/api/reports",
+    tags=["reports-sources"],
+)
+
+# Bulk actions on candidates list (#3): single dispatch endpoint
+# POST /api/candidates/bulk routes to per-action handlers.
+app.include_router(candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"])
+
+# Editable taxonomies (#8): Settings → Słowniki + GET /api/dictionaries/{slug}
+app.include_router(dictionaries_api.router, prefix="/api", tags=["dictionaries"])
+
+# Custom-field schema editor (#7): Settings → Konfiguracja pól.
+app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields"])
 
 
 @app.get("/health")

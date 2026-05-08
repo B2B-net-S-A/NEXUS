@@ -68,6 +68,17 @@ class PipelineTemplate(Base, TimestampMixin):
     )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
+    # Per-client default (Traffit gap #1, migracja 0090).
+    # NULL = global template available to any job. When set, this template
+    # becomes the preferred default for jobs of that client (resolved in
+    # the job-create handler, not at the DB level — there is no UNIQUE
+    # constraint on client_id since admins can keep variants).
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # External source tracking — Traffit / future imports.
     # Migracja 0074 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)

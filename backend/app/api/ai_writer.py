@@ -9,7 +9,7 @@ import json
 import os
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -364,7 +364,38 @@ async def generate_job(
     """
     POST /api/ai/generate-job
     Generates a structured job description using Claude API (or mock if no key).
+
+    Subject to the Settings → AI quota for `job_description_generator`. Returns
+    HTTP 503 if the master toggle is off, the feature is disabled, or the
+    monthly limit has been hit.
     """
+    # Settings → AI quota gate (Traffit gap #5).
+    # Imported lazily so this module stays importable even if the AI quota
+    # tables haven't been migrated yet (e.g. during 0085 rollout).
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+
+    try:
+        await check_and_increment(
+            db,
+            AIFeatureKey.job_description_generator,
+            user_id=current_user.id,
+        )
+        # Commit the counter even if downstream Claude fails — we count the
+        # admission decision, not the LLM round-trip success.
+        await db.commit()
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
+
     # Try Claude first
     try:
         result = await _generate_with_claude(request)
