@@ -79,7 +79,12 @@ export function CompetenceCategoryFilter({
 
   if (categories === null) {
     return (
-      <div className={cn("flex flex-wrap gap-2", className)}>
+      <div
+        role="group"
+        aria-busy="true"
+        aria-label="Ładowanie kategorii kompetencji"
+        className={cn("flex flex-wrap gap-2", className)}
+      >
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
