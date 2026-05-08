@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Separator } from"@/components/ui/separator";
 import { Button } from"@/components/ui/button";
 import { MyJobsWidget } from"@/components/v2/pages/dashboard/MyJobsWidget";
+import { WidgetState, WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState";
 import { hasRole, useAuthStore } from"@/store/auth";
 import { UserCog } from"lucide-react";
 
@@ -419,7 +420,13 @@ function ContractorDraftsWidget() {
 
 // ── Main ───────────────────────────────────────────────────────────────
 export function DashboardV2() {
- const { data: stats, isLoading: statsLoading } = useQuery({
+ const {
+ data: stats,
+ isLoading: statsLoading,
+ isError: statsIsError,
+ error: statsError,
+ refetch: refetchStats,
+ } = useQuery({
  queryKey: ["dashboard-stats"],
  queryFn: () => api.get("/api/dashboard/stats").then((r) => r.data),
  });
@@ -430,7 +437,12 @@ export function DashboardV2() {
  staleTime: 60 * 1000,
  });
 
- const { data: activity } = useQuery({
+ const {
+ data: activity,
+ isError: activityIsError,
+ error: activityError,
+ refetch: refetchActivity,
+ } = useQuery({
  queryKey: ["recent-activity"],
  queryFn: () =>
  api
@@ -441,7 +453,12 @@ export function DashboardV2() {
  ),
  });
 
- const { data: upcomingEvents } = useQuery({
+ const {
+ data: upcomingEvents,
+ isError: upcomingIsError,
+ error: upcomingError,
+ refetch: refetchUpcoming,
+ } = useQuery({
  queryKey: ["upcoming-events"],
  queryFn: () =>
  api
@@ -452,13 +469,23 @@ export function DashboardV2() {
  staleTime: 60 * 1000,
  });
 
- const { data: recruitmentReport } = useQuery({
+ const {
+ data: recruitmentReport,
+ isError: reportIsError,
+ error: reportError,
+ refetch: refetchReport,
+ } = useQuery({
  queryKey: ["recruitment-report"],
  queryFn: () => api.get("/api/reports/recruitment?period=month").then((r) => r.data),
  staleTime: 5 * 60 * 1000,
  });
 
- const { data: leaderboard } = useQuery({
+ const {
+ data: leaderboard,
+ isError: leaderboardIsError,
+ error: leaderboardError,
+ refetch: refetchLeaderboard,
+ } = useQuery({
  queryKey: ["activities-leaderboard"],
  queryFn: () =>
  api.get("/api/activities/leaderboard?period=month&limit=5").then((r) => r.data),
@@ -512,18 +539,32 @@ export function DashboardV2() {
 
  {/* KPI hero row */}
  <section>
+ <WidgetState
+ isLoading={statsLoading}
+ isError={statsIsError}
+ error={statsError}
+ onRetry={() => refetchStats()}
+ loadingFallback={
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
- {statsLoading ? (
- <>
  {Array.from({ length: 4 }).map((_, i) => (
  <Card key={i} className="animate-pulse">
  <div className="h-4 bg-[hsl(var(--border))] rounded w-24 mb-3" />
  <div className="h-8 bg-[hsl(var(--border))] rounded w-20" />
  </Card>
  ))}
- </>
- ) : (
- <>
+ </div>
+ }
+ errorFallback={
+ <Card>
+ <WidgetErrorBlock
+ title="Nie udało się załadować statystyk pulpitu."
+ error={statsError}
+ onRetry={() => refetchStats()}
+ />
+ </Card>
+ }
+ >
+ <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
  <StatCardV2
  title="Kandydaci"
  value={stats?.candidates?.total ??"—"}
@@ -560,9 +601,8 @@ export function DashboardV2() {
  sparkline={seedSparkline(contractsBase, 7)}
  href="/contracts"
  />
- </>
- )}
  </div>
+ </WidgetState>
  </section>
 
  {/* Contractor drafts — only visible when count > 0 and role qualifies */}
@@ -584,7 +624,15 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
+ {reportIsError ? (
+ <WidgetErrorBlock
+ title="Nie udało się załadować raportu rekrutacji."
+ error={reportError}
+ onRetry={() => refetchReport()}
+ />
+ ) : (
  <FunnelV2 data={recruitmentReport} />
+ )}
  </CardContent>
  </Card>
 
@@ -602,7 +650,15 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
+ {activityIsError ? (
+ <WidgetErrorBlock
+ title="Nie udało się załadować aktywności."
+ error={activityError}
+ onRetry={() => refetchActivity()}
+ />
+ ) : (
  <RecentHiresV2 data={recentHires} />
+ )}
  </CardContent>
  </Card>
  </div>
@@ -623,7 +679,15 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
+ {leaderboardIsError ? (
+ <WidgetErrorBlock
+ title="Nie udało się załadować rankingu."
+ error={leaderboardError}
+ onRetry={() => refetchLeaderboard()}
+ />
+ ) : (
  <PerformersV2 data={leaderboard} />
+ )}
  </CardContent>
  </Card>
 
@@ -641,7 +705,15 @@ export function DashboardV2() {
  </div>
  </CardHeader>
  <CardContent>
+ {upcomingIsError ? (
+ <WidgetErrorBlock
+ title="Nie udało się załadować wydarzeń."
+ error={upcomingError}
+ onRetry={() => refetchUpcoming()}
+ />
+ ) : (
  <UpcomingEventsV2 events={upcomingEvents} />
+ )}
  </CardContent>
  </Card>
  </div>

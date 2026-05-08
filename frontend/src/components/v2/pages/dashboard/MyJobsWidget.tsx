@@ -7,6 +7,7 @@ import { ArrowRight, Briefcase } from"lucide-react";
 import api from"@/lib/api";
 import { Badge } from"@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card";
+import { WidgetState } from"@/components/v2/dashboard/WidgetState";
 
 interface JobItem {
  id: number;
@@ -24,7 +25,10 @@ interface JobItem {
  * a collaborator. Links deeper to /jobs?mine=1 for the full list.
  */
 export function MyJobsWidget() {
- const { data, isLoading } = useQuery<{ items: JobItem[]; total: number }>({
+ const { data, isLoading, isError, error, refetch } = useQuery<{
+ items: JobItem[];
+ total: number;
+ }>({
  queryKey: ["dashboard","my-jobs"],
  queryFn: () =>
  api
@@ -51,7 +55,7 @@ export function MyJobsWidget() {
  Projekty, na których jesteś właścicielem lub współpracownikiem.
  </CardDescription>
  </div>
- {total > 0 ? (
+ {!isError && total > 0 ? (
  <Link
  href="/jobs?mine=1"
  className="text-xs text-primary hover:underline inline-flex items-center gap-1"
@@ -62,7 +66,13 @@ export function MyJobsWidget() {
  </div>
  </CardHeader>
  <CardContent>
- {isLoading ? (
+ <WidgetState
+ isLoading={isLoading}
+ isError={isError}
+ error={error}
+ onRetry={() => refetch()}
+ isEmpty={items.length === 0}
+ loadingFallback={
  <div className="space-y-2">
  {Array.from({ length: 3 }).map((_, i) => (
  <div
@@ -71,7 +81,8 @@ export function MyJobsWidget() {
  />
  ))}
  </div>
- ) : items.length === 0 ? (
+ }
+ emptyFallback={
  <div className="text-sm text-muted-foreground py-6 text-center">
  <Briefcase className="h-8 w-8 mx-auto mb-2 opacity-40" />
  <p>Nie masz przypisanych projektów.</p>
@@ -82,7 +93,8 @@ export function MyJobsWidget() {
  Przeglądaj otwarte oferty <ArrowRight className="h-3 w-3" />
  </Link>
  </div>
- ) : (
+ }
+ >
  <ul className="space-y-1">
  {items.map((job) => (
  <li key={job.id}>
@@ -116,7 +128,7 @@ export function MyJobsWidget() {
  </li>
  ))}
  </ul>
- )}
+ </WidgetState>
  </CardContent>
  </Card>
  );
