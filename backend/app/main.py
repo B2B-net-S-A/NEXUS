@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -107,18 +108,40 @@ logger = logging.getLogger(__name__)
 
 
 # ── Sentry (optional) ──────────────────────────────────────────────────────
+# AsyncioIntegration propagates breadcrumbs/scope across `asyncio.create_task`
+# so the 14 background tasks spawned in lifespan capture their own context.
+# LoggingIntegration mirrors `logging.error()` calls into Sentry as breadcrumbs
+# (level=INFO) and events (level=ERROR) — bridges JSON logs to the Sentry UI.
+# FastApiIntegration tags transactions by route (transaction_style="endpoint").
+# release=$GIT_SHA matches the Compass/Atlas pattern so deploy markers in
+# Grafana correlate across all 3 apps.
 if settings.SENTRY_DSN:
     try:
         import sentry_sdk
+        from sentry_sdk.integrations.asyncio import AsyncioIntegration
+        from sentry_sdk.integrations.fastapi import FastApiIntegration
+        from sentry_sdk.integrations.logging import LoggingIntegration
 
         sentry_sdk.init(
             dsn=settings.SENTRY_DSN,
             environment=settings.SENTRY_ENVIRONMENT,
-            traces_sample_rate=0.1,
-            profiles_sample_rate=0.1,
+            release=os.getenv("GIT_SHA"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
+            send_default_pii=False,
+            integrations=[
+                FastApiIntegration(transaction_style="endpoint"),
+                AsyncioIntegration(),
+                LoggingIntegration(
+                    level=logging.INFO,
+                    event_level=logging.ERROR,
+                ),
+            ],
         )
         logger.info(
-            "Sentry initialized for environment=%s", settings.SENTRY_ENVIRONMENT
+            "Sentry initialized for environment=%s release=%s",
+            settings.SENTRY_ENVIRONMENT,
+            os.getenv("GIT_SHA", "unknown"),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("Sentry init failed: %s", e)
