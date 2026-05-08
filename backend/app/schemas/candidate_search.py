@@ -16,7 +16,7 @@ populated by the matching circuit breaker (``recommendations.py``) — opaque
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -103,9 +103,13 @@ class CandidateSearchItem(BaseModel):
     salary_currency: Optional[str] = None
     availability_date: Optional[str] = None
     years_it_experience: Optional[int] = None
-    tags: Optional[dict] = None
-    skills: Optional[dict] = None
-    languages: Optional[dict] = None
+    # Each of these JSONB columns is either a dict or a list in production
+    # depending on importer history (e.g. ``languages`` is sometimes
+    # ``["Polish", "English"]`` and sometimes ``{"PL": "C2"}``). Keep the
+    # response permissive — the frontend already handles both shapes.
+    tags: Optional[Any] = None
+    skills: Optional[Any] = None
+    languages: Optional[Any] = None
     ai_summary: Optional[str] = None
     avatar_url: Optional[str] = None
     relevance_score: float = 0.0
