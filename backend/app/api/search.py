@@ -23,6 +23,7 @@ from app.schemas.candidate_search import (
     SearchMeta,
 )
 from app.services.advanced_candidate_search import build_advanced_filter
+from app.services.ai_health import ai_status
 from app.services.structured_candidate_search import build_structured_filter
 
 router = APIRouter()
@@ -197,7 +198,7 @@ async def advanced_candidate_search(
         page_size=body.page_size,
         items=items,
         facets=facets,
-        meta=SearchMeta(ai_status="ok", took_ms=took_ms),
+        meta=SearchMeta(ai_status=ai_status(), took_ms=took_ms),
     )
 
 

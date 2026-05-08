@@ -331,38 +331,47 @@ async def search_candidates_semantic(
     """
     Embed *query* and search the Qdrant collection for the closest candidates.
     Returns a list of dicts: [{candidate_id, score}].
+
+    Each call (including its embedding step) is recorded in the AI health
+    tracker so ``meta.ai_status`` on candidate-search responses can flip the
+    "manual search" banner when Voyage/Qdrant is degraded or down.
     """
-    embedding = await generate_embedding(query)
-    if embedding is None:
-        logger.warning(
-            "[Search] Could not generate query embedding — returning empty results."
-        )
-        return []
+    from app.services.ai_health import AiCallTimer
 
-    def _search():
-        from qdrant_client import QdrantClient
+    with AiCallTimer() as timer:
+        embedding = await generate_embedding(query)
+        if embedding is None:
+            timer.failed = True
+            logger.warning(
+                "[Search] Could not generate query embedding — returning empty results."
+            )
+            return []
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        hits = client.search(
-            collection_name=_collection(),
-            query_vector=embedding,
-            limit=top_k,
-            with_payload=True,
-        )
-        return [
-            {
-                "candidate_id": int(hit.id),
-                "score": round(float(hit.score), 4),
-                "payload": hit.payload or {},
-            }
-            for hit in hits
-        ]
+        def _search():
+            from qdrant_client import QdrantClient
 
-    try:
-        return await asyncio.to_thread(_search)
-    except Exception as e:
-        logger.error(f"[Search] Qdrant search error: {e}")
-        return []
+            client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+            hits = client.search(
+                collection_name=_collection(),
+                query_vector=embedding,
+                limit=top_k,
+                with_payload=True,
+            )
+            return [
+                {
+                    "candidate_id": int(hit.id),
+                    "score": round(float(hit.score), 4),
+                    "payload": hit.payload or {},
+                }
+                for hit in hits
+            ]
+
+        try:
+            return await asyncio.to_thread(_search)
+        except Exception as e:
+            timer.failed = True
+            logger.error(f"[Search] Qdrant search error: {e}")
+            return []
 
 
 # ---------------------------------------------------------------------------

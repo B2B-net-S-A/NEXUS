@@ -6,6 +6,7 @@ import { ArrowLeft, Bookmark, Loader2, Plus, Search, Trash2 } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AiStatusBanner } from "@/components/jobs/AiStatusBanner";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
 import {
   candidateSearchApi,
@@ -255,6 +256,10 @@ export function CandidateSearchView({
           </div>
         )}
       </header>
+
+      {data?.meta && data.meta.ai_status !== "ok" && (
+        <AiStatusBanner status={data.meta.ai_status} />
+      )}
 
       <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
 
