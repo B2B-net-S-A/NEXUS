@@ -2906,6 +2906,90 @@ export interface DictionaryItemUpdatePayload {
   archived?: boolean;
 }
 
+// ── Custom field schema editor (Traffit gap #7) ──────────────────────────────
+
+export type EntityType = "candidate" | "job";
+export type FieldType =
+  | "text"
+  | "long_text"
+  | "number"
+  | "checkbox"
+  | "radio"
+  | "select"
+  | "multi_select"
+  | "date"
+  | "datetime"
+  | "file"
+  | "files"
+  | "location"
+  | "link";
+
+export interface EntityFieldDefDto {
+  id: number;
+  entity_type: EntityType;
+  key: string;
+  label_pl: string;
+  label_en: string | null;
+  help_text: string | null;
+  field_type: FieldType;
+  options: Record<string, unknown>;
+  required: boolean;
+  section: string | null;
+  ordinal: number;
+  archived: boolean;
+  last_edited_at: string | null;
+}
+
+export interface EntityFieldDefCreatePayload {
+  entity_type: EntityType;
+  key: string;
+  label_pl: string;
+  label_en?: string | null;
+  help_text?: string | null;
+  field_type: FieldType;
+  options?: Record<string, unknown>;
+  required?: boolean;
+  section?: string;
+  ordinal?: number;
+}
+
+export interface EntityFieldDefUpdatePayload {
+  label_pl?: string;
+  label_en?: string | null;
+  help_text?: string | null;
+  options?: Record<string, unknown>;
+  required?: boolean;
+  section?: string;
+  ordinal?: number;
+  archived?: boolean;
+}
+
+export interface FieldTypeInfoDto {
+  value: FieldType;
+  label: string;
+}
+
+export interface SchemaListResponseDto {
+  entity_type: EntityType;
+  fields: EntityFieldDefDto[];
+}
+
+export const entityFieldsApi = {
+  schema: (entity: EntityType, includeArchived = false) =>
+    api.get<SchemaListResponseDto>(`/api/entity-schema/${entity}`, {
+      params: { include_archived: includeArchived },
+    }),
+  fieldTypes: () =>
+    api.get<FieldTypeInfoDto[]>("/api/settings/entity-fields/types"),
+  create: (payload: EntityFieldDefCreatePayload) =>
+    api.post<EntityFieldDefDto>("/api/settings/entity-fields", payload),
+  update: (id: number, payload: EntityFieldDefUpdatePayload) =>
+    api.patch<EntityFieldDefDto>(
+      `/api/settings/entity-fields/${id}`,
+      payload,
+    ),
+};
+
 export const dictionariesApi = {
   // Public-ish (any authenticated user) — used by form pickers.
   itemsBySlug: (slug: string, includeArchived = false) =>

@@ -97,6 +97,12 @@ const ADVANCED_LINKS: Array<{
     icon: <FileText className="w-5 h-5" />,
   },
   {
+    href: "/settings/entity-fields",
+    title: "Konfiguracja pól",
+    description: "Dodaj własne pola na profilu kandydata / rekrutacji. Drag-drop layout.",
+    icon: <Sliders className="w-5 h-5" />,
+  },
+  {
     href: "/settings/diagnostics",
     title: "Diagnostyka",
     description: "Status komponentów, kolejki, background tasks.",
