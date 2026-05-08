@@ -17,6 +17,7 @@ from sqlalchemy import and_, or_, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.encryption import TokenCipherNotConfigured
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.services.m365 import sync_connection
 
@@ -109,6 +110,25 @@ async def _tick(interval: int) -> None:
                 await sync_connection(db, fresh)
         except asyncio.CancelledError:
             raise
+        except TokenCipherNotConfigured:
+            # Cipher key rotated or token row was encrypted with a different
+            # key (most often: key was missing at first encrypt, then provisioned;
+            # or rotated without re-running OAuth). Token is unrecoverable —
+            # deactivate so the loop stops retrying every 300s and Sentry doesn't
+            # get a flood of identical events. User must reconnect via UI to
+            # set is_active=True again with a freshly encrypted token.
+            async with AsyncSessionLocal() as db:
+                fresh = await db.get(M365Connection, conn_id)
+                if fresh is not None:
+                    fresh.is_active = False
+                    fresh.last_sync_status = M365SyncStatus.error
+                    fresh.last_error = "token_cipher_unreadable_user_must_reconnect"
+                    await db.commit()
+            logger.warning(
+                "m365 connection id=%s deactivated — token unreadable (cipher mismatch). "
+                "User must reconnect via /microsoft365 in the UI.",
+                conn_id,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("sync_connection failed for id=%s", conn_id)
         # Stagger calls so Graph rate limits don't kick in.
