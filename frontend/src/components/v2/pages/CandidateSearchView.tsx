@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Search } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
 import {
   candidateSearchApi,
+  proposalsBulkApi,
+  type BulkProposalsResponse,
   type CandidateSearchItem,
   type CandidateSearchRequest,
   type CandidateSearchResponse,
@@ -38,6 +40,14 @@ interface CandidateSearchViewProps {
   initial?: Partial<CandidateSearchRequest>;
   /** Renders a "Wstecz" link if provided. */
   backHref?: string;
+  /**
+   * Job context — when set, results carry checkboxes and a sticky bulk-add
+   * bar that posts to ``POST /api/jobs/{id}/proposals/bulk``. Also forces
+   * ``exclude_in_job_id`` so already-added candidates don't appear.
+   */
+  addToJob?: { id: number; title: string };
+  /** Called after a successful bulk-add so the parent can refresh the AI tab. */
+  onBulkAdded?: (resp: BulkProposalsResponse) => void;
 }
 
 /**
@@ -51,14 +61,51 @@ interface CandidateSearchViewProps {
 export function CandidateSearchView({
   initial,
   backHref,
+  addToJob,
+  onBulkAdded,
 }: CandidateSearchViewProps) {
   const [request, setRequest] = useState<CandidateSearchRequest>({
     ...DEFAULT_REQUEST,
+    ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
     ...initial,
   });
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const submitBulk = async () => {
+    if (!addToJob || selected.size === 0) return;
+    setBulkPending(true);
+    setError(null);
+    try {
+      const resp = await proposalsBulkApi.add(addToJob.id, {
+        candidate_ids: Array.from(selected),
+      });
+      setBulkResult(resp);
+      clearSelection();
+      // Re-run the search so newly added candidates drop out (excluded).
+      setRequest((r) => ({ ...r }));
+      onBulkAdded?.(resp);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Bulk add nie powiódł się");
+    } finally {
+      setBulkPending(false);
+    }
+  };
 
   // Debounce search by 300ms — typing in the free-text input shouldn't fire
   // a roundtrip per keystroke. The page resets to 1 on any non-page edit.
@@ -177,6 +224,15 @@ export function CandidateSearchView({
         </div>
       )}
 
+      {bulkResult && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          Dodano {bulkResult.total_added} kandydatów do requestu „{addToJob?.title}".
+          {bulkResult.total_skipped > 0 && (
+            <> Pominięto {bulkResult.total_skipped} (już w jobie / blacklist).</>
+          )}
+        </div>
+      )}
+
       {/* Result rows */}
       <ul className="divide-y rounded-lg border bg-card dark:border-zinc-800">
         {data?.items.length === 0 && !loading && (
@@ -185,9 +241,48 @@ export function CandidateSearchView({
           </li>
         )}
         {data?.items.map((c) => (
-          <CandidateSearchRow key={c.id} item={c} />
+          <CandidateSearchRow
+            key={c.id}
+            item={c}
+            selectable={Boolean(addToJob)}
+            selected={selected.has(c.id)}
+            onToggleSelect={() => toggleSelect(c.id)}
+          />
         ))}
       </ul>
+
+      {/* Sticky bulk-add bar — only when in job context */}
+      {addToJob && selected.size > 0 && (
+        <div className="sticky bottom-4 z-10 mx-auto flex w-fit items-center gap-3 rounded-full border bg-zinc-900 px-4 py-2 text-sm text-zinc-50 shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+          <span className="tabular-nums">
+            Wybrano <strong>{selected.size}</strong>
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs hover:bg-zinc-700 dark:hover:bg-zinc-200"
+            onClick={clearSelection}
+            disabled={bulkPending}
+          >
+            Wyczyść
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 gap-1 bg-violet-600 text-white hover:bg-violet-500"
+            onClick={submitBulk}
+            disabled={bulkPending}
+          >
+            {bulkPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
+            Dodaj do „{addToJob.title}"
+          </Button>
+        </div>
+      )}
 
       {/* Pagination */}
       {data && data.total > data.page_size && (
@@ -219,7 +314,19 @@ export function CandidateSearchView({
   );
 }
 
-function CandidateSearchRow({ item }: { item: CandidateSearchItem }) {
+interface CandidateSearchRowProps {
+  item: CandidateSearchItem;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}
+
+function CandidateSearchRow({
+  item,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+}: CandidateSearchRowProps) {
   const skillsList = Array.isArray(item.skills)
     ? (item.skills as Array<string | { name?: string }>)
     : [];
@@ -230,6 +337,15 @@ function CandidateSearchRow({ item }: { item: CandidateSearchItem }) {
 
   return (
     <li className="flex items-start gap-3 p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
+      {selectable && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`Zaznacz ${item.name} ${item.lastname}`}
+          className="mt-1 h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+        />
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <Link

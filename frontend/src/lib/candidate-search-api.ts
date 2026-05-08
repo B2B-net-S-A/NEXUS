@@ -120,3 +120,37 @@ export const candidateSearchApi = {
       .post<CandidateSearchResponse>("/api/search/candidates", body)
       .then((r) => r.data),
 };
+
+export type BulkSkipReason =
+  | "already_in_job"
+  | "blacklisted"
+  | "candidate_not_found";
+
+export interface BulkProposalsRequest {
+  candidate_ids: number[];
+  initial_stage_def_id?: number | null;
+  note?: string | null;
+  tags?: string[];
+}
+
+export interface BulkSkippedRow {
+  candidate_id: number;
+  reason: BulkSkipReason;
+}
+
+export interface BulkProposalsResponse {
+  added: number[];
+  skipped: BulkSkippedRow[];
+  total_added: number;
+  total_skipped: number;
+}
+
+export const proposalsBulkApi = {
+  add: (
+    jobId: number,
+    body: BulkProposalsRequest,
+  ): Promise<BulkProposalsResponse> =>
+    api
+      .post<BulkProposalsResponse>(`/api/jobs/${jobId}/proposals/bulk`, body)
+      .then((r) => r.data),
+};
