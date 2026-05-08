@@ -51,6 +51,7 @@ from app.api import client_contract_amendments
 from app.api import client_orders as client_orders_api
 from app.api import my_clients as my_clients_api
 from app.api import admin_clients_overview as admin_clients_overview_api
+from app.api import admin_snapshot
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -233,46 +234,33 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.services.fx_service import fx_refresh_loop
 
-    reminder_task = asyncio.create_task(calendar_reminder_loop())
-    ttl_task = asyncio.create_task(match_history_ttl_loop())
-    slack_task = asyncio.create_task(slack_sla_alerts_loop())
-    contract_task = asyncio.create_task(contract_alerts_loop())
-    fx_task = asyncio.create_task(fx_refresh_loop())
-    competition_freeze_task = asyncio.create_task(competition_autofreeze_loop())
-    cc_centroid_task = asyncio.create_task(cc_centroid_sync_loop())
-    kpi_coach_task = asyncio.create_task(kpi_coach_nudger_loop())
-    notif_triggers_task = asyncio.create_task(notification_triggers_loop())
-    rejection_email_task = asyncio.create_task(rejection_email_loop())
-    linkedin_sync_task = asyncio.create_task(linkedin_sync_loop())
-    microsoft365_sync_task = asyncio.create_task(microsoft365_sync_loop())
-    marketplace_sweeper_task = asyncio.create_task(marketplace_sweeper_loop())
-    chat_email_fallback_task = asyncio.create_task(chat_email_fallback_loop())
+    # Background tasks registry — exposed via app.state so /api/admin/snapshot
+    # can introspect running/expected counts. Order matches shutdown order.
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
     # spawn unconditionally (mirrors LinkedIn/M365 patterns).
-    autenti_sweeper_task = asyncio.create_task(autenti_sweeper_loop())
-    dl_portal_expiry_task = asyncio.create_task(dl_portal_expiry_loop())
+    app.state.background_tasks = {
+        "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
+        "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
+        "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
+        "contract_alerts": asyncio.create_task(contract_alerts_loop()),
+        "fx_refresh": asyncio.create_task(fx_refresh_loop()),
+        "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
+        "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
+        "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
+        "notification_triggers": asyncio.create_task(notification_triggers_loop()),
+        "rejection_email": asyncio.create_task(rejection_email_loop()),
+        "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
+        "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
+        "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
+        "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
+        "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
+        "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+    }
 
     yield
 
     # Shutdown
-    tasks = (
-        reminder_task,
-        ttl_task,
-        slack_task,
-        contract_task,
-        fx_task,
-        competition_freeze_task,
-        cc_centroid_task,
-        kpi_coach_task,
-        notif_triggers_task,
-        rejection_email_task,
-        linkedin_sync_task,
-        microsoft365_sync_task,
-        marketplace_sweeper_task,
-        chat_email_fallback_task,
-        autenti_sweeper_task,
-        dl_portal_expiry_task,
-    )
+    tasks = tuple(app.state.background_tasks.values())
     for t in tasks:
         t.cancel()
     for t in tasks:
@@ -336,6 +324,11 @@ app.include_router(
     admin_clients_overview_api.router,
     prefix="/api/admin/clients-overview",
     tags=["admin-clients-overview"],
+)
+app.include_router(
+    admin_snapshot.router,
+    prefix="/api/admin",
+    tags=["admin-snapshot"],
 )
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(
