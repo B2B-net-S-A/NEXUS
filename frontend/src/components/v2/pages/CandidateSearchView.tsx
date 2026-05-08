@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Plus, Search } from "lucide-react";
+import { ArrowLeft, Bookmark, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
 import {
   candidateSearchApi,
   proposalsBulkApi,
+  savedSearchesApi,
   type BulkProposalsResponse,
   type CandidateSearchItem,
   type CandidateSearchRequest,
   type CandidateSearchResponse,
+  type SavedSearchOut,
   type SortMode,
 } from "@/lib/candidate-search-api";
 
@@ -76,6 +79,28 @@ export function CandidateSearchView({
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
 
+  // Saved searches — list refetched after every mutation.
+  const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
+  const [saveDraftOpen, setSaveDraftOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [savePinToJob, setSavePinToJob] = useState(true);
+  const [savePending, setSavePending] = useState(false);
+
+  const refreshSavedSearches = useCallback(() => {
+    savedSearchesApi
+      .list({
+        entity: "candidates",
+        pinned_to_job_id: addToJob?.id,
+        only_mine: addToJob ? undefined : true,
+      })
+      .then(setSavedSearches)
+      .catch(() => setSavedSearches([]));
+  }, [addToJob?.id]);
+
+  useEffect(() => {
+    refreshSavedSearches();
+  }, [refreshSavedSearches]);
+
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -86,6 +111,54 @@ export function CandidateSearchView({
   };
 
   const clearSelection = () => setSelected(new Set());
+
+  const loadSavedSearch = (ss: SavedSearchOut) => {
+    // Filters were stored as a CandidateSearchRequest dump — restore but
+    // never carry over paging or job-context exclusion (those are owned by
+    // the current view).
+    const filters = ss.filters as Partial<CandidateSearchRequest>;
+    setRequest({
+      ...DEFAULT_REQUEST,
+      ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
+      ...filters,
+      page: 1,
+    });
+  };
+
+  const saveCurrentSearch = async () => {
+    const name = saveName.trim();
+    if (!name) return;
+    setSavePending(true);
+    try {
+      // Strip transient fields (page, exclude_in_job_id) — they're not part
+      // of the user's intent, just current view state.
+      const { page: _page, exclude_in_job_id: _excl, ...rest } = request;
+      void _page;
+      void _excl;
+      await savedSearchesApi.create({
+        name,
+        entity: "candidates",
+        filters: rest as unknown as Record<string, unknown>,
+        pinned_to_job_id: savePinToJob ? addToJob?.id ?? null : null,
+      });
+      setSaveDraftOpen(false);
+      setSaveName("");
+      refreshSavedSearches();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Zapisanie nie powiodło się");
+    } finally {
+      setSavePending(false);
+    }
+  };
+
+  const deleteSavedSearch = async (id: number) => {
+    try {
+      await savedSearchesApi.remove(id);
+      refreshSavedSearches();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Usunięcie nie powiodło się");
+    }
+  };
 
   const submitBulk = async () => {
     if (!addToJob || selected.size === 0) return;
@@ -184,6 +257,112 @@ export function CandidateSearchView({
       </header>
 
       <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
+
+      {/* Saved searches strip */}
+      {(savedSearches.length > 0 || saveDraftOpen) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-zinc-500 dark:text-zinc-400 font-medium">
+            Zapisane:
+          </span>
+          {savedSearches.map((ss) => (
+            <span
+              key={ss.id}
+              className="group inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 dark:bg-zinc-900 dark:border-zinc-700"
+            >
+              <button
+                type="button"
+                onClick={() => loadSavedSearch(ss)}
+                className="hover:text-violet-700 dark:hover:text-violet-300"
+              >
+                {ss.name}
+              </button>
+              {ss.pinned_to_job_id !== null && (
+                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                  pin
+                </Badge>
+              )}
+              <button
+                type="button"
+                aria-label={`Usuń ${ss.name}`}
+                onClick={() => deleteSavedSearch(ss.id)}
+                className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-600"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          {!saveDraftOpen ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setSaveDraftOpen(true)}
+              className="h-7 gap-1 text-xs"
+            >
+              <Bookmark className="h-3 w-3" />
+              Zapisz wyszukiwanie
+            </Button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <Input
+                autoFocus
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void saveCurrentSearch();
+                  }
+                  if (e.key === "Escape") setSaveDraftOpen(false);
+                }}
+                placeholder="Nazwa…"
+                className="h-7 w-40 text-xs"
+                maxLength={100}
+              />
+              {addToJob && (
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={savePinToJob}
+                    onChange={(e) => setSavePinToJob(e.target.checked)}
+                    className="h-3 w-3"
+                  />
+                  Pin do "{addToJob.title}"
+                </label>
+              )}
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                onClick={saveCurrentSearch}
+                disabled={savePending || saveName.trim().length === 0}
+              >
+                {savePending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Zapisz"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => setSaveDraftOpen(false)}
+                disabled={savePending}
+              >
+                Anuluj
+              </Button>
+            </span>
+          )}
+        </div>
+      )}
+      {savedSearches.length === 0 && !saveDraftOpen && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => setSaveDraftOpen(true)}
+          className="h-7 gap-1 text-xs self-start"
+        >
+          <Bookmark className="h-3 w-3" />
+          Zapisz to wyszukiwanie
+        </Button>
+      )}
 
       {/* Sort + status row */}
       <div className="flex items-center justify-between gap-2">

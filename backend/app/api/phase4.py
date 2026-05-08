@@ -31,6 +31,7 @@ class SavedSearchCreate(BaseModel):
     filters: dict
     shared: bool = False
     description: Optional[str] = Field(None, max_length=255)
+    pinned_to_job_id: Optional[int] = None
 
 
 class SavedSearchUpdate(BaseModel):
@@ -38,6 +39,8 @@ class SavedSearchUpdate(BaseModel):
     filters: Optional[dict] = None
     shared: Optional[bool] = None
     description: Optional[str] = None
+    # ``None`` means "no change"; pass ``0`` to clear (special-cased below).
+    pinned_to_job_id: Optional[int] = None
 
 
 class SavedSearchOut(BaseModel):
@@ -48,6 +51,7 @@ class SavedSearchOut(BaseModel):
     filters: dict
     shared: bool
     description: Optional[str]
+    pinned_to_job_id: Optional[int] = None
     created_at: str
     updated_at: str
 
@@ -63,6 +67,7 @@ def _ss_to_dict(s: SavedSearch) -> dict:
         "filters": s.filters or {},
         "shared": s.shared,
         "description": s.description,
+        "pinned_to_job_id": s.pinned_to_job_id,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
@@ -72,14 +77,51 @@ def _ss_to_dict(s: SavedSearch) -> dict:
 async def list_saved_searches(
     current_user: CurrentUser,
     entity: Optional[str] = Query(None),
+    pinned_to_job_id: Optional[int] = Query(
+        None,
+        description=(
+            "Filter to searches pinned to this job (plus the user's own global"
+            " ones). Used by the 'Wyszukaj manualnie' tab in /jobs/[id]."
+        ),
+    ),
+    only_mine: bool = Query(
+        False, description="If true, exclude shared-by-others entries."
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """List my saved searches + ones shared by others (optionally by entity)."""
+    """List my saved searches + ones shared by others (optionally by entity).
+
+    When ``pinned_to_job_id`` is set, returns the union of:
+
+    * the user's searches with ``pinned_to_job_id == job_id``, plus
+    * the user's own global searches (``pinned_to_job_id IS NULL``).
+
+    Other users' shared searches are excluded in this mode — pinning is
+    inherently per-user state. Pass ``only_mine=true`` for the same exclusion
+    in the global list.
+    """
     from sqlalchemy import or_
 
-    q = select(SavedSearch).where(
-        or_(SavedSearch.user_id == current_user.id, SavedSearch.shared.is_(True))
-    )
+    q = select(SavedSearch)
+
+    if pinned_to_job_id is not None:
+        q = q.where(
+            SavedSearch.user_id == current_user.id,
+            or_(
+                SavedSearch.pinned_to_job_id == pinned_to_job_id,
+                SavedSearch.pinned_to_job_id.is_(None),
+            ),
+        )
+    elif only_mine:
+        q = q.where(SavedSearch.user_id == current_user.id)
+    else:
+        q = q.where(
+            or_(
+                SavedSearch.user_id == current_user.id,
+                SavedSearch.shared.is_(True),
+            )
+        )
+
     if entity:
         q = q.where(SavedSearch.entity == entity)
     q = q.order_by(SavedSearch.updated_at.desc())
@@ -93,6 +135,27 @@ async def create_saved_search(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    # Soft cap so a single user can't fill the table with thousands of saved
+    # filter presets — matches the planning brief constraint.
+    SAVED_SEARCH_PER_USER_CAP = 50
+    from sqlalchemy import func as _func
+
+    existing_count = (
+        await db.execute(
+            select(_func.count(SavedSearch.id)).where(
+                SavedSearch.user_id == current_user.id
+            )
+        )
+    ).scalar() or 0
+    if existing_count >= SAVED_SEARCH_PER_USER_CAP:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Limit zapisanych wyszukiwań ({SAVED_SEARCH_PER_USER_CAP})"
+                " osiągnięty. Usuń któreś, aby utworzyć nowe."
+            ),
+        )
+
     ss = SavedSearch(
         user_id=current_user.id,
         name=data.name,
@@ -100,6 +163,7 @@ async def create_saved_search(
         filters=data.filters,
         shared=data.shared,
         description=data.description,
+        pinned_to_job_id=data.pinned_to_job_id,
     )
     db.add(ss)
     await db.commit()

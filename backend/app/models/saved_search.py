@@ -28,6 +28,15 @@ class SavedSearch(Base, TimestampMixin):
     filters: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(255))
+    # Nullable FK — when set, the search is "pinned" to a specific job and
+    # the manual-search tab in the job profile surfaces it alongside the
+    # user's global presets. ``ON DELETE SET NULL`` on the DB side keeps the
+    # search alive after the job is archived (migration 0084).
+    pinned_to_job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     user = relationship("User")
 

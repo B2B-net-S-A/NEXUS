@@ -154,3 +154,42 @@ export const proposalsBulkApi = {
       .post<BulkProposalsResponse>(`/api/jobs/${jobId}/proposals/bulk`, body)
       .then((r) => r.data),
 };
+
+// ── Saved searches ────────────────────────────────────────────────────────────
+
+export interface SavedSearchOut {
+  id: number;
+  user_id: number;
+  name: string;
+  entity: string;
+  filters: Record<string, unknown>;
+  shared: boolean;
+  description: string | null;
+  pinned_to_job_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SavedSearchCreate {
+  name: string;
+  entity: string;
+  filters: Record<string, unknown>;
+  shared?: boolean;
+  description?: string | null;
+  pinned_to_job_id?: number | null;
+}
+
+export const savedSearchesApi = {
+  list: (params: {
+    entity?: string;
+    pinned_to_job_id?: number;
+    only_mine?: boolean;
+  }): Promise<SavedSearchOut[]> =>
+    api
+      .get<SavedSearchOut[]>("/api/saved-searches", { params })
+      .then((r) => r.data),
+  create: (body: SavedSearchCreate): Promise<SavedSearchOut> =>
+    api.post<SavedSearchOut>("/api/saved-searches", body).then((r) => r.data),
+  remove: (id: number): Promise<void> =>
+    api.delete(`/api/saved-searches/${id}`).then(() => undefined),
+};
