@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "development"
 
+    # Ops snapshot endpoint (/api/admin/snapshot) — token auth for cron + Claude
+    # Code. Empty = token auth disabled, JWT-admin still works as fallback.
+    SNAPSHOT_TOKEN: str = ""
+
     # CORS — tight by default; widen via env CORS_ORIGINS='["https://app"]'
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
