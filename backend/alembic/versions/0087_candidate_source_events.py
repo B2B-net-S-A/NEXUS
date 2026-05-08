@@ -21,6 +21,7 @@ Why a new ``sourcechannel`` enum (separate from ``candidatesource``):
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0087_candidate_source_events"
@@ -70,7 +71,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "channel",
-            sa.Enum(*_CHANNELS, name="sourcechannel", create_type=False),
+            postgresql.ENUM(*_CHANNELS, name="sourcechannel", create_type=False),
             nullable=False,
         ),
         sa.Column(
