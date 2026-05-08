@@ -16,7 +16,9 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History } from "lucide-react";
+import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search } from "lucide-react";
+import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
+import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -856,6 +858,7 @@ type PageTab =
   | "pipeline"
   | "history"
   | "ai-matching"
+  | "manual-search"
   | "portals"
   | "champion"
   | "questions"
@@ -1097,6 +1100,19 @@ export default function JobDetailPage() {
             AI Matching
           </button>
           <button
+            onClick={() => setActiveTab("manual-search")}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              activeTab === "manual-search"
+                ? "border-violet-600 text-violet-600"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+            data-testid="tab-manual-search"
+          >
+            <Search className="w-4 h-4" />
+            Wyszukaj manualnie
+          </button>
+          <button
             onClick={() => setActiveTab("portals")}
             className={cn(
               "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
@@ -1194,6 +1210,16 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {activeTab === "manual-search" && job && (
+        <ManualSearchTab
+          jobId={Number(id)}
+          job={job}
+          onBulkAdded={() =>
+            queryClient.invalidateQueries({ queryKey: ["kanban", id] })
+          }
+        />
+      )}
+
       {activeTab === "portals" && (
         <PostingsSection jobId={Number(id)} />
       )}
@@ -1214,5 +1240,68 @@ export default function JobDetailPage() {
 
       {activeTab === "chat" && <JobChatTab jobId={Number(id)} />}
     </div>
+  );
+}
+
+// ── Manual search tab ────────────────────────────────────────────────────────
+
+interface JobLite {
+  id: number;
+  title: string;
+  must_skills?: unknown;
+  nice_skills?: unknown;
+  competence_category_id?: number | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  location?: string | null;
+}
+
+interface ManualSearchTabProps {
+  jobId: number;
+  job: JobLite;
+  onBulkAdded?: () => void;
+}
+
+/**
+ * Embeds CandidateSearchView with the job's metadata pre-filled into the
+ * filters. The user lands on a results list already scoped to the job and
+ * can bulk-add hits straight into the pipeline. Already-added candidates
+ * are excluded server-side via ``exclude_in_job_id``.
+ */
+function ManualSearchTab({ jobId, job, onBulkAdded }: ManualSearchTabProps) {
+  const skillsFromList = (raw: unknown): string[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((s) => {
+        if (typeof s === "string") return s;
+        if (s && typeof s === "object" && "name" in s) {
+          const name = (s as { name?: unknown }).name;
+          return typeof name === "string" ? name : null;
+        }
+        return null;
+      })
+      .filter((s): s is string => Boolean(s))
+      .slice(0, 10);
+  };
+
+  const initial: Partial<CandidateSearchRequest> = {
+    q: job.title,
+    competence_category_ids: job.competence_category_id
+      ? [job.competence_category_id]
+      : [],
+    skills_must: skillsFromList(job.must_skills),
+    skills_any: skillsFromList(job.nice_skills),
+    salary_min: job.salary_min ?? null,
+    salary_max: job.salary_max ?? null,
+    location_cities: job.location ? [job.location] : [],
+    sort: "relevance",
+  };
+
+  return (
+    <CandidateSearchView
+      initial={initial}
+      addToJob={{ id: jobId, title: job.title }}
+      onBulkAdded={onBulkAdded}
+    />
   );
 }
