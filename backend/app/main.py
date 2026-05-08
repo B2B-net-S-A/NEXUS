@@ -523,19 +523,13 @@ app.include_router(
 
 # Bulk actions on candidates list (#3): single dispatch endpoint
 # POST /api/candidates/bulk routes to per-action handlers.
-app.include_router(
-    candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"]
-)
+app.include_router(candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"])
 
 # Editable taxonomies (#8): Settings → Słowniki + GET /api/dictionaries/{slug}
-app.include_router(
-    dictionaries_api.router, prefix="/api", tags=["dictionaries"]
-)
+app.include_router(dictionaries_api.router, prefix="/api", tags=["dictionaries"])
 
 # Custom-field schema editor (#7): Settings → Konfiguracja pól.
-app.include_router(
-    entity_fields_api.router, prefix="/api", tags=["entity-fields"]
-)
+app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields"])
 
 
 @app.get("/health")

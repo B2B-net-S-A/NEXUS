@@ -207,5 +207,3 @@ async def bulk_action(
         skipped=skipped,
         items=items,
     )
-
-
