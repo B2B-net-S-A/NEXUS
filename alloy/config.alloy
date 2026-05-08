@@ -1,0 +1,55 @@
+// Grafana Alloy config — NEXUS slice of the observability rollout.
+// Identical pattern to compass/alloy/config.alloy and Atlas's, only the
+// `app` static label changes.
+//
+// Pipeline: docker socket discovery → relabel (extract compose service /
+// project) → loki.source.docker → loki.write to Grafana Cloud.
+//
+// Required env vars (Coolify env vault, runtime=true):
+//   GRAFANA_LOKI_URL    e.g. https://logs-prod-eu-west-2.grafana.net
+//   GRAFANA_LOKI_USER   numeric user ID
+//   GRAFANA_LOKI_TOKEN  Grafana Cloud API token, scope logs:write
+//   HOSTNAME            free-form server identifier (default "unknown")
+
+discovery.docker "containers" {
+    host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+    targets = discovery.docker.containers.targets
+
+    rule {
+        source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label  = "service"
+    }
+    rule {
+        source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label  = "compose_project"
+    }
+    rule {
+        source_labels = ["__meta_docker_container_name"]
+        target_label  = "container"
+    }
+}
+
+loki.source.docker "containers" {
+    host       = "unix:///var/run/docker.sock"
+    targets    = discovery.relabel.containers.output
+    forward_to = [loki.write.grafana_cloud.receiver]
+
+    labels = {
+        app  = "nexus",
+        host = sys.env("HOSTNAME"),
+    }
+}
+
+loki.write "grafana_cloud" {
+    endpoint {
+        url = sys.env("GRAFANA_LOKI_URL") + "/loki/api/v1/push"
+
+        basic_auth {
+            username = sys.env("GRAFANA_LOKI_USER")
+            password = sys.env("GRAFANA_LOKI_TOKEN")
+        }
+    }
+}
