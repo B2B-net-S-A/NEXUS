@@ -53,6 +53,7 @@ from app.models.notification import Notification
 from app.models.password_reset_token import PasswordResetToken
 from app.models.rate_history import RateHistory, ContractType
 from app.models.candidate_conflict import CandidateConflict, ConflictType
+from app.models.embedding_cache import EmbeddingCache  # noqa: F401
 from app.models.pipeline_template import (
     PipelineTemplate,
     PipelineStageDef,
