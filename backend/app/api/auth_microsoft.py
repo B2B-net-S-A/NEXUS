@@ -39,6 +39,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.security import create_access_token, create_refresh_token
+from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
 from app.services.m365 import oauth as m365_oauth
@@ -291,6 +292,28 @@ async def callback(
             microsoft_upn=email,
         )
         db.add(user)
+        # Security: log SSO auto-provisioning so admins have an audit trail
+        # of new account creation. Domain whitelist already gates which
+        # emails can self-provision, but recording WHO got created and when
+        # is still needed for incident response (e.g. compromised corporate
+        # MS account suddenly auto-provisioning into the ATS). Listing
+        # placeholder user_id=0 (system action — no admin actor).
+        await db.flush()  # populate user.id for the Activity FK
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="sso_user_provisioned",
+                user_id=user.id,  # actor = the new user themselves (no admin involved)
+                details={
+                    "email": email_lower,
+                    "domain": domain,
+                    "provider": "microsoft",
+                    "azure_oid": azure_oid,
+                    "default_role": UserRole.recruiter.value,
+                },
+            )
+        )
     else:
         # Existing email/password user logging in via SSO for the first time:
         # link identity but DO NOT touch role / password_hash / profile_completed.

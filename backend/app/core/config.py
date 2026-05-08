@@ -1,4 +1,5 @@
 import logging
+import os
 import warnings
 from typing import List
 
@@ -249,7 +250,25 @@ class Settings(BaseSettings):
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
-        if not v or v.strip().lower() in {"change-me-in-production", "change-me"}:
+        # Security: in production we MUST fail startup if SECRET_KEY is the
+        # well-known default. Previously this was only a warnings.warn() call
+        # which doesn't stop the container from booting — a misconfigured
+        # Coolify env vault (variable missing) would silently boot with the
+        # default key, making every JWT forgeable. Hard fail in production
+        # turns a silent vulnerability into a noisy startup crash.
+        is_default = (not v) or v.strip().lower() in {
+            "change-me-in-production",
+            "change-me",
+        }
+        # DEBUG flag is the dev-mode signal in this codebase.
+        is_production = not bool(os.getenv("DEBUG", "").lower() in {"1", "true", "yes"})
+        if is_default:
+            if is_production:
+                raise ValueError(
+                    "SECRET_KEY is unset or left at the default in production. "
+                    "Set a strong value in Coolify env vault. "
+                    'Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+                )
             warnings.warn(
                 "SECRET_KEY is unset or left at default. Set a strong value in .env. "
                 'Generate with: python -c "import secrets; print(secrets.token_urlsafe(48))"',
@@ -259,6 +278,30 @@ class Settings(BaseSettings):
         if len(v) < 32:
             warnings.warn(
                 "SECRET_KEY is shorter than 32 chars — use at least 48 bytes of entropy.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        return v
+
+    @field_validator("M365_STATE_SIGNING_KEY")
+    @classmethod
+    def validate_m365_state_signing_key(cls, v: str) -> str:
+        # Security: ensure M365_STATE_SIGNING_KEY is independent of SECRET_KEY
+        # in production. Sharing the same key means an attacker who can forge
+        # one type of token (user JWT) can also forge OAuth state JWTs and
+        # vice versa — confused-deputy class of bug. We can't compare here
+        # because Pydantic validators can't see other field values cleanly,
+        # but we CAN reject the empty-string default in production (which
+        # falls back to SECRET_KEY at runtime via _state_signing_key()).
+        is_production = not bool(os.getenv("DEBUG", "").lower() in {"1", "true", "yes"})
+        if not v and is_production:
+            # Don't hard fail — the M365 integration is optional and most
+            # deployments may not have configured it. But emit a stern warning
+            # so admins notice during the migration.
+            warnings.warn(
+                "M365_STATE_SIGNING_KEY is empty in production — OAuth state "
+                "JWTs will be signed with SECRET_KEY (shared signing key risk). "
+                "Set this to a separate secret in Coolify env vault.",
                 RuntimeWarning,
                 stacklevel=2,
             )
