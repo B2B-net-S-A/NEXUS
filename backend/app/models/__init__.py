@@ -137,6 +137,14 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
+from app.models.client_framework_contract import (
+    ClientFrameworkContract,
+    FrameworkContractSignedVia,
+    FrameworkContractStatus,
+)
+from app.models.client_contract_amendment import ClientContractAmendment
+from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_contract import ClientOrderContract
 
 __all__ = [
     "User",
@@ -266,4 +274,11 @@ __all__ = [
     "DocumentSignature",
     "DocumentSignatureEvent",
     "SignatureStatus",
+    "ClientFrameworkContract",
+    "FrameworkContractStatus",
+    "FrameworkContractSignedVia",
+    "ClientContractAmendment",
+    "ClientOrder",
+    "ClientOrderStatus",
+    "ClientOrderContract",
 ]

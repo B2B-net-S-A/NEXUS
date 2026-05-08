@@ -64,17 +64,32 @@ class DocumentSignature(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # ── Linkage to NEXUS domain ────────────────────────────────────────────
-    contract_id: Mapped[int] = mapped_column(
+    # Exactly one of (contract_id, client_framework_contract_id,
+    # client_contract_amendment_id) must be set — enforced by DB CHECK
+    # constraint `chk_signature_target_xor` (migracja 0091).
+    contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    client_framework_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_framework_contracts.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    client_contract_amendment_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_contract_amendments.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     # The unsigned HTML snapshot persisted by /draft/finalize. Required so
     # we always know which exact snapshot was sent (contract draft can
     # change after sending if the recruiter resends).
-    contract_document_id: Mapped[int] = mapped_column(
+    # Nullable when target is client framework contract / amendment (PDF
+    # uploaded directly, no HTML snapshot).
+    contract_document_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contract_documents.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
 
     # ── Autenti identifiers ───────────────────────────────────────────────
@@ -144,6 +159,12 @@ class DocumentSignature(Base, TimestampMixin):
 
     # ── Relationships ──────────────────────────────────────────────────────
     contract = relationship("Contract", foreign_keys=[contract_id])
+    client_framework_contract = relationship(
+        "ClientFrameworkContract", foreign_keys=[client_framework_contract_id]
+    )
+    client_contract_amendment = relationship(
+        "ClientContractAmendment", foreign_keys=[client_contract_amendment_id]
+    )
     contract_document = relationship(
         "ContractDocument", foreign_keys=[contract_document_id]
     )
@@ -159,8 +180,28 @@ class DocumentSignature(Base, TimestampMixin):
         order_by="DocumentSignatureEvent.received_at.asc()",
     )
 
+    @property
+    def target_kind(self) -> str:
+        """Discriminator dla UI/logu: ``contract`` / ``framework`` / ``amendment``."""
+        if self.contract_id is not None:
+            return "contract"
+        if self.client_framework_contract_id is not None:
+            return "framework"
+        if self.client_contract_amendment_id is not None:
+            return "amendment"
+        return "unknown"
+
     def __repr__(self) -> str:
+        target = (
+            f"contract={self.contract_id}"
+            if self.contract_id
+            else (
+                f"framework={self.client_framework_contract_id}"
+                if self.client_framework_contract_id
+                else f"amendment={self.client_contract_amendment_id}"
+            )
+        )
         return (
-            f"<DocumentSignature id={self.id} contract={self.contract_id} "
+            f"<DocumentSignature id={self.id} {target} "
             f"autenti={self.autenti_process_id} status={self.status.value}>"
         )
