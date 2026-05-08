@@ -12,7 +12,16 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +30,7 @@ from app.api.deps import (
     CurrentUser,
     DlAssignedOrAdmin,
 )
+from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -363,6 +373,45 @@ async def replace_framework_contract_file(
     await db.commit()
     await db.refresh(fc)
     return await _to_read(db, fc)
+
+
+@router.post(
+    "/{client_id}/framework-contracts/{fc_id}/send-autenti",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def send_framework_contract_to_autenti(
+    client_id: int,
+    fc_id: int,
+    payload: ClientDocSendRequest,
+    user: DlAssignedOrAdmin,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Initiate Autenti signing flow for a framework contract.
+
+    Tworzy `DocumentSignature` row, ustawia FC status na `pending_signature`,
+    schedules background `send_pdf_to_autenti` (PDF już istnieje na storage).
+    """
+    from app.services.autenti.client_contracts_sender import (
+        prepare_send_framework_contract,
+        send_pdf_to_autenti,
+    )
+
+    await _assert_client(db, client_id)
+    fc = await db.scalar(
+        select(ClientFrameworkContract).where(
+            ClientFrameworkContract.id == fc_id,
+            ClientFrameworkContract.client_id == client_id,
+        )
+    )
+    if fc is None:
+        raise HTTPException(404, detail="Framework contract not found")
+
+    sig = await prepare_send_framework_contract(
+        db, framework_contract_id=fc_id, payload=payload, sender_user=user
+    )
+    background_tasks.add_task(send_pdf_to_autenti, sig.id)
+    return {"signature_id": sig.id, "status": sig.status.value}
 
 
 @router.get("/{client_id}/framework-contracts/{fc_id}/file")

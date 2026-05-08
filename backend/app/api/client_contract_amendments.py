@@ -5,12 +5,22 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -195,6 +205,40 @@ async def download_amendment(
         filename=a.filename or "amendment.pdf",
         media_type=a.content_type or "application/pdf",
     )
+
+
+@router.post(
+    "/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/send-autenti",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def send_amendment_to_autenti(
+    client_id: int,
+    fc_id: int,
+    amendment_id: int,
+    payload: ClientDocSendRequest,
+    user: DlAssignedOrAdmin,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.autenti.client_contracts_sender import (
+        prepare_send_amendment,
+        send_pdf_to_autenti,
+    )
+
+    await _assert_fc(db, client_id, fc_id)
+    a = await db.scalar(
+        select(ClientContractAmendment).where(
+            ClientContractAmendment.id == amendment_id,
+            ClientContractAmendment.framework_contract_id == fc_id,
+        )
+    )
+    if a is None:
+        raise HTTPException(404, detail="Amendment not found")
+    sig = await prepare_send_amendment(
+        db, amendment_id=amendment_id, payload=payload, sender_user=user
+    )
+    background_tasks.add_task(send_pdf_to_autenti, sig.id)
+    return {"signature_id": sig.id, "status": sig.status.value}
 
 
 @router.delete(
