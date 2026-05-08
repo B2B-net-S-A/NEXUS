@@ -126,12 +126,8 @@ if settings.SENTRY_DSN:
             dsn=settings.SENTRY_DSN,
             environment=settings.SENTRY_ENVIRONMENT,
             release=os.getenv("GIT_SHA"),
-            traces_sample_rate=float(
-                os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")
-            ),
-            profiles_sample_rate=float(
-                os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")
-            ),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
