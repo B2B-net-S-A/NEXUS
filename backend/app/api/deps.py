@@ -117,3 +117,47 @@ ApproverPlus = Annotated[
 # consolidation it maps to DeliveryLeadPlus (admin + delivery_lead) — same
 # semantic: „privileged operations beyond regular recruiters".
 ManagerOrAdmin = DeliveryLeadPlus
+
+
+# ── DL Client Portal guards ──────────────────────────────────────────────────
+
+
+async def require_dl_assigned_or_admin(
+    client_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Dependency: admin/HoR globalnie OR DL z `DeliveryLeadClientAssignment`.
+
+    FastAPI inferruje ``client_id`` z path parametru routera. Inne role
+    (recruiter, sourcer, tac, user) — zawsze 403.
+
+    Reads dla MyClients/dashboard używają tego samego guarda — DL widzi
+    tylko swoich klientów (admin widzi wszystkich).
+    """
+    from sqlalchemy import select
+
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    if current_user.role in (UserRole.admin, UserRole.head_of_recruitment):
+        return current_user
+    if current_user.role != UserRole.delivery_lead:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Delivery Leads or admin/head_of_recruitment may access this",
+        )
+    result = await db.execute(
+        select(DeliveryLeadClientAssignment).where(
+            DeliveryLeadClientAssignment.client_id == client_id,
+            DeliveryLeadClientAssignment.delivery_lead_user_id == current_user.id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not assigned to this client",
+        )
+    return current_user
+
+
+DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
