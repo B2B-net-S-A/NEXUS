@@ -4,13 +4,15 @@
 
 ## Eval — przed vs po (30 jobs default profile)
 
-| Metric | Baseline (voyage-3) | Po Item 2 (voyage-3-large) | Δ absolutne | Δ relatywne |
-|--------|---------------------|---------------------------|-------------|-------------|
-| Precision@5 | 0.140 | **0.160** | +0.020 | **+14%** |
-| Recall@20 | 0.176 | **0.182** | +0.006 | **+3%** |
-| MRR | 0.253 | **0.321** | +0.068 | **+27%** |
-| nDCG@10 | 0.187 | **0.189** | +0.002 | +1% |
-| HistHit@10 | 0.043 | **0.057** | +0.014 | **+33%** |
+| Metric | Baseline (voyage-3) | Po Item 2 (voyage-3-large) | Po Item 9 (Champion + backfill + rerank ON) | Δ total absolutne | Δ total relatywne |
+|--------|---------------------|---------------------------|---------------------------------------------|-------------------|-------------------|
+| Precision@5 | 0.140 | 0.160 | **0.160** | +0.020 | **+14%** |
+| Recall@20 | 0.176 | 0.182 | **0.182** | +0.006 | **+3%** |
+| MRR | 0.253 | 0.321 | **0.337** | +0.084 | **+33%** |
+| nDCG@10 | 0.187 | 0.189 | **0.203** | +0.016 | **+9%** |
+| HistHit@10 | 0.043 | 0.057 | **0.057** | +0.014 | **+33%** |
+
+**Item 9 dodatkowy delta** (vs Item 2): MRR +5%, nDCG@10 +7%. Pozostałe nie zmienione bo 30 eval-jobs to głównie stare ogłoszenia bez Champion Profile populated (efekt Champion-aware embedding ujawni się gdy DL zacznie wypełniać Champion Profile dla nowych ról).
 
 **Co eval mierzy:** scoring_service.rank_candidates_for_job (offline). **Czego eval NIE mierzy:**
 - Rerank/hybrid są w `/api/jobs/{id}/ai-matches` + `/api/recommendations/cv-upload-preview` + `hybrid_search.py` — eval bypassuje API. Te ulepszenia mierzymy w prod traffic + manualnie.
@@ -55,13 +57,17 @@ Long-term: matching kandydat ↔ stanowisko opieramy na Champion Profile (już i
 
 ## Co jeszcze do zrobienia po MVP
 
-Plan agent's MVP critique zostawił te itemy świadomie w backlogu:
+✅ ~~Włączyć RERANKER_ENABLED=true~~ — done (default true w config.py, [PR #122](https://github.com/artur-t-96/Nexus/pull/122))
+✅ ~~Backfill must_skills~~ — done (fix + run, 456 jobs backfilled regex-only; 3384 nadal puste — większość z brakującym `description`/`requirements` text)
+✅ ~~Champion-driven scoring (semantic side)~~ — done przez `_build_job_text` z champion_profile narrative
 
-1. **Włączyć `RERANKER_ENABLED=true`** w Coolify env vault → canary 1 dzień → 100% (per plan Phase 3 verification). Eval nie mierzy rerank, więc trzeba zmierzyć w prod traffic + Sentry latency.
-2. **Wire hybrid_search.py do UI** — backend gotowy, ale endpoint `/api/candidates?search_type=hybrid` + toggle w listy kandydatów to osobny FE PR.
-3. **Backfill must_skills** — fix `backfill_job_criteria.py` z analogicznym CASE-fix, odpalić, re-baseline.
-4. **Champion-driven scoring** — pozytywny ROI long-term. Wymaga zmian w `scoring_service`.
-5. **Rerank w eval_matching** — żeby mierzyć rerank delta offline. Wymaga refactoru eval żeby szedł przez API endpoint zamiast direct service calls.
+Pozostały:
+
+1. **Wire hybrid_search.py do UI** — backend gotowy (`/api/candidates?search_type=hybrid` można dodać), toggle w listy kandydatów to osobny FE PR.
+2. **Champion-driven scoring (skills layer)** — gdy `job.champion_profile` istnieje, ekstraktować implied skills z `screening_questions.ideal_answer` + `sourcing.keywords` zamiast polegać na must_skills/nice_skills. Wymaga LLM call lub keyword extraction w `scoring_service`.
+3. **Rerank w eval_matching** — eval bypasses API endpoints. Refactor żeby szedł przez `hybrid_candidates()` z `hybrid_search.py` da nam offline measurable rerank delta.
+4. **Re-run backfill z Ollama** — current run używał regex fallback. Ollama-driven extraction dałby lepszej jakości must_skills. Wymaga włączonego Ollama na serwerze.
+5. **Champion Profile dla starych jobów** — ale to praca DL (manual review), nie automatyzacja.
 
 ## PR-y zamergowane
 
