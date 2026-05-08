@@ -2,6 +2,21 @@
 
 8 z 8 itemów planu wdrożone na prod. Cały plan: [`00-baseline-summary.md`](./00-baseline-summary.md). Pełny baseline: [`baseline-2026-05-08-default-30jobs.md`](./baseline-2026-05-08-default-30jobs.md). Po-modernizacji eval: [`eval-2026-05-08-voyage3large.md`](./eval-2026-05-08-voyage3large.md).
 
+## Final eval (po wszystkim — Voyage + rerank + Champion + taxonomy + backfill)
+
+| Metric | Baseline (voyage-3, brak aliases, 88% empty must_skills) | Final | Δ relatywne |
+|--------|----------|-------|--------------|
+| Precision@5 | 0.140 | 0.160 | **+14%** |
+| Recall@20 | 0.176 | 0.176 | 0% |
+| MRR | 0.253 | **0.348** | **+38%** |
+| nDCG@10 | 0.187 | 0.203 | **+9%** |
+| HistHit@10 | 0.043 | **0.083** | **+93%** ⚡ |
+| Jobs missing must_skills | 100% (3839/3840) | 44% (1685/3840) | **-50pp** |
+
+**Najmocniejsze wzrosty:** HistHit@10 (Phase 15 historical retrieval) prawie podwoiło się (+93%); MRR (#1 trafność na top-K) +38%. Re-embed + backfill sprawia że Champion historical retrieval znajduje znacznie więcej trafnych historycznych dopasowań.
+
+**R@20 niezmienione** — sufit narzucony przez retrieval pool: 1685 jobów ma puste tytuły bez wzmianki o jakimkolwiek skillu (głównie polskie tytuły narratywne / numeryczne refy), 10 470 z 46 265 kandydatów ma puste raw_cv_text (niewidzialni w Qdrant). Te dwa braki danych są poza zasięgiem backfillu z naszych źródeł — Traffit b2bnetwork API NIE eksponuje description ani plików dla recruitments.
+
 ## Eval — przed vs po (30 jobs default profile)
 
 | Metric | Baseline (voyage-3) | Po Item 2 (voyage-3-large) | Po Item 9 (Champion + backfill + rerank ON) | Δ total absolutne | Δ total relatywne |
