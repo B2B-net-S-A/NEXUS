@@ -39,12 +39,17 @@ def _fts_clause(q: str) -> Any:
     return text("fts_doc @@ websearch_to_tsquery('simple', :q)").bindparams(q=q)
 
 
-def _fts_rank_expr() -> Any:
-    """``ts_rank`` weighted with a recency tie-breaker (decay over days)."""
+def _fts_rank_order() -> Any:
+    """ORDER BY fragment: ts_rank weighted with recency decay, descending.
+
+    ``text()`` returns a ``TextClause`` which has no ``.desc()`` accessor,
+    so we inline ``DESC`` in the SQL string and pass the clause directly
+    to ``select.order_by``.
+    """
     return text(
         "ts_rank(fts_doc, websearch_to_tsquery('simple', :q)) * 0.7"
         " + 1.0 / (1.0 + EXTRACT(epoch FROM (now() - candidates.updated_at))"
-        " / 86400.0) * 0.3"
+        " / 86400.0) * 0.3 DESC"
     )
 
 
@@ -165,7 +170,7 @@ async def advanced_candidate_search(
     # === Sort ================================================================
     base = select(Candidate).where(where_clause)
     if body.sort == "relevance" and q_text:
-        base = base.order_by(_fts_rank_expr().desc(), Candidate.updated_at.desc())
+        base = base.order_by(_fts_rank_order(), Candidate.updated_at.desc())
     elif body.sort == "name":
         base = base.order_by(Candidate.lastname.asc(), Candidate.name.asc())
     else:
