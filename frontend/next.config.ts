@@ -10,6 +10,26 @@ const nextConfig: NextConfig = {
   // rebuilds stay fast. CI and IDE still run these.
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  // Security headers — applied to every route. Mirrors what the FastAPI
+  // SecurityHeadersMiddleware sets on the api.nexus host so the FE+BE pair
+  // has consistent posture. HSTS is here too (CF token didn't have permission
+  // to enable it zone-wide). Includes ATS HR-data-handling defaults: deny
+  // framing, no MIME sniffing, strict referrer, deny camera/mic/geolocation.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        ],
+      },
+    ];
+  },
 };
 
 // Sentry webpack wrap. Source-maps upload runs only when SENTRY_AUTH_TOKEN is
