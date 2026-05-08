@@ -2862,4 +2862,76 @@ export const candidatesBulkApi = {
     api.post<BulkActionResponse>("/api/candidates/bulk", payload),
 };
 
+// ── Editable dictionaries (Traffit gap #8) ───────────────────────────────────
+
+export interface DictionaryItemDto {
+  id: number;
+  key: string;
+  label_pl: string;
+  label_en: string | null;
+  ordinal: number;
+  archived: boolean;
+  last_edited_at: string | null;
+}
+
+export interface DictionaryDto {
+  id: number;
+  slug: string;
+  label_pl: string;
+  description: string | null;
+  enforced: boolean;
+  items: DictionaryItemDto[];
+}
+
+export interface DictionarySummaryDto {
+  slug: string;
+  label_pl: string;
+  description: string | null;
+  enforced: boolean;
+  item_count: number;
+}
+
+export interface DictionaryItemCreatePayload {
+  key: string;
+  label_pl: string;
+  label_en?: string | null;
+  ordinal?: number;
+}
+
+export interface DictionaryItemUpdatePayload {
+  key?: string;
+  label_pl?: string;
+  label_en?: string | null;
+  ordinal?: number;
+  archived?: boolean;
+}
+
+export const dictionariesApi = {
+  // Public-ish (any authenticated user) — used by form pickers.
+  itemsBySlug: (slug: string, includeArchived = false) =>
+    api.get<DictionaryItemDto[]>(`/api/dictionaries/${slug}/items`, {
+      params: { include_archived: includeArchived },
+    }),
+
+  // Admin
+  list: () =>
+    api.get<DictionarySummaryDto[]>("/api/settings/dictionaries"),
+  get: (slug: string) =>
+    api.get<DictionaryDto>(`/api/settings/dictionaries/${slug}`),
+  createItem: (slug: string, payload: DictionaryItemCreatePayload) =>
+    api.post<DictionaryItemDto>(
+      `/api/settings/dictionaries/${slug}/items`,
+      payload,
+    ),
+  updateItem: (
+    slug: string,
+    itemId: number,
+    payload: DictionaryItemUpdatePayload,
+  ) =>
+    api.patch<DictionaryItemDto>(
+      `/api/settings/dictionaries/${slug}/items/${itemId}`,
+      payload,
+    ),
+};
+
 export default api;

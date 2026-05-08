@@ -109,6 +109,7 @@ from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import candidates_bulk as candidates_bulk_api
+from app.api import dictionaries as dictionaries_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -523,6 +524,11 @@ app.include_router(
 # POST /api/candidates/bulk routes to per-action handlers.
 app.include_router(
     candidates_bulk_api.router, prefix="/api", tags=["candidates-bulk"]
+)
+
+# Editable taxonomies (#8): Settings → Słowniki + GET /api/dictionaries/{slug}
+app.include_router(
+    dictionaries_api.router, prefix="/api", tags=["dictionaries"]
 )
 
 

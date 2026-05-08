@@ -22,6 +22,7 @@ import {
   Workflow,
   Stethoscope,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -88,6 +89,12 @@ const ADVANCED_LINKS: Array<{
     title: "Integracja z API",
     description: "Klucze OAuth2 dla zewnętrznych systemów (n8n, ChatGPT, Zapier, ...) z fine-grained scopes.",
     icon: <Plug className="w-5 h-5" />,
+  },
+  {
+    href: "/settings/dictionaries",
+    title: "Słowniki",
+    description: "Edytowalne taksonomie — branże, powody odrzucenia. Dodaj wartości bez deploya.",
+    icon: <FileText className="w-5 h-5" />,
   },
   {
     href: "/settings/diagnostics",

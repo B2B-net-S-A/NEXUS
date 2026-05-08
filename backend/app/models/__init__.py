@@ -156,6 +156,7 @@ from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
 )
+from app.models.dictionary import Dictionary, DictionaryItem
 
 __all__ = [
     "User",
@@ -300,4 +301,6 @@ __all__ = [
     "OAuthScope",
     "CandidateSourceEvent",
     "SourceChannel",
+    "Dictionary",
+    "DictionaryItem",
 ]
