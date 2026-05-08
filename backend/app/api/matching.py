@@ -14,8 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, CurrentUser
+from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.reranker_service import rerank_or_passthrough
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -166,39 +168,76 @@ async def get_ai_matches(
     query_text = _build_job_query(job)
     required_skills = _parse_required_skills(job)
 
-    # ── Attempt Qdrant semantic search ───────────────────────────────────────
+    # ── Attempt Qdrant semantic search (+ optional Voyage rerank) ────────────
     try:
-        from app.services.embedding_service import search_candidates_semantic
+        from app.services.embedding_service import (
+            _build_candidate_text,
+            search_candidates_semantic,
+        )
 
-        hits = await search_candidates_semantic(query_text, top_k=top_k * 2)
+        # Fetch wider pool when rerank is on so the cross-encoder has more
+        # signal to work with. Plain semantic mode keeps the historical 2x
+        # multiplier to avoid behavioural regressions.
+        rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
+        retrieval_k = 50 if rerank_enabled else top_k * 2
+        hits = await search_candidates_semantic(query_text, top_k=retrieval_k)
 
         if hits:
-            candidate_ids = [h["candidate_id"] for h in hits[: top_k * 2]]
-            score_map = {h["candidate_id"]: h["score"] for h in hits}
+            candidate_ids = [h["candidate_id"] for h in hits]
+            qdrant_scores = {h["candidate_id"]: h["score"] for h in hits}
 
             cand_result = await db.execute(
                 select(Candidate).where(Candidate.id.in_(candidate_ids))
             )
             candidates_by_id = {c.id: c for c in cand_result.scalars().all()}
 
-            matches = []
-            for cid in candidate_ids[: top_k * 2]:
+            # Preserve Qdrant ranking order while filtering missing/blacklisted.
+            ordered: list[Candidate] = []
+            for cid in candidate_ids:
                 c = candidates_by_id.get(cid)
                 if not c:
                     continue
-                raw_score = score_map.get(cid, 0.0)
-                match = _build_match_info(c, required_skills, score=raw_score)
-                matches.append(match)
+                status = c.status.value if c.status else None
+                if status == "blacklisted":
+                    continue
+                ordered.append(c)
 
-            # Sort by score desc, trim to top_k
-            matches.sort(key=lambda x: x["match_score"], reverse=True)
-            matches = matches[:top_k]
+            search_type = "semantic"
+            scores_by_idx: dict[int, float] = {
+                i: qdrant_scores.get(c.id, 0.0) for i, c in enumerate(ordered)
+            }
+
+            if rerank_enabled and ordered:
+                docs = [_build_candidate_text(c)[:4000] for c in ordered]
+                pairs = await rerank_or_passthrough(
+                    query_text, docs, top_k=top_k
+                )
+                if pairs and any(score != 1.0 for _, score in pairs):
+                    # Real rerank result (passthrough returns score=1.0 for all).
+                    # Reorder per rerank, scores aligned to new positions.
+                    search_type = "semantic+rerank"
+                    ordered = [ordered[idx] for idx, _ in pairs]
+                    scores_by_idx = {
+                        i: score for i, (_, score) in enumerate(pairs)
+                    }
+                else:
+                    # Passthrough / failure — keep Qdrant order, trim to top_k.
+                    ordered = ordered[:top_k]
+            else:
+                ordered = ordered[: top_k]
+
+            matches = [
+                _build_match_info(
+                    c, required_skills, score=scores_by_idx.get(i, 0.0)
+                )
+                for i, c in enumerate(ordered)
+            ]
 
             return {
                 "job_id": job_id,
                 "job_title": job.title,
                 "required_skills": required_skills,
-                "search_type": "semantic",
+                "search_type": search_type,
                 "matches": matches,
             }
     except Exception as e:
