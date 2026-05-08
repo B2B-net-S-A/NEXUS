@@ -342,6 +342,14 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
                 # and add little signal beyond the headline requirements.
                 parts.append(v[:4000])
 
+    # Tier 3: title only (Traffit imports often have empty desc/req but the
+    # title carries the role + tech: "Senior Angular Developer", "PKO BP:
+    # Programista Java"). Always added as a low-cost extra signal so even
+    # well-described jobs get title-extracted skills folded in.
+    title = getattr(job, "title", None)
+    if isinstance(title, str) and title.strip():
+        parts.append(title)
+
     text = " ".join(parts)
     if not text.strip():
         return []
