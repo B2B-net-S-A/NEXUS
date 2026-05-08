@@ -29,9 +29,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # must_skills/nice_skills are JSONB arrays of {name, level, years}.
-    # We pull just the names via a CASE guard (prod has scalar values too —
-    # see eval_matching bugfix). text() avoids jsonb_array_length on scalars.
+    # NB: GENERATED columns cannot use subqueries in Postgres, so we don't
+    # unpack must_skills/nice_skills JSON arrays here. The `requirements`
+    # text already contains the skill names in most jobs (scoring engine
+    # extracts them); the structured arrays remain available to scoring at
+    # query time. Switch to a trigger-based fts_doc if must_skills coverage
+    # turns out to be material in eval.
     op.execute(
         """
         ALTER TABLE jobs
@@ -43,28 +46,6 @@ def upgrade() -> None:
             ) ||
             setweight(
                 to_tsvector('simple', coalesce(requirements, '')),
-                'B'
-            ) ||
-            setweight(
-                to_tsvector(
-                    'simple',
-                    CASE
-                        WHEN jsonb_typeof(must_skills) = 'array'
-                        THEN coalesce(
-                            (SELECT string_agg(
-                                CASE
-                                    WHEN jsonb_typeof(elem) = 'object'
-                                    THEN coalesce(elem->>'name', '')
-                                    ELSE coalesce(elem #>> '{}', '')
-                                END,
-                                ' '
-                            )
-                            FROM jsonb_array_elements(must_skills) AS elem),
-                            ''
-                        )
-                        ELSE ''
-                    END
-                ),
                 'B'
             ) ||
             setweight(

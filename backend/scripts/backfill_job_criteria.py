@@ -22,7 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import func, or_, select  # noqa: E402
+from sqlalchemy import case, func, or_, select  # noqa: E402
 
 from app.api.recommendations import (  # noqa: E402
     _fallback_criteria_from_text,
@@ -36,15 +36,19 @@ logger = logging.getLogger("backfill_job_criteria")
 
 async def _run(commit: bool, use_ollama: bool) -> int:
     async with AsyncSessionLocal() as db:
-        # "Missing" = NULL or empty JSONB array
+        # "Missing" = NULL, scalar value, or empty JSONB array. Postgres does
+        # not short-circuit AND in WHERE — same fix as eval_matching.py: gate
+        # jsonb_array_length with CASE WHEN jsonb_typeof = 'array'.
+        must_len = case(
+            (
+                func.jsonb_typeof(Job.must_skills) == "array",
+                func.jsonb_array_length(Job.must_skills),
+            ),
+            else_=0,
+        )
         jobs = (
             await db.execute(
-                select(Job).where(
-                    or_(
-                        Job.must_skills.is_(None),
-                        func.coalesce(func.jsonb_array_length(Job.must_skills), 0) == 0,
-                    )
-                )
+                select(Job).where(or_(Job.must_skills.is_(None), must_len == 0))
             )
         ).scalars().all()
 

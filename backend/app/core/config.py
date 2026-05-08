@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     VOYAGE_MODEL: str = "voyage-3-large"
     EMBEDDING_DIMENSION: int = 1024
     # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
+    # Enabled by default — has graceful passthrough on API failure (rerank
+    # service returns identity ordering, never breaks retrieval).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
-    RERANKER_ENABLED: bool = False  # canary flag — enable per-item rollout
+    RERANKER_ENABLED: bool = True
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"

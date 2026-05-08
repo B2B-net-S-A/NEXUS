@@ -443,7 +443,14 @@ async def search_candidates_semantic(
 
 
 def _build_job_text(job) -> str:
-    """Build a rich text blob from job fields for embedding."""
+    """Build a rich text blob from job fields for embedding.
+
+    When `job.champion_profile` exists, its narrative content (project context,
+    screening question ideal answers, sourcing keywords/target companies) is
+    included — Champion Profile is a curated description of the perfect
+    candidate, which dramatically improves recall on roles where the recruiter
+    invested in defining it (Phase 15 / Traffit-style championship workflow).
+    """
     parts: list[str] = []
 
     if job.title:
@@ -465,6 +472,62 @@ def _build_job_text(job) -> str:
     train_name = getattr(job, "train_name", None)
     if train_name:
         parts.append(f"train {train_name}")
+
+    # Champion Profile narrative (Item 9 — Champion-driven matching).
+    # Stored as JSONB in jobs.champion_profile, follows ChampionProfile schema
+    # (backend/app/schemas/champion.py).
+    champion = getattr(job, "champion_profile", None)
+    if isinstance(champion, dict) and champion:
+        ctx = champion.get("project_context") or {}
+        if isinstance(ctx, dict):
+            for key in ("about", "responsibilities", "selling_points"):
+                v = ctx.get(key)
+                if isinstance(v, str) and v.strip():
+                    parts.append(v[:1000])
+
+        # Screening questions encode the recruiter's mental model of the
+        # ideal candidate — ideal_answer is exactly what we want to match.
+        questions = champion.get("screening_questions") or []
+        if isinstance(questions, list):
+            for q in questions[:10]:
+                if not isinstance(q, dict):
+                    continue
+                ideal = q.get("ideal_answer")
+                if isinstance(ideal, str) and ideal.strip():
+                    parts.append(ideal[:400])
+                qtext = q.get("question")
+                if isinstance(qtext, str) and qtext.strip():
+                    parts.append(qtext[:200])
+
+        # Free-text recruiter notes — strongest semantic signal for niche roles
+        for key in (
+            "historical_client_questions",
+            "internal_consultant_insight",
+        ):
+            v = champion.get(key)
+            if isinstance(v, str) and v.strip():
+                parts.append(v[:600])
+
+        sourcing = champion.get("sourcing") or {}
+        if isinstance(sourcing, dict):
+            kw = sourcing.get("keywords")
+            if isinstance(kw, str) and kw.strip():
+                parts.append(kw[:500])
+            tc = sourcing.get("target_companies")
+            if isinstance(tc, str) and tc.strip():
+                parts.append(tc[:500])
+            notes = sourcing.get("notes")
+            if isinstance(notes, str) and notes.strip():
+                parts.append(notes[:500])
+
+        basics = champion.get("basics") or {}
+        if isinstance(basics, dict):
+            lang = basics.get("language")
+            if isinstance(lang, str) and lang.strip():
+                parts.append(f"język: {lang}")
+            loc = basics.get("candidate_location_pref")
+            if isinstance(loc, str) and loc.strip():
+                parts.append(f"lokalizacja: {loc}")
 
     # Must / nice skills names
     for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):
