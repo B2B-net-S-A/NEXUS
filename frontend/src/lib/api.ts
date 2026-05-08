@@ -2659,4 +2659,51 @@ export const candidateStageCvApi = {
   },
 };
 
+// ── Settings → AI (Traffit gap #5) ───────────────────────────────────────────
+
+export type AIFeatureKey =
+  | "scoring"
+  | "job_description_generator"
+  | "cv_parser"
+  | "candidate_summary"
+  | "champion_draft";
+
+export interface AIFeatureConfigDto {
+  feature: AIFeatureKey;
+  enabled: boolean;
+  monthly_limit: number;
+  label: string;
+  data_sent_to_ai: string[];
+}
+
+export interface AIFeatureUsageDto {
+  feature: AIFeatureKey;
+  used: number;
+  limit: number;
+  period_start: string;
+  period_end: string;
+}
+
+export interface AISettingsResponse {
+  master_enabled: boolean;
+  features: AIFeatureConfigDto[];
+  usage: AIFeatureUsageDto[];
+}
+
+export interface AIFeatureUpdate {
+  enabled?: boolean;
+  monthly_limit?: number;
+}
+
+export const aiSettingsApi = {
+  get: () => api.get<AISettingsResponse>("/api/settings/ai"),
+  setMaster: (enabled: boolean) =>
+    api.patch<AISettingsResponse>("/api/settings/ai/master", { enabled }),
+  updateFeature: (feature: AIFeatureKey, payload: AIFeatureUpdate) =>
+    api.patch<AISettingsResponse>(
+      `/api/settings/ai/features/${feature}`,
+      payload,
+    ),
+};
+
 export default api;

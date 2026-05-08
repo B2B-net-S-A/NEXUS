@@ -41,12 +41,25 @@ _FEATURE_KEYS = (
 
 
 def upgrade() -> None:
-    feature_enum = postgresql.ENUM(
-        *_FEATURE_KEYS,
-        name="aifeaturekey",
-        create_type=False,
+    # Idempotent enum creation — wraps CREATE TYPE in DO $$ ... EXCEPTION
+    # WHEN duplicate_object so the migration is safe to re-run on a partially
+    # migrated DB (asyncpg + checkfirst=True has been flaky in CI; the explicit
+    # plpgsql guard is the canonical pattern in this repo, see 0041).
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE aifeaturekey AS ENUM (
+                'scoring',
+                'job_description_generator',
+                'cv_parser',
+                'candidate_summary',
+                'champion_draft'
+            );
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        """
     )
-    feature_enum.create(op.get_bind(), checkfirst=True)
 
     # ── ai_master_toggle (singleton row, id=1) ────────────────────────────────
     op.create_table(
@@ -80,7 +93,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column(
             "feature",
-            sa.Enum(*_FEATURE_KEYS, name="aifeaturekey", create_type=False),
+            postgresql.ENUM(*_FEATURE_KEYS, name="aifeaturekey", create_type=False),
             nullable=False,
             unique=True,
         ),
@@ -125,7 +138,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger(), primary_key=True),
         sa.Column(
             "feature",
-            sa.Enum(*_FEATURE_KEYS, name="aifeaturekey", create_type=False),
+            postgresql.ENUM(*_FEATURE_KEYS, name="aifeaturekey", create_type=False),
             nullable=False,
         ),
         sa.Column(
@@ -166,4 +179,4 @@ def downgrade() -> None:
 
     op.drop_table("ai_master_toggle")
 
-    sa.Enum(name="aifeaturekey").drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS aifeaturekey")

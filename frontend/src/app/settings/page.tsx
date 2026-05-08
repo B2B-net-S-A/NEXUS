@@ -78,6 +78,12 @@ const ADVANCED_LINKS: Array<{
     icon: <Mail className="w-5 h-5" />,
   },
   {
+    href: "/settings/ai",
+    title: "Funkcje AI",
+    description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
+    icon: <Sparkles className="w-5 h-5" />,
+  },
+  {
     href: "/settings/diagnostics",
     title: "Diagnostyka",
     description: "Status komponentów, kolejki, background tasks.",
