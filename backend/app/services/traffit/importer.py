@@ -1183,6 +1183,7 @@ class TraffitImporter:
                 WHERE external_source='traffit'
                   AND external_id IS NOT NULL
                   AND cv_file_content IS NULL
+                  AND cv_storage_key IS NULL
                 ORDER BY id
                 """
             )
@@ -1243,18 +1244,29 @@ class TraffitImporter:
                     continue
 
                 cv_bytes = content_resp.content
+                # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3 cd.).
+                # Backend nie zapisuje już BYTEA do candidates.cv_file_content
+                # — tylko storage_key.
+                from app.services.object_storage import upload_cv as _upload_cv
+
+                cv_storage_key = _upload_cv(
+                    content=cv_bytes,
+                    filename=filename,
+                    content_type=None,
+                )
+
                 await self.db.execute(
                     text(
                         """
                         UPDATE candidates SET
-                            cv_file_content = :content,
+                            cv_storage_key = :storage_key,
                             cv_filename = :filename,
                             updated_at = NOW()
                         WHERE id = :id
                         """
                     ),
                     {
-                        "content": cv_bytes,
+                        "storage_key": cv_storage_key,
                         "filename": filename,
                         "id": row.id,
                     },

@@ -187,7 +187,32 @@ class TalentRadarImporter:
         )
 
     def _to_payload(self, row: asyncpg.Record) -> dict[str, Any]:
-        """Map a source row to our INSERT parameters."""
+        """Map a source row to our INSERT parameters.
+
+        cv_content (BYTEA z source DB) jest uploadowane do Hetzner Object
+        Storage (audit-2026-05-07 Faza 3) i `cv_storage_key` zapisany w nexus
+        candidates. Source `cv_file_content` zostaje NULL (legacy column).
+        """
+        cv_storage_key: str | None = None
+        cv_content = row["cv_content"]
+        if cv_content:
+            from app.services.object_storage import (
+                is_available as _storage_available,
+                upload_cv as _upload_cv,
+            )
+
+            if _storage_available():
+                try:
+                    cv_storage_key = _upload_cv(
+                        content=bytes(cv_content),
+                        filename=row["cv_filename"] or "cv",
+                        content_type=None,
+                    )
+                except Exception:
+                    # Best-effort: na crash storage, zachowuj BYTEA fallback,
+                    # żeby import nie blokował się na S3 outage.
+                    cv_storage_key = None
+
         return {
             "external_id": str(row["traffit_id"]),
             "external_source": "talent_radar",
@@ -195,7 +220,9 @@ class TalentRadarImporter:
             "name": (row["name"] or "").strip() or "?",
             "lastname": (row["lastname"] or "").strip() or "?",
             "raw_cv_text": row["raw_cv_text"],
-            "cv_file_content": row["cv_content"],
+            # cv_file_content zostaje BYTEA tylko gdy upload do S3 nie zadziałał.
+            "cv_file_content": cv_content if cv_storage_key is None else None,
+            "cv_storage_key": cv_storage_key,
             "cv_filename": row["cv_filename"],
             "cv_extracted_data": row["extracted_data"] or {},
             "skills": row["skills"] or [],
@@ -222,7 +249,7 @@ class TalentRadarImporter:
             """
             INSERT INTO candidates (
                 external_id, external_source, email, name, lastname,
-                raw_cv_text, cv_file_content, cv_filename, cv_extracted_data,
+                raw_cv_text, cv_file_content, cv_storage_key, cv_filename, cv_extracted_data,
                 skills, years_it_experience, competence_category, languages,
                 location, salary_expectation, availability_date,
                 cv_language, cv_parsed_at, source, status,
@@ -230,7 +257,7 @@ class TalentRadarImporter:
                 created_at, updated_at
             ) VALUES (
                 :external_id, :external_source, :email, :name, :lastname,
-                :raw_cv_text, :cv_file_content, :cv_filename, CAST(:cv_extracted_data AS JSONB),
+                :raw_cv_text, :cv_file_content, :cv_storage_key, :cv_filename, CAST(:cv_extracted_data AS JSONB),
                 CAST(:skills AS JSONB), :years_it_experience, :competence_category,
                 CAST(:languages AS JSONB), :location, :salary_expectation,
                 :availability_date, :cv_language, :cv_parsed_at, :source, :status,
@@ -244,7 +271,8 @@ class TalentRadarImporter:
                 name              = EXCLUDED.name,
                 lastname          = EXCLUDED.lastname,
                 raw_cv_text       = EXCLUDED.raw_cv_text,
-                cv_file_content   = EXCLUDED.cv_file_content,
+                cv_file_content   = COALESCE(EXCLUDED.cv_file_content, candidates.cv_file_content),
+                cv_storage_key    = COALESCE(EXCLUDED.cv_storage_key, candidates.cv_storage_key),
                 cv_filename       = EXCLUDED.cv_filename,
                 cv_extracted_data = EXCLUDED.cv_extracted_data,
                 skills            = EXCLUDED.skills,
