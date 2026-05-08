@@ -104,6 +104,7 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
+from app.api import ai_settings as ai_settings_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -492,6 +493,10 @@ if settings.M365_INTEGRATION_ENABLED:
 # Each write/IO handler invokes _require_enabled() internally; read-only
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
+
+# AI features panel (Settings → AI). Admin-only. Routes mounted at
+# /api/settings/ai (prefix is declared on the router itself; we add /api here).
+app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
 
 
 @app.get("/health")
