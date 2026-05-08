@@ -106,6 +106,7 @@ from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
 from app.api import ai_settings as ai_settings_api
 from app.api import oauth_clients as oauth_clients_api
+from app.api import oauth_token as oauth_token_api
 from app.api import candidate_sources as candidate_sources_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
@@ -501,8 +502,11 @@ app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
 
 # OAuth2 client manager (Settings → API integration). Admin-only CRUD.
-# Token issuance endpoint (POST /api/oauth/token) lands in a follow-up.
 app.include_router(oauth_clients_api.router, prefix="/api", tags=["oauth-clients"])
+
+# OAuth2 token endpoint (client_credentials grant). Public — auth is via
+# client_id + client_secret in the request body, not Authorization header.
+app.include_router(oauth_token_api.router, prefix="/api", tags=["oauth-token"])
 
 # Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.
 app.include_router(
