@@ -20,20 +20,22 @@ jobs:
       # Replaced ``gitleaks/gitleaks-action@v2`` with a direct CLI install:
       # the action started returning failure with no retrievable logs (the
       # log blob 404s from Azure storage) so debugging was impossible.
-      # Native install gives us full stdout we can grep on regression.
+      # Native install + ``--no-git`` scans the working tree so the result
+      # is deterministic regardless of PR base/HEAD ref games.
       - name: Install gitleaks
         run: |
           curl -sL "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz" \
             | tar -xz -C /tmp gitleaks
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
-      - name: Scan PR diff
+      - name: Scan working tree
         run: |
           gitleaks detect \
+            --no-git \
             --config .gitleaks.toml \
-            --log-opts="origin/${{ github.base_ref }}..HEAD" \
             --redact \
-            --verbose
+            --verbose \
+            --exit-code 1
 
   backend-lint-test:
     name: Backend (ruff + pytest)
