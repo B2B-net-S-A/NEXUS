@@ -209,27 +209,21 @@ async def get_ai_matches(
 
             if rerank_enabled and ordered:
                 docs = [_build_candidate_text(c)[:4000] for c in ordered]
-                pairs = await rerank_or_passthrough(
-                    query_text, docs, top_k=top_k
-                )
+                pairs = await rerank_or_passthrough(query_text, docs, top_k=top_k)
                 if pairs and any(score != 1.0 for _, score in pairs):
                     # Real rerank result (passthrough returns score=1.0 for all).
                     # Reorder per rerank, scores aligned to new positions.
                     search_type = "semantic+rerank"
                     ordered = [ordered[idx] for idx, _ in pairs]
-                    scores_by_idx = {
-                        i: score for i, (_, score) in enumerate(pairs)
-                    }
+                    scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
                 else:
                     # Passthrough / failure — keep Qdrant order, trim to top_k.
                     ordered = ordered[:top_k]
             else:
-                ordered = ordered[: top_k]
+                ordered = ordered[:top_k]
 
             matches = [
-                _build_match_info(
-                    c, required_skills, score=scores_by_idx.get(i, 0.0)
-                )
+                _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
                 for i, c in enumerate(ordered)
             ]
 

@@ -1962,8 +1962,13 @@ async def upload_cv(
     schedules an async enrichment task that populates AI summary, companies
     and skill facts in the background. Response returns as soon as the file
     is on disk — callers don't block on the LLM.
+
+    Security: validates size + MIME + extension, and strips path components
+    from the supplied filename. Same checks as the public_share invite-link
+    upload (`_validate_cv_file` in `public_share.py`).
     """
     import asyncio
+    import pathlib
 
     from app.services import cv_text_extractor
 
@@ -1972,12 +1977,43 @@ async def upload_cv(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    # Read content first so we can size-check before writing to disk.
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="CV file is empty")
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CV file too large (max {settings.MAX_UPLOAD_SIZE_MB} MB)",
+        )
+    # MIME + extension allowlist (PDF / DOC / DOCX). Either signal is enough
+    # — clients sometimes send empty content_type, but the extension check
+    # catches the obvious cases.
+    _allowed_mime = {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    _allowed_ext = {".pdf", ".doc", ".docx"}
+    raw_filename = file.filename or "upload.pdf"
+    _, ext = os.path.splitext(raw_filename.lower())
+    mime_ok = (file.content_type or "") in _allowed_mime
+    ext_ok = ext in _allowed_ext
+    if not (mime_ok or ext_ok):
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported CV format. Use PDF, DOC, or DOCX.",
+        )
+    # Strip directory components — pathlib.Path(...).name returns just the
+    # last segment, defeating `../../etc/passwd` and similar traversal.
+    safe_filename = pathlib.Path(raw_filename).name
+
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(
-        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{file.filename}"
+        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{safe_filename}"
     )
     async with aiofiles.open(file_path, "wb") as f:
-        content = await file.read()
         await f.write(content)
 
     # Phase D4: extract text from PDF/DOCX/TXT so the enrichment task has
@@ -1985,7 +2021,7 @@ async def upload_cv(
     # event loop responsive.
     try:
         raw_text = await asyncio.to_thread(
-            cv_text_extractor.extract_text, file_path, file.filename or ""
+            cv_text_extractor.extract_text, file_path, safe_filename
         )
         if raw_text:
             candidate.raw_cv_text = raw_text
@@ -1996,13 +2032,16 @@ async def upload_cv(
             f"[CV upload] text extraction failed for candidate {candidate_id}: {e}"
         )
 
-    candidate.cv_filename = file.filename
+    # Persist the sanitized filename — read path (download_cv) reconstructs
+    # `UPLOAD_DIR/candidate_<id>_<cv_filename>`, so any directory components
+    # left in cv_filename would re-introduce traversal on read.
+    candidate.cv_filename = safe_filename
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate_id,
         action="cv_uploaded",
         user_id=current_user.id,
-        details={"filename": file.filename},
+        details={"filename": safe_filename},
     )
     db.add(activity)
     user_activity = UserActivity(

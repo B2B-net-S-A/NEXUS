@@ -70,9 +70,7 @@ async def bm25_candidates(
     return [int(r[0]) for r in rows]
 
 
-async def bm25_jobs(
-    db: AsyncSession, query: str, *, limit: int = 100
-) -> list[int]:
+async def bm25_jobs(db: AsyncSession, query: str, *, limit: int = 100) -> list[int]:
     """Top-N job ids by Postgres ts_rank over `jobs.fts_doc`."""
     if not query or not query.strip():
         return []
@@ -147,8 +145,10 @@ async def hybrid_candidates(
     from app.services.reranker_service import rerank_or_passthrough  # noqa: PLC0415
 
     rows = (
-        await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
-    ).scalars().all()
+        (await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids))))
+        .scalars()
+        .all()
+    )
     by_id = {c.id: c for c in rows}
     ordered = [by_id[cid] for cid in cand_ids if cid in by_id]
     docs = [_build_candidate_text(c)[:4000] for c in ordered]
@@ -191,9 +191,7 @@ async def hybrid_jobs(
     from app.services.embedding_service import _build_job_text  # noqa: PLC0415
     from app.services.reranker_service import rerank_or_passthrough  # noqa: PLC0415
 
-    rows = (
-        await db.execute(select(Job).where(Job.id.in_(job_ids)))
-    ).scalars().all()
+    rows = (await db.execute(select(Job).where(Job.id.in_(job_ids)))).scalars().all()
     by_id = {j.id: j for j in rows}
     ordered = [by_id[jid] for jid in job_ids if jid in by_id]
     docs = [_build_job_text(j)[:4000] for j in ordered]
