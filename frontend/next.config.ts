@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -11,4 +12,21 @@ const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
 };
 
-export default nextConfig;
+// Sentry webpack wrap. Source-maps upload runs only when SENTRY_AUTH_TOKEN is
+// provided at build time (Coolify env vault, is_buildtime=true). Without the
+// token the wrapper is still applied for runtime hooks but the upload step
+// is skipped — safe to deploy on PR previews / locally.
+export default withSentryConfig(nextConfig, {
+  org: "b2bnet-sa",
+  project: "nexus-fe",
+  silent: !process.env.CI,
+  disableLogger: true,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  sourcemaps: {
+    // Upload only when auth token is present; otherwise skip so PR builds work.
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+    // Strip the .map files from the deployed bundle after upload — keeps
+    // them in Sentry only.
+    deleteSourcemapsAfterUpload: true,
+  },
+});

@@ -78,6 +78,12 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        # Sentry build-time args. DSN is public (browser bundle); auth token is
+        # build-only (stripped from runtime image). Both come from Coolify env
+        # vault with is_buildtime=true.
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: unless-stopped
     env_file:
       - .env
@@ -86,6 +92,10 @@ services:
       # Server-side (RSC) fetches need the compose-internal URL. Browser
       # requests continue to use NEXT_PUBLIC_API_URL (inlined at build time).
       INTERNAL_API_URL: http://backend:8000
+      # Sentry runtime envs (server-side, NOT NEXT_PUBLIC_). DSN unset = SDK no-op.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     expose:
       - "3000"
     depends_on:
