@@ -69,6 +69,55 @@ def _user_prompt(job: Job, client_name: str) -> str:
 
 
 def _call_claude_sync(prompt: str, *, model: str) -> dict:
+<<<<<<< HEAD
+    """Sync Claude Haiku call via httpx. Wrapped in asyncio.to_thread.
+
+    Supports both styles of credential:
+      - ANTHROPIC_API_KEY=sk-ant-api03-... → x-api-key header (SDK default)
+      - CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... → Authorization: Bearer
+        (Claude Code OAuth token, used when run from a developer machine
+        without provisioning a separate API key on the Coolify env vault).
+    """
+    import httpx
+
+    base_url = os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+    headers: dict[str, str] = {
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if api_key and api_key.startswith("sk-ant-api"):
+        headers["x-api-key"] = api_key
+    elif oauth_token:
+        headers["Authorization"] = f"Bearer {oauth_token}"
+    elif api_key:
+        # Unrecognised prefix — try Bearer (works for sk-ant-oat01).
+        headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        raise RuntimeError(
+            "Neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN set"
+        )
+
+    payload = {
+        "model": model,
+        "max_tokens": 400,
+        "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.post(f"{base_url}/v1/messages", json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+
+    text = ""
+    for block in data.get("content") or []:
+        if block.get("type") == "text":
+            text += block.get("text") or ""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+=======
     """Sync Claude Haiku call. Wrapped in asyncio.to_thread by caller."""
     import anthropic
 
@@ -91,6 +140,7 @@ def _call_claude_sync(prompt: str, *, model: str) -> dict:
     if text.startswith("```"):
         text = text.strip("`")
         # Drop leading "json\n" line if any.
+>>>>>>> origin/main
         if "\n" in text:
             text = text.split("\n", 1)[1]
         text = text.strip()

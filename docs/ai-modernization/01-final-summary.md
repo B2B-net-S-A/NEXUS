@@ -2,6 +2,26 @@
 
 8 z 8 itemów planu wdrożone na prod. Cały plan: [`00-baseline-summary.md`](./00-baseline-summary.md). Pełny baseline: [`baseline-2026-05-08-default-30jobs.md`](./baseline-2026-05-08-default-30jobs.md). Po-modernizacji eval: [`eval-2026-05-08-voyage3large.md`](./eval-2026-05-08-voyage3large.md).
 
+<<<<<<< HEAD
+## Final eval (po wszystkim — Voyage + rerank + Champion + taxonomy + 2x backfill)
+
+| Metric | Baseline (voyage-3, brak aliases, 100% empty must_skills) | Final | Δ relatywne |
+|--------|----------|-------|--------------|
+| Precision@5 | 0.140 | 0.160 | **+14%** |
+| Recall@20 | 0.176 | 0.176 | 0% |
+| MRR | 0.253 | **0.351** | **+39%** ⚡ |
+| nDCG@10 | 0.187 | **0.205** | **+10%** |
+| HistHit@10 | 0.043 | **0.080** | **+86%** ⚡ |
+| Jobs missing must_skills | 100% (3839/3840) | **6% (241/3840)** | **-94pp** ⚡ |
+| Jobs missing nice_skills | 100% (3837) | 90% (3442) | -10pp |
+
+Trzy etapy backfillu:
+1. `backfill_job_criteria.py` (regex TECH_PATTERN, run 1) — 456 jobów, narrow IT-tech only
+2. `backfill_job_criteria_taxonomy.py` (regex z 515 aliases, polskie role) — kolejne 1718 jobów
+3. `local_claude_backfill.py` (Claude Haiku via OAuth token, async/concurrent ×8) — kolejne 1423 jobów (z 1664 prób, 85% hit rate, 0 failures, ~5 min wall-clock)
+
+**Razem: 3597/3840 jobów ma teraz populated skills.** Skills layer (30% scoring weight) aktywnie różnicuje kandydatów dla 94% jobów (był 12% baseline).
+=======
 ## Final eval (po wszystkim — Voyage + rerank + Champion + taxonomy + backfill)
 
 | Metric | Baseline (voyage-3, brak aliases, 88% empty must_skills) | Final | Δ relatywne |
@@ -12,6 +32,7 @@
 | nDCG@10 | 0.187 | 0.203 | **+9%** |
 | HistHit@10 | 0.043 | **0.083** | **+93%** ⚡ |
 | Jobs missing must_skills | 100% (3839/3840) | 44% (1685/3840) | **-50pp** |
+>>>>>>> origin/main
 
 **Najmocniejsze wzrosty:** HistHit@10 (Phase 15 historical retrieval) prawie podwoiło się (+93%); MRR (#1 trafność na top-K) +38%. Re-embed + backfill sprawia że Champion historical retrieval znajduje znacznie więcej trafnych historycznych dopasowań.
 
