@@ -88,6 +88,12 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Handshake,
     items: [
       { href: "/clients", label: "Klienci", icon: Building2 },
+      {
+        href: "/my-clients",
+        label: "Moi klienci",
+        icon: Briefcase,
+        roles: ["delivery_lead", "admin", "head_of_recruitment"],
+      },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
       {
         href: "/contractors",
