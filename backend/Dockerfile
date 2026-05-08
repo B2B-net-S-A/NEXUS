@@ -43,6 +43,16 @@ RUN mkdir -p /tmp/nexus/uploads
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh
 
+# Security: drop root. If any dependency has an RCE / path-traversal bug,
+# the attacker lands as `appuser` (UID 10001) instead of root, limiting
+# blast radius on the candidate-CV upload directory and other writable
+# paths. The uploads + app dir are chowned so the entrypoint can write logs
+# and Alembic can apply migrations at boot.
+RUN groupadd --system --gid 10001 appgroup \
+ && useradd  --system --uid 10001 --gid appgroup --no-create-home --shell /usr/sbin/nologin appuser \
+ && chown -R appuser:appgroup /app /tmp/nexus
+USER appuser
+
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]
