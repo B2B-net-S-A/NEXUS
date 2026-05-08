@@ -404,6 +404,39 @@ async def create_job(
         )
 
     job = Job(**payload, created_by=current_user.id)
+
+    # Per-client pipeline template auto-pick (Traffit gap #1). If caller
+    # didn't pin one explicitly, prefer a non-archived template tied to
+    # this job's client; fall back to the global is_default template.
+    # We resolve at flush time so we have the client_id from `payload`.
+    if job.pipeline_template_id is None:
+        from app.models.pipeline_template import PipelineTemplate
+
+        chosen_template_id: Optional[int] = None
+        if job.client_id is not None:
+            chosen_template_id = await db.scalar(
+                select(PipelineTemplate.id)
+                .where(
+                    PipelineTemplate.client_id == job.client_id,
+                    PipelineTemplate.archived.is_(False),
+                )
+                .order_by(
+                    PipelineTemplate.is_default.desc(), PipelineTemplate.id.desc()
+                )
+                .limit(1)
+            )
+        if chosen_template_id is None:
+            chosen_template_id = await db.scalar(
+                select(PipelineTemplate.id)
+                .where(
+                    PipelineTemplate.is_default.is_(True),
+                    PipelineTemplate.archived.is_(False),
+                )
+                .limit(1)
+            )
+        if chosen_template_id is not None:
+            job.pipeline_template_id = chosen_template_id
+
     db.add(job)
     await db.flush()
 
