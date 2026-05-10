@@ -20,7 +20,6 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_contract import ClientOrderContract
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
@@ -108,19 +107,19 @@ async def clients_overview(
         if r.client_id not in fc_lookup:
             fc_lookup[r.client_id] = (r.status.value, r.expiry_date)
 
+    # Refactor 2026-05-11: Contract.client_id daje wszystkich kontraktorów u klienta
+    # (1 Contract = 1 kontraktor, brak M:N).
     margin_rows = list(
         (
             await db.execute(
                 select(
-                    ClientOrder.client_id,
+                    Contract.client_id,
                     Contract.rate_client,
                     Contract.rate_candidate,
                     Contract.rate_unit,
                     Contract.billing_hours_per_month,
                     Contract.status,
                 )
-                .join(ClientOrderContract, ClientOrderContract.order_id == ClientOrder.id)
-                .join(Contract, Contract.id == ClientOrderContract.contract_id)
                 .where(Contract.status == ContractStatus.active)
             )
         )
@@ -245,6 +244,8 @@ async def kpi_by_dl(
             )
         ).one()
 
+        # Refactor 2026-05-11: Contract.client_id daje wszystkich kontraktorów
+        # tego DL (bez join'a do Order).
         margin_rows_dl = list(
             (
                 await db.execute(
@@ -254,10 +255,8 @@ async def kpi_by_dl(
                         Contract.rate_unit,
                         Contract.billing_hours_per_month,
                     )
-                    .join(ClientOrderContract, ClientOrderContract.contract_id == Contract.id)
-                    .join(ClientOrder, ClientOrder.id == ClientOrderContract.order_id)
                     .where(
-                        ClientOrder.client_id.in_(client_ids),
+                        Contract.client_id.in_(client_ids),
                         Contract.status == ContractStatus.active,
                     )
                 )
