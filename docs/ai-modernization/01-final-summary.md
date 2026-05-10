@@ -2,7 +2,6 @@
 
 8 z 8 itemów planu wdrożone na prod. Cały plan: [`00-baseline-summary.md`](./00-baseline-summary.md). Pełny baseline: [`baseline-2026-05-08-default-30jobs.md`](./baseline-2026-05-08-default-30jobs.md). Po-modernizacji eval: [`eval-2026-05-08-voyage3large.md`](./eval-2026-05-08-voyage3large.md).
 
-<<<<<<< HEAD
 ## Final eval (po wszystkim — Voyage + rerank + Champion + taxonomy + 2x backfill)
 
 | Metric | Baseline (voyage-3, brak aliases, 100% empty must_skills) | Final | Δ relatywne |
@@ -21,18 +20,6 @@ Trzy etapy backfillu:
 3. `local_claude_backfill.py` (Claude Haiku via OAuth token, async/concurrent ×8) — kolejne 1423 jobów (z 1664 prób, 85% hit rate, 0 failures, ~5 min wall-clock)
 
 **Razem: 3597/3840 jobów ma teraz populated skills.** Skills layer (30% scoring weight) aktywnie różnicuje kandydatów dla 94% jobów (był 12% baseline).
-=======
-## Final eval (po wszystkim — Voyage + rerank + Champion + taxonomy + backfill)
-
-| Metric | Baseline (voyage-3, brak aliases, 88% empty must_skills) | Final | Δ relatywne |
-|--------|----------|-------|--------------|
-| Precision@5 | 0.140 | 0.160 | **+14%** |
-| Recall@20 | 0.176 | 0.176 | 0% |
-| MRR | 0.253 | **0.348** | **+38%** |
-| nDCG@10 | 0.187 | 0.203 | **+9%** |
-| HistHit@10 | 0.043 | **0.083** | **+93%** ⚡ |
-| Jobs missing must_skills | 100% (3839/3840) | 44% (1685/3840) | **-50pp** |
->>>>>>> origin/main
 
 **Najmocniejsze wzrosty:** HistHit@10 (Phase 15 historical retrieval) prawie podwoiło się (+93%); MRR (#1 trafność na top-K) +38%. Re-embed + backfill sprawia że Champion historical retrieval znajduje znacznie więcej trafnych historycznych dopasowań.
 
@@ -130,3 +117,42 @@ Pozostają (poza scope tego sprintu — wymagają zewnętrznych danych / pracy l
 - ✅ Eval ran successfully na nowych voyage-3-large embedding
 - ⏳ Chrome MCP smoke (CV upload, AI matches, Champion gen) — TODO follow-up
 - ⏳ Włączenie RERANKER_ENABLED=true via Coolify + canary monitoring — TODO follow-up
+
+## Final CV text backfill (2026-05-10)
+
+**10 258 kandydatów miało plik CV w Object Storage ale brak `raw_cv_text`** — niewidzialni w Qdrant retrieval mimo posiadania CV. Backfill script `backend/scripts/backfill_cv_text.py`:
+
+1. Download każdego CV z Hetzner Object Storage (boto3)
+2. Extract via istniejący 3-tier chain (pdfplumber → pdfminer → tesseract OCR)
+3. Sanitize NULL bytes + filter `(cid:NN)` garbage z PDF font CID glyphs
+4. Sanitize batch UPDATE w Postgres
+5. Reembed wszystkich kandydatów (46 445 z batch=128, ~6 min)
+
+**Wynik backfillu:**
+- Processed: 10 182 kandydatów
+- Successfully extracted: **7893 (77.5%)**, 0 failures
+- Empty: 2289 (głównie .doc legacy + corrupt PDFs)
+- Coverage candidates `raw_cv_text`: 31 637 → **39 606 (+25%)** kandydatów
+
+**Eval po CV backfillu (mixed result):**
+
+| Metric | Pre-CV-backfill | Post-CV-backfill (30 jobs) | Δ |
+|---|---|---|---|
+| Precision@5 | 0.160 | **0.167** | +4% ↗ |
+| Recall@20 | 0.182 | 0.151 | **-17%** ↘ |
+| MRR | 0.337 | 0.339 | flat |
+| nDCG@10 | 0.203 | 0.171 | **-16%** ↘ |
+| HistHit@10 | 0.057 | 0.080 | +40% ↗ |
+
+**Co się stało:** P@5 + HistHit poszły w górę (lepszy top-K), ale R@20 + nDCG spadły. Hipoteza:
+- Część wyekstraktowanych tekstów (pdfplumber CID, OCR z low-DPI scans, fragmenty .doc legacy) ma niski signal-to-noise. Embedding takich tekstów daje wektor który "rozcieńcza" wcześniejsze structured-fields embedding (ai_summary + skills + experience).
+- W rezultacie kandydaci z ai_summary + dobrym CV są mniej jednoznaczni → wypadają z top-20.
+- Ale dla *prawdziwie pustych* kandydatów (poprzednio bez tekstu w ogóle) — teraz są w pool i czasem trafiają top-5 (stąd P@5 ↗).
+
+**Wniosek:** CV backfill ujawnił prawdziwy trade-off — naive merge raw_cv_text + structured fields w embedding czasem pogarsza retrieval. Architektura korrektura, ale wymagana follow-up praca:
+
+1. **Quality filter:** kandydaci z `len(raw_cv_text) < 500` lub wykryty CID-junk → skip embedding text z `raw_cv_text` (zostaw `ai_summary` jako prymarny signal)
+2. **Weighted concatenation:** w `_build_candidate_text` dać wyższą wagę `ai_summary` (LLM-curated) niż `raw_cv_text` (raw OCR)
+3. **Quality scoring** raw_cv_text przy ekstrakcji — flag low-quality, embeddings pomijają je
+
+Ta seria iteracji jest **architektonicznie kompletna** — wszystkie 9 itemów (8 z planu + Champion-driven scoring) wdrożone na prod. Pozostałe poprawy to **fine-tuning embedding text builder** + **lepsze layout-aware extraction** (Docling, LayoutLMv3) — backlog na osobny sprint.
