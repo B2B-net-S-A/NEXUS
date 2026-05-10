@@ -509,12 +509,13 @@ async def move_candidate(
                 e,
             )
 
-    # Phase 9 A2: auto-create a draft Contract when the candidate is hired.
-    # Staff fills in the rates + dates afterwards — this just removes the
-    # "go to Contracts → create" click.
+    # Phase 9 A2 + DL portal refactor 2026-05-11:
+    # Auto-create a draft Contract + draft ClientOrder when the candidate is
+    # hired. DL fills in the rates/dates/PDF afterwards.
     if legacy_enum == PipelineStage.hired:
         from datetime import date as _date
 
+        from app.models.client_order import ClientOrder, ClientOrderStatus
         from app.models.contract import Contract, ContractStatus
         from app.models.user import User, UserRole
 
@@ -536,6 +537,31 @@ async def move_candidate(
             )
             db.add(draft)
             await db.flush()
+
+            # Order draft pod Contractem — DL uzupełni PDF + stawkę klienta
+            # + dokładne daty. status=draft + auto-link do Job.
+            cand = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            cand_name = cand.name if cand else f"#{data.candidate_id}"
+            order_draft = ClientOrder(
+                client_id=job.client_id,
+                contract_id=draft.id,
+                job_id=job.id,
+                title=(
+                    f"{cand_name} — {job.title}" if cand else f"Zamówienie #{job.id}"
+                ),
+                status=ClientOrderStatus.draft,
+                start_date=_date.today(),
+                created_by_user_id=current_user.id,
+                notes=(
+                    "Auto-utworzone z pipeline (kandydat na stage 'hired'). "
+                    "Uzupełnij stawkę klienta, daty, i wgraj PDF zamówienia."
+                ),
+            )
+            db.add(order_draft)
+            await db.flush()
+
             db.add(
                 Activity(
                     entity_type="contract",
@@ -546,6 +572,7 @@ async def move_candidate(
                         "candidate_id": data.candidate_id,
                         "job_id": job.id,
                         "stage": legacy_enum.value,
+                        "order_id": order_draft.id,
                     },
                 )
             )
@@ -561,12 +588,13 @@ async def move_candidate(
                 db.add(
                     Notification(
                         user_id=uid,
-                        title=f"Nowy draft kontraktu #{draft.id}",
+                        title=f"Nowy draft kontraktu + zamówienia #{draft.id}",
                         message=(
-                            f"Kandydat #{data.candidate_id} został zatrudniony "
-                            f"na ofertę #{job.id}. Uzupełnij stawki i daty kontraktu."
+                            f"Kandydat {cand_name} został zatrudniony na "
+                            f"ofertę '{job.title}' (#{job.id}). Uzupełnij stawki, "
+                            "daty i wgraj PDF zamówienia."
                         ),
-                        link="/contractors?tab=drafts",
+                        link=f"/clients/{job.client_id}?tab=zamowienia",
                         notification_type=NotificationType.contract_activated,
                         related_entity_type="contract",
                         related_entity_id=draft.id,
