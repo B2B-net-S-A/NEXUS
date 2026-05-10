@@ -203,6 +203,16 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="Invoice.issue_date.desc()",
     )
+    # Klient-poziomowe zamówienia (Order = PDF od klienta z okresem/stawką).
+    # 1 Contract ma N Orderów w czasie (np. przedłużenia 3msc → 6msc → 6msc
+    # to 3 osobne Ordery pod 1 Contractem). Refactor 2026-05-11.
+    client_orders = relationship(
+        "ClientOrder",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ClientOrder.start_date.desc().nullslast()",
+    )
 
     def calculate_margin(self) -> Optional[int]:
         """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""
