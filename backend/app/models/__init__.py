@@ -144,7 +144,6 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_contract import ClientOrderContract
 from app.models.ai_feature import (
     AIFeatureConfig,
     AIFeatureKey,
@@ -293,7 +292,6 @@ __all__ = [
     "ClientContractAmendment",
     "ClientOrder",
     "ClientOrderStatus",
-    "ClientOrderContract",
     "AIFeatureConfig",
     "AIFeatureKey",
     "AIMasterToggle",

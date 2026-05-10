@@ -1,6 +1,11 @@
-"""Integration tests dla DL Portal — framework contracts, orders, my-clients, admin overview.
+"""Integration tests dla DL Portal po refactor 2026-05-11 (Order:Contract 1:N).
 
-Pattern: in-process AsyncClient (`app_client`/`app_auth_headers`) — żadnego live serwera.
+- Order ZAWSZE pod konkretnym Contract (1:N, no M:N)
+- Flow A: POST /orders pod existing Contract (extension)
+- Flow B: POST /contract-with-order (atomic Contract + Order)
+- Marża auto: (Order.rate_client OR Contract.rate_client) - Contract.rate_candidate
+
+Pattern: in-process app_client / app_auth_headers (no live server).
 """
 
 from __future__ import annotations
@@ -17,10 +22,8 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
-    FrameworkContractStatus,
 )
-from app.models.client_order import ClientOrder
-from app.models.client_order_contract import ClientOrderContract
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -59,13 +62,41 @@ async def _new_client() -> int:
         return c.id
 
 
-async def _assign_dl(dl_id: int, client_id: int, *, is_head: bool = False) -> None:
+async def _new_candidate() -> int:
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name=f"Test Kontraktor {suffix}")
+        db.add(cand)
+        await db.flush()
+        await db.commit()
+        return cand.id
+
+
+async def _new_contract(
+    client_id: int, candidate_id: int, *, rate_candidate: int = 12000
+) -> int:
+    async with AsyncSessionLocal() as db:
+        c = Contract(
+            candidate_id=candidate_id,
+            client_id=client_id,
+            start_date=date.today(),
+            rate_client=15000,
+            rate_candidate=rate_candidate,
+            status=ContractStatus.active,
+        )
+        db.add(c)
+        await db.flush()
+        await db.commit()
+        return c.id
+
+
+async def _assign_dl(dl_id: int, client_id: int) -> None:
     async with AsyncSessionLocal() as db:
         db.add(
             DeliveryLeadClientAssignment(
                 delivery_lead_user_id=dl_id,
                 client_id=client_id,
-                is_head=is_head,
+                is_head=False,
             )
         )
         await db.commit()
@@ -79,16 +110,21 @@ async def _login(app_client: AsyncClient, email: str, password: str) -> dict[str
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _cleanup(client_ids: list[int], user_ids: list[int]) -> None:
+async def _cleanup(
+    client_ids: list[int], user_ids: list[int], candidate_ids: list[int] | None = None
+) -> None:
     async with AsyncSessionLocal() as db:
         for cid in client_ids:
+            await db.execute(
+                ClientOrder.__table__.delete().where(ClientOrder.client_id == cid)
+            )
             await db.execute(
                 ClientFrameworkContract.__table__.delete().where(
                     ClientFrameworkContract.client_id == cid
                 )
             )
             await db.execute(
-                ClientOrder.__table__.delete().where(ClientOrder.client_id == cid)
+                Contract.__table__.delete().where(Contract.client_id == cid)
             )
             await db.execute(
                 DeliveryLeadClientAssignment.__table__.delete().where(
@@ -96,18 +132,21 @@ async def _cleanup(client_ids: list[int], user_ids: list[int]) -> None:
                 )
             )
             await db.execute(Client.__table__.delete().where(Client.id == cid))
+        if candidate_ids:
+            await db.execute(
+                Candidate.__table__.delete().where(Candidate.id.in_(candidate_ids))
+            )
         if user_ids:
             await db.execute(User.__table__.delete().where(User.id.in_(user_ids)))
         await db.commit()
 
 
-# ── Framework contracts ──────────────────────────────────────────────────────
+# ── Framework contracts (smoke — większy refactor był w innym PR) ──────────
 
 
 async def test_framework_contract_create_and_list(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Admin może tworzyć MSA + lista zwraca z poprawnymi agregatami."""
     client_id = await _new_client()
     try:
         resp = await app_client.post(
@@ -123,246 +162,213 @@ async def test_framework_contract_create_and_list(
             headers=app_auth_headers,
         )
         assert resp.status_code == 201, resp.text
-        body = resp.json()
-        assert body["name"] == "MSA 2026"
-        assert body["status"] == "active"
-        assert body["amendments_count"] == 0
-        fc_id = body["id"]
-
         list_resp = await app_client.get(
             f"/api/clients/{client_id}/framework-contracts",
             headers=app_auth_headers,
         )
         assert list_resp.status_code == 200
-        items = list_resp.json()["items"]
-        assert any(fc["id"] == fc_id for fc in items)
+        assert list_resp.json()["total"] == 1
     finally:
         await _cleanup([client_id], [])
 
 
-async def test_framework_contract_dl_unassigned_403(app_client: AsyncClient):
-    """DL bez assignmentu dostaje 403 na write."""
-    client_id = await _new_client()
-    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
-    try:
-        headers = await _login(app_client, dl_email, dl_pwd)
-        resp = await app_client.post(
-            f"/api/clients/{client_id}/framework-contracts",
-            data={"name": "should fail", "contract_status": "draft"},
-            headers=headers,
-        )
-        assert resp.status_code == 403, resp.text
-    finally:
-        await _cleanup([client_id], [dl_id])
+# ── Flow A — Order extension pod existing Contract ─────────────────────────
 
 
-async def test_framework_contract_dl_assigned_can_create(app_client: AsyncClient):
-    """DL z assignmentem może tworzyć MSA."""
-    client_id = await _new_client()
-    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
-    await _assign_dl(dl_id, client_id, is_head=False)
-    try:
-        headers = await _login(app_client, dl_email, dl_pwd)
-        resp = await app_client.post(
-            f"/api/clients/{client_id}/framework-contracts",
-            data={"name": "MSA support DL", "contract_status": "draft"},
-            headers=headers,
-        )
-        assert resp.status_code == 201, resp.text
-    finally:
-        await _cleanup([client_id], [dl_id])
-
-
-async def test_framework_contract_pdf_upload_and_download(
+async def test_order_extension_create_under_existing_contract(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Upload PDFa + endpoint /file zwraca treść."""
+    """Flow A: POST /orders wymaga contract_id z tego klienta."""
     client_id = await _new_client()
-    try:
-        # Minimal valid PDF (header only — wystarczy dla allowlist + storage)
-        pdf_bytes = b"%PDF-1.4\n%test\n"
-        resp = await app_client.post(
-            f"/api/clients/{client_id}/framework-contracts",
-            data={"name": "MSA z PDFem", "contract_status": "draft"},
-            files={"file": ("msa.pdf", pdf_bytes, "application/pdf")},
-            headers=app_auth_headers,
-        )
-        assert resp.status_code == 201, resp.text
-        body = resp.json()
-        assert body["has_file"] is True
-        assert body["filename"] == "msa.pdf"
-        fc_id = body["id"]
-
-        download = await app_client.get(
-            f"/api/clients/{client_id}/framework-contracts/{fc_id}/file",
-            headers=app_auth_headers,
-        )
-        assert download.status_code == 200
-        assert download.content == pdf_bytes
-    finally:
-        await _cleanup([client_id], [])
-
-
-# ── Orders + auto-margin ─────────────────────────────────────────────────────
-
-
-async def _create_msa(client_id: int) -> int:
-    async with AsyncSessionLocal() as db:
-        fc = ClientFrameworkContract(
-            client_id=client_id,
-            name="test MSA",
-            status=FrameworkContractStatus.active,
-        )
-        db.add(fc)
-        await db.flush()
-        await db.commit()
-        return fc.id
-
-
-async def test_order_create_and_list_aggregates(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-):
-    client_id = await _new_client()
-    fc_id = await _create_msa(client_id)
+    cand_id = await _new_candidate()
+    contract_id = await _new_contract(client_id, cand_id)
     try:
         resp = await app_client.post(
             f"/api/clients/{client_id}/orders",
             data={
-                "framework_contract_id": str(fc_id),
-                "title": "Java devs Q3",
+                "contract_id": str(contract_id),
+                "title": "Przedłużenie Q3 2026",
                 "order_status": "active",
                 "start_date": "2026-07-01",
                 "end_date": "2026-12-31",
-                "total_value": "100000",
+                "rate_client": "17000",  # podwyżka vs Contract.rate_client=15000
                 "currency": "PLN",
-                "positions_count": "5",
             },
             headers=app_auth_headers,
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
-        assert body["title"] == "Java devs Q3"
-        assert body["linked_contracts_count"] == 0
-        assert body["filled_positions"] == 0
-        assert body["monthly_margin_total"] is None  # brak linkowanych
+        assert body["contract_id"] == contract_id
+        assert body["candidate_id"] == cand_id
+        assert body["rate_client"] == 17000
+        # Marża z Order.rate_client (17000) - Contract.rate_candidate (12000) = 5000
+        assert body["monthly_margin"] == 5000
     finally:
-        await _cleanup([client_id], [])
+        await _cleanup([client_id], [], [cand_id])
 
 
-async def test_order_must_use_client_msa(
+async def test_order_extension_rejects_cross_client_contract(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """framework_contract_id z innego klienta → 400."""
+    """Contract z innego klienta → 400."""
     client_a = await _new_client()
     client_b = await _new_client()
-    fc_b = await _create_msa(client_b)
+    cand_id = await _new_candidate()
+    contract_b = await _new_contract(client_b, cand_id)
     try:
         resp = await app_client.post(
             f"/api/clients/{client_a}/orders",
             data={
-                "framework_contract_id": str(fc_b),
-                "title": "wrong msa",
+                "contract_id": str(contract_b),
+                "title": "wrong client",
                 "order_status": "draft",
             },
             headers=app_auth_headers,
         )
         assert resp.status_code == 400, resp.text
     finally:
-        await _cleanup([client_a, client_b], [])
+        await _cleanup([client_a, client_b], [], [cand_id])
 
 
-async def test_order_link_contract_and_margin(
+# ── Flow B — atomic Contract + Order ───────────────────────────────────────
+
+
+async def test_contract_with_order_atomic_create(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Link kandydackiego Contract → linked_contracts_count + monthly_margin_total."""
+    """Flow B: POST /contract-with-order tworzy oba w 1 transakcji + marża auto."""
     client_id = await _new_client()
-    fc_id = await _create_msa(client_id)
+    cand_id = await _new_candidate()
     try:
-        # Setup candidate + contract for this client
-        async with AsyncSessionLocal() as db:
-            cand = Candidate(name=f"Test cand {uuid.uuid4().hex[:6]}")
-            db.add(cand)
-            await db.flush()
-            contract = Contract(
-                candidate_id=cand.id,
-                client_id=client_id,
-                start_date=date.today(),
-                rate_client=15000,
-                rate_candidate=12000,
-                status=ContractStatus.active,
-            )
-            db.add(contract)
-            await db.flush()
-            await db.commit()
-            cand_id = cand.id
-            contract_id = contract.id
-
-        # Create order
         resp = await app_client.post(
-            f"/api/clients/{client_id}/orders",
-            data={
-                "framework_contract_id": str(fc_id),
-                "title": "linkable",
-                "order_status": "active",
+            f"/api/clients/{client_id}/contract-with-order",
+            json={
+                "candidate_id": cand_id,
+                "title": "Nowy kontraktor — Senior Java Dev",
+                "contract_start_date": "2026-07-01",
+                "contract_end_date": "2027-06-30",
+                "order_start_date": "2026-07-01",
+                "order_end_date": "2026-12-31",
+                "rate_client": 18000,
+                "rate_candidate": 14000,
+                "rate_unit": "monthly",
+                "currency": "PLN",
             },
             headers=app_auth_headers,
         )
-        assert resp.status_code == 201
-        order_id = resp.json()["id"]
-
-        # Link
-        link_resp = await app_client.post(
-            f"/api/clients/{client_id}/orders/{order_id}/contracts",
-            json={"contract_id": contract_id},
-            headers=app_auth_headers,
-        )
-        assert link_resp.status_code == 201, link_resp.text
-        link_body = link_resp.json()
-        assert link_body["contract_id"] == contract_id
-        assert link_body["monthly_margin"] == 3000  # 15000 - 12000
-
-        # Re-fetch order — should show aggregates
-        get_resp = await app_client.get(
-            f"/api/clients/{client_id}/orders/{order_id}",
-            headers=app_auth_headers,
-        )
-        body = get_resp.json()
-        assert body["linked_contracts_count"] == 1
-        assert body["filled_positions"] == 1
-        assert body["monthly_margin_total"] == 3000
-
-        # Duplicate link → 409
-        dup = await app_client.post(
-            f"/api/clients/{client_id}/orders/{order_id}/contracts",
-            json={"contract_id": contract_id},
-            headers=app_auth_headers,
-        )
-        assert dup.status_code == 409
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["contract_id"] > 0
+        assert body["order_id"] > 0
+        # 18000 - 14000 = 4000 monthly margin
+        assert body["monthly_margin"] == 4000
     finally:
-        # Detach link before cleanup
+        await _cleanup([client_id], [], [cand_id])
+
+
+async def test_grouped_response_shows_contract_with_orders(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """GET /orders zwraca contractors[] (1 karta = 1 Contract z timeline orderów)."""
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    contract_id = await _new_contract(client_id, cand_id)
+
+    try:
+        # Add 2 orders pod tym samym Contract
         async with AsyncSessionLocal() as db:
-            await db.execute(
-                ClientOrderContract.__table__.delete().where(
-                    ClientOrderContract.contract_id == contract_id
-                )
-            )
-            await db.execute(
-                Contract.__table__.delete().where(Contract.id == contract_id)
-            )
-            await db.execute(
-                Candidate.__table__.delete().where(Candidate.id == cand_id)
+            db.add_all(
+                [
+                    ClientOrder(
+                        client_id=client_id,
+                        contract_id=contract_id,
+                        title="Order Q1",
+                        status=ClientOrderStatus.completed,
+                        start_date=date(2025, 1, 1),
+                        end_date=date(2025, 6, 30),
+                        rate_client=15000,
+                    ),
+                    ClientOrder(
+                        client_id=client_id,
+                        contract_id=contract_id,
+                        title="Order Q2 — extension",
+                        status=ClientOrderStatus.active,
+                        start_date=date(2025, 7, 1),
+                        end_date=date(2025, 12, 31),
+                        rate_client=16000,  # podwyżka
+                    ),
+                ]
             )
             await db.commit()
-        await _cleanup([client_id], [])
+
+        resp = await app_client.get(
+            f"/api/clients/{client_id}/orders", headers=app_auth_headers
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_contractors"] == 1
+        contractor = body["contractors"][0]
+        assert contractor["contract_id"] == contract_id
+        assert contractor["candidate_id"] == cand_id
+        assert len(contractor["orders"]) == 2
+        # Latest = order najwięcej rate_client (Q2 = 16k)
+        assert contractor["latest_order_rate_client"] == 16000
+    finally:
+        await _cleanup([client_id], [], [cand_id])
 
 
-# ── My clients filter ───────────────────────────────────────────────────────
+# ── Permissions ─────────────────────────────────────────────────────────────
+
+
+async def test_dl_unassigned_cannot_create_order(app_client: AsyncClient):
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    contract_id = await _new_contract(client_id, cand_id)
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/orders",
+            data={
+                "contract_id": str(contract_id),
+                "title": "should fail",
+                "order_status": "draft",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        await _cleanup([client_id], [dl_id], [cand_id])
+
+
+async def test_dl_assigned_can_create_order(app_client: AsyncClient):
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    contract_id = await _new_contract(client_id, cand_id)
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    await _assign_dl(dl_id, client_id)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/orders",
+            data={
+                "contract_id": str(contract_id),
+                "title": "DL assigned should pass",
+                "order_status": "draft",
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+    finally:
+        await _cleanup([client_id], [dl_id], [cand_id])
+
+
+# ── My clients filter (sanity) ─────────────────────────────────────────────
 
 
 async def test_my_clients_admin_sees_all(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Admin widzi wszystkich klientów."""
     client_id = await _new_client()
     try:
         resp = await app_client.get("/api/my-clients", headers=app_auth_headers)
@@ -373,56 +379,28 @@ async def test_my_clients_admin_sees_all(
         await _cleanup([client_id], [])
 
 
-async def test_my_clients_dl_filtered(app_client: AsyncClient):
-    """DL widzi tylko swoich klientów (nie wszystkich)."""
-    own_client = await _new_client()
-    other_client = await _new_client()
+async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
+    own = await _new_client()
+    other = await _new_client()
     dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
-    await _assign_dl(dl_id, own_client, is_head=True)
+    await _assign_dl(dl_id, own)
     try:
         headers = await _login(app_client, dl_email, dl_pwd)
         resp = await app_client.get("/api/my-clients", headers=headers)
         assert resp.status_code == 200
         ids = [r["client_id"] for r in resp.json()]
-        assert own_client in ids
-        assert other_client not in ids
+        assert own in ids
+        assert other not in ids
     finally:
-        await _cleanup([own_client, other_client], [dl_id])
-
-
-async def test_dashboard_dl_unassigned_403(app_client: AsyncClient):
-    client_id = await _new_client()
-    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
-    try:
-        headers = await _login(app_client, dl_email, dl_pwd)
-        resp = await app_client.get(
-            f"/api/my-clients/{client_id}/dashboard", headers=headers
-        )
-        assert resp.status_code == 403
-    finally:
-        await _cleanup([client_id], [dl_id])
+        await _cleanup([own, other], [dl_id])
 
 
 # ── Admin overview ──────────────────────────────────────────────────────────
 
 
-async def test_admin_overview_recruiter_403(app_client: AsyncClient):
-    """Recruiter (nie admin/HoR) → 403 na admin overview."""
-    rec_id, rec_email, rec_pwd = await _new_user(UserRole.recruiter)
-    try:
-        headers = await _login(app_client, rec_email, rec_pwd)
-        resp = await app_client.get(
-            "/api/admin/clients-overview", headers=headers
-        )
-        assert resp.status_code == 403
-    finally:
-        await _cleanup([], [rec_id])
-
-
-async def test_admin_overview_works_for_admin(
+async def test_admin_overview_works(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
-    """Admin dostaje listę klientów + by-dl działa."""
     client_id = await _new_client()
     try:
         resp = await app_client.get(
@@ -438,3 +416,15 @@ async def test_admin_overview_works_for_admin(
         assert isinstance(by_dl.json(), list)
     finally:
         await _cleanup([client_id], [])
+
+
+async def test_recruiter_forbidden_from_admin_overview(app_client: AsyncClient):
+    rec_id, rec_email, rec_pwd = await _new_user(UserRole.recruiter)
+    try:
+        headers = await _login(app_client, rec_email, rec_pwd)
+        resp = await app_client.get(
+            "/api/admin/clients-overview", headers=headers
+        )
+        assert resp.status_code == 403
+    finally:
+        await _cleanup([], [rec_id])

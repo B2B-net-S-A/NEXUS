@@ -1,12 +1,17 @@
-"""Order (Statement of Work / Zamówienie) — konkretne zlecenie pod MSA.
+"""Order (Zamówienie od klienta) — perspektywa klienta z konkretnej rekrutacji.
 
-Hierarchia: Klient → ClientFrameworkContract (MSA) → ClientOrder (SOW)
-→ ClientOrderContract (M:N → kandydaccy Contract).
+Model biznesowy body-leasingu:
+- Order = jeden PDF zamówienia od klienta (kontraktor, stanowisko, rate_client,
+  daty)
+- ZAWSZE pod konkretnym kandydackim ``Contract`` (1:N — jeden Contract ma wiele
+  Orderów w czasie, np. przedłużenia 3msc → 6msc → 6msc)
+- Pochodzi z konkretnego ``Job`` (rekrutacji) — `job_id` nullable bo dla
+  legacy/ad-hoc orderów może brakować
+- Może być bez MSA (`framework_contract_id` nullable)
 
-Order ma własny ``total_value`` (opcjonalny — kontraktowo uzgodniony budżet)
-i status. Marża per order liczy się dynamicznie z linkowanych
-``contracts.rate_client - contracts.rate_candidate`` (patrz
-:func:`app.api.client_orders.compute_order_margin`).
+Marża per Order = `rate_client - Contract.rate_candidate` (rate_candidate trzymany
+na Contract; Order może mieć różny rate_client niż Contract.rate_client — np.
+przedłużenie z podwyżką).
 """
 
 from __future__ import annotations
@@ -32,17 +37,17 @@ from app.models.base import TimestampMixin
 
 
 class ClientOrderStatus(str, enum.Enum):
-    """Lifecycle order/SOW."""
+    """Lifecycle order/zamówienia."""
 
-    draft = "draft"
-    active = "active"
-    paused = "paused"
-    completed = "completed"
-    cancelled = "cancelled"
+    draft = "draft"  # Auto-utworzony z hired hook lub manualnie, do uzupełnienia
+    active = "active"  # Aktywne, kontraktor pracuje
+    paused = "paused"  # Tymczasowo wstrzymane
+    completed = "completed"  # Zakończone (end_date minęło lub kontraktor odszedł)
+    cancelled = "cancelled"  # Anulowane przed startem
 
 
 class ClientOrder(Base, TimestampMixin):
-    """Zamówienie/SOW pod konkretną umową ramową klienta."""
+    """Zamówienie od klienta pod konkretnym kandydackim Contractem."""
 
     __tablename__ = "client_orders"
 
@@ -51,11 +56,22 @@ class ClientOrder(Base, TimestampMixin):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    framework_contract_id: Mapped[int] = mapped_column(
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    """FK do kandydackiego Contract. Order ZAWSZE należy do jednego Contractu."""
+
+    job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    """Z której rekrutacji to zamówienie wzięło (nullable dla legacy)."""
+
+    framework_contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_framework_contracts.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
+    """MSA pod którą jest Order. Nullable bo klient może nie mieć MSA."""
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -74,14 +90,20 @@ class ClientOrder(Base, TimestampMixin):
     )
     """``NULL`` = open-ended. Indeksowane — scheduler skanuje expiry."""
 
+    # Rate_client per Order — może różnić się od Contract.rate_client przy
+    # przedłużeniach z podwyżką. rate_candidate trzymamy na Contract (typically
+    # stała przez całą współpracę z kontraktorem).
+    rate_client: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     total_value: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 2), nullable=True
     )
-    currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
-    positions_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    """Planowana liczba osób na orderze."""
+    """Całkowita wartość kontraktu (rate_client × długość okresu) — calculated
+    lub manualnie wpisane."""
 
-    # PO PDF (Purchase Order od klienta) — opcjonalny załącznik
+    currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+
+    # PO PDF (Purchase Order od klienta)
     filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -95,19 +117,15 @@ class ClientOrder(Base, TimestampMixin):
 
     # Relationships
     client = relationship("Client", backref="orders")
+    contract = relationship("Contract", back_populates="client_orders")
+    job = relationship("Job", foreign_keys=[job_id])
     framework_contract = relationship(
         "ClientFrameworkContract", back_populates="orders"
     )
     creator = relationship("User", foreign_keys=[created_by_user_id])
-    contract_links = relationship(
-        "ClientOrderContract",
-        back_populates="order",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
 
     def __repr__(self) -> str:
         return (
             f"<ClientOrder id={self.id} client={self.client_id} "
-            f"title={self.title!r} status={self.status}>"
+            f"contract={self.contract_id} title={self.title!r} status={self.status}>"
         )

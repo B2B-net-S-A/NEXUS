@@ -41,7 +41,7 @@ import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
-import { OrdersTab } from "@/components/OrdersTab";
+import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
@@ -625,80 +625,10 @@ function ProjectsTab({ clientId }: { clientId: number }) {
   );
 }
 
-// ── Contracts Tab ─────────────────────────────────────────────────────────────
-
-function ContractsTab({ clientId }: { clientId: number }) {
-  const { data: contracts = [], isLoading } = useQuery({
-    queryKey: ["client-contracts", clientId],
-    queryFn: () =>
-      api.get("/api/contracts", { params: { client_id: clientId, limit: 50 } }).then((r) =>
-        Array.isArray(r.data) ? r.data : r.data?.items ?? []
-      ),
-  });
-
-  if (isLoading)
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
-        <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-        Ładowanie kontraktów...
-      </div>
-    );
-
-  if (!contracts.length)
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <FileText className="w-10 h-10 mb-3 opacity-40" />
-        <p className="text-sm">Brak kontraktów dla tego klienta</p>
-      </div>
-    );
-
-  return (
-    <div className="space-y-2">
-      {contracts.map((contract: any) => (
-        <div
-          key={contract.id}
-          className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl"
-        >
-          <div className="w-8 h-8 bg-orange-50 dark:bg-orange-900/20 rounded-lg flex items-center justify-center flex-shrink-0">
-            <FileText className="w-4 h-4 text-orange-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground dark:text-muted-foreground truncate">
-              {contract.title || contract.candidate_name || `Kontrakt #${contract.id}`}
-            </p>
-            <div className="flex gap-3 mt-0.5">
-              {contract.start_date && (
-                <p className="text-xs text-muted-foreground">
-                  Od: {new Date(contract.start_date).toLocaleDateString("pl-PL")}
-                </p>
-              )}
-              {contract.end_date && (
-                <p className="text-xs text-muted-foreground">
-                  Do: {new Date(contract.end_date).toLocaleDateString("pl-PL")}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {contract.monthly_rate && (
-              <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground">
-                {Number(contract.monthly_rate).toLocaleString("pl-PL")} PLN
-              </span>
-            )}
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              contract.status === "active" ? "bg-green-100 text-green-700" :
-              contract.status === "completed" ? "bg-primary/15 text-primary" :
-              "bg-muted text-muted-foreground"
-            }`}>
-              {contract.status === "active" ? "Aktywny" :
-               contract.status === "completed" ? "Zakończony" : contract.status ?? "—"}
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+// Kontrakty Tab — usunięty w refaktorze DL portal Order:Contract M:N → 1:N
+// (2026-05-11). Wszystkie kontrakty kandydackie są teraz wyświetlane w tabie
+// "Zamówienia & Kontrakty" (OrdersAndContractsTab) jako karta per Contract
+// z historią Orderów. Globalna lista `/contracts` zostaje dla admin view.
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
@@ -710,7 +640,6 @@ type Tab =
   | "powiadomienia"
   | "wiedza"
   | "kontakty"
-  | "kontrakty"
   | "umowy-ramowe"
   | "zamowienia"
   | "analityka"
@@ -748,13 +677,12 @@ export default function ClientDetailPage() {
     { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "umowy-ramowe", label: "Umowy ramowe", icon: <FileText className="w-4 h-4" /> },
-    { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "zamowienia", label: "Zamówienia & Kontrakty", icon: <DollarSign className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "opiekunowie", label: "Opiekunowie", icon: <UserCog className="w-4 h-4" /> },
     { key: "powiadomienia", label: "Powiadomienia", icon: <Bell className="w-4 h-4" /> },
     { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
     { key: "kontakty", label: "Kontakty", icon: <Users className="w-4 h-4" /> },
-    { key: "kontrakty", label: "Kontrakty", icon: <FileText className="w-4 h-4" /> },
     { key: "materialy", label: "Materiały", icon: <FolderOpen className="w-4 h-4" /> },
     { key: "cennik", label: "Cennik", icon: <DollarSign className="w-4 h-4" /> },
   ];
@@ -839,15 +767,15 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — horizontal scroll prevents overflow w/ 12 tabs */}
         <div className="border-t border-border">
-          <div className="flex gap-0 px-6 pt-0">
+          <div className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap scrollbar-thin">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors",
+                  "flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
                   activeTab === tab.key
                     ? "border-purple-600 text-purple-600"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -882,13 +810,12 @@ export default function ClientDetailPage() {
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
           {activeTab === "umowy-ramowe" && <FrameworkContractsTab clientId={Number(id)} />}
-          {activeTab === "zamowienia" && <OrdersTab clientId={Number(id)} />}
+          {activeTab === "zamowienia" && <OrdersAndContractsTab clientId={Number(id)} />}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
           {activeTab === "opiekunowie" && <OwnersTab clientId={Number(id)} />}
           {activeTab === "powiadomienia" && <NotificationsTab clientId={Number(id)} />}
           {activeTab === "wiedza" && <KnowledgeTab clientId={Number(id)} />}
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
-          {activeTab === "kontrakty" && <ContractsTab clientId={Number(id)} />}
           {activeTab === "materialy" && <MaterialsTab clientId={Number(id)} />}
           {activeTab === "cennik" && <RateCardsTab clientId={Number(id)} />}
         </div>

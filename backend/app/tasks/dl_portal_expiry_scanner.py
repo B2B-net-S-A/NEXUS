@@ -24,11 +24,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -169,18 +172,31 @@ async def _scan_orders(db: AsyncSession) -> int:
     staff_ids = await _staff_user_ids(db)
     for days in _THRESHOLDS_DAYS:
         target_date = today + timedelta(days=days)
+        # Join Order → Contract → Candidate + Client dla candidate_name + client_name w treści
         rows = list(
             (
                 await db.execute(
-                    select(ClientOrder).where(
+                    select(
+                        ClientOrder,
+                        Candidate.name.label("candidate_name"),
+                        Client.name.label("client_name"),
+                    )
+                    .join(Contract, Contract.id == ClientOrder.contract_id)
+                    .join(Candidate, Candidate.id == Contract.candidate_id)
+                    .join(Client, Client.id == ClientOrder.client_id)
+                    .where(
                         ClientOrder.status == ClientOrderStatus.active,
                         ClientOrder.end_date == target_date,
                     )
                 )
-            ).scalars()
+            )
         )
         ntype = _ORDER_NTYPE_BY_DAY[days]
-        for o in rows:
+        for row in rows:
+            o: ClientOrder = row[0]
+            cand_name: str = row.candidate_name or "kontraktor"
+            cli_name: str = row.client_name or "klient"
+
             recipients = set(staff_ids)
             recipients.update(await _dl_user_ids_for_client(db, o.client_id))
             for user_id in recipients:
@@ -195,15 +211,16 @@ async def _scan_orders(db: AsyncSession) -> int:
                 db.add(
                     Notification(
                         user_id=user_id,
-                        title=f"Zamówienie kończy się za {days} dni",
+                        title=f"Zamówienie {cand_name} kończy się za {days} dni",
                         message=(
-                            f"'{o.title}' kończy się {o.end_date.isoformat()}. "
-                            "Sprawdź czy potrzebne jest przedłużenie."
+                            f"Zamówienie dla {cand_name} u {cli_name} kończy się "
+                            f"{o.end_date.isoformat()}. Skontaktuj się z klientem, "
+                            "aby przedyskutować przedłużenie."
                         ),
                         notification_type=ntype,
                         related_entity_type="client_order",
                         related_entity_id=o.id,
-                        link=f"/clients/{o.client_id}?tab=orders",
+                        link=f"/clients/{o.client_id}?tab=zamowienia",
                     )
                 )
                 sent += 1

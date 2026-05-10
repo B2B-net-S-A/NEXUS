@@ -86,15 +86,17 @@ export type ClientOrderStatus =
 export interface ClientOrderRead {
   id: number;
   client_id: number;
-  framework_contract_id: number;
+  contract_id: number;
+  job_id: number | null;
+  framework_contract_id: number | null;
   title: string;
   description: string | null;
   status: ClientOrderStatus;
   start_date: string | null;
   end_date: string | null;
+  rate_client: number | null;
   total_value: string | number | null;
   currency: string | null;
-  positions_count: number | null;
   filename: string | null;
   has_file: boolean;
   content_type: string | null;
@@ -103,34 +105,36 @@ export interface ClientOrderRead {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  linked_contracts_count: number;
-  filled_positions: number;
-  monthly_margin_total: number | null;
-  monthly_margin_pct: number | null;
+  // Computed:
+  candidate_id: number | null;
+  candidate_name: string | null;
+  contract_status: string | null;
+  job_title: string | null;
+  monthly_margin: number | null;
   days_to_end: number | null;
 }
 
-export interface OrderContractLinkRead {
-  id: number;
+export interface ContractWithOrdersRead {
   contract_id: number;
-  candidate_id: number | null;
-  candidate_name: string | null;
-  rate_client: number | null;
-  rate_candidate: number | null;
-  monthly_margin: number | null;
-  contract_status: string | null;
+  candidate_id: number;
+  candidate_name: string;
+  contract_status: string;
   contract_start_date: string | null;
   contract_end_date: string | null;
-  assigned_at: string;
+  rate_candidate: number | null;
+  initial_job_id: number | null;
+  initial_job_title: string | null;
+  latest_order_id: number | null;
+  latest_order_end_date: string | null;
+  latest_order_rate_client: number | null;
+  latest_order_monthly_margin: number | null;
+  days_to_latest_end: number | null;
+  orders: ClientOrderRead[];
 }
 
-export interface ClientOrderWithContractsRead extends ClientOrderRead {
-  contracts: OrderContractLinkRead[];
-}
-
-export interface ClientOrderListResponse {
-  items: ClientOrderRead[];
-  total: number;
+export interface ClientOrdersGroupedResponse {
+  contractors: ContractWithOrdersRead[];
+  total_contractors: number;
 }
 
 export interface ClientOrderUpdate {
@@ -139,10 +143,37 @@ export interface ClientOrderUpdate {
   status?: ClientOrderStatus;
   start_date?: string | null;
   end_date?: string | null;
+  rate_client?: number | null;
   total_value?: string | null;
   currency?: string | null;
-  positions_count?: number | null;
+  framework_contract_id?: number | null;
+  job_id?: number | null;
   notes?: string | null;
+}
+
+export interface NewContractorOrderRequest {
+  candidate_id: number;
+  job_id?: number | null;
+  framework_contract_id?: number | null;
+  contract_start_date: string;
+  contract_end_date?: string | null;
+  title: string;
+  order_start_date: string;
+  order_end_date?: string | null;
+  rate_client: number;
+  rate_candidate: number;
+  rate_unit?: "monthly" | "daily" | "hourly";
+  billing_hours_per_month?: number;
+  currency?: string;
+  total_value?: number | null;
+  notes?: string | null;
+}
+
+export interface NewContractorOrderResponse {
+  contract_id: number;
+  order_id: number;
+  candidate_name: string;
+  monthly_margin: number;
 }
 
 export interface MyClientRow {
@@ -263,19 +294,33 @@ export const dlPortalApi = {
       `/api/clients/${clientId}/framework-contracts/${fcId}/amendments/${amendmentId}`
     ),
 
-  // Orders
-  listOrders: (clientId: number, statusFilter?: ClientOrderStatus) =>
-    api.get<ClientOrderListResponse>(`/api/clients/${clientId}/orders`, {
-      params: statusFilter ? { status_filter: statusFilter } : undefined,
-    }),
+  // Orders (grouped by Contract — 1 kontraktor = 1 karta)
+  listContractorsWithOrders: (clientId: number) =>
+    api.get<ClientOrdersGroupedResponse>(`/api/clients/${clientId}/orders`),
+
+  listActiveContractsForExtension: (clientId: number) =>
+    api.get<ContractWithOrdersRead[]>(
+      `/api/clients/${clientId}/contracts-with-orders`
+    ),
 
   getOrder: (clientId: number, orderId: number) =>
-    api.get<ClientOrderWithContractsRead>(`/api/clients/${clientId}/orders/${orderId}`),
+    api.get<ClientOrderRead>(`/api/clients/${clientId}/orders/${orderId}`),
 
-  createOrder: (clientId: number, formData: FormData) =>
+  /** Flow A: tworzy Order pod istniejącym Contract (przedłużenie). */
+  createOrderExtension: (clientId: number, formData: FormData) =>
     api.post<ClientOrderRead>(`/api/clients/${clientId}/orders`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+
+  /** Flow B: atomic Contract + Order create (nowy kontraktor). */
+  createContractWithOrder: (
+    clientId: number,
+    payload: NewContractorOrderRequest
+  ) =>
+    api.post<NewContractorOrderResponse>(
+      `/api/clients/${clientId}/contract-with-order`,
+      payload
+    ),
 
   updateOrder: (clientId: number, orderId: number, payload: ClientOrderUpdate) =>
     api.patch<ClientOrderRead>(`/api/clients/${clientId}/orders/${orderId}`, payload),
@@ -283,14 +328,8 @@ export const dlPortalApi = {
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
 
-  linkContract: (clientId: number, orderId: number, contractId: number) =>
-    api.post<OrderContractLinkRead>(
-      `/api/clients/${clientId}/orders/${orderId}/contracts`,
-      { contract_id: contractId }
-    ),
-
-  unlinkContract: (clientId: number, orderId: number, contractId: number) =>
-    api.delete(`/api/clients/${clientId}/orders/${orderId}/contracts/${contractId}`),
+  downloadOrderUrl: (clientId: number, orderId: number) =>
+    `/api/clients/${clientId}/orders/${orderId}/file`,
 
   // My clients
   listMyClients: () => api.get<MyClientRow[]>("/api/my-clients"),
