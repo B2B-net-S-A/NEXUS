@@ -24,7 +24,6 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_contract import ClientOrderContract
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import UserRole
@@ -261,20 +260,12 @@ async def client_dashboard(
                 r.currency, Decimal(0)
             ) + v
 
-    # Margin from linked active contracts
+    # Margin z aktywnych Contractów klienta (po refactorze 2026-05-11:
+    # Contract 1:N Order, więc Contract.client_id daje wszystkie kontraktory).
     contract_rows = list(
         (
             await db.execute(
-                select(Contract)
-                .join(
-                    ClientOrderContract,
-                    ClientOrderContract.contract_id == Contract.id,
-                )
-                .join(
-                    ClientOrder,
-                    ClientOrder.id == ClientOrderContract.order_id,
-                )
-                .where(ClientOrder.client_id == client_id)
+                select(Contract).where(Contract.client_id == client_id)
             )
         ).scalars()
     )
