@@ -676,8 +676,8 @@ export default function ClientDetailPage() {
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
-    { key: "umowy-ramowe", label: "Umowy ramowe", icon: <FileText className="w-4 h-4" /> },
-    { key: "zamowienia", label: "Zamówienia & Kontrakty", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
+    { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "opiekunowie", label: "Opiekunowie", icon: <UserCog className="w-4 h-4" /> },
     { key: "powiadomienia", label: "Powiadomienia", icon: <Bell className="w-4 h-4" /> },
@@ -688,7 +688,7 @@ export default function ClientDetailPage() {
   ];
 
   return (
-    <div className="space-y-4 max-w-7xl">
+    <div className="space-y-4">
       <Link
         href="/clients"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -767,17 +767,20 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs — horizontal scroll prevents overflow w/ 12 tabs. min-w-0
-            na flex container jest krytyczne żeby Tailwind respektował overflow
-            zamiast rozciągać parent flex. */}
+        {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
+            ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
+            padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
         <div className="border-t border-border min-w-0">
-          <div className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0">
+          <div
+            className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0"
+            style={{ scrollbarWidth: "thin" }}
+          >
             {TABS.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
+                  "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
                   activeTab === tab.key
                     ? "border-purple-600 text-purple-600"
                     : "border-transparent text-muted-foreground hover:text-foreground"
