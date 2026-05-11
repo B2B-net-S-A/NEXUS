@@ -688,7 +688,7 @@ export default function ClientDetailPage() {
   ];
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-4 max-w-7xl">
       <Link
         href="/clients"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -767,9 +767,11 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs — horizontal scroll prevents overflow w/ 12 tabs */}
-        <div className="border-t border-border">
-          <div className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap scrollbar-thin">
+        {/* Tabs — horizontal scroll prevents overflow w/ 12 tabs. min-w-0
+            na flex container jest krytyczne żeby Tailwind respektował overflow
+            zamiast rozciągać parent flex. */}
+        <div className="border-t border-border min-w-0">
+          <div className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
