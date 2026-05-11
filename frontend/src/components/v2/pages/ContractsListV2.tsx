@@ -49,6 +49,7 @@ interface ContractRow {
  job_title?: string;
  start_date?: string;
  end_date?: string;
+ latest_order_end_date?: string | null;
  contract_type?: string;
  rate_client?: number;
  rate_candidate?: number;
@@ -328,6 +329,11 @@ export function ContractsListV2() {
  {c.end_date && (
  <div className="text-xs text-muted-foreground">
  → {formatDate(c.end_date)}
+ </div>
+ )}
+ {c.latest_order_end_date && c.latest_order_end_date !== c.end_date && (
+ <div className="text-xs text-orange-600 mt-0.5" title="Aktualne zamówienie klienta kończy się tej daty">
+ zamówienie do {formatDate(c.latest_order_end_date)}
  </div>
  )}
  </TableCell>

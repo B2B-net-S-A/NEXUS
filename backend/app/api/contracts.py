@@ -205,13 +205,36 @@ async def list_contracts(
     ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
+    # Pre-compute latest order end_date per Contract dla kolumny "Zamówienie do".
+    # Single query zamiast N+1 — group by contract_id, max(end_date).
+    from app.models.client_order import ClientOrder
+
+    contract_ids = [c.id for c in contracts]
+    latest_order_dates: dict[int, date] = {}
+    if contract_ids:
+        latest_rows = await db.execute(
+            select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
+            .where(
+                ClientOrder.contract_id.in_(contract_ids),
+                ClientOrder.end_date.is_not(None),
+            )
+            .group_by(ClientOrder.contract_id)
+        )
+        latest_order_dates = {row[0]: row[1] for row in latest_rows.all()}
+
     items = [
         ContractResponse.model_validate(
             {
                 **{
                     k: getattr(c, k, None)
                     for k in ContractResponse.model_fields.keys()
-                    if k not in ("candidate_name", "client_name", "job_title")
+                    if k
+                    not in (
+                        "candidate_name",
+                        "client_name",
+                        "job_title",
+                        "latest_order_end_date",
+                    )
                 },
                 "candidate_name": (
                     f"{c.candidate.name} {c.candidate.lastname}".strip()
@@ -220,6 +243,7 @@ async def list_contracts(
                 ),
                 "client_name": c.client.name if c.client else None,
                 "job_title": c.job.title if c.job else None,
+                "latest_order_end_date": latest_order_dates.get(c.id),
             }
         )
         for c in contracts

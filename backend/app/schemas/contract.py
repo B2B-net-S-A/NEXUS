@@ -104,6 +104,11 @@ class ContractResponse(BaseModel):
     candidate_name: Optional[str] = None
     client_name: Optional[str] = None
     job_title: Optional[str] = None
+    # DL Portal refactor 2026-05-11: data końca aktualnego zamówienia klienta.
+    # Z `Contract.client_orders` — najnowszy Order po end_date. Różny semantycznie
+    # od `Contract.end_date` (umowa B2B z konsultantem, zwykle dłuższa) vs
+    # `latest_order_end_date` (PDF od klienta, zwykle krótszy horyzont 3-6mc).
+    latest_order_end_date: Optional[date] = None
 
     model_config = {"from_attributes": True}
 
