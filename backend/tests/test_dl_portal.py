@@ -418,6 +418,102 @@ async def test_admin_overview_works(
         await _cleanup([client_id], [])
 
 
+async def test_hired_stage_auto_creates_contract_and_order_draft(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Pipeline hook: kandydat → stage hired auto-tworzy Contract draft + Order draft.
+
+    Po Phase 2 refactorze (pipeline.py:512-) hook tworzy oba w 1 transakcji
+    z notification linkującym do tabu Zamówienia.
+    """
+    from app.models.contract import Contract, ContractStatus
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import (
+        CandidateStage,
+        PipelineStage,
+    )
+    from sqlalchemy import select
+
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+
+    # Setup Job + initial CandidateStage (pre-hired)
+    async with AsyncSessionLocal() as db:
+        job = Job(
+            title="Test Java Dev — auto-hired",
+            client_id=client_id,
+            status="published",
+        )
+        db.add(job)
+        await db.flush()
+
+        initial_stage = CandidateStage(
+            candidate_id=cand_id,
+            job_id=job.id,
+            stage=PipelineStage.cv_sent,
+        )
+        db.add(initial_stage)
+        await db.flush()
+        await db.commit()
+        job_id = job.id
+
+    try:
+        # Trigger pipeline move → hired
+        resp = await app_client.post(
+            "/api/pipeline/move",
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "hired",
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        # Verify Contract draft auto-created
+        async with AsyncSessionLocal() as db:
+            contract = await db.scalar(
+                select(Contract).where(
+                    Contract.candidate_id == cand_id,
+                    Contract.client_id == client_id,
+                    Contract.job_id == job_id,
+                    Contract.status == ContractStatus.draft,
+                )
+            )
+            assert contract is not None, "Contract draft not created"
+
+            # Verify ClientOrder draft auto-created pod Contract
+            order = await db.scalar(
+                select(ClientOrder).where(
+                    ClientOrder.contract_id == contract.id,
+                    ClientOrder.status == ClientOrderStatus.draft,
+                )
+            )
+            assert order is not None, "ClientOrder draft not created"
+            assert order.client_id == client_id
+            assert order.job_id == job_id
+            assert order.title.startswith("Test Kontraktor") or "Java" in order.title
+    finally:
+        # Cleanup: kasuj job + stage + contract + order
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                ClientOrder.__table__.delete().where(
+                    ClientOrder.client_id == client_id
+                )
+            )
+            await db.execute(
+                Contract.__table__.delete().where(Contract.client_id == client_id)
+            )
+            await db.execute(
+                CandidateStage.__table__.delete().where(
+                    CandidateStage.candidate_id == cand_id
+                )
+            )
+            await db.execute(Job.__table__.delete().where(Job.id == job_id))
+            await db.commit()
+        await _cleanup([client_id], [], [cand_id])
+
+
 async def test_recruiter_forbidden_from_admin_overview(app_client: AsyncClient):
     rec_id, rec_email, rec_pwd = await _new_user(UserRole.recruiter)
     try:
