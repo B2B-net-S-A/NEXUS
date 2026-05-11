@@ -13,7 +13,6 @@ import {
   CheckCircle,
   XCircle,
   BookOpen,
-  Bell,
   Users,
   Plus,
   Trash2,
@@ -31,7 +30,6 @@ import {
   DollarSign,
   FolderOpen,
   LayoutDashboard,
-  UserCog,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -39,7 +37,9 @@ import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
-import { NotificationsTab } from "./NotificationsTab";
+// NotificationsTab — usunięty po konsolidacji 12→6 tabów (2026-05-11).
+// Powiadomienia per-klient zostały zlikwidowane jako tab — globalny bell w
+// topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
@@ -632,19 +632,16 @@ function ProjectsTab({ clientId }: { clientId: number }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+// Konsolidacja UX 2026-05-11: 12 tabów → 6. Pozostałe (Informacje, Materiały,
+// Cennik, Kontakty, Wiedza) wbudowane jako collapsibles w odpowiednich tabach.
+// Powiadomienia per-klient skasowane (globalny bell w topbarze wystarcza).
 type Tab =
   | "profil"
-  | "info"
   | "projekty"
-  | "opiekunowie"
-  | "powiadomienia"
-  | "wiedza"
-  | "kontakty"
   | "umowy-ramowe"
   | "zamowienia"
   | "analityka"
-  | "materialy"
-  | "cennik";
+  | "zespol";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -674,17 +671,11 @@ export default function ClientDetailPage() {
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { key: "info", label: "Informacje", icon: <Building2 className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { key: "opiekunowie", label: "Opiekunowie", icon: <UserCog className="w-4 h-4" /> },
-    { key: "powiadomienia", label: "Powiadomienia", icon: <Bell className="w-4 h-4" /> },
-    { key: "wiedza", label: "Wiedza", icon: <BookOpen className="w-4 h-4" /> },
-    { key: "kontakty", label: "Kontakty", icon: <Users className="w-4 h-4" /> },
-    { key: "materialy", label: "Materiały", icon: <FolderOpen className="w-4 h-4" /> },
-    { key: "cennik", label: "Cennik", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "zespol", label: "Zespół", icon: <Users className="w-4 h-4" /> },
   ];
 
   return (
@@ -793,36 +784,100 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tab content */}
+        {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
+            jako collapsibles (<details>/<summary> = native HTML, no React state) */}
         <div className="p-6">
-          {activeTab === "profil" && <ProfileTab clientId={Number(id)} />}
+          {activeTab === "profil" && (
+            <div className="space-y-4">
+              <ProfileTab clientId={Number(id)} />
 
-          {activeTab === "info" && (
-            <div className="space-y-6">
-              <CooperationStatsSection clientId={Number(id)} />
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Notatki
-                </p>
-                {client.notes ? (
-                  <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
-                )}
-              </div>
+              <details className="border border-border rounded-lg group">
+                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
+                  Informacje + statystyki współpracy
+                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+                </summary>
+                <div className="p-4 pt-0 space-y-6 border-t border-border">
+                  <CooperationStatsSection clientId={Number(id)} />
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                      Notatki
+                    </p>
+                    {client.notes ? (
+                      <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
+                    )}
+                  </div>
+                </div>
+              </details>
+
+              <details className="border border-border rounded-lg group">
+                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                  Materiały sprzedażowe
+                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+                </summary>
+                <div className="p-4 pt-0 border-t border-border">
+                  <MaterialsTab clientId={Number(id)} />
+                </div>
+              </details>
             </div>
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
-          {activeTab === "umowy-ramowe" && <FrameworkContractsTab clientId={Number(id)} />}
+
+          {activeTab === "umowy-ramowe" && (
+            <div className="space-y-4">
+              <FrameworkContractsTab clientId={Number(id)} />
+
+              <details className="border border-border rounded-lg group">
+                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+                  <DollarSign className="w-4 h-4 text-muted-foreground" />
+                  Cennik (rate cards)
+                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+                </summary>
+                <div className="p-4 pt-0 border-t border-border">
+                  <RateCardsTab clientId={Number(id)} />
+                </div>
+              </details>
+            </div>
+          )}
+
           {activeTab === "zamowienia" && <OrdersAndContractsTab clientId={Number(id)} />}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
-          {activeTab === "opiekunowie" && <OwnersTab clientId={Number(id)} />}
-          {activeTab === "powiadomienia" && <NotificationsTab clientId={Number(id)} />}
-          {activeTab === "wiedza" && <KnowledgeTab clientId={Number(id)} />}
-          {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
-          {activeTab === "materialy" && <MaterialsTab clientId={Number(id)} />}
-          {activeTab === "cennik" && <RateCardsTab clientId={Number(id)} />}
+
+          {activeTab === "zespol" && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                  Opiekunowie (TAC + Delivery Lead)
+                </h3>
+                <OwnersTab clientId={Number(id)} />
+              </div>
+
+              <details className="border border-border rounded-lg group" open>
+                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  Kontakty u klienta (decision makers)
+                </summary>
+                <div className="p-4 pt-0 border-t border-border">
+                  <ContactsTab clientId={Number(id)} />
+                </div>
+              </details>
+
+              <details className="border border-border rounded-lg group">
+                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+                  <BookOpen className="w-4 h-4 text-muted-foreground" />
+                  Wiedza o kliencie (selling points, tech stack, kultura)
+                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+                </summary>
+                <div className="p-4 pt-0 border-t border-border">
+                  <KnowledgeTab clientId={Number(id)} />
+                </div>
+              </details>
+            </div>
+          )}
         </div>
       </div>
     </div>
