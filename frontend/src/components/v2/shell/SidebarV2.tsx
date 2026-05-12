@@ -17,6 +17,7 @@ import {
   FileBarChart,
   GitBranch,
   Handshake,
+  Heart,
   HelpCircle,
   Lightbulb,
   Search,
@@ -94,6 +95,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Briefcase,
         roles: ["delivery_lead", "admin", "head_of_recruitment"],
       },
+      {
+        href: "/my-relationships",
+        label: "Moje relacje",
+        icon: Heart,
+        roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
+      },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
       {
         href: "/contractors",
@@ -137,6 +144,12 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/admin/clients-overview",
         label: "Przegląd klientów",
         icon: BarChart3,
+        roles: ["admin", "head_of_recruitment"],
+      },
+      {
+        href: "/admin/hiring-managers",
+        label: "Top hiring managers",
+        icon: Users,
         roles: ["admin", "head_of_recruitment"],
       },
     ],
