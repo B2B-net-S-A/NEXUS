@@ -137,6 +137,12 @@ async def list_all_contacts(
                 notes=contact.notes,
                 last_contacted_at=contact.last_contacted_at,
                 created_at=contact.created_at,
+                # Key relationship fields (2026-05-11, migracja 0096)
+                is_key_relationship=contact.is_key_relationship,
+                relationship_strength=contact.relationship_strength,
+                relationship_notes=contact.relationship_notes,
+                key_relationship_owner_id=contact.key_relationship_owner_id,
+                last_personal_touchpoint_at=contact.last_personal_touchpoint_at,
             )
         )
     return contacts_out
