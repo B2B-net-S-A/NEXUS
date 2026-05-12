@@ -45,7 +45,7 @@ from app.models.client_knowledge import ClientKnowledge
 from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
 from app.models.screening_note import ScreeningNote
-from app.models.contact import Contact
+from app.models.contact import Contact, RelationshipStrength
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.calendar_event import CalendarEvent
@@ -204,6 +204,7 @@ __all__ = [
     "ClientContractTerms",
     "ScreeningNote",
     "Contact",
+    "RelationshipStrength",
     "TalentPool",
     "TalentPoolMembership",
     "MarketplaceAlertLog",

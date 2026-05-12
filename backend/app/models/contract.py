@@ -106,6 +106,12 @@ class Contract(Base, TimestampMixin):
     # Assignment / deployment context (Phase 9 B5) — gdzie i pod kim kontraktor pracuje.
     client_pm_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     client_pm_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # FK do Contact dla PM po stronie klienta (migracja 0097, 2026-05-11).
+    # client_pm_name/email zostają jako fallback dla starych kontraktów bez
+    # zlinkowanego Contact. Po utworzeniu Contact'u DL może manualnie zlinkować.
+    client_pm_contact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     work_mode: Mapped[Optional[ContractWorkMode]] = mapped_column(
         Enum(ContractWorkMode, name="contractworkmode"), nullable=True
     )
