@@ -34,6 +34,9 @@ class JobCreate(BaseModel):
     # z `client_tac_assignments`/`delivery_lead_client_assignments`.
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
+    # Hiring manager — Contact w firmie klienta odpowiedzialny za rekrutację
+    # (migracja 0097, 2026-05-11). Nullable, validated że należy do client_id.
+    hiring_manager_contact_id: Optional[int] = None
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
@@ -94,6 +97,7 @@ class JobUpdate(BaseModel):
     recruiter_id: Optional[int] = None
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
+    hiring_manager_contact_id: Optional[int] = None
     portals: Optional[Any] = None
 
     # Phase 1 structured fields
@@ -163,6 +167,8 @@ class JobResponse(BaseModel):
     recruiter_id: Optional[int]
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
+    hiring_manager_contact_id: Optional[int] = None
+    hiring_manager_name: Optional[str] = None  # denormalized
     created_by: Optional[int]
     portals: Optional[Any]
     must_skills: Optional[Any] = None

@@ -50,6 +50,8 @@ from app.api import client_framework_contracts
 from app.api import client_contract_amendments
 from app.api import client_orders as client_orders_api
 from app.api import my_clients as my_clients_api
+from app.api import my_relationships as my_relationships_api
+from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import required_documents
@@ -331,6 +333,16 @@ app.include_router(
     admin_clients_overview_api.router,
     prefix="/api/admin/clients-overview",
     tags=["admin-clients-overview"],
+)
+app.include_router(
+    my_relationships_api.router,
+    prefix="/api/my-relationships",
+    tags=["my-relationships"],
+)
+app.include_router(
+    hiring_managers_api.router,
+    prefix="/api/reports/hiring-managers",
+    tags=["hiring-managers-analytics"],
 )
 app.include_router(
     admin_snapshot.router,
