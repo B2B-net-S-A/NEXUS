@@ -276,6 +276,18 @@ async def list_jobs(
         user_ids.update(ids)
     user_brief_map = await _hydrate_owner_map(db, user_ids)
 
+    # Hiring manager names batch lookup — denormalized na response żeby UI
+    # nie musiało robić extra fetch per job.
+    from app.models.contact import Contact  # noqa: PLC0415
+
+    hm_ids = {j.hiring_manager_contact_id for j in jobs if j.hiring_manager_contact_id}
+    hm_names: dict[int, str] = {}
+    if hm_ids:
+        hm_rows = await db.execute(
+            select(Contact.id, Contact.name).where(Contact.id.in_(hm_ids))
+        )
+        hm_names = {row.id: row.name for row in hm_rows.all()}
+
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
@@ -291,6 +303,11 @@ async def list_jobs(
             for uid in collab_ids
             if uid in user_brief_map
         ]
+        d["hiring_manager_name"] = (
+            hm_names.get(j.hiring_manager_contact_id)
+            if j.hiring_manager_contact_id
+            else None
+        )
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -615,6 +632,17 @@ async def get_job(
     payload["collaborators"] = [
         user_brief_map[uid].model_dump() for uid in collab_ids if uid in user_brief_map
     ]
+
+    # Hiring manager name z Contact join'a (denormalized)
+    if job.hiring_manager_contact_id:
+        from app.models.contact import Contact  # noqa: PLC0415
+
+        hm = await db.scalar(
+            select(Contact.name).where(Contact.id == job.hiring_manager_contact_id)
+        )
+        payload["hiring_manager_name"] = hm
+    else:
+        payload["hiring_manager_name"] = None
     return payload
 
 

@@ -1027,6 +1027,24 @@ export default function JobDetailPage() {
           />
         </div>
 
+        {job.hiring_manager_name && (
+          <div className="mt-3 flex items-center gap-2 text-sm">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground">
+              Hiring manager (klient):
+            </span>
+            {job.hiring_manager_contact_id && job.client_id ? (
+              <Link
+                href={`/clients/${job.client_id}?tab=zespol`}
+                className="font-medium text-violet-600 hover:underline"
+              >
+                {job.hiring_manager_name}
+              </Link>
+            ) : (
+              <span className="font-medium">{job.hiring_manager_name}</span>
+            )}
+          </div>
+        )}
+
         {job.description && (
           <div className="mt-4 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
         )}
