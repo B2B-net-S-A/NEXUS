@@ -196,6 +196,13 @@ class Job(Base, TimestampMixin):
     tac_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # Hiring manager po stronie klienta (Contact w firmie klienta — osoba
+    # która zatrudnia). Migracja 0097. Nullable bo backfill manual; analytics
+    # może filtrować/agregować po tej osobie. ON DELETE SET NULL — kasacja
+    # Contact nie kasuje Job, tylko zeruje link.
+    hiring_manager_contact_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     pipeline_template_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("pipeline_templates.id"), nullable=True, index=True

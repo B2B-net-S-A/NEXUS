@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models.contact import Contact
+from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
 from app.api.deps import CurrentUser
 
@@ -27,6 +27,12 @@ class ContactCreate(BaseModel):
     is_decision_maker: bool = False
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
+    # Key relationship fields (2026-05-11)
+    is_key_relationship: bool = False
+    relationship_strength: Optional[RelationshipStrength] = None
+    relationship_notes: Optional[str] = None
+    key_relationship_owner_id: Optional[int] = None
+    last_personal_touchpoint_at: Optional[datetime] = None
 
 
 class ContactUpdate(BaseModel):
@@ -38,6 +44,12 @@ class ContactUpdate(BaseModel):
     is_decision_maker: Optional[bool] = None
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
+    # Key relationship fields
+    is_key_relationship: Optional[bool] = None
+    relationship_strength: Optional[RelationshipStrength] = None
+    relationship_notes: Optional[str] = None
+    key_relationship_owner_id: Optional[int] = None
+    last_personal_touchpoint_at: Optional[datetime] = None
 
 
 class ContactResponse(BaseModel):
@@ -52,6 +64,12 @@ class ContactResponse(BaseModel):
     notes: Optional[str]
     last_contacted_at: Optional[datetime]
     created_at: datetime
+    # Key relationship fields
+    is_key_relationship: bool
+    relationship_strength: Optional[RelationshipStrength]
+    relationship_notes: Optional[str]
+    key_relationship_owner_id: Optional[int]
+    last_personal_touchpoint_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
 
@@ -69,6 +87,12 @@ class ContactWithClientResponse(BaseModel):
     notes: Optional[str]
     last_contacted_at: Optional[datetime]
     created_at: datetime
+    # Key relationship fields
+    is_key_relationship: bool
+    relationship_strength: Optional[RelationshipStrength]
+    relationship_notes: Optional[str]
+    key_relationship_owner_id: Optional[int]
+    last_personal_touchpoint_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
 

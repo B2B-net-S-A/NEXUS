@@ -844,6 +844,9 @@ interface JobFormData {
   // klienta (endpoint /api/clients/{id}/team). Jawna zmiana = override.
   tac_id: string;
   delivery_lead_id: string;
+  // Hiring manager po stronie klienta — Contact w firmie klienta odpowiedzialny
+  // za rekrutację (migracja 0097, 2026-05-11). Autocomplete z Contacts klienta.
+  hiring_manager_contact_id: string;
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
@@ -856,7 +859,7 @@ const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
   description: "", requirements: "", location: "", remote_policy: "hybrid",
   salary_min: "", salary_max: "", priority: "medium", deadline: "", recruiter_id: "",
-  tac_id: "", delivery_lead_id: "",
+  tac_id: "", delivery_lead_id: "", hiring_manager_contact_id: "",
   pipeline_template_id: "", competence_category_id: "", train_name: "",
 };
 
@@ -877,6 +880,9 @@ function jobToForm(j: any): JobFormData {
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
     delivery_lead_id: j.delivery_lead_id ? String(j.delivery_lead_id) : "",
+    hiring_manager_contact_id: j.hiring_manager_contact_id
+      ? String(j.hiring_manager_contact_id)
+      : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
     competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
     train_name: j.train_name ?? "",
@@ -936,6 +942,33 @@ function JobFormFields({
   });
   const primaryTac = clientTeam?.tacs.find(t => t.is_primary);
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
+
+  // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
+  // Key relationships first (gwiazdka), potem alfabetycznie.
+  const { data: clientContacts = [] } = useQuery<Array<{
+    id: number;
+    name: string;
+    position: string | null;
+    is_decision_maker: boolean;
+    is_key_relationship: boolean;
+    relationship_strength: string | null;
+  }>>({
+    queryKey: ["client-contacts-for-hiring-manager", clientIdNum],
+    queryFn: async () => {
+      if (clientIdNum === null) return [];
+      const res = await api.get(`/api/clients/${clientIdNum}/contacts`);
+      return res.data;
+    },
+    enabled: clientIdNum !== null,
+    staleTime: 30_000,
+  });
+  const sortedContactsForHM = [...clientContacts].sort((a, b) => {
+    if (a.is_key_relationship !== b.is_key_relationship)
+      return a.is_key_relationship ? -1 : 1;
+    if (a.is_decision_maker !== b.is_decision_maker)
+      return a.is_decision_maker ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
 
   // Auto-fill — tylko gdy pole jest puste (użytkownik nie nadpisał).
   useEffect(() => {
@@ -1095,6 +1128,34 @@ function JobFormFields({
         {form.delivery_lead_id && headDl && Number(form.delivery_lead_id) !== headDl.user_id && (
           <p className="text-[11px] text-primary mt-1">
             Nadpisane (head DL klienta: {headDl.name})
+          </p>
+        )}
+      </FieldGroup>
+      <FieldGroup label="Hiring manager (osoba zatrudniająca u klienta)">
+        <Select
+          value={form.hiring_manager_contact_id}
+          onChange={e => onChange("hiring_manager_contact_id", e.target.value)}
+          disabled={!form.client_id}
+        >
+          <option value="">— brak hiring managera —</option>
+          {sortedContactsForHM.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.is_key_relationship ? "★ " : ""}
+              {c.name}
+              {c.position ? ` · ${c.position}` : ""}
+              {c.is_decision_maker ? " (decydent)" : ""}
+              {c.relationship_strength ? ` · ${c.relationship_strength}` : ""}
+            </option>
+          ))}
+        </Select>
+        {!form.client_id && (
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Najpierw wybierz klienta, żeby zobaczyć listę kontaktów.
+          </p>
+        )}
+        {form.client_id && sortedContactsForHM.length === 0 && (
+          <p className="text-[11px] text-amber-700 mt-1">
+            Brak kontaktów u tego klienta. Dodaj kontakt w zakładce Zespół klienta.
           </p>
         )}
       </FieldGroup>
@@ -1289,6 +1350,9 @@ export function AddJobModal({
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         tac_id: form.tac_id ? Number(form.tac_id) : undefined,
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : undefined,
+        hiring_manager_contact_id: form.hiring_manager_contact_id
+          ? Number(form.hiring_manager_contact_id)
+          : undefined,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : undefined,
         competence_category_id: form.competence_category_id
           ? Number(form.competence_category_id)
@@ -1465,6 +1529,9 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         // i musimy wysłać null — inaczej zostanie stary auto-assign.
         tac_id: form.tac_id ? Number(form.tac_id) : null,
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
+        hiring_manager_contact_id: form.hiring_manager_contact_id
+          ? Number(form.hiring_manager_contact_id)
+          : null,
         pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : null,
         competence_category_id: form.competence_category_id
           ? Number(form.competence_category_id)

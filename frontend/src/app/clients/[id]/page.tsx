@@ -18,6 +18,7 @@ import {
   Trash2,
   X,
   Star,
+  Heart,
   Code,
   HelpCircle,
   Lightbulb,
@@ -43,6 +44,7 @@ import { ProfileTab } from "./ProfileTab";
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
+import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
@@ -59,6 +61,8 @@ interface ClientKnowledge {
   created_at: string;
 }
 
+type RelationshipStrength = "cold" | "warm" | "strong" | "champion";
+
 interface Contact {
   id: number;
   client_id: number;
@@ -71,6 +75,12 @@ interface Contact {
   notes: string | null;
   last_contacted_at: string | null;
   created_at: string;
+  // Key relationship fields (2026-05-11)
+  is_key_relationship: boolean;
+  relationship_strength: RelationshipStrength | null;
+  relationship_notes: string | null;
+  key_relationship_owner_id: number | null;
+  last_personal_touchpoint_at: string | null;
 }
 
 type KnowledgeCategory = "selling_points" | "interview_questions" | "tech_stack" | "culture" | "general";
@@ -293,6 +303,8 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
 function ContactsTab({ clientId }: { clientId: number }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
+  const [editingKeyRelationship, setEditingKeyRelationship] =
+    useState<Contact | null>(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -305,9 +317,24 @@ function ContactsTab({ clientId }: { clientId: number }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  const { data: contacts = [] } = useQuery<Contact[]>({
+  const { data: rawContacts = [] } = useQuery<Contact[]>({
     queryKey: ["client-contacts", clientId],
     queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
+  });
+  // Sort: key relationships first (within key — by strength), then alfabetycznie
+  const contacts = [...rawContacts].sort((a, b) => {
+    if (a.is_key_relationship !== b.is_key_relationship)
+      return a.is_key_relationship ? -1 : 1;
+    const strengthOrder: Record<string, number> = {
+      champion: 0,
+      strong: 1,
+      warm: 2,
+      cold: 3,
+    };
+    const sa = strengthOrder[a.relationship_strength ?? ""] ?? 99;
+    const sb = strengthOrder[b.relationship_strength ?? ""] ?? 99;
+    if (sa !== sb) return sa - sb;
+    return a.name.localeCompare(b.name);
   });
 
   const createMutation = useMutation({
@@ -507,11 +534,22 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
+                          {contact.is_key_relationship && (
+                            <Star
+                              className="w-4 h-4 text-yellow-500 fill-yellow-500"
+                              aria-label="Kluczowa relacja"
+                            />
+                          )}
                           <span className="text-sm font-semibold text-foreground">{contact.name}</span>
                           {contact.is_decision_maker && (
                             <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
                               <Crown className="w-3 h-3" />
                               Decydent
+                            </span>
+                          )}
+                          {contact.relationship_strength && (
+                            <span className="text-xs px-1.5 py-0.5 bg-pink-50 text-pink-700 rounded-full">
+                              {contact.relationship_strength}
                             </span>
                           )}
                         </div>
@@ -548,6 +586,23 @@ function ContactsTab({ clientId }: { clientId: number }) {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
+                        onClick={() => setEditingKeyRelationship(contact)}
+                        className={
+                          "transition-colors " +
+                          (contact.is_key_relationship
+                            ? "text-pink-600 hover:text-pink-700"
+                            : "text-muted-foreground hover:text-pink-600")
+                        }
+                        title="Edytuj relację (klucz, siła, notatki)"
+                      >
+                        <Heart
+                          className={
+                            "w-4 h-4 " +
+                            (contact.is_key_relationship ? "fill-pink-200" : "")
+                          }
+                        />
+                      </button>
+                      <button
                         onClick={() => openEdit(contact)}
                         className="text-muted-foreground hover:text-primary transition-colors"
                       >
@@ -556,11 +611,32 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       <DeleteButton onConfirm={() => deleteMutation.mutate(contact.id)} />
                     </div>
                   </div>
+                  {contact.is_key_relationship && contact.relationship_notes && (
+                    <div className="mt-3 pl-12 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-12">
+                      {contact.relationship_notes}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ))}
         </div>
+      )}
+
+      {editingKeyRelationship && (
+        <KeyRelationshipDialog
+          contact={{
+            id: editingKeyRelationship.id,
+            name: editingKeyRelationship.name,
+            client_id: editingKeyRelationship.client_id,
+            is_key_relationship: editingKeyRelationship.is_key_relationship,
+            relationship_strength: editingKeyRelationship.relationship_strength,
+            relationship_notes: editingKeyRelationship.relationship_notes,
+            last_personal_touchpoint_at:
+              editingKeyRelationship.last_personal_touchpoint_at,
+          }}
+          onClose={() => setEditingKeyRelationship(null)}
+        />
       )}
     </div>
   );
