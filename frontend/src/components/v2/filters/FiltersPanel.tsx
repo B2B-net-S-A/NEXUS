@@ -181,7 +181,7 @@ export function FiltersPanel({
         />
         <Button
           type="button"
-          variant={value.search_mode === "hybrid" ? "default" : "outline"}
+          variant={value.search_mode === "hybrid" ? "primary" : "outline"}
           size="sm"
           onClick={() =>
             patch({
