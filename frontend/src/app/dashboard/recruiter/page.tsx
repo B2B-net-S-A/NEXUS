@@ -10,6 +10,7 @@ import { Button } from"@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
 import { HeroLigaMistrzow, type HeroPodiumEntry } from"@/components/v2/gamification/HeroLigaMistrzow"
 import { PowerCallingSection } from"@/components/v2/gamification/PowerCallingSection"
+import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
 import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
 import { ROLE_LABELS, useAuthStore } from"@/store/auth"
@@ -498,6 +499,9 @@ export default function RecruiterDashboard() {
  highlightUserId={isMeRecruiter ? user?.id : null}
  />
  )}
+
+ {/* CloudTalk stats — auto-hides when integration disabled and 0 historical calls */}
+ <CallStatsWidget />
 
  {/* Hall of Fame (mały) */}
  {hallOfFame?.top3 && hallOfFame.top3.length > 0 && (
