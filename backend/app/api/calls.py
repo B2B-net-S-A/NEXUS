@@ -295,7 +295,9 @@ def _extract_call_fields(call_info: dict) -> dict:
         ).strip(),
         "summary": str(call_info.get("summary") or "").strip(),
         "recording_url": (
-            str(call_info.get("recording_url") or call_info.get("recording") or "").strip()
+            str(
+                call_info.get("recording_url") or call_info.get("recording") or ""
+            ).strip()
             or None
         ),
         "direction": _parse_direction(
@@ -387,9 +389,7 @@ async def cloudtalk_webhook(
     # ── Lookup existing Call by cloudtalk_call_id ──────────────────────────
     call_row: Optional[Call] = None
     if ct_id:
-        call_row = await db.scalar(
-            select(Call).where(Call.cloudtalk_call_id == ct_id)
-        )
+        call_row = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
 
     # ── Lookup Candidate by phone (last-9-digits, regex-based) ─────────────
     from app.models.candidate import Candidate
@@ -411,8 +411,7 @@ async def cloudtalk_webhook(
         )
         if candidate is None:
             logger.info(
-                "CloudTalk webhook: no candidate match for phone last-9=%s "
-                "(ct_id=%s)",
+                "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
                 last9,
                 ct_id,
             )

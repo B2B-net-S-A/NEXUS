@@ -76,14 +76,10 @@ def _parse_status(value: Any) -> CallStatus:
     return CallStatus.completed
 
 
-async def _resolve_user_id(
-    db, agent_id: Optional[int]
-) -> Optional[int]:
+async def _resolve_user_id(db, agent_id: Optional[int]) -> Optional[int]:
     if agent_id is None:
         return None
-    return await db.scalar(
-        select(User.id).where(User.cloudtalk_agent_id == agent_id)
-    )
+    return await db.scalar(select(User.id).where(User.cloudtalk_agent_id == agent_id))
 
 
 async def _resolve_candidate_id(db, phone: str) -> Optional[int]:
@@ -111,10 +107,7 @@ async def _upsert_call(db, raw: dict) -> int:
         return 0
 
     phone = str(
-        raw.get("phone")
-        or raw.get("external_number")
-        or raw.get("caller_number")
-        or ""
+        raw.get("phone") or raw.get("external_number") or raw.get("caller_number") or ""
     ).strip()
 
     candidate_id = await _resolve_candidate_id(db, phone) if phone else None
@@ -154,9 +147,7 @@ async def _upsert_call(db, raw: dict) -> int:
     started_at = _parse_dt(raw.get("started_at") or raw.get("created_at"))
     user_id = await _resolve_user_id(db, agent_id)
 
-    existing = await db.scalar(
-        select(Call).where(Call.cloudtalk_call_id == ct_id)
-    )
+    existing = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
 
     if existing is None:
         db.add(
@@ -232,9 +223,7 @@ async def _run_sync_window() -> dict:
                     date_from=since_iso, date_to=until_iso, limit=100, page=page
                 )
             except CloudTalkError as exc:
-                logger.warning(
-                    "CloudTalk sync page=%d failed: %s", page, exc
-                )
+                logger.warning("CloudTalk sync page=%d failed: %s", page, exc)
                 break
             if not calls:
                 break

@@ -195,9 +195,7 @@ async def unassign_agent(
 ):
     """Remove the mapping for a CloudTalk agent."""
     _require_enabled()
-    user = await db.scalar(
-        select(User).where(User.cloudtalk_agent_id == agent_id)
-    )
+    user = await db.scalar(select(User).where(User.cloudtalk_agent_id == agent_id))
     if user is None:
         return {"status": "noop"}
     user.cloudtalk_agent_id = None
@@ -254,9 +252,7 @@ async def sync_agents(
             )
             continue
 
-        user = await db.scalar(
-            select(User).where(User.email.ilike(email))
-        )
+        user = await db.scalar(select(User).where(User.email.ilike(email)))
         if user is None:
             unmatched.append(
                 CloudTalkAgent(

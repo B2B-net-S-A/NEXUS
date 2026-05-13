@@ -224,7 +224,9 @@ class CloudTalkClient:
             if isinstance(response_data, dict):
                 agents = response_data.get("data")
                 if isinstance(agents, list):
-                    return [a.get("Agent", a) if isinstance(a, dict) else a for a in agents]
+                    return [
+                        a.get("Agent", a) if isinstance(a, dict) else a for a in agents
+                    ]
         if isinstance(data, list):
             return data
         return []
