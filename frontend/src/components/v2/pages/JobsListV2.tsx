@@ -12,6 +12,7 @@ import {
  Plus,
  Search,
  Sparkles,
+ UserSquare2,
  Users,
 } from"lucide-react";
 import api from"@/lib/api";
@@ -298,8 +299,17 @@ export function JobsListV2() {
  </div>
  </div>
 
- <div className="mb-2">
+ <div className="mb-2 flex items-center gap-3 flex-wrap">
  <OwnerBadge user={job.primary_owner ?? null} size="sm" />
+ {job.hiring_manager_name && (
+ <span
+ className="inline-flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded"
+ title="Hiring manager po stronie klienta"
+ >
+ <UserSquare2 className="h-3 w-3" />
+ {job.hiring_manager_name}
+ </span>
+ )}
  </div>
 
  {(job.location || job.seniority) && (
