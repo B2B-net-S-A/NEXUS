@@ -43,6 +43,7 @@ from app.api import admin
 from app.api import emails
 from app.api import postings
 from app.api import calls
+from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
@@ -378,6 +379,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(emails.router, prefix="/api", tags=["emails"])
 app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
+app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(client_materials.router, prefix="/api", tags=["client-materials"])

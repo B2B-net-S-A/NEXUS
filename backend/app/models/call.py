@@ -1,7 +1,8 @@
 import enum
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -18,12 +19,15 @@ class CallStatus(str, enum.Enum):
     missed = "missed"
     voicemail = "voicemail"
     failed = "failed"
+    initiated = "initiated"  # outbound stub before call-ended webhook arrives
 
 
 class Call(Base, TimestampMixin):
-    """
-    Rejestr rozmów telefonicznych z kandydatami.
-    Integracja z CloudTalk — placeholder, webhooks w przygotowaniu.
+    """Rejestr rozmów telefonicznych z kandydatami.
+
+    Inbound rows arrive via the CloudTalk webhook; outbound rows are stubbed
+    by :func:`POST /api/cloudtalk/initiate-call` and then enriched by the
+    webhook once the call ends.
     """
 
     __tablename__ = "calls"
@@ -63,6 +67,20 @@ class Call(Base, TimestampMixin):
     # ID rozmowy w CloudTalk (do deduplikacji webhooków)
     cloudtalk_call_id: Mapped[Optional[str]] = mapped_column(
         String(255), unique=True, nullable=True, index=True
+    )
+
+    # CloudTalk agent identifier — denormalized so historical rows survive
+    # rebindings of User → cloudtalk_agent_id. Set from webhook payload's
+    # ``agent.id`` (Phase 2).
+    cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, index=True
+    )
+
+    # Exact start time as reported by CloudTalk. Distinct from ``created_at``
+    # (which is when our row was inserted; the webhook may arrive minutes
+    # after the call actually started).
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     # Relationships

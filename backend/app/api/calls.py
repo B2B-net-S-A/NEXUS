@@ -50,6 +50,8 @@ class CallResponse(BaseModel):
     summary: Optional[str]
     recording_url: Optional[str]
     cloudtalk_call_id: Optional[str]
+    cloudtalk_agent_id: Optional[int]
+    started_at: Optional[datetime]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -415,10 +417,27 @@ async def cloudtalk_webhook(
                 ct_id,
             )
 
+    # ── Map CloudTalk agent → Nexus user (Phase 2) ──────────────────────────
+    from app.models.user import User
+
+    mapped_user_id: Optional[int] = None
+    if fields["agent_id"] is not None:
+        mapped_user = await db.scalar(
+            select(User).where(User.cloudtalk_agent_id == fields["agent_id"])
+        )
+        if mapped_user is not None:
+            mapped_user_id = mapped_user.id
+        else:
+            logger.info(
+                "CloudTalk webhook: agent_id=%s has no Nexus user mapping",
+                fields["agent_id"],
+            )
+
     # ── Upsert Call ────────────────────────────────────────────────────────
     if call_row is None and candidate is not None:
         call_row = Call(
             candidate_id=candidate.id,
+            user_id=mapped_user_id,
             direction=fields["direction"],
             status=fields["status"],
             duration_seconds=fields["duration_seconds"],
@@ -426,6 +445,8 @@ async def cloudtalk_webhook(
             summary=summary or None,
             recording_url=fields["recording_url"],
             cloudtalk_call_id=ct_id,
+            cloudtalk_agent_id=fields["agent_id"],
+            started_at=fields["started_at"],
         )
         db.add(call_row)
     elif call_row is not None:
@@ -438,7 +459,19 @@ async def cloudtalk_webhook(
             call_row.recording_url = fields["recording_url"]
         if fields["duration_seconds"] is not None:
             call_row.duration_seconds = fields["duration_seconds"]
-        # Don't override direction/status on update — first-event wins.
+        if fields["agent_id"] is not None and call_row.cloudtalk_agent_id is None:
+            call_row.cloudtalk_agent_id = fields["agent_id"]
+        if mapped_user_id is not None and call_row.user_id is None:
+            call_row.user_id = mapped_user_id
+        if fields["started_at"] is not None and call_row.started_at is None:
+            call_row.started_at = fields["started_at"]
+        # Promote initiated → completed when the call-ended event arrives.
+        if (
+            call_row.status == CallStatus.initiated
+            and fields["status"] != CallStatus.initiated
+        ):
+            call_row.status = fields["status"]
+        # Don't override direction on update — first-event wins.
 
     await db.commit()
     if call_row is not None:
