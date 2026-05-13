@@ -182,9 +182,7 @@ async def list_my_clients(
                     ClientFrameworkContract.client_id.in_(client_ids),
                     ClientFrameworkContract.status == FrameworkContractStatus.active,
                     ClientFrameworkContract.expiry_date.is_not(None),
-                    ClientFrameworkContract.expiry_date <= today.replace(
-                        day=today.day
-                    ),
+                    ClientFrameworkContract.expiry_date <= today.replace(day=today.day),
                 )
                 .group_by(ClientFrameworkContract.client_id)
             )
@@ -235,7 +233,9 @@ async def client_dashboard(
                 select(
                     ClientOrder.status,
                     ClientOrder.currency,
-                    func.coalesce(func.sum(ClientOrder.total_value), 0).label("sum_val"),
+                    func.coalesce(func.sum(ClientOrder.total_value), 0).label(
+                        "sum_val"
+                    ),
                 )
                 .where(ClientOrder.client_id == client_id)
                 .group_by(ClientOrder.status, ClientOrder.currency)
@@ -256,17 +256,15 @@ async def client_dashboard(
         if r.status == ClientOrderStatus.completed:
             completed_rev += v
         if r.currency:
-            currency_breakdown[r.currency] = currency_breakdown.get(
-                r.currency, Decimal(0)
-            ) + v
+            currency_breakdown[r.currency] = (
+                currency_breakdown.get(r.currency, Decimal(0)) + v
+            )
 
     # Margin z aktywnych Contractów klienta (po refactorze 2026-05-11:
     # Contract 1:N Order, więc Contract.client_id daje wszystkie kontraktory).
     contract_rows = list(
         (
-            await db.execute(
-                select(Contract).where(Contract.client_id == client_id)
-            )
+            await db.execute(select(Contract).where(Contract.client_id == client_id))
         ).scalars()
     )
     monthly_margin_total = 0
@@ -296,8 +294,7 @@ async def client_dashboard(
     completed_orders = list(
         (
             await db.execute(
-                select(ClientOrder)
-                .where(
+                select(ClientOrder).where(
                     ClientOrder.client_id == client_id,
                     ClientOrder.status == ClientOrderStatus.completed,
                 )
@@ -338,8 +335,7 @@ async def client_dashboard(
     fc_expiring = list(
         (
             await db.execute(
-                select(ClientFrameworkContract)
-                .where(
+                select(ClientFrameworkContract).where(
                     ClientFrameworkContract.client_id == client_id,
                     ClientFrameworkContract.status == FrameworkContractStatus.active,
                     ClientFrameworkContract.expiry_date.is_not(None),
@@ -363,8 +359,7 @@ async def client_dashboard(
     orders_expiring = list(
         (
             await db.execute(
-                select(ClientOrder)
-                .where(
+                select(ClientOrder).where(
                     ClientOrder.client_id == client_id,
                     ClientOrder.status == ClientOrderStatus.active,
                     ClientOrder.end_date.is_not(None),

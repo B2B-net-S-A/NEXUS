@@ -33,9 +33,7 @@ async def clients_overview(
     _user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    clients = list(
-        (await db.execute(select(Client).order_by(Client.name))).scalars()
-    )
+    clients = list((await db.execute(select(Client).order_by(Client.name))).scalars())
 
     rev_rows = list(
         (
@@ -43,7 +41,9 @@ async def clients_overview(
                 select(
                     ClientOrder.client_id,
                     ClientOrder.status,
-                    func.coalesce(func.sum(ClientOrder.total_value), 0).label("sum_val"),
+                    func.coalesce(func.sum(ClientOrder.total_value), 0).label(
+                        "sum_val"
+                    ),
                     func.count().label("cnt"),
                 )
                 .where(ClientOrder.status != ClientOrderStatus.cancelled)
@@ -70,7 +70,9 @@ async def clients_overview(
                     User.id,
                     User.name,
                 )
-                .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+                .join(
+                    User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id
+                )
                 .where(DeliveryLeadClientAssignment.is_head.is_(True))
             )
         )
@@ -119,8 +121,7 @@ async def clients_overview(
                     Contract.rate_unit,
                     Contract.billing_hours_per_month,
                     Contract.status,
-                )
-                .where(Contract.status == ContractStatus.active)
+                ).where(Contract.status == ContractStatus.active)
             )
         )
     )
@@ -162,7 +163,7 @@ async def clients_overview(
         )
 
     items.sort(
-        key=lambda r: (r.total_revenue_all_time or 0),
+        key=lambda r: r.total_revenue_all_time or 0,
         reverse=True,
     )
     return items
@@ -184,7 +185,9 @@ async def kpi_by_dl(
                     DeliveryLeadClientAssignment.is_head,
                     User.name,
                     User.email,
-                ).join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+                ).join(
+                    User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id
+                )
             )
         )
     )
@@ -222,7 +225,10 @@ async def kpi_by_dl(
                     func.coalesce(
                         func.sum(
                             case(
-                                (ClientOrder.status == ClientOrderStatus.active, ClientOrder.total_value),
+                                (
+                                    ClientOrder.status == ClientOrderStatus.active,
+                                    ClientOrder.total_value,
+                                ),
                                 else_=0,
                             )
                         ),
@@ -254,8 +260,7 @@ async def kpi_by_dl(
                         Contract.rate_candidate,
                         Contract.rate_unit,
                         Contract.billing_hours_per_month,
-                    )
-                    .where(
+                    ).where(
                         Contract.client_id.in_(client_ids),
                         Contract.status == ContractStatus.active,
                     )
@@ -292,5 +297,5 @@ async def kpi_by_dl(
                 active_consultants=active_consultants,
             )
         )
-    items.sort(key=lambda r: (r.total_revenue or 0), reverse=True)
+    items.sort(key=lambda r: r.total_revenue or 0, reverse=True)
     return items

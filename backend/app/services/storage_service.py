@@ -373,9 +373,7 @@ def save_client_order_po(
     order_id: int, upload_filename: str, source: BinaryIO
 ) -> tuple[str, int]:
     """Save PO PDF under /client_orders/{order_id}/{uuid}-{name}."""
-    rel, size = _save_to(
-        CLIENT_ORDER_POS_DIR / str(order_id), upload_filename, source
-    )
+    rel, size = _save_to(CLIENT_ORDER_POS_DIR / str(order_id), upload_filename, source)
     logger.info("Saved client order PO: %s (%d bytes)", rel, size)
     return rel, size
 

@@ -90,9 +90,7 @@ class ClientFrameworkContract(Base, TimestampMixin):
     )
 
     effective_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    expiry_date: Mapped[Optional[date]] = mapped_column(
-        Date, nullable=True, index=True
-    )
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     """Data wygaśnięcia — ``NULL`` = bezterminowa.
 
     Indeksowana — scheduler skanuje rekordy z ``expiry_date BETWEEN today

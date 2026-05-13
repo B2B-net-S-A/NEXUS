@@ -99,9 +99,7 @@ async def hiring_managers_kpi(
         cid = r[0]
         st = r[1]
         cnt = r[2]
-        contracts_total_by_contact[cid] = (
-            contracts_total_by_contact.get(cid, 0) + cnt
-        )
+        contracts_total_by_contact[cid] = contracts_total_by_contact.get(cid, 0) + cnt
         if st == ContractStatus.active:
             contracts_active_by_contact[cid] = (
                 contracts_active_by_contact.get(cid, 0) + cnt

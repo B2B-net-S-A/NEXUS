@@ -72,9 +72,7 @@ def _validate_upload(file: UploadFile) -> None:
     mime = (file.content_type or "").lower()
     ext_ok = filename.lower().endswith(_ALLOWED_EXT_RE)
     if mime not in _ALLOWED_MIME and not ext_ok:
-        raise HTTPException(
-            status_code=415, detail="Tylko pliki PDF/DOCX/DOC"
-        )
+        raise HTTPException(status_code=415, detail="Tylko pliki PDF/DOCX/DOC")
     if not ext_ok:
         raise HTTPException(
             status_code=415,

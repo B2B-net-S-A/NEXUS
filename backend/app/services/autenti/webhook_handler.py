@@ -215,11 +215,7 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
     # with status=completed, signed_document_id=NULL; the Phase 5 sweeper
     # retries the download. Skipped for client-level dokumenty bo nie mamy
     # `contract_documents` row dla nich (ten kod-path tylko dla candidate Contract).
-    if (
-        sig.contract_id
-        and sig.autenti_process_id
-        and sig.signed_document_id is None
-    ):
+    if sig.contract_id and sig.autenti_process_id and sig.signed_document_id is None:
         try:
             await _download_and_attach_signed_file(db, sig)
         except Exception as exc:  # noqa: BLE001
@@ -349,9 +345,7 @@ async def _on_rejected(db: AsyncSession, sig: DocumentSignature) -> None:
     # Choose entity_type/id and link based on target_kind
     entity_type = "contract"
     entity_id: Optional[int] = sig.contract_id
-    link = (
-        f"/candidates?contract={sig.contract_id}" if sig.contract_id else None
-    )
+    link = f"/candidates?contract={sig.contract_id}" if sig.contract_id else None
     title = "Kandydat odrzucił umowę"
     msg_target = f"umowy kontraktu #{sig.contract_id}"
 

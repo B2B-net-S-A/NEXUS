@@ -166,9 +166,7 @@ async def prepare_send_amendment(
     if a is None:
         raise HTTPException(404, detail="Amendment not found")
     if a.file_path is None:
-        raise HTTPException(
-            409, detail="Cannot send — upload the amendment PDF first"
-        )
+        raise HTTPException(409, detail="Cannot send — upload the amendment PDF first")
     _validate_signer(payload)
 
     expires_at: Optional[datetime] = None
@@ -237,9 +235,7 @@ def _build_create_payload(*, signature: DocumentSignature, title: str) -> dict:
     }
 
 
-async def _mark_failed(
-    db: AsyncSession, sig: DocumentSignature, err: str
-) -> None:
+async def _mark_failed(db: AsyncSession, sig: DocumentSignature, err: str) -> None:
     sig.status = SignatureStatus.failed
     sig.last_error = err[:1000]
     sig.retry_count = (sig.retry_count or 0) + 1

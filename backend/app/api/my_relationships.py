@@ -81,9 +81,7 @@ async def list_my_key_relationships(
         stmt = stmt.where(Contact.key_relationship_owner_id == user.id)
 
     # Sort: NULLs first (nigdy nie było — pilna potrzeba), potem najstarsze
-    stmt = stmt.order_by(
-        Contact.last_personal_touchpoint_at.asc().nullsfirst()
-    )
+    stmt = stmt.order_by(Contact.last_personal_touchpoint_at.asc().nullsfirst())
 
     rows = (await db.execute(stmt)).all()
 

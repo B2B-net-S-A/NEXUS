@@ -103,9 +103,7 @@ def _compute_monthly_margin(order: ClientOrder, contract: Contract) -> Optional[
     return monthly_client - monthly_cand
 
 
-async def _order_to_read(
-    db: AsyncSession, order: ClientOrder
-) -> ClientOrderRead:
+async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
     """Pełny widok Orderu z computed fields (candidate_name, monthly_margin, etc)."""
     contract = order.contract or await db.scalar(
         select(Contract).where(Contract.id == order.contract_id)
@@ -221,9 +219,7 @@ async def list_contractors_with_orders(
             )
         )
 
-    return ClientOrdersGroupedResponse(
-        contractors=items, total_contractors=len(items)
-    )
+    return ClientOrdersGroupedResponse(contractors=items, total_contractors=len(items))
 
 
 # ── Autocomplete for "Dodaj przedłużenie" ──────────────────────────────────
@@ -421,9 +417,7 @@ async def update_order(
     return await _order_to_read(db, order)
 
 
-@router.delete(
-    "/{client_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{client_id}/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_order(
     client_id: int,
     order_id: int,

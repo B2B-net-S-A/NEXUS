@@ -171,7 +171,11 @@ async def create_amendment(
             entity_id=client_id,
             action="framework_contract_amendment_added",
             user_id=user.id,
-            details={"fc_id": fc_id, "name": name, "effective_date": str(effective_date)},
+            details={
+                "fc_id": fc_id,
+                "name": name,
+                "effective_date": str(effective_date),
+            },
         )
     )
     await db.flush()
