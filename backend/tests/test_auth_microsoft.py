@@ -36,6 +36,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.rate_limit import limiter as _limiter
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
 
@@ -89,8 +90,10 @@ async def cleanup_sso_users():
     if not created_emails:
         return
     async with AsyncSessionLocal() as db:
-        # Delete exchange codes referencing these users first (FK cascade ON,
-        # but explicit is cheaper than relying on CASCADE in tests).
+        # Delete child rows referencing these users first. FKs on
+        # auth_exchange_codes + activities both lack ON DELETE CASCADE, so
+        # the application-side audit row that the SSO callback writes
+        # (`Activity` for the login event) blocks the User delete otherwise.
         users = (
             await db.execute(select(User.id).where(User.email.in_(created_emails)))
         ).all()
@@ -99,6 +102,7 @@ async def cleanup_sso_users():
             await db.execute(
                 delete(AuthExchangeCode).where(AuthExchangeCode.user_id.in_(ids))
             )
+            await db.execute(delete(Activity).where(Activity.user_id.in_(ids)))
         await db.execute(delete(User).where(User.email.in_(created_emails)))
         await db.commit()
 
