@@ -646,6 +646,22 @@ async def get_job(
     return payload
 
 
+async def _populate_hiring_manager_name(
+    db: AsyncSession, payload: dict, job: Job
+) -> dict:
+    """Helper: dodaje hiring_manager_name do response payload z join'a na Contact."""
+    if job.hiring_manager_contact_id:
+        from app.models.contact import Contact  # noqa: PLC0415
+
+        hm = await db.scalar(
+            select(Contact.name).where(Contact.id == job.hiring_manager_contact_id)
+        )
+        payload["hiring_manager_name"] = hm
+    else:
+        payload["hiring_manager_name"] = None
+    return payload
+
+
 @router.patch("/{job_id}", response_model=JobResponse)
 async def update_job(
     job_id: int,
@@ -761,7 +777,12 @@ async def update_job(
         _after = {f: getattr(job, f) for f in _before.keys()}
         if is_significant_job_update(_before, _after):
             background_tasks.add_task(run_marketplace_scan_safe, job_id)
-    return job
+
+    # Populate hiring_manager_name żeby PATCH response zawierał aktualną nazwę
+    # bez konieczności re-fetcha GET /jobs/{id} po stronie UI.
+    payload = JobResponse.model_validate(job).model_dump()
+    payload = await _populate_hiring_manager_name(db, payload, job)
+    return payload
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
