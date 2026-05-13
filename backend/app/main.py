@@ -625,6 +625,23 @@ async def api_health_check():
         except Exception:
             checks["m365"] = "degraded"
 
+    # CloudTalk status — informational only. `unconfigured` while kill-switch
+    # is off OR API key id is empty (default state pre-provisioning).
+    if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
+        checks["cloudtalk"] = "unconfigured"
+    else:
+        try:
+            from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
+
+            cfg = CloudTalkConfig.from_settings()
+            async with CloudTalkClient(cfg) as ct:
+                await asyncio.wait_for(ct.ping(), timeout=2.0)
+            checks["cloudtalk"] = "healthy"
+        except asyncio.TimeoutError:
+            checks["cloudtalk"] = "degraded"
+        except Exception:
+            checks["cloudtalk"] = "unhealthy"
+
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
 
