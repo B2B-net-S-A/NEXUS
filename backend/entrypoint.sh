@@ -111,6 +111,14 @@ _ENUM_STATEMENTS = [
     # pierwotnym VARCHAR(32) i blokowały upgrade na prod. VARCHAR(128) jest
     # bezpiecznym górnym limitem dla nazewnictwa w tym repo.
     "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)",
+    # FX rates updated_at (migration 0027_fx_rates): TimestampMixin daje
+    # created_at + updated_at, ale prod ma tylko created_at — defensive ALTER
+    # w 0027 nigdy nie odpalił (multi-head drift między 0091 i 0097 zatrzymał
+    # alembic_version). Bez kolumny każda kwerenda na fx_rates wywala
+    # `column fx_rates.updated_at does not exist` (postgres ERROR, blokuje
+    # /api/contracts forecast + NBP refresh cron).
+    "ALTER TABLE fx_rates ADD COLUMN IF NOT EXISTS updated_at "
+    "TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()",
     # Phase 15 / Phase C (migration 0057_champion_suggestion_rating):
     # kolumny rating + rating_comment na champion_profile_suggestions.
     # Safety-net: POST /champion-suggestions/{id}/rate pisze te kolumny —
