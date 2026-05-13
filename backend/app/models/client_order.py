@@ -85,9 +85,7 @@ class ClientOrder(Base, TimestampMixin):
     )
 
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    end_date: Mapped[Optional[date]] = mapped_column(
-        Date, nullable=True, index=True
-    )
+    end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     """``NULL`` = open-ended. Indeksowane — scheduler skanuje expiry."""
 
     # Rate_client per Order — może różnić się od Contract.rate_client przy

@@ -129,7 +129,8 @@ async def _scan_framework_contracts(db: AsyncSession) -> int:
             (
                 await db.execute(
                     select(ClientFrameworkContract).where(
-                        ClientFrameworkContract.status == FrameworkContractStatus.active,
+                        ClientFrameworkContract.status
+                        == FrameworkContractStatus.active,
                         ClientFrameworkContract.expiry_date == target_date,
                     )
                 )

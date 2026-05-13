@@ -198,9 +198,7 @@ async def advanced_candidate_search(
         page_end = page_start + body.page_size
         page_ids = hybrid_order[page_start:page_end]
         if page_ids:
-            base = select(Candidate).where(
-                Candidate.id.in_(page_ids), where_clause
-            )
+            base = select(Candidate).where(Candidate.id.in_(page_ids), where_clause)
             loaded = (await db.execute(base)).scalars().all()
             by_id = {c.id: c for c in loaded}
             candidates = [by_id[cid] for cid in page_ids if cid in by_id]
