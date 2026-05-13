@@ -93,7 +93,7 @@ jobs:
           # the 180s pre-sleep this gives Coolify up to 9 min to finish
           # build+restart on ARM with new heavy native deps.
           for i in $(seq 1 24); do
-            response=$(curl -fsSL "$APP_URL/api/health" 2>/dev/null || echo '')
+            response=$(curl -fsSL "$APP_URL/api/health" 2>/tmp/curl_err || echo '')
             if [ -n "$response" ]; then
               status=$(echo "$response" | jq -r '.status // "missing"')
               version=$(echo "$response" | jq -r '.version // "missing"')
@@ -108,7 +108,10 @@ jobs:
                 echo "Attempt $i: status=$status, retrying in 15s..."
               fi
             else
-              echo "Attempt $i: no response, retrying in 15s..."
+              # Surface curl's actual error so future silent failures are
+              # diagnosable in 1 attempt instead of 24 (e.g. Cloudflare WAF
+              # 403 on the runner IP, like Atlas hit — see Atlas PR #96).
+              echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
             fi
             sleep 15
           done
