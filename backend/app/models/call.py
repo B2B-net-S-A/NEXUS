@@ -25,9 +25,16 @@ class CallStatus(str, enum.Enum):
 class Call(Base, TimestampMixin):
     """Rejestr rozmów telefonicznych z kandydatami.
 
-    Inbound rows arrive via the CloudTalk webhook; outbound rows are stubbed
-    by :func:`POST /api/cloudtalk/initiate-call` and then enriched by the
-    webhook once the call ends.
+    Three event sources feed this table:
+    1. Manual ``POST /api/calls`` from the legacy "Zaloguj rozmowę" UI
+       (rarely used now that webhooks work).
+    2. Inbound CloudTalk webhooks (``/api/calls/webhook``) — INSERT on
+       call-ended, UPDATE on later transcript-ready / recording-ready.
+    3. Outbound stubs from ``POST /api/cloudtalk/initiate-call`` —
+       status=initiated; webhook UPSERT promotes to completed.
+
+    Plus periodic catch-up via ``app.tasks.cloudtalk_sync`` for events
+    missed during webhook downtime (last 30d backfill window by default).
     """
 
     __tablename__ = "calls"

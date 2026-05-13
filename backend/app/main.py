@@ -242,6 +242,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -265,6 +266,7 @@ async def lifespan(app: FastAPI):
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+        "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
     }
 
     yield
