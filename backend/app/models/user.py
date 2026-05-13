@@ -109,6 +109,16 @@ class User(Base, TimestampMixin):
     )
     microsoft_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # ── CloudTalk telephony (Phase CloudTalk.2, migracja 0099) ──────────────
+    # When non-NULL, links this user to a CloudTalk agent. The mapping is set
+    # via POST /api/cloudtalk/agents/{id}/assign (or auto-linked on email match
+    # by /sync-agents). Required for outbound click-to-call (Phase 3) and
+    # webhook user_id resolution (Call.user_id set when webhook payload carries
+    # an agent.id that matches this column).
+    cloudtalk_agent_id: Mapped[Optional[int]] = mapped_column(
+        Integer, unique=True, nullable=True, index=True
+    )
+
     # Relationships
     authored_notes = relationship(
         "Note", back_populates="author", foreign_keys="Note.author_id"

@@ -25,7 +25,6 @@ import {
  MapPin,
  MessageSquare,
  PencilLine,
- Phone,
  PhoneCall,
  Plus,
  Printer,
@@ -46,6 +45,8 @@ import api, {
  type CVOriginalSnapshot,
  type CVBrandedState,
 } from"@/lib/api";
+import CallButton from"@/components/calls/CallButton";
+import CallsTimeline from"@/components/calls/CallsTimeline";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
@@ -514,13 +515,11 @@ export function CandidateDetailV2({
  </a>
  )}
  {candidate.phone && (
- <a
- href={`tel:${candidate.phone}`}
- className="inline-flex items-center gap-1.5 hover:text-primary"
- >
- <Phone className="h-3.5 w-3.5 text-muted-foreground" />
- {candidate.phone}
- </a>
+ <CallButton
+ candidateId={Number(id)}
+ phone={candidate.phone}
+ compact
+ />
  )}
  {candidate.location && (
  <span className="inline-flex items-center gap-1.5">
@@ -780,7 +779,7 @@ export function CandidateDetailV2({
  </TabsContent>
  <TabsContent value="rozmowy" className="mt-0">
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
- <RozmowyTab calls={calls} />
+ <CallsTimeline calls={calls as any} />
  <FirefliesTranscriptsWidget candidateId={Number(id)} />
  </div>
  </TabsContent>

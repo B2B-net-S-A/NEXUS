@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
+import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
@@ -313,12 +314,13 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <Microsoft365Card />
           <FirefliesCard />
+          <CloudTalkSettingsCard />
 
           {/* Placeholder for future integrations */}
           <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">
             <Plug className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">Więcej integracji wkrótce</p>
-            <p className="text-xs text-muted-foreground mt-1">LinkedIn, CloudTalk, Slack...</p>
+            <p className="text-xs text-muted-foreground mt-1">LinkedIn, Slack...</p>
           </div>
         </div>
       )}

@@ -43,6 +43,7 @@ from app.api import admin
 from app.api import emails
 from app.api import postings
 from app.api import calls
+from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
@@ -241,6 +242,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -264,6 +266,7 @@ async def lifespan(app: FastAPI):
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+        "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
     }
 
     yield
@@ -378,6 +381,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(emails.router, prefix="/api", tags=["emails"])
 app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
+app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(client_materials.router, prefix="/api", tags=["client-materials"])
@@ -624,6 +628,23 @@ async def api_health_check():
             checks["m365"] = "healthy" if (count or 0) >= 1 else "degraded"
         except Exception:
             checks["m365"] = "degraded"
+
+    # CloudTalk status — informational only. `unconfigured` while kill-switch
+    # is off OR API key id is empty (default state pre-provisioning).
+    if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
+        checks["cloudtalk"] = "unconfigured"
+    else:
+        try:
+            from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
+
+            cfg = CloudTalkConfig.from_settings()
+            async with CloudTalkClient(cfg) as ct:
+                await asyncio.wait_for(ct.ping(), timeout=2.0)
+            checks["cloudtalk"] = "healthy"
+        except asyncio.TimeoutError:
+            checks["cloudtalk"] = "degraded"
+        except Exception:
+            checks["cloudtalk"] = "unhealthy"
 
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
