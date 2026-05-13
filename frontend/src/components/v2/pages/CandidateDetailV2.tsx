@@ -25,7 +25,6 @@ import {
  MapPin,
  MessageSquare,
  PencilLine,
- Phone,
  PhoneCall,
  Plus,
  Printer,
@@ -46,6 +45,7 @@ import api, {
  type CVOriginalSnapshot,
  type CVBrandedState,
 } from"@/lib/api";
+import CallButton from"@/components/calls/CallButton";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
@@ -514,13 +514,11 @@ export function CandidateDetailV2({
  </a>
  )}
  {candidate.phone && (
- <a
- href={`tel:${candidate.phone}`}
- className="inline-flex items-center gap-1.5 hover:text-primary"
- >
- <Phone className="h-3.5 w-3.5 text-muted-foreground" />
- {candidate.phone}
- </a>
+ <CallButton
+ candidateId={Number(id)}
+ phone={candidate.phone}
+ compact
+ />
  )}
  {candidate.location && (
  <span className="inline-flex items-center gap-1.5">

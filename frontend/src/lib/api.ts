@@ -3018,4 +3018,94 @@ export const dictionariesApi = {
     ),
 };
 
+// ── CloudTalk telephony (Phase CloudTalk.2+) ────────────────────────────────
+
+export type CallDirection = "inbound" | "outbound";
+export type CallStatus =
+  | "completed"
+  | "missed"
+  | "voicemail"
+  | "failed"
+  | "initiated";
+
+export interface Call {
+  id: number;
+  candidate_id: number;
+  user_id: number | null;
+  direction: CallDirection;
+  duration_seconds: number | null;
+  status: CallStatus;
+  transcript: string | null;
+  summary: string | null;
+  recording_url: string | null;
+  cloudtalk_call_id: string | null;
+  cloudtalk_agent_id: number | null;
+  started_at: string | null;
+  created_at: string;
+}
+
+export interface CallStats {
+  user: {
+    total_calls: number;
+    avg_duration_seconds: number | null;
+    avg_duration_formatted: string;
+    calls_this_week: number;
+    calls_this_month: number;
+  };
+  global: {
+    calls_this_week: number;
+    avg_duration_seconds: number | null;
+    avg_duration_formatted: string;
+  };
+  cloudtalk_status: "live" | "disabled";
+}
+
+export interface CloudTalkAgent {
+  id: number;
+  firstname: string | null;
+  lastname: string | null;
+  email: string | null;
+  default_number: string | null;
+  linked_user_id: number | null;
+  linked_user_email: string | null;
+}
+
+export interface InitiateCallResponse {
+  call_id: number;
+  candidate_id: number;
+  phone: string;
+  cloudtalk_response: Record<string, unknown>;
+}
+
+export interface SyncAgentsResponse {
+  linked: number;
+  already_linked: number;
+  unmatched: CloudTalkAgent[];
+}
+
+export const callsApi = {
+  getForCandidate: (candidateId: number) =>
+    api.get<Call[]>(`/api/candidates/${candidateId}/calls`).then((r) => r.data),
+  getStats: () => api.get<CallStats>("/api/calls/stats").then((r) => r.data),
+};
+
+export const cloudtalkApi = {
+  listAgents: () =>
+    api.get<CloudTalkAgent[]>("/api/cloudtalk/agents").then((r) => r.data),
+  assignAgent: (agentId: number, userId: number) =>
+    api.post(`/api/cloudtalk/agents/${agentId}/assign`, { user_id: userId }),
+  unassignAgent: (agentId: number) =>
+    api.delete(`/api/cloudtalk/agents/${agentId}/assign`),
+  syncAgents: () =>
+    api
+      .post<SyncAgentsResponse>("/api/cloudtalk/sync-agents")
+      .then((r) => r.data),
+  initiateCall: (candidateId: number) =>
+    api
+      .post<InitiateCallResponse>("/api/cloudtalk/initiate-call", {
+        candidate_id: candidateId,
+      })
+      .then((r) => r.data),
+};
+
 export default api;
