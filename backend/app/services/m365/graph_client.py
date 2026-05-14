@@ -33,6 +33,10 @@ _CONCURRENCY = 4
 _MAX_RETRIES_NETWORK = 2
 _MAX_RETRIES_THROTTLE = 4  # cap on consecutive 429/503s — prevents infinite loop
 _RETRY_AFTER_CAP_SECONDS = 60
+# Phase 2.3 — hard ceiling on a single Graph call including all retries.
+# httpx already has a 30s timeout per *request*, but retry loops (4× throttle
+# + 2× network + 1× refresh) could otherwise stack into minutes.
+_HARD_TIMEOUT_SECONDS = 120
 
 
 class GraphRequestError(RuntimeError):
@@ -90,65 +94,92 @@ class GraphClient:
             hdrs.update(headers)
 
         async with GraphClient._semaphore:
-            refreshed_once = False
-            network_tries = 0
-            throttle_tries = 0
-            while True:
-                try:
-                    resp = await self._client.request(
-                        method, url, params=params, json=json, headers=hdrs
-                    )
-                except (httpx.ConnectError, httpx.ReadTimeout, httpx.ReadError):
-                    network_tries += 1
-                    if network_tries > _MAX_RETRIES_NETWORK:
-                        raise
-                    await asyncio.sleep(1.0 + random.random() * 1.5)
-                    continue
+            # Phase 2.3 — wrap the entire retry loop in a hard timeout so a
+            # hung Graph endpoint can't poison the connection pool indefinitely.
+            try:
+                async with asyncio.timeout(_HARD_TIMEOUT_SECONDS):
+                    return await self._request_loop(method, url, params, json, hdrs, expect_json)
+            except asyncio.TimeoutError as exc:
+                raise GraphRequestError(
+                    599, f"hard timeout after {_HARD_TIMEOUT_SECONDS}s"
+                ) from exc
 
-                # 401 → refresh once and retry.
-                if resp.status_code == 401 and not refreshed_once:
-                    refreshed_once = True
-                    await self._refresh_and_persist()
-                    hdrs["Authorization"] = f"Bearer {self._access_token}"
-                    continue
+    async def _request_loop(
+        self,
+        method: str,
+        url: str,
+        params: Optional[dict],
+        json: Optional[Any],
+        hdrs: dict,
+        expect_json: bool,
+    ) -> Any:
+        refreshed_once = False
+        network_tries = 0
+        throttle_tries = 0
+        while True:
+            try:
+                resp = await self._client.request(
+                    method, url, params=params, json=json, headers=hdrs
+                )
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.ReadError):
+                network_tries += 1
+                if network_tries > _MAX_RETRIES_NETWORK:
+                    raise
+                await asyncio.sleep(1.0 + random.random() * 1.5)
+                continue
 
-                # 429 / 503 → honor Retry-After (clamped), then retry up to N times.
-                if resp.status_code in (429, 503):
-                    throttle_tries += 1
-                    if throttle_tries > _MAX_RETRIES_THROTTLE:
-                        # Give up rather than loop forever.
-                        raise GraphRequestError(
-                            resp.status_code,
-                            f"retry_after cap exceeded ({_MAX_RETRIES_THROTTLE}x)",
-                        )
-                    retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-                    sleep_s = min(retry_after, _RETRY_AFTER_CAP_SECONDS)
-                    logger.warning(
-                        "Graph throttled %s (try %d/%d) — sleeping %ds",
+            # 401 → refresh once and retry.
+            if resp.status_code == 401 and not refreshed_once:
+                refreshed_once = True
+                await self._refresh_and_persist()
+                hdrs["Authorization"] = f"Bearer {self._access_token}"
+                continue
+
+            # 429 / 503 → honor Retry-After (clamped), then retry up to N times.
+            if resp.status_code in (429, 503):
+                throttle_tries += 1
+                if throttle_tries > _MAX_RETRIES_THROTTLE:
+                    # Give up rather than loop forever.
+                    raise GraphRequestError(
                         resp.status_code,
-                        throttle_tries,
-                        _MAX_RETRIES_THROTTLE,
-                        sleep_s,
+                        f"retry_after cap exceeded ({_MAX_RETRIES_THROTTLE}x)",
                     )
-                    await asyncio.sleep(sleep_s)
-                    continue
+                retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
+                sleep_s = min(retry_after, _RETRY_AFTER_CAP_SECONDS)
+                logger.warning(
+                    "Graph throttled %s (try %d/%d) — sleeping %ds",
+                    resp.status_code,
+                    throttle_tries,
+                    _MAX_RETRIES_THROTTLE,
+                    sleep_s,
+                )
+                await asyncio.sleep(sleep_s)
+                continue
 
-                if resp.status_code >= 400:
-                    body: Any
-                    try:
-                        body = resp.json()
-                    except Exception:  # noqa: BLE001
-                        body = resp.text
-                    raise GraphRequestError(resp.status_code, body)
+            if resp.status_code >= 400:
+                body: Any
+                try:
+                    body = resp.json()
+                except Exception:  # noqa: BLE001
+                    body = resp.text
+                raise GraphRequestError(resp.status_code, body)
 
-                if not expect_json or resp.status_code == 204:
-                    return resp.content
-                if not resp.content:
-                    return {}
-                return resp.json()
+            if not expect_json or resp.status_code == 204:
+                return resp.content
+            if not resp.content:
+                return {}
+            return resp.json()
 
     async def _refresh_and_persist(self) -> None:
-        """Refresh access token and persist rotated refresh token to DB."""
+        """Refresh access token and persist rotated refresh token to DB.
+
+        Phase 2.2 — atomic: if Graph rotates the refresh token but the DB
+        commit fails (or encryption fails), we MUST keep the previous tokens
+        in memory and DB so the next attempt uses the still-valid refresh
+        token instead of a half-saved one. We snapshot the prior in-memory
+        state, then on any failure post-Graph-response we restore it before
+        re-raising.
+        """
         logger.info("Graph 401 — refreshing tokens for connection %s", self._conn.id)
         try:
             bundle = await m365_oauth.refresh_tokens(self._refresh_token)
@@ -160,14 +191,40 @@ class GraphClient:
             await self._db.commit()
             raise
 
-        self._access_token = bundle.access_token
-        self._refresh_token = bundle.refresh_token
-        self._conn.access_token_ct = self._cipher.encrypt(bundle.access_token)
-        self._conn.refresh_token_ct = self._cipher.encrypt(bundle.refresh_token)
-        self._conn.expires_at = bundle.expires_at
-        if bundle.scopes:
-            self._conn.scopes_granted = bundle.scopes
-        await self._db.commit()
+        prev_access = self._access_token
+        prev_refresh = self._refresh_token
+        try:
+            new_access_ct = self._cipher.encrypt(bundle.access_token)
+            new_refresh_ct = self._cipher.encrypt(bundle.refresh_token)
+            self._conn.access_token_ct = new_access_ct
+            self._conn.refresh_token_ct = new_refresh_ct
+            self._conn.expires_at = bundle.expires_at
+            if bundle.scopes:
+                self._conn.scopes_granted = bundle.scopes
+            self._conn.refresh_count = (self._conn.refresh_count or 0) + 1
+            # In-memory only mutated AFTER encrypt succeeds — if encrypt
+            # raises, the connection row is also untouched.
+            self._access_token = bundle.access_token
+            self._refresh_token = bundle.refresh_token
+            await self._db.commit()
+        except Exception:
+            # Roll back in-memory state too — DB rollback alone wouldn't help
+            # because we already overwrote self._access_token above (well,
+            # only if encrypt succeeded). Either way, restore the previous
+            # values so the next call retries from a known-good state.
+            self._access_token = prev_access
+            self._refresh_token = prev_refresh
+            try:
+                await self._db.rollback()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "graph_client: rollback failed after refresh persist failure"
+                )
+            logger.exception(
+                "graph_client: failed to persist rotated tokens for conn %s",
+                self._conn.id,
+            )
+            raise
 
     # ── Public surface ─────────────────────────────────────────────────────
     async def get(self, url: str, params: Optional[dict] = None) -> Any:

@@ -151,27 +151,114 @@ async def _sync_messages(
     conn: M365Connection,
     result: SyncResult,
 ) -> None:
-    """Pull messages via delta query (or initial backfill) and upsert them."""
-    is_backfill = conn.delta_token_messages is None
+    """Pull messages via delta query (or initial backfill) and upsert them.
 
-    # Delta endpoints per folder. Graph's /messages/delta is on individual folders.
-    folders = ["Inbox", "SentItems"]
-    for folder in folders:
+    Phase 2.5 — Inbox and SentItems use SEPARATE delta cursors so neither
+    folder overwrites the other's progress. Phase 2.4 — on a 410 we bump
+    `delta_reset_count`; if more than 3 within 24h the connection is
+    deactivated to stop a runaway full-refetch.
+    """
+    # Per-folder backfill detection: a folder with NO cursor is treated as
+    # "first time" and pulls `M365_BACKFILL_MONTHS` of history.
+    folder_specs = [
+        ("Inbox", "delta_token_inbox"),
+        ("SentItems", "delta_token_sent"),
+    ]
+
+    any_backfill = False
+
+    for folder, cursor_attr in folder_specs:
+        is_backfill = getattr(conn, cursor_attr) is None
+        any_backfill = any_backfill or is_backfill
         try:
-            await _sync_messages_for_folder(db, gc, conn, result, folder, is_backfill)
+            await _sync_messages_for_folder(
+                db, gc, conn, result, folder, cursor_attr, is_backfill
+            )
         except GraphRequestError as exc:
             if exc.status == 410:
-                # Delta token invalidated — reset, do a 30d fallback on next run.
-                logger.warning("Delta 410 for %s/%s — resetting token", conn.id, folder)
-                conn.delta_token_messages = None
-                await db.commit()
+                # Delta token invalidated. Reset to None so the next run does
+                # a 30-day fallback. Increment counter; if it's a runaway,
+                # deactivate to stop the cycle.
+                await _on_delta_invalidation(db, conn, folder, cursor_attr)
             else:
                 raise
 
-    if is_backfill:
-        conn.backfill_completed_at = datetime.now(timezone.utc)
-        conn.synced_through = datetime.now(timezone.utc)
-        await db.commit()
+    if any_backfill:
+        # Mark backfill complete only when ALL folders have a cursor (i.e. no
+        # folder is still in "first time" mode after this run).
+        if conn.delta_token_inbox is not None and conn.delta_token_sent is not None:
+            conn.backfill_completed_at = datetime.now(timezone.utc)
+            conn.synced_through = datetime.now(timezone.utc)
+            await db.commit()
+
+
+# Phase 2.4 — max 410-resets within 24h before we give up.
+_MAX_DELTA_RESETS_PER_24H = 3
+
+
+def _is_valid_delta_link(url: Optional[str]) -> bool:
+    """Sanity-check a persisted delta link before we hand it back to Graph.
+
+    Cheap defense against accidental corruption — we don't fully parse the
+    URL, just verify the shape Graph emits: HTTPS, graph.microsoft.com host,
+    and a `$deltatoken=` parameter. Anything else gets treated as None and
+    triggers a fresh backfill.
+    """
+    if not url:
+        return False
+    return (
+        url.startswith("https://graph.microsoft.com/")
+        and "$deltatoken=" in url
+    )
+
+
+async def _on_delta_invalidation(
+    db: AsyncSession,
+    conn: M365Connection,
+    folder: str,
+    cursor_attr: str,
+) -> None:
+    """Phase 2.4 — reset the cursor and decide whether to deactivate.
+
+    A normal 410 (delta token expired after ~30 days of inactivity) is fine
+    and self-heals on the next iteration. A 410 that recurs within 24h after
+    we've already reset 3 times is a sign of something deeper (Graph schema
+    change, broken upsert that prevents acknowledging deltas, etc.) — we
+    deactivate so the loop doesn't keep re-pulling 30 days of mail forever.
+    """
+    now = datetime.now(timezone.utc)
+    last = conn.delta_last_reset_at
+    within_24h = last is not None and (now - last) < timedelta(hours=24)
+    if within_24h:
+        conn.delta_reset_count = (conn.delta_reset_count or 0) + 1
+    else:
+        # Outside window — start a fresh count of 1.
+        conn.delta_reset_count = 1
+    conn.delta_last_reset_at = now
+    setattr(conn, cursor_attr, None)
+
+    if conn.delta_reset_count > _MAX_DELTA_RESETS_PER_24H:
+        logger.error(
+            "m365 conn %s: %s delta reset %d× in 24h — deactivating",
+            conn.id,
+            folder,
+            conn.delta_reset_count,
+        )
+        conn.is_active = False
+        conn.last_sync_status = M365SyncStatus.error
+        conn.last_error = (
+            f"Delta cursor for {folder} invalidated "
+            f"{conn.delta_reset_count}× in 24h — manual intervention required."
+        )
+    else:
+        logger.warning(
+            "m365 conn %s: Delta 410 for %s — reset count %d/%d in 24h window",
+            conn.id,
+            folder,
+            conn.delta_reset_count,
+            _MAX_DELTA_RESETS_PER_24H,
+        )
+    await db.commit()
 
 
 async def _sync_messages_for_folder(
@@ -180,12 +267,23 @@ async def _sync_messages_for_folder(
     conn: M365Connection,
     result: SyncResult,
     folder: str,
+    cursor_attr: str,
     is_backfill: bool,
 ) -> None:
-    if conn.delta_token_messages:
-        url = conn.delta_token_messages
+    """Phase 2.5 — `cursor_attr` is "delta_token_inbox" or "delta_token_sent",
+    so each folder maintains its own deltaLink independently."""
+    existing_cursor = getattr(conn, cursor_attr)
+    if _is_valid_delta_link(existing_cursor):
+        url = existing_cursor
         params = None
     else:
+        if existing_cursor:
+            logger.warning(
+                "m365 conn %s: %s has invalid delta link — falling back to backfill",
+                conn.id,
+                cursor_attr,
+            )
+            setattr(conn, cursor_attr, None)
         url = f"/me/mailFolders/{folder}/messages/delta"
         params = {"$top": 50, "$select": MESSAGE_SELECT}
         if is_backfill:
@@ -216,13 +314,8 @@ async def _sync_messages_for_folder(
         if page.get("@odata.deltaLink"):
             last_delta_link = page["@odata.deltaLink"]
 
-    if last_delta_link:
-        # Per-folder deltaLinks need separate columns long-term; Phase 1
-        # uses a single slot (good enough — we only need ONE active delta per folder,
-        # and Graph's delta tokens are folder-scoped URLs so the last folder wins).
-        # For correctness we keep the most recent one; on next run the OTHER folder
-        # re-runs as "first time" which is a no-op for already-upserted messages.
-        conn.delta_token_messages = last_delta_link
+    if last_delta_link and _is_valid_delta_link(last_delta_link):
+        setattr(conn, cursor_attr, last_delta_link)
         await db.commit()
 
 
