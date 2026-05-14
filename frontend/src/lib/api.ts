@@ -394,6 +394,18 @@ export const calendarApi = {
   updateEvent: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/calendar/events/${id}`, data),
   deleteEvent: (id: number) => api.delete(`/api/calendar/events/${id}`),
+  // Phase 5.4 — overlap check used by ScheduleInterviewModal before booking.
+  conflicts: (params: {
+    start: string;
+    end: string;
+    exclude_event_id?: number;
+    user_id?: number;
+  }) => api.get("/api/calendar/conflicts", { params }),
+  conflictsSummary: (params: {
+    start: string;
+    end: string;
+    user_id?: number;
+  }) => api.get("/api/calendar/conflicts-summary", { params }),
 };
 
 // ── Notifications ─────────────────────────────────────────────────────────────
