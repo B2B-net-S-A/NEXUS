@@ -10,8 +10,6 @@ Shape contract per ~/.claude/rules/deployment.md:
 HTTP 200 for healthy/degraded, 503 for unhealthy.
 """
 
-import os
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -96,6 +94,49 @@ async def test_api_health_includes_database_check(env_with_metadata):
     else:
         assert response.status_code == 503
         assert body["status"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_api_health_autenti_unconfigured_by_default(env_with_metadata, monkeypatch):
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", False)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+    body = response.json()
+    assert body["checks"].get("autenti") == "unconfigured"
+
+
+@pytest.mark.asyncio
+async def test_api_health_autenti_misconfigured_when_enabled_without_creds(
+    env_with_metadata, monkeypatch
+):
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", True)
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_ID", "")
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_SECRET", "")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+    body = response.json()
+    assert body["checks"].get("autenti") == "misconfigured"
+
+
+@pytest.mark.asyncio
+async def test_api_health_autenti_healthy_when_fully_configured(
+    env_with_metadata, monkeypatch
+):
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", True)
+    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_ID", "test-id")
+    monkeypatch.setattr(
+        "app.core.config.settings.AUTENTI_CLIENT_SECRET", "test-secret"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+    body = response.json()
+    assert body["checks"].get("autenti") == "healthy"
 
 
 @pytest.mark.asyncio

@@ -583,7 +583,7 @@ def _resolve_deployed_at() -> str:
 async def api_health_check():
     """Standard healthcheck per ~/.claude/rules/deployment.md.
 
-    Shape: {status, version, deployedAt, checks: {database, m365}}.
+    Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
     HTTP 503 only when `database` is unhealthy (uptime-probe contract);
     `m365` is informational and does not affect the gate.
     Database ping is bounded to 2s; M365 connection count to 1s.
@@ -645,6 +645,16 @@ async def api_health_check():
             checks["cloudtalk"] = "degraded"
         except Exception:
             checks["cloudtalk"] = "unhealthy"
+
+    # Autenti status — informational only. Config-only probe (no network call
+    # to keep uptime-probe latency low — full ping lives at /api/autenti/health
+    # which is auth-protected).
+    if not settings.AUTENTI_ENABLED:
+        checks["autenti"] = "unconfigured"
+    elif not settings.AUTENTI_CLIENT_ID or not settings.AUTENTI_CLIENT_SECRET:
+        checks["autenti"] = "misconfigured"
+    else:
+        checks["autenti"] = "healthy"
 
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
