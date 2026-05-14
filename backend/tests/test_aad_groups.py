@@ -307,9 +307,11 @@ async def test_sso_callback_blocks_user_with_no_matching_group(
     )
     assert resp.status_code == 302
     # Error redirect to /login, NOT to /login/microsoft/callback.
-    assert "/login?" in resp.headers["location"]
-    # Polish error message — keep stable for frontend i18n.
-    assert "Microsoft AD" in resp.headers["location"]
+    location = resp.headers["location"]
+    assert "/login?" in location
+    # Polish error message — keep stable for frontend i18n. URL-encoded form
+    # has ``+`` for spaces, so match the URL-safe substring.
+    assert "Microsoft+AD" in location or "Microsoft%20AD" in location
 
     async with AsyncSessionLocal() as db:
         u = await db.scalar(select(User).where(User.email == email))
