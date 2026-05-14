@@ -99,8 +99,24 @@ class M365Connection(Base, TimestampMixin):
     scopes_granted: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
 
     # Opaque @odata.deltaLink strings — we pass them back verbatim.
+    # `delta_token_messages` is deprecated (Phase 2.5): it was shared by both
+    # Inbox and SentItems syncs so each folder kept overwriting the other's
+    # cursor. Kept temporarily for rollback safety; new code reads/writes
+    # `delta_token_inbox` and `delta_token_sent`.
     delta_token_messages: Mapped[Optional[str]] = mapped_column(Text)
+    delta_token_inbox: Mapped[Optional[str]] = mapped_column(Text)
+    delta_token_sent: Mapped[Optional[str]] = mapped_column(Text)
     delta_token_events: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Phase 2.2 — count successful refresh_tokens() calls. Used for anomaly
+    # detection (>10/hr signals a refresh loop bug).
+    refresh_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Phase 2.4 — track delta cursor invalidations. If >3 within 24h we stop
+    # syncing this connection until manually intervened.
+    delta_reset_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    delta_last_reset_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     # Backfill high-water mark (oldest message date we've synced through).
     synced_through: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -209,6 +225,12 @@ class Email(Base, TimestampMixin):
 
     # Verbatim Graph `categories` array — useful downstream for richer filters.
     raw_categories: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
+
+    # Phase 2.6 — idempotency key for outbound sends (sender.send_new).
+    # Format: sha256(user_id|sorted_recipients|subject|minute_bucket). NULL for
+    # messages synced from Graph (matched on m365_message_id instead). A unique
+    # partial index in migration 0102 enforces uniqueness only on NOT NULL.
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
