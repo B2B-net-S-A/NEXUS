@@ -68,6 +68,14 @@ class CalendarEvent(Base, TimestampMixin):
     online_meeting_url: Mapped[Optional[str]] = mapped_column(String(998))
     recording_url: Mapped[Optional[str]] = mapped_column(String(998))
 
+    # Phase 7.8 — last time the OneDrive recording-discovery loop inspected
+    # this event. Set whether or not a recording was found, so the loop can
+    # tell apart "never scanned" (NULL → urgent) from "scanned but no link
+    # yet" (recent timestamp → wait a few more ticks before re-scanning).
+    recording_discovered_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+
     # Phase 7b.6 — external calendar sources (iCal / Outlook / Google)
     external_id: Mapped[Optional[str]] = mapped_column(String(200), index=True)
     external_source: Mapped[Optional[str]] = mapped_column(

@@ -205,6 +205,24 @@ class Settings(BaseSettings):
     # changes within a day. Clamped to >=60s by the cache.
     M365_SIGNATURE_CACHE_TTL_SECONDS: int = 86400
 
+    # Phase 7.8 — periodic OneDrive scan for Teams meeting recordings.
+    # Teams auto-saves the recording to the organizer's OneDrive in
+    # /Recordings/<title>.mp4 once the meeting ends. We poll a few times
+    # after the event (~6h cadence over the lookback window) so the link
+    # appears in NEXUS without anyone uploading anything manually.
+    # OFF by default — needs the Phase 7.1 columns deployed first, and we
+    # only want to spend Graph quota when interviews are routinely recorded.
+    M365_RECORDING_DISCOVERY_ENABLED: bool = False
+    # Cadence. Clamped to >=600s inside the loop; 6h matches how long it
+    # typically takes Teams to publish the recording (transcode + upload).
+    M365_RECORDING_DISCOVERY_INTERVAL_SECONDS: int = 21600
+    # How far back to scan. 7 days catches every realistic Teams publish
+    # delay while keeping the candidate set small (a single recruiter has
+    # at most a handful of interview events per week).
+    M365_RECORDING_DISCOVERY_LOOKBACK_DAYS: int = 7
+    # Max events to inspect per pass — bounds Graph search calls per tick.
+    M365_RECORDING_DISCOVERY_BATCH_SIZE: int = 100
+
     # ── M365 Graph push webhooks (Phase 7.3) ──────────────────────────────────
     # Push notifications replace polling once stable. Default OFF — flip to True
     # in Coolify env after deploying so the lifespan task spawns. While the flag

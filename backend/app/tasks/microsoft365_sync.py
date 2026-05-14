@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.models.calendar_event import CalendarEvent
 from app.models.m365 import (
     Email,
     EmailMatchMethod,
@@ -32,6 +33,7 @@ from app.services.m365 import matcher as matcher_mod
 from app.services.m365 import webhooks as m365_webhooks
 from app.services.m365.graph_client import GraphClient
 from app.services.m365.matcher import IncomingMessage
+from app.services.m365.onedrive import find_meeting_recording
 
 logger = logging.getLogger(__name__)
 
@@ -433,3 +435,183 @@ async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
             await db.commit()
         except Exception:  # noqa: BLE001
             logger.exception("backfill subscriptions failed for conn=%s", conn.id)
+
+
+# ── Phase 7.8 — Teams recording discovery via OneDrive ─────────────────────
+#
+# After an interview wraps up, Teams uploads the recording to the organizer's
+# OneDrive. The link doesn't come back through the calendar event payload —
+# we have to search OneDrive separately. This loop scans recent events that
+# have an `online_meeting_url` but no `recording_url`, then asks Graph
+# (delegated `Files.Read`) to surface candidate .mp4 files.
+#
+# Why a separate loop (not piggybacking on microsoft365_sync_loop)? Recording
+# discovery cadence is ~6h (Teams takes time to publish); the message/event
+# sync wants ~5 min for snappy UX. Mixing them would either over-spend Graph
+# quota on OneDrive search or under-deliver on email freshness.
+#
+# Off by default — flip `M365_RECORDING_DISCOVERY_ENABLED=true` in Coolify
+# env after Phase 7.1 (`online_meeting_url`) has been deployed and confirmed
+# generating Teams links on real events.
+
+
+@dataclass(frozen=True)
+class RecordingDiscoveryStats:
+    """Per-pass counters — handy for tests and structured logs."""
+
+    processed: int = 0
+    matched: int = 0
+
+
+async def meeting_recording_discovery_loop() -> None:
+    """Long-running task — finds Teams recordings in organiser OneDrives.
+
+    Off by default. Set `M365_RECORDING_DISCOVERY_ENABLED=true` in Coolify
+    env to enable. The loop never dies on per-iteration failures (same
+    pattern as the sync loop).
+    """
+    if not settings.M365_INTEGRATION_ENABLED:
+        logger.info(
+            "meeting_recording_discovery_loop disabled by "
+            "M365_INTEGRATION_ENABLED=false"
+        )
+        return
+    if not settings.M365_RECORDING_DISCOVERY_ENABLED:
+        logger.info(
+            "meeting_recording_discovery_loop off "
+            "(M365_RECORDING_DISCOVERY_ENABLED=false). "
+            "Flip the env var to populate recording_url on past interviews."
+        )
+        return
+
+    interval = max(600, settings.M365_RECORDING_DISCOVERY_INTERVAL_SECONDS)
+    logger.info("meeting_recording_discovery_loop started: interval=%ds", interval)
+    # Long head start — recording discovery is a catch-up job; let the sync
+    # loop finish a few ticks first so events created on this deploy have
+    # online_meeting_url populated before we start scanning.
+    await asyncio.sleep(180)
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                stats = await _recording_discovery_pass(db)
+            logger.info(
+                "recording discovery pass: processed=%d matched=%d",
+                stats.processed,
+                stats.matched,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("meeting_recording_discovery_loop iteration failed")
+        await asyncio.sleep(interval)
+
+
+async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats:
+    """One pass: scan events without a recording URL, ask Graph, update DB.
+
+    Pure helper — separated from the loop so tests can drive it directly.
+    Returns counters for logging and assertions.
+    """
+    lookback_days = max(1, settings.M365_RECORDING_DISCOVERY_LOOKBACK_DAYS)
+    batch_size = max(1, settings.M365_RECORDING_DISCOVERY_BATCH_SIZE)
+    now = datetime.now(timezone.utc)
+    # Window: event has ended at least 1h ago (give Teams time to publish)
+    # and started within the look-back window. Older events are out of scope
+    # — Teams retention varies by tenant, but a week is the sweet spot for
+    # "ATS still cares about this interview".
+    settle_cutoff = now - timedelta(hours=1)
+    lookback_cutoff = now - timedelta(days=lookback_days)
+
+    stmt = (
+        select(CalendarEvent)
+        .where(
+            CalendarEvent.online_meeting_url.is_not(None),
+            CalendarEvent.recording_url.is_(None),
+            CalendarEvent.end_time.is_not(None),
+            CalendarEvent.end_time < settle_cutoff,
+            CalendarEvent.end_time > lookback_cutoff,
+        )
+        .order_by(CalendarEvent.end_time.desc())
+        .limit(batch_size)
+    )
+    result = await db.execute(stmt)
+    events = list(result.scalars().all())
+
+    processed = 0
+    matched = 0
+    # Group by organiser so we open one GraphClient per connection — token
+    # decrypt + httpx session setup is non-trivial work to do per event.
+    by_organiser: dict[int, list[CalendarEvent]] = {}
+    for event in events:
+        if event.created_by is None:
+            # No organiser → no OneDrive to scan. Skip silently.
+            continue
+        by_organiser.setdefault(event.created_by, []).append(event)
+
+    for user_id, batch in by_organiser.items():
+        conn = await _active_connection_for_user(db, user_id)
+        if conn is None:
+            # No live M365 connection for the organiser — leave events alone,
+            # next pass will retry once the user reconnects.
+            continue
+
+        try:
+            async with GraphClient(conn, db) as gc:
+                for event in batch:
+                    processed += 1
+                    try:
+                        url = await find_meeting_recording(
+                            gc,
+                            online_meeting_url=event.online_meeting_url,
+                            event_end_at=event.end_time,  # type: ignore[arg-type]
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "recording discovery failed for event id=%s", event.id
+                        )
+                        continue
+                    # Mark the scan as having happened either way so the
+                    # next pass can deprioritise "looked but not found" rows.
+                    event.recording_discovered_at = now
+                    if url:
+                        event.recording_url = url[:998]
+                        matched += 1
+            await db.commit()
+        except TokenCipherNotConfigured:
+            # Sync loop already handles this for the connection; skip silently
+            # to avoid Sentry flood (we run every 6h vs sync's 5 min).
+            logger.warning(
+                "recording discovery skip: conn=%s token undecryptable", conn.id
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "recording discovery: connection %s failed (batch=%d)",
+                conn.id,
+                len(batch),
+            )
+            await db.rollback()
+
+    return RecordingDiscoveryStats(processed=processed, matched=matched)
+
+
+async def _active_connection_for_user(
+    db: AsyncSession, user_id: int
+) -> M365Connection | None:
+    """Return the user's active M365 connection, or None if reconnect needed.
+
+    Mirrors the safety net in microsoft365_sync_loop — we don't even try
+    Graph if the cipher key rotated or the user disconnected via UI.
+    """
+    stmt = (
+        select(M365Connection)
+        .where(
+            M365Connection.user_id == user_id,
+            M365Connection.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
