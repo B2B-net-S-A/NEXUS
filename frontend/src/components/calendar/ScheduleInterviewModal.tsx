@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, Loader2 } from "lucide-react";
 
-import { microsoft365Api } from "@/lib/api";
+import { microsoft365Api, type FreeBusyResponse } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert } from "@/components/ui/alert";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useAuthStore } from "@/store/auth";
 
 interface ScheduleInterviewModalProps {
   candidateId: number;
@@ -60,6 +63,102 @@ export default function ScheduleInterviewModal({
       return start;
     }
   }, [start, duration]);
+
+  // Free-busy advisory: ask Graph whether the recruiter (and candidate, if we
+  // have their email) is already booked in the chosen window. Debounced so we
+  // don't fire a Graph call on every keystroke. Errors and "unknown" statuses
+  // intentionally render nothing — the API does not affect submit.
+  const currentUserEmail = useAuthStore((s) => s.user?.email ?? null);
+  const debouncedStart = useDebouncedValue(start, 500);
+  const debouncedDuration = useDebouncedValue(duration, 500);
+  const checkAttendees = useMemo(() => {
+    const out: string[] = [];
+    if (currentUserEmail) out.push(currentUserEmail);
+    if (inviteCandidate && candidateEmail) out.push(candidateEmail);
+    return out;
+  }, [currentUserEmail, inviteCandidate, candidateEmail]);
+  const checkWindow = useMemo(() => {
+    try {
+      const s = new Date(debouncedStart);
+      if (Number.isNaN(s.getTime())) return null;
+      const e = new Date(s);
+      e.setMinutes(e.getMinutes() + debouncedDuration);
+      return { start: s.toISOString(), end: e.toISOString() };
+    } catch {
+      return null;
+    }
+  }, [debouncedStart, debouncedDuration]);
+
+  const freeBusy = useQuery<FreeBusyResponse>({
+    queryKey: [
+      "m365-free-busy",
+      checkWindow?.start,
+      checkWindow?.end,
+      checkAttendees.join(","),
+    ],
+    queryFn: async () => {
+      const res = await microsoft365Api.checkFreeBusy({
+        start: checkWindow!.start,
+        end: checkWindow!.end,
+        attendees: checkAttendees,
+      });
+      return res.data;
+    },
+    enabled: open && checkWindow !== null && checkAttendees.length > 0,
+    // M365 connection missing / Graph upstream blip — surface nothing rather
+    // than spam the modal with retry banners. Submit is still allowed.
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const conflictHint = useMemo(() => {
+    if (!freeBusy.data || !checkWindow) return null;
+    const blockingStatuses = new Set(["busy", "oof"]);
+    const recruiterSlots = currentUserEmail
+      ? freeBusy.data.attendees[currentUserEmail] ?? []
+      : [];
+    const recruiterConflict = recruiterSlots.some((s) =>
+      blockingStatuses.has(s.status),
+    );
+    const candidateSlots =
+      inviteCandidate && candidateEmail
+        ? freeBusy.data.attendees[candidateEmail] ?? []
+        : [];
+    const candidateConflict = candidateSlots.some((s) =>
+      blockingStatuses.has(s.status),
+    );
+    if (recruiterConflict) {
+      return {
+        variant: "error" as const,
+        title: "Konflikt w Twoim kalendarzu",
+        description:
+          "Masz już zajęty termin w tym oknie. Możesz nadal kontynuować, ale sprawdź Outlook.",
+      };
+    }
+    if (candidateConflict) {
+      return {
+        variant: "warning" as const,
+        title: "Kandydat może mieć inne spotkanie",
+        description:
+          "Outlook kandydata pokazuje zajętość w wybranym terminie.",
+      };
+    }
+    // Both sides free — only celebrate when we actually checked both.
+    if (currentUserEmail && (!inviteCandidate || candidateEmail)) {
+      return {
+        variant: "success" as const,
+        title: "Oba terminy wolne",
+        description: undefined,
+      };
+    }
+    return null;
+  }, [
+    freeBusy.data,
+    checkWindow,
+    currentUserEmail,
+    candidateEmail,
+    inviteCandidate,
+  ]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -151,6 +250,15 @@ export default function ScheduleInterviewModal({
               value={start}
               onChange={(e) => setStart(e.target.value)}
             />
+            {conflictHint && (
+              <div className="mt-2">
+                <Alert
+                  variant={conflictHint.variant}
+                  title={conflictHint.title}
+                  description={conflictHint.description}
+                />
+              </div>
+            )}
           </div>
 
           <div>

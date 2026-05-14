@@ -2144,6 +2144,25 @@ export interface EmailThreadPreview {
   unread_count: number;
 }
 
+export type FreeBusyStatus =
+  | "free"
+  | "tentative"
+  | "busy"
+  | "oof"
+  | "workingElsewhere"
+  | "unknown";
+
+export interface FreeBusySlot {
+  start: string;
+  end: string;
+  status: FreeBusyStatus;
+}
+
+export interface FreeBusyResponse {
+  attendees: Record<string, FreeBusySlot[]>;
+  requested_window: { start: string; end: string };
+}
+
 export const microsoft365Api = {
   getConnection: () =>
     api.get<M365ConnectionStatus>("/api/microsoft365/connection"),
@@ -2188,6 +2207,11 @@ export const microsoft365Api = {
     extra_attendees?: string[];
     invite_candidate?: boolean;
   }) => api.post("/api/calendar/events/m365-invite", payload),
+  checkFreeBusy: (payload: {
+    start: string;
+    end: string;
+    attendees: string[];
+  }) => api.post<FreeBusyResponse>("/api/microsoft365/free-busy", payload),
 };
 
 // ── Interview Questions (feature "Prepy") ───────────────────────────────────

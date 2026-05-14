@@ -113,6 +113,7 @@ jobs:
                  tests/test_m365_sync_helpers.py \
                  tests/test_m365_sender_idempotency.py \
                  tests/test_m365_rematch.py \
+                 tests/test_m365_free_busy.py \
                  tests/test_auth_microsoft.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
