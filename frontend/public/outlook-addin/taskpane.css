@@ -1,0 +1,179 @@
+/* NEXUS Outlook Add-in — sidebar styles. Stays close to NEXUS shadcn zinc+violet
+   visuals without pulling Tailwind in (would bloat the bundle for a static
+   sidebar). System fonts keep parity with Outlook's native chrome. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  color: #18181b;
+  background: #fafafa;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  padding: 12px 16px 8px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e4e7;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.app-header h1 {
+  font-size: 16px;
+  margin: 0;
+  color: #7c3aed; /* violet-600 */
+  letter-spacing: 0.02em;
+}
+
+.app-subtitle {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.panel[hidden] { display: none; }
+
+h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.hint {
+  font-size: 12px;
+  color: #71717a;
+  margin: 0;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #52525b;
+  margin-bottom: 4px;
+}
+
+input[type="email"],
+input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  background: #ffffff;
+}
+
+input:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.18);
+}
+
+button,
+.primary-button {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 0;
+  background: #7c3aed;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+
+button:hover,
+.primary-button:hover { background: #6d28d9; }
+button:disabled { background: #a1a1aa; cursor: not-allowed; }
+
+.link-button {
+  background: transparent;
+  color: #71717a;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.link-button:hover { background: transparent; color: #18181b; }
+
+.sender-line {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.status {
+  font-size: 13px;
+  color: #52525b;
+}
+
+.result-card {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-card.empty {
+  background: #fafafa;
+  border-style: dashed;
+}
+
+.result-card h2 {
+  color: #18181b;
+}
+
+.meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.meta dt {
+  color: #71717a;
+  font-weight: 500;
+}
+
+.meta dd {
+  margin: 0;
+  color: #18181b;
+}
+
+.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.app-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid #e4e4e7;
+  display: flex;
+  justify-content: flex-end;
+}

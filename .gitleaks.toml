@@ -60,6 +60,13 @@ id = "fireflies-api-key"
 description = "Fireflies API key (UUID format used for bearer tokens)"
 regex = '''[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
 tags = ["fireflies", "api-key"]
+# Office Add-in manifests carry a stable GUID in `<Id>` that's public by
+# design (Microsoft 365 Admin Center looks it up). Allowlist the file so
+# the UUID-shape doesn't trip the Fireflies bearer-token rule.
+[rules.allowlist]
+paths = [
+  '''frontend/public/outlook-addin/manifest\.xml''',
+]
 
 [[rules]]
 id = "hardcoded-db-password"

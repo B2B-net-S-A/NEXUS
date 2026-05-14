@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  NEXUS ATS — Outlook Add-in manifest (Phase 7.4).
+
+  Hosts the sidebar that looks up the currently-selected email's sender in
+  the NEXUS candidate database and renders a quick card (name / current
+  pipeline stage / link to full profile). Read-only — requires only
+  `ReadItem` permission.
+
+  Distribution: tenant-wide via Microsoft 365 Admin Center → Integrated
+  apps. Sideloading instructions for testing: docs/ops/outlook-addin-deployment.md.
+
+  Manifest reference: https://learn.microsoft.com/en-us/javascript/api/manifest
+-->
+<OfficeApp
+    xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+    xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+    xsi:type="MailApp">
+
+  <!-- Stable GUID identifying the add-in across versions. Do not change. -->
+  <Id>24053090-bf5b-4742-b4b5-eb2d52563e35</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Dynaminds — NEXUS ATS</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="NEXUS Candidate Lookup" />
+  <Description DefaultValue="Sprawdź czy nadawca jest w bazie kandydatów NEXUS bez wychodzenia ze skrzynki." />
+  <IconUrl DefaultValue="https://nexus.dynaminds.pl/outlook-addin/icons/icon-64.png" />
+  <HighResolutionIconUrl DefaultValue="https://nexus.dynaminds.pl/outlook-addin/icons/icon-128.png" />
+  <SupportUrl DefaultValue="https://nexus.dynaminds.pl" />
+
+  <Hosts>
+    <Host Name="Mailbox" />
+  </Hosts>
+
+  <Requirements>
+    <Sets>
+      <Set Name="Mailbox" MinVersion="1.5" />
+    </Sets>
+  </Requirements>
+
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://nexus.dynaminds.pl/outlook-addin/taskpane.html" />
+        <RequestedHeight>360</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+
+  <Permissions>ReadItem</Permissions>
+
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <!-- Surface on every read message — the card renders empty state if
+         the sender isn't a known candidate. -->
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
+  </Rule>
+
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+</OfficeApp>

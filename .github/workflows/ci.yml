@@ -123,6 +123,7 @@ jobs:
                  tests/test_user_email_templates.py \
                  tests/test_actionable_messages.py \
                  tests/test_aad_groups.py \
+                 tests/test_candidates_check_exists.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

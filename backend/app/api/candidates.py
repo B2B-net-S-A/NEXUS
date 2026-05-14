@@ -14,6 +14,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
@@ -26,6 +27,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument
 from app.models.candidate_conflict import CandidateConflict, ConflictType
@@ -1040,6 +1042,94 @@ async def _resolve_invite_source(
         created_by_name=created_by_name,
         applied_at=activity.created_at,
         previous_created_by_name=previous_created_by_name,
+    )
+
+
+# ── Outlook Add-in: existence lookup by email (Phase 7.4) ───────────────────
+#
+# IMPORTANT: This route MUST stay above ``@router.get("/{candidate_id}")``.
+# FastAPI matches routes in declaration order; declaring it after the
+# parametrised path makes "check-exists" hit the integer parser and return
+# 422 ("unable to parse string as an integer"). Other static GET routes in
+# this file (`/companies/suggest`, `/export`) follow the same pattern.
+
+
+class CheckExistsResponse(BaseModel):
+    """Compact existence card for the Outlook Add-in sidebar.
+
+    Returned fields cover the only three things the add-in needs to render:
+    yes/no, who is it, where is the profile. `current_stage` + `last_activity_at`
+    are nullable because a candidate may exist without ever being placed on
+    a pipeline (legacy import) and the activity log may be empty for
+    bulk-imported rows.
+    """
+
+    found: bool
+    candidate_id: Optional[int] = None
+    candidate_name: Optional[str] = None
+    profile_url: Optional[str] = None
+    current_stage: Optional[str] = None
+    last_activity_at: Optional[datetime] = None
+
+
+@router.get("/check-exists", response_model=CheckExistsResponse)
+@limiter.limit("60/minute")
+async def check_exists(
+    request: Request,
+    current_user: CurrentUser,
+    email: EmailStr = Query(..., description="Email do wyszukania (case-insensitive)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lookup candidate by email — designed for the Outlook Add-in sidebar.
+
+    Case-insensitive match on ``Candidate.email``. Rate-limited (60/min/IP)
+    because the add-in fires on every email selection in Outlook and a fast
+    operator clicking through a flooded inbox can otherwise hammer the API.
+    """
+    email_lower = email.lower()
+    candidate = await db.scalar(
+        select(Candidate).where(func.lower(Candidate.email) == email_lower)
+    )
+    if candidate is None:
+        return CheckExistsResponse(found=False)
+
+    # Latest stage transition — drives the "currently in: <stage>" line on
+    # the card. Order by `moved_at` desc and take 1; no filter on stage to
+    # show terminal stages (hired / rejected / withdrawn) as well — they're
+    # useful signal for the recruiter reading the inbox.
+    latest_stage = await db.scalar(
+        select(CandidateStage)
+        .where(CandidateStage.candidate_id == candidate.id)
+        .order_by(CandidateStage.moved_at.desc())
+        .limit(1)
+    )
+    current_stage = latest_stage.stage.value if latest_stage else None
+
+    # Last activity — prefer Activity log (audit trail of every CRUD on the
+    # candidate), fall back to candidate.updated_at if the activity table is
+    # empty for this row (bulk-imported pre-audit-log candidates).
+    last_activity_at = await db.scalar(
+        select(Activity.created_at)
+        .where(
+            Activity.entity_type == "candidate",
+            Activity.entity_id == candidate.id,
+        )
+        .order_by(Activity.created_at.desc())
+        .limit(1)
+    )
+    if last_activity_at is None:
+        last_activity_at = candidate.updated_at
+
+    profile_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/candidates/{candidate.id}"
+    full_name = f"{candidate.name} {candidate.lastname}".strip()
+
+    return CheckExistsResponse(
+        found=True,
+        candidate_id=candidate.id,
+        candidate_name=full_name,
+        profile_url=profile_url,
+        current_stage=current_stage,
+        last_activity_at=last_activity_at,
     )
 
 

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NEXUS Candidate Lookup</title>
+  <!-- Office.js — required for taskpane Add-ins. Microsoft CDN; cached
+       by Office host so no measurable startup cost. -->
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="./taskpane.css" />
+</head>
+<body>
+  <div id="root">
+    <header class="app-header">
+      <h1>NEXUS</h1>
+      <span class="app-subtitle">Candidate lookup</span>
+    </header>
+
+    <!-- Login surface — shown when no JWT in localStorage. -->
+    <section id="login-section" class="panel" hidden>
+      <h2>Zaloguj się do NEXUS</h2>
+      <p class="hint">Logowanie jest jednorazowe — token zostaje w pamięci dodatku.</p>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Hasło</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button type="submit" id="login-button">Zaloguj</button>
+        <div id="login-error" class="error" hidden></div>
+      </form>
+    </section>
+
+    <!-- Lookup result. Populated by taskpane.js after Office.onReady. -->
+    <section id="lookup-section" class="panel" hidden>
+      <div id="sender-line" class="sender-line"></div>
+      <div id="status" class="status">Sprawdzanie&hellip;</div>
+
+      <div id="result-found" class="result-card" hidden>
+        <h2 id="candidate-name"></h2>
+        <dl class="meta">
+          <dt>Etap</dt><dd id="current-stage">&mdash;</dd>
+          <dt>Ostatnia aktywność</dt><dd id="last-activity">&mdash;</dd>
+        </dl>
+        <a id="open-profile" class="primary-button" target="_blank" rel="noopener noreferrer">
+          Otwórz profil w NEXUS
+        </a>
+      </div>
+
+      <div id="result-not-found" class="result-card empty" hidden>
+        <p>Nadawca <strong id="missing-sender"></strong> nie istnieje w bazie NEXUS.</p>
+        <a id="add-candidate" class="primary-button" target="_blank" rel="noopener noreferrer">
+          Dodaj jako kandydata
+        </a>
+      </div>
+
+      <div id="error-box" class="error" hidden></div>
+
+      <footer class="app-footer">
+        <button type="button" id="logout-button" class="link-button">Wyloguj</button>
+      </footer>
+    </section>
+  </div>
+
+  <script src="./taskpane.js"></script>
+</body>
+</html>
