@@ -6,6 +6,7 @@ Routes:
     GET    /api/microsoft365/connection   → current user's status
     DELETE /api/microsoft365/connection   → disconnect
     POST   /api/microsoft365/sync/trigger → manual sync (202)
+    POST   /api/microsoft365/free-busy    → look up attendee availability
 """
 
 from __future__ import annotations
@@ -13,13 +14,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,8 @@ from app.core.rate_limit import limiter
 from app.models.m365 import M365Connection, M365SyncStatus
 from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
+from app.services.m365.calendar import get_free_busy
+from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.sync import sync_connection, trigger_backfill
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,26 @@ router = APIRouter()
 
 class AuthorizeResponse(BaseModel):
     authorize_url: str
+
+
+class FreeBusyRequest(BaseModel):
+    start: datetime
+    end: datetime
+    # Graph caps at 20 schedules per call (incl. the requester's mailbox).
+    attendees: list[EmailStr] = Field(..., min_length=1, max_length=20)
+
+
+class FreeBusySlotSchema(BaseModel):
+    start: datetime
+    end: datetime
+    status: Literal["free", "tentative", "busy", "oof", "workingElsewhere", "unknown"]
+
+
+class FreeBusyResponse(BaseModel):
+    # `attendees[email] = [slots]`. Email keys are returned exactly as Graph
+    # echoes them — usually the requested form, sometimes case-folded.
+    attendees: dict[str, list[FreeBusySlotSchema]]
+    requested_window: dict[str, datetime]
 
 
 class ConnectionStatus(BaseModel):
@@ -277,3 +300,63 @@ async def trigger_sync(
 
     asyncio.create_task(_run())
     return {"status": "accepted", "connection_id": conn_id}
+
+
+@router.post("/free-busy", response_model=FreeBusyResponse)
+@limiter.limit("30/minute")
+async def free_busy(
+    request: Request,
+    payload: FreeBusyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FreeBusyResponse:
+    """Return Graph `getSchedule` results for the requested attendees.
+
+    Advisory only — frontend uses this to flag conflicts in
+    `ScheduleInterviewModal` but does not block submit. Attendees outside the
+    recruiter's tenant return `status="unknown"` (Graph cannot see external
+    free/busy without B2B sharing), which the UI ignores silently.
+    """
+    if not settings.M365_INTEGRATION_ENABLED:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Microsoft 365 integration is currently disabled.",
+        )
+    if payload.end <= payload.start:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="`end` must be after `start`.",
+        )
+
+    conn = await _get_connection_for_user(db, current_user.id)
+    if conn is None or not conn.is_active:
+        raise HTTPException(
+            status.HTTP_412_PRECONDITION_FAILED, detail="No active M365 connection"
+        )
+
+    # Pydantic gives us EmailStr; Graph wants plain strings.
+    attendees = [str(a) for a in payload.attendees]
+    try:
+        async with GraphClient(conn, db) as gc:
+            slots = await get_free_busy(
+                gc, attendees=attendees, start=payload.start, end=payload.end
+            )
+    except GraphRequestError as exc:
+        # 4xx — surface Graph's complaint (bad attendee, etc.) without
+        # leaking tokens; 5xx/timeout — generic 502 so frontend stays quiet.
+        if 400 <= exc.status < 500:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="Graph rejected free-busy request"
+            ) from exc
+        logger.warning("Graph free-busy upstream error: %s", exc.status)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail="Graph free-busy lookup failed"
+        ) from exc
+
+    return FreeBusyResponse(
+        attendees={
+            email: [FreeBusySlotSchema(**slot) for slot in slot_list]
+            for email, slot_list in slots.items()
+        },
+        requested_window={"start": payload.start, "end": payload.end},
+    )
