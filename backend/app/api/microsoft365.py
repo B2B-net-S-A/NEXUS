@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -306,7 +306,12 @@ async def trigger_sync(
 @limiter.limit("30/minute")
 async def free_busy(
     request: Request,
-    payload: FreeBusyRequest,
+    # Explicit Body(...) avoids a FastAPI 0.115 + slowapi 0.1.9 quirk that
+    # was mis-classifying this Pydantic body param as a query parameter on
+    # production (smoke 2026-05-14 returned 422 loc=query.payload). Locally
+    # on newer FastAPI it round-trips fine without the marker, but the
+    # explicit form is documented as the safe pattern and costs nothing.
+    payload: FreeBusyRequest = Body(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> FreeBusyResponse:
