@@ -29,12 +29,11 @@ from app.models.user import User, UserRole
 
 
 async def _create_user(email: str, role: UserRole = UserRole.recruiter) -> User:
-    """Insert a User with a deterministic password and return the persisted row."""
+    """Insert a User. Tests only need the id, hence the throwaway password."""
     async with AsyncSessionLocal() as db:
-        password = f"T3st_{uuid.uuid4().hex[:8]}!PassX"
         user = User(
             email=email,
-            password_hash=hash_password(password),
+            password_hash=hash_password(f"T3st_{uuid.uuid4().hex[:8]}!PassX"),
             name="Bulk Test",
             role=role,
             is_active=True,
@@ -42,8 +41,6 @@ async def _create_user(email: str, role: UserRole = UserRole.recruiter) -> User:
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        # Carry the plaintext on the in-memory object so tests can log in.
-        user._plain_password = password  # type: ignore[attr-defined]
         return user
 
 
