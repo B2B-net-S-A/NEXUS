@@ -75,19 +75,18 @@ async def download_for_email(
     if not email_row.has_attachments:
         return []
 
-    # Graph gives us metadata + (for fileAttachment) contentBytes inline.
+    # No $select here — Graph's `/messages/{id}/attachments` returns a
+    # polymorphic collection (fileAttachment / itemAttachment / referenceAttachment)
+    # and $select rejects any field that doesn't exist on the BASE
+    # `microsoft.graph.attachment` type. Two production fires came from this:
+    #   • NEXUS-BE-2 (2026-05): `@odata.type` is not selectable on the base type.
+    #   • NEXUS-BE-C (2026-05): `contentBytes` exists only on fileAttachment.
+    # Without $select Graph returns every standard field per subtype, including
+    # `contentBytes` for fileAttachment — exactly what we need below. The extra
+    # payload is small (attachments are typically <10 per email and metadata is
+    # tiny next to the bytes themselves).
     try:
-        page = await gc.get(
-            f"/me/messages/{email_row.m365_message_id}/attachments",
-            params={
-                # NOTE: `@odata.type` was previously in $select, but Graph returns
-                # 400 BadRequest ("Term '@odata.type' is not valid in a $select or
-                # $expand expression"). The discriminator comes back automatically
-                # in the response payload, so reading it from the response (line 94
-                # below) is enough — no need to ask for it.
-                "$select": "id,name,contentType,size,isInline,contentBytes"
-            },
-        )
+        page = await gc.get(f"/me/messages/{email_row.m365_message_id}/attachments")
     except Exception:  # noqa: BLE001
         logger.exception(
             "Failed to list attachments for email %s", email_row.m365_message_id

@@ -54,23 +54,28 @@ def test_is_cv_candidate_attachment(
 # ── Phase 1 regression: @odata.type out of $select ───────────────────────────
 
 
-def test_attachment_select_does_not_request_odata_type() -> None:
-    """Regression for Sentry NEXUS-BE-2.
+def test_attachment_download_uses_no_select() -> None:
+    """Regression for Sentry NEXUS-BE-2 AND NEXUS-BE-C.
 
-    Graph rejects `@odata.type` in `$select`/`$expand` with HTTP 400
-    ("Term '@odata.type' is not valid in a $select or $expand expression").
-    The discriminator is returned in the response payload automatically, so
-    we just snapshot the source to make sure nobody re-adds it to $select.
+    The `/messages/{id}/attachments` endpoint returns a polymorphic collection
+    (fileAttachment / itemAttachment / referenceAttachment). Graph's $select
+    only accepts fields that exist on the BASE `microsoft.graph.attachment`
+    type, so any subtype-specific field (`@odata.type`, `contentBytes`, `item`,
+    `sourceUrl`) triggers HTTP 400:
+      • NEXUS-BE-2: `@odata.type` in $select.
+      • NEXUS-BE-C: `contentBytes` in $select (only on fileAttachment).
+
+    Cheapest robust fix: drop $select entirely. Graph returns each subtype's
+    full payload including its discriminator and (for fileAttachment) the
+    inline `contentBytes`. This test snapshots the source to make sure nobody
+    re-introduces a $select with subtype-specific fields here.
     """
-    src = inspect.getsource(attachment_handler)
-    # Find the $select line for attachments and assert no @odata.type.
-    select_lines = [
-        line.strip()
-        for line in src.splitlines()
-        if "$select" in line and "contentBytes" in line
-    ]
-    assert select_lines, "Expected at least one $select for attachment fields"
-    for line in select_lines:
-        assert "@odata.type" not in line, (
-            f"Found @odata.type in $select — Graph will 400. Line: {line}"
-        )
+    src = inspect.getsource(attachment_handler.download_for_email)
+    # Only catch actual usage — `"$select":` or `'$select':` as a dict key.
+    # Plain mentions of "$select" in comments/docstrings (explaining WHY we
+    # don't use it) are fine and would otherwise false-positive this check.
+    assert '"$select":' not in src and "'$select':" not in src, (
+        "download_for_email() must NOT use $select on the polymorphic "
+        "attachments endpoint — Graph 400s on any subtype-specific field. "
+        "If you need to limit the payload, fetch the list and project in Python."
+    )
