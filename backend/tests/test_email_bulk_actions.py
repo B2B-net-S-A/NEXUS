@@ -306,9 +306,7 @@ async def test_bulk_over_200_ids_422(
     assert r.status_code == 422, r.text
 
 
-async def test_bulk_empty_ids_422(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_bulk_empty_ids_422(app_client: AsyncClient, app_auth_headers: dict):
     r = await app_client.post(
         "/api/microsoft365/emails/bulk",
         json={"email_ids": [], "action": "archive"},

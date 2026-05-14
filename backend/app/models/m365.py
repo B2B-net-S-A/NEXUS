@@ -209,9 +209,7 @@ class Email(Base, TimestampMixin):
     # hidden from default thread previews so the action visibly removes the
     # message from the candidate sidebar. Distinct from `is_private_filtered`
     # which is system-driven (Outlook category opt-out).
-    is_archived: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # True when Outlook category `M365_IGNORE_CATEGORY` is present; body/attachments
     # are NOT fetched for these (privacy opt-out) but the stub exists so we don't
     # re-fetch on every delta.

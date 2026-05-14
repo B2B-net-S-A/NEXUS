@@ -168,8 +168,9 @@ async def list_candidate_emails(
     if not include_archived:
         base_stmt = base_stmt.where(Email.is_archived.is_(False))
     base_stmt = (
-        base_stmt.order_by(Email.received_at.desc())
-        .limit(1000)  # cap for safety — UI paginates by thread count
+        base_stmt.order_by(Email.received_at.desc()).limit(
+            1000
+        )  # cap for safety — UI paginates by thread count
     )
     result = await db.execute(base_stmt)
     rows = result.scalars().all()
