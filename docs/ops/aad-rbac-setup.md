@@ -24,9 +24,9 @@ Run through the checklist top-to-bottom before flipping the flag.
 ## One-time Azure AD setup
 
 1. **Grant admin consent for `GroupMember.Read.All`.**
-   - Azure Portal → Microsoft Entra ID → App registrations → search for the
-     NEXUS app by client ID `b5be7c77-eb7b-46ee-89b3-c6fa0f5ea7d9` (= the
-     `M365_CLIENT_ID` env var).
+   - Azure Portal → Microsoft Entra ID → App registrations → search for
+     the NEXUS app by the client ID stored in the `M365_CLIENT_ID` env
+     var (Coolify NEXUS app environment → expand the runtime row).
    - API permissions → Add a permission → Microsoft Graph → Delegated
      permissions → search `GroupMember.Read.All` → check it → Add
      permissions.
