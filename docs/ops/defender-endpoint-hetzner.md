@@ -20,11 +20,19 @@ license with each registered server. No manual binding required.
 
 ## Servers in scope
 
-| App | Hostname / FQDN | IP | OS | Docker stack | Real-time protection |
-|---|---|---|---|---|---|
-| NEXUS (ATS) | `api.nexus.dynaminds.pl` | 91.99.199.112 | Ubuntu (Hetzner CAX21 ARM) | Coolify v4 + Postgres + Qdrant | ON (sensitive HR data) |
-| Compass | `compass.dynaminds.pl` | 178.104.220.48 | Ubuntu (Hetzner CAX21 ARM) | Coolify v4 + Supabase | ON (sensitive HR data) |
-| Atlas (LeadGen) | `atlas.dynaminds.pl` | 78.47.89.127 | Ubuntu (Hetzner CAX21 ARM, rescaled 2026-05-08) | Coolify v4 + Supabase | OFF (constrained resources — scheduled scans only) |
+Architecture / OS verified via `ssh root@<ip> "lsb_release -d && uname -m"`
+on 2026-05-14:
+
+| App | Hostname / FQDN | IP | OS | Arch | Docker stack | Real-time protection |
+|---|---|---|---|---|---|---|
+| NEXUS (ATS) | `api.nexus.dynaminds.pl` | 91.99.199.112 | Ubuntu 24.04.4 LTS | `x86_64` | Coolify v4 + Postgres + Qdrant | ON (sensitive HR data) |
+| Compass | `compass.dynaminds.pl` | 178.104.220.48 | Ubuntu 24.04.3 LTS | `aarch64` (Hetzner CAX21 ARM) | Coolify v4 + Supabase | ON (sensitive HR data) |
+| Atlas (LeadGen) | `atlas.dynaminds.pl` | 78.47.89.127 | Ubuntu 24.04.4 LTS | `aarch64` (Hetzner CAX21 ARM, rescaled 2026-05-08) | Coolify v4 + Supabase | OFF (constrained resources — scheduled scans only) |
+
+> **Note:** older internal references (`~/.claude/rules/deployment.md`) list
+> NEXUS as CAX21 ARM. The live host is x86_64 — the rule is stale and will
+> be reconciled separately. Both architectures are supported by `mdatp` on
+> Linux (aarch64 support GA since June 2024).
 
 Real-time protection decision: NEXUS and Compass hold candidate / HR personal
 data, so the constant scan budget is worth the cost. Atlas was rescaled to
@@ -76,19 +84,22 @@ scp ~/Downloads/WindowsDefenderATPOnboardingPackage.zip root@91.99.199.112:/tmp/
 
 ### 2.2 Add the Microsoft package repo
 
-SSH into the server and configure the official Microsoft apt repo:
+SSH into the server and configure the official Microsoft apt repo (Ubuntu
+24.04, matches all three hosts as of 2026-05-14):
 
 ```bash
 ssh root@91.99.199.112
-curl -O https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
+curl -O https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
 dpkg -i packages-microsoft-prod.deb
 rm packages-microsoft-prod.deb
 apt-get update
 ```
 
-Substitute `22.04` for the actual Ubuntu version returned by `lsb_release -r`.
-For Ubuntu 24.04 use `24.04/`, Debian 12 use the Debian repo URL — see the
-[official install matrix](https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/linux-install-manually).
+The Microsoft repo serves both `amd64` (NEXUS) and `arm64` (Compass, Atlas)
+from the same URL — `apt` picks the right architecture automatically. If a
+host runs a different Ubuntu LTS, swap `24.04` for the version returned by
+`lsb_release -r`; the [official install matrix](https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/linux-install-manually)
+lists supported distros.
 
 ### 2.3 Install `mdatp`
 
