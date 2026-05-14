@@ -2154,6 +2154,10 @@ export const microsoft365Api = {
 
   listCandidateThreads: (candidateId: number) =>
     api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  listThreadMessages: (candidateId: number, conversationId: string) =>
+    api.get<EmailMessage[]>(
+      `/api/candidates/${candidateId}/emails/thread/${encodeURIComponent(conversationId)}`,
+    ),
   getEmail: (emailId: number) =>
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
