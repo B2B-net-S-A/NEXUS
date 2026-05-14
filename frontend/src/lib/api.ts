@@ -2165,6 +2165,45 @@ export interface EmailThreadPreview {
   unread_count: number;
 }
 
+export type FreeBusyStatus =
+  | "free"
+  | "tentative"
+  | "busy"
+  | "oof"
+  | "workingElsewhere"
+  | "unknown";
+
+export interface FreeBusySlot {
+  start: string;
+  end: string;
+  status: FreeBusyStatus;
+}
+
+export interface FreeBusyResponse {
+  attendees: Record<string, FreeBusySlot[]>;
+  requested_window: { start: string; end: string };
+}
+
+export interface EmailSearchHit {
+  id: number;
+  m365_conversation_id: string;
+  candidate_id: number | null;
+  subject: string | null;
+  from_address: string;
+  from_name: string | null;
+  received_at: string;
+  has_attachments: boolean;
+  is_read: boolean;
+  snippet: string | null;
+}
+
+export interface EmailSearchResponse {
+  items: EmailSearchHit[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export const microsoft365Api = {
   getConnection: () =>
     api.get<M365ConnectionStatus>("/api/microsoft365/connection"),
@@ -2175,6 +2214,14 @@ export const microsoft365Api = {
 
   listCandidateThreads: (candidateId: number) =>
     api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  listThreadMessages: (candidateId: number, conversationId: string) =>
+    api.get<EmailMessage[]>(
+      `/api/candidates/${candidateId}/emails/thread/${encodeURIComponent(conversationId)}`,
+    ),
+  searchEmails: (q: string, limit = 50, offset = 0) =>
+    api.get<EmailSearchResponse>("/api/microsoft365/emails/search", {
+      params: { q, limit, offset },
+    }),
   getEmail: (emailId: number) =>
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
@@ -2214,6 +2261,11 @@ export const microsoft365Api = {
       "/api/microsoft365/emails/bulk",
       payload,
     ),
+  checkFreeBusy: (payload: {
+    start: string;
+    end: string;
+    attendees: string[];
+  }) => api.post<FreeBusyResponse>("/api/microsoft365/free-busy", payload),
 };
 
 // ── Interview Questions (feature "Prepy") ───────────────────────────────────

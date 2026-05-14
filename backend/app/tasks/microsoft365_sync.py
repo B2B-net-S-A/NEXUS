@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
-from app.models.m365 import M365Connection, M365SyncStatus
+from app.models.m365 import Email, EmailMatchMethod, M365Connection, M365SyncStatus
 from app.services.m365 import sync_connection
+from app.services.m365 import matcher as matcher_mod
+from app.services.m365.matcher import IncomingMessage
 
 logger = logging.getLogger(__name__)
 
@@ -133,3 +137,147 @@ async def _tick(interval: int) -> None:
             logger.exception("sync_connection failed for id=%s", conn_id)
         # Stagger calls so Graph rate limits don't kick in.
         await asyncio.sleep(2)
+
+
+# ── Phase 5.2 — backfill candidate matcher (rematch unlinked emails) ──────────
+#
+# Why a separate loop? `matcher.match()` runs once at sync time. If a recruiter
+# adds a candidate AFTER their emails are already in our DB, those emails stay
+# `candidate_id=NULL, match_method=unmatched` forever. This loop retries the
+# matcher hourly over the last N days so retroactive linking happens without
+# the recruiter having to click around.
+#
+# Manual decisions are sacred:
+#   - `match_method=manual` rows are already linked (skipped by NULL filter).
+#   - We never touch a row that someone manually re-linked — only rows still
+#     in the `unmatched` state.
+
+
+@dataclass(frozen=True)
+class RematchStats:
+    """Per-pass counters — also handy for tests."""
+
+    processed: int = 0
+    matched: int = 0
+
+
+async def rematch_unlinked_emails_loop() -> None:
+    """Long-running task — retries the matcher against unlinked recent emails.
+
+    Off by default. Set `M365_REMATCH_ENABLED=true` in Coolify env to enable.
+    """
+    if not settings.M365_INTEGRATION_ENABLED:
+        logger.info("m365 rematch loop disabled by M365_INTEGRATION_ENABLED=false")
+        return
+    if not settings.M365_REMATCH_ENABLED:
+        logger.info(
+            "m365 rematch loop off (M365_REMATCH_ENABLED=false). "
+            "Flip the env var to retroactively link emails synced before the "
+            "candidate was added."
+        )
+        return
+
+    interval = max(600, settings.M365_REMATCH_INTERVAL_SECONDS)
+    logger.info("rematch_unlinked_emails_loop started: interval=%ds", interval)
+    # Generous grace period — this is a catch-up job, the sync loop's 45s head
+    # start needs to finish before we start scanning the emails table.
+    await asyncio.sleep(120)
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                stats = await _rematch_pass(db)
+            logger.info(
+                "rematch pass: processed=%d matched=%d",
+                stats.processed,
+                stats.matched,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("rematch loop iteration failed")
+        await asyncio.sleep(interval)
+
+
+async def _rematch_pass(db: AsyncSession) -> RematchStats:
+    """One pass: scan unlinked emails in the look-back window, try matcher.
+
+    Pure helper — separated from the loop so tests can drive it directly.
+    Returns counters for logging + assertions.
+    """
+    lookback_days = max(1, settings.M365_REMATCH_LOOKBACK_DAYS)
+    batch_size = max(1, settings.M365_REMATCH_BATCH_SIZE)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+
+    stmt = (
+        select(Email)
+        .where(
+            Email.candidate_id.is_(None),
+            Email.match_method == EmailMatchMethod.unmatched,
+            Email.received_at > cutoff,
+        )
+        .order_by(Email.received_at.desc())
+        .limit(batch_size)
+    )
+    result = await db.execute(stmt)
+    candidates_to_try = list(result.scalars().all())
+
+    processed = 0
+    matched = 0
+    for email in candidates_to_try:
+        processed += 1
+        dto = IncomingMessage(
+            from_address=email.from_address or "",
+            to_addresses=_addresses(email.to_addresses),
+            cc_addresses=_addresses(email.cc_addresses),
+            subject=email.subject,
+            conversation_id=email.m365_conversation_id,
+        )
+        try:
+            m = await matcher_mod.match(db, dto)
+        except Exception:  # noqa: BLE001
+            logger.exception("matcher.match failed for email id=%s", email.id)
+            continue
+
+        if m.candidate_id is None:
+            # Still unmatched — leave row as-is. No write = no churn.
+            continue
+
+        try:
+            method_enum = EmailMatchMethod(m.method)
+        except ValueError:
+            # Defensive: matcher returned an unknown method string. Skip the
+            # row rather than corrupt the enum column or leave it half-updated.
+            logger.warning(
+                "matcher returned unknown method=%r for email id=%s — skipping",
+                m.method,
+                email.id,
+            )
+            continue
+        email.candidate_id = m.candidate_id
+        email.match_method = method_enum
+        email.match_confidence = m.confidence
+        email.matched_at = datetime.now(timezone.utc)
+        matched += 1
+
+    if matched:
+        await db.commit()
+
+    return RematchStats(processed=processed, matched=matched)
+
+
+def _addresses(raw: object) -> list[str]:
+    """Extract `address` keys from the JSONB `to_addresses` / `cc_addresses` shape.
+
+    Email columns store `[{"address": str, "name": str?}, ...]`. We feed only
+    the address strings into IncomingMessage.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            addr = entry.get("address")
+            if isinstance(addr, str) and addr:
+                out.append(addr)
+    return out

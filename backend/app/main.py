@@ -126,7 +126,7 @@ logger = logging.getLogger(__name__)
 
 # ── Sentry (optional) ──────────────────────────────────────────────────────
 # AsyncioIntegration propagates breadcrumbs/scope across `asyncio.create_task`
-# so the 14 background tasks spawned in lifespan capture their own context.
+# so the background tasks spawned in lifespan capture their own context.
 # LoggingIntegration mirrors `logging.error()` calls into Sentry as breadcrumbs
 # (level=INFO) and events (level=ERROR) — bridges JSON logs to the Sentry UI.
 # FastApiIntegration tags transactions by route (transaction_style="endpoint").
@@ -237,7 +237,10 @@ async def lifespan(app: FastAPI):
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
-    from app.tasks.microsoft365_sync import microsoft365_sync_loop
+    from app.tasks.microsoft365_sync import (
+        microsoft365_sync_loop,
+        rematch_unlinked_emails_loop,
+    )
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
@@ -262,6 +265,7 @@ async def lifespan(app: FastAPI):
         "rejection_email": asyncio.create_task(rejection_email_loop()),
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
+        "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
         "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),

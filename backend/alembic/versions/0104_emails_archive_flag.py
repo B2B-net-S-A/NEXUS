@@ -1,8 +1,8 @@
 """Add emails.is_archived flag for Phase 5.1 bulk actions.
 
-Revision ID: 0103_emails_archive_flag
-Revises: 0102_m365_connection_hardening
-Create Date: 2026-05-14 12:00:00.000000
+Revision ID: 0104_emails_archive_flag
+Revises: 0103_email_fts
+Create Date: 2026-05-14 12:30:00.000000
 
 Phase 5.1 of the M365 plan (.claude/plans/elegant-percolating-thimble.md).
 
@@ -16,8 +16,8 @@ Idempotent — `IF NOT EXISTS` guard.
 from alembic import op
 
 
-revision = "0103_emails_archive_flag"
-down_revision = "0102_m365_connection_hardening"
+revision = "0104_emails_archive_flag"
+down_revision = "0103_email_fts"
 branch_labels = None
 depends_on = None
 
