@@ -71,9 +71,11 @@ def test_attachment_download_uses_no_select() -> None:
     re-introduces a $select with subtype-specific fields here.
     """
     src = inspect.getsource(attachment_handler.download_for_email)
-    assert "$select" not in src, (
+    # Only catch actual usage — `"$select":` or `'$select':` as a dict key.
+    # Plain mentions of "$select" in comments/docstrings (explaining WHY we
+    # don't use it) are fine and would otherwise false-positive this check.
+    assert '"$select":' not in src and "'$select':" not in src, (
         "download_for_email() must NOT use $select on the polymorphic "
         "attachments endpoint — Graph 400s on any subtype-specific field. "
-        "If you need to limit the payload, fetch the list without $select "
-        "and project in Python."
+        "If you need to limit the payload, fetch the list and project in Python."
     )
