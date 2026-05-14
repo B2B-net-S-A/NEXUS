@@ -51,7 +51,19 @@ router = APIRouter()
 # Login flow uses identity scopes only — separate from mailbox sync's
 # Mail.* / Calendars.* scopes. ``offline_access`` keeps the refresh token in
 # case we want to silently re-issue Nexus tokens later.
-_LOGIN_SCOPES = ("openid", "profile", "email", "User.Read", "offline_access")
+# ``GroupMember.Read.All`` is required by Phase 7.2 AAD group-based RBAC —
+# we always request it (admin consent already granted in Azure app
+# registration) so the access_token returned from the OAuth exchange can
+# call ``/me/memberOf``. Without it the AAD_GROUP_RBAC_ENABLED path 403s
+# at login.
+_LOGIN_SCOPES = (
+    "openid",
+    "profile",
+    "email",
+    "User.Read",
+    "GroupMember.Read.All",
+    "offline_access",
+)
 
 # Discriminator embedded in the state JWT — prevents a mailbox-state code
 # from being replayed on the login callback (and vice versa).
@@ -152,7 +164,17 @@ def _build_authorize_url(state: str, pkce_verifier: str) -> str:
 
 
 async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
-    """Trade authorization_code for id_token. Returns decoded id_token claims."""
+    """Trade authorization_code for id_token + access_token.
+
+    Returns a dict with two keys:
+        * ``claims``: decoded id_token claims (email, oid, name, ...).
+        * ``access_token``: the Graph access_token, used by Phase 7.2 AAD
+          group lookup. May be empty string if Microsoft omits it (should
+          not happen for the requested scopes but we guard against it).
+
+    Backwards-compat note: the function name and signature is preserved
+    because :mod:`tests.test_auth_microsoft` monkeypatches it.
+    """
     tenant = settings.M365_TENANT_ID or "common"
     data = {
         "client_id": settings.M365_CLIENT_ID,
@@ -182,7 +204,10 @@ async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
     id_token = body.get("id_token")
     if not id_token:
         raise RuntimeError(f"Token response missing id_token: keys={list(body.keys())}")
-    return m365_oauth._decode_id_token(id_token)
+    return {
+        "claims": m365_oauth._decode_id_token(id_token),
+        "access_token": body.get("access_token") or "",
+    }
 
 
 def _frontend_callback_url(**params: str) -> str:
@@ -242,13 +267,16 @@ async def callback(
         )
 
     try:
-        claims = await _exchange_code_for_id_token(code, pkce_verifier)
+        token_payload = await _exchange_code_for_id_token(code, pkce_verifier)
     except Exception as exc:  # noqa: BLE001
         logger.exception("sso code exchange failed")
         return RedirectResponse(
             _frontend_login_error_url(f"Token exchange failed: {exc!r}"),
             status_code=302,
         )
+
+    claims = token_payload.get("claims") or {}
+    graph_access_token = token_payload.get("access_token") or ""
 
     email = (
         claims.get("preferred_username")
@@ -325,6 +353,108 @@ async def callback(
             return RedirectResponse(
                 _frontend_login_error_url("Account disabled"), status_code=302
             )
+
+    # ── AAD group-based RBAC (Phase 7.2) ──────────────────────────────────
+    # When enabled, the user's role + is_active flag are derived from their
+    # AAD group membership, NOT from defaults / prior values. This is the
+    # authoritative source: removing a user from the AAD admin group on
+    # next login flips them to a lower role (or blocks them entirely).
+    # Disabled by default for safety — flag flipped in Coolify env vault
+    # only after AAD_GROUP_ROLE_MAP_JSON is populated and admin consent for
+    # GroupMember.Read.All has been granted in the Azure app registration.
+    if settings.AAD_GROUP_RBAC_ENABLED:
+        from app.services.m365.aad_groups import (
+            fetch_user_groups,
+            map_groups_to_role,
+        )
+
+        if not graph_access_token:
+            logger.error(
+                "sso callback: AAD RBAC enabled but Microsoft returned no "
+                "access_token — check GroupMember.Read.All consent in Azure app."
+            )
+            return RedirectResponse(
+                _frontend_login_error_url(
+                    "AAD RBAC misconfigured (no Graph token). Contact administrator."
+                ),
+                status_code=302,
+            )
+        try:
+            groups = await fetch_user_groups(graph_access_token)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("sso callback: AAD memberOf fetch failed")
+            return RedirectResponse(
+                _frontend_login_error_url(f"AAD group lookup failed: {exc!r}"[:120]),
+                status_code=302,
+            )
+
+        try:
+            mapping = settings.aad_group_role_map
+        except ValueError:
+            logger.exception("sso callback: AAD_GROUP_ROLE_MAP_JSON invalid")
+            return RedirectResponse(
+                _frontend_login_error_url(
+                    "AAD role mapping misconfigured. Contact administrator."
+                ),
+                status_code=302,
+            )
+
+        role_str = map_groups_to_role([g["id"] for g in groups], mapping)
+        # Snapshot ALL group memberships (not just the matched one) — used
+        # later by admin audit and the resync endpoint, which only needs to
+        # re-evaluate the mapping against already-stored ids.
+        user.aad_group_ids = groups
+
+        if role_str is None:
+            # No NEXUS role granted by any AAD group → block login.
+            # We also flip is_active=false so subsequent password-based
+            # login attempts (if any password_hash still exists) also fail.
+            user.is_active = False
+            await db.flush()
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_aad_role_denied",
+                    user_id=user.id,
+                    details={
+                        "email": email_lower,
+                        "aad_group_count": len(groups),
+                        "reason": "no AAD group matched AAD_GROUP_ROLE_MAP_JSON",
+                    },
+                )
+            )
+            await db.commit()
+            return RedirectResponse(
+                _frontend_login_error_url(
+                    "Twoje konto nie ma przypisanej roli w Microsoft AD. "
+                    "Skontaktuj sie z administratorem."
+                ),
+                status_code=302,
+            )
+
+        # Role granted. Re-activate if previously disabled — AAD is now the
+        # source of truth. Only audit role transitions, not no-ops.
+        new_role = UserRole(role_str)
+        if user.role != new_role:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_aad_role_assigned",
+                    user_id=user.id,
+                    details={
+                        "email": email_lower,
+                        "from": user.role.value
+                        if hasattr(user.role, "value")
+                        else str(user.role),
+                        "to": new_role.value,
+                    },
+                )
+            )
+            user.role = new_role
+        user.is_active = True
+
     await db.flush()
     user_id = user.id
 

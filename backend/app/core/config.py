@@ -201,6 +201,21 @@ class Settings(BaseSettings):
     # list of lowercased, stripped domains.
     SSO_ALLOWED_DOMAINS: str = ""
 
+    # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
+    # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
+    # and falls back to legacy behaviour (new SSO users land as ``recruiter``,
+    # existing users keep their role). Flip to True in Coolify env vault AFTER
+    # ``AAD_GROUP_ROLE_MAP_JSON`` is populated and admin consent for the
+    # ``GroupMember.Read.All`` Graph scope has been granted in the Azure app
+    # registration — otherwise every login fails with a Graph 403.
+    AAD_GROUP_RBAC_ENABLED: bool = False
+    # JSON-encoded map ``{<aad-group-guid>: <userrole-string>}``. First match
+    # wins → admins control precedence by ordering keys (Python preserves dict
+    # insertion order, json.loads does too in 3.7+). Empty string = empty map
+    # = every login blocked (fail-closed) when RBAC is enabled.
+    # Example: '{"<uuid-admins>": "admin", "<uuid-recruiters>": "recruiter"}'.
+    AAD_GROUP_ROLE_MAP_JSON: str = ""
+
     # ── Autenti e-signature integration (Phase Autenti.1) ───────────────────
     # Kill-switch: when False, /api/autenti/* router is not mounted, send/webhook
     # endpoints return 503, sweeper loop exits immediately. Default OFF until
@@ -290,6 +305,49 @@ class Settings(BaseSettings):
         return [
             d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
         ]
+
+    @property
+    def aad_group_role_map(self) -> dict[str, str]:
+        """Parse ``AAD_GROUP_ROLE_MAP_JSON`` into a dict, raising on malformed JSON.
+
+        We parse lazily (per-call) instead of in a ``@field_validator`` because
+        validating the role values requires importing :class:`UserRole`, which
+        creates a circular import at module load time
+        (``app.core.config`` → ``app.models.user`` → ``app.core.database``).
+        Lazy parsing keeps startup decoupled.
+        """
+        import json as _json
+
+        if not self.AAD_GROUP_ROLE_MAP_JSON:
+            return {}
+        try:
+            parsed = _json.loads(self.AAD_GROUP_ROLE_MAP_JSON)
+        except _json.JSONDecodeError as exc:
+            raise ValueError(
+                "AAD_GROUP_ROLE_MAP_JSON is not valid JSON. "
+                'Expected: \'{"<guid>": "admin", "<guid>": "recruiter"}\'. '
+                f"Parser error: {exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                "AAD_GROUP_ROLE_MAP_JSON must decode to an object, "
+                f"got {type(parsed).__name__}"
+            )
+        # Validate role strings against UserRole enum (deferred import — see
+        # docstring). Misspelled roles in env would otherwise silently no-op
+        # at login → user blocked with confusing 403.
+        from app.models.user import UserRole
+
+        valid_roles = {r.value for r in UserRole}
+        out: dict[str, str] = {}
+        for group_id, role in parsed.items():
+            if role not in valid_roles:
+                raise ValueError(
+                    f"AAD_GROUP_ROLE_MAP_JSON contains unknown role {role!r} "
+                    f"for group {group_id!r}. Valid: {sorted(valid_roles)}"
+                )
+            out[str(group_id)] = role
+        return out
 
     @field_validator("SECRET_KEY")
     @classmethod

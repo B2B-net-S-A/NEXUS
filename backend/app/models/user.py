@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Enum, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -108,6 +109,18 @@ class User(Base, TimestampMixin):
         String(64), nullable=True, index=True
     )
     microsoft_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # ── AAD group-based RBAC (Phase 7.2, migracja 0106) ───────────────────────
+    # List of ``{"id": "<guid>", "displayName": "..."}`` snapshots refreshed on
+    # every SSO login when ``AAD_GROUP_RBAC_ENABLED=true``. Role is derived from
+    # this list via ``AAD_GROUP_ROLE_MAP_JSON`` (first match wins). The
+    # ``displayName`` is retained so admins can audit "which group granted X
+    # this role at last login" even after the group is renamed in AAD.
+    # Default ``list`` keeps the SQLAlchemy in-memory state consistent with the
+    # DB-level ``'[]'::jsonb`` default for rows created via raw SQL.
+    aad_group_ids: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
 
     # ── CloudTalk telephony (Phase CloudTalk.2, migracja 0099) ──────────────
     # When non-NULL, links this user to a CloudTalk agent. The mapping is set
