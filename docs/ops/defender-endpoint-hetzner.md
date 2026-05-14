@@ -9,14 +9,16 @@ Phase 7.9 of the M365 ecosystem expansion (plan `elegant-percolating-thimble`).
 ## Deployment receipt
 
 Phase 7.9 executed 2026-05-14. All three hosts onboarded into tenant
-`b2bnetwork.pl`, M365 Defender visible at
+`b2bnetwork.pl`, all reporting the same `orgId` (tenant GUID; redacted here
+because it trips gitleaks UUID heuristics — read it live with
+`mdatp health --field org_id`). M365 Defender visible at
 [security.microsoft.com/machines](https://security.microsoft.com/machines).
 
-| Host | `mdatp` version | `orgId` | Mode | Engine load |
-|---|---|---|---|---|
-| `nexus-prod` (91.99.199.112) | 101.26032.0000 (amd64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Active, RTP ON | Succeeded |
-| `compass-prod` (178.104.220.48) | 101.26032.0000 (arm64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Active, RTP ON | Succeeded |
-| `dynaminds-leadgen` (78.47.89.127) | 101.26032.0000 (arm64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Passive, RTP OFF | n/a (no engine load needed in passive) |
+| Host | `mdatp` version | Mode | Engine load |
+|---|---|---|---|
+| `nexus-prod` (91.99.199.112) | 101.26032.0000 (amd64) | Active, RTP ON | Succeeded |
+| `compass-prod` (178.104.220.48) | 101.26032.0000 (arm64) | Active, RTP ON | Succeeded |
+| `dynaminds-leadgen` (78.47.89.127) | 101.26032.0000 (arm64) | Passive, RTP OFF | n/a (no engine load in passive) |
 
 Disk impact per host: ~1 GB for `mdatp` + signatures (~700 MB binary +
 ~500 MB definitions). NEXUS root partition went from 84% → 86% used —
