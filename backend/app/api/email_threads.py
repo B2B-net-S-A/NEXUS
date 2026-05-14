@@ -521,9 +521,7 @@ def _apply_bulk_action(
 
 
 @router.post("/microsoft365/emails/bulk", response_model=BulkEmailActionResponse)
-@limiter.limit("20/minute")
 async def bulk_email_action(
-    request: Request,
     payload: BulkEmailActionRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
