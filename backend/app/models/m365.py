@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Computed,
     DateTime,
@@ -323,4 +324,66 @@ class EmailAttachment(Base, TimestampMixin):
         return (
             f"<EmailAttachment id={self.id} email={self.email_id} "
             f"name={self.filename!r} cv={self.is_cv_candidate}>"
+        )
+
+
+class GraphSubscription(Base, TimestampMixin):
+    """Microsoft Graph push subscription tracked locally for renewal.
+
+    Phase 7.3 — Graph webhooks replace the 5-min polling loop with real-time
+    pushes. Graph caps a single subscription's lifetime at ~70h for the
+    resources we use, so the renewal loop (`graph_subscription_renewal_loop`)
+    PATCHes each row before `expires_at` to keep the subscription alive.
+
+    `client_state` is an opaque secret returned by Graph in every notification
+    body — incoming POSTs must echo a matching value or we reject them. It is
+    NOT a signature; replay protection lives one layer up (see the
+    in-memory dedup cache in `app.api.microsoft365.webhook_notify`).
+    """
+
+    __tablename__ = "graph_subscriptions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    m365_connection_id: Mapped[int] = mapped_column(
+        ForeignKey("m365_connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # e.g. "me/mailFolders('inbox')/messages", "me/mailFolders('sentitems')/messages",
+    # "me/events".
+    resource: Mapped[str] = mapped_column(String(255), nullable=False)
+    # CSV of changeTypes — Graph accepts a single comma-joined string.
+    change_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    # Graph-assigned UUID. We never invent this — comes from POST /subscriptions response.
+    subscription_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True
+    )
+    notification_url: Mapped[str] = mapped_column(String(998), nullable=False)
+    # Shared secret echoed back in every notification — used for cheap origin
+    # validation (Graph never logs/leaks this). Generated per subscription.
+    client_state: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_renewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Bumped on every failed renew/subscribe; row goes inactive after 3 strikes.
+    renewal_failure_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(Text)
+
+    user = relationship("User", foreign_keys=[user_id])
+    connection = relationship("M365Connection", foreign_keys=[m365_connection_id])
+
+    def __repr__(self) -> str:
+        return (
+            f"<GraphSubscription id={self.id} conn={self.m365_connection_id} "
+            f"resource={self.resource!r} expires={self.expires_at.isoformat()}>"
         )
