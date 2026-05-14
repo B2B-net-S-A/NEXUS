@@ -90,6 +90,15 @@ class CalendarEvent(Base, TimestampMixin):
         Boolean, default=False, nullable=False, index=True
     )
 
+    # Phase 7.5 — candidate self-confirmation (Outlook Actionable Messages or
+    # fallback paths). NULL until the candidate clicks "Potwierdzam" in the
+    # email; then populated with the confirmation timestamp + source string
+    # (`outlook_actionable`, `manual_email_reply`, `phone`).
+    candidate_confirmed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    candidate_confirmation_source: Mapped[Optional[str]] = mapped_column(String(50))
+
     # Relationships
     candidate = relationship("Candidate", foreign_keys=[candidate_id])
     job = relationship("Job", foreign_keys=[job_id])

@@ -1,7 +1,7 @@
 """Phase 7.2 — AAD group-based RBAC + auto-provisioning.
 
-Revision ID: 0106_users_aad_groups
-Revises: 0105_user_email_templates
+Revision ID: 0107_users_aad_groups
+Revises: 0106_calendar_event_confirmation
 Create Date: 2026-05-14 16:00:00.000000
 
 Phase 7.2 of the M365 repair plan (.claude/plans/elegant-percolating-thimble.md).
@@ -22,8 +22,8 @@ which AAD groups a user belonged to at last login. If rollback is needed, set
 from alembic import op
 
 
-revision = "0106_users_aad_groups"
-down_revision = "0105_user_email_templates"
+revision = "0107_users_aad_groups"
+down_revision = "0106_calendar_event_confirmation"
 branch_labels = None
 depends_on = None
 

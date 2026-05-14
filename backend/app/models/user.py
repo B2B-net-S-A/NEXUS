@@ -110,7 +110,7 @@ class User(Base, TimestampMixin):
     )
     microsoft_upn: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # ── AAD group-based RBAC (Phase 7.2, migracja 0106) ───────────────────────
+    # ── AAD group-based RBAC (Phase 7.2, migracja 0107) ───────────────────────
     # List of ``{"id": "<guid>", "displayName": "..."}`` snapshots refreshed on
     # every SSO login when ``AAD_GROUP_RBAC_ENABLED=true``. Role is derived from
     # this list via ``AAD_GROUP_ROLE_MAP_JSON`` (first match wins). The

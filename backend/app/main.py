@@ -63,6 +63,7 @@ from app.api import prep_kit
 from app.api import ai_writer
 from app.api import talent_pools
 from app.api import public_engagement
+from app.api import public_interview_confirmation
 from app.api import cv_generator
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
@@ -314,6 +315,11 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
+app.include_router(
+    public_interview_confirmation.router,
+    prefix="/api",
+    tags=["public-interview-confirmation"],
+)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
