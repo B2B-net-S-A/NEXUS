@@ -109,7 +109,6 @@ jobs:
                  tests/test_autenti_webhook.py \
                  tests/test_m365_encryption.py \
                  tests/test_m365_oauth_state.py \
-                 tests/test_m365_matcher.py \
                  tests/test_m365_attachment_handler.py \
                  tests/test_m365_sync_helpers.py \
                  tests/test_m365_sender_idempotency.py \

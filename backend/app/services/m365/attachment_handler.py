@@ -35,7 +35,17 @@ STORAGE_ROOT = Path(
 )
 M365_ROOT = STORAGE_ROOT / "microsoft365"
 
-_CV_FILENAME_RE = re.compile(r"\b(cv|resume|życiorys|zyciorys|lebenslauf)\b", re.I)
+# Match "cv"/"resume"/... as the trailing-most token before the extension.
+# `\b` doesn't help here — PL/EN underscores defeat it (`Resume_2025.pdf`)
+# and so does CamelCase (`MyCV.pdf` — `y→C` is letter↔letter, no boundary).
+# We instead require a non-letter (or end of string) AFTER the keyword. The
+# left side is intentionally permissive — `MyCV.pdf` and `becv.pdf` both
+# match; the MIME guard in `is_cv_candidate_attachment` rules out junk.
+_CV_FILENAME_RE = re.compile(
+    r"(cv|resume|życiorys|zyciorys|lebenslauf)"
+    r"(?![a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ])",
+    re.I,
+)
 _CV_CONTENT_TYPES = frozenset(
     {
         "application/pdf",
