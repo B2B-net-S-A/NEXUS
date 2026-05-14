@@ -80,6 +80,9 @@ class CalendarEventResponse(BaseModel):
     attendees: Optional[list]
     location: Optional[str]
     teams_link: Optional[str]
+    # Phase 7.1 — Graph-generated Teams join URL + Stream recording URL.
+    online_meeting_url: Optional[str] = None
+    recording_url: Optional[str] = None
     created_by: Optional[int]
     reminder_minutes: int
     status: str
@@ -625,6 +628,9 @@ class M365InviteRequest(BaseModel):
     event_type: EventType = EventType.interview
     extra_attendees: list[str] = []
     invite_candidate: bool = True
+    # Phase 7.1 — opt-in/out of Graph-generated Teams meeting. None lets the
+    # service helper apply the event-type default (on for interview/screening).
+    add_teams_meeting: Optional[bool] = None
 
 
 @router.post(
@@ -677,6 +683,7 @@ async def create_m365_invite(
         event_type=body.event_type,
         extra_attendees=body.extra_attendees,
         invite_candidate=body.invite_candidate,
+        with_teams_meeting=body.add_teams_meeting,
     )
     await db.commit()
     await db.refresh(row)
@@ -698,6 +705,8 @@ async def create_m365_invite(
         attendees=row.attendees,
         location=row.location,
         teams_link=row.teams_link,
+        online_meeting_url=row.online_meeting_url,
+        recording_url=row.recording_url,
         created_by=row.created_by,
         reminder_minutes=row.reminder_minutes,
         status=row.status.value if row.status else "scheduled",

@@ -62,6 +62,12 @@ class CalendarEvent(Base, TimestampMixin):
     location: Mapped[Optional[str]] = mapped_column(String(500))
     teams_link: Mapped[Optional[str]] = mapped_column(String(1000))
 
+    # Phase 7.1 — Graph-generated Teams meeting + Stream recording URLs.
+    # Distinct from `teams_link` (free-text, user-input) — these come from the
+    # Graph API when the event is created with `isOnlineMeeting=true`.
+    online_meeting_url: Mapped[Optional[str]] = mapped_column(String(998))
+    recording_url: Mapped[Optional[str]] = mapped_column(String(998))
+
     # Phase 7b.6 — external calendar sources (iCal / Outlook / Google)
     external_id: Mapped[Optional[str]] = mapped_column(String(200), index=True)
     external_source: Mapped[Optional[str]] = mapped_column(

@@ -1,10 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, Loader2 } from "lucide-react";
+import { CalendarPlus, Check, Copy, Loader2 } from "lucide-react";
 
-import { calendarApi, microsoft365Api, type FreeBusyResponse } from "@/lib/api";
+import {
+  calendarApi,
+  microsoft365Api,
+  type CalendarEventResponse,
+  type FreeBusyResponse,
+} from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +76,14 @@ const EVENT_TYPE_LABELS: Record<EventType, string> = {
   meeting: "Spotkanie",
 };
 
+// Event types that default to including a Teams meeting link. Mirrors
+// `_TEAMS_DEFAULT_EVENT_TYPES` in backend/app/services/m365/calendar.py — keep
+// in sync so the checkbox default matches what the server would pick.
+const TEAMS_DEFAULT_FOR: ReadonlySet<EventType> = new Set<EventType>([
+  "interview",
+  "screening",
+]);
+
 export default function ScheduleInterviewModal({
   candidateId,
   candidateName,
@@ -88,7 +101,27 @@ export default function ScheduleInterviewModal({
   const [duration, setDuration] = useState(45); // minutes
   const [inviteCandidate, setInviteCandidate] = useState(true);
   const [extraAttendees, setExtraAttendees] = useState("");
+  // Phase 7.1 — opt-in Teams meeting link. `userTouched` records whether the
+  // user toggled the checkbox manually; until then, switching event_type
+  // adjusts the default automatically.
+  const [addTeamsMeeting, setAddTeamsMeeting] = useState(true);
+  const [teamsTouched, setTeamsTouched] = useState(false);
+  const [createdEvent, setCreatedEvent] =
+    useState<CalendarEventResponse | null>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!teamsTouched) {
+      setAddTeamsMeeting(TEAMS_DEFAULT_FOR.has(eventType));
+    }
+  }, [eventType, teamsTouched]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(t);
+  }, [copied]);
 
   const end = useMemo(() => {
     try {
@@ -226,11 +259,19 @@ export default function ScheduleInterviewModal({
           .map((s) => s.trim())
           .filter(Boolean),
         invite_candidate: inviteCandidate,
+        add_teams_meeting: addTeamsMeeting,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["candidate-calls", candidateId] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-      onOpenChange(false);
+      // Linger on a confirmation step when Graph returned a Teams join URL —
+      // recruiter wants to copy it into the candidate ping. When no URL is
+      // present (non-Teams event or older backend) we close immediately.
+      if (res.data?.online_meeting_url) {
+        setCreatedEvent(res.data);
+      } else {
+        onOpenChange(false);
+      }
     },
     onError: (err: unknown) => {
       const msg =
@@ -243,6 +284,85 @@ export default function ScheduleInterviewModal({
       setError(msg);
     },
   });
+
+  const handleCopyMeetingUrl = async () => {
+    const url = createdEvent?.online_meeting_url;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+    } catch {
+      // Clipboard API may be unavailable on http: origins or in some browsers.
+      // The link remains visible/selectable, so silent failure is acceptable.
+    }
+  };
+
+  const handleClose = () => {
+    setCreatedEvent(null);
+    setCopied(false);
+    onOpenChange(false);
+  };
+
+  if (createdEvent) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Spotkanie zaplanowane</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Alert
+              variant="success"
+              title="Link Teams wygenerowany"
+              description="Outlook wysłał zaproszenie do uczestników. Link można skopiować poniżej."
+            />
+            {createdEvent.online_meeting_url && (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-muted-foreground">
+                  Link do spotkania
+                </label>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={createdEvent.online_meeting_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 min-w-0 truncate text-sm text-primary underline"
+                  >
+                    {createdEvent.online_meeting_url}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleCopyMeetingUrl}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg hover:bg-muted"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        Skopiowano
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        Kopiuj link Teams
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={handleClose}
+              className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium"
+            >
+              Zamknij
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -374,6 +494,21 @@ export default function ScheduleInterviewModal({
             ) : (
               <span className="text-destructive">(brak adresu email)</span>
             )}
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={addTeamsMeeting}
+              onChange={(e) => {
+                setTeamsTouched(true);
+                setAddTeamsMeeting(e.target.checked);
+              }}
+            />
+            Dodaj spotkanie Teams
+            <span className="text-muted-foreground text-xs">
+              (link wygenerowany przez Outlook)
+            </span>
           </label>
 
           {error && (

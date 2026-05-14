@@ -382,6 +382,31 @@ export const cvGeneratorApi = {
 };
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
+export interface CalendarEventResponse {
+  id: number;
+  title: string;
+  description: string | null;
+  event_type: string;
+  start_time: string;
+  end_time: string | null;
+  all_day: boolean;
+  candidate_id: number | null;
+  candidate_name: string | null;
+  job_id: number | null;
+  job_title: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  attendees: Array<{ address: string }> | null;
+  location: string | null;
+  teams_link: string | null;
+  online_meeting_url: string | null;
+  recording_url: string | null;
+  created_by: number | null;
+  reminder_minutes: number;
+  status: string;
+  created_at: string | null;
+}
+
 export const calendarApi = {
   listEvents: (params?: {
     from_date?: string;
@@ -2263,7 +2288,12 @@ export const microsoft365Api = {
     event_type?: string;
     extra_attendees?: string[];
     invite_candidate?: boolean;
-  }) => api.post("/api/calendar/events/m365-invite", payload),
+    add_teams_meeting?: boolean;
+  }) =>
+    api.post<CalendarEventResponse>(
+      "/api/calendar/events/m365-invite",
+      payload,
+    ),
   bulkAction: (payload: {
     email_ids: number[];
     action: BulkEmailAction;
