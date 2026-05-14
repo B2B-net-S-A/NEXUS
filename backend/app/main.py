@@ -41,6 +41,7 @@ from app.api import (
 from app.api import activities
 from app.api import admin
 from app.api import emails
+from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
@@ -379,6 +380,11 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(emails.router, prefix="/api", tags=["emails"])
+app.include_router(
+    user_email_templates_api.router,
+    prefix="/api/user-email-templates",
+    tags=["user-email-templates"],
+)
 app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])

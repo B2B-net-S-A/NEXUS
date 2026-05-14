@@ -113,6 +113,7 @@ jobs:
                  tests/test_m365_sync_helpers.py \
                  tests/test_m365_sender_idempotency.py \
                  tests/test_auth_microsoft.py \
+                 tests/test_user_email_templates.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

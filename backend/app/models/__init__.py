@@ -39,6 +39,7 @@ from app.models.fx_rate import FxRate
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
+from app.models.user_email_template import UserEmailTemplate
 from app.models.job_posting import JobPosting
 from app.models.call import Call
 from app.models.client_knowledge import ClientKnowledge
@@ -197,6 +198,7 @@ __all__ = [
     "Activity",
     "UserActivity",
     "EmailTemplate",
+    "UserEmailTemplate",
     "JobPosting",
     "Call",
     "ClientKnowledge",
