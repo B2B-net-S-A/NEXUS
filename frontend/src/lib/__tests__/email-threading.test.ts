@@ -25,6 +25,7 @@ function makeEmail(id: number, sentAt: string | null, receivedAt: string): Email
     direction: id % 2 === 0 ? "sent" : "received",
     has_attachments: false,
     is_read: true,
+    is_archived: false,
     is_private_filtered: false,
     match_method: "strict",
     match_confidence: 1.0,

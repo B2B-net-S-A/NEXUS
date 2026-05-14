@@ -2124,6 +2124,7 @@ export interface EmailMessage {
   direction: "sent" | "received" | "draft";
   has_attachments: boolean;
   is_read: boolean;
+  is_archived: boolean;
   is_private_filtered: boolean;
   match_method:
     | "strict"
@@ -2133,7 +2134,27 @@ export interface EmailMessage {
     | "manual"
     | "unmatched";
   match_confidence: number | null;
+  candidate_id?: number | null;
   attachments?: EmailAttachmentPreview[];
+}
+
+export type BulkEmailAction =
+  | "archive"
+  | "mark_read"
+  | "mark_unread"
+  | "link_to_candidate"
+  | "unlink";
+
+export interface BulkEmailActionItemError {
+  id: number;
+  reason: string;
+}
+
+export interface BulkEmailActionResponse {
+  action: BulkEmailAction;
+  updated_count: number;
+  skipped_count: number;
+  errors: BulkEmailActionItemError[];
 }
 
 export interface EmailThreadPreview {
@@ -2231,6 +2252,15 @@ export const microsoft365Api = {
     extra_attendees?: string[];
     invite_candidate?: boolean;
   }) => api.post("/api/calendar/events/m365-invite", payload),
+  bulkAction: (payload: {
+    email_ids: number[];
+    action: BulkEmailAction;
+    candidate_id?: number;
+  }) =>
+    api.post<BulkEmailActionResponse>(
+      "/api/microsoft365/emails/bulk",
+      payload,
+    ),
   checkFreeBusy: (payload: {
     start: string;
     end: string;
