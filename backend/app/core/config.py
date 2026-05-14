@@ -176,6 +176,19 @@ class Settings(BaseSettings):
     M365_MAX_ATTACHMENT_MB: int = 25
     # Whether to auto-parse CV attachments via cv_parser (Claude calls = $$).
     M365_AUTO_PARSE_CV: bool = True
+    # Phase 5.2 — hourly background loop that retries `matcher.match` on emails
+    # synced before the candidate row existed in the DB. Cheap (LIMIT 500, single
+    # SELECT + per-row UPDATEs) but kept behind a flag so it stays off until the
+    # main sync loop is stable in prod.
+    M365_REMATCH_ENABLED: bool = False
+    # Cadence; clamped to >=600s in the loop (we never want to rematch faster
+    # than 10 min — it's a catch-up job, not real-time).
+    M365_REMATCH_INTERVAL_SECONDS: int = 3600
+    # Look-back window. Older emails are skipped — if a candidate appears 30+ days
+    # after the email, the user is expected to use manual linking from the UI.
+    M365_REMATCH_LOOKBACK_DAYS: int = 30
+    # Max emails to process per pass. Keeps a single iteration cheap and bounded.
+    M365_REMATCH_BATCH_SIZE: int = 500
 
     # ── SSO "Sign in with Microsoft" (Faza B) ────────────────────────────────
     # Reuses M365 Azure AD app — same client_id/secret/tenant, different redirect.

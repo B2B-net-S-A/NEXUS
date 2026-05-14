@@ -1,7 +1,7 @@
 """User email templates library — Phase 4.5 of the M365 plan.
 
-Revision ID: 0103_user_email_templates
-Revises: 0102_m365_connection_hardening
+Revision ID: 0105_user_email_templates
+Revises: 0104_emails_archive_flag
 Create Date: 2026-05-14 14:00:00.000000
 
 Phase 4.5 of the M365 repair plan (.claude/plans/elegant-percolating-thimble.md).
@@ -39,8 +39,8 @@ Idempotent — all `IF NOT EXISTS` guards.
 from alembic import op
 
 
-revision = "0103_user_email_templates"
-down_revision = "0102_m365_connection_hardening"
+revision = "0105_user_email_templates"
+down_revision = "0104_emails_archive_flag"
 branch_labels = None
 depends_on = None
 

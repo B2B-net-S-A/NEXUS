@@ -112,7 +112,12 @@ jobs:
                  tests/test_m365_attachment_handler.py \
                  tests/test_m365_sync_helpers.py \
                  tests/test_m365_sender_idempotency.py \
+                 tests/test_m365_rematch.py \
+                 tests/test_m365_free_busy.py \
+                 tests/test_m365_email_search.py \
+                 tests/test_email_bulk_actions.py \
                  tests/test_auth_microsoft.py \
+                 tests/test_calendar_conflicts.py \
                  tests/test_user_email_templates.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing

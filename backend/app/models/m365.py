@@ -18,6 +18,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     DateTime,
     Enum,
     Float,
@@ -27,7 +28,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -205,6 +206,11 @@ class Email(Base, TimestampMixin):
         Boolean, default=False, nullable=False
     )
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 5.1 — user-driven archive flag (bulk action). Archived rows are
+    # hidden from default thread previews so the action visibly removes the
+    # message from the candidate sidebar. Distinct from `is_private_filtered`
+    # which is system-driven (Outlook category opt-out).
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # True when Outlook category `M365_IGNORE_CATEGORY` is present; body/attachments
     # are NOT fetched for these (privacy opt-out) but the stub exists so we don't
     # re-fetch on every delta.
@@ -231,6 +237,23 @@ class Email(Base, TimestampMixin):
     # messages synced from Graph (matched on m365_message_id instead). A unique
     # partial index in migration 0102 enforces uniqueness only on NOT NULL.
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
+
+    # Phase 4.4 — postgres FTS column. Generated STORED in migration 0103 from
+    # subject (weight A) + from_name/from_address (B) + body_text (C).
+    # `Computed(..., persisted=True)` tells SQLAlchemy the column is DB-managed
+    # so INSERT/UPDATE skip it; queries read it via the GIN index
+    # ``ix_emails_search_vector``.
+    search_vector: Mapped[Optional[str]] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "setweight(to_tsvector('simple', coalesce(subject, '')), 'A') || "
+            "setweight(to_tsvector('simple', "
+            "coalesce(from_name, '') || ' ' || coalesce(from_address, '')), 'B') || "
+            "setweight(to_tsvector('simple', coalesce(body_text, '')), 'C')",
+            persisted=True,
+        ),
+        nullable=True,
+    )
 
     # Relationships
     user = relationship("User", foreign_keys=[user_id])

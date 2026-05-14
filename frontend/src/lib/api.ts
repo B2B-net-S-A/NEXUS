@@ -394,6 +394,18 @@ export const calendarApi = {
   updateEvent: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/calendar/events/${id}`, data),
   deleteEvent: (id: number) => api.delete(`/api/calendar/events/${id}`),
+  // Phase 5.4 — overlap check used by ScheduleInterviewModal before booking.
+  conflicts: (params: {
+    start: string;
+    end: string;
+    exclude_event_id?: number;
+    user_id?: number;
+  }) => api.get("/api/calendar/conflicts", { params }),
+  conflictsSummary: (params: {
+    start: string;
+    end: string;
+    user_id?: number;
+  }) => api.get("/api/calendar/conflicts-summary", { params }),
 };
 
 // ── Notifications ─────────────────────────────────────────────────────────────
@@ -2124,6 +2136,7 @@ export interface EmailMessage {
   direction: "sent" | "received" | "draft";
   has_attachments: boolean;
   is_read: boolean;
+  is_archived: boolean;
   is_private_filtered: boolean;
   match_method:
     | "strict"
@@ -2133,7 +2146,27 @@ export interface EmailMessage {
     | "manual"
     | "unmatched";
   match_confidence: number | null;
+  candidate_id?: number | null;
   attachments?: EmailAttachmentPreview[];
+}
+
+export type BulkEmailAction =
+  | "archive"
+  | "mark_read"
+  | "mark_unread"
+  | "link_to_candidate"
+  | "unlink";
+
+export interface BulkEmailActionItemError {
+  id: number;
+  reason: string;
+}
+
+export interface BulkEmailActionResponse {
+  action: BulkEmailAction;
+  updated_count: number;
+  skipped_count: number;
+  errors: BulkEmailActionItemError[];
 }
 
 export interface EmailThreadPreview {
@@ -2142,6 +2175,45 @@ export interface EmailThreadPreview {
   latest: EmailMessage;
   message_count: number;
   unread_count: number;
+}
+
+export type FreeBusyStatus =
+  | "free"
+  | "tentative"
+  | "busy"
+  | "oof"
+  | "workingElsewhere"
+  | "unknown";
+
+export interface FreeBusySlot {
+  start: string;
+  end: string;
+  status: FreeBusyStatus;
+}
+
+export interface FreeBusyResponse {
+  attendees: Record<string, FreeBusySlot[]>;
+  requested_window: { start: string; end: string };
+}
+
+export interface EmailSearchHit {
+  id: number;
+  m365_conversation_id: string;
+  candidate_id: number | null;
+  subject: string | null;
+  from_address: string;
+  from_name: string | null;
+  received_at: string;
+  has_attachments: boolean;
+  is_read: boolean;
+  snippet: string | null;
+}
+
+export interface EmailSearchResponse {
+  items: EmailSearchHit[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export const microsoft365Api = {
@@ -2154,6 +2226,14 @@ export const microsoft365Api = {
 
   listCandidateThreads: (candidateId: number) =>
     api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  listThreadMessages: (candidateId: number, conversationId: string) =>
+    api.get<EmailMessage[]>(
+      `/api/candidates/${candidateId}/emails/thread/${encodeURIComponent(conversationId)}`,
+    ),
+  searchEmails: (q: string, limit = 50, offset = 0) =>
+    api.get<EmailSearchResponse>("/api/microsoft365/emails/search", {
+      params: { q, limit, offset },
+    }),
   getEmail: (emailId: number) =>
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
@@ -2184,6 +2264,20 @@ export const microsoft365Api = {
     extra_attendees?: string[];
     invite_candidate?: boolean;
   }) => api.post("/api/calendar/events/m365-invite", payload),
+  bulkAction: (payload: {
+    email_ids: number[];
+    action: BulkEmailAction;
+    candidate_id?: number;
+  }) =>
+    api.post<BulkEmailActionResponse>(
+      "/api/microsoft365/emails/bulk",
+      payload,
+    ),
+  checkFreeBusy: (payload: {
+    start: string;
+    end: string;
+    attendees: string[];
+  }) => api.post<FreeBusyResponse>("/api/microsoft365/free-busy", payload),
 };
 
 // ── User Email Templates (Phase 4.5 — M365 outreach library) ────────────────
