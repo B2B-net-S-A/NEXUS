@@ -14,14 +14,16 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, get_current_user
 from app.core.database import get_db
+from app.core.rate_limit import limiter
+from app.models.user import User
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -80,6 +82,33 @@ class ThreadPreview(BaseModel):
     latest: EmailOut
     message_count: int
     unread_count: int
+
+
+class EmailSearchHit(BaseModel):
+    """Single hit on the FTS endpoint.
+
+    Slimmer than ``EmailOut`` — body_html is excluded (caller fetches it via
+    GET /emails/{id} when opening the thread) and ``snippet`` is added with
+    ``<mark>...</mark>`` highlighted around match terms.
+    """
+
+    id: int
+    m365_conversation_id: str
+    candidate_id: Optional[int]
+    subject: Optional[str]
+    from_address: str
+    from_name: Optional[str]
+    received_at: datetime
+    has_attachments: bool
+    is_read: bool
+    snippet: Optional[str]
+
+
+class EmailSearchResponse(BaseModel):
+    items: list[EmailSearchHit]
+    total: int
+    limit: int
+    offset: int
 
 
 class ComposeRequest(BaseModel):
@@ -301,6 +330,85 @@ async def compose_email(
     )
     await db.commit()
     return _to_email_out(row)
+
+
+@router.get(
+    "/microsoft365/emails/search",
+    response_model=EmailSearchResponse,
+)
+@limiter.limit("60/minute")
+async def search_emails(
+    request: Request,
+    q: str = Query(..., min_length=2, max_length=200),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> EmailSearchResponse:
+    """Full-text search over the caller's own emails (Phase 4.4).
+
+    Multi-tenant: rows filtered to ``Email.user_id == current_user.id`` — no
+    privileged-role bypass, mailbox content is per-user PII.
+
+    Uses ``plainto_tsquery('simple', :q)`` so the caller can pass natural
+    language; ``simple`` config matches the generated column (no stemming,
+    mixed PL/EN/DE in production mailboxes).
+
+    Ranking: ``ts_rank`` desc with ``received_at`` desc as tiebreaker — when
+    two emails match equally, newest wins.
+    """
+    # Single CTE-style query to share the same `:q` binding for filter,
+    # ranking and snippet. asyncpg's prepared-statement cache handles repeats.
+    sql = text(
+        """
+        WITH matches AS (
+            SELECT e.*,
+                   ts_rank(e.search_vector,
+                           plainto_tsquery('simple', :q)) AS rank,
+                   ts_headline(
+                       'simple',
+                       coalesce(e.body_text, ''),
+                       plainto_tsquery('simple', :q),
+                       'StartSel=<mark>,StopSel=</mark>,'
+                       'MaxFragments=2,MaxWords=15,MinWords=5,'
+                       'ShortWord=2,HighlightAll=false'
+                   ) AS snippet
+            FROM emails e
+            WHERE e.user_id = :user_id
+              AND e.search_vector @@ plainto_tsquery('simple', :q)
+        )
+        SELECT id, m365_conversation_id, candidate_id, subject,
+               from_address, from_name, received_at,
+               has_attachments, is_read, snippet,
+               COUNT(*) OVER () AS total
+        FROM matches
+        ORDER BY rank DESC, received_at DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    result = await db.execute(
+        sql,
+        {"q": q, "user_id": current_user.id, "limit": limit, "offset": offset},
+    )
+    rows = result.mappings().all()
+
+    total = int(rows[0]["total"]) if rows else 0
+    items = [
+        EmailSearchHit(
+            id=row["id"],
+            m365_conversation_id=row["m365_conversation_id"],
+            candidate_id=row["candidate_id"],
+            subject=row["subject"],
+            from_address=row["from_address"],
+            from_name=row["from_name"],
+            received_at=row["received_at"],
+            has_attachments=row["has_attachments"],
+            is_read=row["is_read"],
+            snippet=row["snippet"],
+        )
+        for row in rows
+    ]
+    return EmailSearchResponse(items=items, total=total, limit=limit, offset=offset)
 
 
 @router.post("/candidates/{candidate_id}/emails/reply", response_model=EmailOut)
