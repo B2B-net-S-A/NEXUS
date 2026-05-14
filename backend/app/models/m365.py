@@ -60,6 +60,9 @@ class M365SyncStatus(str, enum.Enum):
     idle = "idle"
     running = "running"
     error = "error"
+    # Tokens cannot be decrypted (e.g. M365_TOKEN_ENCRYPTION_KEY rotated).
+    # Connection is unusable until user re-runs the OAuth flow.
+    reconnect_required = "reconnect_required"
 
 
 class M365Connection(Base, TimestampMixin):

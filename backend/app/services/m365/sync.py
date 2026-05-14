@@ -27,6 +27,7 @@ _SYNC_TIMEOUT_SECONDS = 8 * 60
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.encryption import TokenCipherNotConfigured
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.m365 import (
     Email,
@@ -97,6 +98,20 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
         result.errors += 1
         result.error_samples.append("top: asyncio.TimeoutError")
         await db.commit()
+        return result
+    except TokenCipherNotConfigured as exc:
+        # Encryption key rotated or misconfigured — tokens are dead weight.
+        # Mark the connection so the UI can show a "Reconnect required" banner
+        # and stop generating Sentry noise every sync iteration.
+        from app.services.m365.connection_status import mark_reconnect_required
+
+        logger.warning(
+            "m365 sync_connection %s: tokens undecryptable — reconnect required",
+            conn.id,
+        )
+        await mark_reconnect_required(db, conn, f"{exc!r}"[:500])
+        result.errors += 1
+        result.error_samples.append("top: TokenCipherNotConfigured")
         return result
     except Exception as exc:  # noqa: BLE001
         logger.exception("m365 sync_connection failed for %s", conn.id)

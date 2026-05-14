@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   ExternalLink,
   Loader2,
@@ -63,6 +64,7 @@ export default function Microsoft365Card() {
   const connected = !!status?.connected;
   const backfillInProgress = connected && status?.backfill_in_progress;
   const hasError = connected && !!status?.last_error;
+  const requiresReconnect = !!status?.requires_reconnect;
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
@@ -81,20 +83,24 @@ export default function Microsoft365Card() {
                 "text-xs px-2 py-0.5 rounded-full font-medium",
                 isLoading
                   ? "bg-muted text-muted-foreground"
-                  : connected && !hasError
-                    ? "bg-green-100 text-green-700"
-                    : hasError
-                      ? "bg-destructive/15 text-destructive"
-                      : "bg-muted text-muted-foreground",
+                  : requiresReconnect
+                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                    : connected && !hasError
+                      ? "bg-green-100 text-green-700"
+                      : hasError
+                        ? "bg-destructive/15 text-destructive"
+                        : "bg-muted text-muted-foreground",
               )}
             >
               {isLoading
                 ? "Sprawdzanie..."
-                : connected && !hasError
-                  ? "Połączony"
-                  : hasError
-                    ? "Błąd synchronizacji"
-                    : "Niepołączony"}
+                : requiresReconnect
+                  ? "Wymagane ponowne podłączenie"
+                  : connected && !hasError
+                    ? "Połączony"
+                    : hasError
+                      ? "Błąd synchronizacji"
+                      : "Niepołączony"}
             </span>
           </div>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
@@ -123,6 +129,40 @@ export default function Microsoft365Card() {
                 ? formatRelativeTime(status.last_sync_at)
                 : "Jeszcze nie synchronizowano"}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Reconnect-required banner (amber) — token decryption broke server-side
+          (e.g. encryption key rotation). User must re-run OAuth. */}
+      {requiresReconnect && (
+        <div className="flex items-start gap-2 text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl px-4 py-3 mb-4">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Wymagane ponowne podłączenie Microsoft 365</p>
+            <p className="text-xs mt-0.5 text-amber-700 dark:text-amber-300">
+              Po stronie serwera zmieniła się konfiguracja szyfrowania tokenów
+              {status?.mailbox_upn ? ` dla skrzynki ${status.mailbox_upn}` : ""}.
+              Kliknij „Połącz ponownie”, żeby przywrócić synchronizację. Twoje
+              dotychczasowe maile i wątki pozostają nienaruszone.
+            </p>
+            <button
+              onClick={() => connectMutation.mutate()}
+              disabled={connectMutation.isPending}
+              className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
+            >
+              {connectMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Przygotowuję...
+                </>
+              ) : (
+                <>
+                  <Plug className="w-3 h-3" />
+                  Połącz ponownie
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}

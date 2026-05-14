@@ -70,7 +70,12 @@ async def download_for_email(
         page = await gc.get(
             f"/me/messages/{email_row.m365_message_id}/attachments",
             params={
-                "$select": "id,name,contentType,size,isInline,@odata.type,contentBytes"
+                # NOTE: `@odata.type` was previously in $select, but Graph returns
+                # 400 BadRequest ("Term '@odata.type' is not valid in a $select or
+                # $expand expression"). The discriminator comes back automatically
+                # in the response payload, so reading it from the response (line 94
+                # below) is enough — no need to ask for it.
+                "$select": "id,name,contentType,size,isInline,contentBytes"
             },
         )
     except Exception:  # noqa: BLE001
