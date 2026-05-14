@@ -457,7 +457,9 @@ class CandidateFromLinkedInCreate(BaseModel):
     tags: Optional[List[str]] = None
     notes: Optional[str] = Field(default=None, max_length=4000)
     job_id: Optional[int] = None
-    stage: Optional[PipelineStage] = None  # default applied in handler: PipelineStage.new
+    stage: Optional[PipelineStage] = (
+        None  # default applied in handler: PipelineStage.new
+    )
 
 
 class CandidateFromLinkedInResponse(BaseModel):
@@ -477,4 +479,3 @@ class CandidateFromLinkedInResponse(BaseModel):
     assigned_to_job_id: Optional[int] = None
     profile_url_path: str
     resync_scheduled: bool = False
-

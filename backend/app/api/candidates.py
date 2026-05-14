@@ -1146,9 +1146,7 @@ async def create_candidate_from_linkedin(
     if duplicates:
         match = duplicates[0]
         existing_id: int = match["candidate_id"]
-        existing = await db.scalar(
-            select(Candidate).where(Candidate.id == existing_id)
-        )
+        existing = await db.scalar(select(Candidate).where(Candidate.id == existing_id))
         assert existing is not None  # find_candidate_duplicates just returned it
 
         assigned_job: Optional[int] = None
