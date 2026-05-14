@@ -6,6 +6,25 @@ Microsoft Defender for Endpoint via the M365 Security center. Linux daemon
 
 Phase 7.9 of the M365 ecosystem expansion (plan `elegant-percolating-thimble`).
 
+## Deployment receipt
+
+Phase 7.9 executed 2026-05-14. All three hosts onboarded into tenant
+`b2bnetwork.pl`, M365 Defender visible at
+[security.microsoft.com/machines](https://security.microsoft.com/machines).
+
+| Host | `mdatp` version | `orgId` | Mode | Engine load |
+|---|---|---|---|---|
+| `nexus-prod` (91.99.199.112) | 101.26032.0000 (amd64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Active, RTP ON | Succeeded |
+| `compass-prod` (178.104.220.48) | 101.26032.0000 (arm64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Active, RTP ON | Succeeded |
+| `dynaminds-leadgen` (78.47.89.127) | 101.26032.0000 (arm64) | `36992a31-655f-4899-9da1-7ed1325d5603` | Passive, RTP OFF | n/a (no engine load needed in passive) |
+
+Disk impact per host: ~1 GB for `mdatp` + signatures (~700 MB binary +
+~500 MB definitions). NEXUS root partition went from 84% → 86% used —
+budget OK but tight; cleanup recommendation below.
+
+Health-checks of all three apps (`/api/health`) returned `status=healthy`
+immediately after install — no interference with Coolify-managed containers.
+
 ## License context
 
 | Item | Value |
@@ -62,8 +81,11 @@ Sign in to [security.microsoft.com](https://security.microsoft.com) as admin.
 
 1. **Settings → Endpoints → Onboarding**.
 2. **Select operating system**: `Linux Server`.
-3. **Deployment method**: `Local script (for up to 10 devices)`.
-4. **Download onboarding package** → `WindowsDefenderATPOnboardingPackage.zip`.
+3. **Connectivity type**: `Streamlined` (default; required for MDE 2024-02+).
+4. **Deployment method**: `Local Script (Python)`.
+5. **Download onboarding package** → `GatewayWindowsDefenderATPOnboardingPackage.zip`
+   (the `Gateway` prefix is Microsoft's name for the streamlined-connectivity
+   variant; same tenant binding regardless).
 
 The same package onboards all three servers — it embeds the tenant's enrollment
 secret. Re-download only if you rotate the secret (Settings → Endpoints →
@@ -79,7 +101,7 @@ Repeat the block below for each of the three servers. Example shown for NEXUS
 From your local mac:
 
 ```bash
-scp ~/Downloads/WindowsDefenderATPOnboardingPackage.zip root@91.99.199.112:/tmp/
+scp ~/Downloads/GatewayWindowsDefenderATPOnboardingPackage.zip root@91.99.199.112:/tmp/
 ```
 
 ### 2.2 Add the Microsoft package repo
@@ -101,38 +123,65 @@ host runs a different Ubuntu LTS, swap `24.04` for the version returned by
 `lsb_release -r`; the [official install matrix](https://learn.microsoft.com/en-us/microsoft-365/security/defender-endpoint/linux-install-manually)
 lists supported distros.
 
-### 2.3 Install `mdatp`
+### 2.3 Install `mdatp` (and `unzip`)
+
+Hetzner's Ubuntu Server cloud image ships without `unzip`, so install both:
 
 ```bash
-apt-get install -y mdatp
+DEBIAN_FRONTEND=noninteractive apt-get install -y mdatp unzip
 ```
 
 ### 2.4 Apply onboarding script
 
+The onboarding script is Python 3, not bash — running it with `bash` will
+syntax-error.
+
 ```bash
 cd /tmp
-unzip WindowsDefenderATPOnboardingPackage.zip
-bash MicrosoftDefenderATPOnboardingLinuxServer.py
-rm WindowsDefenderATPOnboardingPackage.zip MicrosoftDefenderATPOnboardingLinuxServer.py
+unzip -o GatewayWindowsDefenderATPOnboardingPackage.zip
+python3 MicrosoftDefenderATPOnboardingLinuxServer.py
+rm GatewayWindowsDefenderATPOnboardingPackage.zip MicrosoftDefenderATPOnboardingLinuxServer.py
+```
+
+Expected output:
+
+```
+Generating /etc/opt/microsoft/mdatp/mdatp_onboard.json ...
 ```
 
 ### 2.5 Verify connection
 
+`mdatp` engine takes ~8–10 seconds to load after onboarding; sleep first or
+re-run `mdatp health` if `engineLoadStatus` is still `Engine not loaded`.
+
 ```bash
-mdatp health
+sleep 10
+mdatp health --output json | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+keys=['healthy','licensed','orgId','passiveModeEnabled','realTimeProtectionEnabled','engineLoadStatus','definitionsStatus','definitionsVersion']
+print(json.dumps({k:d.get(k) for k in keys}, indent=2, default=str))"
 ```
 
-Expected output (excerpt):
+Expected:
 
-```
-healthy                       : true
-licensed                      : true
-real_time_protection_enabled  : true     # NEXUS, Compass
-real_time_protection_enabled  : false    # Atlas (set below)
-definitions_updated           : 2026-...
+```json
+{
+  "healthy": true,
+  "licensed": true,
+  "orgId": "<your tenant GUID>",
+  "passiveModeEnabled": {"value": true},   // <-- default after install
+  "realTimeProtectionEnabled": {"value": false},
+  "engineLoadStatus": "Engine load succeeded",
+  "definitionsStatus": {"$type": "upToDate"}
+}
 ```
 
-If `healthy: false`, jump to [Troubleshooting](#troubleshooting).
+If `healthy: false` or `licensed: false`, jump to
+[Troubleshooting](#troubleshooting).
+
+**Important:** the Linux daemon installs in **passive mode** by default. Active
+real-time protection is configured in section 4, not here.
 
 ## 3. Configure exclusions (Docker + Coolify + Postgres)
 
@@ -157,6 +206,9 @@ mdatp exclusion folder add --path /var/lib/coolify
 mdatp exclusion folder list
 ```
 
+Verify with `mdatp exclusion list` (not `mdatp exclusion folder list` — that
+subcommand doesn't exist).
+
 Additionally on **NEXUS only** (has bind-mounted Postgres + Qdrant data):
 
 ```bash
@@ -166,19 +218,31 @@ mdatp exclusion folder add --path /var/lib/docker/volumes/nexus_qdrant_data
 
 ## 4. Real-time protection policy (per server)
 
-Defaults to ON after install. Atlas needs it OFF:
+The daemon installs in **passive mode** with RTP config-enabled-but-suppressed.
+To activate real-time scanning you must disable passive mode AND ensure RTP
+is enabled:
 
 ```bash
-# On Atlas (78.47.89.127) ONLY:
-ssh root@78.47.89.127 "mdatp config real-time-protection --value disabled"
-ssh root@78.47.89.127 "mdatp health --field real_time_protection_enabled"
-# expected: false
+# NEXUS (91.99.199.112) + Compass (178.104.220.48) — real-time ON:
+mdatp config passive-mode --value disabled
+mdatp config real-time-protection --value enabled
+
+# Atlas (78.47.89.127) — real-time OFF (constrained resources):
+mdatp config real-time-protection --value disabled
+mdatp config passive-mode --value enabled   # explicit, in case of future policy changes
 ```
 
-NEXUS and Compass keep the default (`enabled`). To re-enable on Atlas later
-(e.g. after another resource rescale):
+Verify on each host:
 
 ```bash
+mdatp health --field passive_mode_enabled   # NEXUS/Compass: false; Atlas: true
+mdatp health --field real_time_protection_enabled  # NEXUS/Compass: true; Atlas: false
+```
+
+To re-enable RTP on Atlas later (e.g. after another resource rescale):
+
+```bash
+mdatp config passive-mode --value disabled
 mdatp config real-time-protection --value enabled
 ```
 
