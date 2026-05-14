@@ -30,7 +30,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE m365syncstatus ADD VALUE IF NOT EXISTS 'reconnect_required'")
+    # ALTER TYPE ... ADD VALUE cannot run inside a transaction block; PG / asyncpg
+    # raises UnsafeNewEnumValueUsageError if any later statement (even in a
+    # subsequent migration in the same `upgrade head` invocation) uses it before
+    # commit. autocommit_block commits the outer transaction, runs the DDL
+    # outside any transaction, and opens a fresh one afterwards.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE m365syncstatus ADD VALUE IF NOT EXISTS 'reconnect_required'"
+        )
 
 
 def downgrade() -> None:
