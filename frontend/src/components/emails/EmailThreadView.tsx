@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import {
@@ -105,7 +105,7 @@ function ThreadMessageCard({
       // Inline padding-left for arbitrary depth — Tailwind doesn't generate
       // every depth class up front and we cap at MAX_DEPTH so the value is
       // bounded (max 480px).
-      style={{ paddingLeft: depth === 0 ? 0 : `${depth * 16}px` }}
+      style={{ paddingLeft: depth === 0 ? 0 : `${depth * 24}px` }}
     >
       <div
         className={cn(
@@ -258,20 +258,6 @@ export default function EmailThreadView({
   const subject = messages?.[messages.length - 1]?.subject ?? "(bez tematu)";
   const latestId = flatNodes[flatNodes.length - 1]?.email.id ?? null;
 
-  // Default-expand the latest message; keep older ones collapsed for fast
-  // initial render on long threads.
-  const [expandedInitial, setExpandedInitial] = useState<Set<number>>(new Set());
-  useEffect(() => {
-    if (latestId !== null) {
-      setExpandedInitial((prev) => {
-        if (prev.has(latestId)) return prev;
-        const next = new Set(prev);
-        next.add(latestId);
-        return next;
-      });
-    }
-  }, [latestId]);
-
   const messageCount = messages?.length ?? 0;
   const unreadCount = useMemo(
     () => (messages ?? []).filter((m) => !m.is_read && m.direction !== "sent").length,
@@ -312,7 +298,7 @@ export default function EmailThreadView({
                 key={node.email.id}
                 email={node.email}
                 depth={Math.min(node.depth, MAX_DEPTH)}
-                initiallyExpanded={expandedInitial.has(node.email.id)}
+                initiallyExpanded={node.email.id === latestId}
                 onReply={(e) => setReplyTarget(e)}
               />
             ))
