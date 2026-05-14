@@ -67,6 +67,11 @@ class Candidate(Base, TimestampMixin):
     phone: Mapped[Optional[str]] = mapped_column(String(30))
     location: Mapped[Optional[str]] = mapped_column(String(255))
     linkedin: Mapped[Optional[str]] = mapped_column(String(500))
+    # Auto-maintained STORED generated column (migration 0106). Indexed for
+    # fast O(log n) dedup in `find_candidate_duplicates` and the Chrome
+    # extension's `POST /api/candidates/from-linkedin` endpoint. App code is
+    # read-only on this column — never INSERT/UPDATE directly.
+    linkedin_slug: Mapped[Optional[str]] = mapped_column(String(150))
 
     # Avatar
     avatar_url: Mapped[Optional[str]] = mapped_column(String(1000))

@@ -86,7 +86,16 @@ async def find_candidate_duplicates(
             )
         )
     if norm_linkedin_slug:
-        clauses.append(Candidate.linkedin.ilike(f"%{norm_linkedin_slug}%"))
+        # Migration 0106 added `linkedin_slug` as a STORED generated column
+        # with an index, so equality lookups are O(log n). Fallback ilike()
+        # path stays for graceful behaviour on the (now-impossible) chance
+        # the migration is missing in a dev DB.
+        clauses.append(
+            or_(
+                Candidate.linkedin_slug == norm_linkedin_slug,
+                Candidate.linkedin.ilike(f"%{norm_linkedin_slug}%"),
+            )
+        )
     if norm_name and norm_lastname:
         clauses.append(
             (func.lower(Candidate.name) == norm_name)
