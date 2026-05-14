@@ -48,8 +48,10 @@ const ICONS: Record<AlertVariant, React.ComponentType<{ className?: string }>> =
   error: AlertCircle,
 };
 
+// Omit `title` from the underlying HTMLAttributes — the DOM `title` attr is a
+// string (tooltip), but we want ReactNode here for the bold heading slot.
 export interface AlertProps
-  extends React.HTMLAttributes<HTMLDivElement>,
+  extends Omit<React.HTMLAttributes<HTMLDivElement>, "title">,
     VariantProps<typeof alertVariants> {
   /** Bold leading line. */
   title?: React.ReactNode;
