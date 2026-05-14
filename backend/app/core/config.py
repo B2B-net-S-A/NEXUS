@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     # do >= 60s w loopie.
     KPI_COACH_LOOP_INTERVAL_SECONDS: int = 300
 
+    # Externally reachable base URL for the public API. Used by Outlook
+    # Actionable Messages (Phase 7.5) which require Microsoft's servers to be
+    # able to resolve the action target URL — localhost/tunnel won't work.
+    PUBLIC_API_BASE_URL: str = "https://api.nexus.dynaminds.pl"
+
     # ── Microsoft 365 integration (Phase M365.1) ─────────────────────────────
     # Kill-switch for the whole integration. When False: router skips registration,
     # sync loop exits immediately — used when rolling out or reverting.
