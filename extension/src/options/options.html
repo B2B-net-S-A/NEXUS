@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEXUS — ustawienia</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <span class="badge">NEXUS</span>
+        <h1>Ustawienia rozszerzenia</h1>
+      </header>
+
+      <section class="card">
+        <h2>Konto</h2>
+        <div id="account-view" hidden>
+          <p>
+            Zalogowano jako: <strong id="account-email"></strong>
+          </p>
+          <button class="btn btn-secondary" id="btn-logout">Wyloguj</button>
+        </div>
+        <form id="login-form" class="form" hidden>
+          <div class="field">
+            <label for="login-email">Email</label>
+            <input id="login-email" type="email" required placeholder="ty@firma.pl" autocomplete="email" />
+          </div>
+          <div class="field">
+            <label for="login-password">Hasło</label>
+            <input id="login-password" type="password" required autocomplete="current-password" />
+          </div>
+          <button class="btn btn-primary" type="submit" id="btn-login">Zaloguj</button>
+          <p class="error" id="login-error" hidden></p>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Backend URL</h2>
+        <p class="muted">
+          Domyślnie <code>https://api.nexus.dynaminds.pl</code>. Zmień gdy
+          testujesz lokalny backend.
+        </p>
+        <form id="backend-form" class="form">
+          <input id="backend-url" type="url" required />
+          <button class="btn btn-secondary" type="submit">Zapisz</button>
+          <span class="saved" id="backend-saved" hidden>Zapisano ✓</span>
+        </form>
+      </section>
+
+      <footer class="footer">
+        <span class="version">v0.1.0</span>
+        <a href="https://nexus.dynaminds.pl" target="_blank" rel="noopener">Otwórz NEXUS →</a>
+      </footer>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

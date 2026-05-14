@@ -1,0 +1,5 @@
+# Local pack artefacts (do NOT commit signed .crx — it leaks the private key)
+*.crx
+*.pem
+*.zip
+.DS_Store

@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "NEXUS — Dodaj z LinkedIn",
+  "short_name": "NEXUS",
+  "version": "0.1.0",
+  "description": "Dodaj profil LinkedIn jako kandydata do NEXUS ATS jednym kliknięciem.",
+  "default_locale": "pl",
+  "action": {
+    "default_title": "NEXUS — ustawienia",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "options_page": "src/options/options.html",
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://api.nexus.dynaminds.pl/*",
+    "https://*.dynaminds.pl/*",
+    "http://localhost/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["src/content/content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/content/modal.css",
+        "src/content/modal-host.js",
+        "src/content/linkedin-scraper.js",
+        "src/shared/messages.js",
+        "icons/*"
+      ],
+      "matches": ["https://www.linkedin.com/*"]
+    }
+  ]
+}
