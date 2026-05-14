@@ -1,7 +1,7 @@
 """Phase 7.2 — AAD group-based RBAC + auto-provisioning.
 
 Revision ID: 0107_users_aad_groups
-Revises: 0106_calendar_event_confirmation
+Revises: 0106_calendar_event_confirmation, 0106_graph_subscriptions
 Create Date: 2026-05-14 16:00:00.000000
 
 Phase 7.2 of the M365 repair plan (.claude/plans/elegant-percolating-thimble.md).
@@ -23,7 +23,13 @@ from alembic import op
 
 
 revision = "0107_users_aad_groups"
-down_revision = "0106_calendar_event_confirmation"
+# Merge point: Phase 7.5 (calendar_event_confirmation) and Phase 7.3
+# (graph_subscriptions) both branched off 0105 in parallel. Joining both
+# here so the deployed history converges on a single head.
+down_revision = (
+    "0106_calendar_event_confirmation",
+    "0106_graph_subscriptions",
+)
 branch_labels = None
 depends_on = None
 
