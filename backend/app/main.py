@@ -117,6 +117,7 @@ from app.api import candidate_sources as candidate_sources_api
 from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
 from app.api import entity_fields as entity_fields_api
+from app.api import teams_channels as teams_channels_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -404,6 +405,11 @@ app.include_router(
 app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
+app.include_router(
+    teams_channels_api.router,
+    prefix="/api/teams-channels",
+    tags=["teams-channels"],
+)
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(client_materials.router, prefix="/api", tags=["client-materials"])

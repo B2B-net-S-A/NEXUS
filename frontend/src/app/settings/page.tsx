@@ -29,6 +29,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
+import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
@@ -316,6 +317,7 @@ export default function SettingsPage() {
           <Microsoft365Card />
           <FirefliesCard />
           <CloudTalkSettingsCard />
+          <TeamsNotificationsCard />
 
           {/* Placeholder for future integrations */}
           <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">

@@ -40,6 +40,7 @@ from app.models.activity import Activity
 from app.models.user_activity import UserActivity
 from app.models.email_template import EmailTemplate
 from app.models.user_email_template import UserEmailTemplate
+from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
 from app.models.call import Call
 from app.models.client_knowledge import ClientKnowledge
@@ -200,6 +201,7 @@ __all__ = [
     "UserActivity",
     "EmailTemplate",
     "UserEmailTemplate",
+    "TeamsNotificationChannel",
     "JobPosting",
     "Call",
     "ClientKnowledge",

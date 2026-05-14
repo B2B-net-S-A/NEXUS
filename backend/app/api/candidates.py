@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+import asyncio
 import io
 import logging
 import re
@@ -977,6 +978,24 @@ async def create_candidate(
         )
 
     await db.refresh(candidate)
+    # Phase 7.6 — fire-and-forget Teams card to all subscribed channels.
+    # `notify_teams` opens its own AsyncSession so the background task is safe
+    # after the request session closes. Kill-switch off → notify_teams returns
+    # 0 immediately without hitting the DB.
+    try:
+        from app.services.teams_notifications import (
+            candidate_payload,
+            notify_teams,
+        )
+
+        teams_db_payload = candidate_payload(
+            candidate=candidate,
+            recruiter_name=current_user.name or current_user.email,
+        )
+        asyncio.create_task(notify_teams("candidate_added", teams_db_payload))
+    except Exception as exc:  # noqa: BLE001 — never block create on a notifier
+        logger.warning("Teams notify (candidate_added) scheduling failed: %s", exc)
+
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
         select(Candidate)
