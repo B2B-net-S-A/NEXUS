@@ -13,6 +13,23 @@ import {
   getFrontendUrl,
 } from "../shared/storage.js";
 import { apiFetch, login } from "../shared/api-client.js";
+import {
+  captureException,
+  setContext,
+  getSentryDsn,
+  setSentryDsn,
+  isSentryEnabled,
+  setSentryEnabled,
+} from "../shared/sentry-min.js";
+
+setContext({ tags: { component: "service_worker" } });
+
+self.addEventListener("error", (e) => {
+  captureException(e.error || new Error(e.message || "SW error"));
+});
+self.addEventListener("unhandledrejection", (e) => {
+  captureException(e.reason || new Error("Unhandled rejection"));
+});
 
 // ── Toolbar icon → open options page (no popup) ─────────────────────────────
 chrome.action.onClicked.addListener(() => {
@@ -43,6 +60,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     .then((reply) => sendResponse(reply))
     .catch((err) => {
       console.error("[NEXUS-BG] handler error", err);
+      captureException(err, { msg_type: msg?.type || "(unknown)" });
       sendResponse({
         ok: false,
         error: err?.message || "Internal error",
@@ -67,12 +85,24 @@ async function handleMessage(msg) {
       return { ok: true };
     case MSG.SEARCH_JOBS:
       return handleSearchJobs(msg.q);
+    case MSG.GET_OPEN_NEXUS_JOBS:
+      return handleGetOpenNexusJobs();
     case MSG.ADD_CANDIDATE:
       return handleAddCandidate(msg.payload);
     case MSG.SYNC_LINKEDIN:
       return handleSyncLinkedin(msg.candidate_id);
     case MSG.OPEN_OPTIONS:
       chrome.runtime.openOptionsPage();
+      return { ok: true };
+    case MSG.GET_SENTRY_CONFIG:
+      return {
+        ok: true,
+        dsn: await getSentryDsn(),
+        enabled: await isSentryEnabled(),
+      };
+    case MSG.SET_SENTRY_CONFIG:
+      if (typeof msg.dsn === "string") await setSentryDsn(msg.dsn);
+      if (typeof msg.enabled === "boolean") await setSentryEnabled(msg.enabled);
       return { ok: true };
     default:
       return { ok: false, error: "Unknown message type", code: "bad_request" };
@@ -136,6 +166,38 @@ async function handleAddCandidate(payload) {
     frontend_url: `${frontendBase}${candidate.profile_url_path}`,
     status: resp.status,
   };
+}
+
+async function handleGetOpenNexusJobs() {
+  // Read all open tabs whose URL matches the NEXUS frontend /jobs/<id> path.
+  // `chrome.tabs.query` returns only tabs whose host matches our
+  // host_permissions (https://*.dynaminds.pl/*) — no `tabs` permission needed.
+  // This is intentionally local-only: we never send the tab list anywhere.
+  const frontendBase = await getFrontendUrl();
+  let host;
+  try {
+    host = new URL(frontendBase).host;
+  } catch (_err) {
+    host = "nexus.dynaminds.pl";
+  }
+  const tabs = await chrome.tabs.query({ url: `https://${host}/jobs/*` });
+  const seen = new Set();
+  const jobs = [];
+  for (const tab of tabs) {
+    if (!tab.url) continue;
+    // Match /jobs/<id> or /jobs/<id>/* (digits only — skip /jobs/new etc.)
+    const m = tab.url.match(/\/jobs\/(\d+)(?:[\/?#]|$)/);
+    if (!m) continue;
+    const id = Number(m[1]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    // Tab title often is "Senior Python Engineer · NEXUS" — strip the suffix
+    let title = tab.title || `Job #${id}`;
+    title = title.replace(/\s*[·•\-—|]\s*NEXUS.*$/i, "").trim();
+    if (!title) title = `Job #${id}`;
+    jobs.push({ id, title });
+  }
+  return { ok: true, items: jobs };
 }
 
 async function handleSyncLinkedin(candidateId) {

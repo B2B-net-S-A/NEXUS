@@ -1,12 +1,16 @@
-# NEXUS — wtyczka Chrome "Dodaj z LinkedIn"
+# NEXUS — wtyczka Chrome "Dodaj z LinkedIn" (v0.2.0)
 
 Manifest V3, vanilla JS, brak buildu. Działa load-unpacked, do Chrome Web Store
 dystrybucja TODO.
 
 ## Co robi
 
-Na profilu LinkedIn (`https://www.linkedin.com/in/*`) wyświetla pływający
-przycisk **+ NEXUS**. Klik → otwiera się modal w-stronie (Shadow DOM) z:
+Na **trzech surface'ach LinkedIn**:
+- Publiczny profil — `https://www.linkedin.com/in/<slug>`
+- **Sales Navigator** — `https://www.linkedin.com/sales/lead/...`, `/sales/people/...`
+- **LinkedIn Recruiter** — `https://www.linkedin.com/talent/profile/...`, `/talent/people/...`
+
+…wyświetla pływający przycisk **+ NEXUS**. Klik → otwiera się modal w-stronie (Shadow DOM) z:
 
 - preview kandydata (imię, headline, lokalizacja, firma — wyciągnięte z DOM),
 - search-as-you-type rekrutacji z NEXUS (dropdown z aktywnymi job postings),
@@ -78,6 +82,33 @@ Po `Wczytaj rozpakowane`:
 11. **No-auth** — wipe storage, modal pokazuje "Zaloguj się"
 12. **Network down** — stop backend, submit → "Błąd: Network error"
 
+## Co nowego w v0.2.0
+
+- **Sales Navigator support** — wtyczka działa na `linkedin.com/sales/lead/<id>` i `linkedin.com/sales/people/<id>`. Scraper czyta dane z DOM Sales Nav (selektory `data-anonymize`) i wyciąga canonical `/in/<slug>` URL z elementu "Public profile" w panelu profilu.
+- **LinkedIn Recruiter support** — analogicznie dla `linkedin.com/talent/profile/<id>` i `/talent/people/<id>`. ⚠ **Risk Recruiter ToS:** używaj manualnie, nie batch; LinkedIn monitoruje konta Recruiter agresywniej niż zwykłe.
+- **Sentry integration** — minimal client (zero deps, MV3 CSP-safe, bez CDN load). Wklej DSN w options page → błędy wtyczki trafią do Sentry projektu `nexus-extension`. Domyślnie disabled.
+- **Pre-fill jobs z otwartych kart NEXUS** — jeśli masz otwarte `nexus.dynaminds.pl/jobs/<id>` w innej karcie, modal pokazuje chips "Otwarte rekrutacje" nad job-search inputem. Jedno kliknięcie pre-filluje dropdown bez wpisywania.
+- **Backend dedup performance** — migracja Alembic 0106 dodaje `linkedin_slug` GENERATED column + index. Dedup query z `LIKE '%slug%'` na full-table-scan → exact match na indexed column (O(log n)).
+
+## Risk Recruiter ToS — przeczytaj
+
+LinkedIn Recruiter to płatny enterprise tier (~150 USD/seat/mc). LinkedIn
+**aktywnie monitoruje** konta Recruiter pod kątem automation / scraping i
+agresywnie banuje konta. Nasza wtyczka **nie wykonuje żadnych masowych akcji**,
+nie scrolluje listy, nie wysyła InMail, nie wykonuje akcji w Twoim imieniu —
+tylko czyta DOM aktualnie otwartego profilu który Ty kliknąłeś. To bardzo
+niski risk, ale risk niezerowy.
+
+**Best practices:**
+- Używaj manualnie, jeden profil naraz (NIE batch loop).
+- Nie zostawiaj wtyczki uruchomionej kiedy nie jesteś przy klawiaturze.
+- Po dodaniu kandydata zamknij modal i poczekaj kilka sekund zanim klikniesz "+" na następnym profilu.
+- Jeśli LinkedIn pokaże CAPTCHA lub komunikat o nietypowej aktywności — natychmiast przestań i zaczekaj 24h.
+
+Oficjalna integracja byłaby przez LinkedIn Talent Solutions Partner Program
+(Recruiter System Connect / RSC) — ~6-12 miesięcy procesu certyfikacji, revenue
+share, minimum customer base. Nie dla solo-ATS.
+
 ## Limitacje (znane)
 
 - **Ikony** są minimalne (solid violet + literka N) — wystarczające dla MVP, do
@@ -86,7 +117,9 @@ Po `Wczytaj rozpakowane`:
 - **Selektory LinkedIn DOM** rotują — gdy preview puste, server (Proxycurl)
   i tak pociągnie pełne dane. Selektory są w `src/content/linkedin-scraper.js`.
 - **JWT NIE szyfrowany** w `chrome.storage.local` (acceptable dla internal tool).
-- **Brak Sentry** w extension (TODO — można dorzucić `@sentry/browser` standalone).
+- **Race condition na dedup** — dwa równoczesne kliknięcia w tym samym czasie =
+  2 duplikaty (theoretical for solo-recruiter). Phase 3 follow-up: candidate
+  merge UI + partial unique index.
 
 ## Dystrybucja
 

@@ -48,6 +48,42 @@
         </form>
       </section>
 
+      <section class="card">
+        <h2>Raportowanie błędów (Sentry)</h2>
+        <p class="muted">
+          Wklej Sentry DSN dla projektu <code>nexus-extension</code> aby
+          błędy wtyczki trafiały do Sentry. Bez DSN — Sentry wyłączony,
+          błędy widoczne tylko w DevTools.
+          Wysyłamy tylko stack trace + wersję, nigdy: emaila, JWT, tagów,
+          notatek, treści profilu.
+        </p>
+        <form id="sentry-form" class="form">
+          <div class="field">
+            <label for="sentry-dsn">DSN</label>
+            <input id="sentry-dsn" type="url" placeholder="https://...@....ingest.sentry.io/..." />
+          </div>
+          <div class="field">
+            <label>
+              <input id="sentry-enabled" type="checkbox" checked />
+              Wysyłaj błędy do Sentry
+            </label>
+          </div>
+          <button class="btn btn-secondary" type="submit">Zapisz</button>
+          <span class="saved" id="sentry-saved" hidden>Zapisano ✓</span>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Polityka prywatności</h2>
+        <p class="muted">
+          Wtyczka zbiera tylko dane niezbędne do dodania profilu LinkedIn
+          jako kandydata do NEXUS. Pełna polityka:
+          <a href="https://nexus.dynaminds.pl/legal/extension-privacy.html" target="_blank" rel="noopener">
+            nexus.dynaminds.pl/legal/extension-privacy
+          </a>.
+        </p>
+      </section>
+
       <footer class="footer">
         <span class="version">v0.1.0</span>
         <a href="https://nexus.dynaminds.pl" target="_blank" rel="noopener">Otwórz NEXUS →</a>

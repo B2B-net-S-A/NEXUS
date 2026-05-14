@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "NEXUS — Dodaj z LinkedIn",
   "short_name": "NEXUS",
-  "version": "0.1.0",
-  "description": "Dodaj profil LinkedIn jako kandydata do NEXUS ATS jednym kliknięciem.",
+  "version": "0.2.0",
+  "description": "Dodaj profil LinkedIn (w tym Sales Navigator + Recruiter) jako kandydata do NEXUS ATS jednym kliknięciem.",
   "default_locale": "pl",
   "action": {
     "default_title": "NEXUS — ustawienia",
@@ -32,7 +32,13 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/in/*"],
+      "matches": [
+        "https://www.linkedin.com/in/*",
+        "https://www.linkedin.com/sales/lead/*",
+        "https://www.linkedin.com/sales/people/*",
+        "https://www.linkedin.com/talent/profile/*",
+        "https://www.linkedin.com/talent/people/*"
+      ],
       "js": ["src/content/content-script.js"],
       "run_at": "document_idle"
     }

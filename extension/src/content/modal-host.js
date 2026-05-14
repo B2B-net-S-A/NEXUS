@@ -130,6 +130,7 @@ function renderForm(body, footer) {
 
     <div class="field job-dropdown">
       <label class="label" for="nx-job-search">Przypisz do rekrutacji (opcjonalnie)</label>
+      <div id="nx-job-suggested" hidden style="margin-bottom: 6px;"></div>
       <input class="input" type="text" id="nx-job-search" placeholder="Szukaj po tytule…" autocomplete="off" />
       <ul class="job-list" id="nx-job-list" hidden></ul>
     </div>
@@ -169,8 +170,38 @@ function renderForm(body, footer) {
   const searchInput = body.querySelector("#nx-job-search");
   const list = body.querySelector("#nx-job-list");
   const stageSelect = body.querySelector("#nx-stage");
+  const suggestedWrap = body.querySelector("#nx-job-suggested");
   let selectedJobId = null;
   let debounceTimer = null;
+
+  function pickJob(jobId, title) {
+    selectedJobId = jobId;
+    searchInput.value = title;
+    list.hidden = true;
+    stageSelect.disabled = false;
+  }
+
+  // Pre-fill from open NEXUS tabs — non-blocking, fire-and-forget.
+  (async () => {
+    const resp = await send({ type: MSG.GET_OPEN_NEXUS_JOBS });
+    if (!resp.ok || !resp.items || resp.items.length === 0) return;
+    const chips = resp.items
+      .slice(0, 5)
+      .map(
+        (j) =>
+          `<button type="button" class="chip" data-job-id="${j.id}">${escapeHtml(j.title)}</button>`,
+      )
+      .join("");
+    suggestedWrap.innerHTML = `<div class="preview-line" style="margin-bottom:6px;">Otwarte rekrutacje:</div>${chips}`;
+    suggestedWrap.hidden = false;
+    suggestedWrap.querySelectorAll("button.chip").forEach((btn) => {
+      btn.style.cursor = "pointer";
+      btn.style.border = "0";
+      btn.addEventListener("click", () => {
+        pickJob(Number(btn.dataset.jobId), btn.textContent);
+      });
+    });
+  })();
 
   searchInput.addEventListener("input", () => {
     clearTimeout(debounceTimer);
@@ -204,10 +235,7 @@ function renderForm(body, footer) {
           li.dataset.jobId = String(item.id);
           li.innerHTML = `${escapeHtml(item.title)}${item.client_name ? ` <span class="client">· ${escapeHtml(item.client_name)}</span>` : ""}`;
           li.addEventListener("click", () => {
-            selectedJobId = item.id;
-            searchInput.value = item.title;
-            list.hidden = true;
-            stageSelect.disabled = false;
+            pickJob(item.id, item.title);
           });
           list.appendChild(li);
         }

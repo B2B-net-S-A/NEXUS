@@ -79,10 +79,34 @@ function attachBackend() {
   });
 }
 
+async function refreshSentryView() {
+  const resp = await send({ type: MSG.GET_SENTRY_CONFIG });
+  if (!resp.ok) return;
+  document.getElementById("sentry-dsn").value = resp.dsn || "";
+  document.getElementById("sentry-enabled").checked = resp.enabled !== false;
+}
+
+function attachSentry() {
+  const form = document.getElementById("sentry-form");
+  const saved = document.getElementById("sentry-saved");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const dsn = document.getElementById("sentry-dsn").value.trim();
+    const enabled = document.getElementById("sentry-enabled").checked;
+    await send({ type: MSG.SET_SENTRY_CONFIG, dsn, enabled });
+    saved.hidden = false;
+    setTimeout(() => {
+      saved.hidden = true;
+    }, 1800);
+  });
+}
+
 (async function init() {
   attachLogin();
   attachLogout();
   attachBackend();
+  attachSentry();
   await refreshAccountView();
   await refreshBackendView();
+  await refreshSentryView();
 })();

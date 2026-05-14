@@ -59,7 +59,14 @@ function removeFab() {
 }
 
 function isProfilePage() {
-  return /\/in\/[^\/?#]+/.test(location.pathname);
+  const p = location.pathname;
+  // Public profile: /in/<slug>
+  if (/^\/in\/[^\/?#]+/.test(p)) return true;
+  // Sales Navigator: /sales/lead/<id>, /sales/people/<id>
+  if (/^\/sales\/(lead|people)\/[^\/?#]+/.test(p)) return true;
+  // Recruiter: /talent/profile/<id>, /talent/people/<id>
+  if (/^\/talent\/(profile|people)\/[^\/?#]+/.test(p)) return true;
+  return false;
 }
 
 function refresh() {

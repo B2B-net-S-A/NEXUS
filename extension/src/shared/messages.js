@@ -13,6 +13,9 @@ export const MSG = Object.freeze({
   SYNC_LINKEDIN: "SYNC_LINKEDIN",
   AUTH_CHANGED: "AUTH_CHANGED",
   OPEN_OPTIONS: "OPEN_OPTIONS",
+  GET_OPEN_NEXUS_JOBS: "GET_OPEN_NEXUS_JOBS",
+  GET_SENTRY_CONFIG: "GET_SENTRY_CONFIG",
+  SET_SENTRY_CONFIG: "SET_SENTRY_CONFIG",
 });
 
 // Default backend (overridable from the options page). Localhost is useful
