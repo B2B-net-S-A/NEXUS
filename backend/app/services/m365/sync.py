@@ -206,10 +206,7 @@ def _is_valid_delta_link(url: Optional[str]) -> bool:
     """
     if not url:
         return False
-    return (
-        url.startswith("https://graph.microsoft.com/")
-        and "$deltatoken=" in url
-    )
+    return url.startswith("https://graph.microsoft.com/") and "$deltatoken=" in url
 
 
 async def _on_delta_invalidation(

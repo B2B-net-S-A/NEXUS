@@ -98,7 +98,9 @@ class GraphClient:
             # hung Graph endpoint can't poison the connection pool indefinitely.
             try:
                 async with asyncio.timeout(_HARD_TIMEOUT_SECONDS):
-                    return await self._request_loop(method, url, params, json, hdrs, expect_json)
+                    return await self._request_loop(
+                        method, url, params, json, hdrs, expect_json
+                    )
             except asyncio.TimeoutError as exc:
                 raise GraphRequestError(
                     599, f"hard timeout after {_HARD_TIMEOUT_SECONDS}s"
