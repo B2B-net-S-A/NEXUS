@@ -28,6 +28,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.m365 import (
     Email,
     EmailDirection,
@@ -36,8 +37,20 @@ from app.models.m365 import (
 )
 from app.services.m365.graph_client import GraphClient
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
+from app.services.m365.signature_cache import get_outlook_signature
 
 logger = logging.getLogger(__name__)
+
+# Phase 7.7 — visible divider between body and pulled signature so it's
+# obvious in the rendered mail where the user's signature begins. The
+# class hook lets the frontend (and our future inline editor) collapse
+# the block if needed.
+_SIGNATURE_DIVIDER = '<br><br><div class="nexus-signature">--</div>'
+
+
+def _append_signature(body_html: str, signature_html: str) -> str:
+    """Concat signature onto a body separated by a visible divider."""
+    return body_html + _SIGNATURE_DIVIDER + signature_html
 
 
 def _build_idempotency_key(
@@ -112,14 +125,27 @@ async def send_new(
         )
         return existing
 
-    payload = {
-        "subject": subject,
-        "body": {"contentType": "HTML", "content": body_html},
-        "toRecipients": [{"emailAddress": {"address": a}} for a in to],
-        "ccRecipients": [{"emailAddress": {"address": a}} for a in cc],
-    }
-
     async with GraphClient(connection, db) as gc:
+        # Phase 7.7 — append the user's Outlook signature so NEXUS-sent mail
+        # matches what they'd get from Outlook itself. Memoized for 24h per
+        # mailbox; failures are silent (no signature is better than no send).
+        if settings.M365_SIGNATURE_INJECTION_ENABLED:
+            signature_html = await get_outlook_signature(
+                gc,
+                user_id=connection.user_id,
+                mailbox_upn=connection.mailbox_upn,
+            )
+            if signature_html:
+                body_html = _append_signature(body_html, sanitize_html(signature_html))
+                body_text = html_to_text(body_html)
+
+        payload = {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": body_html},
+            "toRecipients": [{"emailAddress": {"address": a}} for a in to],
+            "ccRecipients": [{"emailAddress": {"address": a}} for a in cc],
+        }
+
         # 1) Create draft
         draft = await gc.post("/me/messages", json=payload)
         message_id = draft["id"]
@@ -178,6 +204,19 @@ async def reply(
     body_text = html_to_text(body_html)
 
     async with GraphClient(connection, db) as gc:
+        # Phase 7.7 — same signature injection as send_new(). createReply
+        # auto-quotes the thread but does NOT include the user's signature,
+        # so we still need to append it.
+        if settings.M365_SIGNATURE_INJECTION_ENABLED:
+            signature_html = await get_outlook_signature(
+                gc,
+                user_id=connection.user_id,
+                mailbox_upn=connection.mailbox_upn,
+            )
+            if signature_html:
+                body_html = _append_signature(body_html, sanitize_html(signature_html))
+                body_text = html_to_text(body_html)
+
         # 1) Create reply draft (Graph fills in recipients, subject, thread history).
         draft = await gc.post(
             f"/me/messages/{email_row.m365_message_id}/createReply", json={}

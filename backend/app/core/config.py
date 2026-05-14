@@ -189,6 +189,16 @@ class Settings(BaseSettings):
     M365_REMATCH_LOOKBACK_DAYS: int = 30
     # Max emails to process per pass. Keeps a single iteration cheap and bounded.
     M365_REMATCH_BATCH_SIZE: int = 500
+    # Phase 7.7 — append the user's Outlook signature to every outbound mail
+    # so NEXUS-sent emails look identical to ones sent from Outlook itself.
+    # Kill-switch if signature parsing causes regressions (e.g. unexpected
+    # HTML bloating the body or duplicating an existing signature in the
+    # composer template).
+    M365_SIGNATURE_INJECTION_ENABLED: bool = True
+    # Per-mailbox cache TTL for the parsed signature. 24h matches how often
+    # most users update their signature (~never) while still surfacing
+    # changes within a day. Clamped to >=60s by the cache.
+    M365_SIGNATURE_CACHE_TTL_SECONDS: int = 86400
 
     # ── SSO "Sign in with Microsoft" (Faza B) ────────────────────────────────
     # Reuses M365 Azure AD app — same client_id/secret/tenant, different redirect.
