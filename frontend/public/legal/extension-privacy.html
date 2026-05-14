@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="index, follow" />
+    <title>NEXUS Chrome Extension — Privacy Policy</title>
+    <style>
+      :root {
+        --primary: 263 70% 50%;
+        --foreground: 240 10% 3.9%;
+        --muted: 240 4.8% 95.9%;
+        --muted-fg: 240 3.8% 46.1%;
+        --border: 240 5.9% 90%;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        max-width: 780px;
+        margin: 40px auto;
+        padding: 0 24px 80px;
+        color: hsl(var(--foreground));
+        line-height: 1.65;
+        font-size: 16px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid hsl(var(--border));
+      }
+      .badge {
+        background: hsl(var(--primary));
+        color: white;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      h1 { font-size: 24px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+      h2 { font-size: 18px; margin: 32px 0 12px; font-weight: 600; }
+      .lang-toggle a { color: hsl(var(--primary)); text-decoration: none; font-size: 14px; margin-left: 16px; }
+      .meta { color: hsl(var(--muted-fg)); font-size: 13px; }
+      ul { padding-left: 22px; }
+      ul li { margin: 6px 0; }
+      code { background: hsl(var(--muted)); padding: 1px 6px; border-radius: 4px; font-size: 14px; }
+      table { border-collapse: collapse; margin: 16px 0; width: 100%; }
+      th, td { border: 1px solid hsl(var(--border)); padding: 8px 12px; text-align: left; vertical-align: top; }
+      th { background: hsl(var(--muted)); font-weight: 600; }
+      footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid hsl(var(--border)); color: hsl(var(--muted-fg)); font-size: 13px; }
+      footer a { color: hsl(var(--primary)); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="badge">NEXUS</span>
+      <h1>Polityka prywatności wtyczki Chrome</h1>
+    </header>
+
+    <p class="meta">
+      Ostatnia aktualizacja: 14 maja 2026. Dotyczy: rozszerzenia "NEXUS — Dodaj z LinkedIn"
+      (Manifest V3) dystrybuowanego load-unpacked oraz docelowo przez Chrome Web Store.
+      Operator: DYNAMINDS Sp. z o.o. ("Operator", "my").
+    </p>
+
+    <h2>1. Jakie dane zbieramy</h2>
+
+    <p>Wtyczka zbiera tylko dane niezbędne do jednego celu: dodania profilu LinkedIn jako kandydata
+    do Twojego konta NEXUS ATS. Konkretnie:</p>
+
+    <table>
+      <tr><th>Dane</th><th>Skąd</th><th>Gdzie trzymane</th><th>Po co</th></tr>
+      <tr>
+        <td>Email + hasło NEXUS (jednorazowo, do logowania)</td>
+        <td>Wpisane przez Ciebie w stronie ustawień rozszerzenia</td>
+        <td>Hasło — nigdzie (wysyłane bezpośrednio do API NEXUS, nie cache'owane). Tylko tokeny JWT po zalogowaniu.</td>
+        <td>Uwierzytelnienie do API NEXUS</td>
+      </tr>
+      <tr>
+        <td>Access token + refresh token (JWT)</td>
+        <td>Odpowiedź <code>POST /api/auth/login</code> z NEXUS</td>
+        <td><code>chrome.storage.local</code> (lokalnie w przeglądarce, nie wysyłane gdzie indziej)</td>
+        <td>Utrzymanie sesji bez wymagania re-logowania przy każdym kliknięciu</td>
+      </tr>
+      <tr>
+        <td>URL aktualnie otwartego profilu LinkedIn (<code>linkedin.com/in/&lt;slug&gt;</code>, <code>linkedin.com/sales/...</code>, <code>linkedin.com/talent/...</code>)</td>
+        <td>Aktywna zakładka w momencie kliknięcia przycisku "+ NEXUS"</td>
+        <td>Wysyłane do API NEXUS; persystowane jako pole <code>linkedin</code> na rekordzie kandydata</td>
+        <td>Identyfikacja kandydata + dedup</td>
+      </tr>
+      <tr>
+        <td>Imię, nagłówek, lokalizacja, firma — wyciągnięte z DOM widocznego profilu</td>
+        <td>Strona profilu LinkedIn którą aktualnie oglądasz</td>
+        <td>Wysyłane do API NEXUS jako preview; persystowane na rekordzie kandydata (zostają nadpisane przez Proxycurl enrichment w ciągu minut)</td>
+        <td>Natychmiastowy podgląd, żebyś nie czekał na enrichment</td>
+      </tr>
+      <tr>
+        <td>Tagi, notatka, wybór rekrutacji — wpisane przez Ciebie w popupie</td>
+        <td>Pola formularza w modalu</td>
+        <td>Wysyłane do API NEXUS; persystowane na rekordzie kandydata</td>
+        <td>Kategoryzacja kandydata, przypisanie do roli</td>
+      </tr>
+      <tr>
+        <td>Lista otwartych zakładek z hostem <code>nexus.dynaminds.pl</code></td>
+        <td><code>chrome.tabs.query</code> wewnątrz Twojej przeglądarki</td>
+        <td>Tylko w pamięci service workera, nigdy nie persystowane, nigdy nie wysyłane na zewnątrz</td>
+        <td>Pre-fill dropdowna "Przypisz do rekrutacji" gdy masz otwartą jakąś ofertę w innej karcie</td>
+      </tr>
+      <tr>
+        <td>Konfiguracja backend URL (jeśli zmienisz na localhost)</td>
+        <td>Wpisana przez Ciebie w stronie ustawień</td>
+        <td><code>chrome.storage.local</code></td>
+        <td>Możliwość testowania przeciw lokalnemu backendowi</td>
+      </tr>
+    </table>
+
+    <h2>2. Czego NIE zbieramy</h2>
+    <ul>
+      <li>Historii przeglądania — wtyczka nie ma uprawnienia <code>history</code>.</li>
+      <li>Cookies LinkedIn — żadna interakcja z cookies LinkedIn.</li>
+      <li>Twojej tożsamości LinkedIn — wtyczka nie wykonuje żadnych akcji w Twoim imieniu na LinkedIn (nie wysyła InMail, nie wysyła zaproszeń, nie publikuje, nie like'uje).</li>
+      <li>Danych z innych stron — wtyczka działa tylko na <code>linkedin.com/in/*</code>, <code>linkedin.com/sales/*</code>, <code>linkedin.com/talent/*</code> i Twoich kartach <code>nexus.dynaminds.pl</code>.</li>
+      <li>Analytics, telemetrii produktowej, ad trackerów — żadnych.</li>
+    </ul>
+
+    <h2>3. Komu udostępniamy dane</h2>
+    <p>Dane idą wyłącznie do:</p>
+    <ul>
+      <li><strong>API NEXUS</strong> (<code>https://api.nexus.dynaminds.pl</code>) — Twojego ATS-a. To Twoje dane w Twojej bazie.</li>
+      <li><strong>Proxycurl</strong> (api.proxycurl.com) — pośrednio przez backend NEXUS, dla LinkedIn profile enrichment. Backend wysyła sam URL profilu (publiczny). Wtyczka NIE komunikuje się bezpośrednio z Proxycurl.</li>
+      <li><strong>Sentry</strong> (sentry.io) — przy błędach technicznych wtyczki wysyłane są tylko: stack trace, wersja wtyczki, typ błędu. NIE wysyłamy: emaila, JWT, tagów, notatek, URL profilu kandydata. (Sentry można wyłączyć w ustawieniach.)</li>
+    </ul>
+
+    <h2>4. Tokeny JWT — bezpieczeństwo</h2>
+    <p>Access token (~15 min życia) i refresh token (~30 dni życia) są trzymane w
+    <code>chrome.storage.local</code>. To pamięć lokalna Twojej przeglądarki, dostępna
+    tylko dla naszej wtyczki, nie dla innych stron. Tokeny NIE są szyfrowane —
+    akceptowalne ryzyko dla narzędzia wewnętrznego (a inne wtyczki rekruterskie typu
+    Bullhorn Chrome Extension, RecruiterFlow działają tak samo). Jeśli oddasz komuś
+    swój profil Chrome z włączoną wtyczką, dostanie dostęp do Twojego NEXUS. Wyloguj
+    się ze strony ustawień rozszerzenia gdy przekazujesz urządzenie.</p>
+
+    <h2>5. Twoje prawa (RODO/GDPR)</h2>
+    <p>Możesz w każdej chwili:</p>
+    <ul>
+      <li>Wylogować się przez stronę ustawień wtyczki (czyści tokeny natychmiast).</li>
+      <li>Odinstalować wtyczkę (Chrome usuwa cały <code>chrome.storage.local</code> automatycznie).</li>
+      <li>Zażądać usunięcia kandydatów dodanych przez wtyczkę z bazy NEXUS — przez UI NEXUS lub kontakt z administratorem.</li>
+      <li>Zażądać kopii swoich danych — kontakt: <a href="mailto:privacy@dynaminds.pl">privacy@dynaminds.pl</a>.</li>
+    </ul>
+
+    <h2>6. Retencja danych</h2>
+    <p>Kandydaci dodani przez wtyczkę są trzymani w bazie NEXUS zgodnie z polityką retencji
+    NEXUS (standardowo: nieaktywni kandydaci usuwani po 36 miesiącach od ostatniej
+    interakcji). Tokeny JWT w przeglądarce wygasają po 30 dniach (refresh token) lub
+    przy ręcznym wylogowaniu.</p>
+
+    <h2>7. Pliki cookies</h2>
+    <p>Wtyczka nie używa cookies. Używa wyłącznie <code>chrome.storage.local</code>,
+    które jest mechanizmem przeglądarki dla rozszerzeń (nie współdzielonym
+    z cookies stron internetowych).</p>
+
+    <h2>8. Zmiany polityki</h2>
+    <p>Materialne zmiany ogłosimy w stronie ustawień rozszerzenia + na tej stronie
+    (data "Ostatnia aktualizacja" powyżej). Drobne zmiany (literówki, doprecyzowanie)
+    bez powiadomienia.</p>
+
+    <h2>9. Kontakt</h2>
+    <p>Operator: DYNAMINDS Sp. z o.o.<br>
+    Email do spraw prywatności: <a href="mailto:privacy@dynaminds.pl">privacy@dynaminds.pl</a><br>
+    Email ogólny: <a href="mailto:hello@dynaminds.pl">hello@dynaminds.pl</a></p>
+
+    <footer>
+      <p>NEXUS ATS · <a href="https://nexus.dynaminds.pl">nexus.dynaminds.pl</a></p>
+    </footer>
+  </body>
+</html>
