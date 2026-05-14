@@ -36,7 +36,17 @@ _STATE_ALGORITHM = "HS256"
 _STATE_TTL_SECONDS = 600  # 10 minutes
 # Scopes we always request on top of the configured M365_SCOPES.
 # offline_access → refresh token; openid/profile → id_token with upn claim.
-_EXTRA_SCOPES = ("offline_access", "openid", "profile")
+# GroupMember.Read.All → required by Phase 7.2 AAD group-based RBAC
+# (services/m365/aad_groups.fetch_user_groups). Requires admin consent in the
+# Azure app registration. Including it here means every mailbox reconnect also
+# grants the scope, so the admin resync endpoint can use the stored mailbox
+# token to refresh a user's group membership without an SSO redirect.
+_EXTRA_SCOPES = (
+    "offline_access",
+    "openid",
+    "profile",
+    "GroupMember.Read.All",
+)
 
 
 class M365ReauthRequired(RuntimeError):

@@ -434,3 +434,153 @@ async def system_stats(
         "uptime": uptime_str,
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────────
+
+
+class ResyncAadGroupsResponse(BaseModel):
+    """Result of re-evaluating a user's stored AAD groups against the current
+    ``AAD_GROUP_ROLE_MAP_JSON``. No Graph call is made — this only re-runs the
+    in-memory mapping. For a fresh fetch the user must log in again.
+    """
+
+    user_id: int
+    email: str
+    aad_group_ids: list[dict]
+    previous_role: str
+    new_role: str
+    role_changed: bool
+    is_active: bool
+
+
+@router.post(
+    "/users/{user_id}/resync-aad-groups",
+    response_model=ResyncAadGroupsResponse,
+)
+async def resync_aad_groups(
+    user_id: int,
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-evaluate stored AAD groups against the current role mapping.
+
+    Used when ``AAD_GROUP_ROLE_MAP_JSON`` changes after a user has logged in:
+    instead of asking every affected user to log out and back in, the admin
+    re-applies the mapping to their already-stored ``aad_group_ids``.
+
+    NOTE: This does NOT call Microsoft Graph — it only re-runs the in-memory
+    role mapping against the snapshot saved at the user's last SSO login.
+    For a fresh fetch of AAD group membership the user must log in again
+    (Phase 7.2 chose this over app-permissions Graph access to avoid the
+    extra admin consent surface).
+
+    Behaviour:
+        * 422 if RBAC is disabled (``AAD_GROUP_RBAC_ENABLED=false``) —
+          calling this endpoint with the feature off would silently no-op.
+        * 422 if the user has no stored ``aad_group_ids`` (legacy user or
+          never logged in via SSO since 7.2 rollout) — the admin should
+          first ask them to re-login.
+        * 403 (via Activity log) if no AAD group matches — flips
+          ``is_active`` to False, same as SSO callback's denial path.
+        * 200 with the new role + ``role_changed`` flag on success.
+    """
+    if not settings.AAD_GROUP_RBAC_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "AAD group-based RBAC is disabled (AAD_GROUP_RBAC_ENABLED=false). "
+                "Enable it in Coolify env vault before calling this endpoint."
+            ),
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+
+    stored_groups = user.aad_group_ids or []
+    if not stored_groups:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "User has no stored AAD groups. Ask them to log in via "
+                "Microsoft SSO once to populate the snapshot, then retry."
+            ),
+        )
+
+    try:
+        mapping = settings.aad_group_role_map
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AAD_GROUP_ROLE_MAP_JSON invalid: {exc}",
+        ) from exc
+
+    # Re-use the SSO callback's mapping helper so behaviour stays consistent.
+    from app.services.m365.aad_groups import map_groups_to_role
+
+    group_ids = [g["id"] for g in stored_groups if isinstance(g, dict) and g.get("id")]
+    role_str = map_groups_to_role(group_ids, mapping)
+
+    previous_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    if role_str is None:
+        # No group matches → deny. Same fail-closed behaviour as the SSO
+        # callback so the resync endpoint cannot accidentally grant access.
+        user.is_active = False
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="admin_aad_role_denied",
+                user_id=_admin.id,
+                details={
+                    "target_email": user.email,
+                    "aad_group_count": len(stored_groups),
+                    "reason": "no AAD group matched current mapping",
+                },
+            )
+        )
+        await db.flush()
+        return ResyncAadGroupsResponse(
+            user_id=user.id,
+            email=user.email,
+            aad_group_ids=stored_groups,
+            previous_role=previous_role,
+            new_role=previous_role,  # role unchanged — just deactivated
+            role_changed=False,
+            is_active=False,
+        )
+
+    new_role = UserRole(role_str)
+    role_changed = user.role != new_role
+    if role_changed:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="admin_aad_role_resynced",
+                user_id=_admin.id,
+                details={
+                    "target_email": user.email,
+                    "from": previous_role,
+                    "to": new_role.value,
+                },
+            )
+        )
+        user.role = new_role
+    user.is_active = True
+    await db.flush()
+
+    return ResyncAadGroupsResponse(
+        user_id=user.id,
+        email=user.email,
+        aad_group_ids=stored_groups,
+        previous_role=previous_role,
+        new_role=new_role.value,
+        role_changed=role_changed,
+        is_active=user.is_active,
+    )

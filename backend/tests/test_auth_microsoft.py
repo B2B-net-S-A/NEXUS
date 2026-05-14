@@ -68,6 +68,10 @@ def _force_sso_config(monkeypatch):
         "M365_STATE_SIGNING_KEY",
         "test-state-key-at-least-48-chars-1234567890abcdefXYZ",
     )
+    # AAD RBAC tests opt-in explicitly — keep the legacy path active by default
+    # so the pre-7.2 test suite doesn't accidentally trip the new code.
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", False)
+    monkeypatch.setattr(settings, "AAD_GROUP_ROLE_MAP_JSON", "")
 
 
 @pytest_asyncio.fixture
@@ -150,9 +154,16 @@ def _make_state(verifier: str) -> str:
     return auth_ms_module._sign_login_state(verifier)
 
 
-def _patch_token_exchange(monkeypatch, claims: dict):
+def _patch_token_exchange(monkeypatch, claims: dict, *, access_token: str = ""):
+    """Stub the OAuth code exchange.
+
+    The real function now returns ``{"claims": <id_token>, "access_token": ...}``
+    after Phase 7.2; pre-7.2 callers only cared about claims so we keep the
+    helper signature backwards-compatible by defaulting access_token to "".
+    """
+
     async def _fake(_code: str, _verifier: str) -> dict:
-        return claims
+        return {"claims": claims, "access_token": access_token}
 
     monkeypatch.setattr(auth_ms_module, "_exchange_code_for_id_token", _fake)
 
