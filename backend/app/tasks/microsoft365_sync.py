@@ -20,9 +20,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
-from app.models.m365 import Email, EmailMatchMethod, M365Connection, M365SyncStatus
+from app.models.m365 import (
+    Email,
+    EmailMatchMethod,
+    GraphSubscription,
+    M365Connection,
+    M365SyncStatus,
+)
 from app.services.m365 import sync_connection
 from app.services.m365 import matcher as matcher_mod
+from app.services.m365 import webhooks as m365_webhooks
+from app.services.m365.graph_client import GraphClient
 from app.services.m365.matcher import IncomingMessage
 
 logger = logging.getLogger(__name__)
@@ -281,3 +289,147 @@ def _addresses(raw: object) -> list[str]:
             if isinstance(addr, str) and addr:
                 out.append(addr)
     return out
+
+
+# ── Phase 7.3 — Graph push-subscription renewal ─────────────────────────────
+#
+# Microsoft Graph caps a subscription's lifetime, so without a renewal loop
+# the push pipeline silently stops working after ~70h. This loop:
+#   - Renews rows whose expires_at falls inside the renewal window.
+#   - Re-enrols missing (resource, change_type) combos for active connections
+#     so a 3-strike failure on one subscription self-heals next pass.
+#
+# Why a separate loop (and not piggybacking on microsoft365_sync_loop): renewal
+# cadence (~10 min) is much faster than the future "webhooks only" sync, and
+# the polling loop will be turned off entirely once we're confident in pushes.
+
+
+async def graph_subscription_renewal_loop() -> None:
+    """Long-running task — keeps Graph push subscriptions alive.
+
+    Off by default. Flip `M365_WEBHOOKS_ENABLED=true` in Coolify env to enable.
+    Loop never dies on per-iteration failures (same pattern as the sync loop).
+    """
+    if not settings.M365_INTEGRATION_ENABLED:
+        logger.info(
+            "graph_subscription_renewal_loop disabled by M365_INTEGRATION_ENABLED=false"
+        )
+        return
+    if not settings.M365_WEBHOOKS_ENABLED:
+        logger.info(
+            "graph_subscription_renewal_loop off (M365_WEBHOOKS_ENABLED=false). "
+            "Endpoint stays registered for validation handshakes."
+        )
+        return
+
+    interval = max(60, settings.M365_WEBHOOK_RENEWAL_INTERVAL_SECONDS)
+    logger.info("graph_subscription_renewal_loop started: interval=%ds", interval)
+    # Generous head start — let OAuth callback's auto_subscribe (which runs in
+    # its own task on user connect) commit rows before we look for stale ones.
+    await asyncio.sleep(60)
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await _renewal_tick(db)
+                await _backfill_missing_subscriptions(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.exception("graph_subscription_renewal_loop iteration failed")
+        await asyncio.sleep(interval)
+
+
+async def _renewal_tick(db: AsyncSession) -> None:
+    """Renew any subscriptions whose expires_at is inside the window."""
+    due = await m365_webhooks.list_due_for_renewal(db)
+    if not due:
+        return
+
+    # Group by connection so we open ONE GraphClient per connection (each open
+    # does an OAuth token decrypt + HTTP client setup).
+    by_conn: dict[int, list[GraphSubscription]] = {}
+    for sub in due:
+        by_conn.setdefault(sub.m365_connection_id, []).append(sub)
+
+    logger.info(
+        "renewal tick — %d subscription(s) across %d connection(s) due",
+        len(due),
+        len(by_conn),
+    )
+
+    for conn_id, subs in by_conn.items():
+        conn = await db.get(M365Connection, conn_id)
+        if conn is None or not conn.is_active:
+            # Orphan / soft-deleted — drop rows so we don't keep selecting them.
+            for sub in subs:
+                await db.delete(sub)
+            await db.commit()
+            continue
+
+        try:
+            async with GraphClient(conn, db) as gc:
+                for sub in subs:
+                    try:
+                        await m365_webhooks.renew(db, gc, sub)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:  # noqa: BLE001
+                        logger.exception(
+                            "renew failed for sub id=%s — left for next tick",
+                            sub.id,
+                        )
+            await db.commit()
+        except TokenCipherNotConfigured:
+            # Token is unrecoverable — sync loop already handles this for the
+            # connection; we just skip the subs to avoid Sentry flood.
+            logger.warning("renewal skip: conn=%s token undecryptable", conn_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("renewal_tick: connection %s failed", conn_id)
+        # Brief stagger so Graph rate limits don't kick in across many users.
+        await asyncio.sleep(1)
+
+
+async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
+    """Re-enrol resources that have no live row for an active connection.
+
+    Triggered when a previous tick deleted a row after the failure threshold,
+    or when an admin manually deleted rows. Iterates active connections and
+    subscribes any resource from DEFAULT_RESOURCES that isn't already tracked.
+    """
+    # Pull every active connection that has at least one missing default
+    # resource. Cheap because the table is tiny (one row per connected user).
+    conns_result = await db.execute(
+        select(M365Connection).where(M365Connection.is_active.is_(True))
+    )
+    connections = list(conns_result.scalars().all())
+    if not connections:
+        return
+
+    for conn in connections:
+        existing_result = await db.execute(
+            select(GraphSubscription.resource).where(
+                GraphSubscription.m365_connection_id == conn.id
+            )
+        )
+        existing_resources = {r for (r,) in existing_result.all()}
+        missing = [
+            (resource, change_type)
+            for (resource, change_type) in m365_webhooks.DEFAULT_RESOURCES
+            if resource not in existing_resources
+        ]
+        if not missing:
+            continue
+
+        logger.info(
+            "backfill subscriptions for conn=%s missing=%d",
+            conn.id,
+            len(missing),
+        )
+        try:
+            await m365_webhooks.subscribe_all_for_connection(
+                db, conn, resources=missing
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("backfill subscriptions failed for conn=%s", conn.id)

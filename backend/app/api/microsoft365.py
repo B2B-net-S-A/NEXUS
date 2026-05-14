@@ -7,6 +7,7 @@ Routes:
     DELETE /api/microsoft365/connection   → disconnect
     POST   /api/microsoft365/sync/trigger → manual sync (202)
     POST   /api/microsoft365/free-busy    → look up attendee availability
+    POST   /api/microsoft365/webhooks     → Graph push-notification endpoint
 """
 
 # NOTE: deliberately NOT using `from __future__ import annotations` here.
@@ -20,13 +21,16 @@ Routes:
 # import, so removing it is purely a fix, not a downgrade.
 
 import asyncio
+import hmac
 import logging
+import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Literal, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from jose import JWTError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
@@ -34,12 +38,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.rate_limit import limiter
-from app.models.m365 import M365Connection, M365SyncStatus
+from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
+from app.services.m365 import webhooks as m365_webhooks
 from app.services.m365.calendar import get_free_busy
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.sync import sync_connection, trigger_backfill
@@ -230,6 +235,12 @@ async def callback(
     # Fire-and-forget initial backfill.
     asyncio.create_task(trigger_backfill(existing.id))
 
+    # Auto-enrol Graph push subscriptions. Background task so the redirect
+    # is not delayed by 3× Graph POST /subscriptions calls. The helper is a
+    # no-op when M365_WEBHOOKS_ENABLED=false, so it's safe to fire here even
+    # before the flag is flipped in prod.
+    asyncio.create_task(m365_webhooks.auto_subscribe_after_connect(existing.id))
+
     return RedirectResponse(_frontend_callback_url("success"), status_code=302)
 
 
@@ -272,6 +283,14 @@ async def disconnect(
     conn = await _get_connection_for_user(db, current_user.id)
     if conn is None:
         return None
+    # Tear down Graph push subscriptions BEFORE deleting the connection so we
+    # still have the token in hand to authenticate DELETE /subscriptions/{id}.
+    # Best-effort: a failed Graph DELETE leaves an orphan subscription that
+    # Graph will eventually expire (~70h max), so we never block disconnect.
+    try:
+        await m365_webhooks.unsubscribe_all_for_connection(db, conn)
+    except Exception:  # noqa: BLE001
+        logger.warning("m365 unsubscribe_all failed (soft-continuing)")
     # Best-effort revoke — currently no-op (see oauth.revoke docstring).
     try:
         cipher = get_token_cipher()
@@ -373,3 +392,178 @@ async def free_busy(
         },
         requested_window={"start": payload.start, "end": payload.end},
     )
+
+
+# ── Phase 7.3 — Graph push-webhook endpoint ─────────────────────────────────
+
+# In-memory replay-protection cache keyed by (subscriptionId, resourceData.id).
+# 4096 entries × 24h TTL covers the highest-volume mailbox observed in prod
+# (peak ~600 msg/day) by a wide margin. Resetting on worker restart is fine:
+# `sync_connection` is idempotent on `m365_message_id`, so a duplicate
+# notification just no-ops at upsert time. If we ever outgrow this we can
+# move to a `graph_webhook_events` table without changing the API surface.
+_REPLAY_CACHE_MAX = 4096
+_REPLAY_TTL_SECONDS = 24 * 3600
+_replay_cache: OrderedDict[tuple[str, str], float] = OrderedDict()
+
+
+def _replay_seen(key: tuple[str, str]) -> bool:
+    """Return True if we've processed this notification within the TTL window.
+
+    Single-process LRU: the FastAPI app runs as one uvicorn worker today, so
+    a Python dict is enough. Multi-worker deploys would need a Redis variant
+    (call sites stay the same).
+    """
+    now = time.time()
+    # Drop TTL-expired head entries cheaply (OrderedDict iterates insertion order).
+    while _replay_cache:
+        oldest_key, ts = next(iter(_replay_cache.items()))
+        if now - ts > _REPLAY_TTL_SECONDS:
+            _replay_cache.popitem(last=False)
+            continue
+        break
+    if key in _replay_cache:
+        return True
+    _replay_cache[key] = now
+    while len(_replay_cache) > _REPLAY_CACHE_MAX:
+        _replay_cache.popitem(last=False)
+    return False
+
+
+def _reset_replay_cache_for_tests() -> None:
+    """Test-only helper — clears the LRU between cases."""
+    _replay_cache.clear()
+
+
+@router.post("/webhooks")
+async def webhooks(
+    request: Request,
+    validationToken: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Microsoft Graph push-notification endpoint.
+
+    No slowapi rate limit by design:
+    - Validation handshake must reply 200 within 10s no matter what; Graph
+      retries with backoff and disables the subscription on failure.
+    - Real notifications can burst legitimately when a connected mailbox
+      receives 100 messages back-to-back. A 600/min cap would clip exactly
+      the case we built this for.
+    Abuse mitigation lives at the edge (Cloudflare WAF + bot challenge) and
+    in the handler itself (unknown subscription IDs are silently dropped).
+
+    Handles two cases:
+
+    1. **Validation handshake.** When a new subscription is created Graph
+       calls this URL with a `validationToken` query param and expects a
+       200 ``text/plain`` body echoing the token within 10 seconds. We
+       intentionally do NOT require the kill-switch for this branch — Graph
+       must be able to validate the URL even when the feature flag is off
+       at app boot, otherwise the very first POST /subscriptions during
+       provisioning fails before we get a chance to flip the flag.
+
+    2. **Real notification.** Body shape:
+       ``{"value": [{"subscriptionId", "clientState", "resource",
+       "resourceData": {"id"}, "changeType"}]}`` — for each entry we look
+       up the local row by `subscriptionId`, constant-time compare the
+       shared `clientState`, dedupe on (sub_id, resourceData.id), then
+       dispatch a fresh sync task per affected connection. Graph requires
+       a <3s reply; the sync runs in `asyncio.create_task` so the response
+       returns immediately.
+    """
+    # ── Validation handshake (no auth, no flag gate by design) ───────────
+    if validationToken is not None:
+        # Graph requires plaintext echo, exactly the same bytes back. No
+        # newline, no quotes. PlainTextResponse handles content-type.
+        return PlainTextResponse(validationToken, status_code=200)
+
+    if not settings.M365_WEBHOOKS_ENABLED:
+        # Kill-switch — refuse pushes loudly so Graph backs off rather than
+        # silently absorbing them.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Microsoft 365 webhooks disabled",
+        )
+
+    # ── Notification body parse ──────────────────────────────────────────
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        # Graph health-pings sometimes arrive with empty/non-JSON bodies and
+        # no validation token. Treat as no-op (202) so we don't trip Graph's
+        # "endpoint unhealthy" auto-disable.
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    entries = payload.get("value") if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or not entries:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+
+    # Dedupe affected connections — one inbox + sent + events tick should
+    # fire ONE sync, not three.
+    conns_to_sync: set[int] = set()
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        sub_id = entry.get("subscriptionId")
+        client_state = entry.get("clientState")
+        if not isinstance(sub_id, str) or not isinstance(client_state, str):
+            continue
+
+        sub = await db.scalar(
+            select(GraphSubscription).where(GraphSubscription.subscription_id == sub_id)
+        )
+        if sub is None:
+            # Subscription was unsubscribed locally but Graph hasn't caught
+            # up yet — log truncated id so a Sentry breadcrumb can correlate.
+            logger.warning(
+                "webhook for unknown subscription_id prefix=%s — ignoring",
+                sub_id[:32],
+            )
+            continue
+
+        # Constant-time compare to neutralise timing side-channels.
+        if not hmac.compare_digest(sub.client_state, client_state):
+            logger.warning(
+                "webhook client_state mismatch for sub_id prefix=%s — refusing entry",
+                sub_id[:32],
+            )
+            continue
+
+        # Replay dedup key. resourceData.id is present for created/updated
+        # messages and events; if Graph ever omits it we fall back to a
+        # composite fingerprint so retries still dedupe.
+        resource_data = entry.get("resourceData") or {}
+        rd_id = (
+            resource_data.get("id") if isinstance(resource_data, dict) else None
+        ) or f"{entry.get('changeType', '')}|{entry.get('resource', '')}"
+        if _replay_seen((sub_id, str(rd_id))):
+            continue
+
+        conns_to_sync.add(sub.m365_connection_id)
+
+    for conn_id in conns_to_sync:
+        asyncio.create_task(_webhook_dispatch_sync(conn_id))
+
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+async def _webhook_dispatch_sync(connection_id: int) -> None:
+    """Background-friendly sync triggered by an inbound webhook.
+
+    Opens a fresh DB session so it survives the HTTP response that started
+    it. Errors are recorded on the connection row by `sync_connection`
+    itself — we only catch here to keep the task from logging an unhandled
+    exception traceback at task-done time.
+    """
+    async with AsyncSessionLocal() as db:
+        conn = await db.get(M365Connection, connection_id)
+        if conn is None or not conn.is_active:
+            return
+        try:
+            await sync_connection(db, conn)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "webhook-dispatched sync failed for connection_id=%s",
+                connection_id,
+            )

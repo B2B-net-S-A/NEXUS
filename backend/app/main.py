@@ -240,6 +240,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
     from app.tasks.microsoft365_sync import (
+        graph_subscription_renewal_loop,
         microsoft365_sync_loop,
         rematch_unlinked_emails_loop,
     )
@@ -268,6 +269,7 @@ async def lifespan(app: FastAPI):
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
         "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
+        "m365_webhook_renewal": asyncio.create_task(graph_subscription_renewal_loop()),
         "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
