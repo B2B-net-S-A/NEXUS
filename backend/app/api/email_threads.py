@@ -20,9 +20,10 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, get_current_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.user import User
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -338,10 +339,10 @@ async def compose_email(
 @limiter.limit("60/minute")
 async def search_emails(
     request: Request,
-    current_user: CurrentUser,
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EmailSearchResponse:
     """Full-text search over the caller's own emails (Phase 4.4).
