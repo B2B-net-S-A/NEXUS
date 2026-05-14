@@ -9,7 +9,15 @@ Routes:
     POST   /api/microsoft365/free-busy    → look up attendee availability
 """
 
-from __future__ import annotations
+# NOTE: deliberately NOT using `from __future__ import annotations` here.
+# FastAPI 0.115 + Pydantic 2.10 cannot resolve the `FreeBusyRequest`
+# ForwardRef in the POST /free-busy route signature when annotations are
+# lazy strings — it either mis-classifies the body as a query param
+# (HTTP 422 loc=query.payload) or crashes with PydanticUserError
+# "TypeAdapter ... is not fully defined" (HTTP 500). Eager annotations
+# avoid the whole class of bug. Python 3.12 supports every type used in
+# this file (PEP 585 built-in generics, `Optional`) without the future
+# import, so removing it is purely a fix, not a downgrade.
 
 import asyncio
 import logging
@@ -17,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Literal, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from jose import JWTError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -306,12 +314,7 @@ async def trigger_sync(
 @limiter.limit("30/minute")
 async def free_busy(
     request: Request,
-    # Explicit Body(...) avoids a FastAPI 0.115 + slowapi 0.1.9 quirk that
-    # was mis-classifying this Pydantic body param as a query parameter on
-    # production (smoke 2026-05-14 returned 422 loc=query.payload). Locally
-    # on newer FastAPI it round-trips fine without the marker, but the
-    # explicit form is documented as the safe pattern and costs nothing.
-    payload: FreeBusyRequest = Body(...),
+    payload: FreeBusyRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> FreeBusyResponse:
