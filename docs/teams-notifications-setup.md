@@ -5,6 +5,9 @@ key ATS events fire (candidate added, verification decision, contract signed).
 Application-only Graph auth (client credentials flow) is used — no per-user
 OAuth.
 
+> Defaults to DORMANT (`TEAMS_NOTIFICATIONS_ENABLED=false`); the steps below
+> walk through enabling it.
+
 ## 1. Azure AD app — `ChannelMessage.Send` Application permission
 
 Reuse the existing NEXUS M365 app registration unless your IT policy forbids
