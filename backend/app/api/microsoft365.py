@@ -53,6 +53,10 @@ class ConnectionStatus(BaseModel):
     last_sync_status: Optional[str] = None
     last_error: Optional[str] = None
     backfill_in_progress: bool = False
+    # True when a previously-connected mailbox needs the user to re-run OAuth
+    # (e.g. encryption key rotated server-side, or Microsoft revoked the
+    # refresh token). Frontend renders an amber banner with a CTA.
+    requires_reconnect: bool = False
     max_attachment_mb: int = settings.M365_MAX_ATTACHMENT_MB
 
     model_config = ConfigDict(from_attributes=True)
@@ -204,7 +208,19 @@ async def get_connection(
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionStatus:
     conn = await _get_connection_for_user(db, current_user.id)
-    if conn is None or not conn.is_active:
+    if conn is None:
+        return ConnectionStatus(connected=False)
+    # Soft-disconnected row with reconnect_required status → surface as "not
+    # connected but needs reconnect". Frontend shows an amber CTA banner.
+    if not conn.is_active:
+        if conn.last_sync_status == M365SyncStatus.reconnect_required:
+            return ConnectionStatus(
+                connected=False,
+                mailbox_upn=conn.mailbox_upn,
+                last_sync_status=conn.last_sync_status.value,
+                last_error=conn.last_error,
+                requires_reconnect=True,
+            )
         return ConnectionStatus(connected=False)
     return ConnectionStatus(
         connected=True,

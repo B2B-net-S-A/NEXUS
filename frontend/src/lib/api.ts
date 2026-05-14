@@ -2093,6 +2093,9 @@ export interface M365ConnectionStatus {
   last_sync_status?: string | null;
   last_error?: string | null;
   backfill_in_progress?: boolean;
+  // True when a previously-connected mailbox needs the user to re-run OAuth
+  // (e.g. server-side encryption key rotated). Renders an amber CTA banner.
+  requires_reconnect?: boolean;
   max_attachment_mb?: number;
 }
 

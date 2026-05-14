@@ -5,6 +5,7 @@ Public surface for other backend modules. Keeps imports short at call sites:
     from app.services.m365 import sync_connection, trigger_backfill
 """
 
+from app.services.m365.connection_status import mark_reconnect_required
 from app.services.m365.provider import (
     EmailProvider,
     MatchResult,
@@ -19,4 +20,5 @@ __all__ = [
     "SyncResult",
     "sync_connection",
     "trigger_backfill",
+    "mark_reconnect_required",
 ]

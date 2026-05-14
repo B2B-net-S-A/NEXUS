@@ -629,6 +629,26 @@ async def api_health_check():
         except Exception:
             checks["m365"] = "degraded"
 
+    # M365 encryption — separate from `m365` because a misconfigured key
+    # silently breaks every refresh (see Sentry NEXUS-BE-1, 2026-05). Round-trip
+    # encrypt→decrypt with a sentinel so "key set" alone is not enough.
+    if settings.M365_INTEGRATION_ENABLED:
+        try:
+            from app.core.encryption import (
+                TokenCipherNotConfigured,
+                get_token_cipher,
+            )
+
+            cipher = get_token_cipher()
+            if cipher.decrypt(cipher.encrypt("ping")) == "ping":
+                checks["m365_encryption"] = "healthy"
+            else:
+                checks["m365_encryption"] = "unhealthy"
+        except TokenCipherNotConfigured:
+            checks["m365_encryption"] = "unhealthy"
+        except Exception:
+            checks["m365_encryption"] = "unhealthy"
+
     # CloudTalk status — informational only. `unconfigured` while kill-switch
     # is off OR API key id is empty (default state pre-provisioning).
     if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
