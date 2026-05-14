@@ -1,6 +1,7 @@
 """Email thread endpoints used by the candidate-detail UI.
 
 GET  /api/candidates/{id}/emails          → list conversations (grouped)
+GET  /api/candidates/{id}/emails/thread/{conv_id} → all messages in a thread
 GET  /api/emails/{id}                     → full email w/ attachments
 GET  /api/emails/{id}/attachments/{aid}/download → binary
 POST /api/candidates/{id}/emails/compose  → new email in candidate context
@@ -194,6 +195,41 @@ async def list_candidate_emails(
         )
         for t in previews
     ]
+
+
+@router.get(
+    "/candidates/{candidate_id}/emails/thread/{conversation_id:path}",
+    response_model=list[EmailOut],
+)
+async def list_thread_messages(
+    candidate_id: int,
+    conversation_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[EmailOut]:
+    """Return every message in a candidate's conversation, oldest first.
+
+    Powers the thread-tree visualization (Phase 5.3): the frontend needs the
+    full conversation to render parent/child indentation. Sort is ASC by
+    sent_at (Graph timestamp on the sender's clock) with a fallback to
+    received_at so we still get a deterministic order for sent-from-ATS
+    messages that lack a Graph sent_at until the next delta pass.
+    """
+    stmt = (
+        select(Email)
+        .where(
+            Email.candidate_id == candidate_id,
+            Email.m365_conversation_id == conversation_id,
+        )
+        .order_by(Email.sent_at.asc().nulls_last(), Email.received_at.asc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
+        return []
+
+    privileged = current_user.role.value in {"admin", "delivery_lead"}
+    visible = [e for e in rows if _can_access_email(e, current_user, privileged)]
+    return [_to_email_out(e) for e in visible]
 
 
 @router.get("/emails/{email_id}", response_model=EmailOut)
