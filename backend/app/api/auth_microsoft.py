@@ -51,19 +51,35 @@ router = APIRouter()
 # Login flow uses identity scopes only — separate from mailbox sync's
 # Mail.* / Calendars.* scopes. ``offline_access`` keeps the refresh token in
 # case we want to silently re-issue Nexus tokens later.
-# ``GroupMember.Read.All`` is required by Phase 7.2 AAD group-based RBAC —
-# we always request it (admin consent already granted in Azure app
-# registration) so the access_token returned from the OAuth exchange can
-# call ``/me/memberOf``. Without it the AAD_GROUP_RBAC_ENABLED path 403s
-# at login.
-_LOGIN_SCOPES = (
+#
+# Phase 7.2 footnote: ``GroupMember.Read.All`` is the scope used by AAD
+# group-based RBAC. Microsoft classifies it as Delegated + admin-consent-
+# required, so requesting it BEFORE the Azure AD app registration has
+# admin consent granted breaks every fresh SSO login with
+# AADSTS65001/65004. Requested dynamically by ``_login_scopes()`` only
+# when ``AAD_GROUP_RBAC_ENABLED=true`` (operators flip it AFTER consent
+# in Azure portal). Default deploys stay on the legacy 5-scope set.
+_LOGIN_SCOPES_BASE = (
     "openid",
     "profile",
     "email",
     "User.Read",
-    "GroupMember.Read.All",
     "offline_access",
 )
+_RBAC_SCOPE = "GroupMember.Read.All"
+
+
+def _login_scopes() -> tuple[str, ...]:
+    """Return the scope tuple for the next OAuth authorize/exchange call.
+
+    Built per-call (not at import time) so toggling
+    ``AAD_GROUP_RBAC_ENABLED`` in Coolify env vault picks up on the next
+    request without a redeploy.
+    """
+    if settings.AAD_GROUP_RBAC_ENABLED:
+        return _LOGIN_SCOPES_BASE + (_RBAC_SCOPE,)
+    return _LOGIN_SCOPES_BASE
+
 
 # Discriminator embedded in the state JWT — prevents a mailbox-state code
 # from being replayed on the login callback (and vice versa).
@@ -151,7 +167,7 @@ def _build_authorize_url(state: str, pkce_verifier: str) -> str:
         "response_type": "code",
         "redirect_uri": settings.MICROSOFT_LOGIN_REDIRECT_URI,
         "response_mode": "query",
-        "scope": " ".join(_LOGIN_SCOPES),
+        "scope": " ".join(_login_scopes()),
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
@@ -183,7 +199,7 @@ async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
         "code": code,
         "redirect_uri": settings.MICROSOFT_LOGIN_REDIRECT_URI,
         "code_verifier": pkce_verifier,
-        "scope": " ".join(_LOGIN_SCOPES),
+        "scope": " ".join(_login_scopes()),
     }
     # _post_token in m365.oauth uses tenant from settings; we cannot override
     # cleanly without duplicating it here, so re-implement with httpx directly.
