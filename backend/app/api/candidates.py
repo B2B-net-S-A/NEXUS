@@ -45,6 +45,8 @@ from app.schemas.candidate import (
     CandidateEngagementUpdate,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
+    CandidateFromLinkedInCreate,
+    CandidateFromLinkedInResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationUpdate,
@@ -57,6 +59,8 @@ from app.schemas.candidate import (
     MatchStats,
     TalentPoolBrief,
 )
+from app.models.linkedin_snapshot import LinkedinSyncStatus
+from app.models.recruitment_pipeline import PipelineStage
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
@@ -979,6 +983,284 @@ async def create_candidate(
     )
     full = reloaded.scalar_one()
     return _candidate_to_response(full)
+
+
+# ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
+
+
+_LINKEDIN_STALE_DAYS = 7
+
+
+def _slug_from_linkedin_url(url: str) -> str:
+    """Extract the slug ("jan-kowalski") from a canonical LinkedIn URL.
+
+    Mirrors ``find_candidate_duplicates`` semantics so dedup is consistent.
+    """
+    stripped = (url or "").strip().rstrip("/")
+    if not stripped:
+        return ""
+    return stripped.split("/")[-1].lower()
+
+
+def _derive_names_from_preview(
+    preview: Optional[object], normalized_url: str
+) -> tuple[str, str]:
+    """Pick name/lastname for the new candidate stub.
+
+    Prefers the DOM-scraped preview when present; otherwise falls back to
+    ``("LinkedIn", <slug>)`` so the row is identifiable until Proxycurl
+    enrichment overwrites it within minutes.
+    """
+    name: Optional[str] = None
+    lastname: Optional[str] = None
+    if preview is not None:
+        name = getattr(preview, "name", None)
+        lastname = getattr(preview, "lastname", None)
+    name = (name or "").strip()
+    lastname = (lastname or "").strip()
+    if not name and not lastname:
+        slug = _slug_from_linkedin_url(normalized_url) or "Profile"
+        return "LinkedIn", slug
+    if not name:
+        return "LinkedIn", lastname
+    if not lastname:
+        return name, _slug_from_linkedin_url(normalized_url) or "Unknown"
+    return name, lastname
+
+
+async def _enrich_linkedin_background(candidate_id: int) -> None:
+    """Background task: open a fresh DB session and run Proxycurl enrichment.
+
+    Wrapped in try/except so any Proxycurl failure (network, 503, rate limit)
+    never propagates — the candidate is already persisted; the scheduled
+    ``linkedin_sync_loop`` will retry on its next tick.
+    """
+    try:
+        from app.core.database import AsyncSessionLocal as _SessionLocal
+        from app.services.proxycurl import sync_candidate_linkedin as _sync
+
+        async with _SessionLocal() as bg_db:
+            candidate = await bg_db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+            if candidate is None or not candidate.linkedin:
+                return
+            await _sync(bg_db, candidate)
+    except Exception:  # noqa: BLE001 — defensive: BG task must never raise
+        logger.exception(
+            "Background LinkedIn enrichment failed for candidate %s", candidate_id
+        )
+
+
+async def _assign_candidate_to_job(
+    *,
+    db: AsyncSession,
+    candidate_id: int,
+    job_id: int,
+    stage: PipelineStage,
+    user_id: int,
+) -> CandidateStage:
+    """Light-weight pipeline assignment for the extension flow.
+
+    Mirrors a small subset of ``app.api.pipeline.move_candidate`` — just enough
+    to put a candidate on the kanban at the default ``new`` stage. NOT used
+    for terminal stages, verification gating, or rate validation (those flow
+    through the full pipeline endpoint).
+
+    Raises ``HTTPException(404)`` if the job does not exist.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    stage_row = CandidateStage(
+        candidate_id=candidate_id,
+        job_id=job_id,
+        stage=stage,
+        moved_by=user_id,
+    )
+    db.add(stage_row)
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="assigned_to_job",
+            user_id=user_id,
+            details={"job_id": job_id, "stage": stage.value},
+        )
+    )
+    return stage_row
+
+
+def _is_sync_stale(
+    synced_at: Optional[datetime], days: int = _LINKEDIN_STALE_DAYS
+) -> bool:
+    if synced_at is None:
+        return True
+    threshold = datetime.now(timezone.utc) - timedelta(days=days)
+    # Tolerate naive datetimes coming back from the DB
+    if synced_at.tzinfo is None:
+        synced_at = synced_at.replace(tzinfo=timezone.utc)
+    return synced_at < threshold
+
+
+@router.post(
+    "/from-linkedin",
+    response_model=CandidateFromLinkedInResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": CandidateFromLinkedInResponse}},
+)
+async def create_candidate_from_linkedin(
+    data: CandidateFromLinkedInCreate,
+    current_user: RecruiterPlus,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """One-click "Dodaj z LinkedIn" from the NEXUS Chrome extension.
+
+    Flow:
+    1. Normalize LinkedIn URL (reject company/jobs/invalid).
+    2. Dedup against existing candidates via slug match.
+       - If found → return ``action="existing"``; opcjonalnie przypisz do job;
+         odpal resync gdy stary >7d.
+    3. Otherwise create a stub (``name``/``lastname`` from preview or fallback),
+       opcjonalnie przypisz do job (atomicznie), queue Proxycurl enrichment.
+    """
+    from app.services.proxycurl import normalize_linkedin_url
+
+    normalized = normalize_linkedin_url(data.linkedin_url)
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid LinkedIn profile URL. Expected a "
+                "'linkedin.com/in/<slug>' profile link."
+            ),
+        )
+
+    target_stage = data.stage or PipelineStage.new
+
+    # ── Dedup fast-path ────────────────────────────────────────────────────
+    duplicates = await find_candidate_duplicates(db, linkedin=normalized)
+    if duplicates:
+        match = duplicates[0]
+        existing_id: int = match["candidate_id"]
+        existing = await db.scalar(
+            select(Candidate).where(Candidate.id == existing_id)
+        )
+        assert existing is not None  # find_candidate_duplicates just returned it
+
+        assigned_job: Optional[int] = None
+        if data.job_id is not None:
+            already = await db.scalar(
+                select(CandidateStage).where(
+                    CandidateStage.candidate_id == existing_id,
+                    CandidateStage.job_id == data.job_id,
+                )
+            )
+            if already is None:
+                await _assign_candidate_to_job(
+                    db=db,
+                    candidate_id=existing_id,
+                    job_id=data.job_id,
+                    stage=target_stage,
+                    user_id=current_user.id,
+                )
+            assigned_job = data.job_id
+
+        resync = _is_sync_stale(existing.linkedin_synced_at)
+        if resync:
+            background_tasks.add_task(_enrich_linkedin_background, existing_id)
+
+        await db.commit()
+
+        response.status_code = status.HTTP_200_OK
+        return CandidateFromLinkedInResponse(
+            action="existing",
+            candidate_id=existing_id,
+            name=f"{existing.name} {existing.lastname}".strip(),
+            linkedin_url=existing.linkedin or normalized,
+            linkedin_sync_status=existing.linkedin_sync_status
+            or LinkedinSyncStatus.disabled,
+            assigned_to_job_id=assigned_job,
+            profile_url_path=f"/candidates/{existing_id}",
+            resync_scheduled=resync,
+        )
+
+    # ── Create stub ────────────────────────────────────────────────────────
+    name, lastname = _derive_names_from_preview(data.preview, normalized)
+    preview_location: Optional[str] = (
+        data.preview.location if data.preview is not None else None
+    )
+
+    candidate = Candidate(
+        name=name,
+        lastname=lastname,
+        linkedin=normalized,
+        location=preview_location,
+        source="linkedin_extension",
+        created_by=current_user.id,
+        tags=data.tags or None,
+        ai_summary=data.notes,
+    )
+    db.add(candidate)
+    await db.flush()
+
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate.id,
+            action="created",
+            user_id=current_user.id,
+            details={
+                "name": f"{candidate.name} {candidate.lastname}",
+                "source": "linkedin_extension",
+                "linkedin_url": normalized,
+            },
+        )
+    )
+    db.add(
+        UserActivity(
+            user_id=current_user.id,
+            action_type=UserActionType.candidate_added,
+            entity_type="candidate",
+            entity_id=candidate.id,
+            details={
+                "name": f"{candidate.name} {candidate.lastname}",
+                "source": "linkedin_extension",
+            },
+        )
+    )
+
+    assigned_job_id: Optional[int] = None
+    if data.job_id is not None:
+        await _assign_candidate_to_job(
+            db=db,
+            candidate_id=candidate.id,
+            job_id=data.job_id,
+            stage=target_stage,
+            user_id=current_user.id,
+        )
+        assigned_job_id = data.job_id
+
+    await db.commit()
+    await db.refresh(candidate)
+
+    # Background enrichment — runs AFTER the response is returned to the client.
+    background_tasks.add_task(_enrich_linkedin_background, candidate.id)
+
+    return CandidateFromLinkedInResponse(
+        action="created",
+        candidate_id=candidate.id,
+        name=f"{candidate.name} {candidate.lastname}".strip(),
+        linkedin_url=normalized,
+        linkedin_sync_status=candidate.linkedin_sync_status
+        or LinkedinSyncStatus.disabled,
+        assigned_to_job_id=assigned_job_id,
+        profile_url_path=f"/candidates/{candidate.id}",
+        resync_scheduled=False,
+    )
 
 
 async def _resolve_invite_source(

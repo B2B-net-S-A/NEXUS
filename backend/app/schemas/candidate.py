@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
 from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
+from app.models.recruitment_pipeline import PipelineStage
 
 
 class EmploymentState(str, Enum):
@@ -427,3 +428,53 @@ class CandidateDocumentOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
+
+
+class LinkedInPreview(BaseModel):
+    """Lightly scraped preview from the LinkedIn profile DOM.
+
+    Used to populate the candidate stub immediately (so the user sees a usable
+    record while Proxycurl enrichment runs in the background). All fields are
+    nullable — the server treats Proxycurl as the authoritative source and will
+    overwrite these within minutes.
+    """
+
+    name: Optional[str] = Field(default=None, max_length=100)
+    lastname: Optional[str] = Field(default=None, max_length=100)
+    headline: Optional[str] = Field(default=None, max_length=255)
+    location: Optional[str] = Field(default=None, max_length=255)
+    current_company: Optional[str] = Field(default=None, max_length=255)
+
+
+class CandidateFromLinkedInCreate(BaseModel):
+    """Payload from the NEXUS Chrome extension on a LinkedIn profile page."""
+
+    linkedin_url: str = Field(..., min_length=1, max_length=500)
+    preview: Optional[LinkedInPreview] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = Field(default=None, max_length=4000)
+    job_id: Optional[int] = None
+    stage: Optional[PipelineStage] = None  # default applied in handler: PipelineStage.new
+
+
+class CandidateFromLinkedInResponse(BaseModel):
+    """Response shape consumed by the extension popup.
+
+    ``action`` is the discriminator the popup uses to switch between the
+    "Dodano X" toast and the "Już w bazie — odśwież?" UI. ``profile_url_path``
+    is appended to the frontend base URL by the extension (it doesn't know the
+    NEXUS frontend hostname — that's a settings concern).
+    """
+
+    action: Literal["created", "existing"]
+    candidate_id: int
+    name: str
+    linkedin_url: str
+    linkedin_sync_status: LinkedinSyncStatus
+    assigned_to_job_id: Optional[int] = None
+    profile_url_path: str
+    resync_scheduled: bool = False
+

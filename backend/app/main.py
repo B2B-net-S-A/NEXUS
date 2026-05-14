@@ -305,6 +305,10 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    # Allow Chrome extensions (NEXUS LinkedIn helper, etc.) — Chrome IDs are
+    # 32-char lowercase a-p strings (base32-ish). Regex covers both dev
+    # (load-unpacked) and Web Store production IDs.
+    allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
