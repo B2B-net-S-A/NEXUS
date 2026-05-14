@@ -2280,6 +2280,57 @@ export const microsoft365Api = {
   }) => api.post<FreeBusyResponse>("/api/microsoft365/free-busy", payload),
 };
 
+// ── User Email Templates (Phase 4.5 — M365 outreach library) ────────────────
+
+export interface UserEmailTemplate {
+  id: number;
+  user_id: number;
+  name: string;
+  subject: string | null;
+  body_html: string;
+  variables: string[];
+  is_shared: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserEmailTemplateInput {
+  name: string;
+  subject?: string | null;
+  body_html: string;
+  is_shared?: boolean;
+}
+
+export interface UserEmailTemplateRenderRequest {
+  candidate_id?: number;
+  request_id?: number;
+  job_id?: number;
+}
+
+export interface UserEmailTemplateRenderResponse {
+  rendered_subject: string;
+  rendered_body_html: string;
+  unresolved_vars: string[];
+}
+
+export const userEmailTemplatesApi = {
+  list: () =>
+    api.get<UserEmailTemplate[]>("/api/user-email-templates"),
+  get: (id: number) =>
+    api.get<UserEmailTemplate>(`/api/user-email-templates/${id}`),
+  create: (data: UserEmailTemplateInput) =>
+    api.post<UserEmailTemplate>("/api/user-email-templates", data),
+  update: (id: number, data: Partial<UserEmailTemplateInput>) =>
+    api.put<UserEmailTemplate>(`/api/user-email-templates/${id}`, data),
+  delete: (id: number) =>
+    api.delete<void>(`/api/user-email-templates/${id}`),
+  render: (id: number, ctx: UserEmailTemplateRenderRequest) =>
+    api.post<UserEmailTemplateRenderResponse>(
+      `/api/user-email-templates/${id}/render`,
+      ctx,
+    ),
+};
+
 // ── Interview Questions (feature "Prepy") ───────────────────────────────────
 
 export type InterviewQuestionSource =

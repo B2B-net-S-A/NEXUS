@@ -29,6 +29,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
+import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
@@ -326,17 +327,20 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "szablony" && (
-        <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6 text-center">
-          <Mail className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Szablony email zarządzane są przez dedykowaną stronę.
-          </p>
-          <Link
-            href="/settings/templates"
-            className="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:underline font-medium"
-          >
-            Przejdź do szablonów <ExternalLink className="w-3.5 h-3.5" />
-          </Link>
+        <div className="space-y-4">
+          <EmailTemplatesCard />
+          <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6 text-center">
+            <Mail className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+              Szukasz szablonów odrzucenia? Są zarządzane na osobnej stronie.
+            </p>
+            <Link
+              href="/settings/templates"
+              className="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:underline font-medium"
+            >
+              Przejdź do szablonów odrzucenia <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       )}
 

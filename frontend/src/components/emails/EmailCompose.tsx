@@ -1,12 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Loader2, Send } from "lucide-react";
+import { FileText, Loader2, Send } from "lucide-react";
 
-import { microsoft365Api, type EmailMessage } from "@/lib/api";
+import {
+  microsoft365Api,
+  userEmailTemplatesApi,
+  type EmailMessage,
+  type UserEmailTemplate,
+} from "@/lib/api";
+import { Alert } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +21,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type ComposeMode =
   | { mode: "new"; defaultTo: string; replyTo?: undefined }
@@ -23,12 +36,18 @@ type ComposeMode =
 type EmailComposeProps = ComposeMode & {
   candidateId: number;
   candidateName: string;
+  /** Optional active recruitment / job context — used when rendering templates. */
+  requestId?: number;
   onClose: () => void;
 };
 
+type TemplateNotice =
+  | { kind: "success"; templateName: string; unresolved: string[] }
+  | { kind: "error"; message: string };
+
 export default function EmailCompose(props: EmailComposeProps) {
   const queryClient = useQueryClient();
-  const { candidateId, candidateName, onClose } = props;
+  const { candidateId, candidateName, requestId, onClose } = props;
   const isReply = props.mode === "reply";
 
   const [to, setTo] = useState(
@@ -42,6 +61,9 @@ export default function EmailCompose(props: EmailComposeProps) {
       : `Kontakt — ${candidateName}`,
   );
   const [error, setError] = useState<string | null>(null);
+  const [templateNotice, setTemplateNotice] = useState<TemplateNotice | null>(
+    null,
+  );
 
   const editor = useEditor({
     extensions: [StarterKit],
@@ -54,7 +76,53 @@ export default function EmailCompose(props: EmailComposeProps) {
     },
   });
 
-  const bodyHtml = useMemo(() => editor?.getHTML() ?? "", [editor]);
+  // Templates are loaded lazily — only when the dropdown is opened the first
+  // time. `enabled: !isReply` because in reply mode the subject is locked.
+  const { data: templates } = useQuery({
+    queryKey: ["user-email-templates"],
+    queryFn: () => userEmailTemplatesApi.list().then((r) => r.data),
+    enabled: !isReply,
+    staleTime: 60_000,
+  });
+
+  const renderMutation = useMutation({
+    mutationFn: async (template: UserEmailTemplate) => {
+      const res = await userEmailTemplatesApi.render(template.id, {
+        candidate_id: candidateId,
+        request_id: requestId,
+      });
+      return { template, data: res.data };
+    },
+    onSuccess: ({ template, data }) => {
+      if (data.rendered_subject) setSubject(data.rendered_subject);
+      if (editor) editor.commands.setContent(data.rendered_body_html || "");
+      setTemplateNotice({
+        kind: "success",
+        templateName: template.name,
+        unresolved: data.unresolved_vars,
+      });
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Nie udało się załadować szablonu.";
+      setTemplateNotice({ kind: "error", message: msg });
+    },
+  });
+
+  // Drop any leftover notice once the user manually edits subject/body so it
+  // stops claiming "template loaded" against content they've since rewritten.
+  useEffect(() => {
+    if (!editor) return;
+    const handler = () => {
+      if (templateNotice) setTemplateNotice(null);
+    };
+    editor.on("update", handler);
+    return () => {
+      editor.off("update", handler);
+    };
+  }, [editor, templateNotice]);
 
   const sendMutation = useMutation({
     mutationFn: async () => {
@@ -101,6 +169,16 @@ export default function EmailCompose(props: EmailComposeProps) {
     },
   });
 
+  const templateOptions = useMemo(
+    () => templates ?? [],
+    [templates],
+  );
+
+  const handleTemplateSelect = (value: string) => {
+    const tpl = templateOptions.find((t) => String(t.id) === value);
+    if (tpl) renderMutation.mutate(tpl);
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-2xl">
@@ -123,6 +201,58 @@ export default function EmailCompose(props: EmailComposeProps) {
               />
             </div>
           )}
+
+          {!isReply && templateOptions.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">
+                Szablon
+              </label>
+              <Select
+                value=""
+                onValueChange={handleTemplateSelect}
+                disabled={renderMutation.isPending}
+              >
+                <SelectTrigger className="w-full">
+                  <div className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <SelectValue placeholder="Wybierz szablon…" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  {templateOptions.map((tpl) => (
+                    <SelectItem key={tpl.id} value={String(tpl.id)}>
+                      {tpl.name}
+                      {tpl.is_shared ? " · współdzielony" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {renderMutation.isPending && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Ładuję szablon…
+                </p>
+              )}
+            </div>
+          )}
+
+          {templateNotice?.kind === "success" && (
+            <Alert
+              variant={
+                templateNotice.unresolved.length > 0 ? "warning" : "success"
+              }
+              title={`Załadowano szablon: ${templateNotice.templateName}`}
+              description={
+                templateNotice.unresolved.length > 0
+                  ? `Niezastąpione zmienne: ${templateNotice.unresolved.join(", ")}`
+                  : undefined
+              }
+            />
+          )}
+          {templateNotice?.kind === "error" && (
+            <Alert variant="error" title={templateNotice.message} />
+          )}
+
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
               Temat
