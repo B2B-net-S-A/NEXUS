@@ -10,7 +10,7 @@ from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, AsyncSessionLocal
@@ -19,6 +19,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.client import Client
 from app.models.notification import Notification, NotificationType
+from app.models.user import UserRole
 from app.api.deps import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -372,6 +373,211 @@ async def delete_event(
         raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
     await db.delete(event)
     await db.commit()
+
+
+# ── Conflict detection (Phase 5.4) ────────────────────────────────────────────
+#
+# Looks at the user's own `CalendarEvent` rows to surface overlaps inside a
+# requested window (typically the slot a recruiter is about to book). This is
+# complementary to the M365 free-busy endpoint (Phase 4d): free-busy queries
+# Microsoft Graph for attendees' Outlook availability, while this endpoint
+# stays inside Nexus and answers "do I already have a Nexus interview /
+# screening / meeting in this window?".
+#
+# Default duration when `end_time IS NULL` is 1 hour — same heuristic the M365
+# invite path uses for its minimum slot length.
+
+_CONFLICT_DEFAULT_DURATION = timedelta(hours=1)
+_CONFLICT_MAX_WINDOW = timedelta(days=7)
+
+
+class CalendarConflictItem(BaseModel):
+    id: int
+    title: str
+    event_type: str
+    status: str
+    start_time: datetime
+    end_time: Optional[datetime]
+    candidate_id: Optional[int]
+    candidate_name: Optional[str]
+
+
+class CalendarConflictsResponse(BaseModel):
+    user_id: int
+    start: datetime
+    end: datetime
+    conflicts: list[CalendarConflictItem]
+
+
+def _validate_window(start: datetime, end: datetime) -> None:
+    if start >= end:
+        raise HTTPException(status_code=422, detail="`end` must be after `start`")
+    if (end - start) > _CONFLICT_MAX_WINDOW:
+        raise HTTPException(
+            status_code=422,
+            detail=f"window too large (max {_CONFLICT_MAX_WINDOW.days} days)",
+        )
+
+
+def _resolve_scope_user(requested_user_id: Optional[int], current_user) -> int:
+    """Default: scan caller's own events. Cross-user lookups need admin/HoR."""
+    if requested_user_id is None or requested_user_id == current_user.id:
+        return current_user.id
+    if current_user.role not in (UserRole.admin, UserRole.head_of_recruitment):
+        raise HTTPException(
+            status_code=403,
+            detail="Cross-user conflict lookups require admin/head_of_recruitment",
+        )
+    return requested_user_id
+
+
+@router.get("/calendar/conflicts", response_model=CalendarConflictsResponse)
+async def list_conflicts(
+    current_user: CurrentUser,
+    start: datetime = Query(..., description="Window start (inclusive)"),
+    end: datetime = Query(..., description="Window end (exclusive)"),
+    exclude_event_id: Optional[int] = Query(
+        None, description="Skip this event (use when editing existing)"
+    ),
+    user_id: Optional[int] = Query(
+        None, description="Defaults to current user; admin-only override"
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return calendar events that overlap [start, end) for the scoped user.
+
+    Used by ScheduleInterviewModal to warn before booking on top of an existing
+    interview/screening.
+    """
+    _validate_window(start, end)
+    scope_user_id = _resolve_scope_user(user_id, current_user)
+
+    effective_end = func.coalesce(
+        CalendarEvent.end_time,
+        CalendarEvent.start_time + _CONFLICT_DEFAULT_DURATION,
+    )
+
+    conditions = [
+        CalendarEvent.created_by == scope_user_id,
+        CalendarEvent.status != EventStatus.cancelled,
+        CalendarEvent.start_time < end,
+        effective_end > start,
+    ]
+    if exclude_event_id is not None:
+        conditions.append(CalendarEvent.id != exclude_event_id)
+
+    rows = (
+        (
+            await db.execute(
+                select(CalendarEvent)
+                .where(and_(*conditions))
+                .order_by(CalendarEvent.start_time)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    items: list[CalendarConflictItem] = []
+    for ev in rows:
+        candidate_name = None
+        if ev.candidate_id:
+            cand = await db.scalar(
+                select(Candidate).where(Candidate.id == ev.candidate_id)
+            )
+            if cand:
+                candidate_name = f"{cand.name} {cand.lastname}".strip()
+        items.append(
+            CalendarConflictItem(
+                id=ev.id,
+                title=ev.title,
+                event_type=ev.event_type.value,
+                status=ev.status.value,
+                start_time=ev.start_time,
+                end_time=ev.end_time,
+                candidate_id=ev.candidate_id,
+                candidate_name=candidate_name,
+            )
+        )
+
+    return CalendarConflictsResponse(
+        user_id=scope_user_id, start=start, end=end, conflicts=items
+    )
+
+
+class CalendarConflictsSummaryResponse(BaseModel):
+    user_id: int
+    start: datetime
+    end: datetime
+    # event_id -> ids of events that overlap with it inside the window
+    pairs: dict[int, list[int]]
+
+
+@router.get(
+    "/calendar/conflicts-summary", response_model=CalendarConflictsSummaryResponse
+)
+async def conflicts_summary(
+    current_user: CurrentUser,
+    start: datetime = Query(...),
+    end: datetime = Query(...),
+    user_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Map each event in the window to ids of events it overlaps with.
+
+    Frontend uses this to flag conflicting events on the calendar grid without
+    having to fan out a per-event request.
+    """
+    _validate_window(start, end)
+    scope_user_id = _resolve_scope_user(user_id, current_user)
+
+    rows = (
+        await db.execute(
+            select(
+                CalendarEvent.id,
+                CalendarEvent.start_time,
+                CalendarEvent.end_time,
+            )
+            .where(
+                CalendarEvent.created_by == scope_user_id,
+                CalendarEvent.status != EventStatus.cancelled,
+                CalendarEvent.start_time < end,
+                func.coalesce(
+                    CalendarEvent.end_time,
+                    CalendarEvent.start_time + _CONFLICT_DEFAULT_DURATION,
+                )
+                > start,
+            )
+            .order_by(CalendarEvent.start_time)
+        )
+    ).all()
+
+    spans = [
+        (
+            row.id,
+            row.start_time,
+            row.end_time or (row.start_time + _CONFLICT_DEFAULT_DURATION),
+        )
+        for row in rows
+    ]
+
+    pairs: dict[int, list[int]] = {ev_id: [] for ev_id, _, _ in spans}
+    # n is bounded by what fits in 7 days of a single user's calendar — a flat
+    # O(n^2) sweep is fine here and keeps the result deterministic.
+    for i in range(len(spans)):
+        i_id, i_start, i_end = spans[i]
+        for j in range(i + 1, len(spans)):
+            j_id, j_start, j_end = spans[j]
+            if j_start >= i_end:
+                # spans are sorted by start_time → no further j can overlap i
+                break
+            if i_start < j_end and j_start < i_end:
+                pairs[i_id].append(j_id)
+                pairs[j_id].append(i_id)
+
+    return CalendarConflictsSummaryResponse(
+        user_id=scope_user_id, start=start, end=end, pairs=pairs
+    )
 
 
 # ── iCal URL import (Phase 7b.6) ──────────────────────────────────────────────

@@ -171,6 +171,16 @@ export default function CalendarPage() {
       calendarApi.listEvents({ from_date: fromDate, to_date: toDate }).then((r) => r.data),
   });
 
+  // Phase 5.4 — bulk overlap map for the visible week. One request flags every
+  // event with the ids it conflicts with, so we don't have to fan out per-event.
+  const { data: conflictPairs } = useQuery<Record<string, number[]>>({
+    queryKey: ["calendar-conflicts-summary", fromDate],
+    queryFn: () =>
+      calendarApi
+        .conflictsSummary({ start: fromDate, end: toDate })
+        .then((r) => r.data.pairs ?? {}),
+  });
+
   const prevWeek = () => {
     setCurrentMonday((d) => {
       const nd = new Date(d);
@@ -309,6 +319,7 @@ export default function CalendarPage() {
               weekDays={weekDays}
               events={events}
               today={today}
+              conflictPairs={conflictPairs ?? {}}
               onSlotClick={handleSlotClick}
               onEventClick={setSelectedEvent}
             />
@@ -350,6 +361,7 @@ function WeekGrid({
   weekDays,
   events,
   today,
+  conflictPairs,
   onSlotClick,
   onEventClick,
 }: {
@@ -357,9 +369,11 @@ function WeekGrid({
   weekDays: Date[];
   events: CalendarEvent[];
   today: Date;
+  conflictPairs: Record<string, number[]>;
   onSlotClick: (day: Date, hour: number) => void;
   onEventClick: (ev: CalendarEvent) => void;
 }) {
+  const eventTitleById = new Map(events.map((ev) => [ev.id, ev.title]));
   const nowMinutes = today.getHours() * 60 + today.getMinutes();
   const nowTop = ((nowMinutes - 8 * 60) / 60) * 56;
 
@@ -422,15 +436,27 @@ function WeekGrid({
               const top = getEventTop(start);
               const height = getEventHeight(start, end);
               const cfg = EVENT_TYPE_CONFIG[ev.event_type] || EVENT_TYPE_CONFIG.meeting;
+              const overlapIds = conflictPairs[String(ev.id)] ?? [];
+              const hasConflict =
+                overlapIds.length > 0 && ev.status !== "cancelled";
+              const conflictTitles = overlapIds
+                .map((id) => eventTitleById.get(id))
+                .filter(Boolean) as string[];
+              const conflictTooltip = hasConflict
+                ? `Konflikt z: ${conflictTitles.join(", ")}`
+                : undefined;
 
               return (
                 <div
                   key={ev.id}
+                  title={conflictTooltip}
                   className={cn(
                     "absolute left-1 right-1 rounded-lg border px-2 py-1 cursor-pointer overflow-hidden shadow-sm hover:shadow-md transition-shadow z-5",
                     cfg.bgColor,
                     cfg.borderColor,
-                    ev.status === "cancelled" && "opacity-50 line-through"
+                    ev.status === "cancelled" && "opacity-50 line-through",
+                    hasConflict &&
+                      "ring-2 ring-amber-500 dark:ring-amber-400 ring-offset-1"
                   )}
                   style={{ top: `${top}px`, height: `${height}px`, minHeight: "28px" }}
                   onClick={(e) => {
@@ -438,6 +464,14 @@ function WeekGrid({
                     onEventClick(ev);
                   }}
                 >
+                  {hasConflict && (
+                    <span
+                      className="absolute top-0.5 right-1 text-amber-600 dark:text-amber-400 text-xs leading-none"
+                      aria-label="Konflikt z innym wydarzeniem"
+                    >
+                      ⚠
+                    </span>
+                  )}
                   <div className={cn("text-xs font-semibold truncate leading-tight", cfg.color)}>
                     {ev.title}
                   </div>

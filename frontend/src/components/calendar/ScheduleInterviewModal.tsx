@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, Loader2 } from "lucide-react";
 
-import { microsoft365Api, type FreeBusyResponse } from "@/lib/api";
+import { calendarApi, microsoft365Api, type FreeBusyResponse } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,42 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAuthStore } from "@/store/auth";
+
+interface ConflictItem {
+  id: number;
+  title: string;
+  event_type: string;
+  status: string;
+  start_time: string;
+  end_time: string | null;
+  candidate_id: number | null;
+  candidate_name: string | null;
+}
+
+interface ConflictsResponse {
+  user_id: number;
+  start: string;
+  end: string;
+  conflicts: ConflictItem[];
+}
+
+function formatConflictTime(start: string, end: string | null): string {
+  const s = new Date(start);
+  const fmt = new Intl.DateTimeFormat("pl-PL", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (!end) return fmt.format(s);
+  const e = new Date(end);
+  const time = new Intl.DateTimeFormat("pl-PL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${fmt.format(s)}–${time.format(e)}`;
+}
 
 interface ScheduleInterviewModalProps {
   candidateId: number;
@@ -160,6 +196,22 @@ export default function ScheduleInterviewModal({
     inviteCandidate,
   ]);
 
+  // Phase 5.4 — Nexus-side overlap check against the recruiter's own calendar
+  // events (interviews/screenings already booked here, not in Outlook). Reuses
+  // the same debounced inputs so we share one keystroke window with free-busy.
+  const conflictsQuery = useQuery<ConflictsResponse>({
+    queryKey: ["calendar-conflicts", checkWindow?.start, checkWindow?.end],
+    enabled: open && checkWindow !== null,
+    queryFn: async () => {
+      const res = await calendarApi.conflicts({
+        start: checkWindow!.start,
+        end: checkWindow!.end,
+      });
+      return res.data as ConflictsResponse;
+    },
+  });
+  const conflicts = conflictsQuery.data?.conflicts ?? [];
+
   const mutation = useMutation({
     mutationFn: () =>
       microsoft365Api.createInvite({
@@ -260,6 +312,31 @@ export default function ScheduleInterviewModal({
               </div>
             )}
           </div>
+
+          {conflicts.length > 0 && (
+            <Alert
+              variant="warning"
+              title={
+                conflicts.length === 1
+                  ? "Masz inny event w tym oknie"
+                  : `Masz ${conflicts.length} inne eventy w tym oknie`
+              }
+            >
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {conflicts.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium">{c.title}</span>
+                    <span className="opacity-80">
+                      {formatConflictTime(c.start_time, c.end_time)}
+                    </span>
+                    {c.candidate_name && (
+                      <span className="opacity-70">— {c.candidate_name}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          )}
 
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
