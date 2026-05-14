@@ -36,17 +36,23 @@ _STATE_ALGORITHM = "HS256"
 _STATE_TTL_SECONDS = 600  # 10 minutes
 # Scopes we always request on top of the configured M365_SCOPES.
 # offline_access → refresh token; openid/profile → id_token with upn claim.
-# GroupMember.Read.All → required by Phase 7.2 AAD group-based RBAC
-# (services/m365/aad_groups.fetch_user_groups). Requires admin consent in the
-# Azure app registration. Including it here means every mailbox reconnect also
-# grants the scope, so the admin resync endpoint can use the stored mailbox
-# token to refresh a user's group membership without an SSO redirect.
-_EXTRA_SCOPES = (
+# Phase 7.2 footnote: ``GroupMember.Read.All`` (delegated + admin-consent-
+# required) is appended dynamically by :func:`_extra_scopes` when
+# ``AAD_GROUP_RBAC_ENABLED=true`` so the mailbox reconnect path can refresh
+# group memberships. Including it unconditionally would 65001/65004 every
+# mailbox connection until admin consent is granted in Azure.
+_EXTRA_SCOPES_BASE = (
     "offline_access",
     "openid",
     "profile",
-    "GroupMember.Read.All",
 )
+_RBAC_SCOPE = "GroupMember.Read.All"
+
+
+def _extra_scopes() -> tuple[str, ...]:
+    if settings.AAD_GROUP_RBAC_ENABLED:
+        return _EXTRA_SCOPES_BASE + (_RBAC_SCOPE,)
+    return _EXTRA_SCOPES_BASE
 
 
 class M365ReauthRequired(RuntimeError):
@@ -123,7 +129,7 @@ def _tenant_url_fragment() -> str:
 
 
 def _scope_string() -> str:
-    return " ".join([*settings.M365_SCOPES, *_EXTRA_SCOPES])
+    return " ".join([*settings.M365_SCOPES, *_extra_scopes()])
 
 
 def _authorize_endpoint() -> str:
