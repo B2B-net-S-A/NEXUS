@@ -200,6 +200,29 @@ class Settings(BaseSettings):
     # changes within a day. Clamped to >=60s by the cache.
     M365_SIGNATURE_CACHE_TTL_SECONDS: int = 86400
 
+    # ── M365 Graph push webhooks (Phase 7.3) ──────────────────────────────────
+    # Push notifications replace polling once stable. Default OFF — flip to True
+    # in Coolify env after deploying so the lifespan task spawns. While the flag
+    # is False the renewal loop exits immediately and the POST /webhooks
+    # endpoint refuses to enrol new subscriptions.
+    M365_WEBHOOKS_ENABLED: bool = False
+    # Public HTTPS base URL Graph will POST notifications to. Must terminate at
+    # this FastAPI app — Graph rejects HTTP / IP / self-signed. Override per env.
+    M365_WEBHOOK_BASE_URL: str = "https://api.nexus.dynaminds.pl"
+    # How long to ask Graph to keep a single subscription alive. Graph caps at
+    # 4230 min (~70h) for messages/events; we use 60 min so a missed renewal
+    # only loses ~1h of pushes (polling falls back during co-existence window).
+    M365_WEBHOOK_LIFETIME_MINUTES: int = 60
+    # Renewal-loop cadence. Clamped to >=60s in the loop itself.
+    M365_WEBHOOK_RENEWAL_INTERVAL_SECONDS: int = 600
+    # Renew subscriptions whose expires_at falls inside this window. Must be
+    # comfortably larger than the renewal interval so we never miss an expiry.
+    M365_WEBHOOK_RENEWAL_WINDOW_MINUTES: int = 15
+    # Mark a subscription inactive (deletes the row, lets the next sync re-enrol)
+    # after this many consecutive renew/subscribe failures. Avoids hammering
+    # Graph for a token that has been revoked server-side.
+    M365_WEBHOOK_FAILURE_THRESHOLD: int = 3
+
     # ── SSO "Sign in with Microsoft" (Faza B) ────────────────────────────────
     # Reuses M365 Azure AD app — same client_id/secret/tenant, different redirect.
     # Empty in dev → /api/auth/microsoft/* return 503.

@@ -103,6 +103,7 @@ from app.models.m365 import (
     EmailAttachment,
     EmailDirection,
     EmailMatchMethod,
+    GraphSubscription,
     M365Connection,
     M365SyncStatus,
 )
@@ -261,6 +262,7 @@ __all__ = [
     "EmailAttachment",
     "EmailDirection",
     "EmailMatchMethod",
+    "GraphSubscription",
     "M365Connection",
     "M365SyncStatus",
     "CandidateLinkedinSnapshot",
