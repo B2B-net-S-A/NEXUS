@@ -19,24 +19,33 @@ przez Next.js z hosta `nexus.dynaminds.pl`:
 Endpoint backendu: `GET https://api.nexus.dynaminds.pl/api/candidates/check-exists?email=<addr>`
 (wymaga `Authorization: Bearer <NEXUS JWT>`).
 
-## 1. Sideloading (testowanie pojedynczego użytkownika)
+## 1. Sideloading — UWAGA: niedostępne w nowym Outlook Web (2026)
 
-Najszybsza ścieżka sprawdzenia że manifest działa.
+**Microsoft wycofał indywidualny sideloading custom add-ins z nowego Outlook
+Web** (zweryfikowane 2026-05-14 w sesji Chrome MCP na `outlook.cloud.microsoft`):
 
-1. Otwórz <https://outlook.office.com> i zaloguj się kontem z domeny `b2bnet.pl`
-   (lub innej zarejestrowanej w NEXUS).
-2. Otwórz dowolną wiadomość.
-3. Pasek narzędzi → **Akcje (...)** → **Pobierz dodatki** (ang. *Get Add-ins*).
-4. Lewa kolumna → **Moje dodatki** → sekcja **Niestandardowe dodatki** →
-   przycisk **+ Dodaj niestandardowy dodatek** → **Dodaj z adresu URL...**
-5. Wklej: `https://nexus.dynaminds.pl/outlook-addin/manifest.xml`.
-6. Potwierdź ostrzeżenie o niestandardowym dodatku.
-7. Wróć do skrzynki, kliknij dowolną wiadomość. Sidebar **NEXUS Candidate
-   Lookup** powinien się pojawić w `Akcje (...)` w czytniku wiadomości.
+- `aka.ms/olksideload` → redirect do skrzynki bez side-load dialog
+- Settings → General → **brak** sekcji "Manage add-ins"
+- Apps drawer (4-kropki w lewym pasku) → katalog tylko z oficjalnymi
+  AppSource appsami, **brak** "Add custom add-in from URL"
+- Ribbon "View" → "More apps" → ten sam Apps store, dalej brak custom upload
 
-Pierwszy raz pojawi się ekran logowania — wpisz swoje credentials NEXUS
-(te same co do `nexus.dynaminds.pl`). Token zostaje w `localStorage` dodatku
-do wylogowania.
+Konsekwencja: nie da się przetestować add-in jako pojedynczy użytkownik bez
+admin tenant rollout. Klasyczna ścieżka `Get Add-ins → My Add-ins → Add from URL`
+działała w legacy OWA i klasycznym Outlook desktop, ale jest wyłączona w
+nowym Outlook Web/Outlook for Mac/Windows new (2024+).
+
+**Workaround dla developmentu** (jeśli kiedyś będzie potrzebny):
+
+- **Visual Studio Code Office Add-in extension** — debug session ładuje
+  manifest przez lokalny F12 sideload (wymaga `npx office-addin-debugging`).
+- **Outlook desktop classic (Office 2019/2021 COM)** — jeśli ktoś ma stary
+  klient, klasyczne `File → Manage Add-ins → Add from URL` jeszcze działa.
+
+**Konsekwencja praktyczna:** smoke test po deploy NEXUS to **tylko**
+weryfikacja manifest URL + endpoint przez curl (opisane w §3). Faktyczne
+działanie sidebar w Outlook potwierdzimy dopiero po tenant-wide
+deployment (§2) — pierwsze 5 minut, na koncie testowym.
 
 ## 2. Tenant-wide deployment (produkcja, wszyscy w organizacji)
 
@@ -68,14 +77,17 @@ curl -s "https://api.nexus.dynaminds.pl/api/candidates/check-exists?email=test@e
   -H "Authorization: Bearer $NEXUS_JWT" | jq .
 ```
 
-Smoke test E2E (Chrome MCP):
+Smoke test E2E (po tenant-wide deployment z §2 — wymagane przed pierwszą
+weryfikacją UI, bo individual sideload jest wycofany — patrz §1):
 
-1. Otwórz Outlook Web jako `claude-admin@b2bnet.pl`.
-2. Kliknij wiadomość od znanego kandydata (najlepiej `artur@b2bnet.pl` lub
-   przeszłego kandydata z bazy).
-3. Akcje (`...`) → **NEXUS Candidate Lookup**.
+1. Otwórz Outlook Web (`outlook.office.com`) na koncie testowym
+   (np. dedykowane konto recruitera z grupy AAD przypisanej w §2).
+2. Kliknij wiadomość od znanego kandydata (najlepiej takiego, który już
+   istnieje w NEXUS — sprawdź przez `/api/candidates?q=<email>`).
+3. Akcje (`...`) → **NEXUS Candidate Lookup** (lub w Ribbon → View → More apps).
 4. Po zalogowaniu sidebar powinien pokazać kartę z imieniem kandydata, etapem
-   pipeline i linkiem do profilu.
+   pipeline i linkiem do profilu. `found:false` → przycisk "Dodaj jako kandydata"
+   z prefill emaila nadawcy.
 
 ## 4. Aktualizacje add-in
 
