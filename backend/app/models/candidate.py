@@ -4,6 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     Date,
     DateTime,
     Enum,
@@ -67,6 +68,22 @@ class Candidate(Base, TimestampMixin):
     phone: Mapped[Optional[str]] = mapped_column(String(30))
     location: Mapped[Optional[str]] = mapped_column(String(255))
     linkedin: Mapped[Optional[str]] = mapped_column(String(500))
+    # PG-side STORED generated column (migration 0106). Indexed for fast
+    # O(log n) dedup in `find_candidate_duplicates` and the Chrome extension's
+    # `POST /api/candidates/from-linkedin` endpoint. App code is READ-ONLY —
+    # SQLAlchemy must NEVER emit linkedin_slug in INSERT/UPDATE statements
+    # (PG raises `cannot insert a non-DEFAULT value into column`). We achieve
+    # that by combining: (a) Computed() so Alembic-aware tooling treats it as
+    # generated, (b) FetchedValue server_default so the ORM relies on a
+    # post-INSERT RETURNING fetch to read the computed value back.
+    linkedin_slug: Mapped[Optional[str]] = mapped_column(
+        String(150),
+        Computed(
+            "LOWER(REGEXP_REPLACE(SPLIT_PART(SPLIT_PART(linkedin, '/in/', 2), '?', 1), '/+$', ''))",
+            persisted=True,
+        ),
+        nullable=True,
+    )
 
     # Avatar
     avatar_url: Mapped[Optional[str]] = mapped_column(String(1000))
