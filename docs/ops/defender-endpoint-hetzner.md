@@ -255,24 +255,36 @@ Endpoint security policies → Antivirus → assign policy to Atlas device group
 ## 5. Performance baseline (after 24 hours)
 
 After 24 hours of normal traffic, sanity-check `mdatp` resource usage on every
-host:
+host. `mdatp` is multi-process on Linux (a parent `wdavdaemon` plus 1–2
+workers), so sum all PIDs:
 
 ```bash
-ssh root@91.99.199.112 "mdatp health --details && top -bn1 -p \$(pgrep -d, mdatp)"
+ssh root@<ip> "
+pids=\$(pgrep wdavdaemon | tr '\n' ' ')
+ps -o pid,pcpu,pmem,rss,comm -p \$pids
+echo '— totals —'
+ps -o rss=,pcpu= -p \$pids | awk '{rss+=\$1; cpu+=\$2} END {printf \"RSS=%.0fMB CPU=%.1f%%\\n\", rss/1024, cpu}'
+"
 ```
 
-Expected ceilings:
+### Observed ceilings (calibrated from this deployment 2026-05-16, t+48h)
 
-| Metric | NEXUS / Compass (real-time ON) | Atlas (real-time OFF) |
+The pre-install estimates ("< 200 MB") were too tight — Microsoft's Linux
+daemon legitimately runs heavier than the Windows agent. Updated to what we
+actually observe in steady state:
+
+| Metric | NEXUS / Compass (real-time ON) | Atlas (real-time OFF / passive) |
 |---|---|---|
-| `mdatp` CPU sustained | < 5% | < 1% |
-| `mdatp` memory RSS | < 200 MB | < 100 MB |
+| `mdatp` CPU sustained | < 5% (NEXUS 3.8%, Compass 2.7%) | < 3% (Atlas 2.4%) |
+| `mdatp` memory RSS total | 400–550 MB | 200–250 MB |
 | `mdatp` CPU during scan | < 30% spike | < 30% spike |
+| Disk usage Δ (binary + definitions) | ~1.0 GB | ~1.0 GB |
 
-If `mdatp` exceeds these (>20% sustained CPU or >500 MB memory), the most
-common cause is a missing exclusion — re-run `mdatp exclusion folder list` and
-compare with [section 3](#3-configure-exclusions-docker--coolify--postgres).
-Last resort: tweak scan policies in M365 Defender portal.
+If `mdatp` sustained CPU exceeds 10% or RSS exceeds 1 GB, the most common
+cause is a missing exclusion — re-run `mdatp exclusion list` (NB: `list`,
+not `folder list`) and compare with
+[section 3](#3-configure-exclusions-docker--coolify--postgres). Last resort:
+tweak scan policies in M365 Defender portal.
 
 ## 6. Monitoring in M365 Defender portal
 
@@ -288,6 +300,25 @@ Last resort: tweak scan policies in M365 Defender portal.
 2. **Alerts**: target `0` high-severity, `0` critical-medium alerts. False
    positives on Docker overlay layers are the expected initial noise — add
    the offending path to exclusions and dismiss the alert.
+
+   **Known recurring false positive — Coolify deploy chain.** Defender's
+   `Suspicious process executed by a network service` rule fires on every
+   Coolify deploy because the chain matches a textbook attack pattern:
+
+   - PHP (network service: Coolify web) → Laravel Horizon worker →
+     `busybox sh -c '...'`
+   - Shell base64-decodes an SSH private key, writes it to
+     `/root/.ssh/id_rsa`, then `ssh root@host.docker.internal`
+   - Inside the SSH session: `docker exec coolify-helper bash -c '… git clone
+     git@github.com:<repo> …'`
+
+   It is the legitimate Coolify deploy pipeline. Classify each occurrence
+   in the portal: Manage incident → Status `Resolved`, Classification
+   `Informational, expected activity` → `Line of business application`.
+   For a permanent suppression, add an Alert Tuning rule scoped to these
+   three devices only (Settings → Endpoints → Alert Tuning); do NOT
+   suppress org-wide, since the same alert title would mask real attacks
+   on other hosts.
 
 3. **Email notifications**: Settings → Endpoints → Email notifications →
    Add rule:
