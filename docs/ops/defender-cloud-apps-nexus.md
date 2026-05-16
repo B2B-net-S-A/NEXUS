@@ -4,6 +4,47 @@
 >
 > Plan reference: `~/.claude/plans/elegant-percolating-thimble.md` — Phase 7.10.
 
+## Tenant facts (verified 2026-05-16)
+
+| Field | Value |
+|---|---|
+| Defender for Cloud Apps Tenant ID | `97509327` |
+| Microsoft Entra Tenant ID | `e277180c-b58a-418c-b362-bb89ab0b1301` |
+| Region / Data center | UK South / EU2 |
+| Legacy MCAS portal URL (custom app management) | `https://b2bnetsa.eu2.portal.cloudappsecurity.com` |
+| Unified portal (preferred for policies + alerts) | `https://security.microsoft.com/cloudapps` |
+| Service version (when verified) | 331.161 |
+
+## Status w tenant (2026-05-16)
+
+| Pozycja runbooka | Stan |
+|---|---|
+| Defender for Cloud Apps aktywny w tenant | ✅ TAK — sidebar pokazuje Cloud apps section z pełną nawigacją (Discovery / Catalog / OAuth / Policies / etc.) |
+| App Connectors (legacy AAD connector) | ⚠️ 0 connected apps. Modern Defender XDR używa **Identity inventory integration** zamiast osobnego AAD connector — sign-in/audit logs są forwardowane automatycznie z Entra ID, dodatkowy connector zwykle niepotrzebny |
+| Anomaly detection policies (Impossible travel, Infrequent country, Ransomware, Suspicious inbox forwarding, etc.) | ⚠️ **Wszystkie 17 threat detection policies `[Disabled]`** (last modified 2026-02-17). Microsoft sam je wyłączył w ramach migracji do dynamic threat detection model (announced 2025-06-15, patrz [§ Dynamic threat detection migration](#dynamic-threat-detection-migration-2025-06-15)) |
+| NEXUS as sanctioned app in Cloud app catalog | ❌ Nie ma. "Add custom app" toolbar button **nie istnieje** w unified portal — funkcjonalność jest w legacy MCAS pod `b2bnetsa.eu2.portal.cloudappsecurity.com/#/settings/customApps` |
+| Custom email settings (org-level Mail settings) | ⚠️ **DEPRECATED przez Microsoft** — komunikat *"Custom email settings feature has been deprecated. you will still get email notifications with the default display settings."* Domyślny sender: `no-reply@cloudappsecurity.com`. Brak opcji konfiguracji sender display name |
+| My email notifications (Artur Twardowski, Global Admin) | ✅ ENABLED 2026-05-16 — severity ≥ Medium + system alerts (zaznaczone via portal) |
+| Smoke test impossible travel | ⏳ TODO — wymaga VPN exit-nodes z 2 krajów + ~1h delay |
+
+## Dynamic threat detection migration (2025-06-15)
+
+Komunikat z portalu pod Policy management:
+
+> *"Starting June 15th, 2025, Microsoft Defender for Cloud Apps will adopt a dynamic threat detection model to enhance accuracy and responsiveness, policies that migrated will be disabled."*
+
+**Implikacje dla runbooka:**
+
+- Legacy policy templates (Impossible travel, Activity from infrequent country, Ransomware, etc.) zostały **automatycznie wyłączone** przez Microsoft podczas migracji.
+- Dynamic threat detection model działa w tle — Microsoft uważa że jest dokładniejszy niż statyczne policies z fixed thresholds.
+- **Re-enabling legacy policies = duplicate alerts** z dynamic model. Generuje noise.
+- Decyzja architektoniczna (do podjęcia przez IT-Security):
+  - **Opcja A — zostać przy dynamic model (rekomendacja Microsoft):** akceptujesz że threat detection jest poza Twoją kontrolą (no thresholds, no fine-tuning), ale dostajesz mniej false positives.
+  - **Opcja B — re-enable wszystko z legacy:** masz pełną kontrolę nad thresholds, ale: (a) duplikuje dynamic model (więcej alertów), (b) Microsoft może w przyszłości usunąć legacy templates.
+  - **Opcja C — hybrid:** dynamic + 2-3 selected custom activity policies dla NEXUS-specific scenarios (np. mass CV export — wymaga że NEXUS sam emituje activity logs).
+
+Dla NEXUS w MVP rekomendacja: **Opcja A** (zostawić dynamic), monitorować przez 90 dni, retroaktywnie dodać custom policies jeśli będą luki w pokryciu.
+
 ## License & ownership
 
 | Field | Value |
