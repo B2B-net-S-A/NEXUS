@@ -141,9 +141,7 @@ async def _fetch_app_token(config: TeamsConfig) -> str:
         if cached and expires_at > now:
             return cached
 
-        url = (
-            f"https://login.microsoftonline.com/{config.tenant_id}/oauth2/v2.0/token"
-        )
+        url = f"https://login.microsoftonline.com/{config.tenant_id}/oauth2/v2.0/token"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 url,
@@ -224,9 +222,7 @@ def build_candidate_card(
         },
         {"type": "FactSet", "facts": facts},
     ]
-    actions = [
-        {"type": "Action.OpenUrl", "title": "Zobacz profil", "url": profile_url}
-    ]
+    actions = [{"type": "Action.OpenUrl", "title": "Zobacz profil", "url": profile_url}]
     return _card_envelope(body, actions)
 
 
@@ -261,9 +257,7 @@ def build_decision_card(
         },
         {"type": "FactSet", "facts": facts},
     ]
-    actions = [
-        {"type": "Action.OpenUrl", "title": "Zobacz profil", "url": profile_url}
-    ]
+    actions = [{"type": "Action.OpenUrl", "title": "Zobacz profil", "url": profile_url}]
     return _card_envelope(body, actions)
 
 
@@ -293,9 +287,7 @@ def build_contract_signed_card(
         },
         {"type": "FactSet", "facts": facts},
     ]
-    actions = [
-        {"type": "Action.OpenUrl", "title": "Zobacz umowę", "url": contract_url}
-    ]
+    actions = [{"type": "Action.OpenUrl", "title": "Zobacz umowę", "url": contract_url}]
     return _card_envelope(body, actions)
 
 
@@ -404,9 +396,7 @@ async def send_to_channel(
     # revoked. Drop the cache so the next attempt re-fetches.
     if resp.status_code == 401:
         _reset_token_cache()
-    raise TeamsSendError(
-        f"Graph POST {url} -> {resp.status_code}: {resp.text[:300]}"
-    )
+    raise TeamsSendError(f"Graph POST {url} -> {resp.status_code}: {resp.text[:300]}")
 
 
 async def fire_and_forget_send(
