@@ -96,10 +96,91 @@ def test_extract_signature_empty_body() -> None:
 
 
 def test_extract_signature_oversized_tail_rejected() -> None:
-    """A tail longer than 8 KB is treated as a misfire (probably embedded body)."""
-    huge_tail = "x" * 9000
+    """A tail past the cap is treated as a misfire (probably embedded body)."""
+    huge_tail = "x" * 13000
     body = f"<p>Body</p><br>--<br>{huge_tail}"
     assert extract_signature(body) is None
+
+
+# ── extract_signature: Outlook id-based markers (real-world) ─────────────────
+
+
+def test_extract_signature_outlook_mobile_id() -> None:
+    """Outlook mobile (iOS + Android) wraps the signature in
+    ``<div id="ms-outlook-mobile-signature">``. The extracted tail must
+    INCLUDE the wrapper element so the rendered signature keeps its layout."""
+    body = (
+        "<div><br></div><div><br></div>"
+        '<div id="ms-outlook-mobile-signature">'
+        '<table class="dm-bg-body"><tbody><tr><td>'
+        "<b>B2B.NET S.A.</b><br>Aleje Jerozolimskie 180"
+        "</td></tr></tbody></table></div>"
+    )
+    sig = extract_signature(body)
+    assert sig is not None
+    assert 'id="ms-outlook-mobile-signature"' in sig
+    assert "B2B.NET" in sig
+
+
+def test_extract_signature_outlook_desktop_signature_id() -> None:
+    """Outlook desktop / OWA compose: ``<div id="Signature">``."""
+    body = (
+        "<div>Body of the message</div>"
+        '<div id="Signature"><p>Jan Kowalski</p><p>Recruiter</p></div>'
+    )
+    sig = extract_signature(body)
+    assert sig is not None
+    assert 'id="Signature"' in sig
+    assert "Jan Kowalski" in sig
+    assert "Body of the message" not in sig
+
+
+def test_extract_signature_outlook_owa_x_signature_id() -> None:
+    """OWA prefixes ids with ``x_`` when the message is part of a quoted
+    thread. The pattern must match both the bare and the prefixed form."""
+    body = '<div>Reply text</div><div id="x_Signature"><p>Anna Nowak</p></div>'
+    sig = extract_signature(body)
+    assert sig is not None
+    assert "Anna Nowak" in sig
+
+
+def test_extract_signature_id_marker_beats_dash_dash() -> None:
+    """Order matters in ``_SIGSEP_MARKERS`` — when both an id-wrapped
+    signature AND a stray ``-- `` appear, the id wins so a quoted-thread
+    ``--`` doesn't snatch the extraction."""
+    body = (
+        "<p>Reply body</p>"
+        "<br>--<br>"
+        "<p>Quoted thread content</p>"
+        '<div id="ms-outlook-mobile-signature"><p>Real Signature</p></div>'
+    )
+    sig = extract_signature(body)
+    assert sig is not None
+    assert "Real Signature" in sig
+    assert "Quoted thread content" not in sig
+
+
+def test_extract_signature_real_world_outlook_mobile_body() -> None:
+    """Regression test for the exact format Outlook mobile produces (the
+    body that broke Phase 7.7's first deploy)."""
+    body = (
+        "\n<div><br></div><div><br></div>"
+        '<div id="ms-outlook-mobile-signature">'
+        '<table class="dm-bg-body"><tbody><tr><td class="dm-bg-body">'
+        '<table class="dm-bg-body"><tbody><tr><td class="dm-bg-body">'
+        '<span><img src="cid:logo" alt="logo"></span>'
+        "</td></tr></tbody></table>"
+        '<div class="footer"><span><b>B2B.NET S.A.</b></span>'
+        "<span><br>Aleje Jerozolimskie 180, 02-486 Warszawa, "
+        "Sąd Rejonowy dla m.st. Warszawy, XII Wydział Gospodarczy KRS, "
+        "KRS: 0000387063</span></div>"
+        "</td></tr></tbody></table>"
+        "<div><br></div></div>"
+    )
+    sig = extract_signature(body)
+    assert sig is not None
+    assert "B2B.NET S.A." in sig
+    assert "ms-outlook-mobile-signature" in sig
 
 
 # ── get_outlook_signature: caching ───────────────────────────────────────────
