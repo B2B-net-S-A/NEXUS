@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import List, Optional
@@ -79,6 +81,7 @@ from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, CurrentUser, TacPlus
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -577,6 +580,17 @@ async def activate_contract(
 
     await db.flush()
     await db.refresh(contract)
+
+    # Phase 7.6 — fire-and-forget Teams notification for contract_signed.
+    try:
+        from app.services.teams_notifications import notify_contract_signed_by_id
+
+        asyncio.create_task(notify_contract_signed_by_id(contract.id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Teams notify (contract_signed via activate) scheduling failed: %s", exc
+        )
+
     return _to_detail(contract)
 
 
@@ -888,6 +902,18 @@ async def finalize_contract_draft(
     )
     await db.flush()
     await db.refresh(doc)
+
+    # Phase 7.6 — fire-and-forget Teams notification for contract_signed.
+    # finalize_contract_draft is the "draft → active" transition for the
+    # editable contract draft flow; same business event as /activate.
+    try:
+        from app.services.teams_notifications import notify_contract_signed_by_id
+
+        asyncio.create_task(notify_contract_signed_by_id(contract.id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Teams notify (contract_signed via finalize) scheduling failed: %s", exc
+        )
 
     return ContractDraftFinalizeResponse(
         contract_id=contract.id,

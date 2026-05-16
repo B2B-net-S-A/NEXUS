@@ -3267,6 +3267,60 @@ export const callsApi = {
   getStats: () => api.get<CallStats>("/api/calls/stats").then((r) => r.data),
 };
 
+// ── Teams notifications (Phase 7.6) ─────────────────────────────────────────
+
+export type TeamsNotificationType =
+  | "candidate_added"
+  | "decision_accepted"
+  | "decision_rejected"
+  | "contract_signed";
+
+export interface TeamsChannel {
+  id: number;
+  workspace_label: string;
+  team_id: string;
+  channel_id: string;
+  notification_types: TeamsNotificationType[];
+  enabled: boolean;
+  created_by_user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeamsChannelCreateInput {
+  workspace_label: string;
+  team_id: string;
+  channel_id: string;
+  notification_types: TeamsNotificationType[];
+}
+
+export interface TeamsChannelUpdateInput {
+  workspace_label?: string;
+  notification_types?: TeamsNotificationType[];
+  enabled?: boolean;
+}
+
+export interface TeamsChannelTestResponse {
+  sent: boolean;
+  detail?: string | null;
+}
+
+export const teamsChannelsApi = {
+  list: () => api.get<TeamsChannel[]>("/api/teams-channels").then((r) => r.data),
+  create: (data: TeamsChannelCreateInput) =>
+    api.post<TeamsChannel>("/api/teams-channels", data).then((r) => r.data),
+  update: (id: number, data: TeamsChannelUpdateInput) =>
+    api
+      .patch<TeamsChannel>(`/api/teams-channels/${id}`, data)
+      .then((r) => r.data),
+  delete: (id: number) =>
+    api.delete<void>(`/api/teams-channels/${id}`).then((r) => r.data),
+  test: (id: number) =>
+    api
+      .post<TeamsChannelTestResponse>(`/api/teams-channels/${id}/test`)
+      .then((r) => r.data),
+};
+
 export const cloudtalkApi = {
   listAgents: () =>
     api.get<CloudTalkAgent[]>("/api/cloudtalk/agents").then((r) => r.data),

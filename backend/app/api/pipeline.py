@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
@@ -42,6 +44,7 @@ from app.schemas.pipeline import (
 from app.api.deps import ApproverPlus, CurrentUser, RecruiterPlus
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
@@ -1205,6 +1208,22 @@ async def accept_verification(
 
     await db.commit()
     await db.refresh(stage)
+
+    # Phase 7.6 — fire-and-forget Teams notification (post-commit so the row
+    # is durable before the background task resolves it from its own session).
+    try:
+        from app.services.teams_notifications import notify_decision_by_stage_id
+
+        asyncio.create_task(
+            notify_decision_by_stage_id(
+                stage.id,
+                decision="accepted",
+                actor_name=current_user.name or current_user.email,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Teams notify (decision_accepted) scheduling failed: %s", exc)
+
     return CandidateStageResponse(**_stage_response(stage))
 
 
@@ -1330,6 +1349,22 @@ async def reject_verification(
 
     await db.commit()
     await db.refresh(stage)
+
+    # Phase 7.6 — fire-and-forget Teams notification.
+    try:
+        from app.services.teams_notifications import notify_decision_by_stage_id
+
+        asyncio.create_task(
+            notify_decision_by_stage_id(
+                stage.id,
+                decision="rejected",
+                actor_name=current_user.name or current_user.email,
+                note=payload.note,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Teams notify (decision_rejected) scheduling failed: %s", exc)
+
     return CandidateStageResponse(**_stage_response(stage))
 
 

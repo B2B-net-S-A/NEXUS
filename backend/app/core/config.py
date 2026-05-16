@@ -353,6 +353,24 @@ class Settings(BaseSettings):
     # days. Older calls are skipped — out of scope for the ATS workflow.
     CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
 
+    # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
+    # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
+    # outbound posts are no-op'd (logged, return False) so admins can stage
+    # configuration before flipping the integration on. When True the AAD app
+    # client credentials below MUST be set or sends will fail. Default OFF —
+    # admin consent for `ChannelMessage.Send` is required first.
+    TEAMS_NOTIFICATIONS_ENABLED: bool = False
+    # Tenant-specific (NOT "common") — client_credentials flow requires the
+    # actual tenant GUID. Defaults to M365_TENANT_ID at runtime if blank.
+    TEAMS_TENANT_ID: str = ""
+    # AAD app client ID. Reuses M365_CLIENT_ID at runtime if blank — same app
+    # registration is fine as long as `ChannelMessage.Send` *Application*
+    # permission is granted with admin consent.
+    TEAMS_CLIENT_ID: str = ""
+    # AAD app client secret. Reuses M365_CLIENT_SECRET at runtime if blank.
+    # Application permissions need a confidential client (not public PKCE).
+    TEAMS_CLIENT_SECRET: str = ""
+
     @property
     def sso_allowed_domains_list(self) -> list[str]:
         """Parse SSO_ALLOWED_DOMAINS CSV into a list of lowercased domains."""
