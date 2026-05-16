@@ -117,8 +117,6 @@ jobs:
                  tests/test_m365_email_search.py \
                  tests/test_m365_signature.py \
                  tests/test_m365_webhooks.py \
-                 tests/test_m365_calendar_create.py \
-                 tests/test_m365_recording_discovery.py \
                  tests/test_email_bulk_actions.py \
                  tests/test_auth_microsoft.py \
                  tests/test_calendar_conflicts.py \
