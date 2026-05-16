@@ -63,9 +63,15 @@ tags = ["fireflies", "api-key"]
 # Office Add-in manifests carry a stable GUID in `<Id>` that's public by
 # design (Microsoft 365 Admin Center looks it up). Allowlist the file so
 # the UUID-shape doesn't trip the Fireflies bearer-token rule.
+# Plus M365/Phase-7.5 docs that record Azure AD tenant id, app client id, OAM
+# provider id — all public Microsoft identifiers, NOT secrets (the secrets
+# would be client_secret / refresh_token / state_signing_key, none of which
+# appear in these files).
 [rules.allowlist]
 paths = [
   '''frontend/public/outlook-addin/manifest\.xml''',
+  '''docs/ops/actionable-messages-setup\.md''',
+  '''docs/m365-phase-7\.5-actionable-messages-completion-report\.md''',
 ]
 
 [[rules]]

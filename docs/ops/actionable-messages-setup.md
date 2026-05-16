@@ -4,30 +4,61 @@ Phase 7.5 of the M365 expansion plan. Ships the in-Outlook "Potwierdzam intervie
 button that posts straight to `POST /api/public/interview-confirmation` so the
 candidate confirms without leaving their inbox.
 
-The code is already deployed; before users see actual buttons in their Outlook,
-the sending domain has to be whitelisted by Microsoft via the Actionable Email
-Developer Dashboard. Until then Outlook delivers the email but renders only the
-fallback `<a>` link.
+## Provider registration — DONE (Test Users tier)
 
-## One-time registration
+Initial registration completed 2026-05-16 by Claude (autonomous). Current state
+recorded here so anyone updating it later knows what to preserve.
 
-1. Go to https://outlook.office.com/connectors/oam/publish — log in with the
-   Microsoft account that owns the sender mailbox(es) we'll send invites from
-   (e.g. `recruiting@b2bnet.pl`, `noreply@b2bnet.pl`).
-2. **New provider** with:
-   - **Provider name** — `NEXUS ATS`.
-   - **Sender email address from which Actionable Emails will originate** —
-     list every mailbox we send invites from. One row per address.
-   - **Target URLs** — `https://api.nexus.dynaminds.pl/api/public/`. Microsoft's
-     service POSTs to URLs under this prefix on the recipient's behalf.
-   - **Scope of submission** — `My mailbox` first to test on yourself. After
-     verifying, resubmit with `Organization` (or `Global` if we add tenants
-     beyond `b2bnet.pl`).
-3. Submit. The "My mailbox" tier auto-approves immediately and lets you test
-   end-to-end. Organization scope goes through Microsoft review (a few days).
-4. After approval, copy the **Provider ID** GUID from the dashboard. It is not
-   currently used by our code — Outlook resolves the provider by sender +
-   target URL — but record it for the runbook.
+| Field | Value |
+|---|---|
+| Provider name (Friendly Name) | `NEXUS ATS` |
+| Provider Id (Microsoft-assigned originator) | `baa004f4-db24-4776-9279-c2986e58ed25` |
+| Organization | `B2Bnet S.A.` (tenant `e277180c-b58a-418c-b362-bb89ab0b1301`) |
+| Auth model | **MsEntra Auth** (Legacy Auth deprecated 2026-05-15) |
+| MsEntra Application Id | `b5be7c77-eb7b-46ee-89b3-c6fa0f5ea7d9` (same Azure AD app as `M365_CLIENT_ID`) |
+| App Id Uri | `api://auth-am-baa004f4-db24-4776-9279-c2986e58ed25/b5be7c77-eb7b-46ee-89b3-c6fa0f5ea7d9` (Microsoft-generated default — `api://auth-am-<providerId>/<appId>`) |
+| Supported Token Type | `AadToken` |
+| Sender email address | `artur.twardowski@b2bnetwork.pl` |
+| Target URL | `https://api.nexus.dynaminds.pl/api/public/` |
+| Scope | `Test Users` (auto-approved, same tenant only) |
+| Test user emails | `artur.twardowski@b2bnetwork.pl` |
+| Status (panel) | **Approved** |
+| Application lag | Up to 1h to propagate per Microsoft note |
+
+Panel: https://outlook.office.com/connectors/oam/publish — visible to the
+account that submitted the registration (Artur Twardowski).
+
+## What's still missing (manual TODOs for Artur)
+
+1. **Wait ~1h after registration** for Microsoft to apply the setting, then
+   send a test invite from NEXUS to `artur.twardowski@b2bnetwork.pl` and
+   verify the "Potwierdzam interview" button renders in Outlook (web / new
+   desktop). Click it → response should be the JSON `{success, message,
+   confirmed_at}` rendered inline.
+2. **Add more recruiter mailboxes to the Sender email list.** Currently only
+   `artur.twardowski@b2bnetwork.pl` is registered. Every other M365 mailbox
+   that recruiters connect via the NEXUS settings → Integracje → Microsoft 365
+   flow needs to be added here too (one line per address). Without that, an
+   invite sent from `someone-else@b2bnetwork.pl` will still arrive but Outlook
+   will show only the fallback link, not the button.
+3. **Promote to Organization scope** once the Test Users tier is verified.
+   Same Provider, just edit → change "Who are you enabling this for?" from
+   `Test Users` to `Organization`. Rollout 24h after Exchange admin approval.
+   The faster-approval helper URL https://outlook.office.com/connectors/oam/admin
+   lets an Exchange admin pre-approve the request from inside the tenant.
+4. **Global scope** (across tenants beyond `b2bnetwork.pl`) — only needed if
+   we eventually send invites from non-B2Bnet mailboxes. 2-week Microsoft
+   review. Almost certainly not needed.
+
+## How to edit registration later
+
+1. Go to https://outlook.office.com/connectors/oam/publish — Artur's login.
+2. Click the **NEXUSATS** row in the Provider table.
+3. Edit fields → re-accept App Developer Agreement → Save.
+
+To add a sender email without touching anything else: edit the provider →
+"Sender email address from which actionable emails will originate" → click
+"Add another email address" → enter the new mailbox UPN → Save.
 
 ## Local sanity check
 

@@ -42,7 +42,8 @@ Wdrożenie: PR [#184](https://github.com/artur-t-96/Nexus/pull/184), merged
 - [x] **Email wysłany przez `send_interview_invitation()` zawiera JSON-LD action w body.** Pure-test `test_card_contains_jsonld_block` + `test_card_jsonld_target_carries_signed_token`.
 - [x] **Klik przycisku w Outlook → request leci do `/api/public/interview-confirmation` → DB update + thank-you reply.** Endpoint live na prod; round-trip smoke przez `curl` z prawdziwym JWT (event #4) potwierdzony — `200 OK` + DB `candidate_confirmed_at` ustawione + idempotency works.
 - [x] **CI green.** 3/3 checks (`Gitleaks`, `Backend ruff+pytest`, `Frontend typecheck+build`) passed na PR #184.
-- [ ] **Smoke test z prawdziwego Outlooka.** **Niewykonalny autonomicznie.** Wymaga rejestracji `api.nexus.dynaminds.pl` w https://outlook.office.com/connectors/oam/publish (My mailbox tier ~minuty, Organization tier ~kilka dni review przez Microsoft). Do wykonania ręcznie przez Artura — instrukcje w `docs/ops/actionable-messages-setup.md`.
+- [x] **OAM Provider registration.** Zarejestrowany 2026-05-16 autonomicznie przez Claude w https://outlook.office.com/connectors/oam/publish. Provider `NEXUSATS`, MsEntra auth (App ID `b5be7c77-eb7b-46ee-89b3-c6fa0f5ea7d9` = `M365_CLIENT_ID`), Test Users tier (auto-approved, status: **Approved**), sender + test user `artur.twardowski@b2bnetwork.pl`, target URL `https://api.nexus.dynaminds.pl/api/public/`. Setting applies w ciągu ~1h. Pełna recepta + edits w `docs/ops/actionable-messages-setup.md`.
+- [ ] **Live Outlook click test.** Po ~1h od rejestracji — Artur wysyła testowy invite do `artur.twardowski@b2bnetwork.pl`, otwiera w Outlook, klika button, assert że `event.candidate_confirmed_at` flipnie. Wymaga ludzkiego klika (browser/M365 mailbox).
 
 ## Post-deploy weryfikacja (2026-05-16)
 
@@ -113,9 +114,9 @@ UPDATE calendar_events SET candidate_confirmed_at=NULL,
 1. **UI wire-up**: dodać przycisk "Wyślij invite z potwierdzeniem" w
    profilu kandydata → wywołuje `send_interview_invitation()`. Obecnie
    funkcja czeka nieużywana.
-2. **Outlook Actionable Email Developer Dashboard rejestracja** — manual,
-   wymaga Microsoft credentials i kilkudniowego review dla Organization scope.
-   Bez tego Outlook pokazuje tylko fallback link.
+2. ~~**Outlook Actionable Email Developer Dashboard rejestracja**~~ —
+   ✅ DONE 2026-05-16 (Test Users tier). Promote do Organization scope
+   po pomyślnym Live Outlook click test (#5 acceptance).
 3. **CalendarEvent.candidate_confirmation_source** w UI — pokazać w event
    detail card (`Potwierdzony przez kandydata 14:32 (Outlook)`).
 4. **Powiadomienie recruiterowi** po potwierdzeniu — np. in-app notification
