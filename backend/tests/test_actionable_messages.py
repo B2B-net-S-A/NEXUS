@@ -52,7 +52,14 @@ def test_sign_and_verify_roundtrip() -> None:
 
 def test_tampered_token_rejected() -> None:
     token = sign_confirmation_token(event_id=1, candidate_id=2)
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    # Flip the first char of the signature (6 real bits). The last char of
+    # an HS256 signature only carries 4 data bits + 2 padding bits that b64
+    # decoders ignore, so substituting the last char hits a same-byte
+    # equivalence class ~1/16 of the time and the "tampered" token still
+    # verifies — see tests/test_m365_oauth_state.py for the full writeup.
+    header, payload, sig = token.split(".")
+    flipped_sig = ("A" if sig[0] != "A" else "B") + sig[1:]
+    tampered = ".".join([header, payload, flipped_sig])
     with pytest.raises(ActionableMessageError):
         verify_confirmation_token(tampered)
 
