@@ -93,8 +93,71 @@ export function getProfileUrl() {
   return findCanonicalProfileUrl();
 }
 
+// Extract candidate's display name from `<title>` — most stable signal across
+// LinkedIn DOM rewrites. Format: "<First Last> | LinkedIn" or
+// "<First Last> | LinkedIn — <Headline>".
+function nameFromDocTitle() {
+  const t = document.title || "";
+  // Strip " | LinkedIn" suffix (and any tail after)
+  const m = t.match(/^(.+?)\s*\|\s*LinkedIn/);
+  if (!m) return null;
+  const cleaned = m[1].trim();
+  // Filter out non-profile titles ("Feed", "My Network", etc.)
+  if (/^(feed|my network|messaging|notifications|jobs|home|sign in)$/i.test(cleaned)) {
+    return null;
+  }
+  return cleaned || null;
+}
+
+// 2026-05 LinkedIn renders profile names in <h2> (was <h1> before), with
+// hash-obfuscated classes. We look up structurally: the FIRST h2 inside main
+// is the profile name. Headline/location are the FIRST few <p> children in
+// the top-card area, in order: "· 3rd", headline, company, location.
+function structuralPublicProfile() {
+  const main = document.querySelector("main") || document.body;
+
+  // Name — try h2 in main first (current DOM), fall back to h1 (legacy).
+  let name = main.querySelector("h2")?.textContent?.trim() || null;
+  if (!name) name = main.querySelector("h1")?.textContent?.trim() || null;
+  if (!name) name = nameFromDocTitle();
+
+  // Iterate top-N paragraphs in main; skip "· 3rd"-style connection markers.
+  const ps = Array.from(main.querySelectorAll("p"))
+    .slice(0, 12)
+    .map((p) => p.textContent?.trim() || "")
+    .filter(Boolean);
+
+  const skipConnection = (s) => /^[·•\-]\s*(1st|2nd|3rd|3rd\+|out of network)$/i.test(s);
+  const looksLikeLocation = (s) =>
+    /,/.test(s) || /(area|region|metropolitan|greater)\b/i.test(s);
+
+  let headline = null;
+  let current_company = null;
+  let location = null;
+  for (const txt of ps) {
+    if (skipConnection(txt)) continue;
+    if (!headline && txt.length > 3 && !looksLikeLocation(txt)) {
+      headline = txt;
+      continue;
+    }
+    if (!current_company && headline && txt.length > 1 && txt !== "·" && !looksLikeLocation(txt)) {
+      current_company = txt;
+      continue;
+    }
+    if (!location && looksLikeLocation(txt)) {
+      location = txt;
+      break;
+    }
+  }
+  return { name, headline, current_company, location };
+}
+
 // ── Public profile selectors (linkedin.com/in/<slug>) ────────────────────────
+// Legacy class-based selectors — LinkedIn rotated these out in 2026-05 and
+// obfuscated all class names. Kept as a fallback for legacy DOM and Recruiter
+// embed iframes that haven't migrated yet.
 const PUBLIC_NAME = [
+  "main h2",
   "h1.text-heading-xlarge",
   "h1.inline.t-24",
   "main section.pv-top-card h1",
@@ -185,20 +248,35 @@ export function scrapeProfile() {
       companySel = PUBLIC_COMPANY;
   }
 
-  // Always try the public selectors as final fallback — sometimes Recruiter
-  // embeds the public-profile DOM in an iframe and selectors leak through.
+  // Structural pass first — works on 2026-05 obfuscated-class DOM where
+  // every legacy selector returns null. For Sales Nav / Recruiter, run the
+  // surface-specific selectors first (data-anonymize is still stable on
+  // Sales Nav as of 2026-05) and fall back to structural.
+  let structural = null;
+  if (surface === "public") {
+    structural = structuralPublicProfile();
+  }
+
   const fullName =
     firstText(nameSel) ||
-    (surface !== "public" ? firstText(PUBLIC_NAME) : null);
+    structural?.name ||
+    (surface !== "public" ? firstText(PUBLIC_NAME) || nameFromDocTitle() : null) ||
+    nameFromDocTitle();
   const { name, lastname } = splitName(fullName);
+
   const headline =
     firstText(headlineSel) ||
+    structural?.headline ||
     (surface !== "public" ? firstText(PUBLIC_HEADLINE) : null);
+
   const location =
     firstText(locationSel) ||
+    structural?.location ||
     (surface !== "public" ? firstText(PUBLIC_LOCATION) : null);
+
   const current_company =
     firstText(companySel) ||
+    structural?.current_company ||
     (surface !== "public" ? firstText(PUBLIC_COMPANY) : null);
 
   return {
