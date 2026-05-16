@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 M365_SOURCE = "microsoft365"
 
+# Event types that default to including a Teams online-meeting link. Other
+# types (deadline, prep_call, generic meeting) skip the meeting unless the
+# caller asks explicitly. Keeping the set narrow avoids spamming users with
+# join URLs for events they never intended to hold over Teams.
+_TEAMS_DEFAULT_EVENT_TYPES: frozenset[EventType] = frozenset(
+    {EventType.interview, EventType.screening}
+)
+
 FreeBusyStatus = Literal[
     "free", "tentative", "busy", "oof", "workingElsewhere", "unknown"
 ]
@@ -56,28 +64,32 @@ _MAX_SCHEDULES = 20
 _DEFAULT_INTERVAL_MINUTES = 30
 
 
-async def create_event(
-    db: AsyncSession,
-    connection: M365Connection,
+def _resolve_with_teams(
+    with_teams_meeting: Optional[bool], event_type: EventType
+) -> bool:
+    """Decide whether to ask Graph for a Teams meeting on this event."""
+    if with_teams_meeting is not None:
+        return with_teams_meeting
+    return event_type in _TEAMS_DEFAULT_EVENT_TYPES
+
+
+def _build_event_payload(
     *,
-    candidate: Optional[Candidate],
     title: str,
     description: str,
     start: datetime,
     end: datetime,
-    event_type: EventType = EventType.interview,
-    extra_attendees: Optional[list[str]] = None,
-    invite_candidate: bool = True,
-) -> CalendarEvent:
-    """Create a Graph event + matching local CalendarEvent row."""
-    extras = list(extra_attendees or [])
-    attendee_emails: list[str] = []
-    if invite_candidate and candidate and candidate.email:
-        attendee_emails.append(candidate.email)
-    attendee_emails.extend(e for e in extras if e and e not in attendee_emails)
+    attendee_emails: list[str],
+    want_teams: bool,
+) -> dict:
+    """Shape a Graph `/me/events` POST body.
 
+    Pure function — extracted from `create_event` so the payload contract
+    (especially the conditional `isOnlineMeeting` block) is unit-testable
+    without standing up a Graph mock or DB session.
+    """
     body_html = sanitize_html(description or "")
-    payload = {
+    payload: dict = {
         "subject": title,
         "body": {"contentType": "HTML", "content": body_html},
         "start": {"dateTime": start.isoformat(), "timeZone": settings.BUSINESS_TZ},
@@ -90,12 +102,57 @@ async def create_event(
             for a in attendee_emails
         ],
     }
+    if want_teams:
+        payload["isOnlineMeeting"] = True
+        payload["onlineMeetingProvider"] = "teamsForBusiness"
+    return payload
+
+
+async def create_event(
+    db: AsyncSession,
+    connection: M365Connection,
+    *,
+    candidate: Optional[Candidate],
+    title: str,
+    description: str,
+    start: datetime,
+    end: datetime,
+    event_type: EventType = EventType.interview,
+    extra_attendees: Optional[list[str]] = None,
+    invite_candidate: bool = True,
+    with_teams_meeting: Optional[bool] = None,
+) -> CalendarEvent:
+    """Create a Graph event + matching local CalendarEvent row.
+
+    When `with_teams_meeting` is True, Graph generates a Teams join URL and
+    embeds it in the event invitation. When None (default), the helper opts
+    interview/screening events in automatically and leaves the rest opt-out.
+    """
+    extras = list(extra_attendees or [])
+    attendee_emails: list[str] = []
+    if invite_candidate and candidate and candidate.email:
+        attendee_emails.append(candidate.email)
+    attendee_emails.extend(e for e in extras if e and e not in attendee_emails)
+
+    want_teams = _resolve_with_teams(with_teams_meeting, event_type)
+    payload = _build_event_payload(
+        title=title,
+        description=description,
+        start=start,
+        end=end,
+        attendee_emails=attendee_emails,
+        want_teams=want_teams,
+    )
 
     async with GraphClient(connection, db) as gc:
         event = await gc.post("/me/events", json=payload)
 
     graph_id = event["id"]
     change_key = event.get("changeKey")
+    online_meeting = event.get("onlineMeeting") or {}
+    join_url = (
+        online_meeting.get("joinUrl") if isinstance(online_meeting, dict) else None
+    )
 
     row = CalendarEvent(
         title=title[:255],
@@ -111,6 +168,7 @@ async def create_event(
         external_id=graph_id,
         created_by=connection.user_id,
         m365_change_key=change_key,
+        online_meeting_url=join_url,
     )
 
     db.add(row)
