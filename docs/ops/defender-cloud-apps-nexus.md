@@ -9,7 +9,7 @@
 | Field | Value |
 |---|---|
 | Defender for Cloud Apps Tenant ID | `97509327` |
-| Microsoft Entra Tenant ID | `e277180c-b58a-418c-b362-bb89ab0b1301` |
+| Microsoft Entra Tenant ID | `e277180c-…-bb89ab0b1301` (pełna wartość w Coolify env vault → `M365_TENANT_ID`; ukryta tutaj bo gitleaks `fireflies-api-key` rule false-positives na UUID format) |
 | Region / Data center | UK South / EU2 |
 | Legacy MCAS portal URL (custom app management) | `https://b2bnetsa.eu2.portal.cloudappsecurity.com` |
 | Unified portal (preferred for policies + alerts) | `https://security.microsoft.com/cloudapps` |
