@@ -201,7 +201,7 @@ async def delete_channel(
     channel_db_id: int,
     _: AdminUser,
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     row = await db.scalar(
         select(TeamsNotificationChannel).where(
             TeamsNotificationChannel.id == channel_db_id
