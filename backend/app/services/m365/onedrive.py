@@ -102,8 +102,9 @@ def _parse_created_at(raw: object) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
-def _is_recording_candidate(item: dict, *, window_start: datetime,
-                            window_end: datetime) -> Optional[_Candidate]:
+def _is_recording_candidate(
+    item: dict, *, window_start: datetime, window_end: datetime
+) -> Optional[_Candidate]:
     """Apply the cheap filters: filename, content type, time window."""
     name = (item.get("name") or "").strip()
     if not name.lower().endswith(_RECORDING_SUFFIX):
