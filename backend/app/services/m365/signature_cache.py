@@ -14,7 +14,26 @@ This heuristic beats the alternatives because:
   iOS, Android) — whatever client the user types in, the signature is
   baked into the rendered body.
 
-Cache: in-memory, keyed by `(user_id, mailbox_upn)`. TTL is
+Marker strategy (extract_signature). The Outlook ecosystem ships at least
+three signature formats — we try each in turn:
+
+1. **Element-id markers** (Outlook mobile/desktop/OWA). Modern clients wrap
+   the signature in a div with a recognisable id:
+   ``<div id="ms-outlook-mobile-signature">``,
+   ``<div id="Signature">``,
+   ``<div id="x_Signature">`` (OWA prefixes ids with ``x_`` when quoting).
+   For these the matched ``<div>`` IS the start of the signature, so the
+   extracted tail INCLUDES the wrapper element.
+2. **Classic plaintext sigsep** (``-- ``) rendered as HTML
+   (``<br>--<br>``, ``<p>--</p>``, ``<div>--</div>`` or literal ``\\n--\\n``
+   in a wrapped plaintext mail). The matched text IS the separator, so the
+   extracted tail starts AFTER it.
+
+When multiple matches exist, the **last** one wins — signatures live at the
+tail of the body, and an earlier "--" inside a quoted reply is not the
+signature.
+
+Cache: in-memory, keyed by ``(user_id, mailbox_upn)``. TTL is
 ``settings.M365_SIGNATURE_CACHE_TTL_SECONDS`` (default 24h). A negative
 result (no signature found, Graph error) is also memoized so a user with
 no signature doesn't trigger a Graph fetch on every single send.
@@ -28,6 +47,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -44,39 +64,84 @@ _CacheEntry = tuple[Optional[str], datetime]
 _cache: dict[_CacheKey, _CacheEntry] = {}
 
 
-# Sigsep markers Outlook injects between body and signature. Different
-# client versions render the "-- " separator differently; we try each
-# pattern from most to least specific. The signature is everything AFTER
-# the last sigsep match (signatures live at the tail of the body, never
-# embedded inside quoted threads).
-_SIGSEP_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"<br\s*/?>\s*--\s*<br\s*/?>", re.IGNORECASE),
-    re.compile(r"<p[^>]*>\s*--\s*</p>", re.IGNORECASE),
-    re.compile(r"<div[^>]*>\s*--\s*</div>", re.IGNORECASE),
-    re.compile(r"\n--\s*\n"),
+@dataclass(frozen=True)
+class _SigsepMarker:
+    """A signature boundary marker plus how to slice around it.
+
+    ``include_match=True``: the matched span IS the start of the signature
+    (e.g. the opening ``<div id="...">``). Extract from ``match.start()``.
+
+    ``include_match=False``: the matched span is a SEPARATOR between body
+    and signature (e.g. ``<br>--<br>``). Extract from ``match.end()``.
+    """
+
+    pattern: re.Pattern[str]
+    include_match: bool
+
+
+# Order matters: try the most specific (id-based) markers first so a body
+# that happens to contain both "-- " inside a quoted reply AND a real id
+# wrapper still extracts the id-wrapped signature.
+_SIGSEP_MARKERS: tuple[_SigsepMarker, ...] = (
+    # Outlook mobile (iOS + Android) — signature always lands in this div.
+    _SigsepMarker(
+        re.compile(
+            r"""<div\b[^>]*\bid\s*=\s*["']?ms-outlook-mobile-signature["']?""",
+            re.IGNORECASE,
+        ),
+        include_match=True,
+    ),
+    # Outlook desktop / OWA — modern compose wraps in <div id="Signature">.
+    # The leading ``x_`` form appears when an OWA-sent mail is later quoted
+    # by the same OWA client (it namespaces nested ids).
+    _SigsepMarker(
+        re.compile(
+            r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?Signature["']?""",
+            re.IGNORECASE,
+        ),
+        include_match=True,
+    ),
+    # Classic plaintext sigsep ("-- " on its own line), HTML-rendered.
+    _SigsepMarker(
+        re.compile(r"<br\s*/?>\s*--\s*<br\s*/?>", re.IGNORECASE),
+        include_match=False,
+    ),
+    _SigsepMarker(
+        re.compile(r"<p[^>]*>\s*--\s*</p>", re.IGNORECASE),
+        include_match=False,
+    ),
+    _SigsepMarker(
+        re.compile(r"<div[^>]*>\s*--\s*</div>", re.IGNORECASE),
+        include_match=False,
+    ),
+    _SigsepMarker(re.compile(r"\n--\s*\n"), include_match=False),
 )
 
-# Defensive cap — a genuine Outlook signature is small (<3 KB). If the
-# "tail after sigsep" is larger than this, we assume our heuristic
-# misfired and skip injection rather than embed half an email body.
-_MAX_SIGNATURE_LENGTH = 8000
+# Defensive cap. Real Outlook signatures with logo tables top out around
+# 6-8 KB; 12 KB leaves headroom for branded enterprise templates without
+# inviting half-body misfires.
+_MAX_SIGNATURE_LENGTH = 12000
 
 
 def extract_signature(body_html: str) -> Optional[str]:
-    """Pull the signature block off the tail of an HTML body.
+    """Pull the signature block off an HTML body.
 
-    Returns the HTML fragment AFTER the last sigsep marker, or None if no
-    marker is found. Public for unit tests; production callers go through
-    :func:`get_outlook_signature` to benefit from caching.
+    Returns the HTML fragment from the last matching marker (using the
+    marker's slicing rule), or ``None`` if no marker is found. Public for
+    unit tests; production callers go through :func:`get_outlook_signature`
+    to benefit from caching.
     """
     if not body_html:
         return None
-    for pattern in _SIGSEP_PATTERNS:
-        matches = list(pattern.finditer(body_html))
-        if matches:
-            tail = body_html[matches[-1].end() :].strip()
-            if tail and len(tail) <= _MAX_SIGNATURE_LENGTH:
-                return tail
+    for marker in _SIGSEP_MARKERS:
+        matches = list(marker.pattern.finditer(body_html))
+        if not matches:
+            continue
+        last = matches[-1]
+        pos = last.start() if marker.include_match else last.end()
+        tail = body_html[pos:].strip()
+        if tail and len(tail) <= _MAX_SIGNATURE_LENGTH:
+            return tail
     return None
 
 
