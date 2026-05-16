@@ -17,6 +17,7 @@ import {
   Building2,
   Video,
   Phone,
+  PlayCircle,
   CheckCircle,
   AlertCircle,
   Download,
@@ -97,6 +98,11 @@ type CalendarEvent = {
   attendees?: string[];
   location?: string;
   teams_link?: string;
+  // Phase 7.1 — Graph-generated Teams meeting join URL (distinct from the
+  // legacy free-text `teams_link`).
+  online_meeting_url?: string | null;
+  // Phase 7.8 — OneDrive share link to the published Teams recording.
+  recording_url?: string | null;
   reminder_minutes: number;
   status: string;
   created_at?: string;
@@ -1013,6 +1019,10 @@ function EventDetailModal({
               </div>
             )}
 
+            {/* Phase 7.8 — Teams recording */}
+            <RecordingBlock event={event} />
+
+
             {/* Attendees */}
             {event.attendees && event.attendees.length > 0 && (
               <div className="flex items-start gap-3 text-sm text-foreground">
@@ -1069,6 +1079,66 @@ function EventDetailModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Teams meeting recording block (Phase 7.8) ───────────────────────────────
+//
+// Renders one of three states under the event details panel:
+//   1. `recording_url` set → "Odsłuchaj nagranie" link (opens OneDrive).
+//   2. `online_meeting_url` set + event ended >1h ago → searching hint.
+//   3. Otherwise → render nothing (no Teams meeting or too recent to nag).
+//
+// The discovery loop runs every 6h, so we tell users explicitly the search
+// is still ongoing instead of letting them assume the recording will never
+// arrive when it just hasn't been scanned yet.
+
+interface RecordingBlockProps {
+  event: CalendarEvent;
+}
+
+function RecordingBlock({ event }: RecordingBlockProps) {
+  if (event.recording_url) {
+    return (
+      <div className="flex items-center gap-3 text-sm rounded-md border border-violet-500/30 bg-violet-500/5 px-3 py-2">
+        <PlayCircle className="w-4 h-4 text-violet-600 flex-shrink-0" />
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
+            Nagranie z interview
+          </span>
+          <a
+            href={event.recording_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline truncate text-sm"
+          >
+            Odsłuchaj nagranie
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Hint state — meeting happened, no recording yet but the discovery loop
+  // is still scanning OneDrive. Only nag once the event ended at least 1h
+  // ago (Teams typically publishes within an hour).
+  if (!event.online_meeting_url || !event.end_time) {
+    return null;
+  }
+  const endedAt = new Date(event.end_time);
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  if (endedAt.getTime() > Date.now() - ONE_HOUR_MS) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-start gap-3 text-xs text-muted-foreground rounded-md border border-muted bg-muted/30 px-3 py-2">
+      <Loader2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 animate-spin opacity-60" />
+      <span>
+        Nagranie nie zostało jeszcze znalezione. Sprawdź folder Recordings na
+        OneDrive organizatora.
+      </span>
     </div>
   );
 }
