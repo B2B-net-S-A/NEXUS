@@ -10,7 +10,6 @@ import {
   FileText,
   Star,
   Calendar,
-  UserSquare2,
   UserCog,
   BarChart3,
   CheckSquare,
@@ -40,7 +39,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 type BadgeCounts = {
   candidates?: number;
   jobs?: number;
-  contacts?: number;
   pendingVerifications?: number;
 };
 
@@ -72,7 +70,6 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Targ / Dostępni",
         icon: Store,
       },
-      { href: "/contacts", label: "Kontakty", icon: UserSquare2, badgeKey: "contacts" },
     ],
   },
   {
@@ -320,7 +317,6 @@ export function SidebarV2({
           jobsRes.status === "fulfilled"
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
             : 0,
-        contacts: 0,
         pendingVerifications: pendingCount,
       } as BadgeCounts;
     },
