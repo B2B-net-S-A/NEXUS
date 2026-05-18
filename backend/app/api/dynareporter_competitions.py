@@ -115,7 +115,11 @@ async def my_notifications(
     return [NotificationResponse.model_validate(r.__dict__) for r in rows]
 
 
-@router.patch("/notifications/{notif_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/notifications/{notif_id}/read",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
 async def mark_read(
     notif_id: int,
     current_user: CurrentUser,
