@@ -31,7 +31,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.cv_generator import _generate_cv_html
+from app.services.cv_html_renderer import _generate_cv_html
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
 from app.models.activity import Activity
