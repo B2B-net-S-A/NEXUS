@@ -1567,9 +1567,6 @@ interface ClientFormData {
   name: string;
   industry: string;
   website: string;
-  contact_person: string;
-  contact_email: string;
-  contact_phone: string;
   address: string;
   status: string;
   nda_signed: boolean;
@@ -1578,9 +1575,8 @@ interface ClientFormData {
 }
 
 const EMPTY_CLIENT: ClientFormData = {
-  name: "", industry: "", website: "", contact_person: "", contact_email: "",
-  contact_phone: "", address: "", status: "prospect", nda_signed: false,
-  contract_type: "", notes: "",
+  name: "", industry: "", website: "", address: "", status: "prospect",
+  nda_signed: false, contract_type: "", notes: "",
 };
 
 function clientToForm(c: any): ClientFormData {
@@ -1588,9 +1584,6 @@ function clientToForm(c: any): ClientFormData {
     name: c.name ?? "",
     industry: c.industry ?? "",
     website: c.website ?? "",
-    contact_person: c.contact_person ?? "",
-    contact_email: c.contact_email ?? "",
-    contact_phone: c.contact_phone ?? "",
     address: c.address ?? "",
     status: c.status ?? "prospect",
     nda_signed: c.nda_signed ?? false,
@@ -1624,22 +1617,9 @@ function ClientFormFields({ form, onChange, onCheckbox }: {
       <FieldGroup label="Strona WWW">
         <Input type="url" value={form.website} onChange={e => onChange("website", e.target.value)} placeholder="https://firma.pl" />
       </FieldGroup>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Osoba kontaktowa">
-          <Input value={form.contact_person} onChange={e => onChange("contact_person", e.target.value)} placeholder="Jan Kowalski" />
-        </FieldGroup>
-        <FieldGroup label="Email kontaktowy">
-          <Input type="email" value={form.contact_email} onChange={e => onChange("contact_email", e.target.value)} placeholder="kontakt@firma.pl" />
-        </FieldGroup>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Telefon">
-          <Input type="tel" value={form.contact_phone} onChange={e => onChange("contact_phone", e.target.value)} placeholder="+48 500..." />
-        </FieldGroup>
-        <FieldGroup label="Typ kontraktu">
-          <Input value={form.contract_type} onChange={e => onChange("contract_type", e.target.value)} placeholder="B2B / Umowa..." />
-        </FieldGroup>
-      </div>
+      <FieldGroup label="Typ kontraktu">
+        <Input value={form.contract_type} onChange={e => onChange("contract_type", e.target.value)} placeholder="B2B / Umowa..." />
+      </FieldGroup>
       <FieldGroup label="Adres">
         <Input value={form.address} onChange={e => onChange("address", e.target.value)} placeholder="ul. Przykładowa 1, Warszawa" />
       </FieldGroup>
@@ -1676,9 +1656,6 @@ export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; on
         name: form.name,
         industry: form.industry || undefined,
         website: form.website || undefined,
-        contact_person: form.contact_person || undefined,
-        contact_email: form.contact_email || undefined,
-        contact_phone: form.contact_phone || undefined,
         address: form.address || undefined,
         status: form.status,
         nda_signed: form.nda_signed,

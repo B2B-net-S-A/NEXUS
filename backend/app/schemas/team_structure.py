@@ -7,6 +7,7 @@ Endpointy `/api/team-structure/*` — macierze zespołu rekrutacji:
   - DL → klienci (Head vs Regular)
 """
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -102,6 +103,25 @@ class AssignDlClientPayload(BaseModel):
     delivery_lead_user_id: int
     client_id: int
     is_head: bool = False
+
+
+# ── My Team (DL Hub PR 2) ─────────────────────────────────────────────────
+
+
+class MyTeamRow(BaseModel):
+    """TAC raportujący do current Delivery Lead z metrykami pracy."""
+
+    tac_user_id: int
+    tac_name: str
+    tac_email: Optional[str] = None
+    active_jobs: int = Field(
+        description="Aktywne (status=published) joby gdzie TAC jest tac_id"
+    )
+    active_candidates: int = Field(
+        description="Distinct kandydaci z is_current=True na pipeline jobów TAC, "
+        "wyłączając stage'y zamykające (hired/rejected/withdrawn)"
+    )
+    assignment_created_at: datetime
 
 
 # ── Summary ───────────────────────────────────────────────────────────────
