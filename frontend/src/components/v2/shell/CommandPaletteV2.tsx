@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   Settings,
-  Shield,
   Star,
   UserSquare2,
   Users,
@@ -136,7 +135,6 @@ export function CommandPaletteV2({
       { href: "/reports", label: "Raporty", icon: FileBarChart, roles: ["admin", "delivery_lead", "tac"] as const },
       { href: "/settings", label: "Ustawienia", icon: Settings },
       { href: "/manager", label: "Panel managera", icon: GitBranch, roles: ["admin", "delivery_lead"] as const },
-      { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] as const },
     ],
     []
   );

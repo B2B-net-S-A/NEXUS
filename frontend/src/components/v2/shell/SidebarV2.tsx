@@ -22,7 +22,6 @@ import {
   Lightbulb,
   Search,
   Settings,
-  Shield,
   Sparkles,
   Store,
   X,
@@ -142,13 +141,13 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["admin", "delivery_lead", "tac"],
       },
       {
-        href: "/admin/clients-overview",
+        href: "/settings/clients-overview",
         label: "Przegląd klientów",
         icon: BarChart3,
         roles: ["admin", "head_of_recruitment"],
       },
       {
-        href: "/admin/hiring-managers",
+        href: "/settings/hiring-managers",
         label: "Top hiring managers",
         icon: Users,
         roles: ["admin", "head_of_recruitment"],
@@ -161,18 +160,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/help", label: "Pomoc", icon: HelpCircle },
       { href: "/settings", label: "Ustawienia", icon: Settings },
-      {
-        href: "/settings/pipeline-templates",
-        label: "Procesy",
-        icon: GitBranch,
-        roles: ["admin", "delivery_lead"],
-      },
-      {
-        href: "/admin",
-        label: "Admin",
-        icon: Shield,
-        roles: ["admin"],
-      },
     ],
   },
 ];
