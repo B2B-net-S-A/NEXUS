@@ -82,7 +82,10 @@ async def _seed_candidate() -> int:
         return c.id
 
 
-async def _seed_job(salary_max: int | None = 20000) -> int:
+async def _seed_job(
+    salary_max: int | None = 20000,
+    delivery_lead_id: int | None = None,
+) -> int:
     unique = uuid.uuid4().hex[:6]
     async with AsyncSessionLocal() as db:
         j = Job(
@@ -92,6 +95,7 @@ async def _seed_job(salary_max: int | None = 20000) -> int:
             remote_policy=RemotePolicy.hybrid,
             salary_min=10000,
             salary_max=salary_max,
+            delivery_lead_id=delivery_lead_id,
         )
         db.add(j)
         await db.commit()
@@ -384,6 +388,130 @@ async def test_pending_verifications_list_role_gated(pv_client: AsyncClient):
         body = ok.json()
         assert isinstance(body, list)
         assert any(item["candidate_id"] == cand_id for item in body)
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_pending_verifications_mine_filters_by_delivery_lead(
+    pv_client: AsyncClient,
+):
+    """DL z `?mine=true` widzi tylko swoje Joby (delivery_lead_id == self.id).
+
+    Setup: 2 DL, każdy z osobnym Job + pending verification. Filtr `mine`
+    musi zwrócić tylko Job własnego DL — drugi Job (innego DL) odrzucony.
+    """
+    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-r")
+    dl_uid_a, dl_a_email, dl_a_pw = await _seed_user(
+        UserRole.delivery_lead, "mine-dl-a"
+    )
+    dl_uid_b, _, _ = await _seed_user(UserRole.delivery_lead, "mine-dl-b")
+    recr_headers = await _login(pv_client, recr_email, recr_pw)
+    dl_a_headers = await _login(pv_client, dl_a_email, dl_a_pw)
+    cand_a = await _seed_candidate()
+    cand_b = await _seed_candidate()
+    job_a = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid_a)
+    job_b = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid_b)
+    try:
+        # Pending verification dla Joba DL_A
+        a = await pv_client.post(
+            "/api/pipeline/move",
+            headers=recr_headers,
+            json={
+                "candidate_id": cand_a,
+                "job_id": job_a,
+                "stage": "verified",
+                "expected_rate_value": "30000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        assert a.status_code == 200, a.text
+        # Pending verification dla Joba DL_B
+        b = await pv_client.post(
+            "/api/pipeline/move",
+            headers=recr_headers,
+            json={
+                "candidate_id": cand_b,
+                "job_id": job_b,
+                "stage": "verified",
+                "expected_rate_value": "30000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        assert b.status_code == 200, b.text
+
+        # DL_A bez `mine` widzi WSZYSTKIE pending (backwards-compat)
+        all_resp = await pv_client.get(
+            "/api/pipeline/pending-verifications", headers=dl_a_headers
+        )
+        assert all_resp.status_code == 200
+        all_cand_ids = {item["candidate_id"] for item in all_resp.json()}
+        assert cand_a in all_cand_ids
+        assert cand_b in all_cand_ids
+
+        # DL_A z `mine=true` widzi TYLKO swojego kandydata
+        mine_resp = await pv_client.get(
+            "/api/pipeline/pending-verifications",
+            headers=dl_a_headers,
+            params={"mine": "true"},
+        )
+        assert mine_resp.status_code == 200, mine_resp.text
+        mine_cand_ids = {item["candidate_id"] for item in mine_resp.json()}
+        assert cand_a in mine_cand_ids
+        assert cand_b not in mine_cand_ids
+    finally:
+        await _cleanup(candidate_ids=[cand_a, cand_b], job_ids=[job_a, job_b])
+
+
+@pytest.mark.asyncio
+async def test_pending_verifications_mine_empty_when_no_assigned_jobs(
+    pv_client: AsyncClient,
+):
+    """HoR z `?mine=true` dostaje pustą listę gdy nie jest DL żadnego Joba.
+
+    HoR ma uprawnienia ApproverPlus, więc 200 OK + [] (nie 403).
+    Sprawdza graceful empty state dla nie-DL approverów.
+    """
+    _, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "mine-empty-r")
+    dl_uid, _, _ = await _seed_user(UserRole.delivery_lead, "mine-empty-dl")
+    _, hor_email, hor_pw = await _seed_user(
+        UserRole.head_of_recruitment, "mine-empty-hor"
+    )
+    recr_headers = await _login(pv_client, recr_email, recr_pw)
+    hor_headers = await _login(pv_client, hor_email, hor_pw)
+    cand_id = await _seed_candidate()
+    # Job jest przypisany do DL, nie do HoR
+    job_id = await _seed_job(salary_max=20000, delivery_lead_id=dl_uid)
+    try:
+        await pv_client.post(
+            "/api/pipeline/move",
+            headers=recr_headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "30000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+
+        # HoR widzi to bez `mine`
+        all_resp = await pv_client.get(
+            "/api/pipeline/pending-verifications", headers=hor_headers
+        )
+        assert all_resp.status_code == 200
+        assert any(item["candidate_id"] == cand_id for item in all_resp.json())
+
+        # HoR z `mine=true` dostaje pustą listę (HoR nie jest DL żadnego Joba)
+        mine_resp = await pv_client.get(
+            "/api/pipeline/pending-verifications",
+            headers=hor_headers,
+            params={"mine": "true"},
+        )
+        assert mine_resp.status_code == 200, mine_resp.text
+        mine_body = mine_resp.json()
+        assert isinstance(mine_body, list)
+        assert all(item["candidate_id"] != cand_id for item in mine_body)
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
 
