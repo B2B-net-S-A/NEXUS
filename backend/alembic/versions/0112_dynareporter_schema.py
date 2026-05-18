@@ -1,7 +1,7 @@
 """DynaReporter B.0 — schema dla 57 tabel z prefixem dr_.
 
-Revision ID: 0111_dynareporter_schema
-Revises: 0110_dynareporter_user_extensions
+Revision ID: 0112_dynareporter_schema
+Revises: 0111_dynareporter_user_extensions
 Create Date: 2026-05-18 12:30:00.000000
 
 Phase B.0 PR #2 z planu migracji DynaReportera
@@ -26,8 +26,8 @@ Forward-only — drop tabel zniszczyłby historię migracji.
 from alembic import op
 
 
-revision = "0111_dynareporter_schema"
-down_revision = "0110_dynareporter_user_extensions"
+revision = "0112_dynareporter_schema"
+down_revision = "0111_dynareporter_user_extensions"
 branch_labels = None
 depends_on = None
 
