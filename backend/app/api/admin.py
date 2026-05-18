@@ -193,9 +193,7 @@ async def update_user(
     if data.roles is not None:
         new_roles = [r.value for r in data.roles]
         # Ensure primary (current or just-assigned) is always inside roles.
-        primary_val = (
-            data.role.value if data.role is not None else user.role.value
-        )
+        primary_val = data.role.value if data.role is not None else user.role.value
         if primary_val not in new_roles:
             new_roles.insert(0, primary_val)
         user.roles = new_roles
