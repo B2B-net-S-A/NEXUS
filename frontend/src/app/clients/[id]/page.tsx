@@ -31,6 +31,7 @@ import {
   DollarSign,
   FolderOpen,
   LayoutDashboard,
+  UserSquare2,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -714,6 +715,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
 type Tab =
   | "profil"
   | "projekty"
+  | "kontakty"
   | "umowy-ramowe"
   | "zamowienia"
   | "analityka"
@@ -748,6 +750,7 @@ export default function ClientDetailPage() {
   const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
+    { key: "kontakty", label: "Kontakty", icon: <UserSquare2 className="w-4 h-4" /> },
     { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -903,6 +906,8 @@ export default function ClientDetailPage() {
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 
+          {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
+
           {activeTab === "umowy-ramowe" && (
             <div className="space-y-4">
               <FrameworkContractsTab clientId={Number(id)} />
@@ -931,16 +936,6 @@ export default function ClientDetailPage() {
                 </h3>
                 <OwnersTab clientId={Number(id)} />
               </div>
-
-              <details className="border border-border rounded-lg group" open>
-                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-                  <Users className="w-4 h-4 text-muted-foreground" />
-                  Kontakty u klienta (decision makers)
-                </summary>
-                <div className="p-4 pt-0 border-t border-border">
-                  <ContactsTab clientId={Number(id)} />
-                </div>
-              </details>
 
               <details className="border border-border rounded-lg group">
                 <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">

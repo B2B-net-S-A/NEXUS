@@ -17,7 +17,6 @@ import {
   Settings,
   Shield,
   Star,
-  UserSquare2,
   Users,
 } from "lucide-react";
 import {
@@ -130,7 +129,6 @@ export function CommandPaletteV2({
       { href: "/clients", label: "Klienci", icon: Building2 },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
       { href: "/talents", label: "Talenty", icon: Star },
-      { href: "/contacts", label: "Kontakty", icon: UserSquare2 },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
       { href: "/analytics", label: "Analityka", icon: BarChart3 },
       { href: "/reports", label: "Raporty", icon: FileBarChart, roles: ["admin", "delivery_lead", "tac"] as const },
