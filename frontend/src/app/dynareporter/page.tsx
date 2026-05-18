@@ -76,28 +76,28 @@ const MODULES: ModuleCard[] = [
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
     href: "/dynareporter/board",
-    enabled: false,
+    enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
     href: "/dynareporter/sales-mgmt",
-    enabled: false,
+    enabled: true, // B.2.9 deployed
   },
   {
     section: "mindy",
     label: "MINDY AI",
     description: "Asystent AI z kontekstem KPI",
     href: "/dynareporter/mindy",
-    enabled: false,
+    enabled: true, // B.2.10 deployed
   },
   {
     section: "admin",
-    label: "Admin — DynaReporter",
-    description: "Zarządzanie dostępem do sekcji per user",
-    href: "/dynareporter/admin",
-    enabled: false,
+    label: "Admin — Upload XLSX",
+    description: "Wgrywanie Excel z KPI/MRR/finansów + historia uploadów",
+    href: "/dynareporter/admin/upload",
+    enabled: true, // B.2.11 deployed
   },
 ];
 
