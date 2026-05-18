@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Store, UploadCloud } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,13 +16,17 @@ function MarketplacePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const tab: TabKey = VALID_TABS.has(tabParam as TabKey)
+  const initialTab: TabKey = VALID_TABS.has(tabParam as TabKey)
     ? (tabParam as TabKey)
     : "snapshot";
 
+  const [tab, setTab] = useState<TabKey>(initialTab);
+
   const handleTabChange = (next: string) => {
+    const nextTab = next as TabKey;
+    setTab(nextTab);
     const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", next);
+    params.set("tab", nextTab);
     router.replace(`/sourcing/marketplace?${params.toString()}`, {
       scroll: false,
     });
