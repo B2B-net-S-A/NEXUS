@@ -105,3 +105,34 @@ def map_groups_to_role(group_ids: list[str], mapping: dict[str, str]) -> Optiona
         if group_id in group_id_set:
             return role
     return None
+
+
+def map_groups_to_roles(group_ids: list[str], mapping: dict[str, str]) -> list[str]:
+    """Return every matching NEXUS role string, in ``mapping`` order.
+
+    Multi-role variant of :func:`map_groups_to_role` (migracja 0110). A
+    user in both ``NEXUS-DeliveryLeads`` and ``NEXUS-TACs`` gets
+    ``["delivery_lead", "tac"]`` (with ``delivery_lead`` first if it
+    precedes ``tac`` in ``AAD_GROUP_ROLE_MAP_JSON``).
+
+    The first element is the **primary** role — written to ``users.role``
+    for legacy single-role code paths. The full list is written to
+    ``users.roles``.
+
+    Args:
+        group_ids: Flat list of AAD group GUIDs the user belongs to.
+        mapping: ``{<group-guid>: <role-string>}`` from
+            ``settings.AAD_GROUP_ROLE_MAP_JSON``.
+
+    Returns:
+        Ordered list of unique role strings, or ``[]`` when no group matched.
+        Empty list means the SSO callback must block login.
+    """
+    if not mapping or not group_ids:
+        return []
+    group_id_set = set(group_ids)
+    out: list[str] = []
+    for group_id, role in mapping.items():
+        if group_id in group_id_set and role not in out:
+            out.append(role)
+    return out

@@ -33,7 +33,11 @@ from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
 from app.services.m365 import aad_groups as aad_groups_module
-from app.services.m365.aad_groups import fetch_user_groups, map_groups_to_role
+from app.services.m365.aad_groups import (
+    fetch_user_groups,
+    map_groups_to_role,
+    map_groups_to_roles,
+)
 
 
 # ── Unit: map_groups_to_role ────────────────────────────────────────────────
@@ -60,6 +64,51 @@ def test_map_groups_to_role_mapping_order_priority():
     # Reverse the mapping → recruiter now wins.
     mapping_reversed = {"g-rec": "recruiter", "g-admin": "admin"}
     assert map_groups_to_role(["g-rec", "g-admin"], mapping_reversed) == "recruiter"
+
+
+# ── Unit: map_groups_to_roles (multi-role, migracja 0110) ──────────────────
+
+
+def test_map_groups_to_roles_returns_all_matches_in_mapping_order():
+    """Hybrid DL+TAC user gets both roles, ordered by mapping insertion."""
+    mapping = {
+        "g-admin": "admin",
+        "g-dl": "delivery_lead",
+        "g-tac": "tac",
+        "g-rec": "recruiter",
+    }
+    # User in DL + TAC groups → both roles, DL first (precedes TAC in mapping).
+    assert map_groups_to_roles(["g-tac", "g-dl"], mapping) == [
+        "delivery_lead",
+        "tac",
+    ]
+    # Reverse mapping order swaps the primary.
+    mapping_rev = {
+        "g-tac": "tac",
+        "g-dl": "delivery_lead",
+    }
+    assert map_groups_to_roles(["g-tac", "g-dl"], mapping_rev) == ["tac", "delivery_lead"]
+
+
+def test_map_groups_to_roles_empty_when_no_match():
+    assert map_groups_to_roles(["g-other"], {"g-admin": "admin"}) == []
+    assert map_groups_to_roles([], {"g-admin": "admin"}) == []
+    assert map_groups_to_roles(["g-admin"], {}) == []
+
+
+def test_map_groups_to_roles_dedupes_duplicate_role_values():
+    """Two groups mapping to the same role should not produce duplicates."""
+    mapping = {"g-rec-1": "recruiter", "g-rec-2": "recruiter"}
+    assert map_groups_to_roles(["g-rec-1", "g-rec-2"], mapping) == ["recruiter"]
+
+
+def test_map_groups_to_role_matches_map_groups_to_roles_first_element():
+    """``map_groups_to_role`` (legacy) returns the same as ``roles[0]``."""
+    mapping = {"g-admin": "admin", "g-tac": "tac"}
+    groups = ["g-tac", "g-admin"]
+    roles = map_groups_to_roles(groups, mapping)
+    single = map_groups_to_role(groups, mapping)
+    assert roles[0] == single
 
 
 # ── HTTP-mocked: fetch_user_groups filters directory roles ──────────────────

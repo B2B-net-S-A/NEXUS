@@ -39,10 +39,16 @@ async def get_current_user(
 
 
 def require_roles(*roles: UserRole):
-    """Dependency factory for role-based access control."""
+    """Dependency factory for role-based access control.
+
+    Since migration 0110 a user may hold multiple roles
+    (``User.role`` = primary, ``User.roles`` = full set). Permission checks
+    evaluate against the union via ``has_any_role`` so a hybrid
+    delivery_lead+TAC user passes both ``DeliveryLeadPlus`` and ``TacPlus``.
+    """
 
     async def _check_role(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in roles:
+        if not current_user.has_any_role(*roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires one of roles: {[r.value for r in roles]}",
@@ -139,9 +145,9 @@ async def require_dl_assigned_or_admin(
 
     from app.models.team_structure import DeliveryLeadClientAssignment
 
-    if current_user.role in (UserRole.admin, UserRole.head_of_recruitment):
+    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
         return current_user
-    if current_user.role != UserRole.delivery_lead:
+    if not current_user.has_role(UserRole.delivery_lead):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only Delivery Leads or admin/head_of_recruitment may access this",

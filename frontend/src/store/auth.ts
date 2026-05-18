@@ -43,6 +43,12 @@ interface User {
   email: string
   name: string
   role: UserRole
+  /** Multi-role (migracja 0110). Lista wszystkich ról jakie user posiada.
+   *  ``role`` to primary (legacy single-role kod); ``roles`` to authoritative
+   *  source dla permission checks. Hybrid users (np. DL+TAC) mają tu obie
+   *  wartości. Optional przy hydration ze starego localStorage cache —
+   *  helper hasRole() fallbackuje wtedy na ``[role]``. */
+  roles?: UserRole[]
   /** Pierwsze logowanie: DL i rekruter muszą uzupełnić dane operacyjne,
    *  zanim frontend odblokuje shell. Ustawiane na true przez
    *  POST /api/users/me/onboarding (lub z góry przez backend dla ról,
@@ -77,28 +83,45 @@ export function requiresOnboarding(
 //
 // Pure funkcje — łatwe do testowania, używane w komponentach i middleware.
 
+/** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
+ *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
+ *  API odpowiedź) — używamy ``[role]``. */
+export function getUserRoles(
+  user: Pick<User, "role" | "roles"> | null | undefined
+): UserRole[] {
+  if (!user) return []
+  const set = new Set<UserRole>([user.role])
+  for (const r of user.roles ?? []) set.add(r)
+  return Array.from(set)
+}
+
 /**
  * Czy user ma którąkolwiek z podanych ról (exact match).
  * Użyj gdy dopuszczasz zestaw konkretnych ról (np. ["admin", "delivery_lead"]).
+ * Multi-role aware — sprawdza primary + secondary roles (migracja 0110).
  */
 export function hasRole(
-  user: Pick<User, "role"> | null | undefined,
+  user: Pick<User, "role" | "roles"> | null | undefined,
   ...roles: UserRole[]
 ): boolean {
   if (!user) return false
-  return roles.includes(user.role)
+  const userRoles = getUserRoles(user)
+  return roles.some((r) => userRoles.includes(r))
 }
 
 /**
  * Czy user ma rangę >= minRole (porównanie hierarchiczne).
  * Użyj gdy myślisz w kategoriach "delivery_lead lub wyżej".
+ * Multi-role aware — bierze max z primary + secondary.
  */
 export function hasMinRole(
-  user: Pick<User, "role"> | null | undefined,
+  user: Pick<User, "role" | "roles"> | null | undefined,
   minRole: UserRole
 ): boolean {
   if (!user) return false
-  return ROLE_RANK[user.role] >= ROLE_RANK[minRole]
+  const userRoles = getUserRoles(user)
+  const minRank = ROLE_RANK[minRole]
+  return userRoles.some((r) => ROLE_RANK[r] >= minRank)
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────
@@ -185,6 +208,11 @@ function readInitialUser(): User | null {
       if (typeof user.force_password_change_at !== "string") {
         user.force_password_change_at = null
       }
+      // Backfill for users cached before ``roles`` existed (migracja 0110).
+      // Default to ``[role]`` so legacy sessions evaluate identically.
+      if (!Array.isArray(user.roles)) {
+        user.roles = [user.role as UserRole]
+      }
       return user as unknown as User
     }
   } catch {
@@ -227,9 +255,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       /* non-browser env */
     }
-    persistUser(user)
+    // Backfill roles for fresh logins where the API response predates
+    // migration 0110 (cached at the edge or old build still up).
+    const safe: User = {
+      ...user,
+      roles: Array.isArray(user.roles) && user.roles.length > 0
+        ? user.roles
+        : [user.role],
+    }
+    persistUser(safe)
     writeAuthCookie(token)
-    set({ user, token, hydrated: true })
+    set({ user: safe, token, hydrated: true })
   },
   logout: () => {
     try {

@@ -56,6 +56,16 @@ class User(Base, TimestampMixin):
         default=UserRole.recruiter,
         nullable=False,
     )
+    # Multi-role support (migracja 0110). Primary role lives in ``role``
+    # (one source of truth for token issuance + legacy UI), but a user may
+    # hold additional roles listed here — used by AAD RBAC for hybrid
+    # delivery_lead/TAC personas and by ``has_role()``/``get_all_roles()``
+    # to evaluate permission checks. Invariant: ``role.value`` is always
+    # in ``roles`` (enforced by ``ensure_roles_invariant()`` + migration
+    # backfill). Stored as JSONB array of role strings.
+    roles: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # KPI Coach opt-in flag. Default True → every operational recruiter gets
@@ -146,3 +156,45 @@ class User(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email} role={self.role}>"
+
+    # ── Multi-role helpers (migracja 0110) ───────────────────────────────────
+    def get_all_roles(self) -> set[UserRole]:
+        """Return the union of primary ``role`` and secondary ``roles``.
+
+        Unknown strings in ``roles`` (e.g. an old role removed from the enum)
+        are silently dropped so a stale row never raises ``ValueError`` deep
+        in a permission check.
+        """
+        out: set[UserRole] = set()
+        if self.role is not None:
+            out.add(self.role)
+        for r in self.roles or []:
+            try:
+                out.add(UserRole(r))
+            except ValueError:
+                continue
+        return out
+
+    def has_role(self, role: UserRole | str) -> bool:
+        """True if user holds ``role`` (primary or secondary)."""
+        target = role.value if isinstance(role, UserRole) else str(role)
+        if self.role is not None and self.role.value == target:
+            return True
+        return target in (self.roles or [])
+
+    def has_any_role(self, *roles: UserRole) -> bool:
+        """True if user holds at least one of the given roles."""
+        return any(self.has_role(r) for r in roles)
+
+    def ensure_roles_invariant(self) -> None:
+        """Ensure ``role.value`` is present in ``roles``.
+
+        Call this whenever ``role`` is reassigned outside the SSO callback so
+        the primary stays inside the multi-role set. Idempotent.
+        """
+        if self.role is None:
+            return
+        primary_str = self.role.value
+        current = list(self.roles or [])
+        if primary_str not in current:
+            self.roles = [primary_str] + current
