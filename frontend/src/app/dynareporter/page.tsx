@@ -69,7 +69,7 @@ const MODULES: ModuleCard[] = [
     label: "Przetargi",
     description: "Projekty publiczne — allocations, koszty, margin",
     href: "/dynareporter/przetargi",
-    enabled: false,
+    enabled: true, // B.2.7 deployed
   },
   {
     section: "board",

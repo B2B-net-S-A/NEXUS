@@ -321,3 +321,4 @@ from app.models.dr_kpi_delivery_lead import DrKpiDeliveryLead  # noqa: F401
 from app.models.dr_placement_details import DrPlacementDetail  # noqa: F401
 from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance  # noqa: F401
 from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner  # noqa: F401
+from app.models.dr_przetargi import DrPrzetargiAllocation, DrPrzetargiConsultant, DrPrzetargiProject, DrPrzetargiProjectCost  # noqa: F401
