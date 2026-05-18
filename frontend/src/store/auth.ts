@@ -77,7 +77,7 @@ interface User {
    *  Backend czyści flagę po sukcesie self-service change-password. */
   force_password_change: boolean
   force_password_change_at: string | null
-  /** DynaReporter per-module access list (migracja 0111). Pusta lista
+  /** DynaReporter per-module access list (migracja 0112). Pusta lista
    *  domyślnie — userzy ATS nie mają automatycznie dostępu do raportów
    *  KPI; admin nadaje sekcję per użytkownik. Backend filter point.
    *  Optional: stary kod tworzący `User` (np. OnboardingDLV2/RecruiterV2)
@@ -147,7 +147,7 @@ export function hasMinRole(
 }
 
 /**
- * Czy user ma dostęp do danego modułu DynaReportera (migracja 0111).
+ * Czy user ma dostęp do danego modułu DynaReportera (migracja 0112).
  * `admin` Nexusowy automatycznie ma dostęp do wszystkiego (override). Reszta
  * userów musi mieć sekcję jawnie wpisaną w `allowed_sections` przez admina.
  */
@@ -250,7 +250,7 @@ function readInitialUser(): User | null {
         user.roles = [user.role as UserRole]
       }
       // Backfill for users cached before allowed_sections existed
-      // (migracja 0111, DynaReporter B.0). Default `[]` — nikt nie dostaje
+      // (migracja 0112, DynaReporter B.0). Default `[]` — nikt nie dostaje
       // dostępu do raportów retroaktywnie; admin nadaje sekcje per user.
       if (!Array.isArray(user.allowed_sections)) {
         user.allowed_sections = []

@@ -25,8 +25,6 @@ interface ClientRow {
  id: number;
  name: string;
  industry?: string | null;
- contact_person?: string | null;
- contact_email?: string | null;
  status?: string;
  nda_signed?: boolean;
  created_at?: string;
@@ -199,7 +197,6 @@ export function ClientsListV2() {
  <TableRow>
  <TableHead>Firma</TableHead>
  <TableHead>Branża</TableHead>
- <TableHead>Kontakt</TableHead>
  <TableHead>Status</TableHead>
  <TableHead>
  <button
@@ -258,12 +255,6 @@ export function ClientsListV2() {
  </Link>
  </TableCell>
  <TableCell>{c.industry ??"—"}</TableCell>
- <TableCell>
- <div className="text-sm">{c.contact_person ??"—"}</div>
- {c.contact_email && (
- <div className="text-xs text-muted-foreground">{c.contact_email}</div>
- )}
- </TableCell>
  <TableCell>
  {c.status ? (
  <Badge size="sm" variant={STATUS_VARIANT[c.status] ??"neutral"}>
