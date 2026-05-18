@@ -122,8 +122,16 @@ async def _fetch_user_kpi(
     )
     s = (await db.execute(sales_stmt)).first()
 
-    return (bl[0] or 0, bl[1] or 0, bl[2] or 0, bl[3] or 0,
-            s[0] or 0, s[1] or 0, s[2] or 0, s[3] or 0)
+    return (
+        bl[0] or 0,
+        bl[1] or 0,
+        bl[2] or 0,
+        bl[3] or 0,
+        s[0] or 0,
+        s[1] or 0,
+        s[2] or 0,
+        s[3] or 0,
+    )
 
 
 @router.post("/commentary", response_model=MindyResponse)
@@ -144,7 +152,9 @@ async def commentary(
     plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
         db, current_user.id, days
     )
-    context = _build_user_context(plc, intv, rec, ver, leads, sent, won, lost, payload.period)
+    context = _build_user_context(
+        plc, intv, rec, ver, leads, sent, won, lost, payload.period
+    )
 
     user_prompt = (
         f"Dla użytkownika {current_user.name} ({current_user.email}):\n\n"
@@ -160,8 +170,12 @@ async def commentary(
             system=MINDY_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        content = "".join(block.text for block in message.content if hasattr(block, "text"))
-        return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV, context_summary=context)
+        content = "".join(
+            block.text for block in message.content if hasattr(block, "text")
+        )
+        return MindyResponse(
+            content=content, model=settings.CLAUDE_MODEL_CV, context_summary=context
+        )
     except Exception as e:
         logger.exception("MINDY commentary failed")
         raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
@@ -181,7 +195,9 @@ async def chat(
         )
 
     # Dodaj kontekst KPI usera do system prompt
-    plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(db, current_user.id, 30)
+    plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
+        db, current_user.id, 30
+    )
     context = _build_user_context(plc, intv, rec, ver, leads, sent, won, lost, "month")
     full_system = (
         f"{MINDY_SYSTEM_PROMPT}\n\n"
@@ -189,9 +205,7 @@ async def chat(
     )
 
     # Convert messages format
-    api_messages = [
-        {"role": m.role, "content": m.content} for m in payload.messages
-    ]
+    api_messages = [{"role": m.role, "content": m.content} for m in payload.messages]
 
     client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
@@ -201,7 +215,9 @@ async def chat(
             system=full_system,
             messages=api_messages,
         )
-        content = "".join(block.text for block in message.content if hasattr(block, "text"))
+        content = "".join(
+            block.text for block in message.content if hasattr(block, "text")
+        )
         return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
     except Exception as e:
         logger.exception("MINDY chat failed")

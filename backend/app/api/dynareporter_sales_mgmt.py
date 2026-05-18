@@ -96,7 +96,11 @@ async def list_leads(
         stmt = stmt.where(DrSalesLead.user_id == user_id)
     if from_week:
         stmt = stmt.where(DrSalesLead.week_start >= from_week)
-    rows = (await db.execute(stmt.order_by(DrSalesLead.week_start.desc()).limit(limit))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrSalesLead.week_start.desc()).limit(limit)))
+        .scalars()
+        .all()
+    )
     return [SalesLeadResponse.model_validate(r.__dict__) for r in rows]
 
 
@@ -114,7 +118,11 @@ async def list_offers(
         stmt = stmt.where(DrSalesOffer.user_id == user_id)
     if from_week:
         stmt = stmt.where(DrSalesOffer.week_start >= from_week)
-    rows = (await db.execute(stmt.order_by(DrSalesOffer.week_start.desc()).limit(limit))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrSalesOffer.week_start.desc()).limit(limit)))
+        .scalars()
+        .all()
+    )
     return [SalesLeadResponse.model_validate(r.__dict__) for r in rows]
 
 
@@ -126,10 +134,14 @@ async def weekly_activity(
 ) -> list[WeeklyActivityResponse]:
     from_d = date.today() - timedelta(weeks=weeks)
     rows = (
-        await db.execute(
-            select(DrWeeklySalesActivity)
-            .where(DrWeeklySalesActivity.week_start >= from_d)
-            .order_by(DrWeeklySalesActivity.week_start.desc())
+        (
+            await db.execute(
+                select(DrWeeklySalesActivity)
+                .where(DrWeeklySalesActivity.week_start >= from_d)
+                .order_by(DrWeeklySalesActivity.week_start.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [WeeklyActivityResponse.model_validate(r.__dict__) for r in rows]

@@ -24,7 +24,9 @@ class DrUploadHistory(Base):
     # 'body_leasing' | 'sales' | 'finances' | 'mrr_monthly' | 'sales_weekly'
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     records_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    status: Mapped[str] = mapped_column(String(20), default="success", server_default="success")
+    status: Mapped[str] = mapped_column(
+        String(20), default="success", server_default="success"
+    )
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp(), nullable=False
