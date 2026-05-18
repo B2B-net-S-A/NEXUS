@@ -5,7 +5,7 @@ import { Building2, UserCheck, DollarSign, Users, AlertOctagon } from "lucide-re
 const PLANNED_SECTIONS = [
   {
     title: "Ranking klientów",
-    description: "Lifetime/active revenue, margin, MSA status (z /admin/clients-overview)",
+    description: "Lifetime/active revenue, margin, MSA status (z /settings/clients-overview)",
     icon: Building2,
   },
   {
@@ -20,7 +20,7 @@ const PLANNED_SECTIONS = [
   },
   {
     title: "Top hiring managers",
-    description: "Ranking osób po stronie klientów (z /admin/hiring-managers)",
+    description: "Ranking osób po stronie klientów (z /settings/hiring-managers)",
     icon: Users,
   },
   {
