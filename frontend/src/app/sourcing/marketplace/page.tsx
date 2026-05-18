@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Store, UploadCloud } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,21 +16,17 @@ function MarketplacePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const initialTab: TabKey = VALID_TABS.has(tabParam as TabKey)
+  const tab: TabKey = VALID_TABS.has(tabParam as TabKey)
     ? (tabParam as TabKey)
     : "snapshot";
 
-  const [tab, setTab] = useState<TabKey>(initialTab);
-
-  useEffect(() => {
-    if (tabParam !== tab) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("tab", tab);
-      router.replace(`/sourcing/marketplace?${params.toString()}`, {
-        scroll: false,
-      });
-    }
-  }, [tab, tabParam, router, searchParams]);
+  const handleTabChange = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", next);
+    router.replace(`/sourcing/marketplace?${params.toString()}`, {
+      scroll: false,
+    });
+  };
 
   return (
     <main className="container mx-auto p-4 max-w-7xl">
@@ -51,11 +47,7 @@ function MarketplacePageContent() {
         </p>
       </header>
 
-      <Tabs
-        value={tab}
-        onValueChange={(v) => setTab(v as TabKey)}
-        className="space-y-4"
-      >
+      <Tabs value={tab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList>
           <TabsTrigger value="snapshot">
             <Search className="h-3.5 w-3.5" />
