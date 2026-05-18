@@ -323,3 +323,4 @@ from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance  # noqa: 
 from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner  # noqa: F401
 from app.models.dr_przetargi import DrPrzetargiAllocation, DrPrzetargiConsultant, DrPrzetargiProject, DrPrzetargiProjectCost  # noqa: F401
 from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient  # noqa: F401
+from app.models.dr_sales import DrSalesLead, DrSalesOffer, DrSalesPerson, DrSalesProject, DrWeeklySalesActivity  # noqa: F401

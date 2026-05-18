@@ -83,7 +83,7 @@ const MODULES: ModuleCard[] = [
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
     href: "/dynareporter/sales-mgmt",
-    enabled: false,
+    enabled: true, // B.2.9 deployed
   },
   {
     section: "mindy",

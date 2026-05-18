@@ -75,6 +75,7 @@ from app.api import dynareporter_clients_mrr
 from app.api import dynareporter_competitions
 from app.api import dynareporter_przetargi
 from app.api import dynareporter_board
+from app.api import dynareporter_sales_mgmt
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -468,6 +469,11 @@ app.include_router(
 app.include_router(
     dynareporter_board.router,
     prefix="/api/dynareporter/board",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_sales_mgmt.router,
+    prefix="/api/dynareporter/sales-mgmt",
     tags=["dynareporter"],
 )
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
