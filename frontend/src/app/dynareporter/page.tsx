@@ -41,7 +41,7 @@ const MODULES: ModuleCard[] = [
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
     href: "/dynareporter/delivery-lead",
-    enabled: false,
+    enabled: true, // B.2.3 deployed
   },
   {
     section: "placements",
