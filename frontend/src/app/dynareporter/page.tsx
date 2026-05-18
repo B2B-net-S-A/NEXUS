@@ -76,7 +76,7 @@ const MODULES: ModuleCard[] = [
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
     href: "/dynareporter/board",
-    enabled: false,
+    enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
