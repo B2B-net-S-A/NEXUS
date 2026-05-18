@@ -79,8 +79,17 @@ ROLE_MAP: dict[str, str] = {
 
 DEFAULT_SECTIONS_BY_ROLE: dict[str, list[str]] = {
     "admin": [
-        "body-leasing", "sales", "delivery-lead", "placements", "clients-mrr",
-        "competitions", "przetargi", "board", "sales-mgmt", "mindy", "admin",
+        "body-leasing",
+        "sales",
+        "delivery-lead",
+        "placements",
+        "clients-mrr",
+        "competitions",
+        "przetargi",
+        "board",
+        "sales-mgmt",
+        "mindy",
+        "admin",
     ],
     "delivery_lead": ["delivery-lead", "placements", "clients-mrr", "competitions"],
     "recruiter": ["body-leasing", "competitions"],
@@ -158,8 +167,11 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
         logger.error("No `public.users` COPY block found in dump — aborting")
         sys.exit(1)
     users_block = blocks[0]
-    logger.info("  Found %d users in dump (columns: %s)",
-                len(users_block.rows), users_block.columns)
+    logger.info(
+        "  Found %d users in dump (columns: %s)",
+        len(users_block.rows),
+        users_block.columns,
+    )
 
     remap: dict[int, int] = {}
     matched = new = conflict = 0
@@ -196,8 +208,12 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
             remap[legacy_id] = nexus_id
             matched += 1
             if dry_run:
-                logger.info("  [DRY] MATCH legacy.id=%d → nexus.id=%d (email=%s)",
-                            legacy_id, nexus_id, email)
+                logger.info(
+                    "  [DRY] MATCH legacy.id=%d → nexus.id=%d (email=%s)",
+                    legacy_id,
+                    nexus_id,
+                    email,
+                )
             else:
                 cur.execute(
                     """
@@ -217,8 +233,12 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
         else:
             new += 1
             if dry_run:
-                logger.info("  [DRY] NEW legacy.id=%d → nexus.INSERT (email=%s, role=%s)",
-                            legacy_id, email, nexus_role)
+                logger.info(
+                    "  [DRY] NEW legacy.id=%d → nexus.INSERT (email=%s, role=%s)",
+                    legacy_id,
+                    email,
+                    nexus_role,
+                )
             else:
                 cur.execute(
                     """
@@ -233,8 +253,12 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
                     RETURNING id
                     """,
                     (
-                        email, full_name, nexus_role, password_hash,
-                        legacy_id, str(sections).replace("'", '"'),
+                        email,
+                        full_name,
+                        nexus_role,
+                        password_hash,
+                        legacy_id,
+                        str(sections).replace("'", '"'),
                         f'["{nexus_role}"]',
                     ),
                 )
@@ -246,7 +270,10 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
 
     logger.info(
         "Stage 1 done: matched=%d, new=%d, conflicts=%d, total=%d",
-        matched, new, conflict, matched + new + conflict,
+        matched,
+        new,
+        conflict,
+        matched + new + conflict,
     )
     return remap
 
@@ -258,30 +285,75 @@ def migrate_data(
     logger.info("Stage 2: DATA — kopia 57 tabel z remappingiem user_id")
 
     dr_tables = {
-        "about_calendar", "about_career_paths", "about_clients_partners",
-        "about_contacts", "about_faq", "about_feedback", "about_glossary",
-        "about_links", "about_org_chart", "about_positions", "about_procedures",
-        "about_templates", "about_training", "about_values", "alerts",
-        "api_key_audit_log", "api_keys", "applied_migrations",
-        "board_monthly_report", "board_placement_clients", "client_mrr",
-        "clients", "competence_categories", "competition_notifications",
-        "competition_winners", "consultant_group_assignments",
-        "consultant_rate_history", "consultants", "data_audit_log",
-        "delivery_lead_client_assignments", "finances", "group_monthly_costs",
-        "kpi_body_leasing", "kpi_delivery_lead", "kpi_sales", "monthly_mrr_data",
-        "mrr_import_history", "placement_details", "project_cost_groups",
-        "project_monthly_costs", "project_other_cost_items",
-        "przetargi_allocations", "przetargi_consultants", "przetargi_mrr",
-        "przetargi_mrr_backup", "przetargi_project_costs", "przetargi_projects",
-        "sales_leads", "sales_offers", "sales_people", "sales_projects",
-        "sourcer_category_assignments", "system_config",
-        "tac_delivery_lead_assignments", "tac_linkedin_farming",
-        "upload_history", "weekly_sales_activity",
+        "about_calendar",
+        "about_career_paths",
+        "about_clients_partners",
+        "about_contacts",
+        "about_faq",
+        "about_feedback",
+        "about_glossary",
+        "about_links",
+        "about_org_chart",
+        "about_positions",
+        "about_procedures",
+        "about_templates",
+        "about_training",
+        "about_values",
+        "alerts",
+        "api_key_audit_log",
+        "api_keys",
+        "applied_migrations",
+        "board_monthly_report",
+        "board_placement_clients",
+        "client_mrr",
+        "clients",
+        "competence_categories",
+        "competition_notifications",
+        "competition_winners",
+        "consultant_group_assignments",
+        "consultant_rate_history",
+        "consultants",
+        "data_audit_log",
+        "delivery_lead_client_assignments",
+        "finances",
+        "group_monthly_costs",
+        "kpi_body_leasing",
+        "kpi_delivery_lead",
+        "kpi_sales",
+        "monthly_mrr_data",
+        "mrr_import_history",
+        "placement_details",
+        "project_cost_groups",
+        "project_monthly_costs",
+        "project_other_cost_items",
+        "przetargi_allocations",
+        "przetargi_consultants",
+        "przetargi_mrr",
+        "przetargi_mrr_backup",
+        "przetargi_project_costs",
+        "przetargi_projects",
+        "sales_leads",
+        "sales_offers",
+        "sales_people",
+        "sales_projects",
+        "sourcer_category_assignments",
+        "system_config",
+        "tac_delivery_lead_assignments",
+        "tac_linkedin_farming",
+        "upload_history",
+        "weekly_sales_activity",
     }
 
     USER_FK_COLUMN_NAMES = {
-        "user_id", "uploaded_by", "created_by", "updated_by", "approved_by",
-        "proposed_by", "resolved_by", "tac_user_id", "delivery_lead_user_id",
+        "user_id",
+        "uploaded_by",
+        "created_by",
+        "updated_by",
+        "approved_by",
+        "proposed_by",
+        "resolved_by",
+        "tac_user_id",
+        "delivery_lead_user_id",
         "bdm_id",
     }
 
@@ -319,7 +391,9 @@ def migrate_data(
                 else:
                     logger.warning(
                         "  %s.row legacy %s=%d nie znaleziono w remap; pomijam wiersz",
-                        target_table, fk_col, legacy_uid,
+                        target_table,
+                        fk_col,
+                        legacy_uid,
                     )
                     valid = False
                     break
@@ -333,7 +407,9 @@ def migrate_data(
         if dry_run:
             logger.info(
                 "  [DRY] %s: %d rows ready (skipped %d w/ unmapped FK)",
-                target_table, len(remapped_rows), skipped,
+                target_table,
+                len(remapped_rows),
+                skipped,
             )
         else:
             if remapped_rows:
@@ -347,7 +423,9 @@ def migrate_data(
                 execute_values(cur, sql, remapped_rows, template=placeholder)
             logger.info(
                 "  %s: inserted %d rows (skipped %d)",
-                target_table, len(remapped_rows), skipped,
+                target_table,
+                len(remapped_rows),
+                skipped,
             )
 
     if not dry_run:
@@ -371,19 +449,32 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--source-dump", type=Path, required=True,
-                        help="Path do render-dump.sql (bez --clean preferowany)")
-    parser.add_argument("--target-db", type=str,
-                        default=os.environ.get("DATABASE_URL"),
-                        help="Nexus DB URL (default: $DATABASE_URL)")
-    parser.add_argument("--users-only", action="store_true",
-                        help="Tylko etap 1 (users email-match)")
-    parser.add_argument("--data-only", action="store_true",
-                        help="Tylko etap 2 (data load)")
-    parser.add_argument("--reset", action="store_true",
-                        help="TRUNCATE dr_* CASCADE przed loadem (dla data stage)")
-    parser.add_argument("--apply", action="store_true",
-                        help="Apply changes (default: dry-run)")
+    parser.add_argument(
+        "--source-dump",
+        type=Path,
+        required=True,
+        help="Path do render-dump.sql (bez --clean preferowany)",
+    )
+    parser.add_argument(
+        "--target-db",
+        type=str,
+        default=os.environ.get("DATABASE_URL"),
+        help="Nexus DB URL (default: $DATABASE_URL)",
+    )
+    parser.add_argument(
+        "--users-only", action="store_true", help="Tylko etap 1 (users email-match)"
+    )
+    parser.add_argument(
+        "--data-only", action="store_true", help="Tylko etap 2 (data load)"
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="TRUNCATE dr_* CASCADE przed loadem (dla data stage)",
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Apply changes (default: dry-run)"
+    )
     parser.add_argument("--verbose", "-v", action="count", default=0)
     args = parser.parse_args()
 
@@ -403,8 +494,11 @@ def main() -> None:
     dry_run = not args.apply
     mode = "DRY-RUN" if dry_run else "APPLY"
     logger.info("DynaReporter ETL — %s mode", mode)
-    logger.info("  Source dump: %s (%d bytes)",
-                args.source_dump, args.source_dump.stat().st_size)
+    logger.info(
+        "  Source dump: %s (%d bytes)",
+        args.source_dump,
+        args.source_dump.stat().st_size,
+    )
 
     conn = psycopg2.connect(args.target_db)
     try:
@@ -424,11 +518,13 @@ def main() -> None:
                 logger.info("Loaded remap from DB: %d users", len(remap))
 
             if remap:
-                migrate_data(conn, args.source_dump, remap,
-                             dry_run=dry_run, reset=args.reset)
+                migrate_data(
+                    conn, args.source_dump, remap, dry_run=dry_run, reset=args.reset
+                )
             else:
                 logger.warning(
-                    "Empty remap dict — stage 2 will fail. Run --users-only first.")
+                    "Empty remap dict — stage 2 will fail. Run --users-only first."
+                )
 
     finally:
         conn.close()
