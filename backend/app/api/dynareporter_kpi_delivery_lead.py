@@ -25,7 +25,9 @@ router = APIRouter()
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
     is_admin = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
     if not is_admin and current_user.id != target_user_id:
         raise HTTPException(status_code=403, detail="Tylko swoje wpisy")
@@ -43,11 +45,19 @@ async def list_my(
         stmt = stmt.where(DrKpiDeliveryLead.report_month >= from_month)
     if to_month:
         stmt = stmt.where(DrKpiDeliveryLead.report_month <= to_month)
-    rows = (await db.execute(stmt.order_by(DrKpiDeliveryLead.report_month.desc()))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrKpiDeliveryLead.report_month.desc())))
+        .scalars()
+        .all()
+    )
     return [
-        DrKpiDeliveryLeadResponse.model_validate({
-            **r.__dict__, "user_name": current_user.name, "user_email": current_user.email
-        })
+        DrKpiDeliveryLeadResponse.model_validate(
+            {
+                **r.__dict__,
+                "user_name": current_user.name,
+                "user_email": current_user.email,
+            }
+        )
         for r in rows
     ]
 
@@ -61,11 +71,12 @@ async def list_all(
     to_month: Optional[date] = Query(default=None),
 ) -> list[DrKpiDeliveryLeadResponse]:
     is_priv = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
-    stmt = (
-        select(DrKpiDeliveryLead, User.name, User.email)
-        .join(User, User.id == DrKpiDeliveryLead.user_id)
+    stmt = select(DrKpiDeliveryLead, User.name, User.email).join(
+        User, User.id == DrKpiDeliveryLead.user_id
     )
     if user_id:
         if not is_priv and user_id != current_user.id:
@@ -77,7 +88,9 @@ async def list_all(
         stmt = stmt.where(DrKpiDeliveryLead.report_month >= from_month)
     if to_month:
         stmt = stmt.where(DrKpiDeliveryLead.report_month <= to_month)
-    rows = (await db.execute(stmt.order_by(DrKpiDeliveryLead.report_month.desc()))).all()
+    rows = (
+        await db.execute(stmt.order_by(DrKpiDeliveryLead.report_month.desc()))
+    ).all()
     return [
         DrKpiDeliveryLeadResponse.model_validate(
             {**r.__dict__, "user_name": n, "user_email": e}
@@ -104,10 +117,12 @@ async def get_summary(
         func.coalesce(func.sum(DrKpiDeliveryLead.vacancies), 0),
         func.coalesce(func.avg(DrKpiDeliveryLead.open_requests), 0),
         func.coalesce(func.avg(DrKpiDeliveryLead.open_vacancies), 0),
-    ).where(and_(
-        DrKpiDeliveryLead.user_id == target_uid,
-        DrKpiDeliveryLead.report_month >= from_d,
-    ))
+    ).where(
+        and_(
+            DrKpiDeliveryLead.user_id == target_uid,
+            DrKpiDeliveryLead.report_month >= from_d,
+        )
+    )
     row = (await db.execute(stmt)).first()
     cnt, req, plc, vac, avg_or, avg_ov = row
     fill = (plc / req) if req and req > 0 else 0.0
@@ -122,7 +137,9 @@ async def get_summary(
     )
 
 
-@router.post("", response_model=DrKpiDeliveryLeadResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=DrKpiDeliveryLeadResponse, status_code=status.HTTP_201_CREATED
+)
 async def upsert(
     payload: DrKpiDeliveryLeadCreate,
     current_user: CurrentUser,
@@ -153,7 +170,11 @@ async def upsert(
 async def delete_entry(
     entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
-    row = (await db.execute(select(DrKpiDeliveryLead).where(DrKpiDeliveryLead.id == entry_id))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(DrKpiDeliveryLead).where(DrKpiDeliveryLead.id == entry_id)
+        )
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Wpis nie znaleziony")
     _check_admin_or_self(current_user, row.user_id)

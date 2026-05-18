@@ -71,16 +71,13 @@ async def list_mrr(
     from_month: Optional[date] = Query(default=None),
     to_month: Optional[date] = Query(default=None),
 ) -> list[ClientMrrResponse]:
-    stmt = (
-        select(
-            DrClientMrr.client_id,
-            DrClient.name,
-            DrClientMrr.report_month,
-            DrClientMrr.consultants_count,
-            DrClientMrr.mrr,
-        )
-        .outerjoin(DrClient, DrClient.id == DrClientMrr.client_id)
-    )
+    stmt = select(
+        DrClientMrr.client_id,
+        DrClient.name,
+        DrClientMrr.report_month,
+        DrClientMrr.consultants_count,
+        DrClientMrr.mrr,
+    ).outerjoin(DrClient, DrClient.id == DrClientMrr.client_id)
     if client_id:
         stmt = stmt.where(DrClientMrr.client_id == client_id)
     if from_month:
@@ -90,8 +87,11 @@ async def list_mrr(
     rows = (await db.execute(stmt.order_by(DrClientMrr.report_month.desc()))).all()
     return [
         ClientMrrResponse(
-            client_id=cid, client_name=n, report_month=m,
-            consultants_count=cc, mrr=mr,
+            client_id=cid,
+            client_name=n,
+            report_month=m,
+            consultants_count=cc,
+            mrr=mr,
         )
         for cid, n, m, cc, mr in rows
     ]
@@ -108,7 +108,9 @@ async def list_finances(
     stmt = select(DrFinance).where(DrFinance.report_month >= from_d)
     if department:
         stmt = stmt.where(DrFinance.department == department)
-    rows = (await db.execute(stmt.order_by(DrFinance.report_month.desc()))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrFinance.report_month.desc()))).scalars().all()
+    )
     return [
         FinanceResponse(
             report_month=r.report_month,
@@ -135,13 +137,16 @@ async def get_mrr_summary(
         func.coalesce(func.sum(DrClientMrr.mrr), 0),
         func.coalesce(func.avg(DrClientMrr.consultants_count), 0),
         func.count(func.distinct(DrClientMrr.client_id)),
-    ).where(and_(
-        DrClientMrr.report_month >= from_d,
-        DrClientMrr.report_month <= today,
-    ))
+    ).where(
+        and_(
+            DrClientMrr.report_month >= from_d,
+            DrClientMrr.report_month <= today,
+        )
+    )
     row = (await db.execute(stmt)).first()
     return MrrSummary(
-        from_month=from_d, to_month=today,
+        from_month=from_d,
+        to_month=today,
         total_mrr=row[0] or Decimal(0),
         avg_consultants=round(float(row[1] or 0), 2),
         distinct_clients=row[2] or 0,
