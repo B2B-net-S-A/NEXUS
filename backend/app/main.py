@@ -68,6 +68,17 @@ from app.api import cv_generator
 from app.api import cv_generator_b2b
 from app.api import dynareporter_profile
 from app.api import dynareporter_kpi_body_leasing
+from app.api import dynareporter_kpi_sales
+from app.api import dynareporter_kpi_delivery_lead
+from app.api import dynareporter_placements
+from app.api import dynareporter_clients_mrr
+from app.api import dynareporter_competitions
+from app.api import dynareporter_przetargi
+from app.api import dynareporter_board
+from app.api import dynareporter_sales_mgmt
+from app.api import dynareporter_mindy
+from app.api import dynareporter_upload
+from app.api import dynareporter_redirect
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -426,6 +437,61 @@ app.include_router(
 app.include_router(
     dynareporter_kpi_body_leasing.router,
     prefix="/api/dynareporter/kpi/body-leasing",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_kpi_sales.router,
+    prefix="/api/dynareporter/kpi/sales",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_kpi_delivery_lead.router,
+    prefix="/api/dynareporter/kpi/delivery-lead",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_placements.router,
+    prefix="/api/dynareporter/placements",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_clients_mrr.router,
+    prefix="/api/dynareporter/clients-mrr",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_competitions.router,
+    prefix="/api/dynareporter/competitions",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_przetargi.router,
+    prefix="/api/dynareporter/przetargi",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_board.router,
+    prefix="/api/dynareporter/board",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_sales_mgmt.router,
+    prefix="/api/dynareporter/sales-mgmt",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_mindy.router,
+    prefix="/api/dynareporter/mindy",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_upload.router,
+    prefix="/api/dynareporter/upload",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_redirect.router,
+    prefix="/api/dynareporter",
     tags=["dynareporter"],
 )
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
