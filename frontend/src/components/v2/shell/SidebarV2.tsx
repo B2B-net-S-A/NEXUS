@@ -19,7 +19,6 @@ import {
   HelpCircle,
   Lightbulb,
   Settings,
-  Shield,
   Sparkles,
   Store,
   X,
@@ -131,18 +130,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/help", label: "Pomoc", icon: HelpCircle },
       { href: "/settings", label: "Ustawienia", icon: Settings },
-      {
-        href: "/settings/pipeline-templates",
-        label: "Procesy",
-        icon: GitBranch,
-        roles: ["admin", "delivery_lead"],
-      },
-      {
-        href: "/admin",
-        label: "Admin",
-        icon: Shield,
-        roles: ["admin"],
-      },
     ],
   },
 ];

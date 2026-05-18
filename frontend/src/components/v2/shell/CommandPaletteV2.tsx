@@ -14,7 +14,6 @@ import {
   Plus,
   Search,
   Settings,
-  Shield,
   Star,
   Users,
 } from "lucide-react";
@@ -132,7 +131,6 @@ export function CommandPaletteV2({
       { href: "/insights", label: "Insights", icon: Lightbulb },
       { href: "/settings", label: "Ustawienia", icon: Settings },
       { href: "/manager", label: "Panel managera", icon: GitBranch, roles: ["admin", "delivery_lead"] as const },
-      { href: "/admin", label: "Admin", icon: Shield, roles: ["admin"] as const },
     ],
     []
   );
