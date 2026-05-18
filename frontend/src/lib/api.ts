@@ -3405,6 +3405,52 @@ export interface DrKpiBodyLeasingRankingEntry {
   rank: number;
 }
 
+// ── B.2.2 KPI Sales ────────────────────────────────────────────────────────
+
+export interface DrKpiSalesEntry {
+  id: number;
+  user_id: number;
+  user_name?: string | null;
+  user_email?: string | null;
+  report_date: string;
+  week_number: number;
+  leads: number;
+  offers_sent: number;
+  offers_won: number;
+  offers_lost: number;
+  days_worked: number;
+}
+
+export interface DrKpiSalesSummary {
+  period: string;
+  from_date: string;
+  to_date: string;
+  total_leads: number;
+  total_offers_sent: number;
+  total_offers_won: number;
+  total_offers_lost: number;
+  total_days_worked: number;
+  entries_count: number;
+  win_rate: number;
+}
+
+export const dynareporterSalesApi = {
+  myEntries: (params?: { from_date?: string; to_date?: string }) =>
+    api
+      .get<DrKpiSalesEntry[]>("/api/dynareporter/kpi/sales/my", { params })
+      .then((r) => r.data),
+  summary: (params?: { period?: string; user_id?: number }) =>
+    api
+      .get<DrKpiSalesSummary>("/api/dynareporter/kpi/sales/summary", { params })
+      .then((r) => r.data),
+  upsert: (payload: Partial<DrKpiSalesEntry>) =>
+    api
+      .post<DrKpiSalesEntry>("/api/dynareporter/kpi/sales", payload)
+      .then((r) => r.data),
+  delete: (entryId: number) =>
+    api.delete(`/api/dynareporter/kpi/sales/${entryId}`),
+};
+
 export const dynareporterBodyLeasingApi = {
   myEntries: (params?: { from_date?: string; to_date?: string }) =>
     api

@@ -316,3 +316,4 @@ __all__ = [
 
 # DynaReporter migration (B.2 — modele dr_* tabel)
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing  # noqa: F401
+from app.models.dr_kpi_sales import DrKpiSales  # noqa: F401

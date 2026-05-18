@@ -34,7 +34,7 @@ const MODULES: ModuleCard[] = [
     label: "KPI Sales",
     description: "Leady, oferty, wygrane / przegrane per sprzedawca",
     href: "/dynareporter/sales",
-    enabled: false,
+    enabled: true, // B.2.2 deployed
   },
   {
     section: "delivery-lead",
