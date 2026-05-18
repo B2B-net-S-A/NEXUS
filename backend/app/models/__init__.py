@@ -337,24 +337,24 @@ __all__ = [
 ]
 
 # DynaReporter migration (B.2 — modele dr_* tabel)
-from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
-from app.models.dr_kpi_sales import DrKpiSales
-from app.models.dr_kpi_delivery_lead import DrKpiDeliveryLead
-from app.models.dr_placement_details import DrPlacementDetail
-from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance
-from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner
+from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing  # noqa: F401
+from app.models.dr_kpi_sales import DrKpiSales  # noqa: F401
+from app.models.dr_kpi_delivery_lead import DrKpiDeliveryLead  # noqa: F401
+from app.models.dr_placement_details import DrPlacementDetail  # noqa: F401
+from app.models.dr_clients_mrr import DrClient, DrClientMrr, DrFinance  # noqa: F401
+from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner  # noqa: F401
 from app.models.dr_przetargi import (
     DrPrzetargiAllocation,
     DrPrzetargiConsultant,
     DrPrzetargiProject,
     DrPrzetargiProjectCost,
-)
-from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient
+)  # noqa: F401
+from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient  # noqa: F401
 from app.models.dr_sales import (
     DrSalesLead,
     DrSalesOffer,
     DrSalesPerson,
     DrSalesProject,
     DrWeeklySalesActivity,
-)
-from app.models.dr_upload import DrUploadHistory
+)  # noqa: F401
+from app.models.dr_upload import DrUploadHistory  # noqa: F401

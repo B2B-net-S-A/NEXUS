@@ -122,6 +122,13 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Lightbulb,
     items: [
       { href: "/insights", label: "Insights", icon: Lightbulb },
+      {
+        // DynaReporter (migracja B.0 + B.1, 0112+0113). Fine-grained access
+        // per moduł sprawdzany w komponencie przez `hasSection()`.
+        href: "/dynareporter",
+        label: "Raporty KPI",
+        icon: BarChart3,
+      },
     ],
   },
   {
