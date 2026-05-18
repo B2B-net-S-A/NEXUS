@@ -1,63 +1,36 @@
 "use client";
 
-import { Building2, UserCheck, DollarSign, Users, AlertOctagon } from "lucide-react";
-
-const PLANNED_SECTIONS = [
-  {
-    title: "Ranking klientów",
-    description: "Lifetime/active revenue, margin, MSA status (z /settings/clients-overview)",
-    icon: Building2,
-  },
-  {
-    title: "DL Leaderboard",
-    description: "Performance Delivery Leads (zmergowane z /reports.Delivery)",
-    icon: UserCheck,
-  },
-  {
-    title: "Sales overview",
-    description: "MRR trend, ending contracts 30d, top clients",
-    icon: DollarSign,
-  },
-  {
-    title: "Top hiring managers",
-    description: "Ranking osób po stronie klientów (z /settings/hiring-managers)",
-    icon: Users,
-  },
-  {
-    title: "At-risk clients",
-    description: "Klienci wymagający uwagi (z /reports.Klienci)",
-    icon: AlertOctagon,
-  },
-];
+import { useState } from "react";
+import { useAuthStore, hasRole } from "@/store/auth";
+import { ClientsRanking } from "@/components/insights/sections/ClientsRanking";
+import { DLRevenueLeaderboard } from "@/components/insights/sections/DLRevenueLeaderboard";
+import { HiringManagersSection } from "@/components/insights/sections/HiringManagersSection";
+import { SalesOverview } from "@/components/insights/sections/SalesOverview";
+import { ClientsHitRatio } from "@/components/insights/sections/ClientsHitRatio";
+import { PeriodSelector, type Period } from "@/components/insights/sections/PeriodSelector";
 
 export function KlienciPanel() {
+  const user = useAuthStore((s) => s.user);
+  const [period, setPeriod] = useState<Period>("month");
+
+  const canSeeAdminClients = hasRole(user, "admin", "head_of_recruitment");
+  const canSeeSales = hasRole(user, "admin", "delivery_lead", "tac");
+  const canSeeHitRatio = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-dashed border-border bg-muted/30 p-6">
-        <p className="text-sm font-medium text-foreground">
-          Tab Klienci & Delivery — w przygotowaniu (PR 3)
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Klienci, Delivery Leads, sprzedaż i hiring managers — pełna perspektywa biznesowa.
         </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Planowane sekcje, które trafią do tego widoku:
-        </p>
+        <PeriodSelector value={period} onChange={setPeriod} />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {PLANNED_SECTIONS.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div
-              key={s.title}
-              className="rounded-lg border border-border bg-card p-4"
-            >
-              <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4 text-primary" />
-                <p className="text-sm font-medium text-foreground">{s.title}</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">{s.description}</p>
-            </div>
-          );
-        })}
-      </div>
+
+      {canSeeAdminClients && <ClientsRanking />}
+      {canSeeAdminClients && <DLRevenueLeaderboard />}
+      {canSeeSales && <SalesOverview />}
+      {canSeeAdminClients && <HiringManagersSection />}
+      {canSeeHitRatio && <ClientsHitRatio period={period} />}
     </div>
   );
 }

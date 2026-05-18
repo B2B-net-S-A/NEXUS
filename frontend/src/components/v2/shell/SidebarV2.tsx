@@ -12,7 +12,6 @@ import {
   Calendar,
   UserCog,
   BarChart3,
-  CheckSquare,
   GitBranch,
   Handshake,
   Heart,
@@ -103,17 +102,15 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
       },
       {
-        href: "/pending-verifications",
-        label: "Weryfikacje",
-        icon: CheckSquare,
-        badgeKey: "pendingVerifications",
-        roles: ["admin", "delivery_lead", "head_of_recruitment"],
-      },
-      {
-        href: "/manager",
+        // DL Hub (PR #225/#229) — łączy widget weryfikacji + KPI + 3 taby
+        // (klienci/zespół/aktywne joby). Stara osobna zakładka "Weryfikacje"
+        // została zwinięta do widgeta na górze panelu — link do pełnej
+        // listy (`/pending-verifications`) jest w widgecie.
+        href: "/dashboard/delivery-lead",
         label: "Panel Managera",
         icon: BarChart3,
-        roles: ["admin", "delivery_lead"],
+        badgeKey: "pendingVerifications",
+        roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
     ],
   },

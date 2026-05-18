@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { HeroLigaMistrzow } from "@/components/v2/gamification/HeroLigaMistrzow"
 import { useAuthStore } from "@/store/auth"
 
+import { DeliveryTabs } from "./_components/DeliveryTabs"
 import { DlClientsTable } from "./_components/DlClientsTable"
 import { DlHeader } from "./_components/DlHeader"
 import { DlKpiRow } from "./_components/DlKpiRow"
@@ -155,6 +156,10 @@ export default function DeliveryLeadDashboard() {
       {isMeDl && trendAll?.trend && trendAll.trend.length > 0 && (
         <DlTrendChart trend={trendAll.trend} />
       )}
+
+      {/* DL Hub tabs — personal scope only (DL). HoR/admin widzi team aggregat
+          niżej (ranking + DL→klienci) z osobnymi narzędziami. */}
+      {isMeDl && user && <DeliveryTabs userId={user.id} />}
 
       <Card>
         <CardHeader>

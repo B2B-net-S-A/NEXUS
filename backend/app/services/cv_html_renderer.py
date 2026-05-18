@@ -1,51 +1,27 @@
-"""
-CV Generator API
-Generates professional CV HTML from candidate data.
-Supports: standard & blind templates, PL/EN language, optional job tailoring.
+"""Legacy HTML CV renderer — internal helper for CandidateStageCV editor.
+
+Used exclusively by ``app/api/candidate_stage_cv.py`` to seed the initial
+HTML draft when a recruiter opens the brandowane CV editor on a stage. The
+output is HTML (not DOCX) and is intentionally simpler than the
+:mod:`app.services.cv_generator_b2b` pipeline used by ``/cv-generator``
+(which is the 1:1 port of artur-t-96/CV-Generator).
+
+Historically this code lived in ``app/api/cv_generator.py`` together with a
+public ``POST /candidates/{id}/generate-cv`` endpoint. The endpoint was
+removed in favour of the full B2B DOCX path; the renderer stayed because
+the stage CV editor still uses it.
 """
 
-from typing import Optional
+from __future__ import annotations
+
+import re
 from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+if TYPE_CHECKING:
+    from app.models.candidate import Candidate
+    from app.models.job import Job
 
-from app.core.database import get_db
-from app.models.candidate import Candidate
-from app.models.job import Job
-from app.api.deps import CurrentUser
-
-router = APIRouter()
-
-
-# ── Schemas ────────────────────────────────────────────────────────────────────
-
-
-class CVGenerateRequest(BaseModel):
-    template: str = "standard"  # "standard" | "blind"
-    language: str = "pl"  # "pl" | "en"
-    job_id: Optional[int] = None
-
-
-class CVResponse(BaseModel):
-    html: str
-    template: str
-    language: str
-    candidate_name: str
-
-
-class BlindProfileResponse(BaseModel):
-    skills_summary: list[str]
-    experience_years: int
-    education_level: str
-    languages: list[str]
-    ai_summary: Optional[str]
-    competence_category: Optional[str]
-
-
-# ── Labels ─────────────────────────────────────────────────────────────────────
 
 LABELS = {
     "pl": {
@@ -81,9 +57,6 @@ LABELS = {
         "linkedin": "LinkedIn",
     },
 }
-
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 
 def _calc_experience_years(experience: list) -> int:
@@ -142,12 +115,8 @@ def _education_level(education: list) -> str:
 
 
 def _anonymize_text(text: str) -> str:
-    """Replace potential company/person identifiers with [ANONIMIZACJA]."""
-    import re
-
-    # Remove email patterns
+    """Replace potential company/person identifiers with placeholders."""
     text = re.sub(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", "[EMAIL]", text)
-    # Remove phone patterns
     text = re.sub(r"(\+?\d[\s\-.]?){9,}", "[TELEFON]", text)
     return text
 
@@ -162,7 +131,6 @@ def _generate_cv_html(
     L = LABELS.get(language, LABELS["pl"])
     blind = template == "blind"
 
-    # Candidate data
     name = (
         f"{candidate.name} {candidate.lastname}"
         if not blind
@@ -179,7 +147,6 @@ def _generate_cv_html(
     education = candidate.education or []
     languages_list = candidate.languages or []
 
-    # If blind, anonymize experience company names
     if blind:
         cleaned_experience = []
         for exp in experience:
@@ -189,7 +156,6 @@ def _generate_cv_html(
             cleaned_experience.append(e)
         experience = cleaned_experience
 
-    # Job tailoring — pick matching skills
     job_skills_highlight: list[str] = []
     if job and job.requirements:
         req_text = job.requirements.lower()
@@ -198,7 +164,6 @@ def _generate_cv_html(
             if skill_name and skill_name in req_text:
                 job_skills_highlight.append(skill.get("name", ""))
 
-    # Build HTML
     today = datetime.now().strftime("%Y-%m-%d")
 
     contact_rows = ""
@@ -310,7 +275,6 @@ def _generate_cv_html(
     margin: 0 auto;
     padding: 0;
   }}
-  /* ── Header ── */
   .cv-header {{
     background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
     color: #fff;
@@ -360,7 +324,6 @@ def _generate_cv_html(
     font-size: 11px;
     opacity: 0.6;
   }}
-  /* ── Body ── */
   .cv-body {{
     display: grid;
     grid-template-columns: 230px 1fr;
@@ -374,7 +337,6 @@ def _generate_cv_html(
   .cv-main {{
     padding: 28px 32px;
   }}
-  /* ── Sections ── */
   section {{
     margin-bottom: 24px;
   }}
@@ -389,7 +351,6 @@ def _generate_cv_html(
     padding-bottom: 6px;
     margin-bottom: 12px;
   }}
-  /* ── Contact ── */
   table.contact-table {{ width: 100%; border-collapse: collapse; }}
   table.contact-table td {{ padding: 3px 0; font-size: 12px; }}
   table.contact-table td.label {{
@@ -399,7 +360,6 @@ def _generate_cv_html(
     padding-right: 8px;
     font-size: 11px;
   }}
-  /* ── Skills ── */
   .skills-list {{ list-style: none; }}
   .skills-list li {{
     display: flex;
@@ -419,11 +379,9 @@ def _generate_cv_html(
     font-weight: 600;
   }}
   .skill-years {{ font-size: 10px; color: #94a3b8; }}
-  /* ── Languages ── */
   .lang-list {{ list-style: none; }}
   .lang-list li {{ padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f1f5f9; }}
   .lang-list li:last-child {{ border-bottom: none; }}
-  /* ── Experience ── */
   .exp-item {{
     padding: 10px 0;
     border-bottom: 1px solid #f1f5f9;
@@ -444,7 +402,6 @@ def _generate_cv_html(
   }}
   .exp-dates {{ font-size: 11px; color: #94a3b8; margin-bottom: 4px; }}
   .exp-desc {{ font-size: 12px; color: #475569; line-height: 1.5; }}
-  /* ── Education ── */
   .edu-item {{
     padding: 8px 0;
     border-bottom: 1px solid #f1f5f9;
@@ -453,7 +410,6 @@ def _generate_cv_html(
   .edu-item strong {{ font-size: 13px; }}
   .edu-degree {{ font-size: 12px; color: #475569; }}
   .edu-year {{ font-size: 11px; color: #94a3b8; }}
-  /* ── Summary ── */
   .summary-text {{
     font-size: 13px;
     color: #374151;
@@ -464,7 +420,6 @@ def _generate_cv_html(
     padding: 10px 14px;
     border-radius: 0 6px 6px 0;
   }}
-  /* ── Highlight (tailored) section ── */
   .highlight-section {{
     background: #eff6ff;
     border: 1px solid #bfdbfe;
@@ -473,7 +428,6 @@ def _generate_cv_html(
   }}
   .highlight-section h2 {{ color: #1d4ed8; border-color: #93c5fd; }}
   .highlight-list li {{ border-bottom-color: #dbeafe; }}
-  /* ── Footer ── */
   .cv-footer {{
     border-top: 1px solid #e2e8f0;
     padding: 12px 40px;
@@ -485,7 +439,6 @@ def _generate_cv_html(
     background: #f8fafc;
   }}
   .footer-brand {{ display: flex; align-items: center; gap: 6px; font-weight: 600; }}
-  /* ── Print ── */
   @media print {{
     body {{ background: #fff; }}
     .cv-wrapper {{ max-width: 100%; }}
@@ -497,7 +450,6 @@ def _generate_cv_html(
 <body>
 <div class="cv-wrapper">
 
-  <!-- Header -->
   <div class="cv-header">
     <div class="cv-header-brand">
       <div class="dot"></div>
@@ -509,28 +461,24 @@ def _generate_cv_html(
     {blind_badge}
   </div>
 
-  <!-- Body -->
   <div class="cv-body">
 
-    <!-- Sidebar -->
     <aside class="cv-sidebar">
       {f'<section><h2>{L["contact"]}</h2><table class="contact-table">{contact_rows}</table></section>' if contact_rows else ""}
 
-      {f"<section><h2>{L["skills"]}</h2>{skills_html}</section>" if skills_html else ""}
+      {f"<section><h2>{L['skills']}</h2>{skills_html}</section>" if skills_html else ""}
 
-      {f"<section><h2>{L["languages"]}</h2>{lang_html}</section>" if lang_html else ""}
+      {f"<section><h2>{L['languages']}</h2>{lang_html}</section>" if lang_html else ""}
     </aside>
 
-    <!-- Main -->
     <main class="cv-main">
       {summary_section}
       {tailored_section}
-      {f"<section><h2>{L["experience"]}</h2>{exp_html}</section>" if exp_html else ""}
-      {f"<section><h2>{L["education"]}</h2>{edu_html}</section>" if edu_html else ""}
+      {f"<section><h2>{L['experience']}</h2>{exp_html}</section>" if exp_html else ""}
+      {f"<section><h2>{L['education']}</h2>{edu_html}</section>" if edu_html else ""}
     </main>
   </div>
 
-  <!-- Footer -->
   <div class="cv-footer">
     <div class="footer-brand">⚡ Nexus · B2B.net S.A.</div>
     <div>{L["prepared_by"]} · {today}</div>
@@ -543,82 +491,4 @@ def _generate_cv_html(
     return html
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
-
-
-@router.post("/candidates/{candidate_id}/generate-cv", response_model=CVResponse)
-async def generate_cv(
-    candidate_id: int,
-    body: CVGenerateRequest,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate professional CV HTML from candidate data."""
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
-
-    if body.template not in ("standard", "blind"):
-        raise HTTPException(
-            status_code=422, detail="template musi być 'standard' lub 'blind'"
-        )
-    if body.language not in ("pl", "en"):
-        raise HTTPException(status_code=422, detail="language musi być 'pl' lub 'en'")
-
-    # Optionally load job
-    job = None
-    if body.job_id:
-        job_result = await db.execute(select(Job).where(Job.id == body.job_id))
-        job = job_result.scalar_one_or_none()
-
-    html = _generate_cv_html(candidate, body.template, body.language, job)
-    full_name = f"{candidate.name} {candidate.lastname}"
-
-    return CVResponse(
-        html=html,
-        template=body.template,
-        language=body.language,
-        candidate_name=full_name,
-    )
-
-
-@router.post(
-    "/candidates/{candidate_id}/generate-blind-profile",
-    response_model=BlindProfileResponse,
-)
-async def generate_blind_profile(
-    candidate_id: int,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate anonymized blind profile for client sharing."""
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
-    candidate = result.scalar_one_or_none()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
-
-    skills = candidate.skills or []
-    skills_summary = [s.get("name", "") for s in skills if s.get("name")]
-
-    experience = candidate.experience or []
-    experience_years = _calc_experience_years(experience)
-
-    education = candidate.education or []
-    education_level = _education_level(education)
-
-    languages_list = candidate.languages or []
-    languages = [
-        f"{lang.get('lang', '')} {('— ' + lang.get('level', '')) if lang.get('level') else ''}".strip()
-        for lang in languages_list
-        if lang.get("lang")
-    ]
-
-    return BlindProfileResponse(
-        skills_summary=skills_summary,
-        experience_years=experience_years,
-        education_level=education_level,
-        languages=languages,
-        ai_summary=candidate.ai_summary,
-        competence_category=candidate.competence_category,
-    )
+__all__ = ["LABELS", "_generate_cv_html"]
