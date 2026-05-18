@@ -27,7 +27,7 @@ const MODULES: ModuleCard[] = [
     description:
       "Weryfikacje, rekomendacje, interview, placementy tygodniowo per rekruter",
     href: "/dynareporter/body-leasing",
-    enabled: false, // B.2.1
+    enabled: true, // B.2.1 deployed
   },
   {
     section: "sales",

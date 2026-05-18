@@ -67,6 +67,7 @@ from app.api import public_interview_confirmation
 from app.api import cv_generator
 from app.api import cv_generator_b2b
 from app.api import dynareporter_profile
+from app.api import dynareporter_kpi_body_leasing
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -420,6 +421,11 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(
     dynareporter_profile.router,
     prefix="/api/dynareporter/profile",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_kpi_body_leasing.router,
+    prefix="/api/dynareporter/kpi/body-leasing",
     tags=["dynareporter"],
 )
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
