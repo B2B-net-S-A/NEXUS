@@ -313,6 +313,7 @@ async def upsert_entry(
 @router.delete(
     "/{entry_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Usuwa wpis KPI Body Leasing",
 )
 async def delete_entry(
