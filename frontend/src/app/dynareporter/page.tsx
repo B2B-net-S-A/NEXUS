@@ -27,77 +27,77 @@ const MODULES: ModuleCard[] = [
     description:
       "Weryfikacje, rekomendacje, interview, placementy tygodniowo per rekruter",
     href: "/dynareporter/body-leasing",
-    enabled: false, // B.2.1
+    enabled: true, // B.2.1 deployed
   },
   {
     section: "sales",
     label: "KPI Sales",
     description: "Leady, oferty, wygrane / przegrane per sprzedawca",
     href: "/dynareporter/sales",
-    enabled: false,
+    enabled: true, // B.2.2 deployed
   },
   {
     section: "delivery-lead",
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
     href: "/dynareporter/delivery-lead",
-    enabled: false,
+    enabled: true, // B.2.3 deployed
   },
   {
     section: "placements",
     label: "Placementy",
     description: "Szczegółowe placementy per user × klient",
     href: "/dynareporter/placements",
-    enabled: false,
+    enabled: true, // B.2.4 deployed
   },
   {
     section: "clients-mrr",
     label: "Klienci + MRR",
     description: "Konsultanci u klientów + miesięczny MRR + finanse",
     href: "/dynareporter/clients-mrr",
-    enabled: false,
+    enabled: true, // B.2.5 deployed
   },
   {
     section: "competitions",
     label: "Liga Mistrzów",
     description: "Kwartalny ranking + nagrody miesięczne",
     href: "/dynareporter/competitions",
-    enabled: false,
+    enabled: true, // B.2.6 deployed
   },
   {
     section: "przetargi",
     label: "Przetargi",
     description: "Projekty publiczne — allocations, koszty, margin",
     href: "/dynareporter/przetargi",
-    enabled: false,
+    enabled: true, // B.2.7 deployed
   },
   {
     section: "board",
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
     href: "/dynareporter/board",
-    enabled: false,
+    enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
     href: "/dynareporter/sales-mgmt",
-    enabled: false,
+    enabled: true, // B.2.9 deployed
   },
   {
     section: "mindy",
     label: "MINDY AI",
     description: "Asystent AI z kontekstem KPI",
     href: "/dynareporter/mindy",
-    enabled: false,
+    enabled: true, // B.2.10 deployed
   },
   {
     section: "admin",
-    label: "Admin — DynaReporter",
-    description: "Zarządzanie dostępem do sekcji per user",
-    href: "/dynareporter/admin",
-    enabled: false,
+    label: "Admin — Upload XLSX",
+    description: "Wgrywanie Excel z KPI/MRR/finansów + historia uploadów",
+    href: "/dynareporter/admin/upload",
+    enabled: true, // B.2.11 deployed
   },
 ];
 

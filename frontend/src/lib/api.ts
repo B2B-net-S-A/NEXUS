@@ -3369,4 +3369,125 @@ export const dynareporterApi = {
       .then((r) => r.data),
 };
 
+// ── B.2.1 KPI Body Leasing ─────────────────────────────────────────────────
+
+export interface DrKpiBodyLeasingEntry {
+  id: number;
+  user_id: number;
+  user_name?: string | null;
+  user_email?: string | null;
+  report_date: string;
+  week_number: number;
+  verifications: number;
+  recommendations: number;
+  interviews: number;
+  placements: number;
+  requests: number;
+  days_worked: number;
+  is_draft: boolean;
+  linkedin_cv_added: number;
+  linkedin_messages_sent: number;
+  linkedin_responses_received: number;
+}
+
+export interface DrKpiBodyLeasingSummary {
+  period: "week" | "month" | "quarter" | "year";
+  from_date: string;
+  to_date: string;
+  total_verifications: number;
+  total_recommendations: number;
+  total_interviews: number;
+  total_placements: number;
+  total_requests: number;
+  total_days_worked: number;
+  entries_count: number;
+}
+
+export interface DrKpiBodyLeasingRankingEntry {
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  total_placements: number;
+  total_interviews: number;
+  total_recommendations: number;
+  total_verifications: number;
+  rank: number;
+}
+
+// ── B.2.2 KPI Sales ────────────────────────────────────────────────────────
+
+export interface DrKpiSalesEntry {
+  id: number;
+  user_id: number;
+  user_name?: string | null;
+  user_email?: string | null;
+  report_date: string;
+  week_number: number;
+  leads: number;
+  offers_sent: number;
+  offers_won: number;
+  offers_lost: number;
+  days_worked: number;
+}
+
+export interface DrKpiSalesSummary {
+  period: string;
+  from_date: string;
+  to_date: string;
+  total_leads: number;
+  total_offers_sent: number;
+  total_offers_won: number;
+  total_offers_lost: number;
+  total_days_worked: number;
+  entries_count: number;
+  win_rate: number;
+}
+
+export const dynareporterSalesApi = {
+  myEntries: (params?: { from_date?: string; to_date?: string }) =>
+    api
+      .get<DrKpiSalesEntry[]>("/api/dynareporter/kpi/sales/my", { params })
+      .then((r) => r.data),
+  summary: (params?: { period?: string; user_id?: number }) =>
+    api
+      .get<DrKpiSalesSummary>("/api/dynareporter/kpi/sales/summary", { params })
+      .then((r) => r.data),
+  upsert: (payload: Partial<DrKpiSalesEntry>) =>
+    api
+      .post<DrKpiSalesEntry>("/api/dynareporter/kpi/sales", payload)
+      .then((r) => r.data),
+  delete: (entryId: number) =>
+    api.delete(`/api/dynareporter/kpi/sales/${entryId}`),
+};
+
+export const dynareporterBodyLeasingApi = {
+  myEntries: (params?: { from_date?: string; to_date?: string }) =>
+    api
+      .get<DrKpiBodyLeasingEntry[]>("/api/dynareporter/kpi/body-leasing/my", { params })
+      .then((r) => r.data),
+
+  allEntries: (params?: { user_id?: number; from_date?: string; to_date?: string }) =>
+    api
+      .get<DrKpiBodyLeasingEntry[]>("/api/dynareporter/kpi/body-leasing/all", { params })
+      .then((r) => r.data),
+
+  summary: (params?: { period?: "week" | "month" | "quarter" | "year"; user_id?: number }) =>
+    api
+      .get<DrKpiBodyLeasingSummary>("/api/dynareporter/kpi/body-leasing/summary", { params })
+      .then((r) => r.data),
+
+  ranking: (params?: { period?: "month" | "quarter" | "year"; limit?: number }) =>
+    api
+      .get<DrKpiBodyLeasingRankingEntry[]>("/api/dynareporter/kpi/body-leasing/ranking", { params })
+      .then((r) => r.data),
+
+  upsert: (payload: Partial<DrKpiBodyLeasingEntry>) =>
+    api
+      .post<DrKpiBodyLeasingEntry>("/api/dynareporter/kpi/body-leasing", payload)
+      .then((r) => r.data),
+
+  delete: (entryId: number) =>
+    api.delete(`/api/dynareporter/kpi/body-leasing/${entryId}`),
+};
+
 export default api;
