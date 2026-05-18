@@ -1047,6 +1047,15 @@ def upgrade() -> None:
             NO MAXVALUE
             CACHE 1;
         ALTER SEQUENCE public.dr_upload_history_id_seq OWNED BY public.dr_upload_history.id;
+        CREATE TABLE public.dr_weekly_sales_activity (
+            id integer NOT NULL,
+            week_start date NOT NULL,
+            week_number integer NOT NULL,
+            year integer NOT NULL,
+            leads_count integer DEFAULT 0,
+            offers_sent integer DEFAULT 0,
+            created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE SEQUENCE public.dr_weekly_sales_activity_id_seq
             AS integer
             START WITH 1
@@ -1264,8 +1273,6 @@ def upgrade() -> None:
             ADD CONSTRAINT dr_tac_linkedin_farming_tac_user_id_category_id_key UNIQUE (tac_user_id, category_id);
         ALTER TABLE ONLY public.dr_upload_history
             ADD CONSTRAINT dr_upload_history_pkey PRIMARY KEY (id);
-        ALTER TABLE ONLY public.users
-            ADD CONSTRAINT users_pkey PRIMARY KEY (id);
         ALTER TABLE ONLY public.dr_weekly_sales_activity
             ADD CONSTRAINT dr_weekly_sales_activity_pkey PRIMARY KEY (id);
         ALTER TABLE ONLY public.dr_weekly_sales_activity
@@ -1461,7 +1468,6 @@ def upgrade() -> None:
         ALTER TABLE ONLY public.dr_upload_history
             ADD CONSTRAINT dr_upload_history_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.users(id);
 """
-    # Split na osobne statements (asyncpg constraint). Drop empty / whitespace.
     for stmt in sql_block.split(";"):
         stmt = stmt.strip()
         if stmt:
@@ -1474,4 +1480,3 @@ def downgrade() -> None:
         "migration history. To roll back, point reports.dynaminds.pl back "
         "to Coolify standalone (which is still live during Faza B)."
     )
-
