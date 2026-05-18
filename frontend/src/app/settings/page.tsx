@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import api from "@/lib/api";
 import {
   Settings,
@@ -23,6 +24,11 @@ import {
   Stethoscope,
   ChevronRight,
   FileText,
+  Shield,
+  Users as UsersIcon,
+  BarChart3,
+  Network,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
@@ -31,18 +37,72 @@ import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import CloudTalkSettingsCard from "@/components/settings/CloudTalkSettingsCard";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
+import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+
+// Lazy-load heavy tabs — content loaded only when tab activated.
+// AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
+// PipelineTemplatesTab pulls @hello-pangea/dnd (~50kB).
+const AdminUsersTab = dynamic(
+  () => import("@/components/settings/admin/AdminUsersTab"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-8 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    ),
+  }
+);
+
+const PipelineTemplatesTab = dynamic(
+  () => import("@/components/settings/PipelineTemplatesTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 
 // ── Tab config ────────────────────────────────────────────────────────────────
 
-type Tab = "integracje" | "szablony" | "coaching" | "onboarding" | "zaawansowane";
+type Tab =
+  | "integracje"
+  | "szablony"
+  | "coaching"
+  | "procesy"
+  | "administracja"
+  | "zaawansowane"
+  | "pomoc";
 
-const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
+interface TabConfig {
+  id: Tab;
+  label: string;
+  icon: React.ReactNode;
+  /** Jeśli ustawione — tab widoczny tylko dla użytkowników z którąkolwiek z tych ról. */
+  roles?: UserRole[];
+}
+
+const TABS: TabConfig[] = [
   { id: "integracje", label: "Integracje", icon: <Plug className="w-4 h-4" /> },
   { id: "szablony", label: "Szablony email", icon: <Mail className="w-4 h-4" /> },
   { id: "coaching", label: "Coaching KPI", icon: <Sparkles className="w-4 h-4" /> },
+  {
+    id: "procesy",
+    label: "Procesy",
+    icon: <Workflow className="w-4 h-4" />,
+    roles: ["admin", "delivery_lead"],
+  },
+  {
+    id: "administracja",
+    label: "Administracja",
+    icon: <Shield className="w-4 h-4" />,
+    roles: ["admin"],
+  },
   { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
-  { id: "onboarding", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
+  { id: "pomoc", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
 ];
+
+// Taby które wymagają szerszego kontenera (tabele, dnd, grid).
+const WIDE_TABS: Tab[] = ["procesy", "administracja"];
 
 // Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
 const ADVANCED_LINKS: Array<{
@@ -50,12 +110,14 @@ const ADVANCED_LINKS: Array<{
   title: string;
   description: string;
   icon: React.ReactNode;
+  roles?: UserRole[];
 }> = [
   {
     href: "/settings/pipeline-templates",
     title: "Procesy rekrutacyjne",
     description: "Pipeline templates: definicje stagey i przepływów per ofertę.",
     icon: <Workflow className="w-5 h-5" />,
+    roles: ["admin", "delivery_lead"],
   },
   {
     href: "/settings/scoring",
@@ -111,12 +173,47 @@ const ADVANCED_LINKS: Array<{
     description: "Status komponentów, kolejki, background tasks.",
     icon: <Stethoscope className="w-5 h-5" />,
   },
+  {
+    href: "/settings/team-structure",
+    title: "Macierze przypisań",
+    description: "TAC × kategorie kompetencji, TAC → DL, DL → klienci, LinkedIn farming.",
+    icon: <Network className="w-5 h-5" />,
+    roles: ["admin"],
+  },
+  {
+    href: "/settings/linkedin-metrics",
+    title: "Aktywność LinkedIn",
+    description: "Bulk edit dziennych liczb (CV / Msg / Resp) per TAC/sourcer.",
+    icon: <BarChart3 className="w-5 h-5" />,
+    roles: ["admin"],
+  },
+  {
+    href: "/settings/chats",
+    title: "Globalny audyt czatów",
+    description: "Przegląd wszystkich rozmów (projekty + kandydaci) z możliwością przeszukania treści.",
+    icon: <MessageSquare className="w-5 h-5" />,
+    roles: ["admin"],
+  },
+  {
+    href: "/settings/clients-overview",
+    title: "Przegląd klientów",
+    description: "Ranking klientów + leaderboard delivery leadów.",
+    icon: <BarChart3 className="w-5 h-5" />,
+    roles: ["admin", "head_of_recruitment"],
+  },
+  {
+    href: "/settings/hiring-managers",
+    title: "Top hiring managers",
+    description: "KPI hiring managerów w klientach (Phase 9b).",
+    icon: <UsersIcon className="w-5 h-5" />,
+    roles: ["admin", "head_of_recruitment"],
+  },
 ];
 
 // ── Fireflies Card ────────────────────────────────────────────────────────────
 
 function FirefliesCard() {
-  const [syncResult, setSyncResult] = useState<any>(null);
+  const [syncResult, setSyncResult] = useState<{ synced: number; linked: number; errors: number; error?: string } | null>(null);
 
   const { data: status, isLoading, refetch } = useQuery({
     queryKey: ["fireflies-status"],
@@ -142,7 +239,6 @@ function FirefliesCard() {
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
-      {/* Header */}
       <div className="flex items-start gap-4 mb-6">
         <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
           <Mic className="w-6 h-6 text-orange-500" />
@@ -167,7 +263,6 @@ function FirefliesCard() {
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="bg-muted dark:bg-muted rounded-xl p-3 text-center">
           <p className="text-xl font-bold text-foreground dark:text-foreground">
@@ -188,7 +283,6 @@ function FirefliesCard() {
         </div>
       </div>
 
-      {/* Error */}
       {status?.error && (
         <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 mb-4">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -196,7 +290,6 @@ function FirefliesCard() {
         </div>
       )}
 
-      {/* Sync result */}
       {syncResult && (
         <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 rounded-xl p-4 mb-4 text-sm">
           <p className="font-semibold text-primary dark:text-primary mb-2">Wynik synchronizacji:</p>
@@ -213,14 +306,13 @@ function FirefliesCard() {
         </div>
       )}
 
-      {/* Recent transcripts */}
       {transcripts && transcripts.length > 0 && (
         <div className="mb-5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             Ostatnie transkrypcje
           </p>
           <div className="space-y-2">
-            {transcripts.slice(0, 4).map((t: any) => (
+            {transcripts.slice(0, 4).map((t: { id: string; title: string; candidate_id?: number; created_at?: string }) => (
               <div
                 key={t.id}
                 className="flex items-center gap-3 text-sm py-2 border-b border-border dark:border-border last:border-0"
@@ -244,7 +336,6 @@ function FirefliesCard() {
         </div>
       )}
 
-      {/* Action */}
       <div className="flex gap-3">
         <button
           onClick={() => sync()}
@@ -280,11 +371,19 @@ function FirefliesCard() {
 // ── Settings page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<Tab>("integracje");
 
+  const visibleTabs = TABS.filter((tab) => !tab.roles || hasRole(user, ...tab.roles));
+  const visibleAdvancedLinks = ADVANCED_LINKS.filter(
+    (link) => !link.roles || hasRole(user, ...link.roles)
+  );
+
+  const isWide = WIDE_TABS.includes(activeTab);
+  const containerClass = isWide ? "max-w-7xl mx-auto space-y-6" : "max-w-4xl mx-auto space-y-6";
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Page header */}
+    <div className={containerClass}>
       <div>
         <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Ustawienia</h1>
         <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
@@ -292,9 +391,8 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-xl w-fit">
-        {TABS.map((tab) => (
+      <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-xl w-fit flex-wrap">
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -311,7 +409,6 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {/* Tab content */}
       {activeTab === "integracje" && (
         <div className="space-y-4">
           <Microsoft365Card />
@@ -319,7 +416,6 @@ export default function SettingsPage() {
           <CloudTalkSettingsCard />
           <TeamsNotificationsCard />
 
-          {/* Placeholder for future integrations */}
           <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">
             <Plug className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">Więcej integracji wkrótce</p>
@@ -346,13 +442,15 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeTab === "coaching" && (
-        <CoachingSettings />
-      )}
+      {activeTab === "coaching" && <CoachingSettings />}
+
+      {activeTab === "procesy" && <PipelineTemplatesTab />}
+
+      {activeTab === "administracja" && <AdminUsersTab />}
 
       {activeTab === "zaawansowane" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {ADVANCED_LINKS.map((link) => (
+          {visibleAdvancedLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -379,9 +477,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeTab === "onboarding" && (
-        <OnboardingSettings />
-      )}
+      {activeTab === "pomoc" && <OnboardingSettings />}
     </div>
   );
 }
