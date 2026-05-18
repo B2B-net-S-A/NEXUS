@@ -642,7 +642,7 @@ export function DashboardV2() {
  <UserCheck className="h-4 w-4 text-[#1d5e31]" />
  <CardTitle>Ostatnie zatrudnienia</CardTitle>
  <Link
- href="/reports"
+ href="/insights?tab=rekrutacja"
  className="ml-auto text-xs text-primary hover:underline"
  >
  Wszystkie →
@@ -671,7 +671,7 @@ export function DashboardV2() {
  <Star className="h-4 w-4 text-amber-500" />
  <CardTitle>Najlepsi rekruterzy (30 dni)</CardTitle>
  <Link
- href="/analytics"
+ href="/insights?tab=rekrutacja"
  className="ml-auto text-xs text-primary hover:underline"
  >
  Analityka →
