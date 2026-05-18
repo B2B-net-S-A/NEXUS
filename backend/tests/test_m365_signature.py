@@ -340,6 +340,68 @@ async def test_plain_text_body_treated_as_no_signature() -> None:
     assert sig is None
 
 
+# ── get_outlook_signature: probe-depth iteration ─────────────────────────────
+
+
+async def test_probe_skips_unsigned_messages_returns_first_signed() -> None:
+    """A Teams-invite-style first message has no signature; we must keep
+    looking down the page until we find a typed-out message."""
+    gc = _make_gc(
+        response={
+            "value": [
+                # 1st: Teams meeting invite — no sigsep marker.
+                {
+                    "body": {
+                        "contentType": "html",
+                        "content": (
+                            '<div class="me-email-text">Microsoft Teams meeting</div>'
+                            '<div>Join: <a href="https://teams.microsoft.com/m/x">link</a></div>'
+                        ),
+                    }
+                },
+                # 2nd: calendar response (no signature either).
+                {
+                    "body": {
+                        "contentType": "html",
+                        "content": "<p>Accepted.</p>",
+                    }
+                },
+                # 3rd: a real typed mail with the mobile signature.
+                {
+                    "body": {
+                        "contentType": "html",
+                        "content": (
+                            "<div>Body</div>"
+                            '<div id="ms-outlook-mobile-signature">'
+                            "<p>Real Signature</p></div>"
+                        ),
+                    }
+                },
+            ]
+        }
+    )
+    sig = await get_outlook_signature(gc, user_id=1, mailbox_upn="a@b.com")
+    assert sig is not None
+    assert "Real Signature" in sig
+    # Single Graph call — we batched probe depth in one $top= query.
+    assert gc.get.await_count == 1
+
+
+async def test_probe_returns_none_when_no_message_has_signature() -> None:
+    """All N probed messages are auto-generated → cache the None."""
+    gc = _make_gc(
+        response={
+            "value": [
+                {"body": {"contentType": "html", "content": "<p>Auto invite</p>"}},
+                {"body": {"contentType": "html", "content": "<p>Accepted.</p>"}},
+                {"body": {"contentType": "html", "content": "<p>Declined.</p>"}},
+            ]
+        }
+    )
+    sig = await get_outlook_signature(gc, user_id=1, mailbox_upn="a@b.com")
+    assert sig is None
+
+
 # ── sender.send_new() integration ────────────────────────────────────────────
 
 

@@ -178,13 +178,28 @@ async def get_outlook_signature(
     return signature
 
 
+# How many recent sent messages to scan when probing for a signature.
+# Real users intersperse signed mails with auto-generated ones (Teams
+# meeting invites, calendar replies, "OK" one-liners) — so the literal
+# "last sent" often has no signature even when the user does have one
+# configured. Walking 10 back is enough to find a typed-out message in
+# practice while keeping the Graph call to a single page.
+_SENT_ITEMS_PROBE_DEPTH = 10
+
+
 async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
-    """Call Graph to read the body of the user's most recent sent message."""
+    """Find the user's signature by scanning recent sent messages.
+
+    Strategy: fetch the last ``_SENT_ITEMS_PROBE_DEPTH`` sent messages in
+    one Graph call, then return the FIRST one whose body yields a sigsep
+    match. This survives Teams invites, auto-replies, and other body
+    formats Outlook generates without a user signature attached.
+    """
     try:
         page = await gc.get(
             "/me/mailFolders/sentitems/messages",
             params={
-                "$top": 1,
+                "$top": _SENT_ITEMS_PROBE_DEPTH,
                 "$orderby": "sentDateTime desc",
                 "$select": "body",
             },
@@ -205,12 +220,16 @@ async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
     if not messages:
         return None
 
-    body = messages[0].get("body") or {}
-    content = body.get("content") or ""
-    content_type = (body.get("contentType") or "").lower()
-    if content_type != "html" or not content:
-        return None
-    return extract_signature(content)
+    for msg in messages:
+        body = msg.get("body") or {}
+        content_type = (body.get("contentType") or "").lower()
+        content = body.get("content") or ""
+        if content_type != "html" or not content:
+            continue
+        signature = extract_signature(content)
+        if signature is not None:
+            return signature
+    return None
 
 
 def _clear_cache_for_tests() -> None:
