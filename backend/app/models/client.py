@@ -34,11 +34,6 @@ class Client(Base, TimestampMixin):
     nip: Mapped[Optional[str]] = mapped_column(String(32))
     regon: Mapped[Optional[str]] = mapped_column(String(32))
 
-    # Osoba kontaktowa
-    contact_person: Mapped[Optional[str]] = mapped_column(String(255))
-    contact_email: Mapped[Optional[str]] = mapped_column(String(255))
-    contact_phone: Mapped[Optional[str]] = mapped_column(String(30))
-
     # Status i umowy
     status: Mapped[ClientStatus] = mapped_column(
         Enum(ClientStatus), default=ClientStatus.prospect, nullable=False, index=True

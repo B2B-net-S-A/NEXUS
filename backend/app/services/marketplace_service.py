@@ -709,14 +709,20 @@ async def list_marketplace_candidates(
     limit: int = 50,
     offset: int = 0,
     q: Optional[str] = None,
+    source_event: Optional[str] = None,
 ) -> tuple[list[tuple[TalentPoolMembership, Candidate]], int]:
     """Paginated list kandydatów w targu.
 
     Zwraca (rows, total). Każdy row to (membership, candidate) tuple.
+
+    `source_event` zawęża do konkretnego źródła wpisu (np. "manual" pomija
+    auto-include z availability_status). None = wszystkie wpisy.
     """
     pool = await ensure_marketplace_pool(db)
 
     base_filters = [TalentPoolMembership.talent_pool_id == pool.id]
+    if source_event:
+        base_filters.append(TalentPoolMembership.source_event == source_event)
     if q:
         like = f"%{q.lower()}%"
         base_filters.append(

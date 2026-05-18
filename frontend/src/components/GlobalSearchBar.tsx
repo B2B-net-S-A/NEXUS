@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Search, X, Users, Briefcase, Building2, Sparkles, PhoneCall } from "lucide-react";
+import { Search, X, Users, Briefcase, Building2, Sparkles } from "lucide-react";
 import api from "@/lib/api";
 
 interface SearchResult {
@@ -18,7 +18,6 @@ interface GlobalSearchResults {
   candidates: SearchResult[];
   jobs: SearchResult[];
   clients: SearchResult[];
-  contacts: SearchResult[];
 }
 
 interface SemanticCandidate {
@@ -59,7 +58,6 @@ function buildFlatList(results: GlobalSearchResults | null): { url: string }[] {
     results.candidates.slice(0, 3),
     results.jobs.slice(0, 3),
     results.clients.slice(0, 3),
-    results.contacts.slice(0, 3),
   ];
   for (const group of groups) {
     for (const item of group) {
@@ -215,7 +213,7 @@ export function GlobalSearchBar() {
   const hasTextResults =
     results &&
     (results.candidates.length > 0 || results.jobs.length > 0 ||
-     results.clients.length > 0 || (results.contacts?.length ?? 0) > 0);
+     results.clients.length > 0);
 
   const hasSemanticResults = semanticResults && semanticResults.results.length > 0;
 
@@ -235,7 +233,6 @@ export function GlobalSearchBar() {
       { key: "candidates", label: "Kandydaci", icon: <Users className="w-3.5 h-3.5" />, allHref: "/candidates", items: results.candidates.slice(0, 3) },
       { key: "jobs", label: "Oferty pracy", icon: <Briefcase className="w-3.5 h-3.5" />, allHref: "/jobs", items: results.jobs.slice(0, 3) },
       { key: "clients", label: "Klienci", icon: <Building2 className="w-3.5 h-3.5" />, allHref: "/clients", items: results.clients.slice(0, 3) },
-      { key: "contacts", label: "Kontakty", icon: <PhoneCall className="w-3.5 h-3.5" />, allHref: "/contacts", items: (results.contacts ?? []).slice(0, 3) },
     ];
     for (const d of defs) {
       if (d.items.length > 0) {
@@ -388,8 +385,7 @@ export function GlobalSearchBar() {
                   count={
                     group.key === "candidates" ? results!.candidates.length :
                     group.key === "jobs" ? results!.jobs.length :
-                    group.key === "clients" ? results!.clients.length :
-                    (results!.contacts?.length ?? 0)
+                    results!.clients.length
                   }
                   items={group.items}
                   allHref={group.allHref}
