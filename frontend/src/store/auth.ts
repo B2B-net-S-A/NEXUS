@@ -79,8 +79,10 @@ interface User {
   force_password_change_at: string | null
   /** DynaReporter per-module access list (migracja 0111). Pusta lista
    *  domyślnie — userzy ATS nie mają automatycznie dostępu do raportów
-   *  KPI; admin nadaje sekcję per użytkownik. Backend filter point. */
-  allowed_sections: DynaReporterSection[]
+   *  KPI; admin nadaje sekcję per użytkownik. Backend filter point.
+   *  Optional: stary kod tworzący `User` (np. OnboardingDLV2/RecruiterV2)
+   *  nie ma tego pola — wtedy traktujemy jako []. */
+  allowed_sections?: DynaReporterSection[]
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
