@@ -1100,6 +1100,10 @@ export const pipelineApi = {
     api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
       params: jobId !== undefined ? { job_id: jobId } : undefined,
     }),
+  listMyPendingVerifications: () =>
+    api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
+      params: { mine: true },
+    }),
   acceptVerification: (candidateStageId: number) =>
     api.post(`/api/pipeline/${candidateStageId}/accept-verification`),
   rejectVerification: (candidateStageId: number, note: string) =>
