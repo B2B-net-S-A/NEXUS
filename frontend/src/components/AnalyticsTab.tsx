@@ -1,5 +1,9 @@
 "use client";
 
+// Per-client analytics view — montowany jako sub-tab w `/clients/[id]?tab=analityka`.
+// To NIE jest część top-level `/insights` (organizacyjne dashboardy). Top-level
+// stronę `/analytics` usunęliśmy w PR #232; nie przenosić tutaj jej logiki.
+
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileText, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
