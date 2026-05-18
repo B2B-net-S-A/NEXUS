@@ -29,7 +29,6 @@ const COOKIE_NAME = "nexus_access"
 // który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
 const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
-  { prefix: "/reports", roles: ["admin", "delivery_lead", "tac"] },
   // Granular admin-only podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin"] },
@@ -45,7 +44,6 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/talents", roles: null },
   { prefix: "/calendar", roles: null },
   { prefix: "/profile", roles: null },
-  { prefix: "/analytics", roles: null },
   { prefix: "/insights", roles: null },
   { prefix: "/settings", roles: null },
 ]
