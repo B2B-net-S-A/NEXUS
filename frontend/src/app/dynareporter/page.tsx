@@ -62,7 +62,7 @@ const MODULES: ModuleCard[] = [
     label: "Liga Mistrzów",
     description: "Kwartalny ranking + nagrody miesięczne",
     href: "/dynareporter/competitions",
-    enabled: false,
+    enabled: true, // B.2.6 deployed
   },
   {
     section: "przetargi",
