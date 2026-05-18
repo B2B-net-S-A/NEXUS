@@ -48,7 +48,11 @@ def _is_retryable(err: BaseException) -> bool:
         return True
     if err_type == "overloaded_error":
         return True
-    if isinstance(err, anthropic.APIStatusError) and status and 500 <= int(status) < 600:
+    if (
+        isinstance(err, anthropic.APIStatusError)
+        and status
+        and 500 <= int(status) < 600
+    ):
         return True
     if isinstance(err, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
         return True

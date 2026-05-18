@@ -149,7 +149,9 @@ async def list_candidate_recruitments(
     try:
         readiness = await list_recruitments_with_readiness(db, candidate_id)
     except StandaloneGenerationError as err:
-        raise HTTPException(status_code=_error_status(err.code), detail=err.message) from err
+        raise HTTPException(
+            status_code=_error_status(err.code), detail=err.message
+        ) from err
 
     return [
         RecruitmentOption(
@@ -190,7 +192,9 @@ async def generate(
             blind_cv=payload.blind_cv,
         )
     except StandaloneGenerationError as err:
-        raise HTTPException(status_code=_error_status(err.code), detail=err.message) from err
+        raise HTTPException(
+            status_code=_error_status(err.code), detail=err.message
+        ) from err
 
     import json as _json
 

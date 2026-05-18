@@ -116,11 +116,14 @@ def _sanitize_for_filename(name: str) -> str:
 def _champion_present(job: Job | None) -> bool:
     if job is None:
         return False
-    if (job.must_skills or job.nice_skills):
+    if job.must_skills or job.nice_skills:
         return True
     cp = job.champion_profile or {}
     proj = cp.get("project_context") or {}
-    if any(str(proj.get(k) or "").strip() for k in ("about", "responsibilities", "selling_points")):
+    if any(
+        str(proj.get(k) or "").strip()
+        for k in ("about", "responsibilities", "selling_points")
+    ):
         return True
     if cp.get("screening_questions"):
         return True
@@ -192,13 +195,19 @@ async def list_recruitments_with_readiness(
     if not stages:
         return []
 
-    candidate_has_transcript_q = select(Call.id).where(
-        Call.candidate_id == candidate_id,
-        (Call.transcript.isnot(None)) | (Call.summary.isnot(None)),
-    ).limit(1)
+    candidate_has_transcript_q = (
+        select(Call.id)
+        .where(
+            Call.candidate_id == candidate_id,
+            (Call.transcript.isnot(None)) | (Call.summary.isnot(None)),
+        )
+        .limit(1)
+    )
     candidate_has_transcript = (await db.scalar(candidate_has_transcript_q)) is not None
 
-    candidate_has_note_q = select(Note.id).where(Note.candidate_id == candidate_id).limit(1)
+    candidate_has_note_q = (
+        select(Note.id).where(Note.candidate_id == candidate_id).limit(1)
+    )
     candidate_has_note = (await db.scalar(candidate_has_note_q)) is not None
 
     result: list[RecruitmentReadiness] = []
@@ -288,7 +297,9 @@ async def generate_cv_for_candidate(
     cv_doc_q = (
         select(CandidateDocument)
         .where(CandidateDocument.candidate_id == candidate_id)
-        .order_by(CandidateDocument.is_primary.desc(), CandidateDocument.uploaded_at.desc())
+        .order_by(
+            CandidateDocument.is_primary.desc(), CandidateDocument.uploaded_at.desc()
+        )
         .limit(1)
     )
     cv_doc = (await db.scalars(cv_doc_q)).first()
@@ -302,7 +313,9 @@ async def generate_cv_for_candidate(
         try:
             cv_bytes = object_storage.download_cv(cv_doc.storage_key)
         except Exception as err:  # noqa: BLE001
-            logger.exception("[cv_b2b][%s] Object storage download failed: %s", request_id, err)
+            logger.exception(
+                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
+            )
             raise StandaloneGenerationError(
                 code="extraction_failed",
                 message=f"Nie udało się pobrać CV z Object Storage: {err}",
@@ -404,9 +417,7 @@ async def generate_cv_for_candidate(
     screening_section = build_screening_notes_section(screening_notes_text, language)
     champion_section = build_champion_section(champion_dto, language)
 
-    full_content = (
-        f"{base_prompt}\n\nCV do analizy:\n\n{cv_text}{screening_section}{champion_section}"
-    )
+    full_content = f"{base_prompt}\n\nCV do analizy:\n\n{cv_text}{screening_section}{champion_section}"
 
     logger.info(
         "[cv_b2b][%s] Built prompt: cv_chars=%d, notes_chars=%d, champion_chars=%d, lang=%s, blind=%s",

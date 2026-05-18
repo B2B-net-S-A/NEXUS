@@ -35,12 +35,54 @@ NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 _STOP_WORDS = {
     # Polski
-    "w", "i", "o", "z", "do", "na", "dla", "od", "po", "we", "ze",
-    "lub", "oraz", "jako", "przy", "przez", "pod", "nad", "przed",
-    "sie", "to", "jest", "sa", "byl", "byla", "byly", "nie", "tak",
+    "w",
+    "i",
+    "o",
+    "z",
+    "do",
+    "na",
+    "dla",
+    "od",
+    "po",
+    "we",
+    "ze",
+    "lub",
+    "oraz",
+    "jako",
+    "przy",
+    "przez",
+    "pod",
+    "nad",
+    "przed",
+    "sie",
+    "to",
+    "jest",
+    "sa",
+    "byl",
+    "byla",
+    "byly",
+    "nie",
+    "tak",
     # Angielski
-    "a", "an", "the", "in", "on", "at", "to", "for", "of", "and",
-    "or", "with", "by", "as", "is", "are", "was", "were", "be",
+    "a",
+    "an",
+    "the",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "and",
+    "or",
+    "with",
+    "by",
+    "as",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
 }
 
 
@@ -114,7 +156,7 @@ TRANSLATIONS = {
             "02-486 Warszawa. Dane będą przetwarzane zgodnie z przepisami Rozporządzenia Parlamentu "
             "Europejskiego i Rady (UE) 2016/679 z dnia 27 kwietnia 2016 r. w sprawie ochrony osób "
             "fizycznych w związku z przetwarzaniem danych osobowych i w sprawie swobodnego przepływu "
-            "takich danych (dalej „RODO\"). Dane przekazałem/am dobrowolnie, przy czym przysługuje mi "
+            'takich danych (dalej „RODO"). Dane przekazałem/am dobrowolnie, przy czym przysługuje mi '
             "prawo do cofnięcia zgody na przetwarzanie danych w dowolnym momencie poprzez wysłanie "
             "żądania na adres: rekrutacja@b2bnetwork.pl. Podanie danych jest niezbędne do realizacji "
             "ww. celu, dlatego żądanie ich usunięcia jest równoznaczne z rezygnacją z dalszego udziału "
@@ -146,7 +188,7 @@ TRANSLATIONS = {
             "The data will be processed in accordance with the provisions of Regulation (EU) 2016/679 "
             "of the European Parliament and of the Council of 27 April 2016 on the protection of natural "
             "persons with regard to the processing of personal data and on the free movement of such data "
-            "(hereinafter \"GDPR\"). I have provided the data voluntarily, and I have the right to withdraw "
+            '(hereinafter "GDPR"). I have provided the data voluntarily, and I have the right to withdraw '
             "my consent to data processing at any time by sending a request to: rekrutacja@b2bnetwork.pl. "
             "The provision of data is necessary for the realization of the above purpose, therefore requesting "
             "their deletion is tantamount to resignation from further participation in the recruitment process. "
@@ -456,7 +498,9 @@ def render_cv_to_bytes(
     # === CERTYFIKATY / CERTIFICATIONS ===
     if candidate_data.get("certifications"):
         add_section_header(doc, t["certifications"])
-        add_bullet_list(doc, candidate_data.get("certifications", []), highlight_keywords)
+        add_bullet_list(
+            doc, candidate_data.get("certifications", []), highlight_keywords
+        )
 
     # === JĘZYKI / LANGUAGES ===
     add_section_header(doc, t["languages"])
