@@ -22,6 +22,8 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.models.job import Job, JobStatus
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import (
     DeliveryLeadClientAssignment,
     TacDeliveryLeadAssignment,
@@ -37,6 +39,7 @@ from app.schemas.team_structure import (
     ClientOfDl,
     DlClientsRow,
     DlWithTacsRow,
+    MyTeamRow,
     SourcerCategoryRow,
     SourcerInCategory,
     TacOfDl,
@@ -557,3 +560,113 @@ async def team_structure_summary(
         dl_clients=dl_clients,
         totals=totals,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 5. My Team — DL Hub PR 2
+# ─────────────────────────────────────────────────────────────────────────
+
+
+_TERMINAL_STAGES = (
+    PipelineStage.hired,
+    PipelineStage.rejected,
+    PipelineStage.withdrawn,
+)
+
+
+@router.get("/my-team", response_model=list[MyTeamRow])
+async def list_my_team(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista TAC-ów raportujących do current Delivery Lead z metrykami.
+
+    Filter: `tac_delivery_lead_assignments.delivery_lead_user_id == current_user.id`.
+    Dla non-DL (recruiter/sourcer/...) zwraca pustą listę — graceful, nie 403,
+    bo widok DL Hub kieruje requesty niezależnie od roli i pusta lista to
+    naturalna odpowiedź dla "nie masz przypisanego zespołu".
+
+    Metryki:
+    - `active_jobs`: COUNT(distinct Job.id) gdzie tac_id=TAC AND status=published
+    - `active_candidates`: COUNT(distinct candidate_id) gdzie najnowszy
+      CandidateStage na jakimkolwiek aktywnym jobie TAC NIE jest terminalny
+      (hired/rejected/withdrawn).
+    """
+    if current_user.role not in (UserRole.delivery_lead, UserRole.admin):
+        return []
+
+    # 1. Wszystkie TAC-i przypisane do current DL
+    assignments = (
+        await db.execute(
+            select(
+                TacDeliveryLeadAssignment.tac_user_id,
+                TacDeliveryLeadAssignment.created_at,
+                User.name,
+                User.email,
+            )
+            .join(User, User.id == TacDeliveryLeadAssignment.tac_user_id)
+            .where(
+                TacDeliveryLeadAssignment.delivery_lead_user_id == current_user.id,
+                User.is_active == True,  # noqa: E712
+            )
+            .order_by(User.name)
+        )
+    ).all()
+
+    if not assignments:
+        return []
+
+    tac_ids = [a.tac_user_id for a in assignments]
+
+    # 2. Active jobs per TAC (single GROUP BY query, no N+1)
+    active_jobs_rows = (
+        await db.execute(
+            select(Job.tac_id, func.count(Job.id).label("n"))
+            .where(
+                Job.tac_id.in_(tac_ids),
+                Job.status == JobStatus.published,
+            )
+            .group_by(Job.tac_id)
+        )
+    ).all()
+    active_jobs_map: dict[int, int] = {r.tac_id: int(r.n) for r in active_jobs_rows}
+
+    # 3. Active candidates per TAC.
+    #
+    # "Active" = latest stage per (candidate, job) is non-terminal.
+    # Strategia: per (candidate_id, job_id) bierzemy MAX(id) jako proxy dla
+    # "latest" (id rośnie wraz z moved_at — wstawiany sekwencyjnie). Następnie
+    # filtrujemy po stage != terminal i grupujemy po Job.tac_id.
+    latest_per_cj = (
+        select(func.max(CandidateStage.id).label("latest_id"))
+        .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
+        .subquery()
+    )
+    active_cand_rows = (
+        await db.execute(
+            select(
+                Job.tac_id,
+                func.count(func.distinct(CandidateStage.candidate_id)).label("n"),
+            )
+            .join(Job, Job.id == CandidateStage.job_id)
+            .where(
+                Job.tac_id.in_(tac_ids),
+                CandidateStage.id.in_(select(latest_per_cj.c.latest_id)),
+                CandidateStage.stage.notin_(_TERMINAL_STAGES),
+            )
+            .group_by(Job.tac_id)
+        )
+    ).all()
+    active_cand_map: dict[int, int] = {r.tac_id: int(r.n) for r in active_cand_rows}
+
+    return [
+        MyTeamRow(
+            tac_user_id=a.tac_user_id,
+            tac_name=a.name,
+            tac_email=a.email,
+            active_jobs=active_jobs_map.get(a.tac_user_id, 0),
+            active_candidates=active_cand_map.get(a.tac_user_id, 0),
+            assignment_created_at=a.created_at,
+        )
+        for a in assignments
+    ]

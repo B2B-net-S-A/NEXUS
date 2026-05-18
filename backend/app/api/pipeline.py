@@ -1095,6 +1095,13 @@ async def pipeline_overview(
 async def list_pending_verifications(
     current_user: ApproverPlus,
     job_id: Optional[int] = Query(None, description="Filter by job_id"),
+    mine: bool = Query(
+        False,
+        description=(
+            "Limit to jobs where current user is the delivery_lead. "
+            "Used by the DL Hub widget to scope verifications to the logged-in DL."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Lista kandydatów oczekujących akceptacji (verification_status=pending).
@@ -1112,6 +1119,8 @@ async def list_pending_verifications(
     )
     if job_id is not None:
         query = query.where(CandidateStage.job_id == job_id)
+    if mine:
+        query = query.where(Job.delivery_lead_id == current_user.id)
 
     rows = (await db.execute(query)).all()
     items: list[PendingVerificationListItem] = []
