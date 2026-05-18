@@ -1,7 +1,7 @@
 """DynaReporter B.0 — schema dla 57 tabel z prefixem dr_.
 
-Revision ID: 0112_dynareporter_schema
-Revises: 0111_dynareporter_user_extensions
+Revision ID: 0111_dynareporter_schema
+Revises: 0110_dynareporter_user_extensions
 Create Date: 2026-05-18 12:30:00.000000
 
 Phase B.0 PR #2 z planu migracji DynaReportera
@@ -26,8 +26,8 @@ Forward-only — drop tabel zniszczyłby historię migracji.
 from alembic import op
 
 
-revision = "0112_dynareporter_schema"
-down_revision = "0111_dynareporter_user_extensions"
+revision = "0111_dynareporter_schema"
+down_revision = "0110_dynareporter_user_extensions"
 branch_labels = None
 depends_on = None
 
@@ -1045,21 +1045,6 @@ def upgrade() -> None:
             NO MAXVALUE
             CACHE 1;
         ALTER SEQUENCE public.dr_upload_history_id_seq OWNED BY public.dr_upload_history.id;
-            AS integer
-            START WITH 1
-            INCREMENT BY 1
-            NO MINVALUE
-            NO MAXVALUE
-            CACHE 1;
-        CREATE TABLE public.dr_weekly_sales_activity (
-            id integer NOT NULL,
-            week_start date NOT NULL,
-            week_number integer NOT NULL,
-            year integer NOT NULL,
-            leads_count integer DEFAULT 0,
-            offers_sent integer DEFAULT 0,
-            created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
-        );
         CREATE SEQUENCE public.dr_weekly_sales_activity_id_seq
             AS integer
             START WITH 1
