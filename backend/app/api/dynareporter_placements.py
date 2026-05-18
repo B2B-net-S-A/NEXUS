@@ -178,7 +178,9 @@ async def create_placement(
     return PlacementResponse.model_validate({**row.__dict__, "user_name": tgt.name})
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
 async def delete_placement(
     entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
