@@ -90,7 +90,7 @@ const MODULES: ModuleCard[] = [
     label: "MINDY AI",
     description: "Asystent AI z kontekstem KPI",
     href: "/dynareporter/mindy",
-    enabled: false,
+    enabled: true, // B.2.10 deployed
   },
   {
     section: "admin",
