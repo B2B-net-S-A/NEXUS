@@ -318,3 +318,4 @@ __all__ = [
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing  # noqa: F401
 from app.models.dr_kpi_sales import DrKpiSales  # noqa: F401
 from app.models.dr_kpi_delivery_lead import DrKpiDeliveryLead  # noqa: F401
+from app.models.dr_placement_details import DrPlacementDetail  # noqa: F401

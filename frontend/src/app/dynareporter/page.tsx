@@ -48,7 +48,7 @@ const MODULES: ModuleCard[] = [
     label: "Placementy",
     description: "Szczegółowe placementy per user × klient",
     href: "/dynareporter/placements",
-    enabled: false,
+    enabled: true, // B.2.4 deployed
   },
   {
     section: "clients-mrr",
