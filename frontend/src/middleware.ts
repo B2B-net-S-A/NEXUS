@@ -29,6 +29,10 @@ const COOKIE_NAME = "nexus_access"
 // który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
 const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
+  // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
+  // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
+  // middleware nie ma dostępu do user object, tylko JWT payload).
+  { prefix: "/dynareporter", roles: null },
   // Granular admin-only podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin"] },

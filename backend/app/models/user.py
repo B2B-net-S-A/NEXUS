@@ -142,6 +142,27 @@ class User(Base, TimestampMixin):
         Integer, unique=True, nullable=True, index=True
     )
 
+    # ── DynaReporter migration (Phase B.0, migracja 0112) ───────────────────
+    # Lista identyfikatorów modułów DynaReportera do których user ma dostęp:
+    # ``body-leasing``, ``sales``, ``delivery-lead``, ``placements``,
+    # ``clients-mrr``, ``competitions``, ``przetargi``, ``board``,
+    # ``sales-mgmt``, ``mindy``, ``admin``. Pusta lista (default) = brak
+    # dostępu do żadnego modułu DynaReportera. Pattern świadomie analogiczny
+    # do ``aad_group_ids`` — JSONB + GIN index → query "którzy userzy mają
+    # sekcję X" via `allowed_sections @> '["body-leasing"]'::jsonb`.
+    allowed_sections: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+
+    # Link do oryginalnego ``users.id`` z systemu DynaReporter (Render /
+    # Coolify standalone). Wypełniany przez ETL przy email-match. NULL =
+    # user nigdy nie był w DynaReporterze. Partial unique constraint w DB
+    # gwarantuje że jeden legacy id mapuje się na najwyżej jednego nexus
+    # usera.
+    dynareporter_legacy_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, index=True
+    )
+
     # Relationships
     authored_notes = relationship(
         "Note", back_populates="author", foreign_keys="Note.author_id"
