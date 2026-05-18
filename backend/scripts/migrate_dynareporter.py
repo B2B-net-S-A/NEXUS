@@ -122,7 +122,9 @@ def parse_dump_copy_blocks(
             m = copy_re.match(line.rstrip("\n"))
             if m:
                 table, cols_raw = m.group(1), m.group(2)
-                columns = [c.strip() for c in cols_raw.split(",")]
+                # Strip pg_dump's quoting on reserved-word columns (e.g. "position")
+                # so downstream SQL builders re-quote with their own logic.
+                columns = [c.strip().strip('"') for c in cols_raw.split(",")]
                 if only_tables and table not in only_tables:
                     while True:
                         line = f.readline()
@@ -358,6 +360,9 @@ def migrate_data(
     }
 
     cur = conn.cursor()
+    # Defer FK constraints — dr_* tables are inserted alphabetically,
+    # not in parent-first order (e.g. dr_api_key_audit_log before dr_api_keys).
+    cur.execute("SET session_replication_role = replica;")
 
     if reset:
         for tbl in dr_tables:
@@ -429,17 +434,28 @@ def migrate_data(
             )
 
     if not dry_run:
+        # Commit all INSERTs BEFORE setval loop — otherwise a single sequence
+        # failure (e.g. table without an id column) rolls back the entire
+        # transaction including every row we just inserted.
+        conn.commit()
         for tbl in dr_tables:
             try:
                 cur.execute(
                     f"SELECT setval('public.dr_{tbl}_id_seq', "
                     f"COALESCE((SELECT MAX(id) FROM public.dr_{tbl}), 1), true)"
                 )
+                conn.commit()
             except psycopg2.Error:
                 conn.rollback()
                 cur = conn.cursor()
                 continue
-        conn.commit()
+
+        # Restore FK enforcement after bulk loads
+        try:
+            cur.execute("SET session_replication_role = origin;")
+            conn.commit()
+        except psycopg2.Error:
+            conn.rollback()
 
     return counts
 
