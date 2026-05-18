@@ -59,7 +59,11 @@ async def list_my_placements(
         stmt = stmt.where(DrPlacementDetail.placement_date >= from_date)
     if to_date:
         stmt = stmt.where(DrPlacementDetail.placement_date <= to_date)
-    rows = (await db.execute(stmt.order_by(DrPlacementDetail.placement_date.desc()))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrPlacementDetail.placement_date.desc())))
+        .scalars()
+        .all()
+    )
     return [
         PlacementResponse.model_validate({**r.__dict__, "user_name": current_user.name})
         for r in rows
@@ -76,11 +80,12 @@ async def list_all_placements(
     to_date: Optional[date] = Query(default=None),
 ) -> list[PlacementResponse]:
     is_priv = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
-    stmt = (
-        select(DrPlacementDetail, User.name)
-        .join(User, User.id == DrPlacementDetail.user_id)
+    stmt = select(DrPlacementDetail, User.name).join(
+        User, User.id == DrPlacementDetail.user_id
     )
     if user_id:
         if not is_priv and user_id != current_user.id:
@@ -94,7 +99,9 @@ async def list_all_placements(
         stmt = stmt.where(DrPlacementDetail.placement_date >= from_date)
     if to_date:
         stmt = stmt.where(DrPlacementDetail.placement_date <= to_date)
-    rows = (await db.execute(stmt.order_by(DrPlacementDetail.placement_date.desc()))).all()
+    rows = (
+        await db.execute(stmt.order_by(DrPlacementDetail.placement_date.desc()))
+    ).all()
     return [
         PlacementResponse.model_validate({**r.__dict__, "user_name": n})
         for r, n in rows
@@ -133,14 +140,18 @@ async def stats_by_client(
 ) -> list[PlacementStatsByClient]:
     from_d = date.today() - timedelta(days=days)
     stmt = (
-        select(DrPlacementDetail.client_id, func.count(DrPlacementDetail.id).label("cnt"))
+        select(
+            DrPlacementDetail.client_id, func.count(DrPlacementDetail.id).label("cnt")
+        )
         .where(DrPlacementDetail.placement_date >= from_d)
         .group_by(DrPlacementDetail.client_id)
         .order_by(func.count(DrPlacementDetail.id).desc())
         .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
-    return [PlacementStatsByClient(client_id=cid, total_placements=cnt) for cid, cnt in rows]
+    return [
+        PlacementStatsByClient(client_id=cid, total_placements=cnt) for cid, cnt in rows
+    ]
 
 
 @router.post("", response_model=PlacementResponse, status_code=status.HTTP_201_CREATED)
@@ -151,7 +162,9 @@ async def create_placement(
     user_id: Optional[int] = Query(default=None),
 ) -> PlacementResponse:
     is_admin = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
     target_uid = user_id if user_id is not None else current_user.id
     if not is_admin and target_uid != current_user.id:
@@ -169,13 +182,17 @@ async def create_placement(
 async def delete_placement(
     entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
-    row = (await db.execute(
-        select(DrPlacementDetail).where(DrPlacementDetail.id == entry_id)
-    )).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(DrPlacementDetail).where(DrPlacementDetail.id == entry_id)
+        )
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Placement nie znaleziony")
     is_admin = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
     if not is_admin and row.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Tylko swoje placementy")

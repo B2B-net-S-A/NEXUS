@@ -60,7 +60,9 @@ class ProjectSummary(BaseModel):
     total_hours: Decimal
     total_revenue: Decimal
     total_cost: Decimal
-    other_costs: Decimal = Field(description="Suma kosztów non-consultant z costs table")
+    other_costs: Decimal = Field(
+        description="Suma kosztów non-consultant z costs table"
+    )
     net_value: Decimal = Field(description="revenue - cost - other_costs")
     margin_pct: float = Field(description="net_value / revenue × 100")
 
@@ -106,7 +108,10 @@ async def list_allocations(
             DrPrzetargiProject.name,
             DrPrzetargiConsultant.name,
         )
-        .outerjoin(DrPrzetargiProject, DrPrzetargiProject.id == DrPrzetargiAllocation.project_id)
+        .outerjoin(
+            DrPrzetargiProject,
+            DrPrzetargiProject.id == DrPrzetargiAllocation.project_id,
+        )
         .outerjoin(
             DrPrzetargiConsultant,
             DrPrzetargiConsultant.id == DrPrzetargiAllocation.consultant_id,
@@ -158,7 +163,8 @@ async def project_summary(
         func.count(func.distinct(DrPrzetargiAllocation.month)),
         func.coalesce(func.sum(DrPrzetargiAllocation.hours), 0),
         func.coalesce(
-            func.sum(DrPrzetargiAllocation.hours * DrPrzetargiAllocation.revenue_rate), 0
+            func.sum(DrPrzetargiAllocation.hours * DrPrzetargiAllocation.revenue_rate),
+            0,
         ),
         func.coalesce(
             func.sum(DrPrzetargiAllocation.hours * DrPrzetargiAllocation.cost_rate), 0
@@ -169,7 +175,9 @@ async def project_summary(
     if to_month:
         alloc_stmt = alloc_stmt.where(DrPrzetargiAllocation.month <= to_month)
     alloc_stmt = alloc_stmt.group_by(DrPrzetargiAllocation.project_id)
-    alloc_rows = {pid: (mc, h, r, c) for pid, mc, h, r, c in (await db.execute(alloc_stmt)).all()}
+    alloc_rows = {
+        pid: (mc, h, r, c) for pid, mc, h, r, c in (await db.execute(alloc_stmt)).all()
+    }
 
     # Other costs sum per project
     cost_stmt = select(
@@ -185,7 +193,8 @@ async def project_summary(
 
     # Project names
     projects = {
-        p.id: p.name for p in (await db.execute(select(DrPrzetargiProject))).scalars().all()
+        p.id: p.name
+        for p in (await db.execute(select(DrPrzetargiProject))).scalars().all()
     }
 
     out: list[ProjectSummary] = []
