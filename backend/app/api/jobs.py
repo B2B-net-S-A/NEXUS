@@ -225,6 +225,20 @@ async def list_jobs(
             "Limit to jobs where current user is primary owner or collaborator."
         ),
     ),
+    delivery_lead_id: Optional[int] = Query(
+        None,
+        description=(
+            "Filter by Job.delivery_lead_id — single user id. Used by the DL Hub "
+            "Active Jobs tab to show jobs assigned to a specific DL."
+        ),
+    ),
+    include_stage_counts: bool = Query(
+        False,
+        description=(
+            "Include per-job `stage_breakdown: {<stage>: count}` aggregating "
+            "distinct candidates per pipeline stage. Opt-in (extra GROUP BY query)."
+        ),
+    ),
 ):
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -239,6 +253,8 @@ async def list_jobs(
         query = query.where(Job.title.ilike(f"%{q}%"))
     if owner_id:
         query = query.where(Job.recruiter_id.in_(owner_id))
+    if delivery_lead_id is not None:
+        query = query.where(Job.delivery_lead_id == delivery_lead_id)
     if mine:
         collab_subq = select(JobCollaborator.job_id).where(
             JobCollaborator.user_id == current_user.id
@@ -265,6 +281,31 @@ async def list_jobs(
             .group_by(CandidateStage.job_id)
         )
         counts = dict(count_result.all())
+
+    # Optional: stage breakdown per job. Single GROUP BY (no N+1) — only the
+    # *latest* stage per (candidate_id, job_id) counts, so we mirror the
+    # pattern used in team_structure.my-team: id IN (MAX(id) GROUP BY pair).
+    stage_breakdown: dict[int, dict[str, int]] = {}
+    if include_stage_counts and job_ids:
+        latest_per_cj = (
+            select(func.max(CandidateStage.id).label("latest_id"))
+            .where(CandidateStage.job_id.in_(job_ids))
+            .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
+            .subquery()
+        )
+        breakdown_rows = (
+            await db.execute(
+                select(
+                    CandidateStage.job_id,
+                    CandidateStage.stage,
+                    func.count(func.distinct(CandidateStage.candidate_id)),
+                )
+                .where(CandidateStage.id.in_(select(latest_per_cj.c.latest_id)))
+                .group_by(CandidateStage.job_id, CandidateStage.stage)
+            )
+        ).all()
+        for row_job_id, stage_enum, n in breakdown_rows:
+            stage_breakdown.setdefault(row_job_id, {})[stage_enum.value] = int(n)
 
     # Hydrate primary_owner + collaborators in one pass (avoid N+1).
     collab_map = await _load_collaborator_map(db, job_ids)
@@ -308,6 +349,8 @@ async def list_jobs(
             if j.hiring_manager_contact_id
             else None
         )
+        if include_stage_counts:
+            d["stage_breakdown"] = stage_breakdown.get(j.id, {})
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
