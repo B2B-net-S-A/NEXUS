@@ -38,6 +38,22 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   user: "User",
 }
 
+/** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
+ *  per-user trzymana w ``users.allowed_sections`` JSONB. Pusta = brak
+ *  dostępu do raportów. */
+export type DynaReporterSection =
+  | "body-leasing"
+  | "sales"
+  | "delivery-lead"
+  | "placements"
+  | "clients-mrr"
+  | "competitions"
+  | "przetargi"
+  | "board"
+  | "sales-mgmt"
+  | "mindy"
+  | "admin"
+
 interface User {
   id: number
   email: string
@@ -61,6 +77,10 @@ interface User {
    *  Backend czyści flagę po sukcesie self-service change-password. */
   force_password_change: boolean
   force_password_change_at: string | null
+  /** DynaReporter per-module access list (migracja 0111). Pusta lista
+   *  domyślnie — userzy ATS nie mają automatycznie dostępu do raportów
+   *  KPI; admin nadaje sekcję per użytkownik. Backend filter point. */
+  allowed_sections: DynaReporterSection[]
 }
 
 /** Role, które muszą przejść blokujący onboarding po pierwszym logowaniu.
@@ -122,6 +142,20 @@ export function hasMinRole(
   const userRoles = getUserRoles(user)
   const minRank = ROLE_RANK[minRole]
   return userRoles.some((r) => ROLE_RANK[r] >= minRank)
+}
+
+/**
+ * Czy user ma dostęp do danego modułu DynaReportera (migracja 0111).
+ * `admin` Nexusowy automatycznie ma dostęp do wszystkiego (override). Reszta
+ * userów musi mieć sekcję jawnie wpisaną w `allowed_sections` przez admina.
+ */
+export function hasSection(
+  user: Pick<User, "role" | "allowed_sections"> | null | undefined,
+  section: DynaReporterSection
+): boolean {
+  if (!user) return false
+  if (user.role === "admin") return true
+  return (user.allowed_sections ?? []).includes(section)
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────
@@ -212,6 +246,12 @@ function readInitialUser(): User | null {
       // Default to ``[role]`` so legacy sessions evaluate identically.
       if (!Array.isArray(user.roles)) {
         user.roles = [user.role as UserRole]
+      }
+      // Backfill for users cached before allowed_sections existed
+      // (migracja 0111, DynaReporter B.0). Default `[]` — nikt nie dostaje
+      // dostępu do raportów retroaktywnie; admin nadaje sekcje per user.
+      if (!Array.isArray(user.allowed_sections)) {
+        user.allowed_sections = []
       }
       return user as unknown as User
     }

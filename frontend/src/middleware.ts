@@ -30,6 +30,10 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/admin", roles: ["admin"] },
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
   { prefix: "/reports", roles: ["admin", "delivery_lead", "tac"] },
+  // DynaReporter (migracja B.0, 0111): zalogowani; fine-grained access per moduł
+  // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
+  // middleware nie ma dostępu do user object, tylko JWT payload).
+  { prefix: "/dynareporter", roles: null },
   // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
   { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },
