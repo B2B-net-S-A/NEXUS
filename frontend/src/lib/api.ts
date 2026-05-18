@@ -350,7 +350,12 @@ export interface MarketplacePoolMeta {
 
 export const marketplaceApi = {
   getPool: () => api.get<MarketplacePoolMeta>("/api/marketplace/pool"),
-  list: (params?: { page?: number; page_size?: number; q?: string }) =>
+  list: (params?: {
+    page?: number;
+    page_size?: number;
+    q?: string;
+    source_event?: "manual" | "auto_availability";
+  }) =>
     api.get<MarketplaceListResponse>("/api/marketplace/candidates", { params }),
   add: (candidateId: number, body: { marketplace_until?: string } = {}) =>
     api.post(`/api/marketplace/candidates/${candidateId}/add`, body),
