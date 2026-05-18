@@ -48,9 +48,8 @@ async def list_winners(
     period: Optional[str] = Query(default=None),
     limit: int = Query(default=30, ge=1, le=200),
 ) -> list[WinnerResponse]:
-    stmt = (
-        select(DrCompetitionWinner, User.name)
-        .outerjoin(User, User.id == DrCompetitionWinner.user_id)
+    stmt = select(DrCompetitionWinner, User.name).outerjoin(
+        User, User.id == DrCompetitionWinner.user_id
     )
     if competition_type:
         stmt = stmt.where(DrCompetitionWinner.competition_type == competition_type)
@@ -63,8 +62,7 @@ async def list_winners(
     ).limit(limit)
     rows = (await db.execute(stmt)).all()
     return [
-        WinnerResponse.model_validate({**r.__dict__, "user_name": n})
-        for r, n in rows
+        WinnerResponse.model_validate({**r.__dict__, "user_name": n}) for r, n in rows
     ]
 
 
@@ -96,8 +94,7 @@ async def current_podium(
     )
     rows = (await db.execute(stmt)).all()
     return [
-        WinnerResponse.model_validate({**r.__dict__, "user_name": n})
-        for r, n in rows
+        WinnerResponse.model_validate({**r.__dict__, "user_name": n}) for r, n in rows
     ]
 
 
