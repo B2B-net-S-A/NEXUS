@@ -66,6 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/candidates", label: "Kandydaci", icon: Users, badgeKey: "candidates" },
+      { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
       { href: "/talents", label: "Talenty", icon: Star },
       {
         href: "/sourcing/seeking-contractors",
