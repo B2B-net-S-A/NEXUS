@@ -9,8 +9,11 @@ between the two and renders the same prompt section format produced by
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
 
 
 @dataclass
@@ -155,3 +158,105 @@ def build_screening_notes_section(notes: str, language: str) -> str:
         return ""
     header = "SCREENING NOTES" if language == "en" else "NOTATKI ZE SCREENINGU"
     return f"\n\n{header}:\n{notes.strip()}"
+
+
+# ── Regex parser for uploaded Champion DOCX (Old mode) ─────────────────────
+
+
+_MUST_HAVE_RE = re.compile(
+    r"MUST-HAVE:([\s\S]*?)(?=NICE-TO-HAVE:|3\.\s*KONTEKST|$)",
+    re.IGNORECASE,
+)
+_NICE_TO_HAVE_RE = re.compile(
+    r"NICE-TO-HAVE:([\s\S]*?)(?=3\.\s*KONTEKST|$)",
+    re.IGNORECASE,
+)
+_PROJECT_RE = re.compile(
+    r"O projekcie[^:]*:?\s*([\s\S]*?)(?=Obowi[aą]zki|$)",
+    re.IGNORECASE,
+)
+_RESPONSIBILITIES_RE = re.compile(
+    r"Obowi[aą]zki na stanowisku[^:]*:?\s*([\s\S]*?)(?=Co przekona|4\.\s*SCREENING|$)",
+    re.IGNORECASE,
+)
+_SCREENING_RE = re.compile(
+    r"Pytani[ae] od Delivery Lead[\s\S]*?(?=Historyczne pytania|INSIGHT|5\.\s*SUCCESS|$)",
+    re.IGNORECASE,
+)
+_HISTORICAL_RE = re.compile(
+    r"Historyczne pytania[^:]*:?\s*([\s\S]*?)(?=INSIGHT|5\.\s*SUCCESS|$)",
+    re.IGNORECASE,
+)
+_INSIGHT_RE = re.compile(
+    r"INSIGHT OD KONSULTANTA[^:]*:?\s*([\s\S]*?)(?=5\.\s*SUCCESS|$)",
+    re.IGNORECASE,
+)
+
+# Strip leading bullet glyphs / dashes / numbering when normalizing list items.
+_BULLET_STRIP_RE = re.compile(r"^[\s\-•·*]+|[\s\-•·*]+$")
+_ONLY_BULLET_RE = re.compile(r"^[\s\-•·*]+$")
+
+
+def _split_skills(raw: str) -> list[str]:
+    r"""Split MUST-HAVE / NICE-TO-HAVE blob into discrete tech names.
+
+    Splits on newline / comma / semicolon, trims bullets/whitespace, drops
+    empty and pure-bullet fragments. Matches the JS implementation:
+        text.split(/[\n,;]/).map(trim).filter(s => s && !/^[\s\-•]+$/.test(s))
+    """
+    if not raw:
+        return []
+    parts = re.split(r"[\n,;]", raw)
+    out: list[str] = []
+    for p in parts:
+        s = _BULLET_STRIP_RE.sub("", p).strip()
+        if not s or _ONLY_BULLET_RE.match(s):
+            continue
+        out.append(s)
+    return out
+
+
+def parse_champion_from_docx_bytes(
+    data: bytes, filename: str
+) -> ChampionProfileForPrompt:
+    """Parse a Word-format Champion Profile into the flat prompt shape.
+
+    1:1 port of ``extractChampionSections()`` from ``lib/cv-shared.ts`` —
+    reads raw text from the DOCX and runs the same regex layout that the
+    external CV-Generator uses on user-uploaded DOCX templates.
+
+    Used by the "Old" mode (manual upload) path only. The "New" mode uses
+    :func:`from_nexus_job` which reads structured JSONB from ``Job`` directly.
+    """
+    text = extract_text_from_file(data, filename)
+
+    must_match = _MUST_HAVE_RE.search(text)
+    must_have = _split_skills(must_match.group(1).strip()) if must_match else []
+
+    nice_match = _NICE_TO_HAVE_RE.search(text)
+    nice_to_have = _split_skills(nice_match.group(1).strip()) if nice_match else []
+
+    project_match = _PROJECT_RE.search(text)
+    project_context = project_match.group(1).strip() if project_match else ""
+
+    resp_match = _RESPONSIBILITIES_RE.search(text)
+    responsibilities = resp_match.group(1).strip() if resp_match else ""
+
+    screening_match = _SCREENING_RE.search(text)
+    screening_questions = screening_match.group(0).strip() if screening_match else ""
+
+    historical_match = _HISTORICAL_RE.search(text)
+    historical_questions = historical_match.group(1).strip() if historical_match else ""
+
+    insight_match = _INSIGHT_RE.search(text)
+    consultant_insight = insight_match.group(1).strip() if insight_match else ""
+
+    return ChampionProfileForPrompt(
+        must_have=must_have,
+        nice_to_have=nice_to_have,
+        project_context=project_context,
+        responsibilities=responsibilities,
+        screening_questions=screening_questions,
+        historical_questions=historical_questions,
+        consultant_insight=consultant_insight,
+    )
