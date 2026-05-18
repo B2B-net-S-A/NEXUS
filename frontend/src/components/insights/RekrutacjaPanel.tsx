@@ -1,63 +1,35 @@
 "use client";
 
-import { Activity, BarChart3, Clock, AlertTriangle, Target } from "lucide-react";
-
-const PLANNED_SECTIONS = [
-  {
-    title: "Activity heatmap",
-    description: "Aktywność rekruterów × typ aktywności (zastępuje /analytics)",
-    icon: Activity,
-  },
-  {
-    title: "Funnel kandydatów",
-    description: "Konwersja per stage (zastępuje /analytics/pipeline + /reports.Rekrutacja)",
-    icon: BarChart3,
-  },
-  {
-    title: "Time-to-hire",
-    description: "Mediana + P90 per recruiter (180 dni lookback)",
-    icon: Clock,
-  },
-  {
-    title: "SLA Alerts",
-    description: "Kandydaci overdue w pipeline",
-    icon: AlertTriangle,
-  },
-  {
-    title: "Sources funnel",
-    description: "Źródła kandydatów + UTM (zastępuje /reports/sources)",
-    icon: Target,
-  },
-];
+import { useState } from "react";
+import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap";
+import { FunnelSection } from "@/components/insights/sections/FunnelSection";
+import { TimeToHireSection } from "@/components/insights/sections/TimeToHireSection";
+import { SLAAlertsSection } from "@/components/insights/sections/SLAAlertsSection";
+import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
+import { PeriodSelector, type Period } from "@/components/insights/sections/PeriodSelector";
 
 export function RekrutacjaPanel() {
+  const [period, setPeriod] = useState<Period>("month");
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-dashed border-border bg-muted/30 p-6">
-        <p className="text-sm font-medium text-foreground">
-          Tab Rekrutacja — w przygotowaniu (PR 2)
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Aktywność rekruterów, pipeline, time-to-hire i źródła kandydatów.
         </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Planowane sekcje, które trafią do tego widoku:
-        </p>
+        <PeriodSelector value={period} onChange={setPeriod} />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {PLANNED_SECTIONS.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div
-              key={s.title}
-              className="rounded-lg border border-border bg-card p-4"
-            >
-              <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4 text-primary" />
-                <p className="text-sm font-medium text-foreground">{s.title}</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">{s.description}</p>
-            </div>
-          );
-        })}
+
+      <ActivityHeatmap period={period} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <FunnelSection />
+        <TimeToHireSection />
       </div>
+
+      <SLAAlertsSection />
+
+      <SourcesFunnelSection />
     </div>
   );
 }
