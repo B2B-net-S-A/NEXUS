@@ -37,7 +37,12 @@ function daysAgo(iso: string): string {
   return `${diff} dni`;
 }
 
-export function MarketplaceTable() {
+interface MarketplaceTableProps {
+  sourceEvent?: "manual" | "auto_availability";
+  emptyHint?: string;
+}
+
+export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTableProps = {}) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
@@ -45,10 +50,15 @@ export function MarketplaceTable() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["marketplace-candidates", { page, pageSize, q }],
+    queryKey: ["marketplace-candidates", { page, pageSize, q, sourceEvent }],
     queryFn: () =>
       marketplaceApi
-        .list({ page, page_size: pageSize, q: q || undefined })
+        .list({
+          page,
+          page_size: pageSize,
+          q: q || undefined,
+          source_event: sourceEvent,
+        })
         .then((r) => r.data),
   });
 
@@ -96,9 +106,8 @@ export function MarketplaceTable() {
             Brak kandydatów na targu
           </h3>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Dodaj przez profil kandydata („Wrzuć na targ"), albo ustaw
-            availability na „Aktywnie szuka" — auto-sync wciągnie ich tu
-            sam w ciągu 30 minut.
+            {emptyHint ??
+              "Dodaj przez profil kandydata („Wrzuć na targ\"), albo ustaw availability na „Aktywnie szuka\" — auto-sync wciągnie ich tu sam w ciągu 30 minut."}
           </p>
         </div>
       ) : (

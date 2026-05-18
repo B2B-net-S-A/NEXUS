@@ -10,19 +10,15 @@ import {
   FileText,
   Star,
   Calendar,
-  UserSquare2,
   UserCog,
   BarChart3,
   CheckSquare,
-  FileBarChart,
   GitBranch,
   Handshake,
   Heart,
   HelpCircle,
   Lightbulb,
-  Search,
   Settings,
-  Shield,
   Sparkles,
   Store,
   X,
@@ -41,7 +37,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 type BadgeCounts = {
   candidates?: number;
   jobs?: number;
-  contacts?: number;
   pendingVerifications?: number;
 };
 
@@ -69,12 +64,10 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
       { href: "/talents", label: "Talenty", icon: Star },
       {
-        href: "/sourcing/seeking-contractors",
-        label: "Szukają projektu",
-        icon: Search,
+        href: "/sourcing/marketplace",
+        label: "Targ / Dostępni",
+        icon: Store,
       },
-      { href: "/marketplace", label: "Targ", icon: Store },
-      { href: "/contacts", label: "Kontakty", icon: UserSquare2, badgeKey: "contacts" },
     ],
   },
   {
@@ -128,31 +121,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Insights",
     icon: Lightbulb,
     items: [
-      { href: "/analytics", label: "Analityka", icon: BarChart3 },
-      {
-        href: "/analytics/pipeline",
-        label: "Pipeline (AI)",
-        icon: Sparkles,
-        roles: ["admin", "delivery_lead", "tac"],
-      },
-      {
-        href: "/reports",
-        label: "Raporty",
-        icon: FileBarChart,
-        roles: ["admin", "delivery_lead", "tac"],
-      },
-      {
-        href: "/admin/clients-overview",
-        label: "Przegląd klientów",
-        icon: BarChart3,
-        roles: ["admin", "head_of_recruitment"],
-      },
-      {
-        href: "/admin/hiring-managers",
-        label: "Top hiring managers",
-        icon: Users,
-        roles: ["admin", "head_of_recruitment"],
-      },
+      { href: "/insights", label: "Insights", icon: Lightbulb },
     ],
   },
   {
@@ -161,18 +130,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/help", label: "Pomoc", icon: HelpCircle },
       { href: "/settings", label: "Ustawienia", icon: Settings },
-      {
-        href: "/settings/pipeline-templates",
-        label: "Procesy",
-        icon: GitBranch,
-        roles: ["admin", "delivery_lead"],
-      },
-      {
-        href: "/admin",
-        label: "Admin",
-        icon: Shield,
-        roles: ["admin"],
-      },
     ],
   },
 ];
@@ -322,7 +279,6 @@ export function SidebarV2({
           jobsRes.status === "fulfilled"
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ?? 0)
             : 0,
-        contacts: 0,
         pendingVerifications: pendingCount,
       } as BadgeCounts;
     },
