@@ -792,24 +792,6 @@ export default function ClientDetailPage() {
               </div>
 
               <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
-                {client.contact_email && (
-                  <a
-                    href={`mailto:${client.contact_email}`}
-                    className="flex items-center gap-1.5 hover:text-primary transition-colors"
-                  >
-                    <Mail className="w-3.5 h-3.5 text-muted-foreground" />
-                    {client.contact_email}
-                  </a>
-                )}
-                {client.contact_phone && (
-                  <a
-                    href={`tel:${client.contact_phone}`}
-                    className="flex items-center gap-1.5 hover:text-emerald-600 transition-colors"
-                  >
-                    <Phone className="w-3.5 h-3.5 text-muted-foreground" />
-                    {client.contact_phone}
-                  </a>
-                )}
                 {client.website && (
                   <a
                     href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
