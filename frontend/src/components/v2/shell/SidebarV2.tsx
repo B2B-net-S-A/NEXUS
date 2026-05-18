@@ -167,12 +167,6 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["admin", "delivery_lead"],
       },
       {
-        href: "/settings/diagnostics/v2",
-        label: "UI Showcase",
-        icon: Sparkles,
-        roles: ["admin"],
-      },
-      {
         href: "/admin",
         label: "Admin",
         icon: Shield,

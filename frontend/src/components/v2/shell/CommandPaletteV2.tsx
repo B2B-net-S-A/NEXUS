@@ -16,7 +16,6 @@ import {
   Search,
   Settings,
   Shield,
-  Sparkles,
   Star,
   UserSquare2,
   Users,
@@ -213,10 +212,6 @@ export function CommandPaletteV2({
           <CommandItem onSelect={() => go("/settings")}>
             <Mail className="h-4 w-4" />
             Szablony email
-          </CommandItem>
-          <CommandItem onSelect={() => go("/settings/diagnostics/v2")}>
-            <Sparkles className="h-4 w-4" />
-            UI Showcase (v2)
           </CommandItem>
         </CommandGroup>
 
