@@ -29,7 +29,11 @@ from app.models.user import User, UserRole
 router = APIRouter()
 
 ALLOWED_FILE_TYPES = {
-    "body_leasing", "sales", "finances", "mrr_monthly", "sales_weekly",
+    "body_leasing",
+    "sales",
+    "finances",
+    "mrr_monthly",
+    "sales_weekly",
 }
 
 
@@ -60,11 +64,12 @@ async def list_history(
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[UploadHistoryResponse]:
     is_priv = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
-    stmt = (
-        select(DrUploadHistory, User.name)
-        .outerjoin(User, User.id == DrUploadHistory.uploaded_by)
+    stmt = select(DrUploadHistory, User.name).outerjoin(
+        User, User.id == DrUploadHistory.uploaded_by
     )
     if not is_priv:
         stmt = stmt.where(DrUploadHistory.uploaded_by == current_user.id)
@@ -87,7 +92,9 @@ async def upload_excel(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
-    file_type: str = Query(..., description="body_leasing | sales | finances | mrr_monthly | sales_weekly"),
+    file_type: str = Query(
+        ..., description="body_leasing | sales | finances | mrr_monthly | sales_weekly"
+    ),
 ) -> UploadResultResponse:
     """Audit upload — XLSX parsing TODO.
 

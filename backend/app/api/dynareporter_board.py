@@ -60,7 +60,11 @@ async def list_months(
 
     out: list[BoardMonthlyResponse] = []
     for r in reports:
-        profit = (r.revenue or Decimal(0)) - (r.consultant_costs or Decimal(0)) - (r.other_costs or Decimal(0))
+        profit = (
+            (r.revenue or Decimal(0))
+            - (r.consultant_costs or Decimal(0))
+            - (r.other_costs or Decimal(0))
+        )
         out.append(
             BoardMonthlyResponse(
                 report_month=r.report_month,
@@ -93,13 +97,21 @@ async def latest_month(
     if r is None:
         return None
     pbc = (
-        await db.execute(
-            select(DrBoardPlacementClient).where(
-                DrBoardPlacementClient.report_month == r.report_month
+        (
+            await db.execute(
+                select(DrBoardPlacementClient).where(
+                    DrBoardPlacementClient.report_month == r.report_month
+                )
             )
         )
-    ).scalars().all()
-    profit = (r.revenue or Decimal(0)) - (r.consultant_costs or Decimal(0)) - (r.other_costs or Decimal(0))
+        .scalars()
+        .all()
+    )
+    profit = (
+        (r.revenue or Decimal(0))
+        - (r.consultant_costs or Decimal(0))
+        - (r.other_costs or Decimal(0))
+    )
     return BoardMonthlyResponse(
         report_month=r.report_month,
         revenue=r.revenue or Decimal(0),
