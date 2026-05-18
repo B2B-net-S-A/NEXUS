@@ -12,7 +12,7 @@ bcrypt==4.0.1
 httpx==0.28.1
 voyageai==0.3.2
 qdrant-client==1.12.1
-anthropic==0.39.0
+anthropic>=0.40,<1.0
 pdfminer.six==20231228
 pdfplumber==0.11.4
 pytesseract==0.3.13
