@@ -166,7 +166,9 @@ async def upsert(
     )
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
+)
 async def delete_entry(
     entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
