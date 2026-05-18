@@ -33,7 +33,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("""
+    # Split SQL into individual statements — asyncpg backend nie obsługuje
+    # multiple commands w single prepared statement. Każdy stmt osobno.
+    sql_block = """
         CREATE TABLE public.dr_about_calendar (
             id integer NOT NULL,
             title character varying(255) NOT NULL,
@@ -1458,9 +1460,12 @@ def upgrade() -> None:
             ADD CONSTRAINT dr_tac_linkedin_farming_tac_user_id_fkey FOREIGN KEY (tac_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
         ALTER TABLE ONLY public.dr_upload_history
             ADD CONSTRAINT dr_upload_history_uploaded_by_fkey FOREIGN KEY (uploaded_by) REFERENCES public.users(id);
-        ALTER TABLE ONLY public.users
-            ADD CONSTRAINT users_manager_id_fkey FOREIGN KEY (manager_id) REFERENCES public.users(id);
-""")
+"""
+    # Split na osobne statements (asyncpg constraint). Drop empty / whitespace.
+    for stmt in sql_block.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            op.execute(stmt)
 
 
 def downgrade() -> None:
