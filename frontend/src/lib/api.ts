@@ -3340,4 +3340,24 @@ export const cloudtalkApi = {
       .then((r) => r.data),
 };
 
+// ── DynaReporter (Faza B.1, migracja 0111+0112) ─────────────────────────────
+// API client dla migracji DynaReportera. B.1 = tylko profile endpoint
+// (walidacja wzorca). Kolejne moduły (KPI BL, Sales, Liga, etc.) w B.2.
+
+export interface DynaReporterProfile {
+  user_id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  allowed_sections: string[];
+  dynareporter_legacy_id: number | null;
+}
+
+export const dynareporterApi = {
+  profile: () =>
+    api
+      .get<DynaReporterProfile>("/api/dynareporter/profile/me")
+      .then((r) => r.data),
+};
+
 export default api;

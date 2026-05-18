@@ -142,6 +142,13 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["admin", "delivery_lead", "tac"],
       },
       {
+        // DynaReporter (migracja B.0 + B.1, 0111+0112). Fine-grained access
+        // per moduł sprawdzany w komponencie przez `hasSection()`.
+        href: "/dynareporter",
+        label: "Raporty KPI",
+        icon: BarChart3,
+      },
+      {
         href: "/admin/clients-overview",
         label: "Przegląd klientów",
         icon: BarChart3,
