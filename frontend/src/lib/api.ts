@@ -350,7 +350,12 @@ export interface MarketplacePoolMeta {
 
 export const marketplaceApi = {
   getPool: () => api.get<MarketplacePoolMeta>("/api/marketplace/pool"),
-  list: (params?: { page?: number; page_size?: number; q?: string }) =>
+  list: (params?: {
+    page?: number;
+    page_size?: number;
+    q?: string;
+    source_event?: "manual" | "auto_availability";
+  }) =>
     api.get<MarketplaceListResponse>("/api/marketplace/candidates", { params }),
   add: (candidateId: number, body: { marketplace_until?: string } = {}) =>
     api.post(`/api/marketplace/candidates/${candidateId}/add`, body),
@@ -1094,6 +1099,10 @@ export const pipelineApi = {
   listPendingVerifications: (jobId?: number) =>
     api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
       params: jobId !== undefined ? { job_id: jobId } : undefined,
+    }),
+  listMyPendingVerifications: () =>
+    api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
+      params: { mine: true },
     }),
   acceptVerification: (candidateStageId: number) =>
     api.post(`/api/pipeline/${candidateStageId}/accept-verification`),

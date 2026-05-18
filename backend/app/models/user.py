@@ -142,7 +142,7 @@ class User(Base, TimestampMixin):
         Integer, unique=True, nullable=True, index=True
     )
 
-    # ── DynaReporter migration (Phase B.0, migracja 0111) ───────────────────
+    # ── DynaReporter migration (Phase B.0, migracja 0112) ───────────────────
     # Lista identyfikatorów modułów DynaReportera do których user ma dostęp:
     # ``body-leasing``, ``sales``, ``delivery-lead``, ``placements``,
     # ``clients-mrr``, ``competitions``, ``przetargi``, ``board``,
