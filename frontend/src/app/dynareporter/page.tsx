@@ -55,7 +55,7 @@ const MODULES: ModuleCard[] = [
     label: "Klienci + MRR",
     description: "Konsultanci u klientów + miesięczny MRR + finanse",
     href: "/dynareporter/clients-mrr",
-    enabled: false,
+    enabled: true, // B.2.5 deployed
   },
   {
     section: "competitions",
