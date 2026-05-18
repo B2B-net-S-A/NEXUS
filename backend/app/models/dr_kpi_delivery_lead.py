@@ -47,13 +47,16 @@ class DrKpiDeliveryLead(Base):
         DateTime, server_default=func.current_timestamp(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(),
-        onupdate=func.current_timestamp(), nullable=False,
+        DateTime,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+        nullable=False,
     )
 
     __table_args__ = (
         UniqueConstraint(
-            "user_id", "report_month",
+            "user_id",
+            "report_month",
             name="dr_kpi_delivery_lead_user_id_report_month_key",
         ),
     )

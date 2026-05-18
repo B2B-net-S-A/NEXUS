@@ -25,7 +25,9 @@ router = APIRouter()
 
 def _check_admin_or_self(current_user: User, target_user_id: int) -> None:
     is_admin = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
     if not is_admin and current_user.id != target_user_id:
         raise HTTPException(status_code=403, detail="Tylko swoje wpisy")
@@ -43,11 +45,17 @@ async def list_my_entries(
         stmt = stmt.where(DrKpiSales.report_date >= from_date)
     if to_date:
         stmt = stmt.where(DrKpiSales.report_date <= to_date)
-    rows = (await db.execute(stmt.order_by(DrKpiSales.report_date.desc()))).scalars().all()
+    rows = (
+        (await db.execute(stmt.order_by(DrKpiSales.report_date.desc()))).scalars().all()
+    )
     return [
-        DrKpiSalesResponse.model_validate({
-            **r.__dict__, "user_name": current_user.name, "user_email": current_user.email
-        })
+        DrKpiSalesResponse.model_validate(
+            {
+                **r.__dict__,
+                "user_name": current_user.name,
+                "user_email": current_user.email,
+            }
+        )
         for r in rows
     ]
 
@@ -61,9 +69,13 @@ async def list_all_entries(
     to_date: Optional[date] = Query(default=None),
 ) -> list[DrKpiSalesResponse]:
     is_priv = current_user.role in (
-        UserRole.admin, UserRole.delivery_lead, UserRole.head_of_recruitment
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
     )
-    stmt = select(DrKpiSales, User.name, User.email).join(User, User.id == DrKpiSales.user_id)
+    stmt = select(DrKpiSales, User.name, User.email).join(
+        User, User.id == DrKpiSales.user_id
+    )
     if user_id:
         if not is_priv and user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Brak dostępu do cudzych")
@@ -76,7 +88,9 @@ async def list_all_entries(
         stmt = stmt.where(DrKpiSales.report_date <= to_date)
     rows = (await db.execute(stmt.order_by(DrKpiSales.report_date.desc()))).all()
     return [
-        DrKpiSalesResponse.model_validate({**r.__dict__, "user_name": n, "user_email": e})
+        DrKpiSalesResponse.model_validate(
+            {**r.__dict__, "user_name": n, "user_email": e}
+        )
         for r, n, e in rows
     ]
 
@@ -102,19 +116,26 @@ async def get_summary(
         func.coalesce(func.sum(DrKpiSales.offers_lost), 0),
         func.coalesce(func.sum(DrKpiSales.days_worked), 0),
         func.count(DrKpiSales.id),
-    ).where(and_(
-        DrKpiSales.user_id == target_uid,
-        DrKpiSales.report_date >= from_d,
-        DrKpiSales.report_date <= today,
-    ))
+    ).where(
+        and_(
+            DrKpiSales.user_id == target_uid,
+            DrKpiSales.report_date >= from_d,
+            DrKpiSales.report_date <= today,
+        )
+    )
     row = (await db.execute(stmt)).first()
     won, lost = row[2] or 0, row[3] or 0
     win_rate = won / (won + lost) if (won + lost) > 0 else 0.0
     return DrKpiSalesSummary(
-        period=period, from_date=from_d, to_date=today,
-        total_leads=row[0] or 0, total_offers_sent=row[1] or 0,
-        total_offers_won=won, total_offers_lost=lost,
-        total_days_worked=row[4] or 0, entries_count=row[5] or 0,
+        period=period,
+        from_date=from_d,
+        to_date=today,
+        total_leads=row[0] or 0,
+        total_offers_sent=row[1] or 0,
+        total_offers_won=won,
+        total_offers_lost=lost,
+        total_days_worked=row[4] or 0,
+        entries_count=row[5] or 0,
         win_rate=round(win_rate, 3),
     )
 
@@ -150,7 +171,9 @@ async def upsert_entry(
 async def delete_entry(
     entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> None:
-    row = (await db.execute(select(DrKpiSales).where(DrKpiSales.id == entry_id))).scalar_one_or_none()
+    row = (
+        await db.execute(select(DrKpiSales).where(DrKpiSales.id == entry_id))
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Wpis nie znaleziony")
     _check_admin_or_self(current_user, row.user_id)

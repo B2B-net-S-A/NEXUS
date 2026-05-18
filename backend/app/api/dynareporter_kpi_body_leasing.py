@@ -79,7 +79,11 @@ async def list_my_entries(
     rows = result.scalars().all()
     return [
         DrKpiBodyLeasingResponse.model_validate(
-            {**row.__dict__, "user_name": current_user.name, "user_email": current_user.email}
+            {
+                **row.__dict__,
+                "user_name": current_user.name,
+                "user_email": current_user.email,
+            }
         )
         for row in rows
     ]
@@ -110,9 +114,8 @@ async def list_all_entries(
             detail="Brak uprawnień do widoku cudzych wpisów",
         )
 
-    stmt = (
-        select(DrKpiBodyLeasing, User.name, User.email)
-        .join(User, User.id == DrKpiBodyLeasing.user_id)
+    stmt = select(DrKpiBodyLeasing, User.name, User.email).join(
+        User, User.id == DrKpiBodyLeasing.user_id
     )
     if user_id:
         stmt = stmt.where(DrKpiBodyLeasing.user_id == user_id)
@@ -260,7 +263,9 @@ async def upsert_entry(
     payload: DrKpiBodyLeasingCreate,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    user_id: Optional[int] = Query(default=None, description="Target user (admin only)"),
+    user_id: Optional[int] = Query(
+        default=None, description="Target user (admin only)"
+    ),
 ) -> DrKpiBodyLeasingResponse:
     """UPSERT — jeśli wpis dla (user, week) istnieje, nadpisuje counters.
 
