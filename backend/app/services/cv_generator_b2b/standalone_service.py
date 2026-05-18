@@ -34,9 +34,11 @@ from app.services.cv_generator_b2b.ai_client import (
     analyze_with_ai,
 )
 from app.services.cv_generator_b2b.champion_builder import (
+    ChampionProfileForPrompt,
     build_champion_section,
     build_screening_notes_section,
     from_nexus_job,
+    parse_champion_from_docx_bytes,
 )
 from app.services.cv_generator_b2b.docx_renderer import render_cv_to_bytes
 from app.services.cv_generator_b2b.prompts import get_prompt
@@ -68,12 +70,31 @@ class StandaloneGenerationError(RuntimeError):
         - 'extraction_failed'     → 502
         - 'ai_failed'             → 502
         - 'render_failed'         → 500
+        - 'invalid_input'         → 400
     """
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+@dataclass(frozen=True)
+class UploadGenerationInput:
+    """Inputs for the manual-upload (Old) generation mode.
+
+    Mirrors the request body of external CV-Generator ``POST /api/v1/generate``:
+    a CV file (required), optional champion DOCX, optional screening notes,
+    language and blind toggle. No DB access — orchestrator stays sync.
+    """
+
+    cv_bytes: bytes
+    cv_filename: str
+    language: Language = "pl"
+    blind_cv: bool = False
+    screening_notes: str = ""
+    champion_bytes: bytes | None = None
+    champion_filename: str | None = None
 
 
 @dataclass(frozen=True)
@@ -500,10 +521,196 @@ async def generate_cv_for_candidate(
     )
 
 
+# ── Old mode: manual upload (1:1 with external CV-Generator) ──────────────
+
+
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB, matches external API.md
+_ALLOWED_CV_EXT = {".pdf", ".docx", ".doc"}
+_ALLOWED_CHAMPION_EXT = {".docx", ".doc"}
+
+
+def _validate_upload(
+    data: bytes, filename: str, *, allowed_ext: set[str], label: str
+) -> None:
+    if not data:
+        raise StandaloneGenerationError(
+            code="invalid_input",
+            message=f"{label}: plik jest pusty.",
+        )
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise StandaloneGenerationError(
+            code="invalid_input",
+            message=(
+                f"{label}: plik za duży ({len(data) // 1024 // 1024} MB). "
+                f"Maksymalny rozmiar to {_MAX_UPLOAD_BYTES // 1024 // 1024} MB."
+            ),
+        )
+    ext = Path(filename).suffix.lower()
+    if ext not in allowed_ext:
+        allowed_str = ", ".join(sorted(allowed_ext))
+        raise StandaloneGenerationError(
+            code="invalid_input",
+            message=f"{label}: nieobsługiwane rozszerzenie '{ext}'. Dozwolone: {allowed_str}",
+        )
+
+
+def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult:
+    """Generate the B2B CV from user-uploaded files (Old mode).
+
+    1:1 port of the external CV-Generator ``POST /api/v1/generate`` flow:
+    re-extracts CV text via :func:`extract_text_from_file`, optionally parses
+    a champion DOCX via :func:`parse_champion_from_docx_bytes`, builds the
+    same screening + champion sections, calls Claude through
+    :func:`analyze_with_ai`, then renders via :func:`render_cv_to_bytes`.
+
+    Synchronous on purpose — touches no DB. Wrap in ``run_in_threadpool`` at
+    the route layer so FastAPI doesn't block the event loop on the Claude
+    call.
+    """
+    request_id = f"cvgen_upload_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    started_at = time.time()
+
+    _validate_upload(
+        payload.cv_bytes,
+        payload.cv_filename,
+        allowed_ext=_ALLOWED_CV_EXT,
+        label="CV",
+    )
+
+    if payload.champion_bytes is not None:
+        if not payload.champion_filename:
+            raise StandaloneGenerationError(
+                code="invalid_input",
+                message="Profil Championa: filename jest wymagany gdy plik przesłany.",
+            )
+        _validate_upload(
+            payload.champion_bytes,
+            payload.champion_filename,
+            allowed_ext=_ALLOWED_CHAMPION_EXT,
+            label="Profil Championa",
+        )
+
+    # ── 1. Extract CV text ──────────────────────────────────────────────
+    try:
+        cv_text = extract_text_from_file(payload.cv_bytes, payload.cv_filename)
+    except CVTextExtractionError as err:
+        raise StandaloneGenerationError(
+            code="extraction_failed",
+            message=f"Nie udało się odczytać tekstu z CV: {err}",
+        ) from err
+
+    # ── 2. Optional champion ────────────────────────────────────────────
+    champion_dto: ChampionProfileForPrompt | None = None
+    if payload.champion_bytes is not None and payload.champion_filename is not None:
+        try:
+            champion_dto = parse_champion_from_docx_bytes(
+                payload.champion_bytes, payload.champion_filename
+            )
+        except CVTextExtractionError as err:
+            raise StandaloneGenerationError(
+                code="extraction_failed",
+                message=f"Nie udało się odczytać Profilu Championa: {err}",
+            ) from err
+
+    # ── 3. Build prompt ─────────────────────────────────────────────────
+    base_prompt = get_prompt(payload.language)
+    screening_section = build_screening_notes_section(
+        payload.screening_notes or "", payload.language
+    )
+    champion_section = (
+        build_champion_section(champion_dto, payload.language) if champion_dto else ""
+    )
+
+    full_content = f"{base_prompt}\n\nCV do analizy:\n\n{cv_text}{screening_section}{champion_section}"
+
+    logger.info(
+        "[cv_b2b][%s] Upload mode prompt: cv_chars=%d, notes_chars=%d, "
+        "champion=%s, lang=%s, blind=%s",
+        request_id,
+        len(cv_text),
+        len(payload.screening_notes or ""),
+        "yes" if champion_dto else "no",
+        payload.language,
+        payload.blind_cv,
+    )
+
+    # ── 4. Claude call ──────────────────────────────────────────────────
+    try:
+        response_text = analyze_with_ai(full_content, request_id)
+    except CVGeneratorAIError as err:
+        raise StandaloneGenerationError(
+            code="ai_failed",
+            message=f"Claude wywołanie nieudane: {err}",
+        ) from err
+
+    cleaned = response_text.strip()
+    cleaned = re.sub(r"```json\n?", "", cleaned)
+    cleaned = re.sub(r"```\n?", "", cleaned).strip()
+
+    try:
+        candidate_data = json.loads(cleaned)
+    except json.JSONDecodeError as err:
+        logger.error(
+            "[cv_b2b][%s] Claude returned non-JSON (first 200 chars): %r",
+            request_id,
+            cleaned[:200],
+        )
+        raise StandaloneGenerationError(
+            code="ai_failed",
+            message=f"Claude zwrócił niepoprawny JSON: {err}",
+        ) from err
+
+    candidate_data["language"] = payload.language
+    candidate_data["blind_cv"] = payload.blind_cv
+
+    if champion_dto and champion_dto.must_have:
+        candidate_data["highlight_keywords"] = [
+            kw for kw in champion_dto.must_have if kw and kw.strip()
+        ]
+
+    # ── 5. Render DOCX ──────────────────────────────────────────────────
+    try:
+        docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
+    except Exception as err:  # noqa: BLE001
+        logger.exception("[cv_b2b][%s] DOCX render failed: %s", request_id, err)
+        raise StandaloneGenerationError(
+            code="render_failed",
+            message=f"Renderowanie DOCX nie powiodło się: {err}",
+        ) from err
+
+    candidate_name = str(candidate_data.get("name") or "Kandydat")
+    sanitized_name = _sanitize_for_filename(candidate_name)
+    filename = f"CV_B2B_{sanitized_name}.docx"
+
+    duration_ms = int((time.time() - started_at) * 1000)
+    warnings_raw = candidate_data.get("warnings") or []
+    warnings = [str(w) for w in warnings_raw if w]
+
+    logger.info(
+        "[cv_b2b][%s] Upload OK candidate=%s lang=%s blind=%s warnings=%d duration_ms=%d",
+        request_id,
+        candidate_name,
+        payload.language,
+        payload.blind_cv,
+        len(warnings),
+        duration_ms,
+    )
+
+    return GenerationResult(
+        candidate_name=candidate_name,
+        filename=filename,
+        docx_bytes=docx_bytes,
+        warnings=warnings,
+        processing_time_ms=duration_ms,
+    )
+
+
 __all__ = [
     "StandaloneGenerationError",
     "GenerationResult",
     "RecruitmentReadiness",
+    "UploadGenerationInput",
     "generate_cv_for_candidate",
+    "generate_cv_from_uploads",
     "list_recruitments_with_readiness",
 ]
