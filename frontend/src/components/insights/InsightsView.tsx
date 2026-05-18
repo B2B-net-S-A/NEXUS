@@ -25,7 +25,7 @@ const TABS: TabDef[] = [
     id: "klienci",
     label: "Klienci & Delivery",
     icon: Building2,
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   },
   {
     id: "zarzad",
