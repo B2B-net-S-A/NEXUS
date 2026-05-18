@@ -14,7 +14,6 @@ import {
   UserCog,
   BarChart3,
   CheckSquare,
-  FileBarChart,
   GitBranch,
   Handshake,
   Heart,
@@ -126,31 +125,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Insights",
     icon: Lightbulb,
     items: [
-      { href: "/analytics", label: "Analityka", icon: BarChart3 },
-      {
-        href: "/analytics/pipeline",
-        label: "Pipeline (AI)",
-        icon: Sparkles,
-        roles: ["admin", "delivery_lead", "tac"],
-      },
-      {
-        href: "/reports",
-        label: "Raporty",
-        icon: FileBarChart,
-        roles: ["admin", "delivery_lead", "tac"],
-      },
-      {
-        href: "/admin/clients-overview",
-        label: "Przegląd klientów",
-        icon: BarChart3,
-        roles: ["admin", "head_of_recruitment"],
-      },
-      {
-        href: "/admin/hiring-managers",
-        label: "Top hiring managers",
-        icon: Users,
-        roles: ["admin", "head_of_recruitment"],
-      },
+      { href: "/insights", label: "Insights", icon: Lightbulb },
     ],
   },
   {

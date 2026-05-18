@@ -40,6 +40,7 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/calendar", roles: null },
   { prefix: "/profile", roles: null },
   { prefix: "/analytics", roles: null },
+  { prefix: "/insights", roles: null },
   { prefix: "/settings", roles: null },
 ]
 
