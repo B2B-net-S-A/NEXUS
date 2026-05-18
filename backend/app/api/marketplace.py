@@ -149,11 +149,21 @@ async def list_candidates(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     q: Optional[str] = Query(None, description="Szukaj po imieniu/nazwisku/email"),
+    source_event: Optional[str] = Query(
+        None,
+        description=(
+            "Filtruj po źródle wpisu: 'manual' (ręczny wrzut z TTL), "
+            "'auto_availability' (auto-sync z availability_status). "
+            "Pomiń żeby dostać wszystkie."
+        ),
+    ),
 ):
     """Paginowana lista kandydatów w targu."""
     limit = page_size
     offset = (page - 1) * page_size
-    rows, total = await list_marketplace_candidates(db, limit=limit, offset=offset, q=q)
+    rows, total = await list_marketplace_candidates(
+        db, limit=limit, offset=offset, q=q, source_event=source_event
+    )
     await db.commit()
 
     # Hydratacja ownerów

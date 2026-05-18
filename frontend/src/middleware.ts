@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 type UserRole =
   | "admin"
+  | "head_of_recruitment"
   | "delivery_lead"
   | "tac"
   | "recruiter"
@@ -27,23 +28,29 @@ const COOKIE_NAME = "nexus_access"
 // Kolejność prefixów nie ma znaczenia — dopasowywany jest pierwszy prefix
 // który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
 const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
-  { prefix: "/admin", roles: ["admin"] },
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
   { prefix: "/reports", roles: ["admin", "delivery_lead", "tac"] },
-  // DynaReporter (migracja B.0, 0111): zalogowani; fine-grained access per moduł
+  // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).
   { prefix: "/dynareporter", roles: null },
+  // Granular admin-only podstrony settings (defense in depth) — kolejność nie ma
+  // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
+  { prefix: "/settings/chats", roles: ["admin"] },
+  { prefix: "/settings/team-structure", roles: ["admin"] },
+  { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
+  { prefix: "/settings/clients-overview", roles: ["admin", "head_of_recruitment"] },
+  { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
   // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
   { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },
   { prefix: "/contracts", roles: null },
-  { prefix: "/contacts", roles: null },
   { prefix: "/clients", roles: null },
   { prefix: "/talents", roles: null },
   { prefix: "/calendar", roles: null },
   { prefix: "/profile", roles: null },
   { prefix: "/analytics", roles: null },
+  { prefix: "/insights", roles: null },
   { prefix: "/settings", roles: null },
 ]
 
