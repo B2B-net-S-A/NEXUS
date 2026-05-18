@@ -1,7 +1,7 @@
 """DynaReporter B.0 — rozszerzenie tabeli users o allowed_sections + legacy id.
 
-Revision ID: 0111_dynareporter_user_extensions
-Revises: 0110_users_multi_role
+Revision ID: 0112_dynareporter_user_extensions
+Revises: 0111_drop_legacy_client_contact
 Create Date: 2026-05-18 12:00:00.000000
 
 Phase B.0 of the DynaReporter migration plan
@@ -33,8 +33,8 @@ i stop reading the column.
 from alembic import op
 
 
-revision = "0111_dynareporter_user_extensions"
-down_revision = "0110_users_multi_role"
+revision = "0112_dynareporter_user_extensions"
+down_revision = "0111_drop_legacy_client_contact"
 branch_labels = None
 depends_on = None
 

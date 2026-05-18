@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from app.models.client import ClientStatus
 
@@ -11,9 +11,6 @@ class ClientCreate(BaseModel):
     industry: Optional[str] = None
     website: Optional[str] = None
     address: Optional[str] = None
-    contact_person: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
-    contact_phone: Optional[str] = None
     status: ClientStatus = ClientStatus.prospect
     nda_signed: bool = False
     contract_type: Optional[str] = None
@@ -28,9 +25,6 @@ class ClientUpdate(BaseModel):
     industry: Optional[str] = None
     website: Optional[str] = None
     address: Optional[str] = None
-    contact_person: Optional[str] = None
-    contact_email: Optional[EmailStr] = None
-    contact_phone: Optional[str] = None
     status: Optional[ClientStatus] = None
     nda_signed: Optional[bool] = None
     contract_type: Optional[str] = None
@@ -46,9 +40,6 @@ class ClientResponse(BaseModel):
     industry: Optional[str]
     website: Optional[str]
     address: Optional[str]
-    contact_person: Optional[str]
-    contact_email: Optional[str]
-    contact_phone: Optional[str]
     status: ClientStatus
     nda_signed: bool
     contract_type: Optional[str]
