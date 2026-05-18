@@ -24,6 +24,10 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: UserRole
+    # Multi-role (migracja 0110). Primary role lives in ``role``; the full
+    # set — including any secondary roles granted via AAD RBAC or admin —
+    # lives here. Frontend should prefer ``roles`` for permission checks.
+    roles: list[UserRole] = []
     is_active: bool
     profile_completed: bool = False
     profile_completed_at: Optional[datetime] = None

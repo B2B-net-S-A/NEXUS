@@ -328,6 +328,7 @@ async def callback(
             name=name,
             password_hash=None,  # SSO-only — no bcrypt hash.
             role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
             is_active=True,
             profile_completed=False,
             oauth_provider="microsoft",
@@ -381,7 +382,7 @@ async def callback(
     if settings.AAD_GROUP_RBAC_ENABLED:
         from app.services.m365.aad_groups import (
             fetch_user_groups,
-            map_groups_to_role,
+            map_groups_to_roles,
         )
 
         if not graph_access_token:
@@ -415,13 +416,13 @@ async def callback(
                 status_code=302,
             )
 
-        role_str = map_groups_to_role([g["id"] for g in groups], mapping)
+        role_strs = map_groups_to_roles([g["id"] for g in groups], mapping)
         # Snapshot ALL group memberships (not just the matched one) — used
         # later by admin audit and the resync endpoint, which only needs to
         # re-evaluate the mapping against already-stored ids.
         user.aad_group_ids = groups
 
-        if role_str is None:
+        if not role_strs:
             # No NEXUS role granted by any AAD group → block login.
             # We also flip is_active=false so subsequent password-based
             # login attempts (if any password_hash still exists) also fail.
@@ -449,9 +450,11 @@ async def callback(
                 status_code=302,
             )
 
-        # Role granted. Re-activate if previously disabled — AAD is now the
-        # source of truth. Only audit role transitions, not no-ops.
-        new_role = UserRole(role_str)
+        # Multi-role assignment (migracja 0110): first match is primary
+        # (writes ``users.role`` for legacy code), full ordered list is
+        # written to ``users.roles``. Only audit primary-role transitions.
+        new_role = UserRole(role_strs[0])
+        prior_roles = list(user.roles or [])
         if user.role != new_role:
             db.add(
                 Activity(
@@ -465,10 +468,26 @@ async def callback(
                         if hasattr(user.role, "value")
                         else str(user.role),
                         "to": new_role.value,
+                        "all_roles": role_strs,
                     },
                 )
             )
             user.role = new_role
+        if prior_roles != role_strs:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_aad_roles_updated",
+                    user_id=user.id,
+                    details={
+                        "email": email_lower,
+                        "from": prior_roles,
+                        "to": role_strs,
+                    },
+                )
+            )
+            user.roles = role_strs
         user.is_active = True
 
     await db.flush()

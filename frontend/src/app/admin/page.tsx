@@ -17,6 +17,8 @@ interface AdminUser {
   email: string;
   name: string;
   role: string;
+  /** Multi-role (migracja 0110). Lista wszystkich ról użytkownika. */
+  roles?: string[];
   recruiter_role: string | null;
   is_active: boolean;
   activity_count: number;
@@ -29,17 +31,34 @@ interface UserFormData {
   email: string;
   password: string;
   role: string;
+  /** Multi-role (migracja 0110). Lista ról secondary + primary. */
+  roles: string[];
   recruiter_role: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ROLES = ["admin", "recruiter", "manager", "client"];
+// Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).
+const ROLES = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+];
 const RECRUITER_ROLES = ["", "recruiter", "sourcer", "tac", "delivery_lead", "quality_control", "admin"];
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
+  head_of_recruitment: "Head of Recruitment",
+  delivery_lead: "Delivery Lead",
+  tac: "TAC",
   recruiter: "Rekruter",
+  sourcer: "Sourcer",
+  user: "Viewer",
+  // legacy fallbacks z poprzednich wersji
   manager: "Manager",
   client: "Klient",
 };
@@ -76,16 +95,41 @@ interface UserModalProps {
 
 function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
   const isEdit = !!initial?.id;
+  const initialRoles =
+    initial?.roles && initial.roles.length > 0
+      ? initial.roles
+      : initial?.role
+        ? [initial.role]
+        : ["recruiter"];
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",
     password: "",
     role: initial?.role ?? "recruiter",
+    roles: initialRoles,
     recruiter_role: initial?.recruiter_role ?? "",
   });
 
-  const set = (field: keyof UserFormData, value: string) =>
+  const set = <K extends keyof UserFormData>(field: K, value: UserFormData[K]) =>
     setForm((f) => ({ ...f, [field]: value }));
+
+  const toggleSecondaryRole = (role: string) => {
+    setForm((f) => {
+      const has = f.roles.includes(role);
+      const next = has ? f.roles.filter((r) => r !== role) : [...f.roles, role];
+      // Primary role must always remain in the list.
+      if (!next.includes(f.role)) next.unshift(f.role);
+      return { ...f, roles: next };
+    });
+  };
+
+  // When primary role changes, make sure it's included in roles[].
+  useEffect(() => {
+    setForm((f) => {
+      if (f.roles.includes(f.role)) return f;
+      return { ...f, roles: [f.role, ...f.roles] };
+    });
+  }, [form.role]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -138,7 +182,7 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Rola systemowa</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Rola podstawowa (primary)</label>
             <select
               value={form.role}
               onChange={(e) => set("role", e.target.value)}
@@ -148,10 +192,46 @@ function UserModal({ initial, onClose, onSave, loading }: UserModalProps) {
                 <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
               ))}
             </select>
+            <p className="text-xs text-muted-foreground mt-1">
+              Określa domyślny widok dashboardu i wpisana jest do tokenu JWT.
+            </p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Dodatkowe role</label>
+            <div className="space-y-1.5 border border-border rounded-lg px-3 py-2 max-h-44 overflow-y-auto">
+              {ROLES.map((r) => {
+                const isPrimary = r === form.role;
+                const checked = form.roles.includes(r);
+                return (
+                  <label
+                    key={r}
+                    className={cn(
+                      "flex items-center gap-2 text-sm",
+                      isPrimary && "text-muted-foreground italic"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked || isPrimary}
+                      disabled={isPrimary}
+                      onChange={() => toggleSecondaryRole(r)}
+                      className="rounded border-border"
+                    />
+                    <span>{ROLE_LABELS[r] ?? r}</span>
+                    {isPrimary && <span className="text-xs">(primary)</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Hybrid usery (np. DL+TAC) zaznacz obie role. Primary jest zawsze
+              wybrana.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna (legacy)</label>
             <select
               value={form.recruiter_role}
               onChange={(e) => set("recruiter_role", e.target.value)}
@@ -855,6 +935,7 @@ export default function AdminPage() {
     mutationFn: (data: UserFormData) =>
       adminApi.createUser({
         ...data,
+        roles: data.roles,
         recruiter_role: data.recruiter_role || null,
       }),
     onSuccess: () => {
@@ -867,6 +948,7 @@ export default function AdminPage() {
     mutationFn: ({ id, data }: { id: number; data: Partial<UserFormData> }) =>
       adminApi.updateUser(id, {
         ...data,
+        roles: data.roles,
         recruiter_role: data.recruiter_role || null,
       }),
     onSuccess: () => {
@@ -913,7 +995,12 @@ export default function AdminPage() {
     } else if (modal === "edit" && selectedUser) {
       updateMutation.mutate({
         id: selectedUser.id,
-        data: { name: data.name, role: data.role, recruiter_role: data.recruiter_role },
+        data: {
+          name: data.name,
+          role: data.role,
+          roles: data.roles,
+          recruiter_role: data.recruiter_role,
+        },
       });
     }
   };
@@ -988,9 +1075,25 @@ export default function AdminPage() {
                     <td className="px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">{u.email}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/15 text-primary">
-                        {ROLE_LABELS[u.role] ?? u.role}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        <span
+                          className="px-2 py-0.5 rounded-full text-xs font-medium bg-primary/15 text-primary"
+                          title="Primary role"
+                        >
+                          {ROLE_LABELS[u.role] ?? u.role}
+                        </span>
+                        {(u.roles ?? [])
+                          .filter((r) => r !== u.role)
+                          .map((r) => (
+                            <span
+                              key={r}
+                              className="px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground"
+                              title="Secondary role"
+                            >
+                              {ROLE_LABELS[r] ?? r}
+                            </span>
+                          ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
                       {u.recruiter_role ? (RECRUITER_ROLE_LABELS[u.recruiter_role] ?? u.recruiter_role) : "—"}

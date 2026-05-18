@@ -45,6 +45,9 @@ class AdminUserResponse(BaseModel):
     email: str
     name: str
     role: UserRole
+    # Multi-role (migracja 0110). Full set of roles a user holds.
+    # ``role`` stays as the primary; admin UI shows all in ``roles``.
+    roles: list[UserRole] = []
     is_active: bool
     activity_count: int
     last_activity: Optional[datetime] = None
@@ -58,11 +61,18 @@ class AdminUserCreate(BaseModel):
     password: str
     name: str
     role: UserRole = UserRole.recruiter
+    # Optional secondary roles. ``role`` is always set as primary. If
+    # ``roles`` is omitted, defaults to ``[role]``.
+    roles: Optional[list[UserRole]] = None
 
 
 class AdminUserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
+    # Replace the full role set. If supplied, must contain ``role`` (or the
+    # current primary). Setting only ``role`` updates the primary and adds
+    # it to ``roles`` if missing.
+    roles: Optional[list[UserRole]] = None
     is_active: Optional[bool] = None
 
 
@@ -106,6 +116,7 @@ async def list_users(
             email=u.email,
             name=u.name,
             role=u.role,
+            roles=[UserRole(r) for r in (u.roles or []) if r in UserRole.__members__],
             is_active=u.is_active,
             activity_count=activity_map.get(u.id, {}).get("count", 0),
             last_activity=activity_map.get(u.id, {}).get("last"),
@@ -127,11 +138,20 @@ async def create_user(
         raise HTTPException(status_code=409, detail="Email already registered")
 
     preexempt = data.role not in _ONBOARDING_REQUIRED_ROLES
+    # Build the multi-role list (migracja 0110). When ``roles`` is omitted
+    # default to ``[role]``; when supplied ensure primary is present.
+    if data.roles is None:
+        roles_list = [data.role.value]
+    else:
+        roles_list = [r.value for r in data.roles]
+        if data.role.value not in roles_list:
+            roles_list.insert(0, data.role.value)
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
         name=data.name,
         role=data.role,
+        roles=roles_list,
         profile_completed=preexempt,
         profile_completed_at=func.now() if preexempt else None,
     )
@@ -162,6 +182,7 @@ async def update_user(
 
     # Capture pre-change state for audit log
     original_role = user.role
+    original_roles = list(user.roles or [])
     original_active = user.is_active
     original_name = user.name
 
@@ -169,6 +190,16 @@ async def update_user(
         user.name = data.name
     if data.role is not None:
         user.role = data.role
+    if data.roles is not None:
+        new_roles = [r.value for r in data.roles]
+        # Ensure primary (current or just-assigned) is always inside roles.
+        primary_val = data.role.value if data.role is not None else user.role.value
+        if primary_val not in new_roles:
+            new_roles.insert(0, primary_val)
+        user.roles = new_roles
+    elif data.role is not None:
+        # Only role changed; keep ``roles`` in sync so the invariant holds.
+        user.ensure_roles_invariant()
     if data.is_active is not None:
         user.is_active = data.is_active
 
@@ -187,6 +218,20 @@ async def update_user(
                     "to": data.role.value
                     if hasattr(data.role, "value")
                     else str(data.role),
+                    "target_email": user.email,
+                },
+            )
+        )
+    if data.roles is not None and list(user.roles or []) != original_roles:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="roles_changed",
+                user_id=_admin.id,
+                details={
+                    "from": original_roles,
+                    "to": list(user.roles or []),
                     "target_email": user.email,
                 },
             )
@@ -451,6 +496,10 @@ class ResyncAadGroupsResponse(BaseModel):
     previous_role: str
     new_role: str
     role_changed: bool
+    # Multi-role (migracja 0110). Full set of roles after the resync.
+    previous_roles: list[str] = []
+    new_roles: list[str] = []
+    roles_changed: bool = False
     is_active: bool
 
 
@@ -520,14 +569,15 @@ async def resync_aad_groups(
         ) from exc
 
     # Re-use the SSO callback's mapping helper so behaviour stays consistent.
-    from app.services.m365.aad_groups import map_groups_to_role
+    from app.services.m365.aad_groups import map_groups_to_roles
 
     group_ids = [g["id"] for g in stored_groups if isinstance(g, dict) and g.get("id")]
-    role_str = map_groups_to_role(group_ids, mapping)
+    role_strs = map_groups_to_roles(group_ids, mapping)
 
     previous_role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    previous_roles = list(user.roles or [])
 
-    if role_str is None:
+    if not role_strs:
         # No group matches → deny. Same fail-closed behaviour as the SSO
         # callback so the resync endpoint cannot accidentally grant access.
         user.is_active = False
@@ -552,11 +602,15 @@ async def resync_aad_groups(
             previous_role=previous_role,
             new_role=previous_role,  # role unchanged — just deactivated
             role_changed=False,
+            previous_roles=previous_roles,
+            new_roles=previous_roles,
+            roles_changed=False,
             is_active=False,
         )
 
-    new_role = UserRole(role_str)
+    new_role = UserRole(role_strs[0])
     role_changed = user.role != new_role
+    roles_changed = previous_roles != role_strs
     if role_changed:
         db.add(
             Activity(
@@ -568,10 +622,27 @@ async def resync_aad_groups(
                     "target_email": user.email,
                     "from": previous_role,
                     "to": new_role.value,
+                    "all_roles": role_strs,
                 },
             )
         )
         user.role = new_role
+    if roles_changed:
+        if not role_changed:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="admin_aad_roles_resynced",
+                    user_id=_admin.id,
+                    details={
+                        "target_email": user.email,
+                        "from": previous_roles,
+                        "to": role_strs,
+                    },
+                )
+            )
+        user.roles = role_strs
     user.is_active = True
     await db.flush()
 
@@ -582,5 +653,8 @@ async def resync_aad_groups(
         previous_role=previous_role,
         new_role=new_role.value,
         role_changed=role_changed,
+        previous_roles=previous_roles,
+        new_roles=role_strs,
+        roles_changed=roles_changed,
         is_active=user.is_active,
     )
