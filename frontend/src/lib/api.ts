@@ -376,16 +376,6 @@ export const jobsApi = {
   delete: (id: number) => api.delete(`/api/jobs/${id}`),
 };
 
-// ── CV Generator ─────────────────────────────────────────────────────────────
-export const cvGeneratorApi = {
-  generateCV: (
-    candidateId: number,
-    data: { template: "standard" | "blind"; language: "pl" | "en"; job_id?: number }
-  ) => api.post(`/api/candidates/${candidateId}/generate-cv`, data),
-  generateBlindProfile: (candidateId: number) =>
-    api.post(`/api/candidates/${candidateId}/generate-blind-profile`),
-};
-
 // ── Calendar ──────────────────────────────────────────────────────────────────
 export interface CalendarEventResponse {
   id: number;

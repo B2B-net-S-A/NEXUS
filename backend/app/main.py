@@ -64,7 +64,6 @@ from app.api import ai_writer
 from app.api import talent_pools
 from app.api import public_engagement
 from app.api import public_interview_confirmation
-from app.api import cv_generator
 from app.api import cv_generator_b2b
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
@@ -430,7 +429,6 @@ app.include_router(
 app.include_router(ai_writer.router, prefix="/api", tags=["ai-writer"])
 app.include_router(talent_pools.router, prefix="/api", tags=["talent-pools"])
 app.include_router(marketplace_api.router, prefix="/api", tags=["marketplace"])
-app.include_router(cv_generator.router, prefix="/api", tags=["cv-generator"])
 app.include_router(cv_generator_b2b.router, prefix="/api", tags=["cv-generator-b2b"])
 app.include_router(
     candidate_stage_cv_api.router, prefix="/api", tags=["candidate-stage-cv"]

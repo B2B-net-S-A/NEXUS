@@ -1,275 +1,403 @@
 "use client";
 
-import * as React from"react";
-import { useState } from"react";
-import { useMutation, useQuery } from"@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
- AlertCircle,
- Download,
- Eye,
- EyeOff,
- FileText,
- Printer,
- Send,
- Sparkles,
-} from"lucide-react";
-import { cvGeneratorApi, jobsApi } from"@/lib/api";
-import { cn } from"@/lib/utils";
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileText,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
+import api from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
- Dialog,
- DialogContent,
-} from"@/components/ui/dialog";
-import { Button } from"@/components/ui/button";
-import { Badge } from"@/components/ui/badge";
-import {
- Select,
- SelectContent,
- SelectItem,
- SelectTrigger,
- SelectValue,
-} from"@/components/ui/select";
-import { Label } from"@/components/ui/label";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/Toast";
+
+type RecruitmentOption = {
+  stage_id: number;
+  job_id: number;
+  job_title: string;
+  stage: string;
+  has_champion: boolean;
+  has_notes: boolean;
+  ready: boolean;
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  new: "Nowy",
+  contacted: "Kontakt",
+  screening: "Screening",
+  verified: "Zweryfikowany",
+  interview: "Interview",
+  client_review: "U klienta",
+  acceptance: "Akceptacja",
+  negotiation: "Negocjacje",
+  onboarding: "Onboarding",
+  active: "Aktywny",
+  rejected: "Odrzucony",
+  withdrawn: "Rezygnacja",
+  on_hold: "Wstrzymany",
+};
 
 interface Props {
- open: boolean;
- onOpenChange: (open: boolean) => void;
- candidateId: number;
- candidateName: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidateId: number;
+  candidateName: string;
+}
+
+function parseDispositionFilename(disposition: string, fallback: string): string {
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  return match ? match[1] : fallback;
+}
+
+function parseWarningsHeader(header: unknown): string[] {
+  if (typeof header !== "string") return [];
+  try {
+    const parsed = JSON.parse(header);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function CVGeneratorV2({
- open,
- onOpenChange,
- candidateId,
- candidateName,
+  open,
+  onOpenChange,
+  candidateId,
+  candidateName,
 }: Props) {
- const [template, setTemplate] = useState<"standard" |"blind">("standard");
- const [language, setLanguage] = useState<"pl" |"en">("pl");
- const [jobId, setJobId] = useState<string>("");
- const [previewHtml, setPreviewHtml] = useState<string | null>(null);
- const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  const [stageId, setStageId] = useState<string>("");
+  const [language, setLanguage] = useState<"pl" | "en">("pl");
+  const [blindCv, setBlindCv] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
- const { data: jobs = [] } = useQuery({
- queryKey: ["jobs-mini"],
- queryFn: () => jobsApi.list({ page_size: 50 }).then((r) => r.data?.items || []),
- enabled: open,
- });
+  const recruitmentsQuery = useQuery({
+    queryKey: ["cv-gen-recruitments-modal", candidateId],
+    queryFn: async () => {
+      const res = await api.get<RecruitmentOption[]>(
+        `/api/cv-generator/candidates/${candidateId}/recruitments`,
+      );
+      return res.data;
+    },
+    enabled: open,
+  });
 
- const generateMut = useMutation({
- mutationFn: (data: {
- template: "standard" |"blind";
- language: "pl" |"en";
- job_id?: number;
- }) => cvGeneratorApi.generateCV(candidateId, data),
- onSuccess: (res) => {
- setPreviewHtml(res.data.html);
- setError(null);
- },
- onError: (e: any) => {
- setError(e?.response?.data?.detail ??"Błąd generowania CV");
- },
- });
+  // Auto-pick first ready recruitment on open
+  useEffect(() => {
+    if (!open || !recruitmentsQuery.data || stageId) return;
+    const ready = recruitmentsQuery.data.find((r) => r.ready);
+    if (ready) setStageId(String(ready.stage_id));
+  }, [open, recruitmentsQuery.data, stageId]);
 
- const handleGenerate = () =>
- generateMut.mutate({
- template,
- language,
- job_id: jobId ? parseInt(jobId) : undefined,
- });
+  const selectedRecruitment = useMemo(() => {
+    if (!stageId) return null;
+    return (
+      recruitmentsQuery.data?.find((r) => String(r.stage_id) === stageId) ?? null
+    );
+  }, [recruitmentsQuery.data, stageId]);
 
- const handlePrint = () => {
- if (!previewHtml) return;
- const win = window.open("","_blank");
- if (!win) return;
- win.document.write(previewHtml);
- win.document.close();
- win.focus();
- win.print();
- };
+  const canSubmit = !!selectedRecruitment && selectedRecruitment.ready;
 
- const handleDownload = () => {
- if (!previewHtml) return;
- const blob = new Blob([previewHtml], { type: "text/html;charset=utf-8" });
- const url = URL.createObjectURL(blob);
- const a = document.createElement("a");
- a.href = url;
- a.download = `CV_${candidateName.replace(/ /g, "_")}_${template}.html`;
- a.click();
- URL.revokeObjectURL(url);
- };
+  const generateMut = useMutation({
+    mutationFn: async () => {
+      if (!selectedRecruitment) throw new Error("Wybierz rekrutację");
+      const res = await api.post(
+        "/api/cv-generator/generate",
+        {
+          candidate_id: candidateId,
+          stage_id: selectedRecruitment.stage_id,
+          language,
+          blind_cv: blindCv,
+        },
+        {
+          responseType: "blob",
+          timeout: 180_000,
+        },
+      );
+      return {
+        blob: res.data as Blob,
+        filename: parseDispositionFilename(
+          res.headers["content-disposition"] || "",
+          `CV_${candidateName.replace(/\s+/g, "_")}.docx`,
+        ),
+        warnings: parseWarningsHeader(res.headers["x-generator-warnings"]),
+      };
+    },
+    onSuccess: ({ blob, filename, warnings: w }) => {
+      setWarnings(w);
+      setError(null);
+      downloadBlob(blob, filename);
+      toast.showSuccess("CV wygenerowane i pobrane.");
+    },
+    onError: async (err: unknown) => {
+      const detail = await extractErrorDetail(err);
+      setError(detail || "Generowanie nie powiodło się.");
+      toast.showError(detail || "Generowanie nie powiodło się.");
+    },
+  });
 
- const handleCopyHtml = () => {
- if (!previewHtml) return;
- navigator.clipboard?.writeText(previewHtml);
- };
+  const recruitments = recruitmentsQuery.data ?? [];
+  const hasAny = recruitments.length > 0;
 
- return (
- <Dialog open={open} onOpenChange={onOpenChange}>
- <DialogContent size="2xl" className="p-0 max-h-[92vh]">
- {/* Custom header with split-panel awareness */}
- <div className="flex items-center justify-between px-6 py-4 border-b border-border">
- <div className="flex items-center gap-2">
- <FileText className="h-4 w-4 text-primary" />
- <div>
- <h2 className="font-semibold text-lg font-bold text-foreground">
- Generator CV
- </h2>
- <p className="text-xs text-muted-foreground">
- {candidateName} · {template === "blind" ?"Blind (anonimowe)" :"Standard"} ·{""}
- {language.toUpperCase()}
- </p>
- </div>
- </div>
- {previewHtml && (
- <div className="flex items-center gap-2">
- <Button size="sm" variant="outline" onClick={handlePrint}>
- <Printer className="h-3.5 w-3.5" /> Drukuj
- </Button>
- <Button size="sm" variant="outline" onClick={handleDownload}>
- <Download className="h-3.5 w-3.5" /> HTML
- </Button>
- <Button size="sm" variant="primary" onClick={handleCopyHtml}>
- <Send className="h-3.5 w-3.5" /> Kopiuj HTML
- </Button>
- </div>
- )}
- </div>
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg" className="p-0 max-h-[92vh]">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-primary/10 p-2 text-primary">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-foreground">Generator CV</h2>
+              <p className="text-xs text-muted-foreground">
+                {candidateName} · DOCX szablon B2B Network
+                {selectedRecruitment ? (
+                  <>
+                    {" · "}
+                    {selectedRecruitment.job_title}
+                  </>
+                ) : null}
+              </p>
+            </div>
+          </div>
+        </div>
 
- {/* Split panel */}
- <div className="grid grid-cols-[minmax(280px,320px)_1fr] min-h-[520px] max-h-[80vh]">
- {/* Left — config */}
- <aside className="border-r border-border p-5 space-y-5 overflow-y-auto bg-background/40">
- <div>
- <Label htmlFor="cv-template" className="block mb-2">
- Typ szablonu
- </Label>
- <div className="grid grid-cols-2 gap-2">
- <button
- onClick={() => setTemplate("standard")}
- className={cn("flex flex-col items-start gap-1 p-3 rounded-lg border text-sm transition-colors text-left",
- template === "standard"
- ?"border-primary bg-primary/10"
- :"border-border hover:border-primary/40"
- )}
- >
- <Eye className="h-4 w-4 text-primary" />
- <span className="font-medium text-foreground">Standard</span>
- <span className="text-[10px] text-muted-foreground">
- z danymi osobowymi
- </span>
- </button>
- <button
- onClick={() => setTemplate("blind")}
- className={cn("flex flex-col items-start gap-1 p-3 rounded-lg border text-sm transition-colors text-left",
- template === "blind"
- ?"border-primary bg-primary/10"
- :"border-border hover:border-primary/40"
- )}
- >
- <EyeOff className="h-4 w-4 text-primary" />
- <span className="font-medium text-foreground">Blind</span>
- <span className="text-[10px] text-muted-foreground">
- anonimowe dla klienta
- </span>
- </button>
- </div>
- </div>
+        <div className="space-y-5 p-6 overflow-y-auto">
+          <div>
+            <Label className="mb-2 block">Proces rekrutacyjny</Label>
+            {recruitmentsQuery.isLoading ? (
+              <div className="text-xs text-muted-foreground">
+                Ładowanie rekrutacji…
+              </div>
+            ) : !hasAny ? (
+              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                Kandydat nie uczestniczy w żadnej rekrutacji. Jeśli chcesz
+                wygenerować CV bez kontekstu klienta — otwórz{" "}
+                <a href="/cv-generator" className="text-primary underline">
+                  /cv-generator → Old mode
+                </a>{" "}
+                i wgraj plik CV ręcznie.
+              </div>
+            ) : (
+              <>
+                <Select value={stageId} onValueChange={setStageId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Wybierz rekrutację…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {recruitments.map((r) => (
+                      <SelectItem key={r.stage_id} value={String(r.stage_id)}>
+                        <span className="flex items-center gap-2">
+                          <span className="truncate">{r.job_title}</span>
+                          <span className="text-xs text-muted-foreground">
+                            · {STAGE_LABELS[r.stage] ?? r.stage}
+                          </span>
+                          {r.ready ? (
+                            <CheckCircle2 className="ml-1 h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <AlertTriangle className="ml-1 h-3.5 w-3.5 text-amber-500" />
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedRecruitment && (
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    <ReadyBadge
+                      label="Profil Championa"
+                      ok={selectedRecruitment.has_champion}
+                    />
+                    <ReadyBadge
+                      label="Notatki z rozmów"
+                      ok={selectedRecruitment.has_notes}
+                    />
+                  </div>
+                )}
+                {selectedRecruitment && !selectedRecruitment.ready && (
+                  <div
+                    role="alert"
+                    className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                  >
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <div className="space-y-1">
+                      {!selectedRecruitment.has_champion && (
+                        <div>
+                          Brakuje Profilu Championa na ofercie — uzupełnij go na
+                          karcie oferty.
+                        </div>
+                      )}
+                      {!selectedRecruitment.has_notes && (
+                        <div>
+                          Brak notatek z rozmów — wymagana co najmniej jedna:
+                          screening, transkrypt CloudTalk albo notatka procesu.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
- <div>
- <Label htmlFor="cv-lang" className="block mb-2">
- Język
- </Label>
- <div className="grid grid-cols-2 gap-2">
- {(["pl","en"] as const).map((l) => (
- <button
- key={l}
- onClick={() => setLanguage(l)}
- className={cn("px-3 py-2 rounded-md text-sm font-medium transition-colors",
- language === l
- ?"bg-primary text-white"
- :"bg-card text-foreground border border-border"
- )}
- >
- {l.toUpperCase()}
- </button>
- ))}
- </div>
- </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="mb-2 block">Język</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["pl", "en"] as const).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLanguage(l)}
+                    className={cn(
+                      "px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                      language === l
+                        ? "bg-primary text-white"
+                        : "bg-card text-foreground border border-border",
+                    )}
+                  >
+                    {l.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label className="mb-2 block">Blind CV</Label>
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
+                <span className="text-xs text-muted-foreground">
+                  Anonimizuj imię, nazwisko i nazwy firm
+                </span>
+                <Switch checked={blindCv} onCheckedChange={setBlindCv} />
+              </div>
+            </div>
+          </div>
 
- <div>
- <Label htmlFor="cv-job" className="block mb-2">
- Dopasuj do oferty (opcjonalnie)
- </Label>
- <Select
- value={jobId ||"_none"}
- onValueChange={(v) => setJobId(v === "_none" ?"" : v)}
- >
- <SelectTrigger id="cv-job">
- <SelectValue placeholder="Bez dopasowania" />
- </SelectTrigger>
- <SelectContent>
- <SelectItem value="_none">Bez dopasowania</SelectItem>
- {jobs.map((j: any) => (
- <SelectItem key={j.id} value={String(j.id)}>
- {j.title}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- <p className="text-[10px] text-muted-foreground mt-1">
- Dodaje sekcję „Dlaczego ten kandydat" na podstawie kryteriów oferty.
- </p>
- </div>
+          {warnings.length > 0 && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div>
+                <div className="font-medium">Uwagi z analizy Claude</div>
+                <ul className="ml-4 mt-1 list-disc">
+                  {warnings.map((w, idx) => (
+                    <li key={idx}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
 
- <Button
- variant="primary"
- size="md"
- className="w-full"
- onClick={handleGenerate}
- loading={generateMut.isPending}
- >
- <Sparkles className="h-4 w-4" />
- {previewHtml ?"Generuj ponownie" :"Generuj CV"}
- </Button>
+          {error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
- {error && (
- <div
- role="alert"
- className="text-xs text-primary bg-primary/10 p-2 rounded-md flex items-start gap-1.5"
- >
- <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
- <span>{error}</span>
- </div>
- )}
-
- {previewHtml && (
- <Badge variant="success" size="sm">
- CV wygenerowane
- </Badge>
- )}
- </aside>
-
- {/* Right — preview */}
- <div className="overflow-hidden bg-[hsl(var(--border))]/20">
- {previewHtml ? (
- <iframe
- srcDoc={previewHtml}
- sandbox="allow-same-origin"
- className="w-full h-full min-h-[520px] bg-card"
- title="Podgląd CV"
- />
- ) : (
- <div className="h-full min-h-[520px] flex flex-col items-center justify-center text-muted-foreground p-8">
- <FileText className="h-12 w-12 opacity-40 mb-3" />
- <p className="text-sm text-center max-w-xs">
- Skonfiguruj opcje po lewej i kliknij <strong>Generuj CV</strong>, aby
- zobaczyć podgląd.
- </p>
- </div>
- )}
- </div>
- </div>
- </DialogContent>
- </Dialog>
- );
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+            <p className="text-xs text-muted-foreground">
+              {generateMut.isPending
+                ? "Claude Sonnet 4 analizuje CV i renderuje DOCX…"
+                : "Generacja zajmuje 30–60 sekund. Output: DOCX szablon B2B Network."}
+            </p>
+            <Button
+              size="md"
+              disabled={!canSubmit || generateMut.isPending}
+              onClick={() => {
+                setError(null);
+                setWarnings([]);
+                generateMut.mutate();
+              }}
+            >
+              {generateMut.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generuję…
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Generuj CV (DOCX)
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
+
+function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <Badge
+      variant={ok ? "success" : "warning"}
+      className={cn("flex items-center gap-1")}
+    >
+      {ok ? (
+        <CheckCircle2 className="h-3 w-3" />
+      ) : (
+        <AlertTriangle className="h-3 w-3" />
+      )}
+      {label}
+    </Badge>
+  );
+}
+
+async function extractErrorDetail(err: unknown): Promise<string> {
+  if (typeof err !== "object" || err === null) return "";
+  const anyErr = err as { response?: { data?: unknown } };
+  const data = anyErr.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const txt = await data.text();
+      const parsed = JSON.parse(txt);
+      if (typeof parsed?.detail === "string") return parsed.detail;
+      return txt;
+    } catch {
+      return "";
+    }
+  }
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object" && "detail" in data) {
+    const detail = (data as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return "";
+}
+
+// Silence unused-import warnings for icons kept for future tweaks.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _FileText = FileText;
