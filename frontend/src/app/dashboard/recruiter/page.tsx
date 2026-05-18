@@ -580,7 +580,7 @@ export default function RecruiterDashboard() {
  <p className="text-xs text-muted-foreground mt-2">
  Brak raportowanych metryk LinkedIn. Admin wpisuje je w{""}
  <code className="font-mono bg-primary/10 px-1 py-0.5 rounded">
- /admin/linkedin-metrics
+ /settings/linkedin-metrics
  </code>
  .
  </p>

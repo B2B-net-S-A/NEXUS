@@ -82,7 +82,7 @@ export function DlClientsTable({ rows }: DlClientsTableProps) {
         </table>
         {rows.length === 0 && (
           <p className="text-center text-sm text-muted-foreground py-6">
-            Brak przypisań DL → klient. Dodaj w /admin/team-structure.
+            Brak przypisań DL → klient. Dodaj w /settings/team-structure.
           </p>
         )}
       </div>
