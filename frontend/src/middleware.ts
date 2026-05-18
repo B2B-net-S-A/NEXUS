@@ -41,12 +41,12 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },
   { prefix: "/contracts", roles: null },
-  { prefix: "/contacts", roles: null },
   { prefix: "/clients", roles: null },
   { prefix: "/talents", roles: null },
   { prefix: "/calendar", roles: null },
   { prefix: "/profile", roles: null },
   { prefix: "/analytics", roles: null },
+  { prefix: "/insights", roles: null },
   { prefix: "/settings", roles: null },
 ]
 

@@ -3,20 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  BarChart3,
   Briefcase,
   Building2,
   Calendar,
-  FileBarChart,
   FileText,
   GitBranch,
   LayoutDashboard,
+  Lightbulb,
   Mail,
   Plus,
   Search,
   Settings,
   Star,
-  UserSquare2,
   Users,
 } from "lucide-react";
 import {
@@ -129,10 +127,8 @@ export function CommandPaletteV2({
       { href: "/clients", label: "Klienci", icon: Building2 },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
       { href: "/talents", label: "Talenty", icon: Star },
-      { href: "/contacts", label: "Kontakty", icon: UserSquare2 },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
-      { href: "/analytics", label: "Analityka", icon: BarChart3 },
-      { href: "/reports", label: "Raporty", icon: FileBarChart, roles: ["admin", "delivery_lead", "tac"] as const },
+      { href: "/insights", label: "Insights", icon: Lightbulb },
       { href: "/settings", label: "Ustawienia", icon: Settings },
       { href: "/manager", label: "Panel managera", icon: GitBranch, roles: ["admin", "delivery_lead"] as const },
     ],
