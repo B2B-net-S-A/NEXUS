@@ -149,9 +149,7 @@ async def upsert_monthly(
     # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla kolumn typu
     # `date` (raw string "YYYY-MM-01" wywoła DataError: 'str' has no attribute 'toordinal').
     try:
-        month_date = datetime.strptime(
-            f"{payload.report_month}-01", "%Y-%m-%d"
-        ).date()
+        month_date = datetime.strptime(f"{payload.report_month}-01", "%Y-%m-%d").date()
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
