@@ -112,6 +112,10 @@ class TacDlPayload(BaseModel):
     delivery_lead_user_id: int
 
 
+class AllowedSectionsPayload(BaseModel):
+    allowed_sections: list[str] = Field(default_factory=list)
+
+
 class SourcerCategoryPayload(BaseModel):
     user_id: int
     category_id: int
@@ -275,6 +279,58 @@ async def toggle_active(
         current_user.id,
     )
     return {"ok": True, "is_active": payload.is_active}
+
+
+@router.post(
+    "/employees/{user_id}/allowed-sections",
+    summary="Update allowed_sections JSONB dla usera (admin only)",
+)
+async def update_allowed_sections(
+    user_id: int,
+    payload: AllowedSectionsPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Replace user's allowed_sections list. Validates że każda section to
+    znana DR section (no arbitrary strings).
+    """
+    _require_admin(current_user)
+    # Whitelist of known DR sections — przeciwko admin przypadkowo dodawał
+    # garbage strings. Synchronizowane z frontend SECTIONS list.
+    VALID_SECTIONS = {
+        "rekrutacja",
+        "sales",
+        "delivery_lead",
+        "przetargi",
+        "board",
+        "ai_analytics",
+        "admin",
+        "clients_mrr",
+        "placements",
+        "mindy",
+        "competitions",
+    }
+    invalid = [s for s in payload.allowed_sections if s not in VALID_SECTIONS]
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Nieznane sekcje: {invalid}",
+        )
+    # Use json.dumps żeby asyncpg cast'ował list jako JSONB properly.
+    import json
+
+    await db.execute(
+        text("UPDATE users SET allowed_sections = CAST(:s AS jsonb) WHERE id = :uid"),
+        {"s": json.dumps(payload.allowed_sections), "uid": user_id},
+    )
+    await db.commit()
+    logger.info(
+        "User allowed_sections updated: user=%s sections=%s by admin=%s",
+        user_id,
+        payload.allowed_sections,
+        current_user.id,
+    )
+    return {"ok": True, "allowed_sections": payload.allowed_sections}
 
 
 # ---------------------------------------------------------------------------

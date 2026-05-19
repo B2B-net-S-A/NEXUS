@@ -23,6 +23,8 @@ import {
   CheckCircle,
   AlertCircle,
   RefreshCw,
+  Key,
+  X,
 } from "lucide-react";
 import {
   dynareporterAdminUsersApi,
@@ -41,6 +43,18 @@ const SENIORITY_LEVELS = [
 ] as const;
 
 type SeniorityLevel = (typeof SENIORITY_LEVELS)[number]["value"];
+
+const DR_SECTIONS = [
+  { value: "rekrutacja", label: "Rekrutacja" },
+  { value: "delivery_lead", label: "Delivery Lead" },
+  { value: "board", label: "Rada Nadzorcza" },
+  { value: "competitions", label: "Liga Mistrzów" },
+  { value: "clients_mrr", label: "Klienci + MRR" },
+  { value: "placements", label: "Placements" },
+  { value: "mindy", label: "MINDY AI" },
+  { value: "ai_analytics", label: "AI Analytics" },
+  { value: "admin", label: "Admin (DR)" },
+] as const;
 
 function fullName(e: DrEmployeeRow): string {
   // Backend zwraca `name` (Nexus users.name). first_name/last_name jest fallback
@@ -62,6 +76,10 @@ export function EmployeesManager() {
   const [editStart, setEditStart] = useState("");
   const [editSenior, setEditSenior] = useState("");
   const [editExpert, setEditExpert] = useState("");
+  // Allowed sections modal state
+  const [editingSectionsUser, setEditingSectionsUser] =
+    useState<DrEmployeeRow | null>(null);
+  const [editSections, setEditSections] = useState<string[]>([]);
   const [status, setStatus] = useState<{
     type: "success" | "error";
     msg: string;
@@ -104,6 +122,36 @@ export function EmployeesManager() {
       setStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
+
+  const sectionsMutation = useMutation({
+    mutationFn: () => {
+      if (!editingSectionsUser) throw new Error("Brak usera");
+      return dynareporterAdminUsersApi.updateAllowedSections(
+        editingSectionsUser.id,
+        editSections,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dr-admin-employees"] });
+      setEditingSectionsUser(null);
+      setStatus({ type: "success", msg: "Sekcje DR zaktualizowane" });
+      setTimeout(() => setStatus(null), 3000);
+    },
+    onError: (e: unknown) => {
+      setStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
+    },
+  });
+
+  const openSectionsModal = (e: DrEmployeeRow) => {
+    setEditingSectionsUser(e);
+    setEditSections([...(e.allowed_sections ?? [])]);
+  };
+
+  const toggleSection = (s: string) => {
+    setEditSections((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+    );
+  };
 
   const rolesAvailable = useMemo(() => {
     const set = new Set<string>();
@@ -235,6 +283,9 @@ export function EmployeesManager() {
                   <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
                     Seniority
                   </th>
+                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    Sekcje DR
+                  </th>
                   <th className="px-2 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
                     Akcje
                   </th>
@@ -331,6 +382,27 @@ export function EmployeesManager() {
                           </Badge>
                         )}
                       </td>
+                      <td className="px-2 py-2">
+                        {(e.allowed_sections ?? []).length === 0 ? (
+                          <span className="text-xs text-muted-foreground italic">
+                            —
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {(e.allowed_sections ?? []).slice(0, 4).map((s) => (
+                              <Badge key={s} variant="info" size="sm">
+                                {DR_SECTIONS.find((d) => d.value === s)?.label ??
+                                  s}
+                              </Badge>
+                            ))}
+                            {(e.allowed_sections ?? []).length > 4 && (
+                              <Badge variant="neutral" size="sm">
+                                +{(e.allowed_sections ?? []).length - 4}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-2 py-2 text-center">
                         {isEditing ? (
                           <div className="flex justify-center gap-1">
@@ -359,10 +431,21 @@ export function EmployeesManager() {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => startEdit(e)}
+                                title="Edytuj seniority"
+                                aria-label="Edytuj seniority"
                               >
                                 <Shield className="w-3 h-3" />
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openSectionsModal(e)}
+                              title="Edytuj sekcje DR"
+                              aria-label={`Edytuj sekcje DR dla ${fullName(e)}`}
+                            >
+                              <Key className="w-3 h-3 text-blue-600" />
+                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
@@ -400,13 +483,79 @@ export function EmployeesManager() {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground italic">
-          User CRUD (dodawanie/edycja roli/sections) → centralny admin panel
-          Nexusa ({" "}
+          User creation + role + password → centralny admin panel Nexusa ({" "}
           <a href="/settings/users" className="text-primary hover:underline">
             /settings/users
           </a>
-          ). Tu zarządzasz tylko seniority + active toggle.
+          , AAD/SSO managed). Tu zarządzasz seniority + active toggle +
+          DR sekcje (allowed_sections).
         </p>
+
+        {/* Allowed sections edit modal */}
+        {editingSectionsUser && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-card rounded-xl shadow-xl w-full max-w-md mx-4">
+              <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Key className="w-5 h-5 text-blue-600" />
+                  Sekcje DR — {fullName(editingSectionsUser)}
+                </h3>
+                <button
+                  onClick={() => setEditingSectionsUser(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Zamknij modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-muted-foreground mb-4">
+                  Wybierz które sekcje DynaReportera są widoczne dla tego
+                  usera (allowed_sections JSONB).
+                </p>
+                <div className="space-y-2">
+                  {DR_SECTIONS.map((s) => (
+                    <label
+                      key={s.value}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-muted/40 p-2 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editSections.includes(s.value)}
+                        onChange={() => toggleSection(s.value)}
+                        className="rounded border-input"
+                      />
+                      <span className="text-sm">{s.label}</span>
+                      <code className="ml-auto text-[10px] text-muted-foreground">
+                        {s.value}
+                      </code>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="px-6 py-4 bg-muted/40 flex justify-end gap-3 rounded-b-xl">
+                <button
+                  onClick={() => setEditingSectionsUser(null)}
+                  className="px-4 py-2 hover:bg-muted rounded-lg"
+                >
+                  Anuluj
+                </button>
+                <button
+                  onClick={() => sectionsMutation.mutate()}
+                  disabled={sectionsMutation.isPending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {sectionsMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Zapisz zmiany
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
