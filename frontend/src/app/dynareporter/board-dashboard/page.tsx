@@ -69,7 +69,23 @@ export default function BoardDashboardPage() {
     enabled: queryEnabled,
   });
 
-  // Early-return pattern.
+  // useMemo MUSI być przed early-return (Rules of Hooks).
+  const latestMonth: DrBoardMonthlyRow | undefined = useMemo(() => {
+    if (!rows || rows.length === 0) return undefined;
+    return rows[rows.length - 1];
+  }, [rows]);
+
+  const chartData = useMemo(() => {
+    if (!rows) return [];
+    return rows.slice(-12).map((r) => ({
+      month: formatMonthLabel(r.report_month),
+      revenue: r.revenue,
+      consultantCosts: r.consultant_costs,
+      profit: r.profit,
+    }));
+  }, [rows]);
+
+  // Early-return pattern PO hookach.
   if (!hydrated) {
     return <div className="p-8 text-sm text-muted-foreground">Ładowanie sesji…</div>;
   }
@@ -80,23 +96,6 @@ export default function BoardDashboardPage() {
       </div>
     );
   }
-
-  // Ostatni miesiąc — KPI cards.
-  const latestMonth: DrBoardMonthlyRow | undefined = useMemo(() => {
-    if (!rows || rows.length === 0) return undefined;
-    return rows[rows.length - 1];
-  }, [rows]);
-
-  // Last 12 months for the chart.
-  const chartData = useMemo(() => {
-    if (!rows) return [];
-    return rows.slice(-12).map((r) => ({
-      month: formatMonthLabel(r.report_month),
-      revenue: r.revenue,
-      consultantCosts: r.consultant_costs,
-      profit: r.profit,
-    }));
-  }, [rows]);
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
