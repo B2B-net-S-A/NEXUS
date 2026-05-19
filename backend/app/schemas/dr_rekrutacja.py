@@ -114,3 +114,90 @@ class AvailableWeek(BaseModel):
     year: int
     label: str = Field(description="Czytelny label (np. 'Tydzień 26/2026')")
     has_data: bool = Field(description="Czy są wpisy KPI w tym tygodniu")
+
+
+# === Sub-sections (follow-up port) ===========================================
+
+
+class HallOfFameEntry(BaseModel):
+    """Historic zwycięzca z dr_competition_winners."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    competition_type: str = Field(
+        description="'quarterly' | 'monthly_recommendations' | 'monthly_placements'"
+    )
+    period: str = Field(description="Q1 2026 / 2026-04 / etc.")
+    rank: int = Field(description="1, 2 lub 3")
+    user_id: int
+    user_name: str
+    points: int = 0
+    metric_value: int = 0
+    prize: str | None = None
+
+
+class YearlyStatsRow(BaseModel):
+    """Tygodniowy agregat KPI dla wykresu Statystyki Roczne."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    week_label: str = Field(description="np. 'T26 2026'")
+    week_number: int
+    year: int
+    verifications: int = 0
+    recommendations: int = 0
+    interviews: int = 0
+    placements: int = 0
+
+
+class MonthlyRaceEntry(BaseModel):
+    """Wiersz Wyścigu Rekomendacji / Placementów (miesięczne competitions)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    user_name: str
+    role: str
+    metric_value: int = Field(description="recommendations OR placements w miesiącu")
+    per_day: float = Field(description="metric / days roboczych (avg)")
+
+
+class MonthlyRace(BaseModel):
+    """Pełen Wyścig z meta-data."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    competition_type: str = Field(description="'recommendations' | 'placements'")
+    month: str = Field(description="YYYY-MM")
+    voucher: str = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
+    requirement: str
+    entries: list[MonthlyRaceEntry]
+
+
+class PowerCallingEntry(BaseModel):
+    """Wiersz Power Calling — dzienna efektywność weryfikacji."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    user_name: str
+    role: str
+    verifications: int
+    days_worked: int
+    per_day: float = Field(description="verifications / days_worked")
+    week_label: str
+
+
+class LinkedInPerformanceRow(BaseModel):
+    """Per-TAC LinkedIn farming stats."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    user_name: str
+    role: str
+    cv_added: int = 0
+    messages_sent: int = 0
+    responses_received: int = 0
+    response_rate: float = Field(description="responses_received / messages_sent × 100")
+    cv_per_md: float = Field(description="avg CV/MD (target 5)")
