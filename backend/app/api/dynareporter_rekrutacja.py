@@ -502,7 +502,7 @@ async def get_yearly_stats(
             COALESCE(SUM(k.placements), 0)::int AS placements
         FROM dr_kpi_body_leasing k
         WHERE (k.is_draft = false OR k.is_draft IS NULL)
-          AND (:year IS NULL OR EXTRACT(YEAR FROM k.report_date)::int = :year)
+          AND (CAST(:year AS int) IS NULL OR EXTRACT(YEAR FROM k.report_date)::int = :year)
         GROUP BY k.week_number, EXTRACT(YEAR FROM k.report_date)
         ORDER BY year ASC, k.week_number ASC
         """
