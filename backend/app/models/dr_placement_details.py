@@ -20,8 +20,12 @@ class DrPlacementDetail(Base):
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False, index=True
     )
-    # FK do dr_clients (z migracji 0112, DynaReporter clients)
-    client_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # FK do dr_clients — DB ma constraint (z migracji 0113), ORM dotąd nie
+    # deklarował → Alembic autogenerate dropował dotychczasowy constraint.
+    # Quality check DB-M-2 finding.
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("dr_clients.id"), nullable=False, index=True
+    )
     placement_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     week_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

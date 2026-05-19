@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -40,11 +41,14 @@ class DrBoardMonthlyReport(Base):
     hit_ratio: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), default=0, server_default="0"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), nullable=False
+    # DB ma te kolumny jako NULLABLE (migracja 0113 nie set NOT NULL,
+    # server_default wystarczyło). ORM dotąd deklarował nullable=False co
+    # powodowało drift przy `alembic autogenerate`. Quality check DB-M-4.
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=True
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), nullable=False
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=True
     )
 
 
@@ -57,6 +61,7 @@ class DrBoardPlacementClient(Base):
     report_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
     placement_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), nullable=False
+    # Same as DrBoardMonthlyReport — DB nullable, ORM was wrong.
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, server_default=func.current_timestamp(), nullable=True
     )

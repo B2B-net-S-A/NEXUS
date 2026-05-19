@@ -27,6 +27,7 @@ import {
 import {
   dynareporterAdminUsersApi,
   type DrEmployeeRow,
+  extractErrorMsg,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,14 +53,19 @@ function fullName(e: DrEmployeeRow): string {
 export function EmployeesManager() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "inactive"
+  >("active");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editLevel, setEditLevel] = useState<SeniorityLevel>("junior");
   const [editStart, setEditStart] = useState("");
   const [editSenior, setEditSenior] = useState("");
   const [editExpert, setEditExpert] = useState("");
-  const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [status, setStatus] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
 
   const employeesQuery = useQuery({
     queryKey: ["dr-admin-employees"],
@@ -82,7 +88,7 @@ export function EmployeesManager() {
       setTimeout(() => setStatus(null), 3000);
     },
     onError: (e: unknown) => {
-      setStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+      setStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
 
@@ -95,7 +101,7 @@ export function EmployeesManager() {
       setTimeout(() => setStatus(null), 3000);
     },
     onError: (e: unknown) => {
-      setStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+      setStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
 
@@ -113,7 +119,8 @@ export function EmployeesManager() {
       if (roleFilter !== "all" && e.role !== roleFilter) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const haystack = `${e.email} ${e.first_name ?? ""} ${e.last_name ?? ""}`.toLowerCase();
+        const haystack =
+          `${e.email} ${e.first_name ?? ""} ${e.last_name ?? ""}`.toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
@@ -136,7 +143,11 @@ export function EmployeesManager() {
             <Users className="w-5 h-5 text-amber-600" />
             Pracownicy i konta ({filtered.length})
           </h3>
-          <Button size="sm" variant="outline" onClick={() => employeesQuery.refetch()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => employeesQuery.refetch()}
+          >
             <RefreshCw className="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
@@ -170,7 +181,9 @@ export function EmployeesManager() {
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+            onChange={(e) =>
+              setStatusFilter(e.target.value as "all" | "active" | "inactive")
+            }
             className="px-3 py-1.5 text-sm bg-background border border-input rounded-md"
             aria-label="Filter status"
           >
@@ -195,7 +208,9 @@ export function EmployeesManager() {
 
         {/* Table */}
         {employeesQuery.isLoading ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">Ładowanie…</p>
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            Ładowanie…
+          </p>
         ) : filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">
             Brak wyników dla obecnych filtrów.
@@ -232,25 +247,34 @@ export function EmployeesManager() {
                   return (
                     <tr key={e.id} className={e.is_active ? "" : "opacity-50"}>
                       <td className="px-2 py-2 font-medium">{fullName(e)}</td>
-                      <td className="px-2 py-2 text-xs text-muted-foreground">{e.email}</td>
+                      <td className="px-2 py-2 text-xs text-muted-foreground">
+                        {e.email}
+                      </td>
                       <td className="px-2 py-2">
                         <Badge variant="neutral" size="sm">
                           {e.role}
                         </Badge>
                       </td>
                       <td className="px-2 py-2 text-center">
-                        <Badge variant={e.is_active ? "success" : "danger"} size="sm">
+                        <Badge
+                          variant={e.is_active ? "success" : "danger"}
+                          size="sm"
+                        >
                           {e.is_active ? "aktywny" : "wyłączony"}
                         </Badge>
                       </td>
                       <td className="px-2 py-2">
                         {!canSeniority ? (
-                          <span className="text-xs text-muted-foreground italic">—</span>
+                          <span className="text-xs text-muted-foreground italic">
+                            —
+                          </span>
                         ) : isEditing ? (
                           <div className="space-y-1">
                             <select
                               value={editLevel}
-                              onChange={(ev) => setEditLevel(ev.target.value as SeniorityLevel)}
+                              onChange={(ev) =>
+                                setEditLevel(ev.target.value as SeniorityLevel)
+                              }
                               className="w-full px-2 py-1 text-xs bg-background border border-input rounded-md"
                               aria-label="Seniority level"
                             >
@@ -272,7 +296,9 @@ export function EmployeesManager() {
                               <input
                                 type="date"
                                 value={editSenior}
-                                onChange={(ev) => setEditSenior(ev.target.value)}
+                                onChange={(ev) =>
+                                  setEditSenior(ev.target.value)
+                                }
                                 className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
                                 aria-label="Senior since"
                                 title="Senior since"
@@ -280,7 +306,9 @@ export function EmployeesManager() {
                               <input
                                 type="date"
                                 value={editExpert}
-                                onChange={(ev) => setEditExpert(ev.target.value)}
+                                onChange={(ev) =>
+                                  setEditExpert(ev.target.value)
+                                }
                                 className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
                                 aria-label="Expert since"
                                 title="Expert since"
@@ -309,7 +337,9 @@ export function EmployeesManager() {
                             <Button
                               size="sm"
                               variant="primary"
-                              onClick={() => seniorityMutation.mutate({ userId: e.id })}
+                              onClick={() =>
+                                seniorityMutation.mutate({ userId: e.id })
+                              }
                               disabled={seniorityMutation.isPending}
                             >
                               <Save className="w-3 h-3" />
@@ -325,7 +355,11 @@ export function EmployeesManager() {
                         ) : (
                           <div className="flex justify-center gap-1">
                             {canSeniority && (
-                              <Button size="sm" variant="ghost" onClick={() => startEdit(e)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => startEdit(e)}
+                              >
                                 <Shield className="w-3 h-3" />
                               </Button>
                             )}
@@ -348,7 +382,9 @@ export function EmployeesManager() {
                             >
                               <Power
                                 className={`w-3 h-3 ${
-                                  e.is_active ? "text-rose-600" : "text-emerald-600"
+                                  e.is_active
+                                    ? "text-rose-600"
+                                    : "text-emerald-600"
                                 }`}
                               />
                             </Button>
@@ -364,8 +400,8 @@ export function EmployeesManager() {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground italic">
-          User CRUD (dodawanie/edycja roli/sections) → centralny admin panel Nexusa
-          ({" "}
+          User CRUD (dodawanie/edycja roli/sections) → centralny admin panel
+          Nexusa ({" "}
           <a href="/settings/users" className="text-primary hover:underline">
             /settings/users
           </a>

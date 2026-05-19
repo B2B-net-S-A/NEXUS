@@ -7,8 +7,14 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, Settings, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
-import { dynareporterAdminConfigApi } from "@/lib/api";
+import {
+  Save,
+  Settings,
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
+import { dynareporterAdminConfigApi, extractErrorMsg } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -18,7 +24,10 @@ export function ScoringConfig() {
   const [interview, setInterview] = useState(15);
   const [recommendation, setRecommendation] = useState(5);
   const [verification, setVerification] = useState(0);
-  const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
 
   const scoringQuery = useQuery({
     queryKey: ["dr-admin-scoring"],
@@ -47,11 +56,14 @@ export function ScoringConfig() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dr-admin-scoring"] });
       queryClient.invalidateQueries({ queryKey: ["dr-rekrutacja-dashboard"] });
-      setSaveStatus({ type: "success", msg: "Punktacja zapisana — Liga Mistrzów zaktualizowana" });
+      setSaveStatus({
+        type: "success",
+        msg: "Punktacja zapisana — Liga Mistrzów zaktualizowana",
+      });
       setTimeout(() => setSaveStatus(null), 4000);
     },
     onError: (e: unknown) => {
-      setSaveStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+      setSaveStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
 
@@ -63,8 +75,9 @@ export function ScoringConfig() {
           Liga Mistrzów — System punktowy
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Każda akcja rekrutera daje określoną liczbę punktów. Zmiany działają natychmiast
-          po zapisie (Rekrutacja dashboard się odświeży automatycznie).
+          Każda akcja rekrutera daje określoną liczbę punktów. Zmiany działają
+          natychmiast po zapisie (Rekrutacja dashboard się odświeży
+          automatycznie).
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -107,12 +120,22 @@ export function ScoringConfig() {
             <Save className="w-4 h-4" aria-hidden="true" />
             <span className="ml-1">Zapisz punktację</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={() => scoringQuery.refetch()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => scoringQuery.refetch()}
+          >
             <RefreshCw className="w-4 h-4" aria-hidden="true" />
           </Button>
           {saveStatus && (
-            <div className={`text-sm flex items-center gap-1 ${saveStatus.type === "success" ? "text-emerald-600" : "text-rose-600"}`}>
-              {saveStatus.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            <div
+              className={`text-sm flex items-center gap-1 ${saveStatus.type === "success" ? "text-emerald-600" : "text-rose-600"}`}
+            >
+              {saveStatus.type === "success" ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
               {saveStatus.msg}
             </div>
           )}
@@ -121,7 +144,8 @@ export function ScoringConfig() {
         <div className="mt-4 p-3 bg-muted/40 rounded text-sm">
           <p className="font-semibold mb-1">Aktualna formuła:</p>
           <code className="text-xs">
-            punkty = placements × {placement} + interviews × {interview} + recommendations × {recommendation}
+            punkty = placements × {placement} + interviews × {interview} +
+            recommendations × {recommendation}
             {verification > 0 && ` + verifications × ${verification}`}
           </code>
         </div>

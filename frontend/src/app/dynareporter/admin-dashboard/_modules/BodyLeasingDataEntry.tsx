@@ -16,7 +16,11 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, RefreshCw, Calendar, AlertCircle, CheckCircle, Building2 } from "lucide-react";
-import { dynareporterBodyLeasingApi, type DrKpiBodyLeasingEntry } from "@/lib/api";
+import {
+  dynareporterBodyLeasingApi,
+  type DrKpiBodyLeasingEntry,
+  extractErrorMsg,
+} from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -160,8 +164,7 @@ export function BodyLeasingDataEntry() {
       setSaveStatus({ type: "success", message: `Zapisano ${row.user_name}` });
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      setSaveStatus({ type: "error", message: `Błąd: ${errMsg}` });
+      setSaveStatus({ type: "error", message: `Błąd: ${extractErrorMsg(e)}` });
     }
   };
 

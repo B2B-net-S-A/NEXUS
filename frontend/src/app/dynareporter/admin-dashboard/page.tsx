@@ -173,6 +173,8 @@ export default function AdminDashboardPage() {
             <button
               key={card.type}
               onClick={() => setActiveModule(card.type)}
+              aria-pressed={isActive}
+              aria-label={`${card.title}: ${card.description}`}
               className={`p-4 rounded-xl border-2 transition-all text-left ${
                 isActive
                   ? `${cs.border} ${cs.bg}`
