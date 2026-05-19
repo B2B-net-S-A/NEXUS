@@ -143,10 +143,9 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Users,
       },
       {
-        href: "https://reports.dynaminds.pl/delivery-lead",
+        href: "/dynareporter/delivery-lead-dashboard",
         label: "Delivery Lead",
         icon: Handshake,
-        external: true,
       },
       {
         href: "https://reports.dynaminds.pl/board",
