@@ -1,26 +1,23 @@
 "use client";
 
 /**
- * DynaReporter Admin Panel — full port z artur-t-96/InfraReporter
- * (`client/src/pages/AdminPanel.tsx` 1604L + 11 sub-components).
+ * DynaReporter Admin Panel — port z artur-t-96/InfraReporter.
  *
- * Visual parity z oryginałem DR: 11 module cards z color-coded selection
- * (blue/green/orange/indigo/purple/amber/teal/cyan/violet/yellow/gray),
- * gradient backgrounds, dark theme support.
+ * Sales + Przetargi są usunięte (per user 2026-05-19) — Nexus nie ma
+ * top-level dashboardów Sales / Przetargi, więc admin entry dla tych
+ * modułów nie ma sensu.
  *
- * Modules (wszystkie 12 zaimplementowane):
+ * Modules (10 zaimplementowane):
  *  1. body_leasing — KPI działu Rekrutacja
- *  2. sales — Projekty + people + weekly activity (Sesja 4)
- *  3. delivery_lead — Hit Ratio i Placements
- *  4. przetargi — Projekty + alokacje + koszty (Sesja 4)
- *  5. board_data — Dane miesięczne Rady Nadzorczej
- *  6. employees — Lista userów + seniority + toggle active (Sesja 4)
- *  7. recruitment_team — Members + TAC↔DL + Sourcer↔Category (Sesja 4)
- *  8. dl_clients — Delivery Lead ↔ Klient assignments (Sesja 4)
- *  9. master_data — Centralna baza klientów + konsultantów
- * 10. hall_of_fame — Zarządzanie zwycięzcami
- * 11. settings — Champions League scoring config
- * 12. history — Upload history + audit log
+ *  2. delivery_lead — Hit Ratio i Placements
+ *  3. board_data — Dane miesięczne Rady Nadzorczej
+ *  4. employees — Lista userów + seniority + toggle active
+ *  5. recruitment_team — Members + TAC↔DL + Sourcer↔Category
+ *  6. dl_clients — Delivery Lead ↔ Klient assignments
+ *  7. master_data — Centralna baza klientów + konsultantów
+ *  8. hall_of_fame — Zarządzanie zwycięzcami
+ *  9. settings — Champions League scoring config
+ * 10. history — Upload history + audit log
  *
  * Tylko rola `admin` może wyświetlać.
  */
@@ -30,9 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   FileSpreadsheet,
   Building2,
-  Briefcase,
   Target,
-  FileText,
   DollarSign,
   Users,
   Database,
@@ -56,14 +51,15 @@ import { MasterDataManager } from "./_modules/MasterDataManager";
 import { EmployeesManager } from "./_modules/EmployeesManager";
 import { RecruitmentTeamManager } from "./_modules/RecruitmentTeamManager";
 import { DLClientManager } from "./_modules/DLClientManager";
-import { SalesDataEntry } from "./_modules/SalesDataEntry";
-import { PrzetargiDataEntry } from "./_modules/PrzetargiDataEntry";
+
+// Sales + Przetargi usunięte z Admin DR (per user request 2026-05-19) — nie mamy
+// głównych dashboardów Sales / Przetargi w Nexusie, więc admin entry dla nich
+// nie jest potrzebny. SalesDataEntry.tsx + PrzetargiDataEntry.tsx zachowane na
+// dysku ale nie wpięte tutaj — można usunąć w follow-up cleanup.
 
 type ModuleType =
   | "body_leasing"
-  | "sales"
   | "delivery_lead"
-  | "przetargi"
   | "board_data"
   | "employees"
   | "recruitment_team"
@@ -83,9 +79,7 @@ type ModuleCard = {
 
 const MODULE_CARDS: ModuleCard[] = [
   { type: "body_leasing", title: "Rekrutacja", description: "KPI działu Rekrutacja", color: "blue", icon: Building2 },
-  { type: "sales", title: "Sales", description: "Projekty, konsultanci, MRR", color: "green", icon: Briefcase },
   { type: "delivery_lead", title: "Delivery Lead", description: "Hit Ratio i Placements", color: "orange", icon: Target },
-  { type: "przetargi", title: "Przetargi", description: "Zamówienia publiczne", color: "indigo", icon: FileText },
   { type: "board_data", title: "Rada Nadzorcza", description: "Dane miesięczne dla Rady", color: "purple", icon: DollarSign },
   { type: "employees", title: "Pracownicy i konta", description: "Zarządzanie pracownikami i kontami", color: "amber", icon: Users },
   { type: "recruitment_team", title: "Zespół Rekrutacji", description: "Przypisania sourcerów i TAC", color: "teal", icon: Users },
@@ -213,8 +207,6 @@ export default function AdminDashboardPage() {
       {activeModule === "employees" && <EmployeesManager />}
       {activeModule === "recruitment_team" && <RecruitmentTeamManager />}
       {activeModule === "dl_clients" && <DLClientManager />}
-      {activeModule === "sales" && <SalesDataEntry />}
-      {activeModule === "przetargi" && <PrzetargiDataEntry />}
     </div>
   );
 }

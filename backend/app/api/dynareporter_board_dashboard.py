@@ -8,6 +8,8 @@ Tylko admin/board_member może oglądać (top-secret financials).
 
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +29,9 @@ router = APIRouter()
 # Dane sprzed 2024-01-01 to legacy DR — nie pokazujemy.
 # Górną granicę liczymy dynamicznie z `CURRENT_DATE` (poprzednio
 # hardcoded `'2026-12-01'` — quality check MEDIUM #6 silent empty 2027).
-BOARD_REPORT_START = "2024-01-01"
+# MUST be `date` not `str` — asyncpg nie auto-coercuje stringów do date
+# column type (DataError: 'str' object has no attribute 'toordinal').
+BOARD_REPORT_START: date = date(2024, 1, 1)
 
 # Rola umożliwiająca dostęp do widoku Board (financials).
 # admin + delivery_lead + head_of_recruitment = managerski layer.
