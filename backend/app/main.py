@@ -82,6 +82,7 @@ from app.api import dynareporter_rekrutacja
 from app.api import dynareporter_delivery_lead_dashboard
 from app.api import dynareporter_board_dashboard
 from app.api import dynareporter_admin_dashboard
+from app.api import dynareporter_admin_config
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -510,6 +511,11 @@ app.include_router(
 app.include_router(
     dynareporter_admin_dashboard.router,
     prefix="/api/dynareporter/admin-dashboard",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_admin_config.router,
+    prefix="/api/dynareporter/admin-config",
     tags=["dynareporter"],
 )
 app.include_router(

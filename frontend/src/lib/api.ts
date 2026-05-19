@@ -3658,6 +3658,16 @@ export const dynareporterBoardApi = {
       .then((r) => r.data),
 };
 
+export type DrDLUpsertPayload = {
+  user_id: number;
+  report_month: string; // YYYY-MM
+  requests: number;
+  placements: number;
+  vacancies: number;
+  open_requests: number;
+  open_vacancies: number;
+};
+
 export const dynareporterDeliveryLeadApi = {
   dashboard: (params?: { start_date?: string; end_date?: string }) =>
     api
@@ -3668,6 +3678,53 @@ export const dynareporterDeliveryLeadApi = {
       .get<DrDLTrendRow[]>(`/api/dynareporter/delivery-lead-dashboard/trend/${userId}`, {
         params: { months },
       })
+      .then((r) => r.data),
+  upsert: (payload: DrDLUpsertPayload) =>
+    api
+      .post<{ id: number; ok: boolean }>(
+        "/api/dynareporter/delivery-lead-dashboard/entry",
+        payload,
+      )
+      .then((r) => r.data),
+};
+
+// === Board Admin (Session 2) ============================================
+export type DrBoardUpsertPayload = {
+  report_month: string; // YYYY-MM
+  revenue: number;
+  consultant_costs: number;
+  other_costs: number;
+  active_consultants: number;
+  departures: number;
+  placements: number;
+  avg_margin_per_hour: number;
+  hit_ratio: number;
+  placement_clients: DrBoardPlacementClient[];
+};
+
+export const dynareporterBoardAdminApi = {
+  upsert: (payload: DrBoardUpsertPayload) =>
+    api
+      .post<DrBoardMonthlyRow>("/api/dynareporter/board-dashboard/monthly", payload)
+      .then((r) => r.data),
+};
+
+// === Admin Config (Session 2) — Liga Mistrzów scoring ====================
+export type DrScoringConfig = {
+  placement: number;
+  interview: number;
+  recommendation: number;
+  verification: number;
+};
+
+export const dynareporterAdminConfigApi = {
+  getScoring: () =>
+    api
+      .get<DrScoringConfig>("/api/dynareporter/admin-config/scoring")
+      .then((r) => r.data),
+  updateScoring: (payload: DrScoringConfig) =>
+    api
+      .post<DrScoringConfig>("/api/dynareporter/admin-config/scoring", payload)
       .then((r) => r.data),
 };
 
