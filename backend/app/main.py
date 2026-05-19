@@ -86,7 +86,9 @@ from app.api import dynareporter_admin_config
 from app.api import dynareporter_admin_hof
 from app.api import dynareporter_admin_master_data
 from app.api import dynareporter_admin_users
-from app.api import dynareporter_admin_writes
+# dynareporter_admin_writes (Sales+Przetargi admin) usunięte 2026-05-19 —
+# Nexus nie ma głównych dashboardów Sales/Przetargi w sidebarze, więc admin
+# entry dla tych modułów nie był potrzebny (per user request).
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -535,11 +537,6 @@ app.include_router(
 app.include_router(
     dynareporter_admin_users.router,
     prefix="/api/dynareporter/admin-users",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_writes.router,
-    prefix="/api/dynareporter/admin-writes",
     tags=["dynareporter"],
 )
 app.include_router(
