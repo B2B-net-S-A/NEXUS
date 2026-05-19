@@ -169,7 +169,11 @@ async def toggle_pin(
     )
 
 
-@router.delete("/{candidate_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{candidate_id}/pin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # FastAPI 0.115 strict — 204 must not have body
+)
 async def delete_pin(
     current_user: CurrentUser,
     candidate_id: int = Path(..., ge=1),
