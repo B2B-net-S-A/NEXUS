@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.dr_admin_dashboard import (
     AdminUserRow,
     AuditLogRow,
@@ -26,8 +26,10 @@ from app.schemas.dr_admin_dashboard import (
 router = APIRouter()
 
 
-def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    if current_user.role != UserRole.admin:
+def _require_admin(current_user: User) -> None:
+    """Multi-role aware — `has_role(admin)` sprawdza primary i secondary
+    (users.roles JSONB). Quality check fixup LOW #10."""
+    if not current_user.has_role(UserRole.admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Wymagana rola admin",
@@ -46,6 +48,8 @@ async def list_users(
     """Zwraca wszystkich userów (admin tylko)."""
     _require_admin(current_user)
 
+    # Single LEFT JOIN z pre-aggregated KPI count zamiast correlated subquery
+    # per user (quality check MEDIUM #7).
     sql = text(
         """
         SELECT
@@ -56,11 +60,13 @@ async def list_users(
             u.is_active,
             u.allowed_sections,
             u.dynareporter_legacy_id,
-            COALESCE(
-                (SELECT count(*) FROM dr_kpi_body_leasing k WHERE k.user_id = u.id),
-                0
-            )::int AS kpi_entries_count
+            COALESCE(kpi.cnt, 0)::int AS kpi_entries_count
         FROM users u
+        LEFT JOIN (
+            SELECT user_id, count(*)::int AS cnt
+            FROM dr_kpi_body_leasing
+            GROUP BY user_id
+        ) kpi ON kpi.user_id = u.id
         ORDER BY u.is_active DESC, u.name ASC
         """
     )

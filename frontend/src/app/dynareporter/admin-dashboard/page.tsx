@@ -141,6 +141,10 @@ export default function AdminDashboardPage() {
               <p className="text-sm text-muted-foreground py-6 text-center">
                 Ładowanie…
               </p>
+            ) : usersQuery.error ? (
+              <p className="text-sm text-destructive py-6 text-center">
+                Błąd ładowania userów. Spróbuj odświeżyć stronę.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -237,6 +241,10 @@ export default function AdminDashboardPage() {
               <p className="text-sm text-muted-foreground py-6 text-center">
                 Ładowanie…
               </p>
+            ) : uploadsQuery.error ? (
+              <p className="text-sm text-destructive py-6 text-center">
+                Błąd ładowania upload history. Spróbuj odświeżyć stronę.
+              </p>
             ) : uploadsQuery.data?.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
                 Brak uploadów. Migracja z DR nie zawierała historii uploads
@@ -317,6 +325,10 @@ export default function AdminDashboardPage() {
             {auditQuery.isLoading ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
                 Ładowanie…
+              </p>
+            ) : auditQuery.error ? (
+              <p className="text-sm text-destructive py-6 text-center">
+                Błąd ładowania audit log. Spróbuj odświeżyć stronę.
               </p>
             ) : (
               <div className="overflow-x-auto">

@@ -44,6 +44,58 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 type SortKey = "name" | "requests" | "vacancies" | "placements" | "hit_ratio" | "fill_rate";
 type SortDir = "asc" | "desc";
 
+const MONTHS_SHORT_PL = [
+  "Sty", "Lut", "Mar", "Kwi", "Maj", "Cze",
+  "Lip", "Sie", "Wrz", "Paź", "Lis", "Gru",
+];
+
+function formatMonth(dateStr: string): string {
+  const date = new Date(dateStr);
+  return `${MONTHS_SHORT_PL[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/**
+ * Sortable table header z arrow indicator. Hoisted poza komponent
+ * żeby unikać re-create na każdy render (quality check HIGH #3).
+ */
+function SortHeader({
+  label,
+  sortKey,
+  sortBy,
+  sortDir,
+  onSort,
+  align = "center",
+}: {
+  label: string;
+  sortKey: SortKey;
+  sortBy: SortKey;
+  sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+  align?: "left" | "center" | "right";
+}) {
+  const alignCls =
+    align === "left" ? "text-left" : align === "right" ? "text-right" : "text-center";
+  return (
+    <th
+      className={`px-3 py-2 ${alignCls} text-[10px] font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none`}
+      onClick={() => onSort(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === sortKey ? (
+          sortDir === "desc" ? (
+            <ChevronDown className="w-3 h-3" />
+          ) : (
+            <ChevronUp className="w-3 h-3" />
+          )
+        ) : (
+          <ArrowUpDown className="w-3 h-3 opacity-30" />
+        )}
+      </span>
+    </th>
+  );
+}
+
 export default function DeliveryLeadDashboardPage() {
   const { user, hydrated } = useAuthStore();
   const [sortBy, setSortBy] = useState<SortKey>("hit_ratio");
@@ -52,7 +104,7 @@ export default function DeliveryLeadDashboardPage() {
 
   const queryEnabled = hydrated && !!user;
 
-  const { data: dashboard, isLoading } = useQuery({
+  const { data: dashboard, isLoading, error: dashboardError } = useQuery({
     queryKey: ["dr-dl-dashboard"],
     queryFn: () => dynareporterDeliveryLeadApi.dashboard(),
     staleTime: 60_000,
@@ -101,46 +153,6 @@ export default function DeliveryLeadDashboardPage() {
       : Number(valB) - Number(valA);
   });
 
-  const formatMonth = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const months = [
-      "Sty", "Lut", "Mar", "Kwi", "Maj", "Cze",
-      "Lip", "Sie", "Wrz", "Paź", "Lis", "Gru",
-    ];
-    return `${months[date.getMonth()]} ${date.getFullYear()}`;
-  };
-
-  const SortHeader = ({
-    label,
-    sortKey,
-    align = "center",
-  }: {
-    label: string;
-    sortKey: SortKey;
-    align?: "left" | "center" | "right";
-  }) => {
-    const alignCls = align === "left" ? "text-left" : align === "right" ? "text-right" : "text-center";
-    return (
-      <th
-        className={`px-3 py-2 ${alignCls} text-[10px] font-medium text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none`}
-        onClick={() => handleSort(sortKey)}
-      >
-        <span className="inline-flex items-center gap-1">
-          {label}
-          {sortBy === sortKey ? (
-            sortDir === "desc" ? (
-              <ChevronDown className="w-3 h-3" />
-            ) : (
-              <ChevronUp className="w-3 h-3" />
-            )
-          ) : (
-            <ArrowUpDown className="w-3 h-3 opacity-30" />
-          )}
-        </span>
-      </th>
-    );
-  };
-
   return (
     <div className="space-y-4 p-4 sm:p-6">
       {/* Header */}
@@ -165,6 +177,14 @@ export default function DeliveryLeadDashboardPage() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             Ładowanie danych…
+          </CardContent>
+        </Card>
+      )}
+
+      {dashboardError && (
+        <Card>
+          <CardContent className="py-12 text-center text-destructive">
+            Błąd ładowania danych Delivery Lead. Spróbuj odświeżyć stronę.
           </CardContent>
         </Card>
       )}
@@ -317,12 +337,12 @@ export default function DeliveryLeadDashboardPage() {
                         <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase w-10">
                           #
                         </th>
-                        <SortHeader label="Delivery Lead" sortKey="name" align="left" />
-                        <SortHeader label="Zapytania" sortKey="requests" />
-                        <SortHeader label="Wakaty" sortKey="vacancies" />
-                        <SortHeader label="Placements" sortKey="placements" />
-                        <SortHeader label="Hit Ratio" sortKey="hit_ratio" />
-                        <SortHeader label="Fill Rate" sortKey="fill_rate" />
+                        <SortHeader label="Delivery Lead" sortKey="name" align="left" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Zapytania" sortKey="requests" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Wakaty" sortKey="vacancies" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Placements" sortKey="placements" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Hit Ratio" sortKey="hit_ratio" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Fill Rate" sortKey="fill_rate" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
