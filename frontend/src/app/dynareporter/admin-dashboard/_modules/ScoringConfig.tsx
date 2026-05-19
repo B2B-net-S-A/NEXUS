@@ -24,6 +24,11 @@ export function ScoringConfig() {
   const [interview, setInterview] = useState(15);
   const [recommendation, setRecommendation] = useState(5);
   const [verification, setVerification] = useState(0);
+  // Prize amounts (PLN) — previously hardcoded w Rekrutacja podium UI,
+  // teraz editable. Finding 30 z QA review.
+  const [prize1, setPrize1] = useState(5000);
+  const [prize2, setPrize2] = useState(3000);
+  const [prize3, setPrize3] = useState(2000);
   const [saveStatus, setSaveStatus] = useState<{
     type: "success" | "error";
     msg: string;
@@ -42,6 +47,9 @@ export function ScoringConfig() {
       setInterview(scoringQuery.data.interview);
       setRecommendation(scoringQuery.data.recommendation);
       setVerification(scoringQuery.data.verification);
+      setPrize1(scoringQuery.data.prize_1 ?? 5000);
+      setPrize2(scoringQuery.data.prize_2 ?? 3000);
+      setPrize3(scoringQuery.data.prize_3 ?? 2000);
     }
   }, [scoringQuery.data]);
 
@@ -52,6 +60,9 @@ export function ScoringConfig() {
         interview,
         recommendation,
         verification,
+        prize_1: prize1,
+        prize_2: prize2,
+        prize_3: prize3,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dr-admin-scoring"] });
@@ -108,6 +119,37 @@ export function ScoringConfig() {
             onChange={setVerification}
             color="blue"
             hint="Najczęściej 0 (nie liczy się)"
+          />
+        </div>
+
+        <h4 className="text-base font-semibold mt-6 mb-2 flex items-center gap-2">
+          🏆 Nagrody (Liga Mistrzów)
+        </h4>
+        <p className="text-sm text-muted-foreground mb-3">
+          Kwoty wyświetlane pod podium na stronie Rekrutacja. Zmiany odświeżają
+          się natychmiast.
+        </p>
+        <div className="grid grid-cols-3 gap-3">
+          <PointsInput
+            label="🥇 1. miejsce (PLN)"
+            value={prize1}
+            onChange={setPrize1}
+            color="amber"
+            hint="Złoty medal"
+          />
+          <PointsInput
+            label="🥈 2. miejsce (PLN)"
+            value={prize2}
+            onChange={setPrize2}
+            color="blue"
+            hint="Srebrny medal"
+          />
+          <PointsInput
+            label="🥉 3. miejsce (PLN)"
+            value={prize3}
+            onChange={setPrize3}
+            color="purple"
+            hint="Brązowy medal"
           />
         </div>
 

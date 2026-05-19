@@ -3551,6 +3551,11 @@ export type DrRekrutacjaDashboard = {
     interview: number;
     recommendation: number;
     verification: number;
+    // Prize amounts (PLN) — admin editable via /dynareporter/admin-dashboard
+    // → Ustawienia. Previously hardcoded (Finding 30 from QA review).
+    prize_1: number;
+    prize_2: number;
+    prize_3: number;
   };
 };
 
@@ -3761,6 +3766,10 @@ export type DrScoringConfig = {
   interview: number;
   recommendation: number;
   verification: number;
+  // Prize amounts (PLN) — admin editable via ScoringConfig form.
+  prize_1: number;
+  prize_2: number;
+  prize_3: number;
 };
 
 export const dynareporterAdminConfigApi = {

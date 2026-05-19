@@ -53,6 +53,10 @@ DEFAULT_SCORING = {
     "interview": 15,
     "recommendation": 5,
     "verification": 0,
+    # Prize amounts (PLN) — admin editable via /admin-config/scoring.
+    "prize_1": 5000,
+    "prize_2": 3000,
+    "prize_3": 2000,
 }
 
 # Role które liczą się w widoku zespołu rekrutacji.
@@ -103,6 +107,9 @@ async def _load_scoring(db: AsyncSession) -> dict[str, int]:
                 "verification": int(
                     raw.get("verification", DEFAULT_SCORING["verification"])
                 ),
+                "prize_1": int(raw.get("prize_1", DEFAULT_SCORING["prize_1"])),
+                "prize_2": int(raw.get("prize_2", DEFAULT_SCORING["prize_2"])),
+                "prize_3": int(raw.get("prize_3", DEFAULT_SCORING["prize_3"])),
             }
     except Exception:
         # Jeśli klucza nie ma lub błąd parsowania — fallback do statycznego.

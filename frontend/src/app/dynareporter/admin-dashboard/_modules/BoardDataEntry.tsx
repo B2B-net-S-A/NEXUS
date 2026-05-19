@@ -30,28 +30,52 @@ function formatPLN(value: number): string {
   return value.toLocaleString("pl-PL", { maximumFractionDigits: 0 }) + " zł";
 }
 
+// Form state consolidated — was 9 separate useStates which triggered separate
+// re-renders on autoload (React 18+ batches them but the verbosity was a pain).
+// Single object also matches upsert payload shape (Finding 29 from QA review).
+type FormData = {
+  revenue: number;
+  consultantCosts: number;
+  otherCosts: number;
+  activeConsultants: number;
+  departures: number;
+  placements: number;
+  avgMarginPerHour: number;
+  hitRatio: number;
+  clients: DrBoardPlacementClient[];
+};
+
+const EMPTY_FORM: FormData = {
+  revenue: 0,
+  consultantCosts: 0,
+  otherCosts: 0,
+  activeConsultants: 0,
+  departures: 0,
+  placements: 0,
+  avgMarginPerHour: 0,
+  hitRatio: 0,
+  clients: [],
+};
+
 export function BoardDataEntry() {
   const queryClient = useQueryClient();
   const now = new Date();
   const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const [reportMonth, setReportMonth] = useState(currentYM);
-  const [revenue, setRevenue] = useState(0);
-  const [consultantCosts, setConsultantCosts] = useState(0);
-  const [otherCosts, setOtherCosts] = useState(0);
-  const [activeConsultants, setActiveConsultants] = useState(0);
-  const [departures, setDepartures] = useState(0);
-  const [placements, setPlacements] = useState(0);
-  const [avgMarginPerHour, setAvgMarginPerHour] = useState(0);
-  const [hitRatio, setHitRatio] = useState(0);
-  const [clients, setClients] = useState<DrBoardPlacementClient[]>([]);
+  const [form, setForm] = useState<FormData>(EMPTY_FORM);
   const [saveStatus, setSaveStatus] = useState<{
     type: "success" | "error";
     msg: string;
   } | null>(null);
 
+  // Convenience setter for individual fields — keeps NumberInput onChange
+  // signature minimal.
+  const setField = <K extends keyof FormData>(field: K, value: FormData[K]) =>
+    setForm((prev) => ({ ...prev, [field]: value }));
+
   // Load existing data for selected month — useQuery instead of raw await
   // so we have cache + error handling + isLoading state. monthlyQuery.data
-  // is shared between useEffect autoloader and the "Wczytaj" button.
+  // is shared between useEffect autoloader and the Refresh button.
   const monthlyQuery = useQuery({
     queryKey: ["dr-board-monthly-admin"],
     queryFn: () => dynareporterBoardApi.monthly(),
@@ -66,26 +90,19 @@ export function BoardDataEntry() {
     if (!monthlyQuery.data) return;
     const found = monthlyQuery.data.find((r) => r.report_month === reportMonth);
     if (found) {
-      setRevenue(found.revenue);
-      setConsultantCosts(found.consultant_costs);
-      setOtherCosts(found.other_costs);
-      setActiveConsultants(found.active_consultants);
-      setDepartures(found.departures);
-      setPlacements(found.placements);
-      setAvgMarginPerHour(found.avg_margin_per_hour);
-      setHitRatio(found.hit_ratio);
-      setClients(found.placement_clients);
+      setForm({
+        revenue: found.revenue,
+        consultantCosts: found.consultant_costs,
+        otherCosts: found.other_costs,
+        activeConsultants: found.active_consultants,
+        departures: found.departures,
+        placements: found.placements,
+        avgMarginPerHour: found.avg_margin_per_hour,
+        hitRatio: found.hit_ratio,
+        clients: found.placement_clients,
+      });
     } else {
-      // Reset for new (empty) month — but only if user hasn't started typing
-      setRevenue(0);
-      setConsultantCosts(0);
-      setOtherCosts(0);
-      setActiveConsultants(0);
-      setDepartures(0);
-      setPlacements(0);
-      setAvgMarginPerHour(0);
-      setHitRatio(0);
-      setClients([]);
+      setForm(EMPTY_FORM);
     }
   }, [monthlyQuery.data, reportMonth]);
 
@@ -93,15 +110,17 @@ export function BoardDataEntry() {
     mutationFn: () =>
       dynareporterBoardAdminApi.upsert({
         report_month: reportMonth,
-        revenue,
-        consultant_costs: consultantCosts,
-        other_costs: otherCosts,
-        active_consultants: activeConsultants,
-        departures,
-        placements,
-        avg_margin_per_hour: avgMarginPerHour,
-        hit_ratio: hitRatio,
-        placement_clients: clients.filter((c) => c.client_name && c.count > 0),
+        revenue: form.revenue,
+        consultant_costs: form.consultantCosts,
+        other_costs: form.otherCosts,
+        active_consultants: form.activeConsultants,
+        departures: form.departures,
+        placements: form.placements,
+        avg_margin_per_hour: form.avgMarginPerHour,
+        hit_ratio: form.hitRatio,
+        placement_clients: form.clients.filter(
+          (c) => c.client_name && c.count > 0,
+        ),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dr-board-monthly"] });
@@ -114,8 +133,8 @@ export function BoardDataEntry() {
     },
   });
 
-  const margin = revenue - consultantCosts;
-  const profit = margin - otherCosts;
+  const margin = form.revenue - form.consultantCosts;
+  const profit = margin - form.otherCosts;
 
   return (
     <div className="space-y-4">
@@ -174,46 +193,46 @@ export function BoardDataEntry() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <NumberInput
               label="Revenue (PLN)"
-              value={revenue}
-              onChange={setRevenue}
+              value={form.revenue}
+              onChange={(v) => setField("revenue", v)}
             />
             <NumberInput
               label="Consultant costs (PLN)"
-              value={consultantCosts}
-              onChange={setConsultantCosts}
+              value={form.consultantCosts}
+              onChange={(v) => setField("consultantCosts", v)}
             />
             <NumberInput
               label="Other costs (PLN)"
-              value={otherCosts}
-              onChange={setOtherCosts}
+              value={form.otherCosts}
+              onChange={(v) => setField("otherCosts", v)}
             />
             <NumberInput
               label="Avg margin/h (PLN)"
-              value={avgMarginPerHour}
-              onChange={setAvgMarginPerHour}
+              value={form.avgMarginPerHour}
+              onChange={(v) => setField("avgMarginPerHour", v)}
             />
             <NumberInput
               label="Active consultants"
-              value={activeConsultants}
-              onChange={setActiveConsultants}
+              value={form.activeConsultants}
+              onChange={(v) => setField("activeConsultants", v)}
               integer
             />
             <NumberInput
               label="Departures"
-              value={departures}
-              onChange={setDepartures}
+              value={form.departures}
+              onChange={(v) => setField("departures", v)}
               integer
             />
             <NumberInput
               label="Placements"
-              value={placements}
-              onChange={setPlacements}
+              value={form.placements}
+              onChange={(v) => setField("placements", v)}
               integer
             />
             <NumberInput
               label="Hit Ratio (%)"
-              value={hitRatio}
-              onChange={setHitRatio}
+              value={form.hitRatio}
+              onChange={(v) => setField("hitRatio", v)}
               step={0.1}
               max={100}
             />
@@ -248,29 +267,33 @@ export function BoardDataEntry() {
               size="sm"
               variant="outline"
               onClick={() =>
-                setClients([...clients, { client_name: "", count: 0 }])
+                setField("clients", [...form.clients, { client_name: "", count: 0 }])
               }
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
               <span className="ml-1">Dodaj klienta</span>
             </Button>
           </div>
-          {clients.length === 0 ? (
+          {form.clients.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
               Brak klientów. Kliknij "Dodaj klienta" żeby dodać pierwszy wpis.
             </p>
           ) : (
             <div className="space-y-2">
-              {clients.map((c, idx) => (
+              {form.clients.map((c, idx) => (
+                // Index OK here — list is fully controlled, mutations
+                // (add/remove/edit) trigger setField("clients", ...) which
+                // creates a new array, so React can correctly diff. Stable
+                // PK doesn't exist for in-memory rows that haven't been saved.
                 <div key={idx} className="flex items-center gap-2">
                   <input
                     type="text"
                     placeholder="Nazwa klienta"
                     value={c.client_name}
                     onChange={(e) => {
-                      const next = [...clients];
+                      const next = [...form.clients];
                       next[idx] = { ...c, client_name: e.target.value };
-                      setClients(next);
+                      setField("clients", next);
                     }}
                     className="flex-1 px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                   />
@@ -280,9 +303,9 @@ export function BoardDataEntry() {
                     placeholder="0"
                     value={c.count}
                     onChange={(e) => {
-                      const next = [...clients];
+                      const next = [...form.clients];
                       next[idx] = { ...c, count: Number(e.target.value) };
-                      setClients(next);
+                      setField("clients", next);
                     }}
                     className="w-20 px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                   />
@@ -290,7 +313,7 @@ export function BoardDataEntry() {
                     size="sm"
                     variant="ghost"
                     onClick={() =>
-                      setClients(clients.filter((_, i) => i !== idx))
+                      setField("clients", form.clients.filter((_, i) => i !== idx))
                     }
                     aria-label="Usuń klienta"
                   >

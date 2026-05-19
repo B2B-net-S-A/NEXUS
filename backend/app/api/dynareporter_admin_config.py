@@ -22,7 +22,11 @@ router = APIRouter()
 
 
 class ChampionsLeagueScoring(BaseModel):
-    """Punktacja Ligi Mistrzów (placement/interview/recommendation)."""
+    """Punktacja Ligi Mistrzów + prizes (admin editable).
+
+    Punkty: placement / interview / recommendation / verification.
+    Prizes: per-rank PLN amounts displayed na podium (1st = `prize_1`, etc).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,6 +34,11 @@ class ChampionsLeagueScoring(BaseModel):
     interview: int = Field(default=15, ge=0)
     recommendation: int = Field(default=5, ge=0)
     verification: int = Field(default=0, ge=0)
+    # Prize amounts in PLN — were hardcoded in frontend (Finding 30),
+    # now configurable via Admin → Ustawienia.
+    prize_1: int = Field(default=5000, ge=0, description="Nagroda za 1. miejsce (PLN)")
+    prize_2: int = Field(default=3000, ge=0, description="Nagroda za 2. miejsce (PLN)")
+    prize_3: int = Field(default=2000, ge=0, description="Nagroda za 3. miejsce (PLN)")
 
 
 def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
