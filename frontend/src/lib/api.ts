@@ -3572,6 +3572,36 @@ export type DrDLDashboard = {
   period_end: string | null;
 };
 
+// ============================================================
+// DynaReporter Rada Nadzorcza (Board) dashboard (Session 3 port)
+// ============================================================
+export type DrBoardPlacementClient = {
+  client_name: string;
+  count: number;
+};
+
+export type DrBoardMonthlyRow = {
+  report_month: string; // YYYY-MM
+  revenue: number;
+  consultant_costs: number;
+  other_costs: number;
+  margin: number;
+  profit: number;
+  active_consultants: number;
+  departures: number;
+  placements: number;
+  avg_margin_per_hour: number;
+  hit_ratio: number;
+  placement_clients: DrBoardPlacementClient[];
+};
+
+export const dynareporterBoardApi = {
+  monthly: () =>
+    api
+      .get<DrBoardMonthlyRow[]>("/api/dynareporter/board-dashboard/monthly")
+      .then((r) => r.data),
+};
+
 export const dynareporterDeliveryLeadApi = {
   dashboard: (params?: { start_date?: string; end_date?: string }) =>
     api

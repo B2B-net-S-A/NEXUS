@@ -148,10 +148,10 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Handshake,
       },
       {
-        href: "https://reports.dynaminds.pl/board",
+        href: "/dynareporter/board-dashboard",
         label: "Rada Nadzorcza",
         icon: BarChart3,
-        external: true,
+        roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
       {
         href: "https://reports.dynaminds.pl/admin",
