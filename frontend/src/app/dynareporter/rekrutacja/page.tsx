@@ -71,6 +71,13 @@ const MONTH_NAMES_PL = [
   "Grudzień",
 ];
 
+// Business thresholds dla Power Calling + LinkedIn Performance.
+// Wartości pochodzą z DR `system_config` ale obecnie nie są w response —
+// gdy business zmieni progi, modyfikujemy TUTAJ + ewentualnie endpoint
+// wraca rzeczywiste wartości. Quality check LOW (single source of truth).
+const POWER_CALLING_MIN_PER_DAY = 3;
+const LINKEDIN_CV_PER_MD_TARGET = 5;
+
 const ROLE_LABEL_PL: Record<string, string> = {
   sourcer: "Sourcer",
   tac: "TAC",
@@ -199,6 +206,14 @@ export default function RekrutacjaPage() {
     enabled: queryEnabled,
   });
 
+  // Year picker: 3 lata wstecz + bieżący + 1 rok naprzód. Derived
+  // z `selectedYear` (initialized w useEffect post-mount, defaults
+  // do bieżącego). Quality check LOW: nie hardcode `[2024..2027]`.
+  const yearOptions = useMemo(() => {
+    const base = selectedYear > 0 ? selectedYear : new Date().getFullYear();
+    return [base - 2, base - 1, base, base + 1];
+  }, [selectedYear]);
+
   // Early return pattern (mirror body-leasing) — SSR renderuje sam tekst
   // "Ładowanie sesji…", co matchuje client initial render (hydrated=false).
   // Pełna struktura (Cards, Table, etc.) renderuje się dopiero gdy
@@ -282,7 +297,7 @@ export default function RekrutacjaPage() {
                   onChange={(e) => setSelectedYear(Number(e.target.value))}
                   className="text-sm bg-background border border-input rounded-md px-2 py-1.5"
                 >
-                  {[2024, 2025, 2026, 2027].map((y) => (
+                  {yearOptions.map((y) => (
                     <option key={y} value={y}>
                       {y}
                     </option>
@@ -296,7 +311,7 @@ export default function RekrutacjaPage() {
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
                 className="text-sm bg-background border border-input rounded-md px-2 py-1.5"
               >
-                {[2024, 2025, 2026, 2027].map((y) => (
+                {yearOptions.map((y) => (
                   <option key={y} value={y}>
                     {y}
                   </option>
@@ -315,13 +330,19 @@ export default function RekrutacjaPage() {
                   size="sm"
                   onClick={() => exportPerformanceCsv(dashboard)}
                   title="Eksportuj Performance per osoba do CSV"
+                  aria-label="Eksportuj Performance per osoba do CSV"
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="h-4 w-4" aria-hidden="true" />
                   <span className="ml-1 hidden sm:inline">Eksportuj</span>
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                aria-label="Odśwież dashboard"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
                 <span className="ml-1 hidden sm:inline">Odśwież</span>
               </Button>
             </div>
@@ -576,7 +597,8 @@ export default function RekrutacjaPage() {
                   Power Calling — {powerCalling[0]?.week_label ?? ""}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Wymóg: min. 3 weryfikacji/dzień roboczy. Sortowane od najgorszych.
+                  Wymóg: min. {POWER_CALLING_MIN_PER_DAY} weryfikacji/dzień
+                  roboczy. Sortowane od najgorszych.
                 </p>
               </CardHeader>
               <CardContent>
@@ -593,7 +615,9 @@ export default function RekrutacjaPage() {
                     </TableHeader>
                     <TableBody>
                       {powerCalling.map((pc) => {
-                        const isUnderTarget = pc.per_day < 3 && pc.days_worked > 0;
+                        const isUnderTarget =
+                          pc.per_day < POWER_CALLING_MIN_PER_DAY &&
+                          pc.days_worked > 0;
                         return (
                           <TableRow key={pc.user_id}>
                             <TableCell className="font-medium">{pc.user_name}</TableCell>
@@ -630,7 +654,8 @@ export default function RekrutacjaPage() {
                   LinkedIn Performance (TAC) — {dashboard.period_label}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Target: 5 CV/MD. Response Rate = responses / messages sent × 100.
+                  Target: {LINKEDIN_CV_PER_MD_TARGET} CV/MD. Response Rate =
+                  responses / messages sent × 100.
                 </p>
               </CardHeader>
               <CardContent>
@@ -655,7 +680,11 @@ export default function RekrutacjaPage() {
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             <Badge
-                              variant={l.cv_per_md >= 5 ? "success" : "neutral"}
+                              variant={
+                                l.cv_per_md >= LINKEDIN_CV_PER_MD_TARGET
+                                  ? "success"
+                                  : "neutral"
+                              }
                               size="sm"
                             >
                               {l.cv_per_md.toFixed(2)}
@@ -742,9 +771,20 @@ export default function RekrutacjaPage() {
                     Acceleration Path
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    Junior → Senior: 6 placement w 6mc LUB 12 placement w 12mc ·
-                    Senior → Expert: 12 placement w 6mc LUB 24 placement w 12mc.
-                    Łącznie {accelerationPath.junior_count} junior,{" "}
+                    {(() => {
+                      // Progi z server response (threshold_6m/12m per row), bierzemy
+                      // z pierwszego dostępnego entry. Quality check: nie hardcode.
+                      const j = accelerationPath.junior_to_senior[0];
+                      const s = accelerationPath.senior_to_expert[0];
+                      const jDesc = j
+                        ? `Junior → Senior: ${j.threshold_6m} placement w 6mc LUB ${j.threshold_12m} placement w 12mc`
+                        : null;
+                      const sDesc = s
+                        ? `Senior → Expert: ${s.threshold_6m} placement w 6mc LUB ${s.threshold_12m} placement w 12mc`
+                        : null;
+                      return [jDesc, sDesc].filter(Boolean).join(" · ");
+                    })()}
+                    {". "}Łącznie {accelerationPath.junior_count} junior,{" "}
                     {accelerationPath.senior_count} senior,{" "}
                     {accelerationPath.expert_count} expert ·{" "}
                     <strong>
