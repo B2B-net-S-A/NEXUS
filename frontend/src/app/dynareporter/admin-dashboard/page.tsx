@@ -39,7 +39,7 @@ import {
 import {
   dynareporterAdminApi,
 } from "@/lib/api";
-import { useAuthStore } from "@/store/auth";
+import { useAuthStore, hasRole } from "@/store/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BodyLeasingDataEntry } from "./_modules/BodyLeasingDataEntry";
@@ -134,7 +134,10 @@ export default function AdminDashboardPage() {
       </div>
     );
   }
-  if (user.role !== "admin") {
+  // Multi-role aware — `hasRole` sprawdza primary + secondary roles
+  // (multi-role schema z PR #207). Bez tego user z secondary=admin
+  // (np. po AAD group sync) by był blokowany mimo posiadania uprawnień.
+  if (!hasRole(user, "admin")) {
     return (
       <div className="p-8">
         <Card>

@@ -138,10 +138,15 @@ class AvailableWeek(BaseModel):
 
 
 class HallOfFameEntry(BaseModel):
-    """Historic zwycięzca z dr_competition_winners."""
+    """Historic zwycięzca z dr_competition_winners.
+
+    `id` field includes — frontend admin delete UI checked `(w as { id?: number }).id`
+    z if-else fallback do alert() bo response zaras nie zwracał id (broken UX).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
+    id: int = Field(description="Internal PK z dr_competition_winners.id")
     competition_type: str = Field(
         description="'quarterly' | 'monthly_recommendations' | 'monthly_placements'"
     )

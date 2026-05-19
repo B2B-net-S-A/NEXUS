@@ -101,7 +101,11 @@ class DLClientAssignment(BaseModel):
 
 
 def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    if current_user.role != UserRole.admin:
+    # `has_role()` uznaje primary role (`users.role`) ORAZ secondary roles
+    # (`users.roles` JSONB) — multi-role schema z PR #207 (migracja 0110).
+    # Raw `current_user.role != UserRole.admin` blokowałby usera z
+    # primary=`recruiter` + secondary=`admin` (np. po AAD group sync).
+    if not current_user.has_role(UserRole.admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Wymagana rola admin"
         )

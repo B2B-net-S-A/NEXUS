@@ -82,6 +82,9 @@ export function HallOfFameManager() {
       setSaveStatus({ type: "success", msg: "Zwycięzca usunięty" });
       setTimeout(() => setSaveStatus(null), 3000);
     },
+    onError: (e: unknown) => {
+      setSaveStatus({ type: "error", msg: `Błąd usuwania: ${String(e)}` });
+    },
   });
 
   return (
@@ -225,11 +228,7 @@ export function HallOfFameManager() {
                         variant="ghost"
                         onClick={() => {
                           if (confirm(`Usunąć wpis ${w.user_name} z ${w.period}?`)) {
-                            // need to find id — current API returns id; if missing we cant delete
-                            // pragmatic — extract id from extra field if available, else error
-                            const winnerWithId = w as unknown as { id?: number };
-                            if (winnerWithId.id) deleteMutation.mutate(winnerWithId.id);
-                            else alert("Brak ID w response — backend potrzebuje update");
+                            deleteMutation.mutate(w.id);
                           }
                         }}
                         aria-label={`Usuń ${w.user_name}`}

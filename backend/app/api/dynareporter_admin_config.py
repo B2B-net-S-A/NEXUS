@@ -33,7 +33,8 @@ class ChampionsLeagueScoring(BaseModel):
 
 
 def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    if current_user.role != UserRole.admin:
+    # has_role() — primary + secondary roles (multi-role schema, PR #207).
+    if not current_user.has_role(UserRole.admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Wymagana rola admin",

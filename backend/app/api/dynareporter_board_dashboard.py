@@ -8,7 +8,7 @@ Tylko admin/board_member może oglądać (top-secret financials).
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
@@ -146,8 +146,17 @@ async def upsert_monthly(
             detail="Tylko admin może modyfikować board data",
         )
 
-    # YYYY-MM → YYYY-MM-01
-    month_date = f"{payload.report_month}-01"
+    # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla kolumn typu
+    # `date` (raw string "YYYY-MM-01" wywoła DataError: 'str' has no attribute 'toordinal').
+    try:
+        month_date = datetime.strptime(
+            f"{payload.report_month}-01", "%Y-%m-%d"
+        ).date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"report_month must be YYYY-MM (got '{payload.report_month}')",
+        ) from exc
 
     # Upsert main report
     sql_upsert = text(

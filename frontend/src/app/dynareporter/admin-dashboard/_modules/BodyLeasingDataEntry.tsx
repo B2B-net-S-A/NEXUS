@@ -13,7 +13,7 @@
  * - Yellow highlight dla pustych pól (value=0)
  */
 
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, RefreshCw, Calendar, AlertCircle, CheckCircle, Building2 } from "lucide-react";
 import { dynareporterBodyLeasingApi, type DrKpiBodyLeasingEntry } from "@/lib/api";
@@ -89,8 +89,11 @@ export function BodyLeasingDataEntry() {
     staleTime: 30_000,
   });
 
-  // Build editable rows from entries on data load
-  useMemo(() => {
+  // Build editable rows from entries on data load.
+  // `useEffect` (not `useMemo`) — setRows is a side-effect, useMemo is for pure
+  // computation. Under React 19 concurrent rendering, useMemo with setState
+  // produces undefined behavior (double-render, missed updates).
+  useEffect(() => {
     if (entriesQuery.data) {
       setRows(
         entriesQuery.data.map((e: DrKpiBodyLeasingEntry) => ({
@@ -165,20 +168,28 @@ export function BodyLeasingDataEntry() {
   const handleSaveAll = async () => {
     const dirtyRows = rows.filter((r) => r.dirty);
     if (dirtyRows.length === 0) return;
-    let okCount = 0;
+    const savedUserIds = new Set<number>();
     let failCount = 0;
     for (const row of dirtyRows) {
       try {
         await upsertMutation.mutateAsync(row);
-        okCount++;
+        savedUserIds.add(row.user_id);
       } catch {
         failCount++;
       }
     }
-    setRows((prev) => prev.map((r) => ({ ...r, dirty: false })));
+    // Only mark `dirty: false` for rows that ACTUALLY saved — if 2/5 failed,
+    // those 2 must retain their yellow "unsaved" highlight so the admin sees
+    // which ones need re-save. (Previously cleared dirty for everyone — data
+    // integrity bug found in QA review 2026-05-19.)
+    setRows((prev) =>
+      prev.map((r) =>
+        savedUserIds.has(r.user_id) ? { ...r, dirty: false } : r,
+      ),
+    );
     setSaveStatus({
       type: failCount === 0 ? "success" : "error",
-      message: `Zapisano ${okCount}/${dirtyRows.length}${failCount > 0 ? ` (${failCount} błędów)` : ""}`,
+      message: `Zapisano ${savedUserIds.size}/${dirtyRows.length}${failCount > 0 ? ` (${failCount} błędów)` : ""}`,
     });
   };
 

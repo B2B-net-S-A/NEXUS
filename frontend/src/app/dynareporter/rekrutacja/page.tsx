@@ -1076,34 +1076,8 @@ function KpiCard({
   );
 }
 
-function PodiumCard({ member, place }: { member: DrRekrutacjaTeamMember; place: number }) {
-  const PLACE_META: Record<number, { emoji: string; ring: string }> = {
-    1: { emoji: "🥇", ring: "ring-amber-400" },
-    2: { emoji: "🥈", ring: "ring-slate-300" },
-    3: { emoji: "🥉", ring: "ring-orange-400" },
-  };
-  const meta = PLACE_META[place];
-  return (
-    <div className={`rounded-lg border bg-card p-4 ring-2 ring-offset-2 ${meta.ring}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{meta.emoji}</span>
-        <div className="text-xs text-muted-foreground uppercase">Miejsce {place}</div>
-      </div>
-      <div className="font-semibold text-base">
-        {member.first_name} {member.last_name}
-      </div>
-      <div className="text-xs text-muted-foreground mb-2">
-        {ROLE_LABEL_PL[member.role] ?? member.role}
-      </div>
-      <div className="text-2xl font-bold tabular-nums">{member.league_points}</div>
-      <div className="text-xs text-muted-foreground">punktów</div>
-      <div className="mt-2 text-[11px] text-muted-foreground">
-        {member.metrics.placements.value}P / {member.metrics.interviews.value}I /{" "}
-        {member.metrics.recommendations.value}R
-      </div>
-    </div>
-  );
-}
+// PodiumCard usunięty — zastąpiony przez QuarterlyPodiumCard (PR #263).
+// ESLint flag'ował go jako dead code w QA review 2026-05-19.
 
 /**
  * Quarterly podium card — full DR-style visual.

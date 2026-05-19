@@ -3898,9 +3898,13 @@ export const dynareporterAdminUsersApi = {
 
 // Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
 export type DrHallOfFameEntry = {
-  competition_type: string; // 'quarterly' | 'monthly_recommendations' | 'monthly_placements'
+  id: number;  // PK z dr_competition_winners — używane przez admin delete UI
+  competition_type:
+    | "quarterly"
+    | "monthly_recommendations"
+    | "monthly_placements";
   period: string;
-  rank: number;
+  rank: 1 | 2 | 3;
   user_id: number;
   user_name: string;
   points: number;

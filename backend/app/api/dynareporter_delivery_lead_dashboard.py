@@ -303,7 +303,17 @@ async def upsert_dl_entry(
             detail="Tylko admin może modyfikować KPI DL",
         )
 
-    month_date = f"{payload.report_month}-01"
+    # YYYY-MM → date(YYYY, MM, 1) — asyncpg wymaga `datetime.date` dla `date` column
+    # (string "YYYY-MM-01" daje DataError: 'str' has no attribute 'toordinal').
+    try:
+        month_date = datetime.strptime(
+            f"{payload.report_month}-01", "%Y-%m-%d"
+        ).date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"report_month must be YYYY-MM (got '{payload.report_month}')",
+        ) from exc
     sql = text(
         """
         INSERT INTO dr_kpi_delivery_lead (
