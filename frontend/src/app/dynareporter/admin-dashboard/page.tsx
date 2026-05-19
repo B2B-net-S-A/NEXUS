@@ -8,18 +8,19 @@
  * (blue/green/orange/indigo/purple/amber/teal/cyan/violet/yellow/gray),
  * gradient backgrounds, dark theme support.
  *
- * Modules:
- * 1. **body_leasing** — KPI działu Rekrutacja (BodyLeasingDataEntry — IMPLEMENTED)
- * 2. sales — Projekty, konsultanci, MRR (TODO session 2)
- * 3. delivery_lead — Hit Ratio i Placements (TODO session 2)
- * 4. przetargi — Zamówienia publiczne (TODO session 2)
- * 5. board_data — Dane miesięczne Rady Nadzorczej (TODO session 2)
- * 6. employees — Zarządzanie pracownikami (TODO session 3)
- * 7. recruitment_team — Sourcer/TAC assignments (TODO session 3)
- * 8. dl_clients — DL klienci (TODO session 3)
- * 9. master_data — Centralna baza klientów + konsultantów (TODO session 4)
- * 10. hall_of_fame — Zarządzanie zwycięzcami (TODO session 4)
- * 11. settings — Scoring + API Keys (TODO session 4)
+ * Modules (wszystkie 12 zaimplementowane):
+ *  1. body_leasing — KPI działu Rekrutacja
+ *  2. sales — Projekty + people + weekly activity (Sesja 4)
+ *  3. delivery_lead — Hit Ratio i Placements
+ *  4. przetargi — Projekty + alokacje + koszty (Sesja 4)
+ *  5. board_data — Dane miesięczne Rady Nadzorczej
+ *  6. employees — Lista userów + seniority + toggle active (Sesja 4)
+ *  7. recruitment_team — Members + TAC↔DL + Sourcer↔Category (Sesja 4)
+ *  8. dl_clients — Delivery Lead ↔ Klient assignments (Sesja 4)
+ *  9. master_data — Centralna baza klientów + konsultantów
+ * 10. hall_of_fame — Zarządzanie zwycięzcami
+ * 11. settings — Champions League scoring config
+ * 12. history — Upload history + audit log
  *
  * Tylko rola `admin` może wyświetlać.
  */
@@ -52,6 +53,11 @@ import { DeliveryLeadDataEntry } from "./_modules/DeliveryLeadDataEntry";
 import { ScoringConfig } from "./_modules/ScoringConfig";
 import { HallOfFameManager } from "./_modules/HallOfFameManager";
 import { MasterDataManager } from "./_modules/MasterDataManager";
+import { EmployeesManager } from "./_modules/EmployeesManager";
+import { RecruitmentTeamManager } from "./_modules/RecruitmentTeamManager";
+import { DLClientManager } from "./_modules/DLClientManager";
+import { SalesDataEntry } from "./_modules/SalesDataEntry";
+import { PrzetargiDataEntry } from "./_modules/PrzetargiDataEntry";
 
 type ModuleType =
   | "body_leasing"
@@ -204,43 +210,15 @@ export default function AdminDashboardPage() {
       {activeModule === "hall_of_fame" && <HallOfFameManager />}
       {activeModule === "master_data" && <MasterDataManager />}
       {activeModule === "history" && <HistorySection />}
-      {!["body_leasing", "board_data", "delivery_lead", "settings", "hall_of_fame", "master_data", "history"].includes(activeModule) && (
-        <ComingSoonSection moduleType={activeModule} />
-      )}
+      {activeModule === "employees" && <EmployeesManager />}
+      {activeModule === "recruitment_team" && <RecruitmentTeamManager />}
+      {activeModule === "dl_clients" && <DLClientManager />}
+      {activeModule === "sales" && <SalesDataEntry />}
+      {activeModule === "przetargi" && <PrzetargiDataEntry />}
     </div>
   );
 }
 
-function ComingSoonSection({ moduleType }: { moduleType: ModuleType }) {
-  const card = MODULE_CARDS.find((c) => c.type === moduleType);
-  return (
-    <Card>
-      <CardContent className="py-12 text-center space-y-3">
-        <h3 className="text-lg font-semibold">{card?.title}</h3>
-        <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          {card?.description}
-        </p>
-        <div className="pt-4">
-          <Badge variant="warning">
-            W przygotowaniu — port z artur-t-96/InfraReporter w kolejnej sesji
-          </Badge>
-        </div>
-        <p className="text-xs text-muted-foreground pt-2">
-          Tymczasowo użyj{" "}
-          <a
-            href={`https://reports.dynaminds.pl/admin`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            standalone DR Admin
-          </a>{" "}
-          dla tego modułu.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
 
 function HistorySection() {
   const uploadsQuery = useQuery({
