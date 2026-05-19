@@ -84,3 +84,17 @@ class DLDashboard(BaseModel):
     period_label: str
     period_start: Optional[date] = None
     period_end: Optional[date] = None
+
+
+class DLUpsert(BaseModel):
+    """Payload POST /entry — admin upsert miesięcznego KPI dla DL."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    report_month: str = Field(description="YYYY-MM")
+    requests: int = 0
+    placements: int = 0
+    vacancies: int = 0
+    open_requests: int = 0
+    open_vacancies: int = 0

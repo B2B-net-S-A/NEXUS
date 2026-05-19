@@ -35,3 +35,20 @@ class BoardMonthlyRow(BaseModel):
     avg_margin_per_hour: float = 0.0
     hit_ratio: float = 0.0
     placement_clients: list[BoardPlacementClient] = Field(default_factory=list)
+
+
+class BoardMonthlyUpsert(BaseModel):
+    """Payload POST /monthly — admin upsert miesięcznego raportu."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    report_month: str = Field(description="YYYY-MM")
+    revenue: float = 0.0
+    consultant_costs: float = 0.0
+    other_costs: float = 0.0
+    active_consultants: int = 0
+    departures: int = 0
+    placements: int = 0
+    avg_margin_per_hour: float = 0.0
+    hit_ratio: float = 0.0
+    placement_clients: list[BoardPlacementClient] = Field(default_factory=list)

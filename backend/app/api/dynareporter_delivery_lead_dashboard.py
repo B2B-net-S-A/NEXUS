@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.schemas.dr_delivery_lead_dashboard import (
     DLTeamHistoryRow,
     DLTeamStats,
     DLTrendRow,
+    DLUpsert,
 )
 
 router = APIRouter()
@@ -282,3 +283,58 @@ async def get_trend(
         )
         for r in reversed(rows)
     ]
+
+
+@router.post(
+    "/entry",
+    summary="Admin upsert miesięcznego KPI DL (admin only)",
+)
+async def upsert_dl_entry(
+    payload: DLUpsert,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Admin upsert wpisu DL KPI. ON CONFLICT (user_id, report_month)."""
+    from app.models.user import UserRole
+
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Tylko admin może modyfikować KPI DL",
+        )
+
+    month_date = f"{payload.report_month}-01"
+    sql = text(
+        """
+        INSERT INTO dr_kpi_delivery_lead (
+            user_id, report_month, requests, placements, vacancies,
+            open_requests, open_vacancies, created_at, updated_at
+        ) VALUES (
+            :user_id, :report_month, :requests, :placements, :vacancies,
+            :open_requests, :open_vacancies, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (user_id, report_month) DO UPDATE SET
+            requests = EXCLUDED.requests,
+            placements = EXCLUDED.placements,
+            vacancies = EXCLUDED.vacancies,
+            open_requests = EXCLUDED.open_requests,
+            open_vacancies = EXCLUDED.open_vacancies,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """
+    )
+    result = await db.execute(
+        sql,
+        {
+            "user_id": payload.user_id,
+            "report_month": month_date,
+            "requests": payload.requests,
+            "placements": payload.placements,
+            "vacancies": payload.vacancies,
+            "open_requests": payload.open_requests,
+            "open_vacancies": payload.open_vacancies,
+        },
+    )
+    await db.commit()
+    row = result.first()
+    return {"id": row.id if row else None, "ok": True}

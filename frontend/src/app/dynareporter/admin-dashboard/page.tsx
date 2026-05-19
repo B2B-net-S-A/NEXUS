@@ -47,6 +47,9 @@ import { useAuthStore } from "@/store/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BodyLeasingDataEntry } from "./_modules/BodyLeasingDataEntry";
+import { BoardDataEntry } from "./_modules/BoardDataEntry";
+import { DeliveryLeadDataEntry } from "./_modules/DeliveryLeadDataEntry";
+import { ScoringConfig } from "./_modules/ScoringConfig";
 
 type ModuleType =
   | "body_leasing"
@@ -193,8 +196,11 @@ export default function AdminDashboardPage() {
 
       {/* Module content */}
       {activeModule === "body_leasing" && <BodyLeasingDataEntry />}
+      {activeModule === "board_data" && <BoardDataEntry />}
+      {activeModule === "delivery_lead" && <DeliveryLeadDataEntry />}
+      {activeModule === "settings" && <ScoringConfig />}
       {activeModule === "history" && <HistorySection />}
-      {activeModule !== "body_leasing" && activeModule !== "history" && (
+      {!["body_leasing", "board_data", "delivery_lead", "settings", "history"].includes(activeModule) && (
         <ComingSoonSection moduleType={activeModule} />
       )}
     </div>

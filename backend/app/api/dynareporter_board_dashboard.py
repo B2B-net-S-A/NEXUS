@@ -15,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import User, UserRole
-from app.schemas.dr_board_dashboard import BoardMonthlyRow, BoardPlacementClient
+from app.schemas.dr_board_dashboard import (
+    BoardMonthlyRow,
+    BoardMonthlyUpsert,
+    BoardPlacementClient,
+)
 
 router = APIRouter()
 
@@ -117,3 +121,103 @@ async def get_monthly(
         )
         for r in rows
     ]
+
+
+@router.post(
+    "/monthly",
+    response_model=BoardMonthlyRow,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upsert miesięcznego raportu Rady Nadzorczej + per-client placements",
+)
+async def upsert_monthly(
+    payload: BoardMonthlyUpsert,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BoardMonthlyRow:
+    """Admin only — upsert miesięcznego board report. Idempotent ON CONFLICT."""
+    _require_board_access(current_user)
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tylko admin może modyfikować board data",
+        )
+
+    # YYYY-MM → YYYY-MM-01
+    month_date = f"{payload.report_month}-01"
+
+    # Upsert main report
+    sql_upsert = text(
+        """
+        INSERT INTO dr_board_monthly_report (
+            report_month, revenue, consultant_costs, other_costs,
+            active_consultants, departures, placements,
+            avg_margin_per_hour, hit_ratio, updated_at
+        ) VALUES (
+            :report_month, :revenue, :consultant_costs, :other_costs,
+            :active_consultants, :departures, :placements,
+            :avg_margin_per_hour, :hit_ratio, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (report_month) DO UPDATE SET
+            revenue = EXCLUDED.revenue,
+            consultant_costs = EXCLUDED.consultant_costs,
+            other_costs = EXCLUDED.other_costs,
+            active_consultants = EXCLUDED.active_consultants,
+            departures = EXCLUDED.departures,
+            placements = EXCLUDED.placements,
+            avg_margin_per_hour = EXCLUDED.avg_margin_per_hour,
+            hit_ratio = EXCLUDED.hit_ratio,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id
+        """
+    )
+    await db.execute(
+        sql_upsert,
+        {
+            "report_month": month_date,
+            "revenue": payload.revenue,
+            "consultant_costs": payload.consultant_costs,
+            "other_costs": payload.other_costs,
+            "active_consultants": payload.active_consultants,
+            "departures": payload.departures,
+            "placements": payload.placements,
+            "avg_margin_per_hour": payload.avg_margin_per_hour,
+            "hit_ratio": payload.hit_ratio,
+        },
+    )
+
+    # Re-set per-client placements (DELETE + INSERT pattern)
+    await db.execute(
+        text("DELETE FROM dr_board_placement_clients WHERE report_month = :m"),
+        {"m": month_date},
+    )
+    for pc in payload.placement_clients:
+        if pc.client_name and pc.count > 0:
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO dr_board_placement_clients (
+                        report_month, client_name, placement_count
+                    ) VALUES (:m, :name, :cnt)
+                    ON CONFLICT (report_month, client_name) DO UPDATE
+                    SET placement_count = EXCLUDED.placement_count
+                    """
+                ),
+                {"m": month_date, "name": pc.client_name.strip(), "cnt": pc.count},
+            )
+
+    await db.commit()
+
+    return BoardMonthlyRow(
+        report_month=payload.report_month,
+        revenue=payload.revenue,
+        consultant_costs=payload.consultant_costs,
+        other_costs=payload.other_costs,
+        margin=payload.revenue - payload.consultant_costs,
+        profit=payload.revenue - payload.consultant_costs - payload.other_costs,
+        active_consultants=payload.active_consultants,
+        departures=payload.departures,
+        placements=payload.placements,
+        avg_margin_per_hour=payload.avg_margin_per_hour,
+        hit_ratio=payload.hit_ratio,
+        placement_clients=payload.placement_clients,
+    )
