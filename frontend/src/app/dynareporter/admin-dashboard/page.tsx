@@ -50,6 +50,8 @@ import { BodyLeasingDataEntry } from "./_modules/BodyLeasingDataEntry";
 import { BoardDataEntry } from "./_modules/BoardDataEntry";
 import { DeliveryLeadDataEntry } from "./_modules/DeliveryLeadDataEntry";
 import { ScoringConfig } from "./_modules/ScoringConfig";
+import { HallOfFameManager } from "./_modules/HallOfFameManager";
+import { MasterDataManager } from "./_modules/MasterDataManager";
 
 type ModuleType =
   | "body_leasing"
@@ -199,8 +201,10 @@ export default function AdminDashboardPage() {
       {activeModule === "board_data" && <BoardDataEntry />}
       {activeModule === "delivery_lead" && <DeliveryLeadDataEntry />}
       {activeModule === "settings" && <ScoringConfig />}
+      {activeModule === "hall_of_fame" && <HallOfFameManager />}
+      {activeModule === "master_data" && <MasterDataManager />}
       {activeModule === "history" && <HistorySection />}
-      {!["body_leasing", "board_data", "delivery_lead", "settings", "history"].includes(activeModule) && (
+      {!["body_leasing", "board_data", "delivery_lead", "settings", "hall_of_fame", "master_data", "history"].includes(activeModule) && (
         <ComingSoonSection moduleType={activeModule} />
       )}
     </div>

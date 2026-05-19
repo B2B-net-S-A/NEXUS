@@ -3728,6 +3728,52 @@ export const dynareporterAdminConfigApi = {
       .then((r) => r.data),
 };
 
+// === Admin HoF Manager (Session 3) ======================================
+export type DrHoFWinnerCreatePayload = {
+  competition_type: "quarterly" | "monthly_recommendations" | "monthly_placements";
+  period: string;
+  user_id: number;
+  rank: 1 | 2 | 3;
+  points?: number;
+  metric_value?: number;
+  prize?: string | null;
+};
+
+export const dynareporterAdminHofApi = {
+  addWinner: (payload: DrHoFWinnerCreatePayload) =>
+    api
+      .post<{ id: number; ok: boolean }>("/api/dynareporter/admin-hof/winner", payload)
+      .then((r) => r.data),
+  deleteWinner: (winnerId: number) =>
+    api.delete(`/api/dynareporter/admin-hof/winner/${winnerId}`).then((r) => r.data),
+};
+
+// === Admin Master Data Manager (Session 3) ==============================
+export type DrAdminClientRow = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  placements_count: number;
+};
+export type DrAdminConsultantRow = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  default_cost_rate: number;
+  default_revenue_rate: number;
+};
+
+export const dynareporterAdminMasterDataApi = {
+  clients: () =>
+    api
+      .get<DrAdminClientRow[]>("/api/dynareporter/admin-master-data/clients")
+      .then((r) => r.data),
+  consultants: () =>
+    api
+      .get<DrAdminConsultantRow[]>("/api/dynareporter/admin-master-data/consultants")
+      .then((r) => r.data),
+};
+
 // Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
 export type DrHallOfFameEntry = {
   competition_type: string; // 'quarterly' | 'monthly_recommendations' | 'monthly_placements'
