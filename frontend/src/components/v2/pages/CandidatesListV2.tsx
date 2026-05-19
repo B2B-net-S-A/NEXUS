@@ -602,6 +602,18 @@ export function CandidatesListV2() {
  const [qNone, setQNone] = useState<string[]>(
  (searchParams.get("q_none") ??"").split("|").filter(Boolean)
  );
+ // Boolean-search panel visibility. Opens automatically when the URL arrives
+ // with any q_all/q_any/q_none — the user has filters and needs to see them.
+ // Otherwise opt-in via the `Boolean` toggle next to the search input. Persists
+ // across reloads via `?boolean=1` once opened so the recruiter doesn't lose
+ // their workspace.
+ const [showAdvanced, setShowAdvanced] = useState<boolean>(
+ () =>
+ searchParams.get("boolean") === "1" ||
+ qAll.length > 0 ||
+ qAny.length > 0 ||
+ qNone.length > 0
+ );
  const currentUser = useAuthStore((s) => s.user);
 
  // Sync URL -----------------------------------------------------
@@ -627,6 +639,17 @@ export function CandidatesListV2() {
  if (qAll.length) params.set("q_all", qAll.join("|"));
  if (qAny.length) params.set("q_any", qAny.join("|"));
  if (qNone.length) params.set("q_none", qNone.join("|"));
+ // Persist Boolean-panel visibility ONLY when the user toggled it open
+ // without any active phrases yet — otherwise the q_all/q_any/q_none params
+ // already imply the panel should be shown (no need to clutter the URL).
+ if (
+ showAdvanced &&
+ qAll.length === 0 &&
+ qAny.length === 0 &&
+ qNone.length === 0
+ ) {
+ params.set("boolean", "1");
+ }
  const qs = params.toString();
  window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
  }, [
@@ -650,6 +673,7 @@ export function CandidatesListV2() {
  qAll,
  qAny,
  qNone,
+ showAdvanced,
  ]);
 
  // Data --------------------------------------------------------
@@ -1013,12 +1037,13 @@ export function CandidatesListV2() {
  }}
  />
  </div>
- <Popover>
- <PopoverTrigger asChild>
  <Button
  size="sm"
- variant="outline"
- title="Zaawansowane wyszukiwanie (ALL / ANY / NONE)"
+ variant={showAdvanced ?"primary" :"outline"}
+ onClick={() => setShowAdvanced((v) => !v)}
+ title="Boolean search — ALL / ANY / NONE"
+ aria-expanded={showAdvanced}
+ aria-controls="boolean-search-panel"
  >
  <Filter className="h-4 w-4" />
  Zaawansowane
@@ -1028,19 +1053,6 @@ export function CandidatesListV2() {
  </Badge>
  )}
  </Button>
- </PopoverTrigger>
- <PopoverContent align="start" className="w-[420px] p-4">
- <AdvancedSearchPopover
- value={{ all: qAll, any: qAny, none: qNone }}
- onChange={(next) => {
- setQAll(next.all);
- setQAny(next.any);
- setQNone(next.none);
- setPage(1);
- }}
- />
- </PopoverContent>
- </Popover>
  <MultiSelectFilter<CandidateStatusValue>
  value={statusFilter}
  onChange={(v) => {
@@ -1570,6 +1582,26 @@ export function CandidatesListV2() {
  </button>
  </div>
  </div>
+
+ {/* Boolean-search panel — inline (Phase 3, Traffit parity). Toggled by
+ the "Zaawansowane" button above; auto-opens when URL carries q_all/q_any/q_none
+ so reloads don't hide active filters. */}
+ {showAdvanced && (
+ <div
+ id="boolean-search-panel"
+ className="rounded-lg border border-border bg-card p-4"
+ >
+ <AdvancedSearchPopover
+ value={{ all: qAll, any: qAny, none: qNone }}
+ onChange={(next) => {
+ setQAll(next.all);
+ setQAny(next.any);
+ setQNone(next.none);
+ setPage(1);
+ }}
+ />
+ </div>
+ )}
 
  {/* Active filter chips */}
  <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
