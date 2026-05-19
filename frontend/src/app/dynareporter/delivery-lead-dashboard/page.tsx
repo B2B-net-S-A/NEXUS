@@ -12,11 +12,13 @@
  * - Sortable table per DL z trend chart przy kliknięciu wiersza
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -101,12 +103,34 @@ export default function DeliveryLeadDashboardPage() {
   const [sortBy, setSortBy] = useState<SortKey>("hit_ratio");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedDL, setSelectedDL] = useState<number | null>(null);
+  // Chart type toggle for team history (DR parity).
+  const [chartType, setChartType] = useState<"line" | "bar">("line");
+  // Date range filter (puste = cały zakres) — DR parity.
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
 
   const queryEnabled = hydrated && !!user;
 
+  // Build query params dla dashboard z opt date range filter.
+  const dashboardParams = useMemo(() => {
+    const p: { start_date?: string; end_date?: string } = {};
+    if (dateFrom) p.start_date = `${dateFrom}-01`;
+    if (dateTo) {
+      // End-of-month — Date(y, m+1, 0)
+      const [y, m] = dateTo.split("-").map(Number);
+      if (y && m) {
+        p.end_date = new Date(y, m, 0).toISOString().slice(0, 10);
+      }
+    }
+    return p;
+  }, [dateFrom, dateTo]);
+
   const { data: dashboard, isLoading, error: dashboardError } = useQuery({
-    queryKey: ["dr-dl-dashboard"],
-    queryFn: () => dynareporterDeliveryLeadApi.dashboard(),
+    queryKey: ["dr-dl-dashboard", dashboardParams],
+    queryFn: () =>
+      dynareporterDeliveryLeadApi.dashboard(
+        Object.keys(dashboardParams).length > 0 ? dashboardParams : undefined,
+      ),
     staleTime: 60_000,
     enabled: queryEnabled,
   });
@@ -158,7 +182,7 @@ export default function DeliveryLeadDashboardPage() {
       {/* Header */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="p-2 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg">
               <Target className="w-6 h-6 text-white" />
             </div>
@@ -168,6 +192,38 @@ export default function DeliveryLeadDashboardPage() {
                 Hit Ratio i Placements · target {dashboard?.hit_ratio_target ?? 30}% ·{" "}
                 {dashboard?.period_label ?? "—"}
               </p>
+            </div>
+
+            {/* Date range filter (DR parity) */}
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              <label className="text-xs text-muted-foreground">Od:</label>
+              <input
+                type="month"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="px-2 py-1 text-sm bg-background border border-input rounded-md"
+                aria-label="Data od (miesiąc)"
+              />
+              <label className="text-xs text-muted-foreground">Do:</label>
+              <input
+                type="month"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="px-2 py-1 text-sm bg-background border border-input rounded-md"
+                aria-label="Data do (miesiąc)"
+              />
+              {(dateFrom || dateTo) && (
+                <button
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-xs px-2 py-1 bg-muted hover:bg-muted/70 rounded-md"
+                  aria-label="Wyczyść filtr dat"
+                >
+                  Wyczyść
+                </button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -222,16 +278,74 @@ export default function DeliveryLeadDashboardPage() {
           {/* History chart */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-indigo-500" />
-                Historia zespołu (ostatnie 12 mies.)
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-indigo-500" />
+                  Historia zespołu (ostatnie 12 mies.)
+                </CardTitle>
+                {/* Line/Bar toggle — DR parity */}
+                <div className="flex bg-muted rounded-md p-0.5">
+                  <button
+                    onClick={() => setChartType("line")}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                      chartType === "line"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    aria-label="Pokaż wykres liniowy"
+                    aria-pressed={chartType === "line"}
+                  >
+                    📈 Linia
+                  </button>
+                  <button
+                    onClick={() => setChartType("bar")}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                      chartType === "bar"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    aria-label="Pokaż wykres słupkowy"
+                    aria-pressed={chartType === "bar"}
+                  >
+                    📊 Słupki
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {dashboard.team_history.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-12 text-center">
                   Brak danych historycznych
                 </p>
+              ) : chartType === "bar" ? (
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={dashboard.team_history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="month"
+                      tickFormatter={formatMonth}
+                      tick={{ fontSize: 11 }}
+                      stroke="hsl(var(--muted-foreground))"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      stroke="hsl(var(--muted-foreground))"
+                    />
+                    <Tooltip
+                      labelFormatter={(value) => formatMonth(String(value))}
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="requests" fill="#3B82F6" name="Zapytania" />
+                    <Bar dataKey="vacancies" fill="#06B6D4" name="Wakaty" />
+                    <Bar dataKey="placements" fill="#10B981" name="Placements" />
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={dashboard.team_history}>
