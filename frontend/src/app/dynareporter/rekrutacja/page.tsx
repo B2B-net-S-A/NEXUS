@@ -427,25 +427,82 @@ export default function RekrutacjaPage() {
             </CardContent>
           </Card>
 
-          {/* Liga Mistrzów — Podium */}
-          {dashboard.league_ranking.length >= 3 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Trophy className="h-5 w-5 text-amber-500" />
-                  Liga Mistrzów — Podium
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Punktacja: placement = {dashboard.scoring.placement} pkt · interview ={" "}
-                  {dashboard.scoring.interview} pkt · rekomendacja ={" "}
-                  {dashboard.scoring.recommendation} pkt
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {dashboard.league_ranking.slice(0, 3).map((m, idx) => (
-                    <PodiumCard key={m.id} member={m} place={idx + 1} />
-                  ))}
+          {/* Liga Mistrzów — Quarterly Podium z gradient + prizes (DR parity) */}
+          {dashboard.league_ranking_quarterly.length >= 3 && (
+            <Card className="overflow-hidden bg-gradient-to-br from-purple-950/95 via-purple-900/90 to-amber-900/30 dark:from-purple-950 dark:via-purple-900 dark:to-amber-950/40 border-amber-500/30">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-3">
+                    <Trophy className="h-8 w-8 text-amber-400" />
+                    <div>
+                      <h3 className="text-2xl font-bold text-amber-100">
+                        Liga Mistrzów
+                      </h3>
+                      <p className="text-sm text-purple-200/80">
+                        {dashboard.quarter_label || "Bieżący kwartał"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Podium top-3 — order: #2, #1, #3 (Olympic podium) */}
+                <div className="grid grid-cols-3 gap-3 mt-6 items-end">
+                  {(() => {
+                    const top3 = dashboard.league_ranking_quarterly.slice(0, 3);
+                    const positions = [top3[1], top3[0], top3[2]];
+                    const places = [2, 1, 3];
+                    return positions.map((m, idx) => {
+                      if (!m) return <div key={idx} />;
+                      return <QuarterlyPodiumCard key={m.id} member={m} place={places[idx]} />;
+                    });
+                  })()}
+                </div>
+
+                {/* Prizes row */}
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <div className="bg-slate-800/60 border border-slate-400/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <Trophy className="w-3.5 h-3.5 text-slate-300" />
+                      <span className="text-[10px] uppercase tracking-wider text-slate-300">
+                        2. miejsce
+                      </span>
+                    </div>
+                    <div className="text-lg font-bold text-slate-100">3 000 PLN</div>
+                  </div>
+                  <div className="bg-amber-900/50 border border-amber-400/40 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <Trophy className="w-3.5 h-3.5 text-amber-300" />
+                      <span className="text-[10px] uppercase tracking-wider text-amber-200">
+                        1. miejsce
+                      </span>
+                    </div>
+                    <div className="text-lg font-bold text-amber-100">5 000 PLN</div>
+                  </div>
+                  <div className="bg-orange-900/40 border border-orange-500/30 rounded-lg p-3 text-center">
+                    <div className="flex items-center justify-center gap-1 mb-1">
+                      <Trophy className="w-3.5 h-3.5 text-orange-300" />
+                      <span className="text-[10px] uppercase tracking-wider text-orange-200">
+                        3. miejsce
+                      </span>
+                    </div>
+                    <div className="text-lg font-bold text-orange-100">2 000 PLN</div>
+                  </div>
+                </div>
+
+                {/* System punktowy + warunek udziału */}
+                <div className="mt-5 pt-4 border-t border-purple-700/50 space-y-2">
+                  <p className="text-xs text-purple-200/90">
+                    <span className="font-semibold text-amber-300">System punktowy:</span>{" "}
+                    Placement = <strong>{dashboard.scoring.placement} pkt</strong> · Interview ={" "}
+                    <strong>{dashboard.scoring.interview} pkt</strong> · Rekomendacja ={" "}
+                    <strong>{dashboard.scoring.recommendation} pkt</strong>
+                  </p>
+                  <p className="text-xs text-purple-200/80">
+                    <span className="font-semibold text-amber-300/90">⚠ Warunek udziału:</span>{" "}
+                    minimum 1 placement miesięcznie (łącznie 3 w kwartale). Osoby poniżej
+                    progu są oznaczane jako "brakuje placementu" — nadal w grze, ale muszą
+                    nadrobić.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1043,6 +1100,95 @@ function PodiumCard({ member, place }: { member: DrRekrutacjaTeamMember; place: 
       <div className="mt-2 text-[11px] text-muted-foreground">
         {member.metrics.placements.value}P / {member.metrics.interviews.value}I /{" "}
         {member.metrics.recommendations.value}R
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Quarterly podium card — full DR-style visual.
+ * Place 1 = gold gradient + crown
+ * Place 2 = silver, Place 3 = bronze
+ * Position-aware height (place 1 taller — Olympic style).
+ */
+function QuarterlyPodiumCard({
+  member,
+  place,
+}: {
+  member: DrRekrutacjaTeamMember;
+  place: number;
+}) {
+  const PLACE_META: Record<
+    number,
+    {
+      bg: string;
+      border: string;
+      label: string;
+      number: string;
+      height: string;
+      glow: string;
+      crown: boolean;
+    }
+  > = {
+    1: {
+      bg: "bg-gradient-to-br from-amber-400/95 to-yellow-500/95",
+      border: "border-amber-300",
+      label: "text-amber-50",
+      number: "text-amber-50",
+      height: "min-h-[180px]",
+      glow: "shadow-[0_0_30px_rgba(251,191,36,0.4)]",
+      crown: true,
+    },
+    2: {
+      bg: "bg-gradient-to-br from-slate-300/95 to-slate-400/95",
+      border: "border-slate-200",
+      label: "text-slate-50",
+      number: "text-slate-50",
+      height: "min-h-[160px]",
+      glow: "",
+      crown: false,
+    },
+    3: {
+      bg: "bg-gradient-to-br from-orange-500/90 to-orange-700/90",
+      border: "border-orange-400",
+      label: "text-orange-50",
+      number: "text-orange-50",
+      height: "min-h-[150px]",
+      glow: "",
+      crown: false,
+    },
+  };
+  const meta = PLACE_META[place];
+  const fullName = `${member.first_name} ${member.last_name}`.trim() || "—";
+  return (
+    <div
+      className={`rounded-lg ${meta.bg} ${meta.border} ${meta.height} ${meta.glow} border-2 p-4 flex flex-col items-center justify-end text-center relative`}
+    >
+      {meta.crown && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="text-2xl">👑</span>
+        </div>
+      )}
+      <div className={`text-xs uppercase font-semibold ${meta.label} opacity-80 mb-1`}>
+        {ROLE_LABEL_PL[member.role] ?? member.role}
+      </div>
+      <div className={`text-base font-bold ${meta.label} mb-2 leading-tight`}>
+        {fullName}
+      </div>
+      <div className={`text-3xl font-extrabold tabular-nums ${meta.number}`}>
+        {member.league_points}
+      </div>
+      <div className={`text-[10px] uppercase tracking-wider ${meta.label} opacity-80`}>
+        pkt
+      </div>
+      <div className={`mt-2 text-[11px] tabular-nums ${meta.label} opacity-90`}>
+        {member.metrics.placements.value}P / {member.metrics.interviews.value}I /{" "}
+        {member.metrics.recommendations.value}R
+      </div>
+      <div
+        className={`mt-3 text-4xl font-black ${meta.number} opacity-30 leading-none`}
+      >
+        {place}
       </div>
     </div>
   );

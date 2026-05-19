@@ -100,6 +100,24 @@ class RekrutacjaDashboard(BaseModel):
         description="Te same osoby co users, ale sortowane po league_points DESC, "
         "z wyłączeniem ról nielicznych (delivery_lead)"
     )
+    league_ranking_quarterly: list[TeamMember] = Field(
+        default_factory=list,
+        description="Ranking dla bieżącego kwartału (Q1/Q2/Q3/Q4) — Liga Mistrzów "
+        "agreguje punkty kwartalnie, niezależnie od filtru `period`. "
+        "DR pokazuje Q-level podium w sekcji 'Liga Mistrzów' (3 miesiące).",
+    )
+    quarter_label: str = Field(
+        default="",
+        description="Czytelny label kwartału (np. 'Q2 2026') dla sekcji Liga Mistrzów.",
+    )
+    quarter_start: date | None = Field(
+        default=None,
+        description="Początek kwartału (YYYY-MM-01)",
+    )
+    quarter_end: date | None = Field(
+        default=None,
+        description="Ostatni dzień kwartału (YYYY-MM-DD, ostatni dzień miesiąca)",
+    )
     scoring: dict[str, int] = Field(
         description="System punktowy z dr_system_config (placement/interview/recommendation)"
     )

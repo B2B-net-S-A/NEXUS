@@ -108,6 +108,29 @@ async def _load_scoring(db: AsyncSession) -> dict[str, int]:
     return dict(DEFAULT_SCORING)
 
 
+def _compute_quarter_bounds(today: date) -> tuple[date, date, str]:
+    """Liczy bounds bieżącego kwartału kalendarzowego dla Liga Mistrzów.
+
+    Q1 = Sty-Mar, Q2 = Kwi-Cze, Q3 = Lip-Wrz, Q4 = Paź-Gru.
+
+    Returns (start_date, end_date, label) — label format: "Q2 2026".
+
+    DR aggregates Liga Mistrzów punkty po kwartale (Apr-Jun for Q2 2026),
+    niezależnie od filtru `period` (week/month/year) wybranego przez usera.
+    """
+    quarter = (today.month - 1) // 3 + 1
+    start_month = (quarter - 1) * 3 + 1
+    start = date(today.year, start_month, 1)
+    end_month = start_month + 2
+    if end_month == 12:
+        end = date(today.year, 12, 31)
+    else:
+        # Last day of end_month = first day of (end_month + 1) - 1 day
+        next_after_end = date(today.year, end_month + 1, 1)
+        end = next_after_end - timedelta(days=1)
+    return start, end, f"Q{quarter} {today.year}"
+
+
 def _resolve_period_bounds(
     period: str,
     date_str: Optional[str],
@@ -392,6 +415,70 @@ async def get_dashboard(
         reverse=True,
     )
 
+    # ── Liga Mistrzów (kwartalna agregacja) ────────────────────────────────
+    # DR pokazuje Q-level podium (3 miesiące zagregowane), niezależnie od
+    # filtru `period` (week/month/year) — używamy bieżącego kwartału kalendarz.
+    today = date.today()
+    q_start, q_end, quarter_label = _compute_quarter_bounds(today)
+    q_rows = (
+        await db.execute(
+            sql,  # ten sam SQL co główny query — z innymi bounds
+            {
+                "start_date": q_start,
+                "end_date": q_end,
+                "roles": list(RECRUITMENT_ROLES),
+            },
+        )
+    ).all()
+    quarterly_members: list[TeamMember] = []
+    for row in q_rows:
+        full_name = row.name or ""
+        parts = full_name.split(" ", 1)
+        first_name = parts[0] if parts else ""
+        last_name = parts[1] if len(parts) > 1 else ""
+        # Quarterly targets — 3 miesiące * 20 dni roboczych
+        q_target_verif = 60 * 4 if row.role in RECRUITMENT_ROLES else 0
+        q_target_recom = 60 * 4 if row.role in RECRUITMENT_ROLES else 0
+        q_target_inter = max(1, int(row.recommendations * 0.1))
+        q_target_place = 3  # Warunek udziału: minimum 3 placements/kwartał (1/msc)
+        q_quality = (
+            int((row.interviews / row.recommendations) * 100)
+            if row.recommendations > 0
+            else 0
+        )
+        q_metrics = UserMetrics(
+            verifications=_calc_metric(row.verifications, q_target_verif),
+            recommendations=_calc_metric(row.recommendations, q_target_recom),
+            interviews=_calc_metric(row.interviews, q_target_inter),
+            placements=_calc_metric(row.placements, q_target_place),
+            quality_score=UserMetricValue(
+                value=q_quality, target=10, percentage=q_quality
+            ),
+        )
+        q_points = _calc_league_points(
+            row.placements,
+            row.interviews,
+            row.recommendations,
+            row.verifications,
+            scoring,
+        )
+        quarterly_members.append(
+            TeamMember(
+                id=row.id,
+                first_name=first_name,
+                last_name=last_name,
+                role=row.role,
+                is_active=row.is_active,
+                metrics=q_metrics,
+                league_points=q_points,
+            )
+        )
+    league_ranking_quarterly = sorted(
+        [m for m in quarterly_members if m.is_active],
+        key=lambda m: m.league_points,
+        reverse=True,
+    )
+
     return RekrutacjaDashboard(
         period=period,
         period_label=period_label,
@@ -401,6 +488,10 @@ async def get_dashboard(
         funnel=funnel,
         users=members,
         league_ranking=league_ranking,
+        league_ranking_quarterly=league_ranking_quarterly,
+        quarter_label=quarter_label,
+        quarter_start=q_start,
+        quarter_end=q_end,
         scoring=scoring,
     )
 
