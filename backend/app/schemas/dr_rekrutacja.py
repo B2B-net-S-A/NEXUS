@@ -201,3 +201,38 @@ class LinkedInPerformanceRow(BaseModel):
     responses_received: int = 0
     response_rate: float = Field(description="responses_received / messages_sent × 100")
     cv_per_md: float = Field(description="avg CV/MD (target 5)")
+
+
+class AccelerationPathEntry(BaseModel):
+    """Wiersz Acceleration Path (Junior→Senior lub Senior→Expert)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    user_name: str
+    role: str
+    start_date: str = Field(description="acceleration_start_date lub senior_since")
+    months_elapsed: int = Field(description="Liczba miesięcy od startu")
+    placements_6m: int = Field(description="Placements w ostatnich 6mc")
+    placements_12m: int = Field(description="Placements w ostatnich 12mc")
+    threshold_6m: int = Field(description="Próg 6m (6 dla J→S, 12 dla S→E)")
+    threshold_12m: int = Field(description="Próg 12m (12 dla J→S, 24 dla S→E)")
+    status: str = Field(description="'Awans od ...' | 'Na ścieżce' | 'Poniżej tempa'")
+    next_promotion_date: str | None = Field(
+        default=None, description="Data awansu YYYY-MM-DD jeśli osiągnięty próg"
+    )
+
+
+class AccelerationPath(BaseModel):
+    """Pełen Acceleration Path — 2 listy."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    junior_to_senior: list[AccelerationPathEntry] = Field(default_factory=list)
+    senior_to_expert: list[AccelerationPathEntry] = Field(default_factory=list)
+    junior_count: int = 0
+    senior_count: int = 0
+    expert_count: int = 0
+    ready_for_promotion: int = Field(
+        default=0, description="Łączna liczba osób gotowych do awansu"
+    )

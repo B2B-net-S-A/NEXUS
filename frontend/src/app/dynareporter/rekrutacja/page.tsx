@@ -192,6 +192,13 @@ export default function RekrutacjaPage() {
     enabled: queryEnabled,
   });
 
+  const { data: accelerationPath } = useQuery({
+    queryKey: ["dr-rekrutacja-accel"],
+    queryFn: () => dynareporterRekrutacjaApi.accelerationPath(),
+    staleTime: 10 * 60_000,
+    enabled: queryEnabled,
+  });
+
   // Early return pattern (mirror body-leasing) — SSR renderuje sam tekst
   // "Ładowanie sesji…", co matchuje client initial render (hydrated=false).
   // Pełna struktura (Cards, Table, etc.) renderuje się dopiero gdy
@@ -723,8 +730,108 @@ export default function RekrutacjaPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* === Acceleration Path (Junior→Senior, Senior→Expert) ========= */}
+          {accelerationPath &&
+            (accelerationPath.junior_to_senior.length > 0 ||
+              accelerationPath.senior_to_expert.length > 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy className="h-5 w-5 text-orange-500" />
+                    Acceleration Path
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Junior → Senior: 6 placement w 6mc LUB 12 placement w 12mc ·
+                    Senior → Expert: 12 placement w 6mc LUB 24 placement w 12mc.
+                    Łącznie {accelerationPath.junior_count} junior,{" "}
+                    {accelerationPath.senior_count} senior,{" "}
+                    {accelerationPath.expert_count} expert ·{" "}
+                    <strong>
+                      {accelerationPath.ready_for_promotion} do awansu
+                    </strong>
+                    .
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {accelerationPath.junior_to_senior.length > 0 && (
+                    <AccelerationPathTable
+                      title={`Junior → Senior (${accelerationPath.junior_to_senior.length} osób)`}
+                      entries={accelerationPath.junior_to_senior}
+                    />
+                  )}
+                  {accelerationPath.senior_to_expert.length > 0 && (
+                    <AccelerationPathTable
+                      title={`Senior → Expert (${accelerationPath.senior_to_expert.length} osób)`}
+                      entries={accelerationPath.senior_to_expert}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
         </>
       )}
+    </div>
+  );
+}
+
+function AccelerationPathTable({
+  title,
+  entries,
+}: {
+  title: string;
+  entries: import("@/lib/api").DrAccelerationPathEntry[];
+}) {
+  return (
+    <div>
+      <h4 className="text-sm font-semibold mb-2">{title}</h4>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Osoba</TableHead>
+              <TableHead>Rola</TableHead>
+              <TableHead className="text-center">Start</TableHead>
+              <TableHead className="text-right">6mc</TableHead>
+              <TableHead className="text-right">12mc</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entries.map((e) => {
+              const isReady = !!e.next_promotion_date;
+              const isBehind = e.status.startsWith("Poniżej");
+              return (
+                <TableRow key={e.user_id}>
+                  <TableCell className="font-medium">{e.user_name}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs">
+                    {e.role}
+                  </TableCell>
+                  <TableCell className="text-center text-xs text-muted-foreground">
+                    {e.start_date}
+                    <br />
+                    <span className="text-[10px]">({e.months_elapsed}mc)</span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">
+                    {e.placements_6m}/{e.threshold_6m}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-sm">
+                    {e.placements_12m}/{e.threshold_12m}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={isReady ? "success" : isBehind ? "danger" : "neutral"}
+                      size="sm"
+                    >
+                      {e.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

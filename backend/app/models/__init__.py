@@ -334,6 +334,7 @@ __all__ = [
     "DrSalesProject",
     "DrWeeklySalesActivity",
     "DrUploadHistory",
+    "DrUserSeniority",
 ]
 
 # DynaReporter migration (B.2 — modele dr_* tabel)
@@ -358,3 +359,4 @@ from app.models.dr_sales import (
     DrWeeklySalesActivity,
 )  # noqa: F401
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
+from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
