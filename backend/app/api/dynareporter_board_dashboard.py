@@ -196,25 +196,35 @@ async def upsert_monthly(
         },
     )
 
-    # Re-set per-client placements (DELETE + INSERT pattern)
+    # Re-set per-client placements (DELETE + bulk INSERT pattern).
+    # Wcześniej był loop z N+1 round-trips do DB (jeden execute() per client).
+    # Teraz jeden INSERT z executemany — 1 round-trip nawet dla 50 klientów.
     await db.execute(
         text("DELETE FROM dr_board_placement_clients WHERE report_month = :m"),
         {"m": month_date},
     )
-    for pc in payload.placement_clients:
-        if pc.client_name and pc.count > 0:
-            await db.execute(
-                text(
-                    """
-                    INSERT INTO dr_board_placement_clients (
-                        report_month, client_name, placement_count
-                    ) VALUES (:m, :name, :cnt)
-                    ON CONFLICT (report_month, client_name) DO UPDATE
-                    SET placement_count = EXCLUDED.placement_count
-                    """
-                ),
-                {"m": month_date, "name": pc.client_name.strip(), "cnt": pc.count},
-            )
+    valid_clients = [
+        {
+            "m": month_date,
+            "name": pc.client_name.strip(),
+            "cnt": pc.count,
+        }
+        for pc in payload.placement_clients
+        if pc.client_name and pc.client_name.strip() and pc.count > 0
+    ]
+    if valid_clients:
+        await db.execute(
+            text(
+                """
+                INSERT INTO dr_board_placement_clients (
+                    report_month, client_name, placement_count
+                ) VALUES (:m, :name, :cnt)
+                ON CONFLICT (report_month, client_name) DO UPDATE
+                SET placement_count = EXCLUDED.placement_count
+                """
+            ),
+            valid_clients,
+        )
 
     await db.commit()
 

@@ -296,7 +296,7 @@ async def get_dashboard(
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
-            AND (k.is_draft = false OR k.is_draft IS NULL)
+            AND k.is_draft = false
         WHERE u.role::text = ANY(:roles)
           AND (
               u.is_active = true
@@ -304,7 +304,7 @@ async def get_dashboard(
                   SELECT 1 FROM dr_kpi_body_leasing k2
                   WHERE k2.user_id = u.id
                     AND k2.report_date BETWEEN :start_date AND :end_date
-                    AND (k2.is_draft = false OR k2.is_draft IS NULL)
+                    AND k2.is_draft = false
               )
           )
         GROUP BY u.id, u.name, u.role, u.is_active
@@ -386,7 +386,7 @@ async def get_dashboard(
             COALESCE(SUM(k.placements), 0)::int AS total_placements
         FROM dr_kpi_body_leasing k
         WHERE k.report_date BETWEEN :start_date AND :end_date
-          AND (k.is_draft = false OR k.is_draft IS NULL)
+          AND k.is_draft = false
         """
     )
     team_row = (
@@ -523,7 +523,7 @@ async def get_available_weeks(
             k.week_number,
             EXTRACT(YEAR FROM k.report_date)::int AS year
         FROM dr_kpi_body_leasing k
-        WHERE (k.is_draft = false OR k.is_draft IS NULL)
+        WHERE k.is_draft = false
         ORDER BY year DESC, week_number DESC
         LIMIT :lim
         """
@@ -612,7 +612,7 @@ async def get_yearly_stats(
             COALESCE(SUM(k.interviews), 0)::int AS interviews,
             COALESCE(SUM(k.placements), 0)::int AS placements
         FROM dr_kpi_body_leasing k
-        WHERE (k.is_draft = false OR k.is_draft IS NULL)
+        WHERE k.is_draft = false
           AND (CAST(:year AS int) IS NULL OR EXTRACT(YEAR FROM k.report_date)::int = :year)
         GROUP BY k.week_number, EXTRACT(YEAR FROM k.report_date)
         ORDER BY year ASC, k.week_number ASC
@@ -668,9 +668,18 @@ async def get_monthly_race(
         next_month = month_date.replace(month=month_date.month + 1)
     month_end = next_month - timedelta(days=1)
 
+    # Defense-in-depth — co-located whitelist assertion. The route-level
+    # `pattern=` validator on `competition_type` query param protects this,
+    # ale jeśli endpoint kiedyś będzie wywołany bez routing (np. testy, refactor),
+    # ten assert blokuje SQL injection przez metric_col.
+    _ALLOWED_METRICS = {"recommendations", "placements"}
     metric_col = (
         "recommendations" if competition_type == "recommendations" else "placements"
     )
+    if metric_col not in _ALLOWED_METRICS:  # pragma: no cover — guard, unreachable
+        raise ValueError(
+            f"metric_col '{metric_col}' not in whitelist {_ALLOWED_METRICS}"
+        )
     requirement = (
         "Min. 4 weryfikacji/dzień roboczy"
         if competition_type == "recommendations"
@@ -689,13 +698,13 @@ async def get_monthly_race(
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
-            AND (k.is_draft = false OR k.is_draft IS NULL)
+            AND k.is_draft = false
         WHERE u.role::text = ANY(:roles)
           AND u.is_active = true
         GROUP BY u.id, u.name, u.role
         HAVING COALESCE(SUM(k.{metric_col}), 0) > 0
         ORDER BY metric_value DESC
-        """  # noqa: S608 — metric_col z whitelist
+        """  # noqa: S608 — metric_col z whitelist guard wyżej
     )
     rows = (
         await db.execute(
@@ -761,7 +770,7 @@ async def get_power_calling(
             ON k.user_id = u.id
             AND k.week_number = :wk
             AND EXTRACT(YEAR FROM k.report_date)::int = :yr
-            AND (k.is_draft = false OR k.is_draft IS NULL)
+            AND k.is_draft = false
         WHERE u.role::text = ANY(:roles)
           AND u.is_active = true
         GROUP BY u.id, u.name, u.role
@@ -827,7 +836,7 @@ async def get_linkedin_performance(
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
-            AND (k.is_draft = false OR k.is_draft IS NULL)
+            AND k.is_draft = false
         WHERE u.role::text = 'tac'
           AND u.is_active = true
         GROUP BY u.id, u.name, u.role

@@ -46,6 +46,7 @@ Idempotency:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -230,7 +231,7 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
                      WHERE id = %s
                        AND dynareporter_legacy_id IS NULL
                     """,
-                    (legacy_id, str(sections).replace("'", '"'), nexus_id),
+                    (legacy_id, json.dumps(sections), nexus_id),
                 )
         else:
             new += 1
@@ -260,7 +261,7 @@ def migrate_users(conn, dump_path: Path, dry_run: bool) -> dict[int, int]:
                         nexus_role,
                         password_hash,
                         legacy_id,
-                        str(sections).replace("'", '"'),
+                        json.dumps(sections),
                         f'["{nexus_role}"]',
                     ),
                 )
@@ -362,102 +363,118 @@ def migrate_data(
     cur = conn.cursor()
     # Defer FK constraints — dr_* tables are inserted alphabetically,
     # not in parent-first order (e.g. dr_api_key_audit_log before dr_api_keys).
+    # CRITICAL: `session_replication_role = replica` disables ALL FK enforcement
+    # and triggers for the session. Any unhandled exception below would leave the
+    # session in this state. Wrapper try/finally guarantees restoration even on
+    # ValueError from int(), KeyError, OperationalError, etc.
     cur.execute("SET session_replication_role = replica;")
 
-    if reset:
-        for tbl in dr_tables:
-            cmd = f"TRUNCATE TABLE public.dr_{tbl} CASCADE"
-            if dry_run:
-                logger.info("  [DRY] %s", cmd)
-            else:
-                cur.execute(cmd)
-        if not dry_run:
-            conn.commit()
-
-    counts: dict[str, int] = {}
-    for block in parse_dump_copy_blocks(dump_path, only_tables=dr_tables):
-        target_table = f"dr_{block.table}"
-        col_idx_map = {c: i for i, c in enumerate(block.columns)}
-        fk_cols = [c for c in block.columns if c in USER_FK_COLUMN_NAMES]
-
-        remapped_rows = []
-        skipped = 0
-        for row in block.rows:
-            new_row = list(row)
-            valid = True
-            for fk_col in fk_cols:
-                idx = col_idx_map[fk_col]
-                val = row[idx]
-                if val is None:
-                    continue
-                legacy_uid = int(val)
-                if legacy_uid in remap:
-                    new_row[idx] = str(remap[legacy_uid])
+    try:
+        if reset:
+            for tbl in dr_tables:
+                cmd = f"TRUNCATE TABLE public.dr_{tbl} CASCADE"
+                if dry_run:
+                    logger.info("  [DRY] %s", cmd)
                 else:
-                    logger.warning(
-                        "  %s.row legacy %s=%d nie znaleziono w remap; pomijam wiersz",
-                        target_table,
-                        fk_col,
-                        legacy_uid,
-                    )
-                    valid = False
-                    break
-            if valid:
-                remapped_rows.append(tuple(new_row))
-            else:
-                skipped += 1
-
-        counts[target_table] = len(remapped_rows)
-
-        if dry_run:
-            logger.info(
-                "  [DRY] %s: %d rows ready (skipped %d w/ unmapped FK)",
-                target_table,
-                len(remapped_rows),
-                skipped,
-            )
-        else:
-            if remapped_rows:
-                cols_sql = ", ".join(f'"{c}"' for c in block.columns)
-                placeholder = "(" + ", ".join(["%s"] * len(block.columns)) + ")"
-                sql = (
-                    f"INSERT INTO public.{target_table} ({cols_sql}) "
-                    f"VALUES %s "
-                    f"ON CONFLICT DO NOTHING"
-                )
-                execute_values(cur, sql, remapped_rows, template=placeholder)
-            logger.info(
-                "  %s: inserted %d rows (skipped %d)",
-                target_table,
-                len(remapped_rows),
-                skipped,
-            )
-
-    if not dry_run:
-        # Commit all INSERTs BEFORE setval loop — otherwise a single sequence
-        # failure (e.g. table without an id column) rolls back the entire
-        # transaction including every row we just inserted.
-        conn.commit()
-        for tbl in dr_tables:
-            try:
-                cur.execute(
-                    f"SELECT setval('public.dr_{tbl}_id_seq', "
-                    f"COALESCE((SELECT MAX(id) FROM public.dr_{tbl}), 1), true)"
-                )
+                    cur.execute(cmd)
+            if not dry_run:
                 conn.commit()
-            except psycopg2.Error:
-                conn.rollback()
-                cur = conn.cursor()
-                continue
 
-        # Restore FK enforcement after bulk loads
+        counts: dict[str, int] = {}
+        for block in parse_dump_copy_blocks(dump_path, only_tables=dr_tables):
+            target_table = f"dr_{block.table}"
+            col_idx_map = {c: i for i, c in enumerate(block.columns)}
+            fk_cols = [c for c in block.columns if c in USER_FK_COLUMN_NAMES]
+
+            remapped_rows = []
+            skipped = 0
+            for row in block.rows:
+                new_row = list(row)
+                valid = True
+                for fk_col in fk_cols:
+                    idx = col_idx_map[fk_col]
+                    val = row[idx]
+                    if val is None:
+                        continue
+                    legacy_uid = int(val)
+                    if legacy_uid in remap:
+                        new_row[idx] = str(remap[legacy_uid])
+                    else:
+                        logger.warning(
+                            "  %s.row legacy %s=%d nie znaleziono w remap; pomijam wiersz",
+                            target_table,
+                            fk_col,
+                            legacy_uid,
+                        )
+                        valid = False
+                        break
+                if valid:
+                    remapped_rows.append(tuple(new_row))
+                else:
+                    skipped += 1
+
+            counts[target_table] = len(remapped_rows)
+
+            if dry_run:
+                logger.info(
+                    "  [DRY] %s: %d rows ready (skipped %d w/ unmapped FK)",
+                    target_table,
+                    len(remapped_rows),
+                    skipped,
+                )
+            else:
+                if remapped_rows:
+                    cols_sql = ", ".join(f'"{c}"' for c in block.columns)
+                    placeholder = "(" + ", ".join(["%s"] * len(block.columns)) + ")"
+                    sql = (
+                        f"INSERT INTO public.{target_table} ({cols_sql}) "
+                        f"VALUES %s "
+                        f"ON CONFLICT DO NOTHING"
+                    )
+                    execute_values(cur, sql, remapped_rows, template=placeholder)
+                logger.info(
+                    "  %s: inserted %d rows (skipped %d)",
+                    target_table,
+                    len(remapped_rows),
+                    skipped,
+                )
+
+        if not dry_run:
+            # Commit all INSERTs BEFORE setval loop — otherwise a single sequence
+            # failure (e.g. table without an id column) rolls back the entire
+            # transaction including every row we just inserted.
+            conn.commit()
+            for tbl in dr_tables:
+                try:
+                    cur.execute(
+                        f"SELECT setval('public.dr_{tbl}_id_seq', "
+                        f"COALESCE((SELECT MAX(id) FROM public.dr_{tbl}), 1), true)"
+                    )
+                    conn.commit()
+                except psycopg2.Error:
+                    conn.rollback()
+                    cur = conn.cursor()
+                    continue
+
+        return counts
+    finally:
+        # ALWAYS restore FK enforcement, even on exception. Without this, any
+        # error in the INSERT loop above leaves the connection in "replica"
+        # mode for its remaining lifetime — invisibly disabling FK checks.
         try:
             cur.execute("SET session_replication_role = origin;")
-            conn.commit()
+            if not dry_run:
+                conn.commit()
         except psycopg2.Error:
-            conn.rollback()
-
-    return counts
+            try:
+                conn.rollback()
+            except psycopg2.Error:
+                # Connection already broken — best-effort, can't restore.
+                logger.error(
+                    "Failed to restore session_replication_role=origin; "
+                    "next operation on this connection will use replica mode.",
+                    exc_info=True,
+                )
 
 
 def main() -> None:
