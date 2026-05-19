@@ -354,7 +354,9 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # `/pins` listing route matches before the catch-all `/{candidate_id}`
 # route in candidates.py — otherwise FastAPI would try to coerce "pins"
 # to an int and return 422.
-app.include_router(candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"])
+app.include_router(
+    candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"]
+)
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
 app.include_router(

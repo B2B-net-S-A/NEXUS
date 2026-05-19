@@ -137,9 +137,7 @@ async def toggle_pin(
         return CandidatePinToggleResponse(pinned=False, pin=None)
 
     # Toggle ON — enforce the per-user cap before INSERT.
-    count_stmt = select(CandidatePin.id).where(
-        CandidatePin.user_id == current_user.id
-    )
+    count_stmt = select(CandidatePin.id).where(CandidatePin.user_id == current_user.id)
     pin_count = len((await db.execute(count_stmt)).scalars().all())
     if pin_count >= MAX_PINS_PER_USER:
         raise HTTPException(
@@ -171,7 +169,11 @@ async def toggle_pin(
     )
 
 
-@router.delete("/{candidate_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{candidate_id}/pin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # FastAPI 0.115 strict — 204 must not have body
+)
 async def delete_pin(
     current_user: CurrentUser,
     candidate_id: int = Path(..., ge=1),
