@@ -148,7 +148,10 @@ export default function RekrutacjaPage() {
 
   const { data: yearlyStats } = useQuery({
     queryKey: ["dr-rekrutacja-yearly", selectedYear],
-    queryFn: () => dynareporterRekrutacjaApi.yearlyStats(selectedYear),
+    queryFn: () =>
+      dynareporterRekrutacjaApi.yearlyStats(
+        selectedYear > 0 ? selectedYear : undefined,
+      ),
     staleTime: 5 * 60_000,
     enabled: queryEnabled,
   });
