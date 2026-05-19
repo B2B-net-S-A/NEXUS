@@ -35,7 +35,8 @@ class EmployeeRow(BaseModel):
 
     id: int
     email: str
-    first_name: str | None = None
+    name: str = ""  # Nexus users.name (single column, nie first/last)
+    first_name: str | None = None  # derived split z `name` dla compat z DR
     last_name: str | None = None
     role: str
     department: str | None = None
@@ -127,9 +128,8 @@ async def list_employees(
         SELECT
             u.id,
             u.email,
-            u.first_name,
-            u.last_name,
-            u.role,
+            u.name,
+            u.role::text AS role,
             COALESCE(u.allowed_sections, '[]'::jsonb) AS allowed_sections,
             COALESCE(u.is_active, true) AS is_active,
             s.seniority_level,
@@ -138,7 +138,7 @@ async def list_employees(
             s.expert_since
         FROM users u
         LEFT JOIN dr_user_seniority s ON s.user_id = u.id
-        ORDER BY u.is_active DESC, COALESCE(u.last_name, ''), u.email
+        ORDER BY u.is_active DESC, COALESCE(u.name, ''), u.email
         """
     )
     rows = (await db.execute(sql)).all()
@@ -152,13 +152,19 @@ async def list_employees(
                 sections = json.loads(sections)
             except Exception:
                 sections = []
+        # Derive first_name/last_name from `name` (compat z DR UI)
+        full_name = r.name or ""
+        parts = full_name.split(" ", 1)
+        first = parts[0] if parts and parts[0] else None
+        last = parts[1] if len(parts) > 1 and parts[1] else None
         result.append(
             EmployeeRow(
                 id=r.id,
                 email=r.email or "",
-                first_name=r.first_name,
-                last_name=r.last_name,
-                role=str(r.role) if r.role else "",
+                name=full_name,
+                first_name=first,
+                last_name=last,
+                role=r.role if r.role else "",
                 department=None,  # nie mamy column w nexus.users
                 is_active=r.is_active,
                 allowed_sections=sections if isinstance(sections, list) else [],
@@ -252,13 +258,13 @@ async def list_team_members(
         """
         SELECT
             id,
-            COALESCE(NULLIF(TRIM(CONCAT(first_name, ' ', last_name)), ''), email) AS name,
+            COALESCE(NULLIF(name, ''), email) AS name,
             email,
             role::text AS role
         FROM users
         WHERE COALESCE(is_active, true)
           AND role::text IN ('sourcer', 'tac', 'recruiter', 'delivery_lead')
-        ORDER BY role::text, COALESCE(last_name, ''), email
+        ORDER BY role::text, COALESCE(name, ''), email
         """
     )
     rows = (await db.execute(sql)).all()
@@ -283,8 +289,8 @@ async def list_tac_dl_assignments(
         SELECT
             a.tac_user_id,
             a.delivery_lead_user_id,
-            COALESCE(NULLIF(TRIM(CONCAT(t.first_name, ' ', t.last_name)), ''), t.email) AS tac_name,
-            COALESCE(NULLIF(TRIM(CONCAT(d.first_name, ' ', d.last_name)), ''), d.email) AS dl_name
+            COALESCE(NULLIF(t.name, ''), t.email) AS tac_name,
+            COALESCE(NULLIF(d.name, ''), d.email) AS dl_name
         FROM dr_tac_delivery_lead_assignments a
         JOIN users t ON t.id = a.tac_user_id
         JOIN users d ON d.id = a.delivery_lead_user_id
@@ -317,7 +323,7 @@ async def list_sourcer_categories(
         """
         SELECT
             a.user_id,
-            COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS sourcer_name,
+            COALESCE(NULLIF(u.name, ''), u.email) AS sourcer_name,
             a.category_id,
             c.name AS category_name,
             a.priority
@@ -360,7 +366,7 @@ async def list_dl_clients(
         SELECT
             a.id,
             a.delivery_lead_user_id,
-            COALESCE(NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), ''), u.email) AS dl_name,
+            COALESCE(NULLIF(u.name, ''), u.email) AS dl_name,
             a.client_id,
             COALESCE(c.name, '—') AS client_name,
             COALESCE(a.is_head, false) AS is_head
