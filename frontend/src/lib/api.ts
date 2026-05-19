@@ -4024,6 +4024,13 @@ export const dynareporterAdminUsersApi = {
         { is_active: isActive },
       )
       .then((r) => r.data),
+  updateAllowedSections: (userId: number, sections: string[]) =>
+    api
+      .post<{ ok: boolean; allowed_sections: string[] }>(
+        `/api/dynareporter/admin-users/employees/${userId}/allowed-sections`,
+        { allowed_sections: sections },
+      )
+      .then((r) => r.data),
   teamMembers: () =>
     api
       .get<DrTeamMember[]>("/api/dynareporter/admin-users/team/members")
