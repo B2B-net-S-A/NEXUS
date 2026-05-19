@@ -1,11 +1,7 @@
 """Pydantic schemas dla DynaReporter Rekrutacja mega-dashboard.
 
-PR `port/dr-rekrutacja-megadashboard` (2026-05-19) — port `/rekrutacja` z
-oryginalnego DR (artur-t-96/InfraReporter, `client/src/pages/Rekrutacja.tsx`).
-
-Endpointy zwracają agregaty team-wide (NIE per-user filter), bo dashboard
-służy widokowi managerskiemu — admin/DL/HoR widzi wszystkich, sourcer/tac/
-recruiter widzą siebie + zespół do porównania (Liga Mistrzów).
+Port `client/src/pages/Rekrutacja.tsx` + `server/src/routes/competitions.ts` z
+artur-t-96/InfraReporter. Endpointy zwracają agregaty team-wide.
 """
 
 from __future__ import annotations
@@ -53,6 +49,10 @@ class TeamMember(BaseModel):
     league_points: int = Field(
         description="Punkty Ligi Mistrzów (placement×150 + interview×15 + recommendation×5)"
     )
+    is_qualified: bool = Field(
+        default=True,
+        description="Czy spełnia warunek udziału w Lidze Mistrzów (min 1 placement/mc).",
+    )
 
 
 class TeamSummary(BaseModel):
@@ -81,6 +81,17 @@ class FunnelStage(BaseModel):
     denominator: int
 
 
+class QuarterlyEntryRequirement(BaseModel):
+    """Warunek udziału w Lidze Mistrzów na bieżący moment kwartału."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    min_placements: int = Field(description="Wymagane placement do dziś (1/2/3)")
+    total_required: int = Field(default=3, description="Wymagane łącznie w kwartale")
+    month_in_quarter: int = Field(description="1/2/3 — który miesiąc kwartału")
+    description: str = Field(description="Czytelny opis dla użytkownika")
+
+
 class RekrutacjaDashboard(BaseModel):
     """Pełny payload `GET /api/dynareporter/rekrutacja/dashboard`."""
 
@@ -102,24 +113,36 @@ class RekrutacjaDashboard(BaseModel):
     )
     league_ranking_quarterly: list[TeamMember] = Field(
         default_factory=list,
-        description="Ranking dla bieżącego kwartału (Q1/Q2/Q3/Q4) — Liga Mistrzów "
-        "agreguje punkty kwartalnie, niezależnie od filtru `period`. "
-        "DR pokazuje Q-level podium w sekcji 'Liga Mistrzów' (3 miesiące).",
+        description="Ranking dla bieżącego kwartału — Liga Mistrzów agreguje punkty "
+        "kwartalnie, niezależnie od filtru `period`.",
     )
     quarter_label: str = Field(
         default="",
-        description="Czytelny label kwartału (np. 'Q2 2026') dla sekcji Liga Mistrzów.",
+        description="Czytelny label kwartału (np. 'Q2 2026') dla Liga Mistrzów.",
     )
-    quarter_start: date | None = Field(
+    quarter_start: date | None = Field(default=None)
+    quarter_end: date | None = Field(default=None)
+    # Nowe pola — DR full parity (countdown, progress, completion state)
+    quarter_days_remaining: int = Field(
+        default=0,
+        description="Dni do końca kwartału (0 jeśli zakończony).",
+    )
+    quarter_progress: int = Field(
+        default=0,
+        description="Procent kwartału ukończony (0-100).",
+    )
+    quarter_is_completed: bool = Field(
+        default=False,
+        description="Czy kwartał już się skończył (end_date < today).",
+    )
+    quarter_entry_requirement: QuarterlyEntryRequirement | None = Field(
         default=None,
-        description="Początek kwartału (YYYY-MM-01)",
+        description="Warunek udziału w Lidze Mistrzów na bieżący moment.",
     )
-    quarter_end: date | None = Field(
-        default=None,
-        description="Ostatni dzień kwartału (YYYY-MM-DD, ostatni dzień miesiąca)",
-    )
+
     scoring: dict[str, int] = Field(
-        description="System punktowy z dr_system_config (placement/interview/recommendation)"
+        description="System punktowy z dr_system_config "
+        "(placement/interview/recommendation/verification/prize_1/2/3)"
     )
 
 
@@ -138,11 +161,7 @@ class AvailableWeek(BaseModel):
 
 
 class HallOfFameEntry(BaseModel):
-    """Historic zwycięzca z dr_competition_winners.
-
-    `id` field includes — frontend admin delete UI checked `(w as { id?: number }).id`
-    z if-else fallback do alert() bo response zaras nie zwracał id (broken UX).
-    """
+    """Historic zwycięzca z dr_competition_winners."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -174,27 +193,94 @@ class YearlyStatsRow(BaseModel):
 
 
 class MonthlyRaceEntry(BaseModel):
-    """Wiersz Wyścigu Rekomendacji / Placementów (miesięczne competitions)."""
+    """Wiersz Wyścigu Rekomendacji / Placementów (miesięczne competitions).
+
+    Full DR shape: per-row badges weryfikacji/dzień + precision rate + qualification flags.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     user_id: int
     user_name: str
     role: str
-    metric_value: int = Field(description="recommendations OR placements w miesiącu")
+    metric_value: int = Field(
+        description="recommendations OR placements w miesiącu (primary metric)"
+    )
     per_day: float = Field(description="metric / days roboczych (avg)")
+    # === Pola dodatkowe (DR parity) ===========================================
+    verifications: int = Field(
+        default=0,
+        description="Sumaryczne weryfikacje w miesiącu (dla recommendations race).",
+    )
+    days_worked: int = Field(default=0, description="Dni roboczych w miesiącu.")
+    verifications_per_day: float = Field(
+        default=0.0,
+        description="Weryfikacje/dzień roboczy — kryterium kwalifikacji dla rekomendacji.",
+    )
+    precision_rate: int = Field(
+        default=0,
+        description="recommendations / verifications × 100 (0-100). Dla recommendations race.",
+    )
+    meets_verification_requirement: bool = Field(
+        default=True,
+        description="Czy verifications_per_day >= 4 (target dla recommendations).",
+    )
+    meets_precision_requirement: bool = Field(
+        default=True,
+        description="Czy precision_rate >= 75% (od 2026-04 dla recommendations).",
+    )
+    is_qualified: bool = Field(
+        default=True,
+        description="Dla placements: metric_value >= min_qualification (2). "
+        "Dla recommendations: meets_verification_requirement AND meets_precision_requirement.",
+    )
+    is_excluded: bool = Field(
+        default=False,
+        description="Czy zwycięzca kwartalny wykluczony z nagrody miesięcznej "
+        "(tylko ostatni miesiąc kwartału).",
+    )
 
 
 class MonthlyRace(BaseModel):
-    """Pełen Wyścig z meta-data."""
+    """Pełen Wyścig z meta-data.
+
+    Full DR shape: period info + days_remaining + requirements + tie_breaker.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     competition_type: str = Field(description="'recommendations' | 'placements'")
-    month: str = Field(description="YYYY-MM")
+    month: str = Field(description="YYYY-MM (legacy)")
     voucher: str = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
     requirement: str
     entries: list[MonthlyRaceEntry]
+    # === Pola dodatkowe (DR parity) ===========================================
+    period: str = Field(default="", description="YYYY-MM")
+    month_name: str = Field(default="", description="Polska nazwa miesiąca")
+    year: int = Field(default=0)
+    days_remaining: int = Field(default=0)
+    is_completed: bool = Field(default=False, description="Miesiąc zakończony.")
+    min_qualification: int | None = Field(
+        default=None,
+        description="Minimalna liczba placementów do kwalifikacji (dla placements race).",
+    )
+    verification_requirement: int | None = Field(
+        default=None,
+        description="Wymóg weryfikacji/dzień (dla recommendations race).",
+    )
+    precision_rate_requirement: int | None = Field(
+        default=None,
+        description="Wymóg precision rate % (od 2026-04 dla recommendations).",
+    )
+    is_precision_rate_active: bool = Field(default=False)
+    tie_breaker: str = Field(default="Wyższa sumaryczna marża")
+    is_last_month_of_quarter: bool = Field(default=False)
+    excluded_user_id: int | None = Field(default=None)
+    current_leader_id: int | None = Field(default=None)
+    prize: str = Field(
+        default="Voucher 1 500 PLN (Modivo, Douglas, Media Markt)",
+        description="Display prize string (mirror DR `prize`).",
+    )
 
 
 class PowerCallingEntry(BaseModel):

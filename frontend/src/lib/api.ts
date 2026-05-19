@@ -3515,6 +3515,18 @@ export type DrRekrutacjaTeamMember = {
   is_active: boolean;
   metrics: DrRekrutacjaUserMetrics;
   league_points: number;
+  /**
+   * Warunek udziału w Lidze Mistrzów — placement >= month_in_quarter
+   * (1 placement/mc kalendarzowy = min 3/kwartał).
+   */
+  is_qualified?: boolean;
+};
+
+export type DrQuarterlyEntryRequirement = {
+  min_placements: number;
+  total_required: number;
+  month_in_quarter: number;
+  description: string;
 };
 
 export type DrRekrutacjaFunnelStage = {
@@ -3546,6 +3558,12 @@ export type DrRekrutacjaDashboard = {
   quarter_label: string;  // np. "Q2 2026"
   quarter_start: string | null;
   quarter_end: string | null;
+  /** Dni do końca kwartału (0 jeśli zakończony). */
+  quarter_days_remaining: number;
+  /** Procent kwartału ukończony (0-100). */
+  quarter_progress: number;
+  quarter_is_completed: boolean;
+  quarter_entry_requirement: DrQuarterlyEntryRequirement | null;
   scoring: {
     placement: number;
     interview: number;
@@ -3977,6 +3995,14 @@ export type DrMonthlyRaceEntry = {
   role: string;
   metric_value: number;
   per_day: number;
+  verifications: number;
+  days_worked: number;
+  verifications_per_day: number;
+  precision_rate: number;
+  meets_verification_requirement: boolean;
+  meets_precision_requirement: boolean;
+  is_qualified: boolean;
+  is_excluded: boolean;
 };
 
 export type DrMonthlyRace = {
@@ -3985,6 +4011,20 @@ export type DrMonthlyRace = {
   voucher: string;
   requirement: string;
   entries: DrMonthlyRaceEntry[];
+  period: string;
+  month_name: string;
+  year: number;
+  days_remaining: number;
+  is_completed: boolean;
+  min_qualification: number | null;
+  verification_requirement: number | null;
+  precision_rate_requirement: number | null;
+  is_precision_rate_active: boolean;
+  tie_breaker: string;
+  is_last_month_of_quarter: boolean;
+  excluded_user_id: number | null;
+  current_leader_id: number | null;
+  prize: string;
 };
 
 export type DrPowerCallingEntry = {

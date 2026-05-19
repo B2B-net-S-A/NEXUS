@@ -35,6 +35,7 @@ from app.schemas.dr_rekrutacja import (
     MonthlyRace,
     MonthlyRaceEntry,
     PowerCallingEntry,
+    QuarterlyEntryRequirement,
     RekrutacjaDashboard,
     TeamMember,
     TeamSummary,
@@ -120,6 +121,44 @@ async def _load_scoring(db: AsyncSession) -> dict[str, int]:
             exc_info=True,
         )
     return dict(DEFAULT_SCORING)
+
+
+def _compute_quarter_state(
+    today: date, q_start: date, q_end: date
+) -> tuple[int, int, bool]:
+    """Liczy stan kwartału: dni do końca, progress %, is_completed.
+
+    Returns (days_remaining, progress_pct, is_completed).
+    """
+    if today > q_end:
+        return 0, 100, True
+    if today < q_start:
+        return (q_end - q_start).days, 0, False
+    days_total = (q_end - q_start).days + 1
+    days_passed = (today - q_start).days + 1
+    days_remaining = max(0, (q_end - today).days)
+    progress = min(100, int((days_passed / days_total) * 100))
+    return days_remaining, progress, False
+
+
+def _compute_month_state(today: date, m_start: date, m_end: date) -> tuple[int, bool]:
+    """Liczy stan miesiąca: dni do końca + is_completed.
+
+    Returns (days_remaining, is_completed).
+    """
+    if today > m_end:
+        return 0, True
+    if today < m_start:
+        return (m_end - m_start).days, False
+    return max(0, (m_end - today).days), False
+
+
+def _is_last_month_of_quarter(month_date: date) -> bool:
+    """Czy podany miesiąc to ostatni miesiąc swojego kwartału.
+
+    Q1: Mar, Q2: Cze, Q3: Wrz, Q4: Gru.
+    """
+    return month_date.month in (3, 6, 9, 12)
 
 
 def _compute_quarter_bounds(today: date) -> tuple[date, date, str]:
@@ -488,8 +527,35 @@ async def get_dashboard(
                 is_active=row.is_active,
                 metrics=q_metrics,
                 league_points=q_points,
+                # DR parity: is_qualified ustawiamy poniżej (po _compute_quarter_state).
+                is_qualified=True,
             )
         )
+
+    # Liga Mistrzów state — countdown + progress + completion (DR parity).
+    quarter_days_remaining, quarter_progress, quarter_is_completed = (
+        _compute_quarter_state(today, q_start, q_end)
+    )
+    # Warunek udziału — minimum placement do dziś (1 placement/mc, więc:
+    # miesiąc 1 = 1 placement, miesiąc 2 = 2 placement, miesiąc 3 = 3 placement).
+    if quarter_is_completed:
+        month_in_quarter = 3
+    else:
+        month_in_quarter = ((today.month - 1) % 3) + 1
+    required_placements = month_in_quarter
+    entry_requirement = QuarterlyEntryRequirement(
+        min_placements=required_placements,
+        total_required=3,
+        month_in_quarter=month_in_quarter,
+        description=(
+            f"Wymagane minimum 1 placement miesięcznie (łącznie 3 w kwartale). "
+            f"Do dziś: ≥ {required_placements} placement(ów)."
+        ),
+    )
+    # Stempluj is_qualified na podstawie placement count vs required.
+    for m in quarterly_members:
+        m.is_qualified = m.metrics.placements.value >= required_placements
+
     league_ranking_quarterly = sorted(
         [m for m in quarterly_members if m.is_active],
         key=lambda m: m.league_points,
@@ -509,6 +575,10 @@ async def get_dashboard(
         quarter_label=quarter_label,
         quarter_start=q_start,
         quarter_end=q_end,
+        quarter_days_remaining=quarter_days_remaining,
+        quarter_progress=quarter_progress,
+        quarter_is_completed=quarter_is_completed,
+        quarter_entry_requirement=entry_requirement,
         scoring=scoring,
     )
 
@@ -693,6 +763,15 @@ async def get_monthly_race(
         else "Min. 2 placementy do kwalifikacji"
     )
 
+    # Liga Mistrzów scoring (placement/interview/recommendation/verification points)
+    # — używamy do liczenia kwartalnego lidera dla excluded_user_id w ostatnim
+    # miesiącu kwartału.
+    scoring = await _load_scoring(db)
+
+    # DR shape: pełen wiersz z verifications + days_worked + per-day calc.
+    # Filter HAVING usunięty — DR pokazuje WSZYSTKICH (włącznie z zerami), bo
+    # quality info (verifications/dzień, precision rate) ma sens nawet
+    # gdy main metric = 0.
     sql = text(
         f"""
         SELECT
@@ -700,6 +779,8 @@ async def get_monthly_race(
             u.name,
             u.role::text AS role,
             COALESCE(SUM(k.{metric_col}), 0)::int AS metric_value,
+            COALESCE(SUM(k.verifications), 0)::int AS verifications,
+            COALESCE(SUM(k.recommendations), 0)::int AS recommendations,
             COALESCE(SUM(k.days_worked), 0)::int AS days_worked
         FROM users u
         LEFT JOIN dr_kpi_body_leasing k
@@ -710,7 +791,8 @@ async def get_monthly_race(
           AND u.is_active = true
         GROUP BY u.id, u.name, u.role
         HAVING COALESCE(SUM(k.{metric_col}), 0) > 0
-        ORDER BY metric_value DESC
+            OR COALESCE(SUM(k.verifications), 0) > 0
+        ORDER BY metric_value DESC, verifications DESC
         """  # noqa: S608 — metric_col z whitelist guard wyżej
     )
     rows = (
@@ -723,24 +805,131 @@ async def get_monthly_race(
             },
         )
     ).all()
-    entries = [
-        MonthlyRaceEntry(
-            user_id=r.id,
-            user_name=r.name or "",
-            role=r.role,
-            metric_value=r.metric_value,
-            per_day=(
-                round(r.metric_value / r.days_worked, 2) if r.days_worked > 0 else 0.0
-            ),
+
+    # DR business rules (mirror server/src/routes/competitions.ts):
+    VERIFICATION_REQUIREMENT = 4  # weryfikacji/dzień roboczy
+    PRECISION_RATE_REQUIREMENT_PCT = 75  # od 2026-04
+    PRECISION_RATE_ACTIVE_FROM = "2026-04"
+    period_str = f"{month_date.year}-{month_date.month:02d}"
+    is_precision_rate_active = (
+        period_str >= PRECISION_RATE_ACTIVE_FROM
+        and competition_type == "recommendations"
+    )
+    is_last_month_of_q = _is_last_month_of_quarter(month_date)
+    min_qualification = 2 if competition_type == "placements" else None
+
+    # Wyłączamy zwycięzcę kwartalnego z nagrody miesięcznej (tylko ostatni miesiąc Q).
+    excluded_user_id: int | None = None
+    if is_last_month_of_q:
+        q_start, q_end, _ = _compute_quarter_bounds(month_date)
+        q_leader_sql = text(
+            """
+            SELECT
+                u.id,
+                COALESCE(SUM(k.placements), 0) * :pts_p
+                  + COALESCE(SUM(k.interviews), 0) * :pts_i
+                  + COALESCE(SUM(k.recommendations), 0) * :pts_r
+                  + COALESCE(SUM(k.verifications), 0) * :pts_v AS points
+            FROM users u
+            LEFT JOIN dr_kpi_body_leasing k
+                ON k.user_id = u.id
+                AND k.report_date BETWEEN :qs AND :qe
+                AND k.is_draft = false
+            WHERE u.role::text = ANY(:roles) AND u.is_active = true
+            GROUP BY u.id
+            ORDER BY points DESC
+            LIMIT 1
+            """
         )
-        for r in rows
-    ]
+        q_leader_row = (
+            await db.execute(
+                q_leader_sql,
+                {
+                    "qs": q_start,
+                    "qe": q_end,
+                    "roles": list(LEAGUE_ROLES),
+                    "pts_p": scoring["placement"],
+                    "pts_i": scoring["interview"],
+                    "pts_r": scoring["recommendation"],
+                    "pts_v": scoring["verification"],
+                },
+            )
+        ).first()
+        if q_leader_row:
+            excluded_user_id = q_leader_row.id
+
+    entries: list[MonthlyRaceEntry] = []
+    for r in rows:
+        days = r.days_worked or 0
+        verif = r.verifications or 0
+        recom = r.recommendations or 0
+        verif_per_day = round(verif / days, 2) if days > 0 else 0.0
+        precision_pct = int(round((recom / verif) * 100)) if verif > 0 else 0
+        meets_verification = verif_per_day >= VERIFICATION_REQUIREMENT
+        meets_precision = (
+            not is_precision_rate_active
+        ) or precision_pct >= PRECISION_RATE_REQUIREMENT_PCT
+        if competition_type == "placements":
+            is_qualified = r.metric_value >= (min_qualification or 0)
+        else:
+            is_qualified = meets_verification and meets_precision
+        entries.append(
+            MonthlyRaceEntry(
+                user_id=r.id,
+                user_name=r.name or "",
+                role=r.role,
+                metric_value=r.metric_value,
+                per_day=(round(r.metric_value / days, 2) if days > 0 else 0.0),
+                verifications=verif,
+                days_worked=days,
+                verifications_per_day=verif_per_day,
+                precision_rate=precision_pct,
+                meets_verification_requirement=meets_verification,
+                meets_precision_requirement=meets_precision,
+                is_qualified=is_qualified,
+                is_excluded=(r.id == excluded_user_id),
+            )
+        )
+
+    # Sortowanie po metric_value DESC (jak DR).
+    entries.sort(key=lambda e: e.metric_value, reverse=True)
+    # Re-rank po sort (no rank field but order matters for client #1/#2/#3 podium).
+
+    # Current leader = pierwszy eligible (nie wykluczony + qualifies).
+    current_leader_id: int | None = None
+    for e in entries:
+        if not e.is_excluded and e.is_qualified:
+            current_leader_id = e.user_id
+            break
+
+    days_remaining, is_completed = _compute_month_state(
+        date.today(), month_date, month_end
+    )
+
     return MonthlyRace(
         competition_type=competition_type,
-        month=f"{month_date.year}-{month_date.month:02d}",
+        month=period_str,
         voucher="Voucher 1 500 PLN (Modivo, Douglas, Media Markt)",
         requirement=requirement,
         entries=entries,
+        period=period_str,
+        month_name=POLISH_MONTH_NAMES[month_date.month - 1],
+        year=month_date.year,
+        days_remaining=days_remaining,
+        is_completed=is_completed,
+        min_qualification=min_qualification,
+        verification_requirement=(
+            VERIFICATION_REQUIREMENT if competition_type == "recommendations" else None
+        ),
+        precision_rate_requirement=(
+            PRECISION_RATE_REQUIREMENT_PCT if is_precision_rate_active else None
+        ),
+        is_precision_rate_active=is_precision_rate_active,
+        tie_breaker="Wyższa sumaryczna marża",
+        is_last_month_of_quarter=is_last_month_of_q,
+        excluded_user_id=excluded_user_id,
+        current_leader_id=current_leader_id,
+        prize="Voucher 1 500 PLN (Modivo, Douglas, Media Markt)",
     )
 
 
