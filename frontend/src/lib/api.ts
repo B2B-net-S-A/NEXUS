@@ -3595,6 +3595,62 @@ export type DrBoardMonthlyRow = {
   placement_clients: DrBoardPlacementClient[];
 };
 
+// ============================================================
+// DynaReporter Admin dashboard (Session 4 port)
+// ============================================================
+export type DrAdminUserRow = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  allowed_sections: string[];
+  dynareporter_legacy_id: number | null;
+  kpi_entries_count: number;
+};
+
+export type DrUploadHistoryRow = {
+  id: number;
+  uploaded_by_id: number;
+  uploaded_by_name: string;
+  file_type: string;
+  file_name: string;
+  records_count: number;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+};
+
+export type DrAuditLogRow = {
+  id: number;
+  table_name: string;
+  action: string;
+  records_count: number;
+  performed_by_id: number | null;
+  performed_by_name: string | null;
+  created_at: string;
+  details: Record<string, unknown> | null;
+};
+
+export const dynareporterAdminApi = {
+  users: () =>
+    api
+      .get<DrAdminUserRow[]>("/api/dynareporter/admin-dashboard/users")
+      .then((r) => r.data),
+  uploadHistory: (limit = 50) =>
+    api
+      .get<DrUploadHistoryRow[]>("/api/dynareporter/admin-dashboard/upload-history", {
+        params: { limit },
+      })
+      .then((r) => r.data),
+  auditLog: (limit = 100) =>
+    api
+      .get<DrAuditLogRow[]>("/api/dynareporter/admin-dashboard/audit-log", {
+        params: { limit },
+      })
+      .then((r) => r.data),
+};
+
 export const dynareporterBoardApi = {
   monthly: () =>
     api
