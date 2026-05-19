@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime
 from typing import Optional
 
@@ -14,6 +16,8 @@ from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner
 from app.models.user import User
+
+logger = logging.getLogger("dynareporter.competitions")
 
 router = APIRouter()
 
