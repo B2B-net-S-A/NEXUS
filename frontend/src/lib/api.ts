@@ -3774,6 +3774,284 @@ export const dynareporterAdminMasterDataApi = {
       .then((r) => r.data),
 };
 
+// --- Admin Users / Team / DL Clients --------------------------------------
+export type DrEmployeeRow = {
+  id: number;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: string;
+  department: string | null;
+  is_active: boolean;
+  allowed_sections: string[];
+  seniority_level: "junior" | "senior" | "expert" | null;
+  acceleration_start_date: string | null;
+  senior_since: string | null;
+  expert_since: string | null;
+};
+
+export type DrTeamMember = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+};
+
+export type DrTacDlAssignment = {
+  tac_user_id: number;
+  delivery_lead_user_id: number;
+  tac_name: string;
+  delivery_lead_name: string;
+};
+
+export type DrSourcerCategoryAssignment = {
+  user_id: number;
+  sourcer_name: string;
+  category_id: number;
+  category_name: string;
+  priority: number;
+};
+
+export type DrDLClientAssignment = {
+  id: number;
+  delivery_lead_user_id: number;
+  delivery_lead_name: string;
+  client_id: number;
+  client_name: string;
+  is_head: boolean;
+};
+
+export const dynareporterAdminUsersApi = {
+  employees: () =>
+    api
+      .get<DrEmployeeRow[]>("/api/dynareporter/admin-users/employees")
+      .then((r) => r.data),
+  setSeniority: (
+    userId: number,
+    payload: {
+      seniority_level: "junior" | "senior" | "expert";
+      acceleration_start_date?: string | null;
+      senior_since?: string | null;
+      expert_since?: string | null;
+    },
+  ) =>
+    api
+      .post<{ ok: boolean }>(
+        `/api/dynareporter/admin-users/employees/${userId}/seniority`,
+        payload,
+      )
+      .then((r) => r.data),
+  toggleActive: (userId: number, isActive: boolean) =>
+    api
+      .post<{ ok: boolean; is_active: boolean }>(
+        `/api/dynareporter/admin-users/employees/${userId}/active`,
+        { is_active: isActive },
+      )
+      .then((r) => r.data),
+  teamMembers: () =>
+    api
+      .get<DrTeamMember[]>("/api/dynareporter/admin-users/team/members")
+      .then((r) => r.data),
+  tacDl: () =>
+    api
+      .get<DrTacDlAssignment[]>("/api/dynareporter/admin-users/team/tac-dl")
+      .then((r) => r.data),
+  sourcerCategories: () =>
+    api
+      .get<DrSourcerCategoryAssignment[]>(
+        "/api/dynareporter/admin-users/team/sourcer-categories",
+      )
+      .then((r) => r.data),
+  dlClients: () =>
+    api
+      .get<DrDLClientAssignment[]>("/api/dynareporter/admin-users/dl-clients")
+      .then((r) => r.data),
+  addDlClient: (payload: {
+    delivery_lead_user_id: number;
+    client_id: number;
+    is_head?: boolean;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-users/dl-clients",
+        payload,
+      )
+      .then((r) => r.data),
+  deleteDlClient: (assignmentId: number) =>
+    api
+      .delete<void>(`/api/dynareporter/admin-users/dl-clients/${assignmentId}`)
+      .then((r) => r.data),
+};
+
+// --- Sales mgmt (read) ----------------------------------------------------
+export type DrSalesProject = {
+  id: number;
+  name: string;
+  bdm_id: number | null;
+  is_active: boolean;
+};
+export type DrSalesPerson = {
+  id: number;
+  name: string;
+  role: string;
+  is_hod: boolean;
+  is_active: boolean;
+};
+export type DrSalesWeeklyActivity = {
+  week_start: string;
+  week_number: number;
+  year: number;
+  leads_count: number;
+  offers_sent: number;
+};
+
+export const dynareporterSalesMgmtApi = {
+  projects: (onlyActive = true) =>
+    api
+      .get<DrSalesProject[]>(
+        `/api/dynareporter/sales-mgmt/projects?only_active=${onlyActive}`,
+      )
+      .then((r) => r.data),
+  people: (onlyActive = true) =>
+    api
+      .get<DrSalesPerson[]>(
+        `/api/dynareporter/sales-mgmt/people?only_active=${onlyActive}`,
+      )
+      .then((r) => r.data),
+  weeklyActivity: (weeks = 12) =>
+    api
+      .get<DrSalesWeeklyActivity[]>(
+        `/api/dynareporter/sales-mgmt/weekly-activity?weeks=${weeks}`,
+      )
+      .then((r) => r.data),
+};
+
+// --- Przetargi (read) -----------------------------------------------------
+export type DrPrzetargiProject = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  client_id: number | null;
+};
+export type DrPrzetargiConsultant = {
+  id: number;
+  name: string;
+  default_cost_rate: number;
+  default_revenue_rate: number;
+  is_active: boolean;
+};
+export type DrPrzetargiAllocation = {
+  id: number;
+  project_id: number;
+  project_name?: string;
+  consultant_id: number;
+  consultant_name?: string;
+  month: string;
+  hours: number;
+  cost_rate: number;
+  revenue_rate: number;
+  revenue: number;
+  cost: number;
+  margin: number;
+};
+
+export const dynareporterPrzetargiAdminApi = {
+  projects: () =>
+    api
+      .get<DrPrzetargiProject[]>("/api/dynareporter/przetargi/projects")
+      .then((r) => r.data),
+  consultants: () =>
+    api
+      .get<DrPrzetargiConsultant[]>("/api/dynareporter/przetargi/consultants")
+      .then((r) => r.data),
+  allocations: (projectId?: number) =>
+    api
+      .get<DrPrzetargiAllocation[]>(
+        `/api/dynareporter/przetargi/allocations${
+          projectId ? `?project_id=${projectId}` : ""
+        }`,
+      )
+      .then((r) => r.data),
+};
+
+// --- Admin Writes (Sales + Przetargi) -------------------------------------
+export const dynareporterAdminWritesApi = {
+  addSalesProject: (payload: {
+    name: string;
+    bdm_id?: number | null;
+    is_active?: boolean;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-writes/sales/projects",
+        payload,
+      )
+      .then((r) => r.data),
+  addSalesPerson: (payload: {
+    name: string;
+    role: "hod" | "bdm" | "sdr";
+    is_hod?: boolean;
+    is_active?: boolean;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-writes/sales/people",
+        payload,
+      )
+      .then((r) => r.data),
+  upsertWeeklyActivity: (payload: {
+    week_start: string;
+    week_number: number;
+    year: number;
+    leads_count: number;
+    offers_sent: number;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean; updated: boolean }>(
+        "/api/dynareporter/admin-writes/sales/weekly-activity",
+        payload,
+      )
+      .then((r) => r.data),
+  addPrzetargiProject: (payload: {
+    name: string;
+    client_id?: number | null;
+    is_active?: boolean;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-writes/przetargi/projects",
+        payload,
+      )
+      .then((r) => r.data),
+  upsertPrzetargiAllocation: (payload: {
+    project_id: number;
+    consultant_id: number;
+    month: string;
+    hours: number;
+    cost_rate: number;
+    revenue_rate: number;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-writes/przetargi/allocations",
+        payload,
+      )
+      .then((r) => r.data),
+  addPrzetargiCost: (payload: {
+    project_id: number;
+    month: string;
+    description: string;
+    value: number;
+    category?: string;
+  }) =>
+    api
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-writes/przetargi/costs",
+        payload,
+      )
+      .then((r) => r.data),
+};
+
 // Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
 export type DrHallOfFameEntry = {
   competition_type: string; // 'quarterly' | 'monthly_recommendations' | 'monthly_placements'

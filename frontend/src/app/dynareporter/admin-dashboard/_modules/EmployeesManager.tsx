@@ -1,0 +1,374 @@
+"use client";
+
+/**
+ * Employees Manager — admin CRUD na users + dr_user_seniority.
+ *
+ * Port skrócony `EmployeeManagement.tsx` z artur-t-96/InfraReporter
+ * (oryginał: dodawanie userów, edycja role/sections — w Nexusie userzy są
+ * zarządzani przez AAD + admin panel main Nexus). Tutaj fokus na:
+ * - listę userów z search + filter active/role
+ * - toggle is_active (admin)
+ * - set seniority_level (junior/senior/expert) + acceleration dates
+ *   dla acceleration path roles (sourcer/tac/recruiter)
+ */
+
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Users,
+  Search,
+  Power,
+  Shield,
+  Save,
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
+import {
+  dynareporterAdminUsersApi,
+  type DrEmployeeRow,
+} from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+const ACCEL_ROLES = new Set(["sourcer", "tac", "recruiter"]);
+const SENIORITY_LEVELS = [
+  { value: "junior", label: "Junior" },
+  { value: "senior", label: "Senior" },
+  { value: "expert", label: "Expert" },
+] as const;
+
+type SeniorityLevel = (typeof SENIORITY_LEVELS)[number]["value"];
+
+function fullName(e: DrEmployeeRow): string {
+  const trimmed = `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim();
+  return trimmed || e.email;
+}
+
+export function EmployeesManager() {
+  const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editLevel, setEditLevel] = useState<SeniorityLevel>("junior");
+  const [editStart, setEditStart] = useState("");
+  const [editSenior, setEditSenior] = useState("");
+  const [editExpert, setEditExpert] = useState("");
+  const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  const employeesQuery = useQuery({
+    queryKey: ["dr-admin-employees"],
+    queryFn: () => dynareporterAdminUsersApi.employees(),
+    staleTime: 30_000,
+  });
+
+  const seniorityMutation = useMutation({
+    mutationFn: (params: { userId: number }) =>
+      dynareporterAdminUsersApi.setSeniority(params.userId, {
+        seniority_level: editLevel,
+        acceleration_start_date: editStart || null,
+        senior_since: editSenior || null,
+        expert_since: editExpert || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dr-admin-employees"] });
+      setEditingId(null);
+      setStatus({ type: "success", msg: "Seniority zaktualizowany" });
+      setTimeout(() => setStatus(null), 3000);
+    },
+    onError: (e: unknown) => {
+      setStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+    },
+  });
+
+  const activeMutation = useMutation({
+    mutationFn: (params: { userId: number; isActive: boolean }) =>
+      dynareporterAdminUsersApi.toggleActive(params.userId, params.isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dr-admin-employees"] });
+      setStatus({ type: "success", msg: "Status zmieniony" });
+      setTimeout(() => setStatus(null), 3000);
+    },
+    onError: (e: unknown) => {
+      setStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+    },
+  });
+
+  const rolesAvailable = useMemo(() => {
+    const set = new Set<string>();
+    (employeesQuery.data ?? []).forEach((e) => set.add(e.role));
+    return Array.from(set).sort();
+  }, [employeesQuery.data]);
+
+  const filtered = useMemo(() => {
+    const list = employeesQuery.data ?? [];
+    return list.filter((e) => {
+      if (statusFilter === "active" && !e.is_active) return false;
+      if (statusFilter === "inactive" && e.is_active) return false;
+      if (roleFilter !== "all" && e.role !== roleFilter) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const haystack = `${e.email} ${e.first_name ?? ""} ${e.last_name ?? ""}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [employeesQuery.data, statusFilter, roleFilter, searchQuery]);
+
+  function startEdit(e: DrEmployeeRow) {
+    setEditingId(e.id);
+    setEditLevel((e.seniority_level ?? "junior") as SeniorityLevel);
+    setEditStart(e.acceleration_start_date ?? "");
+    setEditSenior(e.senior_since ?? "");
+    setEditExpert(e.expert_since ?? "");
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold flex items-center gap-2">
+            <Users className="w-5 h-5 text-amber-600" />
+            Pracownicy i konta ({filtered.length})
+          </h3>
+          <Button size="sm" variant="outline" onClick={() => employeesQuery.refetch()}>
+            <RefreshCw className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        </div>
+
+        {status && (
+          <div
+            className={`mb-3 flex items-center gap-2 text-sm ${
+              status.type === "success" ? "text-emerald-600" : "text-rose-600"
+            }`}
+          >
+            {status.type === "success" ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : (
+              <AlertCircle className="w-4 h-4" />
+            )}
+            {status.msg}
+          </div>
+        )}
+
+        {/* Filters */}
+        <div className="flex flex-wrap gap-3 mb-4 items-center">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Szukaj email / imię / nazwisko…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-3 py-1.5 text-sm w-full bg-background border border-input rounded-md"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "inactive")}
+            className="px-3 py-1.5 text-sm bg-background border border-input rounded-md"
+            aria-label="Filter status"
+          >
+            <option value="active">Aktywni</option>
+            <option value="inactive">Nieaktywni</option>
+            <option value="all">Wszyscy</option>
+          </select>
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm bg-background border border-input rounded-md"
+            aria-label="Filter role"
+          >
+            <option value="all">Wszystkie role</option>
+            {rolesAvailable.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Table */}
+        {employeesQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">Ładowanie…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            Brak wyników dla obecnych filtrów.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40">
+                <tr>
+                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    User
+                  </th>
+                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    Email
+                  </th>
+                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    Rola
+                  </th>
+                  <th className="px-2 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                    Status
+                  </th>
+                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    Seniority
+                  </th>
+                  <th className="px-2 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                    Akcje
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((e) => {
+                  const isEditing = editingId === e.id;
+                  const canSeniority = ACCEL_ROLES.has(e.role);
+                  return (
+                    <tr key={e.id} className={e.is_active ? "" : "opacity-50"}>
+                      <td className="px-2 py-2 font-medium">{fullName(e)}</td>
+                      <td className="px-2 py-2 text-xs text-muted-foreground">{e.email}</td>
+                      <td className="px-2 py-2">
+                        <Badge variant="neutral" size="sm">
+                          {e.role}
+                        </Badge>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <Badge variant={e.is_active ? "success" : "danger"} size="sm">
+                          {e.is_active ? "aktywny" : "wyłączony"}
+                        </Badge>
+                      </td>
+                      <td className="px-2 py-2">
+                        {!canSeniority ? (
+                          <span className="text-xs text-muted-foreground italic">—</span>
+                        ) : isEditing ? (
+                          <div className="space-y-1">
+                            <select
+                              value={editLevel}
+                              onChange={(ev) => setEditLevel(ev.target.value as SeniorityLevel)}
+                              className="w-full px-2 py-1 text-xs bg-background border border-input rounded-md"
+                              aria-label="Seniority level"
+                            >
+                              {SENIORITY_LEVELS.map((lvl) => (
+                                <option key={lvl.value} value={lvl.value}>
+                                  {lvl.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="grid grid-cols-3 gap-1">
+                              <input
+                                type="date"
+                                value={editStart}
+                                onChange={(ev) => setEditStart(ev.target.value)}
+                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
+                                aria-label="Acceleration start"
+                                title="Acceleration start"
+                              />
+                              <input
+                                type="date"
+                                value={editSenior}
+                                onChange={(ev) => setEditSenior(ev.target.value)}
+                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
+                                aria-label="Senior since"
+                                title="Senior since"
+                              />
+                              <input
+                                type="date"
+                                value={editExpert}
+                                onChange={(ev) => setEditExpert(ev.target.value)}
+                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
+                                aria-label="Expert since"
+                                title="Expert since"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <Badge
+                            variant={
+                              e.seniority_level === "expert"
+                                ? "warning"
+                                : e.seniority_level === "senior"
+                                  ? "success"
+                                  : "neutral"
+                            }
+                            size="sm"
+                          >
+                            <Shield className="w-3 h-3 mr-1" />
+                            {e.seniority_level ?? "junior"}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {isEditing ? (
+                          <div className="flex justify-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => seniorityMutation.mutate({ userId: e.id })}
+                              disabled={seniorityMutation.isPending}
+                            >
+                              <Save className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditingId(null)}
+                            >
+                              ✕
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex justify-center gap-1">
+                            {canSeniority && (
+                              <Button size="sm" variant="ghost" onClick={() => startEdit(e)}>
+                                <Shield className="w-3 h-3" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `${e.is_active ? "Wyłączyć" : "Włączyć"} konto ${fullName(e)}?`,
+                                  )
+                                ) {
+                                  activeMutation.mutate({
+                                    userId: e.id,
+                                    isActive: !e.is_active,
+                                  });
+                                }
+                              }}
+                              aria-label={e.is_active ? "Wyłącz" : "Włącz"}
+                            >
+                              <Power
+                                className={`w-3 h-3 ${
+                                  e.is_active ? "text-rose-600" : "text-emerald-600"
+                                }`}
+                              />
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="mt-4 text-xs text-muted-foreground italic">
+          User CRUD (dodawanie/edycja roli/sections) → centralny admin panel Nexusa
+          ({" "}
+          <a href="/settings/users" className="text-primary hover:underline">
+            /settings/users
+          </a>
+          ). Tu zarządzasz tylko seniority + active toggle.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}

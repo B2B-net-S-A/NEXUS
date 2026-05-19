@@ -85,6 +85,8 @@ from app.api import dynareporter_admin_dashboard
 from app.api import dynareporter_admin_config
 from app.api import dynareporter_admin_hof
 from app.api import dynareporter_admin_master_data
+from app.api import dynareporter_admin_users
+from app.api import dynareporter_admin_writes
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -528,6 +530,16 @@ app.include_router(
 app.include_router(
     dynareporter_admin_master_data.router,
     prefix="/api/dynareporter/admin-master-data",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_admin_users.router,
+    prefix="/api/dynareporter/admin-users",
+    tags=["dynareporter"],
+)
+app.include_router(
+    dynareporter_admin_writes.router,
+    prefix="/api/dynareporter/admin-writes",
     tags=["dynareporter"],
 )
 app.include_router(
