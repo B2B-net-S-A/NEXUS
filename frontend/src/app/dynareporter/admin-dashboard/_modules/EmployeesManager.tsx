@@ -42,6 +42,9 @@ const SENIORITY_LEVELS = [
 type SeniorityLevel = (typeof SENIORITY_LEVELS)[number]["value"];
 
 function fullName(e: DrEmployeeRow): string {
+  // Backend zwraca `name` (Nexus users.name). first_name/last_name jest fallback
+  // dla compat z DR (gdzie były 2 kolumny).
+  if (e.name && e.name.trim()) return e.name.trim();
   const trimmed = `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim();
   return trimmed || e.email;
 }

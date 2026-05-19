@@ -3778,7 +3778,8 @@ export const dynareporterAdminMasterDataApi = {
 export type DrEmployeeRow = {
   id: number;
   email: string;
-  first_name: string | null;
+  name: string;  // Nexus users.name (single column)
+  first_name: string | null;  // derived split (compat z DR)
   last_name: string | null;
   role: string;
   department: string | null;
