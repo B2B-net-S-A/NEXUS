@@ -235,12 +235,18 @@ function NumberInput({
   value: number;
   onChange: (v: number) => void;
 }) {
+  // Stable id from label for label↔input association (a11y).
+  const inputId = `dl-nbr-${label.replace(/\s+/g, "-").toLowerCase()}`;
   return (
     <div>
-      <label className="block text-xs text-muted-foreground mb-1">
+      <label
+        htmlFor={inputId}
+        className="block text-xs text-muted-foreground mb-1"
+      >
         {label}
       </label>
       <input
+        id={inputId}
         type="number"
         min={0}
         value={value}

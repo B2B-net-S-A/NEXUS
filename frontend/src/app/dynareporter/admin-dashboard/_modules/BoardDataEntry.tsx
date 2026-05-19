@@ -5,7 +5,7 @@
  * Port `BoardDataEntry.tsx` z artur-t-96/InfraReporter (536L).
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Save,
@@ -49,16 +49,22 @@ export function BoardDataEntry() {
     msg: string;
   } | null>(null);
 
-  // Load existing data for selected month
-  useQuery({
+  // Load existing data for selected month — useQuery instead of raw await
+  // so we have cache + error handling + isLoading state. monthlyQuery.data
+  // is shared between useEffect autoloader and the "Wczytaj" button.
+  const monthlyQuery = useQuery({
     queryKey: ["dr-board-monthly-admin"],
     queryFn: () => dynareporterBoardApi.monthly(),
     staleTime: 30_000,
   });
 
-  const loadExisting = async (month: string) => {
-    const all = await dynareporterBoardApi.monthly();
-    const found = all.find((r) => r.report_month === month);
+  // Auto-load existing values when reportMonth changes — without this,
+  // admin entering data for a month with existing record would blindly
+  // overwrite all financial fields with zeros (data integrity bug,
+  // Finding 19/22 from QA review).
+  useEffect(() => {
+    if (!monthlyQuery.data) return;
+    const found = monthlyQuery.data.find((r) => r.report_month === reportMonth);
     if (found) {
       setRevenue(found.revenue);
       setConsultantCosts(found.consultant_costs);
@@ -70,7 +76,7 @@ export function BoardDataEntry() {
       setHitRatio(found.hit_ratio);
       setClients(found.placement_clients);
     } else {
-      // Reset for new month
+      // Reset for new (empty) month — but only if user hasn't started typing
       setRevenue(0);
       setConsultantCosts(0);
       setOtherCosts(0);
@@ -81,7 +87,7 @@ export function BoardDataEntry() {
       setHitRatio(0);
       setClients([]);
     }
-  };
+  }, [monthlyQuery.data, reportMonth]);
 
   const upsertMutation = useMutation({
     mutationFn: () =>
@@ -131,10 +137,15 @@ export function BoardDataEntry() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => loadExisting(reportMonth)}
+              onClick={() => monthlyQuery.refetch()}
+              disabled={monthlyQuery.isFetching}
+              aria-label="Odśwież dane z serwera"
+              title="Odśwież dane z serwera (autoload przy zmianie miesiąca)"
             >
-              <RefreshCw className="w-4 h-4" aria-hidden="true" />
-              <span className="ml-1">Wczytaj istniejące</span>
+              <RefreshCw
+                className={`w-4 h-4 ${monthlyQuery.isFetching ? "animate-spin" : ""}`}
+                aria-hidden="true"
+              />
             </Button>
             <Button
               size="sm"
@@ -204,6 +215,7 @@ export function BoardDataEntry() {
               value={hitRatio}
               onChange={setHitRatio}
               step={0.1}
+              max={100}
             />
           </div>
 
@@ -303,21 +315,30 @@ function NumberInput({
   onChange,
   step,
   integer,
+  max,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   step?: number;
   integer?: boolean;
+  max?: number;
 }) {
+  // Stable id from label for label↔input association (a11y).
+  const inputId = `nbr-${label.replace(/\s+/g, "-").toLowerCase()}`;
   return (
     <div>
-      <label className="block text-xs text-muted-foreground mb-1">
+      <label
+        htmlFor={inputId}
+        className="block text-xs text-muted-foreground mb-1"
+      >
         {label}
       </label>
       <input
+        id={inputId}
         type="number"
         min={0}
+        max={max}
         step={step ?? (integer ? 1 : 0.01)}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}

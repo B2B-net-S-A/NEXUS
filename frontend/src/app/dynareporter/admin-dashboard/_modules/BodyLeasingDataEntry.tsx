@@ -337,10 +337,16 @@ export function BodyLeasingDataEntry() {
                           <input
                             type="number"
                             min={0}
+                            // days_worked has backend constraint ge=0, le=7 —
+                            // mirror it client-side so admin can't enter 8 only
+                            // to get a 422 after Save.
+                            max={field === "days_worked" ? 7 : undefined}
                             value={row[field]}
                             onChange={(e) =>
                               handleCellChange(row.user_id, field, Number(e.target.value))
                             }
+                            // a11y — backend QA finding 28 (no aria-label on bare table inputs).
+                            aria-label={`${field} dla ${row.user_name}`}
                             className={`w-16 text-center text-sm tabular-nums rounded border px-1 py-0.5 ${highlightZeroClass(row[field])}`}
                           />
                         </td>

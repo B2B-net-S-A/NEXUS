@@ -303,10 +303,9 @@ export function HallOfFameManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {winnersQuery.data.map((w, idx) => (
-                  <tr
-                    key={`${w.competition_type}-${w.period}-${w.rank}-${idx}`}
-                  >
+                {winnersQuery.data.map((w) => (
+                  // Stable PK now that `id` is returned (PR #267).
+                  <tr key={w.id}>
                     <td className="px-2 py-1.5 text-xs font-mono">
                       {w.period}
                     </td>
