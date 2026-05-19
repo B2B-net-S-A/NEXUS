@@ -67,7 +67,14 @@ function getWeekEnd(date: Date): Date {
 }
 
 function formatDateInput(d: Date): string {
-  return d.toISOString().split("T")[0];
+  // Local-time format zamiast toISOString() — `toISOString` zwraca UTC,
+  // więc Mon May 18 00:00 CEST → "2026-05-17T22:00:00Z" → splits do "2026-05-17"
+  // (Sunday!). Wynik: weekStartDate utknięty na poprzednim Sunday zamiast
+  // bieżącym Monday. Bug confirmed live na prod 2026-05-20.
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function formatWeekRange(weekStart: string): string {
