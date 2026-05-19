@@ -71,8 +71,13 @@ function formatDateInput(d: Date): string {
 }
 
 function formatWeekRange(weekStart: string): string {
+  // `weekStart` jest already Monday (przekazane z weekStartDate state).
+  // Nie wywołujemy `getWeekEnd(start)` bo to recursively wywoła
+  // `getWeekStart(start)` → dla Sunday input zwraca poprzedni Monday →
+  // showed "17.05.2026 – 17.05.2026" zamiast właściwego range (bug).
   const start = new Date(weekStart);
-  const end = getWeekEnd(start);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
   return `${start.toLocaleDateString("pl-PL")} – ${end.toLocaleDateString("pl-PL")}`;
 }
 

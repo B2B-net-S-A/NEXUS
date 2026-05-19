@@ -46,6 +46,11 @@ class DLTeamStats(BaseModel):
     average_hit_ratio: float = 0.0
     average_fill_rate: float = 0.0
     achieving_target: int = 0
+    active_dls_count: int = Field(
+        default=0,
+        description="Liczba DLs które mają realne dane (filtruje duplikaty z "
+        "DR migracji). Denominator dla `achieving_target` w UI.",
+    )
 
 
 class DLTeamHistoryRow(BaseModel):

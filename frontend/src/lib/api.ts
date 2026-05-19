@@ -3644,6 +3644,7 @@ export type DrDLMember = {
 };
 
 export type DrDLTeamStats = {
+  active_dls_count?: number;
   total_requests: number;
   total_placements: number;
   total_vacancies: number;
