@@ -74,6 +74,7 @@ import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
+import { FilterChipPopover } from"@/components/v2/filters/FilterChipPopover";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
 import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
 import { MultiSelectFilter } from"@/components/v2/filters/MultiSelectFilter";
@@ -1167,6 +1168,76 @@ export function CandidatesListV2() {
  ))}
  </SelectContent>
  </Select>
+ {/* Phase 2: 3 najczęściej używane filtry jako zawsze-widoczne chipsy
+ (Traffit parity). Każdy chip otwiera mini-popover; gdy ma wartość,
+ pokazuje ją inline + × do wyczyszczenia. Rzadsze filtry zostają w
+ "Filtry zaawansowane" popup poniżej. */}
+ <FilterChipPopover
+ label="Lokalizacja"
+ activeLabel={locationFilter || null}
+ onClear={() => {
+ setLocationFilter("");
+ setPage(1);
+ }}
+ contentWidthClass="w-72"
+ >
+ <LocationInput
+ value={locationFilter}
+ onChange={(v) => {
+ setLocationFilter(v);
+ setPage(1);
+ }}
+ />
+ </FilterChipPopover>
+ <FilterChipPopover
+ label="Obecna firma"
+ activeLabel={
+ currentCompanyFilter.length === 0
+ ? null
+ : currentCompanyFilter.length === 1
+ ? currentCompanyFilter[0]
+ : `${currentCompanyFilter.length} firm`
+ }
+ activeCount={currentCompanyFilter.length}
+ onClear={() => {
+ setCurrentCompanyFilter([]);
+ setPage(1);
+ }}
+ >
+ <CompanyAutocomplete
+ value={currentCompanyFilter}
+ onChange={(v) => {
+ setCurrentCompanyFilter(v);
+ setPage(1);
+ }}
+ placeholder="np. Google, Allegro"
+ suggestEndpoint="/api/candidates/companies/suggest"
+ />
+ </FilterChipPopover>
+ <FilterChipPopover
+ label="Talent pool"
+ activeLabel={
+ poolIds.length === 0
+ ? null
+ : poolIds.length === 1
+ ? "1 pula"
+ : `${poolIds.length} pul`
+ }
+ activeCount={poolIds.length}
+ onClear={() => {
+ setPoolIds([]);
+ setPage(1);
+ }}
+ contentWidthClass="w-80"
+ >
+ <TalentPoolMultiSelect
+ value={poolIds}
+ onChange={(ids) => {
+ setPoolIds(ids);
+ setPage(1);
+ }}
+ />
+ </FilterChipPopover>
  <Popover>
  <PopoverTrigger asChild>
  <Button size="md" variant="outline">
@@ -1179,20 +1250,9 @@ export function CandidatesListV2() {
  </Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-80 space-y-3 max-h-[80vh] overflow-y-auto">
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Obecna firma
- </h3>
- <CompanyAutocomplete
- value={currentCompanyFilter}
- onChange={(v) => {
- setCurrentCompanyFilter(v);
- setPage(1);
- }}
- placeholder="np. Google, Allegro"
- suggestEndpoint="/api/candidates/companies/suggest"
- />
- </div>
+ {/* Note (Phase 2): Obecna firma, Lokalizacja, Talent pool przeniesione
+ jako zawsze-widoczne chipsy na main toolbar. Tu zostają rzadziej
+ używane filtry. */}
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  Poprzednia firma
@@ -1261,30 +1321,6 @@ export function CandidatesListV2() {
  value={workedAtClientIds}
  onChange={(ids) => {
  setWorkedAtClientIds(ids);
- setPage(1);
- }}
- />
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Lokalizacja
- </h3>
- <LocationInput
- value={locationFilter}
- onChange={(v) => {
- setLocationFilter(v);
- setPage(1);
- }}
- />
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Talent pool
- </h3>
- <TalentPoolMultiSelect
- value={poolIds}
- onChange={(ids) => {
- setPoolIds(ids);
  setPage(1);
  }}
  />
