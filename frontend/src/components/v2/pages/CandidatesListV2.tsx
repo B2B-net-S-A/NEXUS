@@ -7,8 +7,10 @@ import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { useVirtualizer } from"@tanstack/react-virtual";
 import {
  Briefcase,
+ Building2,
  ChevronRight,
  Columns3,
+ Copy,
  Download,
  FileArchive,
  Filter,
@@ -18,6 +20,8 @@ import {
  Link as LinkIcon,
  Linkedin,
  Loader2,
+ MapPin,
+ Phone,
  Plus,
  Rows3,
  Search,
@@ -92,6 +96,12 @@ import {
  type EmploymentFilter,
 } from"@/lib/url-filters";
 import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
+import {
+ getCurrentCompany,
+ getCurrentTitle,
+ getExperienceLabel,
+ getSkillList,
+} from"@/components/v2/pages/candidate-list-helpers";
 import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
@@ -132,6 +142,7 @@ interface Candidate {
  name?: string;
  lastname?: string;
  email?: string;
+ phone?: string | null;
  position?: string;
  current_role?: string;
  source?: string;
@@ -139,6 +150,13 @@ interface Candidate {
  availability_status?: AvailabilityStatus;
  employment?: EmploymentInfo;
  location?: string;
+ city?: string | null;
+ country?: string | null;
+ years_it_experience?: number | null;
+ skills?: unknown;
+ experience?: unknown;
+ linkedin_current_company?: string | null;
+ linkedin_current_title?: string | null;
  created_at?: string;
  created_by_user?: { id: number; name: string } | null;
  match_stats?: { open_count: number; total_open: number; top_score: number };
@@ -183,18 +201,255 @@ function matchBadgeVariant(
 }
 
 // All columns that can be shown/hidden via the"Kolumny" popover.
+// Order in this array = visual order in the table.
 const ALL_COLUMNS = [
- { id: "candidate", label: "Kandydat", required: true },
- { id: "position", label: "Pozycja", required: false },
- { id: "status", label: "Status", required: false },
- { id: "match", label: "Match", required: false },
- { id: "created", label: "Dodano", required: false },
- { id: "added_by", label: "Dodał", required: false },
+ { id: "candidate", label: "Kandydat", required: true, width: "minmax(220px, 1.6fr)" },
+ { id: "phone", label: "Telefon", required: false, width: "minmax(140px, 0.9fr)" },
+ { id: "title", label: "Stanowisko", required: false, width: "minmax(160px, 1.1fr)" },
+ { id: "company", label: "Firma", required: false, width: "minmax(140px, 1fr)" },
+ { id: "location", label: "Lokalizacja", required: false, width: "minmax(120px, 0.7fr)" },
+ { id: "experience", label: "Doświadczenie", required: false, width: "minmax(110px, 0.6fr)" },
+ { id: "skills", label: "Skills", required: false, width: "minmax(180px, 1.3fr)" },
+ { id: "position", label: "Pozycja", required: false, width: "minmax(160px, 1fr)" },
+ { id: "status", label: "Status", required: false, width: "minmax(120px, 0.8fr)" },
+ { id: "match", label: "Match", required: false, width: "minmax(110px, 0.7fr)" },
+ { id: "created", label: "Dodano", required: false, width: "minmax(120px, 0.7fr)" },
+ { id: "added_by", label: "Dodał", required: false, width: "minmax(110px, 0.6fr)" },
 ] as const;
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
-const HARD_DEFAULT_COLUMNS: ColumnId[] = ["candidate","position","status","match","created","added_by",
+// Default columns shown to a new user (no global override, no per-user override).
+// Triage-first set: identity + contact + role context + experience + skills + recency.
+// Status/Match/Position/Added-by are opt-in via the "Kolumny" popover.
+const HARD_DEFAULT_COLUMNS: ColumnId[] = [
+ "candidate",
+ "phone",
+ "title",
+ "company",
+ "experience",
+ "skills",
+ "created",
 ];
+
+interface CandidateCellProps {
+ columnId: ColumnId;
+ candidate: Candidate;
+ fullName: string;
+ initials: string;
+ density: "compact" |"cozy";
+ stats: Candidate["match_stats"];
+ onOpenDetail: () => void;
+}
+
+/** Single-cell renderer for the candidates table. Renders one cell per visible
+ *  column. Decoupled from the row component so we can iterate over
+ *  `visibleColumns` without a giant switch inline in JSX. */
+function CandidateCell({
+ columnId,
+ candidate,
+ fullName,
+ initials,
+ density,
+ stats,
+ onOpenDetail,
+}: CandidateCellProps) {
+ switch (columnId) {
+ case "candidate": {
+ return (
+ <button
+ type="button"
+ onClick={onOpenDetail}
+ className="flex items-center gap-3 min-w-0 text-left"
+ >
+ <Avatar size={density === "compact" ?"sm" :"md"}>
+ <AvatarFallback>{initials}</AvatarFallback>
+ </Avatar>
+ <div className="min-w-0">
+ <div className="font-medium text-foreground truncate hover:text-primary">
+ {fullName}
+ </div>
+ <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
+ {sourceIcon(candidate.source)}
+ <span className="truncate">
+ {candidate.email ?? candidate.location ??"—"}
+ </span>
+ </div>
+ </div>
+ </button>
+ );
+ }
+ case "phone": {
+ const phone = candidate.phone;
+ if (!phone) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ const onCopy = (e: React.MouseEvent) => {
+ e.stopPropagation();
+ if (typeof navigator !=="undefined" && navigator.clipboard) {
+ void navigator.clipboard.writeText(phone);
+ }
+ };
+ return (
+ <div className="flex items-center gap-1.5 min-w-0 group">
+ <Phone className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <a
+ href={`tel:${phone}`}
+ onClick={(e) => e.stopPropagation()}
+ className="text-sm text-foreground truncate hover:text-primary"
+ title={phone}
+ >
+ {phone}
+ </a>
+ <button
+ type="button"
+ onClick={onCopy}
+ title="Kopiuj numer"
+ className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
+ >
+ <Copy className="h-3 w-3" />
+ </button>
+ </div>
+ );
+ }
+ case "title": {
+ const title = getCurrentTitle(candidate);
+ return (
+ <span
+ className="text-sm text-foreground truncate block"
+ title={title ?? undefined}
+ >
+ {title ??"—"}
+ </span>
+ );
+ }
+ case "company": {
+ const company = getCurrentCompany(candidate);
+ if (!company) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div className="flex items-center gap-1.5 min-w-0">
+ <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <span
+ className="text-sm text-foreground truncate"
+ title={company}
+ >
+ {company}
+ </span>
+ </div>
+ );
+ }
+ case "location": {
+ const loc = candidate.city ?? candidate.location ?? null;
+ if (!loc) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div className="flex items-center gap-1.5 min-w-0">
+ <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <span className="text-sm text-foreground truncate" title={loc}>
+ {loc}
+ </span>
+ </div>
+ );
+ }
+ case "experience": {
+ const tag = getExperienceLabel(candidate.years_it_experience);
+ if (!tag) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <Badge size="sm" variant={tag.variant}>
+ {tag.label}
+ </Badge>
+ );
+ }
+ case "skills": {
+ const skills = getSkillList(candidate, 8);
+ if (skills.length === 0) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ const shown = skills.slice(0, 3);
+ const overflow = skills.length - shown.length;
+ return (
+ <div className="flex items-center gap-1 min-w-0 flex-wrap">
+ {shown.map((s) => (
+ <Badge key={s} size="sm" variant="outline" className="font-normal">
+ {s}
+ </Badge>
+ ))}
+ {overflow > 0 && (
+ <span
+ className="text-[11px] text-muted-foreground"
+ title={skills.slice(3).join(",")}
+ >
+ +{overflow}
+ </span>
+ )}
+ </div>
+ );
+ }
+ case "position": {
+ // Legacy column kept for back-compat — recruiters who opt-in still get
+ // the old "Pozycja" value (rarely populated outside of pipeline rows).
+ return (
+ <span className="text-sm text-foreground truncate block">
+ {candidate.position ?? candidate.current_role ??"—"}
+ </span>
+ );
+ }
+ case "status": {
+ return (
+ <div className="min-w-0">
+ <CandidateHighlights candidate={candidate} variant="compact" />
+ </div>
+ );
+ }
+ case "match": {
+ if (stats && stats.open_count > 0) {
+ return (
+ <Badge
+ size="sm"
+ variant={matchBadgeVariant(stats.top_score)}
+ className="gap-1"
+ >
+ <Target className="h-3 w-3" />
+ {stats.open_count}/{stats.total_open} · top{""}
+ {Math.round(stats.top_score)}
+ </Badge>
+ );
+ }
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ case "created": {
+ return (
+ <span className="text-xs text-muted-foreground truncate block">
+ {candidate.created_at
+ ? formatRelativeTime(candidate.created_at)
+ :"—"}
+ </span>
+ );
+ }
+ case "added_by": {
+ return (
+ <span
+ className="text-xs text-muted-foreground truncate block"
+ title={
+ candidate.created_by_user
+ ? candidate.created_by_user.name
+ :"Import systemowy"
+ }
+ >
+ {candidate.created_by_user
+ ? candidate.created_by_user.name
+ :"System"}
+ </span>
+ );
+ }
+ default:
+ return null;
+ }
+}
 
 export function CandidatesListV2() {
  const router = useRouter();
@@ -229,6 +484,12 @@ export function CandidatesListV2() {
  userOverride ?? globalDefaultHiddenCols
  );
  const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
+ // CSS grid template: 32px checkbox + each visible column's width + 60px action slot.
+ const gridTemplateColumns = [
+ "32px",
+ ...visibleColumns.map((c) => c.width),
+ "60px",
+ ].join(" ");
 
  // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
  // the baseline that applies to every role without a specific override.
@@ -1319,8 +1580,9 @@ export function CandidatesListV2() {
  {candidatesView === "list" && (
  <div
  className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground bg-background/60 border-b border-border",
- density === "compact" ?"h-9" :"h-10","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]"
+ density === "compact" ?"h-9" :"h-10"
  )}
+ style={{ gridTemplateColumns }}
  >
  <div className="flex items-center">
  <Checkbox
@@ -1335,11 +1597,9 @@ export function CandidatesListV2() {
  aria-label="Zaznacz wszystkie"
  />
  </div>
- <div>Kandydat</div>
- <div>Pozycja</div>
- <div>Status</div>
- <div>Match</div>
- <div>Dodano</div>
+ {visibleColumns.map((col) => (
+ <div key={col.id} className="truncate">{col.label}</div>
+ ))}
  <div />
  </div>
  )}
@@ -1415,6 +1675,13 @@ export function CandidatesListV2() {
  .toUpperCase();
  const isSelected = selectedIds.has(candidate.id);
  const stats = candidate.match_stats;
+ const openDetail = () => {
+ setDetailId(candidate.id);
+ const idx = items.findIndex((c) => c.id === candidate.id);
+ if (idx >= 0) {
+ setDetailPosition((page - 1) * pageSize + idx + 1);
+ }
+ };
  return (
  <div
  key={candidate.id}
@@ -1426,8 +1693,9 @@ export function CandidatesListV2() {
  width: "100%",
  height: `${virtualRow.size}px`,
  transform: `translateY(${virtualRow.start}px)`,
+ gridTemplateColumns,
  }}
- className={cn("grid items-center gap-4 px-4 border-b border-border/50 transition-colors","grid-cols-[32px_minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(100px,1fr)_60px]","hover:bg-primary/10",
+ className={cn("grid items-center gap-4 px-4 border-b border-border/50 transition-colors","hover:bg-primary/10",
  isSelected &&"bg-primary/10 hover:bg-primary/10"
  )}
  >
@@ -1440,73 +1708,18 @@ export function CandidatesListV2() {
  >
  <Checkbox checked={isSelected} onCheckedChange={() => toggleId(candidate.id)} />
  </div>
- <button
- type="button"
- onClick={() => {
- setDetailId(candidate.id);
- const idx = items.findIndex((c) => c.id === candidate.id);
- if (idx >= 0) {
- setDetailPosition((page - 1) * pageSize + idx + 1);
- }
- }}
- className="flex items-center gap-3 min-w-0 text-left"
- >
- <Avatar size={density === "compact" ?"sm" :"md"}>
- <AvatarFallback>{initials}</AvatarFallback>
- </Avatar>
- <div className="min-w-0">
- <div className="font-medium text-foreground truncate hover:text-primary">
- {fullName}
- </div>
- <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
- {sourceIcon(candidate.source)}
- <span className="truncate">
- {candidate.email ?? candidate.location ??"—"}
- </span>
- </div>
- </div>
- </button>
- <div className="min-w-0">
- <span className="text-sm text-foreground truncate block">
- {candidate.position ?? candidate.current_role ??"—"}
- </span>
- </div>
- <div className="min-w-0">
- <CandidateHighlights candidate={candidate} variant="compact" />
- </div>
- <div>
- {stats && stats.open_count > 0 ? (
- <Badge
- size="sm"
- variant={matchBadgeVariant(stats.top_score)}
- className="gap-1"
- >
- <Target className="h-3 w-3" />
- {stats.open_count}/{stats.total_open} · top {Math.round(stats.top_score)}
- </Badge>
- ) : (
- <span className="text-xs text-muted-foreground">—</span>
- )}
- </div>
- <div className="min-w-0 leading-tight">
- <div className="text-xs text-muted-foreground truncate">
- {candidate.created_at ? formatRelativeTime(candidate.created_at) : "—"}
- </div>
- {!hiddenColumns.has("added_by") && (
- <div
- className="text-[11px] text-muted-foreground opacity-80 truncate"
- title={
- candidate.created_by_user
- ? `Dodał: ${candidate.created_by_user.name}`
- :"Import systemowy"
- }
- >
- Dodał:{""}
- {candidate.created_by_user
- ? candidate.created_by_user.name : "System"}
- </div>
- )}
- </div>
+ {visibleColumns.map((col) => (
+ <CandidateCell
+ key={col.id}
+ columnId={col.id}
+ candidate={candidate}
+ fullName={fullName}
+ initials={initials}
+ density={density}
+ stats={stats}
+ onOpenDetail={openDetail}
+ />
+ ))}
  <div className="flex justify-end">
  <button
  onClick={(e) => {
