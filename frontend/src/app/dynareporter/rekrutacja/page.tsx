@@ -16,7 +16,29 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, Target, Calendar, RefreshCw, Trophy, Award } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
+import {
+  Users,
+  Target,
+  Calendar,
+  RefreshCw,
+  Trophy,
+  Award,
+  Download,
+  Medal,
+  Phone,
+  Linkedin,
+  BarChart3,
+} from "lucide-react";
 import {
   dynareporterRekrutacjaApi,
   type DrRekrutacjaTeamMember,
@@ -112,6 +134,57 @@ export default function RekrutacjaPage() {
   const { data: availableWeeks } = useQuery({
     queryKey: ["dr-rekrutacja-weeks"],
     queryFn: () => dynareporterRekrutacjaApi.availableWeeks(),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled,
+  });
+
+  // === Subsection queries (Hall of Fame, Stats Roczne, Wyścig, Power, LinkedIn)
+  const { data: hallOfFame } = useQuery({
+    queryKey: ["dr-rekrutacja-hof"],
+    queryFn: () => dynareporterRekrutacjaApi.hallOfFame(100),
+    staleTime: 10 * 60_000,
+    enabled: queryEnabled,
+  });
+
+  const { data: yearlyStats } = useQuery({
+    queryKey: ["dr-rekrutacja-yearly", selectedYear],
+    queryFn: () => dynareporterRekrutacjaApi.yearlyStats(selectedYear),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled,
+  });
+
+  const monthForRaceParam = useMemo(() => {
+    if (selectedMonth <= 0) return undefined;
+    const mm = String(selectedMonth).padStart(2, "0");
+    return `${selectedYear}-${mm}`;
+  }, [selectedMonth, selectedYear]);
+
+  const { data: raceRec } = useQuery({
+    queryKey: ["dr-rekrutacja-race-rec", monthForRaceParam],
+    queryFn: () =>
+      dynareporterRekrutacjaApi.monthlyRace("recommendations", monthForRaceParam),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled && monthForRaceParam !== undefined,
+  });
+
+  const { data: racePlac } = useQuery({
+    queryKey: ["dr-rekrutacja-race-plac", monthForRaceParam],
+    queryFn: () =>
+      dynareporterRekrutacjaApi.monthlyRace("placements", monthForRaceParam),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled && monthForRaceParam !== undefined,
+  });
+
+  const { data: powerCalling } = useQuery({
+    queryKey: ["dr-rekrutacja-pc"],
+    queryFn: () => dynareporterRekrutacjaApi.powerCalling(),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled,
+  });
+
+  const { data: linkedin } = useQuery({
+    queryKey: ["dr-rekrutacja-li", dashboardParams],
+    queryFn: () => dynareporterRekrutacjaApi.linkedinPerformance(dashboardParams),
     staleTime: 5 * 60_000,
     enabled: queryEnabled,
   });
@@ -226,6 +299,17 @@ export default function RekrutacjaPage() {
                 <Calendar className="h-3.5 w-3.5" />
                 {dashboard?.period_label ?? "—"}
               </Badge>
+              {dashboard && dashboard.users.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportPerformanceCsv(dashboard)}
+                  title="Eksportuj Performance per osoba do CSV"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="ml-1 hidden sm:inline">Eksportuj</span>
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => refetch()}>
                 <RefreshCw className="h-4 w-4" />
                 <span className="ml-1 hidden sm:inline">Odśwież</span>
@@ -400,15 +484,363 @@ export default function RekrutacjaPage() {
             </CardContent>
           </Card>
 
-          <p className="text-xs text-muted-foreground text-center py-2">
-            Faza port-do-Nexusa. Brakuje jeszcze: Wyścig Rek/Plac, Power Calling, Hall of
-            Fame, Statystyki Roczne chart, LinkedIn Performance, Acceleration Path. Pełna
-            wersja z drag-and-drop sekcji + eksport CSV — w kolejnych iteracjach.
-          </p>
+          {/* === Wyścig Rekomendacji + Wyścig Placementów (monthly) ====== */}
+          {(raceRec || racePlac) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {raceRec && <MonthlyRaceCard race={raceRec} icon="🎯" />}
+              {racePlac && <MonthlyRaceCard race={racePlac} icon="🏁" />}
+            </div>
+          )}
+
+          {/* === Statystyki Roczne — wykres tygodniowy ==================== */}
+          {yearlyStats && yearlyStats.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-indigo-500" />
+                  Statystyki Roczne — {selectedYear}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={yearlyStats}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="week_label"
+                      tick={{ fontSize: 10 }}
+                      stroke="hsl(var(--muted-foreground))"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      stroke="hsl(var(--muted-foreground))"
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Line
+                      type="monotone"
+                      dataKey="verifications"
+                      stroke="#3B82F6"
+                      strokeWidth={2}
+                      name="Weryfikacje"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="recommendations"
+                      stroke="#A855F7"
+                      strokeWidth={2}
+                      name="Rekomendacje"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="interviews"
+                      stroke="#F59E0B"
+                      strokeWidth={2}
+                      name="Interviews"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="placements"
+                      stroke="#10B981"
+                      strokeWidth={2}
+                      name="Placements"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* === Power Calling daily ranking ============================== */}
+          {powerCalling && powerCalling.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Phone className="h-5 w-5 text-rose-500" />
+                  Power Calling — {powerCalling[0]?.week_label ?? ""}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Wymóg: min. 3 weryfikacji/dzień roboczy. Sortowane od najgorszych.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Osoba</TableHead>
+                        <TableHead>Rola</TableHead>
+                        <TableHead className="text-right">Weryfikacje</TableHead>
+                        <TableHead className="text-right">Dni</TableHead>
+                        <TableHead className="text-right">Wer/dzień</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {powerCalling.map((pc) => {
+                        const isUnderTarget = pc.per_day < 3 && pc.days_worked > 0;
+                        return (
+                          <TableRow key={pc.user_id}>
+                            <TableCell className="font-medium">{pc.user_name}</TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {ROLE_LABEL_PL[pc.role] ?? pc.role}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {pc.verifications}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {pc.days_worked}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              <Badge variant={isUnderTarget ? "danger" : "success"} size="sm">
+                                {pc.per_day.toFixed(2)}/dzień
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* === LinkedIn Performance ===================================== */}
+          {linkedin && linkedin.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Linkedin className="h-5 w-5 text-blue-600" />
+                  LinkedIn Performance (TAC) — {dashboard.period_label}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Target: 5 CV/MD. Response Rate = responses / messages sent × 100.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Osoba</TableHead>
+                        <TableHead className="text-right">CV dodane</TableHead>
+                        <TableHead className="text-right">CV/MD</TableHead>
+                        <TableHead className="text-right">Wiadomości</TableHead>
+                        <TableHead className="text-right">Odpowiedzi</TableHead>
+                        <TableHead className="text-right">Response Rate</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {linkedin.map((l) => (
+                        <TableRow key={l.user_id}>
+                          <TableCell className="font-medium">{l.user_name}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {l.cv_added}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            <Badge
+                              variant={l.cv_per_md >= 5 ? "success" : "neutral"}
+                              size="sm"
+                            >
+                              {l.cv_per_md.toFixed(2)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {l.messages_sent}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {l.responses_received}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {l.response_rate.toFixed(1)}%
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* === Hall of Fame ============================================= */}
+          {hallOfFame && hallOfFame.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Medal className="h-5 w-5 text-amber-500" />
+                  Hall of Fame — historyczni zwycięzcy
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Period</TableHead>
+                        <TableHead>Typ</TableHead>
+                        <TableHead className="text-center">Miejsce</TableHead>
+                        <TableHead>Zwycięzca</TableHead>
+                        <TableHead className="text-right">Punkty</TableHead>
+                        <TableHead className="text-right">Metric</TableHead>
+                        <TableHead>Nagroda</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {hallOfFame.map((h, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell className="font-mono text-xs">{h.period}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {h.competition_type}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {h.rank === 1 ? "🥇" : h.rank === 2 ? "🥈" : "🥉"}
+                          </TableCell>
+                          <TableCell className="font-medium">{h.user_name}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {h.points || "–"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {h.metric_value || "–"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {h.prize ?? "–"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
   );
+}
+
+/**
+ * Pojedyncza karta Wyścig Rekomendacji / Placementów.
+ */
+function MonthlyRaceCard({
+  race,
+  icon,
+}: {
+  race: import("@/lib/api").DrMonthlyRace;
+  icon: string;
+}) {
+  const top = race.entries.slice(0, 5);
+  const title =
+    race.competition_type === "recommendations"
+      ? "Wyścig Rekomendacji"
+      : "Wyścig Placementów";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <span>{icon}</span>
+          {title}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {race.month} · {race.voucher}
+        </p>
+        <p className="text-xs text-muted-foreground italic">
+          {race.requirement} · Lider kwartalny wykluczony z nagrody miesięcznej.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {top.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            Brak wpisów w tym miesiącu.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8">#</TableHead>
+                <TableHead>Osoba</TableHead>
+                <TableHead className="text-right">Wartość</TableHead>
+                <TableHead className="text-right">/dzień</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {top.map((e, idx) => (
+                <TableRow key={e.user_id}>
+                  <TableCell>
+                    <Badge
+                      variant={idx === 0 ? "alert" : "neutral"}
+                      size="sm"
+                    >
+                      {idx + 1}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-medium">{e.user_name}</TableCell>
+                  <TableCell className="text-right tabular-nums font-semibold">
+                    {e.metric_value}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {e.per_day.toFixed(2)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function exportPerformanceCsv(
+  dashboard: import("@/lib/api").DrRekrutacjaDashboard,
+): void {
+  const header = [
+    "Imie",
+    "Nazwisko",
+    "Rola",
+    "Weryfikacje",
+    "Rekomendacje",
+    "Interviews",
+    "Placements",
+    "Punkty Ligi",
+  ];
+  const rows = dashboard.users.map((m) => [
+    m.first_name,
+    m.last_name,
+    m.role,
+    m.metrics.verifications.value,
+    m.metrics.recommendations.value,
+    m.metrics.interviews.value,
+    m.metrics.placements.value,
+    m.league_points,
+  ]);
+  const csv = [header, ...rows]
+    .map((row) =>
+      row
+        .map((cell) => {
+          const s = String(cell ?? "");
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        })
+        .join(","),
+    )
+    .join("\n");
+  // BOM dla Excel (PL znaki)
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rekrutacja-${dashboard.period}-${dashboard.period_start}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function KpiCard({

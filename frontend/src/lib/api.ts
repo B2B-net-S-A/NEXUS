@@ -3671,6 +3671,65 @@ export const dynareporterDeliveryLeadApi = {
       .then((r) => r.data),
 };
 
+// Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
+export type DrHallOfFameEntry = {
+  competition_type: string; // 'quarterly' | 'monthly_recommendations' | 'monthly_placements'
+  period: string;
+  rank: number;
+  user_id: number;
+  user_name: string;
+  points: number;
+  metric_value: number;
+  prize: string | null;
+};
+
+export type DrYearlyStatsRow = {
+  week_label: string;
+  week_number: number;
+  year: number;
+  verifications: number;
+  recommendations: number;
+  interviews: number;
+  placements: number;
+};
+
+export type DrMonthlyRaceEntry = {
+  user_id: number;
+  user_name: string;
+  role: string;
+  metric_value: number;
+  per_day: number;
+};
+
+export type DrMonthlyRace = {
+  competition_type: "recommendations" | "placements";
+  month: string;
+  voucher: string;
+  requirement: string;
+  entries: DrMonthlyRaceEntry[];
+};
+
+export type DrPowerCallingEntry = {
+  user_id: number;
+  user_name: string;
+  role: string;
+  verifications: number;
+  days_worked: number;
+  per_day: number;
+  week_label: string;
+};
+
+export type DrLinkedInPerformanceRow = {
+  user_id: number;
+  user_name: string;
+  role: string;
+  cv_added: number;
+  messages_sent: number;
+  responses_received: number;
+  response_rate: number;
+  cv_per_md: number;
+};
+
 export const dynareporterRekrutacjaApi = {
   dashboard: (params: {
     period: "week" | "month" | "year";
@@ -3687,6 +3746,50 @@ export const dynareporterRekrutacjaApi = {
       .get<DrRekrutacjaAvailableWeek[]>("/api/dynareporter/rekrutacja/available-weeks", {
         params,
       })
+      .then((r) => r.data),
+
+  hallOfFame: (limit = 100) =>
+    api
+      .get<DrHallOfFameEntry[]>("/api/dynareporter/rekrutacja/hall-of-fame", {
+        params: { limit },
+      })
+      .then((r) => r.data),
+
+  yearlyStats: (year?: number) =>
+    api
+      .get<DrYearlyStatsRow[]>("/api/dynareporter/rekrutacja/yearly-stats", {
+        params: year !== undefined ? { year } : undefined,
+      })
+      .then((r) => r.data),
+
+  monthlyRace: (
+    competition_type: "recommendations" | "placements",
+    month?: string,
+  ) =>
+    api
+      .get<DrMonthlyRace>("/api/dynareporter/rekrutacja/monthly-race", {
+        params: { competition_type, month },
+      })
+      .then((r) => r.data),
+
+  powerCalling: (params?: { week_number?: number; year?: number }) =>
+    api
+      .get<DrPowerCallingEntry[]>("/api/dynareporter/rekrutacja/power-calling", {
+        params,
+      })
+      .then((r) => r.data),
+
+  linkedinPerformance: (params: {
+    period: "week" | "month" | "year";
+    date?: string;
+    weekNumber?: number;
+    year?: number;
+  }) =>
+    api
+      .get<DrLinkedInPerformanceRow[]>(
+        "/api/dynareporter/rekrutacja/linkedin-performance",
+        { params },
+      )
       .then((r) => r.data),
 };
 

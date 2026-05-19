@@ -27,11 +27,17 @@ from app.core.database import get_db
 from app.schemas.dr_rekrutacja import (
     AvailableWeek,
     FunnelStage,
+    HallOfFameEntry,
+    LinkedInPerformanceRow,
+    MonthlyRace,
+    MonthlyRaceEntry,
+    PowerCallingEntry,
     RekrutacjaDashboard,
     TeamMember,
     TeamSummary,
     UserMetrics,
     UserMetricValue,
+    YearlyStatsRow,
 )
 
 router = APIRouter()
@@ -420,4 +426,318 @@ async def get_available_weeks(
             has_data=True,
         )
         for row in rows
+    ]
+
+
+# =============================================================================
+# Follow-up subsections (Hall of Fame + Stats Roczne + LinkedIn + Wyścigi + PC)
+# =============================================================================
+
+
+@router.get(
+    "/hall-of-fame",
+    response_model=list[HallOfFameEntry],
+    summary="Historic Hall of Fame z dr_competition_winners",
+)
+async def get_hall_of_fame(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[HallOfFameEntry]:
+    """Zwraca historyczne zwycięstwa (Q-quarterly + monthly Rec + Plac)."""
+    sql = text(
+        """
+        SELECT
+            w.competition_type,
+            w.period,
+            w.rank,
+            w.user_id,
+            u.name AS user_name,
+            COALESCE(w.points, 0) AS points,
+            COALESCE(w.metric_value, 0) AS metric_value,
+            w.prize
+        FROM dr_competition_winners w
+        LEFT JOIN users u ON u.id = w.user_id
+        ORDER BY w.period DESC, w.competition_type, w.rank
+        LIMIT :lim
+        """
+    )
+    rows = (await db.execute(sql, {"lim": limit})).all()
+    return [
+        HallOfFameEntry(
+            competition_type=r.competition_type,
+            period=r.period,
+            rank=r.rank,
+            user_id=r.user_id,
+            user_name=r.user_name or "(deleted user)",
+            points=r.points,
+            metric_value=r.metric_value,
+            prize=r.prize,
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/yearly-stats",
+    response_model=list[YearlyStatsRow],
+    summary="Tygodniowe agregaty KPI dla wykresu Statystyki Roczne",
+)
+async def get_yearly_stats(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    year: int = Query(default=None, ge=2020, le=2100),
+) -> list[YearlyStatsRow]:
+    """Per-tydzień agregaty Wer/Rek/Int/Plac za wybrany rok (default: bieżący)."""
+    sql = text(
+        """
+        SELECT
+            k.week_number,
+            EXTRACT(YEAR FROM k.report_date)::int AS year,
+            COALESCE(SUM(k.verifications), 0)::int AS verifications,
+            COALESCE(SUM(k.recommendations), 0)::int AS recommendations,
+            COALESCE(SUM(k.interviews), 0)::int AS interviews,
+            COALESCE(SUM(k.placements), 0)::int AS placements
+        FROM dr_kpi_body_leasing k
+        WHERE (k.is_draft = false OR k.is_draft IS NULL)
+          AND (:year IS NULL OR EXTRACT(YEAR FROM k.report_date)::int = :year)
+        GROUP BY k.week_number, EXTRACT(YEAR FROM k.report_date)
+        ORDER BY year ASC, k.week_number ASC
+        """
+    )
+    rows = (await db.execute(sql, {"year": year})).all()
+    return [
+        YearlyStatsRow(
+            week_label=f"T{r.week_number} {r.year}",
+            week_number=r.week_number,
+            year=r.year,
+            verifications=r.verifications,
+            recommendations=r.recommendations,
+            interviews=r.interviews,
+            placements=r.placements,
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/monthly-race",
+    response_model=MonthlyRace,
+    summary="Wyścig Rekomendacji / Placementów (miesięczne competitions)",
+)
+async def get_monthly_race(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    competition_type: str = Query(
+        default="recommendations", pattern="^(recommendations|placements)$"
+    ),
+    month: str | None = Query(
+        default=None, description="YYYY-MM (default: bieżący miesiąc)"
+    ),
+) -> MonthlyRace:
+    """Zwraca leaders w miesiącu dla danego typu competition.
+
+    Wymóg: min 4 weryfikacji/dzień roboczy (rekomendacje) lub min 2 placementy
+    (placementy). Voucher 1500 PLN.
+    """
+    today = date.today()
+    if month:
+        try:
+            month_date = datetime.strptime(f"{month}-01", "%Y-%m-%d").date()
+        except ValueError:
+            month_date = today.replace(day=1)
+    else:
+        month_date = today.replace(day=1)
+    # End of month
+    if month_date.month == 12:
+        next_month = month_date.replace(year=month_date.year + 1, month=1)
+    else:
+        next_month = month_date.replace(month=month_date.month + 1)
+    month_end = next_month - timedelta(days=1)
+
+    metric_col = (
+        "recommendations" if competition_type == "recommendations" else "placements"
+    )
+    requirement = (
+        "Min. 4 weryfikacji/dzień roboczy"
+        if competition_type == "recommendations"
+        else "Min. 2 placementy do kwalifikacji"
+    )
+
+    sql = text(
+        f"""
+        SELECT
+            u.id,
+            u.name,
+            u.role::text AS role,
+            COALESCE(SUM(k.{metric_col}), 0)::int AS metric_value,
+            COALESCE(SUM(k.days_worked), 0)::int AS days_worked
+        FROM users u
+        LEFT JOIN dr_kpi_body_leasing k
+            ON k.user_id = u.id
+            AND k.report_date BETWEEN :start_date AND :end_date
+            AND (k.is_draft = false OR k.is_draft IS NULL)
+        WHERE u.role::text = ANY(:roles)
+          AND u.is_active = true
+        GROUP BY u.id, u.name, u.role
+        HAVING COALESCE(SUM(k.{metric_col}), 0) > 0
+        ORDER BY metric_value DESC
+        """  # noqa: S608 — metric_col z whitelist
+    )
+    rows = (
+        await db.execute(
+            sql,
+            {
+                "start_date": month_date,
+                "end_date": month_end,
+                "roles": list(RECRUITMENT_ROLES),
+            },
+        )
+    ).all()
+    entries = [
+        MonthlyRaceEntry(
+            user_id=r.id,
+            user_name=r.name or "",
+            role=r.role,
+            metric_value=r.metric_value,
+            per_day=(
+                round(r.metric_value / r.days_worked, 2) if r.days_worked > 0 else 0.0
+            ),
+        )
+        for r in rows
+    ]
+    return MonthlyRace(
+        competition_type=competition_type,
+        month=f"{month_date.year}-{month_date.month:02d}",
+        voucher="Voucher 1 500 PLN (Modivo, Douglas, Media Markt)",
+        requirement=requirement,
+        entries=entries,
+    )
+
+
+@router.get(
+    "/power-calling",
+    response_model=list[PowerCallingEntry],
+    summary="Power Calling — efektywność weryfikacji/dzień roboczy",
+)
+async def get_power_calling(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    week_number: int | None = Query(default=None, ge=1, le=53),
+    year: int | None = Query(default=None, ge=2020, le=2100),
+) -> list[PowerCallingEntry]:
+    """Per-osoba: weryfikacje/dzień_roboczy w wybranym tygodniu.
+
+    Default: poprzedni tydzień (porównanie z bieżącym może być niekompletne).
+    """
+    today = date.today()
+    iso = today.isocalendar()
+    target_week = week_number or iso.week
+    target_year = year or iso.year
+
+    sql = text(
+        """
+        SELECT
+            u.id,
+            u.name,
+            u.role::text AS role,
+            COALESCE(SUM(k.verifications), 0)::int AS verifications,
+            COALESCE(SUM(k.days_worked), 0)::int AS days_worked
+        FROM users u
+        LEFT JOIN dr_kpi_body_leasing k
+            ON k.user_id = u.id
+            AND k.week_number = :wk
+            AND EXTRACT(YEAR FROM k.report_date)::int = :yr
+            AND (k.is_draft = false OR k.is_draft IS NULL)
+        WHERE u.role::text = ANY(:roles)
+          AND u.is_active = true
+        GROUP BY u.id, u.name, u.role
+        ORDER BY (CASE WHEN COALESCE(SUM(k.days_worked),0)>0
+                       THEN COALESCE(SUM(k.verifications),0)::float
+                            / COALESCE(SUM(k.days_worked),0)
+                       ELSE 0 END) ASC
+        """
+    )
+    rows = (
+        await db.execute(
+            sql,
+            {
+                "wk": target_week,
+                "yr": target_year,
+                "roles": list(RECRUITMENT_ROLES),
+            },
+        )
+    ).all()
+    return [
+        PowerCallingEntry(
+            user_id=r.id,
+            user_name=r.name or "",
+            role=r.role,
+            verifications=r.verifications,
+            days_worked=r.days_worked,
+            per_day=(
+                round(r.verifications / r.days_worked, 2) if r.days_worked > 0 else 0.0
+            ),
+            week_label=f"Tydzień {target_week}/{target_year}",
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/linkedin-performance",
+    response_model=list[LinkedInPerformanceRow],
+    summary="LinkedIn Performance — per-TAC CV added / messages / response rate",
+)
+async def get_linkedin_performance(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    period: str = Query(default="month", pattern="^(week|month|year)$"),
+    date_str: str | None = Query(default=None, alias="date"),
+    week_number: int | None = Query(default=None, alias="weekNumber", ge=1, le=53),
+    year: int | None = Query(default=None, ge=2020, le=2100),
+) -> list[LinkedInPerformanceRow]:
+    """Per-TAC LinkedIn farming stats (CV added, msg sent, response rate)."""
+    start, end, _ = _resolve_period_bounds(period, date_str, week_number, year)
+
+    sql = text(
+        """
+        SELECT
+            u.id,
+            u.name,
+            u.role::text AS role,
+            COALESCE(SUM(k.linkedin_cv_added), 0)::int AS cv_added,
+            COALESCE(SUM(k.linkedin_messages_sent), 0)::int AS messages_sent,
+            COALESCE(SUM(k.linkedin_responses_received), 0)::int AS responses_received,
+            COALESCE(SUM(k.days_worked), 0)::int AS days_worked
+        FROM users u
+        LEFT JOIN dr_kpi_body_leasing k
+            ON k.user_id = u.id
+            AND k.report_date BETWEEN :start_date AND :end_date
+            AND (k.is_draft = false OR k.is_draft IS NULL)
+        WHERE u.role::text = 'tac'
+          AND u.is_active = true
+        GROUP BY u.id, u.name, u.role
+        ORDER BY cv_added DESC, messages_sent DESC
+        """
+    )
+    rows = (await db.execute(sql, {"start_date": start, "end_date": end})).all()
+    return [
+        LinkedInPerformanceRow(
+            user_id=r.id,
+            user_name=r.name or "",
+            role=r.role,
+            cv_added=r.cv_added,
+            messages_sent=r.messages_sent,
+            responses_received=r.responses_received,
+            response_rate=(
+                round((r.responses_received / r.messages_sent) * 100, 1)
+                if r.messages_sent > 0
+                else 0.0
+            ),
+            cv_per_md=(
+                round(r.cv_added / r.days_worked, 2) if r.days_worked > 0 else 0.0
+            ),
+        )
+        for r in rows
     ]
