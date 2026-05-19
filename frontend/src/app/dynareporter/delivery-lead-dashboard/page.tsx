@@ -164,7 +164,14 @@ export default function DeliveryLeadDashboardPage() {
     }
   };
 
-  const sortedDLs: DrDLMember[] = [...(dashboard?.delivery_leads ?? [])].sort((a, b) => {
+  // DR parity: filter duplicates z DR migration (DLs z 0 requests = legacy
+  // DR user accounts which got migrated as separate users but mają zero KPI
+  // bo cała aktywność jest pod main user_id). Pokazujemy tylko DLs z realnymi
+  // danymi w wybranym okresie — admin może te duplikaty cleanup w
+  // /settings/users → Pracownicy.
+  const sortedDLs: DrDLMember[] = [...(dashboard?.delivery_leads ?? [])]
+    .filter((dl) => dl.is_active && dl.requests > 0)
+    .sort((a, b) => {
     const valA = a[sortBy];
     const valB = b[sortBy];
     if (sortBy === "name") {
@@ -269,7 +276,7 @@ export default function DeliveryLeadDashboardPage() {
             />
             <KpiCard
               label={`Osiąga target (${dashboard.hit_ratio_target}%)`}
-              value={`${dashboard.team_stats.achieving_target}/${dashboard.delivery_leads.length}`}
+              value={`${dashboard.team_stats.achieving_target}/${dashboard.team_stats.active_dls_count ?? dashboard.delivery_leads.length}`}
               icon={<BarChart3 className="w-5 h-5 text-purple-600" />}
               accent="bg-purple-50 dark:bg-purple-950/30"
             />

@@ -164,7 +164,15 @@ async def get_dashboard(
         """
     )
     team_row = (await db.execute(sql_team, params)).first()
-    active_dls = [dl for dl in delivery_leads if dl.is_active]
+    # DR parity: liczymy average TYLKO z DLs które mają dane (requests > 0).
+    # Powód: Nexus.users ma duplikaty po DR→Nexus migracji (legacy DR user
+    # + Nexus user → same osoba, 2 rows w users). Te duplikaty mają 0 KPI bo
+    # cała aktywność jest pod jednym user_id. Liczenie 17 DLs zamiast 8 daje
+    # 13% zamiast realnych 30% Hit Ratio. DR Render ma `is_active && department`
+    # filter który eliminuje duplikaty, my filtrujemy po realnej aktywności.
+    active_dls_with_data = [
+        dl for dl in delivery_leads if dl.is_active and dl.requests > 0
+    ]
     team_stats = DLTeamStats(
         total_requests=team_row.total_requests if team_row else 0,
         total_placements=team_row.total_placements if team_row else 0,
@@ -172,16 +180,25 @@ async def get_dashboard(
         total_open_requests=team_row.total_open_requests if team_row else 0,
         total_open_vacancies=team_row.total_open_vacancies if team_row else 0,
         average_hit_ratio=(
-            round(sum(dl.hit_ratio for dl in active_dls) / len(active_dls), 1)
-            if active_dls
+            round(
+                sum(dl.hit_ratio for dl in active_dls_with_data)
+                / len(active_dls_with_data),
+                1,
+            )
+            if active_dls_with_data
             else 0.0
         ),
         average_fill_rate=(
-            round(sum(dl.fill_rate for dl in active_dls) / len(active_dls), 1)
-            if active_dls
+            round(
+                sum(dl.fill_rate for dl in active_dls_with_data)
+                / len(active_dls_with_data),
+                1,
+            )
+            if active_dls_with_data
             else 0.0
         ),
-        achieving_target=sum(1 for dl in delivery_leads if dl.target_achieved),
+        achieving_target=sum(1 for dl in active_dls_with_data if dl.target_achieved),
+        active_dls_count=len(active_dls_with_data),
     )
 
     # Team history (last 12 months)
