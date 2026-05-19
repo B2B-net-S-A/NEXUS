@@ -24,7 +24,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -275,11 +275,17 @@ async def upsert_entry(
     target_user_id = user_id if user_id is not None else current_user.id
     _check_admin_or_self(current_user, target_user_id)
 
+    # `index_where=` — target the PARTIAL unique index
+    # `dr_kpi_body_leasing_unique_non_draft WHERE is_draft = false`. Without
+    # this, asyncpg would fail to resolve the conflict target and the upsert
+    # would behave inconsistently (e.g. insert duplicates for drafts).
+    # Quality check DB-C-1 fix.
     stmt = (
         pg_insert(DrKpiBodyLeasing)
         .values(user_id=target_user_id, **payload.model_dump())
         .on_conflict_do_update(
             index_elements=["user_id", "report_date"],
+            index_where=text("is_draft = false"),
             set_={
                 "week_number": payload.week_number,
                 "verifications": payload.verifications,
@@ -297,8 +303,11 @@ async def upsert_entry(
         .returning(DrKpiBodyLeasing)
     )
     result = await db.execute(stmt)
-    await db.commit()
+    # Read result BEFORE commit — asyncpg/SQLAlchemy closes the cursor on
+    # commit(), and scalar_one() on a closed cursor raises ResourceClosedError.
+    # Quality check CRITICAL #4 fix.
     row = result.scalar_one()
+    await db.commit()
 
     # Lookup user name/email
     target_user = (

@@ -25,9 +25,10 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
-    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -79,11 +80,26 @@ class DrKpiBodyLeasing(Base):
         DateTime, server_default=func.current_timestamp(), nullable=False
     )
 
+    # Partial unique index — `(user_id, report_date)` must be unique ONLY for
+    # NON-draft rows. Drafts can coexist with a finalized row for the same
+    # period (user keeps working on a draft after submitting a previous one,
+    # or workflow re-creates drafts on each save).
+    #
+    # CRITICAL: this is a PARTIAL unique index (postgres syntax `WHERE`),
+    # NOT a full table constraint. The original ORM had a full UniqueConstraint
+    # which (a) didn't exist in the DB → Alembic autogenerate would try to
+    # ADD it and conflict with the partial index, (b) didn't match the actual
+    # semantics. Quality check DB-C-1 fix.
+    #
+    # `dynareporter_kpi_body_leasing.py` upsert MUST pass `index_where=` to
+    # `on_conflict_do_update()` so Postgres can resolve to this partial index.
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "dr_kpi_body_leasing_unique_non_draft",
             "user_id",
             "report_date",
-            name="dr_kpi_body_leasing_user_id_report_date_key",
+            unique=True,
+            postgresql_where=text("is_draft = false"),
         ),
     )
 
