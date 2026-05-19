@@ -27,16 +27,26 @@ class HoFWinnerCreate(BaseModel):
         description="'quarterly' | 'monthly_recommendations' | 'monthly_placements'",
         pattern=r"^(quarterly|monthly_recommendations|monthly_placements)$",
     )
-    period: str = Field(description="np. 'Q1 2026' lub '2026-04'")
-    user_id: int
+    # Period — albo "Q1 2026" / "Q4 2026" (quarterly) albo "2026-04" (monthly).
+    # max_length=20 = DB constraint character varying(20).
+    period: str = Field(
+        description="np. 'Q1 2026' lub '2026-04'",
+        pattern=r"^(Q[1-4] \d{4}|\d{4}-(0[1-9]|1[0-2]))$",
+        max_length=20,
+    )
+    user_id: int = Field(ge=1)
     rank: int = Field(ge=1, le=3)
     points: int = Field(default=0, ge=0)
     metric_value: int = Field(default=0, ge=0)
-    prize: str | None = None
+    # max_length=100 = DB constraint character varying(100).
+    prize: str | None = Field(default=None, max_length=100)
 
 
 def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
-    if current_user.role != UserRole.admin:
+    # `has_role()` uznaje primary + secondary (`users.roles` JSONB) — patrz
+    # PR #207 multi-role schema. Bez tego sekretarka z secondary=admin
+    # nie mogłaby dodać HoF winner.
+    if not current_user.has_role(UserRole.admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Wymagana rola admin"
         )

@@ -91,10 +91,14 @@ class DLUpsert(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    user_id: int
-    report_month: str = Field(description="YYYY-MM")
-    requests: int = 0
-    placements: int = 0
-    vacancies: int = 0
-    open_requests: int = 0
-    open_vacancies: int = 0
+    user_id: int = Field(ge=1)
+    # Format enforced — bez tego "abc" by przeszedł i wywalił PostgreSQL DataError.
+    report_month: str = Field(
+        description="YYYY-MM",
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
+    )
+    requests: int = Field(default=0, ge=0)
+    placements: int = Field(default=0, ge=0)
+    vacancies: int = Field(default=0, ge=0)
+    open_requests: int = Field(default=0, ge=0)
+    open_vacancies: int = Field(default=0, ge=0)

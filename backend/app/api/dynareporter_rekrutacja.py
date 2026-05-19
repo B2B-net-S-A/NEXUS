@@ -559,6 +559,7 @@ async def get_hall_of_fame(
     sql = text(
         """
         SELECT
+            w.id,
             w.competition_type,
             w.period,
             w.rank,
@@ -576,6 +577,7 @@ async def get_hall_of_fame(
     rows = (await db.execute(sql, {"lim": limit})).all()
     return [
         HallOfFameEntry(
+            id=r.id,
             competition_type=r.competition_type,
             period=r.period,
             rank=r.rank,

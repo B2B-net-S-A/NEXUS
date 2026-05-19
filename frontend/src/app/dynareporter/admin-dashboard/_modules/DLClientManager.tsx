@@ -84,6 +84,9 @@ export function DLClientManager() {
       setStatus({ type: "success", msg: "Przypisanie usunięte" });
       setTimeout(() => setStatus(null), 3000);
     },
+    onError: (e: unknown) => {
+      setStatus({ type: "error", msg: `Błąd usuwania: ${String(e)}` });
+    },
   });
 
   const dlList = (teamQuery.data ?? []).filter((m) => m.role === "delivery_lead");
