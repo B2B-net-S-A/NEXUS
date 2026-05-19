@@ -8,6 +8,8 @@ Tylko admin/board_member może oglądać (top-secret financials).
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +24,8 @@ from app.schemas.dr_board_dashboard import (
     BoardMonthlyUpsert,
     BoardPlacementClient,
 )
+
+logger = logging.getLogger("dynareporter.board_dashboard")
 
 router = APIRouter()
 
@@ -227,6 +231,14 @@ async def upsert_monthly(
         )
 
     await db.commit()
+    logger.info(
+        "Board monthly upsert: month=%s revenue=%s placements=%s clients=%d by admin=%s",
+        payload.report_month,
+        payload.revenue,
+        payload.placements,
+        len(valid_clients),
+        current_user.id,
+    )
 
     return BoardMonthlyRow(
         report_month=payload.report_month,

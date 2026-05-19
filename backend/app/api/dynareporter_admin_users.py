@@ -11,6 +11,8 @@ Port `EmployeeManagement.tsx` + `RecruitmentTeamManager.tsx` +
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
+
+logger = logging.getLogger("dynareporter.admin_users")
 
 router = APIRouter()
 
@@ -220,6 +224,12 @@ async def upsert_seniority(
         },
     )
     await db.commit()
+    logger.info(
+        "Seniority upserted: user=%s level=%s by admin=%s",
+        user_id,
+        payload.seniority_level,
+        current_user.id,
+    )
     return {"ok": True}
 
 
@@ -239,6 +249,12 @@ async def toggle_active(
         {"a": payload.is_active, "uid": user_id},
     )
     await db.commit()
+    logger.info(
+        "User is_active toggled: user=%s active=%s by admin=%s",
+        user_id,
+        payload.is_active,
+        current_user.id,
+    )
     return {"ok": True, "is_active": payload.is_active}
 
 
@@ -428,7 +444,16 @@ async def add_dl_client(
     )
     await db.commit()
     row = result.first()
-    return {"id": row.id if row else None, "ok": True}
+    assignment_id = row.id if row else None
+    logger.info(
+        "DL-client assignment added: id=%s dl=%s client=%s is_head=%s by admin=%s",
+        assignment_id,
+        payload.delivery_lead_user_id,
+        payload.client_id,
+        payload.is_head,
+        current_user.id,
+    )
+    return {"id": assignment_id, "ok": True}
 
 
 @router.delete(
@@ -448,3 +473,8 @@ async def delete_dl_client(
         {"id": assignment_id},
     )
     await db.commit()
+    logger.info(
+        "DL-client assignment deleted: id=%s by admin=%s",
+        assignment_id,
+        current_user.id,
+    )

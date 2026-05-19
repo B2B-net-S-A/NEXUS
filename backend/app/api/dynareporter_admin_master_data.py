@@ -8,6 +8,8 @@ Pełne CRUD (add/edit/delete clients/consultants) zaplanowane na kolejną sesję
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
@@ -15,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
+
+logger = logging.getLogger("dynareporter.admin_master_data")
 
 router = APIRouter()
 

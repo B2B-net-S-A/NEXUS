@@ -10,6 +10,8 @@ Filter `role = 'delivery_lead'` + aktywni LUB którzy mieli wpisy w okresie.
 
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime
 from typing import Optional
 
@@ -27,6 +29,8 @@ from app.schemas.dr_delivery_lead_dashboard import (
     DLTrendRow,
     DLUpsert,
 )
+
+logger = logging.getLogger("dynareporter.delivery_lead_dashboard")
 
 router = APIRouter()
 
@@ -345,4 +349,13 @@ async def upsert_dl_entry(
     )
     await db.commit()
     row = result.first()
-    return {"id": row.id if row else None, "ok": True}
+    entry_id = row.id if row else None
+    logger.info(
+        "DL KPI entry upserted: id=%s user=%s month=%s placements=%s by admin=%s",
+        entry_id,
+        payload.user_id,
+        payload.report_month,
+        payload.placements,
+        current_user.id,
+    )
+    return {"id": entry_id, "ok": True}

@@ -6,6 +6,8 @@ CRUD na `dr_competition_winners` table.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -14,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
+
+logger = logging.getLogger("dynareporter.admin_hof")
 
 router = APIRouter()
 
@@ -90,7 +94,17 @@ async def add_winner(
     )
     await db.commit()
     row = result.first()
-    return {"id": row.id if row else None, "ok": True}
+    winner_id = row.id if row else None
+    logger.info(
+        "HoF winner upserted: id=%s competition=%s period=%s rank=%s user=%s by admin=%s",
+        winner_id,
+        payload.competition_type,
+        payload.period,
+        payload.rank,
+        payload.user_id,
+        current_user.id,
+    )
+    return {"id": winner_id, "ok": True}
 
 
 @router.delete(
@@ -110,3 +124,8 @@ async def delete_winner(
         {"id": winner_id},
     )
     await db.commit()
+    logger.info(
+        "HoF winner deleted: id=%s by admin=%s",
+        winner_id,
+        current_user.id,
+    )

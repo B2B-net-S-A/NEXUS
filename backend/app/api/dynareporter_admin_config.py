@@ -9,6 +9,8 @@ Pozwala adminowi czytać i modyfikować klucze w `dr_system_config`:
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -17,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.user import UserRole
+
+logger = logging.getLogger("dynareporter.admin_config")
 
 router = APIRouter()
 
@@ -110,4 +114,16 @@ async def update_scoring(
         {"value": json.dumps(value_json)},
     )
     await db.commit()
+    logger.info(
+        "Champions League scoring updated by admin=%s: placement=%s interview=%s "
+        "recommendation=%s verification=%s prize_1=%s prize_2=%s prize_3=%s",
+        current_user.id,
+        payload.placement,
+        payload.interview,
+        payload.recommendation,
+        payload.verification,
+        payload.prize_1,
+        payload.prize_2,
+        payload.prize_3,
+    )
     return payload

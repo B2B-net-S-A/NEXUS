@@ -10,6 +10,8 @@ Tylko admin role w nexus może oglądać (uprawnienia per-endpoint).
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,8 @@ from app.schemas.dr_admin_dashboard import (
     AuditLogRow,
     UploadHistoryRow,
 )
+
+logger = logging.getLogger("dynareporter.admin_dashboard")
 
 router = APIRouter()
 
