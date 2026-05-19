@@ -25,6 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.schemas.dr_rekrutacja import (
+    AccelerationPath,
+    AccelerationPathEntry,
     AvailableWeek,
     FunnelStage,
     HallOfFameEntry,
@@ -741,3 +743,214 @@ async def get_linkedin_performance(
         )
         for r in rows
     ]
+
+
+# =============================================================================
+# Acceleration Path (Junior→Senior, Senior→Expert progression)
+# =============================================================================
+
+
+def _calc_acceleration_status(
+    placements_6m: int,
+    placements_12m: int,
+    threshold_6m: int,
+    threshold_12m: int,
+    months_elapsed: int,
+    start_date: date,
+) -> tuple[str, str | None]:
+    """Liczy status + next_promotion_date dla Acceleration Path.
+
+    - Awans gdy placements_6m >= threshold_6m LUB placements_12m >= threshold_12m.
+    - "Na ścieżce" gdy progress >= 2/3 wymagań.
+    - "Poniżej tempa" gdy progress < 2/3 wymagań i months_elapsed >= 3.
+    """
+    achieved = (placements_6m >= threshold_6m) or (placements_12m >= threshold_12m)
+    if achieved:
+        # Awans od pierwszego dnia kolejnego miesiąca po osiągnięciu
+        today = date.today()
+        if today.month == 12:
+            promote = today.replace(year=today.year + 1, month=1, day=1)
+        else:
+            promote = today.replace(month=today.month + 1, day=1)
+        return (
+            f"Awans od {promote.strftime('%d.%m.%Y')}",
+            promote.strftime("%Y-%m-%d"),
+        )
+
+    progress_ratio = max(
+        placements_6m / threshold_6m if threshold_6m > 0 else 0,
+        placements_12m / threshold_12m if threshold_12m > 0 else 0,
+    )
+    if progress_ratio >= 0.67 or months_elapsed < 3:
+        return ("Na ścieżce", None)
+    return ("Poniżej tempa", None)
+
+
+@router.get(
+    "/acceleration-path",
+    response_model=AccelerationPath,
+    summary="Acceleration Path — Junior→Senior i Senior→Expert progression",
+)
+async def get_acceleration_path(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> AccelerationPath:
+    """Zwraca 2 listy: Junior→Senior i Senior→Expert z postępem placements.
+
+    Progresja liczona z `dr_placement_details` (placement_date),
+    seniority data z `dr_user_seniority`.
+
+    Progi:
+    - Junior → Senior: 6 placement w 6mc LUB 12 placement w 12mc
+    - Senior → Expert: 12 placement w 6mc LUB 24 placement w 12mc
+    """
+    today = date.today()
+    six_m_ago = today - timedelta(days=180)
+    twelve_m_ago = today - timedelta(days=365)
+
+    # JUNIOR → SENIOR
+    sql_junior = text(
+        """
+        SELECT
+            s.user_id,
+            u.name,
+            u.role::text AS role,
+            s.acceleration_start_date AS start_date,
+            COALESCE(
+                (SELECT count(*) FROM dr_placement_details p
+                 WHERE p.user_id = s.user_id AND p.placement_date >= :six_m),
+                0
+            )::int AS placements_6m,
+            COALESCE(
+                (SELECT count(*) FROM dr_placement_details p
+                 WHERE p.user_id = s.user_id AND p.placement_date >= :twelve_m),
+                0
+            )::int AS placements_12m
+        FROM dr_user_seniority s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.seniority_level = 'junior'
+          AND s.acceleration_start_date IS NOT NULL
+          AND u.is_active = true
+        ORDER BY placements_6m DESC, u.name
+        """
+    )
+    junior_rows = (
+        await db.execute(sql_junior, {"six_m": six_m_ago, "twelve_m": twelve_m_ago})
+    ).all()
+    junior_to_senior: list[AccelerationPathEntry] = []
+    ready_count = 0
+    for r in junior_rows:
+        months_elapsed = (
+            ((today.year - r.start_date.year) * 12) + (today.month - r.start_date.month)
+            if r.start_date
+            else 0
+        )
+        status, promote_date = _calc_acceleration_status(
+            r.placements_6m,
+            r.placements_12m,
+            threshold_6m=6,
+            threshold_12m=12,
+            months_elapsed=months_elapsed,
+            start_date=r.start_date,
+        )
+        if promote_date:
+            ready_count += 1
+        junior_to_senior.append(
+            AccelerationPathEntry(
+                user_id=r.user_id,
+                user_name=r.name,
+                role=r.role,
+                start_date=r.start_date.strftime("%Y-%m-%d") if r.start_date else "",
+                months_elapsed=max(0, months_elapsed),
+                placements_6m=r.placements_6m,
+                placements_12m=r.placements_12m,
+                threshold_6m=6,
+                threshold_12m=12,
+                status=status,
+                next_promotion_date=promote_date,
+            )
+        )
+
+    # SENIOR → EXPERT
+    sql_senior = text(
+        """
+        SELECT
+            s.user_id,
+            u.name,
+            u.role::text AS role,
+            s.senior_since AS start_date,
+            COALESCE(
+                (SELECT count(*) FROM dr_placement_details p
+                 WHERE p.user_id = s.user_id AND p.placement_date >= :six_m),
+                0
+            )::int AS placements_6m,
+            COALESCE(
+                (SELECT count(*) FROM dr_placement_details p
+                 WHERE p.user_id = s.user_id AND p.placement_date >= :twelve_m),
+                0
+            )::int AS placements_12m
+        FROM dr_user_seniority s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.seniority_level = 'senior'
+          AND s.senior_since IS NOT NULL
+          AND u.is_active = true
+        ORDER BY placements_6m DESC, u.name
+        """
+    )
+    senior_rows = (
+        await db.execute(sql_senior, {"six_m": six_m_ago, "twelve_m": twelve_m_ago})
+    ).all()
+    senior_to_expert: list[AccelerationPathEntry] = []
+    for r in senior_rows:
+        months_elapsed = (
+            ((today.year - r.start_date.year) * 12) + (today.month - r.start_date.month)
+            if r.start_date
+            else 0
+        )
+        status, promote_date = _calc_acceleration_status(
+            r.placements_6m,
+            r.placements_12m,
+            threshold_6m=12,
+            threshold_12m=24,
+            months_elapsed=months_elapsed,
+            start_date=r.start_date,
+        )
+        if promote_date:
+            ready_count += 1
+        senior_to_expert.append(
+            AccelerationPathEntry(
+                user_id=r.user_id,
+                user_name=r.name,
+                role=r.role,
+                start_date=r.start_date.strftime("%Y-%m-%d") if r.start_date else "",
+                months_elapsed=max(0, months_elapsed),
+                placements_6m=r.placements_6m,
+                placements_12m=r.placements_12m,
+                threshold_6m=12,
+                threshold_12m=24,
+                status=status,
+                next_promotion_date=promote_date,
+            )
+        )
+
+    # Counts
+    counts_sql = text(
+        """
+        SELECT seniority_level, count(*)::int AS cnt
+        FROM dr_user_seniority s
+        JOIN users u ON u.id = s.user_id
+        WHERE u.is_active = true
+        GROUP BY seniority_level
+        """
+    )
+    cnt_rows = (await db.execute(counts_sql)).all()
+    counts_map = {r.seniority_level: r.cnt for r in cnt_rows}
+
+    return AccelerationPath(
+        junior_to_senior=junior_to_senior,
+        senior_to_expert=senior_to_expert,
+        junior_count=counts_map.get("junior", 0),
+        senior_count=counts_map.get("senior", 0),
+        expert_count=counts_map.get("expert", 0),
+        ready_for_promotion=ready_count,
+    )

@@ -3791,6 +3791,34 @@ export const dynareporterRekrutacjaApi = {
         { params },
       )
       .then((r) => r.data),
+
+  accelerationPath: () =>
+    api
+      .get<DrAccelerationPath>("/api/dynareporter/rekrutacja/acceleration-path")
+      .then((r) => r.data),
+};
+
+export type DrAccelerationPathEntry = {
+  user_id: number;
+  user_name: string;
+  role: string;
+  start_date: string;
+  months_elapsed: number;
+  placements_6m: number;
+  placements_12m: number;
+  threshold_6m: number;
+  threshold_12m: number;
+  status: string;
+  next_promotion_date: string | null;
+};
+
+export type DrAccelerationPath = {
+  junior_to_senior: DrAccelerationPathEntry[];
+  senior_to_expert: DrAccelerationPathEntry[];
+  junior_count: number;
+  senior_count: number;
+  expert_count: number;
+  ready_for_promotion: number;
 };
 
 export const dynareporterBodyLeasingApi = {
