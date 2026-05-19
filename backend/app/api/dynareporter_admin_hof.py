@@ -86,6 +86,7 @@ async def add_winner(
 @router.delete(
     "/winner/{winner_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # FastAPI 0.115 strict — 204 must not have body
     summary="Usuń wpis Hall of Fame (admin only)",
 )
 async def delete_winner(
