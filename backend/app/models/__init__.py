@@ -16,6 +16,7 @@ from app.models.candidate_risk import (
     CandidateRiskProfile,
     RiskLevel,
 )
+from app.models.candidate_pin import CandidatePin
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.note import Note
 from app.models.contract import Contract, ContractTerminationReason
@@ -280,6 +281,7 @@ __all__ = [
     "CandidateChatMessageReaction",
     "EngagementDeclarationToken",
     "CandidateRiskProfile",
+    "CandidatePin",
     "RiskLevel",
     "CandidateOfferResponse",
     "NoteMention",

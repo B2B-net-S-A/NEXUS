@@ -50,6 +50,7 @@ import CallsTimeline from"@/components/calls/CallsTimeline";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
+import { PinButton } from"@/components/v2/PinButton";
 import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
@@ -622,6 +623,7 @@ export function CandidateDetailV2({
  candidateName={`${candidate.name} ${candidate.lastname}`}
  />
  )}
+ {candidate && <PinButton candidateId={candidate.id} />}
  </div>
 
  {/* Key stats */}

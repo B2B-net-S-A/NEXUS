@@ -102,6 +102,7 @@ import {
  getExperienceLabel,
  getSkillList,
 } from"@/components/v2/pages/candidate-list-helpers";
+import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar";
 import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
@@ -1582,6 +1583,20 @@ export function CandidatesListV2() {
  </button>
  </div>
  </div>
+
+ {/* Pinned candidates bar — short-list workflow (Phase 4). Hidden when
+ user has zero pins so it doesn't waste space for casual browsing. */}
+ <PinnedCandidatesBar
+ onOpenCandidate={(id) => {
+ setDetailId(id);
+ const idx = items.findIndex((c) => c.id === id);
+ if (idx >= 0) {
+ setDetailPosition((page - 1) * pageSize + idx + 1);
+ } else {
+ setDetailPosition(0);
+ }
+ }}
+ />
 
  {/* Boolean-search panel — inline (Phase 3, Traffit parity). Toggled by
  the "Zaawansowane" button above; auto-opens when URL carries q_all/q_any/q_none
