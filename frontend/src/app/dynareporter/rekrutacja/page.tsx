@@ -21,6 +21,7 @@ import {
   dynareporterRekrutacjaApi,
   type DrRekrutacjaTeamMember,
 } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ const ROLE_LABEL_PL: Record<string, string> = {
 type ViewMode = "week" | "month" | "year";
 
 export default function RekrutacjaPage() {
+  const { user, hydrated } = useAuthStore();
   const today = new Date();
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
@@ -81,6 +83,7 @@ export default function RekrutacjaPage() {
     return { period: "year" as const, date: `${selectedYear}-01-01` };
   }, [viewMode, selectedMonth, selectedYear, selectedWeekNumber]);
 
+  const queryEnabled = hydrated && !!user;
   const {
     data: dashboard,
     isLoading,
@@ -90,12 +93,14 @@ export default function RekrutacjaPage() {
     queryKey: ["dr-rekrutacja-dashboard", dashboardParams],
     queryFn: () => dynareporterRekrutacjaApi.dashboard(dashboardParams),
     staleTime: 30_000,
+    enabled: queryEnabled,
   });
 
   const { data: availableWeeks } = useQuery({
     queryKey: ["dr-rekrutacja-weeks"],
     queryFn: () => dynareporterRekrutacjaApi.availableWeeks(),
     staleTime: 5 * 60_000,
+    enabled: queryEnabled,
   });
 
   return (
