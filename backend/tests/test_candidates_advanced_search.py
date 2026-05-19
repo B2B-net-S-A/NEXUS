@@ -240,3 +240,197 @@ async def test_tags_field_is_searched(
         assert b not in result_ids
     finally:
         await _cleanup([a, b])
+
+
+@pytest.mark.asyncio
+async def test_education_jsonb_is_searched(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Phrase appearing only in education JSONB matches the candidate."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        a = Candidate(
+            name="Edu",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"edu-{uuid.uuid4().hex[:8]}@example.com",
+            raw_cv_text="unrelated cv body",
+            education=[{"school": "MIT", "degree": "PhD Bioinformatics"}],
+        )
+        b = Candidate(
+            name="Edu2",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"edu-{uuid.uuid4().hex[:8]}@example.com",
+            raw_cv_text="unrelated cv body",
+            education=[{"school": "Harvard", "degree": "MBA"}],
+        )
+        db.add_all([a, b])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(b)
+        a_id, b_id = a.id, b.id
+
+    try:
+        r = await app_client.get(
+            "/api/candidates?q_all=Bioinformatics&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        result_ids = {item["id"] for item in r.json()["items"]}
+        assert a_id in result_ids
+        assert b_id not in result_ids
+    finally:
+        async with AsyncSessionLocal() as db:
+            for cid in (a_id, b_id):
+                await db.execute(delete(Candidate).where(Candidate.id == cid))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_notes_content_is_searched(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Phrase appearing only in a `notes` row links back to the candidate via EXISTS."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.note import Note
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        a = Candidate(
+            name="Note",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"note-{uuid.uuid4().hex[:8]}@example.com",
+            raw_cv_text="cv has no mention of the magic word",
+        )
+        b = Candidate(
+            name="Note2",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"note-{uuid.uuid4().hex[:8]}@example.com",
+            raw_cv_text="cv has no mention either",
+        )
+        db.add_all([a, b])
+        await db.commit()
+        await db.refresh(a)
+        await db.refresh(b)
+        a_id, b_id = a.id, b.id
+
+        # Only `a` has a note mentioning "Quasar".
+        note = Note(
+            candidate_id=a_id,
+            content="recruiter said Quasar framework was promising",
+        )
+        db.add(note)
+        await db.commit()
+        note_id = note.id
+
+    try:
+        r = await app_client.get(
+            "/api/candidates?q_all=Quasar&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        result_ids = {item["id"] for item in r.json()["items"]}
+        assert a_id in result_ids
+        assert b_id not in result_ids
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Note).where(Note.id == note_id))
+            for cid in (a_id, b_id):
+                await db.execute(delete(Candidate).where(Candidate.id == cid))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_simple_q_matches_same_scope_as_q_all(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Regression: ?q=Python and ?q_all=Python must return overlapping sets.
+
+    Pre-unification, simple `q` searched only name/lastname/email + raw_cv_text,
+    while `q_all` covered tags/skills/experience too. This caused recruiters
+    to see different counts depending on which mode they used. After the
+    follow-up unification both should hit every searchable field — including
+    tags, the field we use as the canary here.
+    """
+    a = await _seed_candidate(
+        raw_cv="unrelated cv text", tags=["polyglot-language-AlphaTagX"]
+    )
+    try:
+        r_simple = await app_client.get(
+            "/api/candidates?q=AlphaTagX&page_size=100",
+            headers=app_auth_headers,
+        )
+        r_advanced = await app_client.get(
+            "/api/candidates?q_all=AlphaTagX&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r_simple.status_code == 200, r_simple.text
+        assert r_advanced.status_code == 200, r_advanced.text
+        ids_simple = {it["id"] for it in r_simple.json()["items"]}
+        ids_advanced = {it["id"] for it in r_advanced.json()["items"]}
+        # Before unification only `q_all` would find this row; now both must.
+        assert a in ids_simple, "simple q should match tag content"
+        assert a in ids_advanced
+    finally:
+        await _cleanup([a])
+
+
+@pytest.mark.asyncio
+async def test_sort_relevance_ranks_close_match_first(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """sort=relevance with `?q=` should put closer name matches first.
+
+    We seed two candidates: one whose lastname is exactly the query phrase
+    (high trigram similarity) and one whose CV mentions the phrase but
+    whose name is unrelated (low trigram similarity on identity haystack).
+    The exact-name match must appear first.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from sqlalchemy import delete
+
+    suffix = uuid.uuid4().hex[:8]
+    unique_token = f"RelevanceTokenXyz{suffix}"
+    async with AsyncSessionLocal() as db:
+        # `close_match` — name contains the token (high trigram identity score)
+        close_match = Candidate(
+            name=unique_token,
+            lastname="Smith",
+            email=f"close-{suffix}@example.com",
+            raw_cv_text="generic cv body unrelated to the token",
+        )
+        # `cv_only` — name is plain, only CV mentions token (low identity score)
+        cv_only = Candidate(
+            name="Adam",
+            lastname="Nowak",
+            email=f"farmatch-{suffix}@example.com",
+            raw_cv_text=f"developer with experience in {unique_token} framework",
+        )
+        db.add_all([close_match, cv_only])
+        await db.commit()
+        await db.refresh(close_match)
+        await db.refresh(cv_only)
+        close_id, far_id = close_match.id, cv_only.id
+
+    try:
+        r = await app_client.get(
+            f"/api/candidates?q={unique_token}&sort=relevance&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        positions = {it["id"]: idx for idx, it in enumerate(items)}
+        assert close_id in positions, "close-match candidate missing from results"
+        assert far_id in positions, "cv-only candidate missing from results"
+        assert positions[close_id] < positions[far_id], (
+            "name-match candidate should rank above cv-only on sort=relevance"
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            for cid in (close_id, far_id):
+                await db.execute(delete(Candidate).where(Candidate.id == cid))
+            await db.commit()

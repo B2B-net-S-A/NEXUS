@@ -104,6 +104,7 @@ import {
  getSkillList,
 } from"@/components/v2/pages/candidate-list-helpers";
 import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar";
+import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
@@ -125,6 +126,7 @@ const SORT_OPTIONS = [
  { value: "newest", label: "Najnowsi" },
  { value: "oldest", label: "Najstarsi" },
  { value: "name", label: "Nazwisko (A-Z)" },
+ { value: "relevance", label: "Trafność" },
 ];
 
 function parseEnumCsv<T extends string>(
@@ -162,6 +164,7 @@ interface Candidate {
  created_at?: string;
  created_by_user?: { id: number; name: string } | null;
  match_stats?: { open_count: number; total_open: number; top_score: number };
+ match_snippet?: string | null;
  talent_pools?: Array<{ id: number; name: string }>;
  linkedin_employment_changed_at?: string | null;
  open_to_side_projects?: boolean;
@@ -240,6 +243,7 @@ interface CandidateCellProps {
  initials: string;
  density: "compact" |"cozy";
  stats: Candidate["match_stats"];
+ searchTerms: string[];
  onOpenDetail: () => void;
 }
 
@@ -253,10 +257,12 @@ function CandidateCell({
  initials,
  density,
  stats,
+ searchTerms,
  onOpenDetail,
 }: CandidateCellProps) {
  switch (columnId) {
  case "candidate": {
+ const snippet = candidate.match_snippet;
  return (
  <button
  type="button"
@@ -276,6 +282,13 @@ function CandidateCell({
  {candidate.email ?? candidate.location ??"—"}
  </span>
  </div>
+ {snippet && searchTerms.length > 0 && (
+ <MatchSnippet
+ snippet={snippet}
+ terms={searchTerms}
+ className="block truncate mt-0.5"
+ />
+ )}
  </div>
  </button>
  );
@@ -492,6 +505,10 @@ export function CandidatesListV2() {
  ...visibleColumns.map((c) => c.width),
  "60px",
  ].join(" ");
+ // Aggregate the user's positive search phrases (simple q + advanced
+ // q_all + q_any). MatchSnippet uses these to <mark>-highlight matched
+ // substrings inside each row's snippet. Skipped: q_none — exclusion
+ // phrases shouldn't be highlighted as matches.
 
  // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
  // the baseline that applies to every role without a specific override.
@@ -741,6 +758,23 @@ export function CandidatesListV2() {
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+ // Positive search phrases used for <mark> highlighting in row snippets.
+ // We memo on the raw arrays (not deps stringified) — referential equality
+ // is enough since each setter creates a new array. q_none is omitted by
+ // design: exclusion phrases shouldn't render as matches.
+ const searchTerms = useMemo(() => {
+ const terms: string[] = [];
+ const simple = search.trim();
+ if (simple) terms.push(simple);
+ for (const list of [qAll, qAny]) {
+ for (const t of list) {
+ const v = t.trim();
+ if (v) terms.push(v);
+ }
+ }
+ return terms;
+ }, [search, qAll, qAny]);
 
  // Virtualization ---------------------------------------------
  const rowHeight = density === "compact" ? 52 : 72;
@@ -1800,6 +1834,7 @@ export function CandidatesListV2() {
  initials={initials}
  density={density}
  stats={stats}
+ searchTerms={searchTerms}
  onOpenDetail={openDetail}
  />
  ))}

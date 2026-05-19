@@ -482,12 +482,14 @@ async def list_candidates(
     ),
     sort: str = Query(
         "newest",
-        pattern="^(newest|oldest|name)$",
+        pattern="^(newest|oldest|name|relevance)$",
         description=(
             "Sort order. 'newest' = created_at DESC; 'oldest' = created_at ASC; "
-            "'name' = name ASC, lastname ASC. All include `id` tie-breaker for "
-            "100% stable pagination across requests (required for next/prev "
-            "candidate navigation in the UI)."
+            "'name' = name ASC, lastname ASC; 'relevance' = trigram similarity "
+            "between query phrase and name+lastname+email DESC (auto-falls "
+            "back to 'newest' when no `q` / `q_all` / `q_any` is provided). "
+            "All include `id` tie-breaker for 100% stable pagination across "
+            "requests (required for next/prev candidate navigation in the UI)."
         ),
     ),
 ):
@@ -532,11 +534,23 @@ async def list_candidates(
         query = query.where(or_(*clauses))
     if location:
         query = query.where(Candidate.location.ilike(f"%{location}%"))
+    # Simple search delegates to the same per-phrase predicate as the advanced
+    # ALL/ANY/NONE buckets (see `app.services.advanced_candidate_search`). This
+    # ensures `?q=Python` and `?q_all=Python` return the same candidates —
+    # before this unification simple search was limited to name/lastname/email
+    # + raw_cv_text (+ trigram on identity), causing a confusing UX where the
+    # same phrase produced different result counts depending on which mode the
+    # user happened to use. We additionally OR-in the trigram similarity test
+    # on `name+lastname+email` so typos/case mismatches still match identity
+    # via the GIN index.
+    from app.services.advanced_candidate_search import (
+        build_advanced_filter,
+        single_phrase_filter,
+    )
+
     if q:
         q_stripped = q.strip()
-        # Phase B2: for longer queries use pg_trgm similarity over name+lastname+email
-        # + raw_cv_text; fall back to ilike for 1-2 char queries where trigram
-        # similarity is noisy.
+        phrase_clause = single_phrase_filter(q_stripped)
         if len(q_stripped) >= 3:
             identity_expr = (
                 func.coalesce(Candidate.name, "")
@@ -545,31 +559,15 @@ async def list_candidates(
                 + " "
                 + func.coalesce(Candidate.email, "")
             )
-            like_pat = f"%{q_stripped}%"
-            # `func.similarity(a, q) > 0.2` uses the GIN trigram index on the
-            # expression; robust against typos and case mismatches. Also keep
-            # raw ilike on raw_cv_text (index-backed via ix_candidates_cv_trgm).
-            query = query.where(
-                or_(
-                    func.similarity(identity_expr, q_stripped) > 0.2,
-                    Candidate.raw_cv_text.ilike(like_pat),
-                    Candidate.name.ilike(like_pat),
-                    Candidate.lastname.ilike(like_pat),
-                    Candidate.email.ilike(like_pat),
-                )
-            )
-        else:
-            like_pat = f"%{q_stripped}%"
-            query = query.where(
-                or_(
-                    Candidate.name.ilike(like_pat),
-                    Candidate.lastname.ilike(like_pat),
-                    Candidate.email.ilike(like_pat),
-                )
-            )
-    # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
-    from app.services.advanced_candidate_search import build_advanced_filter
+            trigram_clause = func.similarity(identity_expr, q_stripped) > 0.2
+            if phrase_clause is not None:
+                query = query.where(or_(phrase_clause, trigram_clause))
+            else:
+                query = query.where(trigram_clause)
+        elif phrase_clause is not None:
+            query = query.where(phrase_clause)
 
+    # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
     _advanced = build_advanced_filter(q_all, q_any, q_none)
     if _advanced is not None:
         query = query.where(_advanced)
@@ -673,6 +671,45 @@ async def list_candidates(
         query = query.order_by(
             Candidate.name.asc(), Candidate.lastname.asc(), Candidate.id.asc()
         )
+    elif sort == "relevance":
+        # Relevance ranking: trigram similarity between the user's phrase
+        # and `name + lastname + email`. Higher score = better identity
+        # match. When no search phrase exists (recruiter sorted by
+        # relevance with empty query), fall back to newest-first so the
+        # list is still useful and not arbitrarily ordered.
+        relevance_terms: list[str] = []
+        if q:
+            relevance_terms.append(q.strip())
+        for bucket in (q_all, q_any):
+            if bucket:
+                relevance_terms.extend(s.strip() for s in bucket if s and s.strip())
+
+        if relevance_terms:
+            # Concatenate all candidate identity fields into a single haystack
+            # the trigram index can score against. Joining with " " keeps
+            # word boundaries intact so "Jan Kowalski" ranks above
+            # "Janowski Smith" for the query "Jan Kowalski".
+            haystack = (
+                func.coalesce(Candidate.name, "")
+                + " "
+                + func.coalesce(Candidate.lastname, "")
+                + " "
+                + func.coalesce(Candidate.email, "")
+            )
+            # SUM trigram similarity across all phrases — multi-phrase
+            # queries reward candidates matching more of the buckets.
+            score = sum(
+                func.similarity(haystack, term) for term in relevance_terms
+            )
+            query = query.order_by(
+                score.desc(), Candidate.created_at.desc(), Candidate.id.desc()
+            )
+        else:
+            # Defensive fallback — UI shouldn't request relevance without
+            # a phrase, but we still ship a stable order if it does.
+            query = query.order_by(
+                Candidate.created_at.desc(), Candidate.id.desc()
+            )
     else:  # "newest" (default)
         query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
@@ -719,6 +756,28 @@ async def list_candidates(
             for cand in items:
                 match_stats_by_candidate[cand.id] = zero
 
+    # Snippet extraction (Phase: Traffit parity follow-up). Only computed
+    # when the caller provided a positive search phrase — saves a notes
+    # query for the common "browse all candidates" flow. Notes are batched
+    # in a single IN-query so we don't N+1 across the page.
+    from app.services.candidate_snippets import (
+        extract_search_terms,
+        extract_snippet,
+    )
+
+    search_terms = extract_search_terms(q, q_all, q_any)
+    notes_by_candidate: dict[int, list[str]] = {}
+    if search_terms and items:
+        from app.models.note import Note
+
+        notes_stmt = select(Note.candidate_id, Note.content).where(
+            Note.candidate_id.in_([c.id for c in items])
+        )
+        for cid, content in (await db.execute(notes_stmt)).all():
+            if cid is None or not content:
+                continue
+            notes_by_candidate.setdefault(cid, []).append(content)
+
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
@@ -728,6 +787,14 @@ async def list_candidates(
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
+        if search_terms:
+            snippet = extract_snippet(
+                cand,
+                search_terms,
+                notes_contents=notes_by_candidate.get(cand.id),
+            )
+            if snippet:
+                payload = payload.model_copy(update={"match_snippet": snippet})
         response_items.append(payload)
 
     return CandidateList(

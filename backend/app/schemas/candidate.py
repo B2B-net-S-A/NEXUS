@@ -358,6 +358,12 @@ class CandidateResponse(BaseModel):
     updated_at: datetime
     # Phase A1: populated only when list endpoint is called with include_match_stats=true
     match_stats: Optional[MatchStats] = None
+    # Phase: Snippet highlights (Traffit parity follow-up). Populated when
+    # the list endpoint is called with a search phrase (`q`, `q_all`, or
+    # `q_any`); otherwise None. The string already includes the field-of-
+    # origin prefix ("CV:", "Notatka:", …) — frontend renders it verbatim
+    # and applies <mark> highlighting client-side.
+    match_snippet: Optional[str] = None
     # Talent pools the candidate belongs to. Populated when the list endpoint
     # eager-loads `pool_memberships → pool` (see `_candidate_list_options`).
     talent_pools: list[TalentPoolBrief] = Field(default_factory=list)
