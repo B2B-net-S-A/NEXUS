@@ -458,7 +458,7 @@ export default function RekrutacjaPage() {
                   })()}
                 </div>
 
-                {/* Prizes row */}
+                {/* Prizes row — kwoty z system_config (admin editable). */}
                 <div className="grid grid-cols-3 gap-3 mt-4">
                   <div className="bg-slate-800/60 border border-slate-400/30 rounded-lg p-3 text-center">
                     <div className="flex items-center justify-center gap-1 mb-1">
@@ -467,7 +467,9 @@ export default function RekrutacjaPage() {
                         2. miejsce
                       </span>
                     </div>
-                    <div className="text-lg font-bold text-slate-100">3 000 PLN</div>
+                    <div className="text-lg font-bold text-slate-100">
+                      {(dashboard.scoring.prize_2 ?? 3000).toLocaleString("pl-PL")} PLN
+                    </div>
                   </div>
                   <div className="bg-amber-900/50 border border-amber-400/40 rounded-lg p-3 text-center">
                     <div className="flex items-center justify-center gap-1 mb-1">
@@ -476,7 +478,9 @@ export default function RekrutacjaPage() {
                         1. miejsce
                       </span>
                     </div>
-                    <div className="text-lg font-bold text-amber-100">5 000 PLN</div>
+                    <div className="text-lg font-bold text-amber-100">
+                      {(dashboard.scoring.prize_1 ?? 5000).toLocaleString("pl-PL")} PLN
+                    </div>
                   </div>
                   <div className="bg-orange-900/40 border border-orange-500/30 rounded-lg p-3 text-center">
                     <div className="flex items-center justify-center gap-1 mb-1">
@@ -485,7 +489,9 @@ export default function RekrutacjaPage() {
                         3. miejsce
                       </span>
                     </div>
-                    <div className="text-lg font-bold text-orange-100">2 000 PLN</div>
+                    <div className="text-lg font-bold text-orange-100">
+                      {(dashboard.scoring.prize_3 ?? 2000).toLocaleString("pl-PL")} PLN
+                    </div>
                   </div>
                 </div>
 
