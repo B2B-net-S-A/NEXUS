@@ -698,18 +698,14 @@ async def list_candidates(
             )
             # SUM trigram similarity across all phrases — multi-phrase
             # queries reward candidates matching more of the buckets.
-            score = sum(
-                func.similarity(haystack, term) for term in relevance_terms
-            )
+            score = sum(func.similarity(haystack, term) for term in relevance_terms)
             query = query.order_by(
                 score.desc(), Candidate.created_at.desc(), Candidate.id.desc()
             )
         else:
             # Defensive fallback — UI shouldn't request relevance without
             # a phrase, but we still ship a stable order if it does.
-            query = query.order_by(
-                Candidate.created_at.desc(), Candidate.id.desc()
-            )
+            query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
     else:  # "newest" (default)
         query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 

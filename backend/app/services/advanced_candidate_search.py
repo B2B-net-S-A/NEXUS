@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, and_, cast, exists, func, not_, or_, select
+from sqlalchemy import String, and_, cast, exists, func, not_, or_
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
