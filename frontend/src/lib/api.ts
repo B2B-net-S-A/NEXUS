@@ -3610,6 +3610,9 @@ export type DrRekrutacjaDashboard = {
     prize_1: number;
     prize_2: number;
     prize_3: number;
+    // Business thresholds — admin editable.
+    power_calling_min_per_day?: number;
+    linkedin_cv_per_md_target?: number;
   };
 };
 
@@ -3830,6 +3833,9 @@ export type DrScoringConfig = {
   prize_1: number;
   prize_2: number;
   prize_3: number;
+  // Business thresholds — admin editable.
+  power_calling_min_per_day: number;
+  linkedin_cv_per_md_target: number;
 };
 
 export const dynareporterAdminConfigApi = {

@@ -71,12 +71,13 @@ const MONTH_NAMES_PL = [
   "Grudzień",
 ];
 
-// Business thresholds dla Power Calling + LinkedIn Performance.
-// Wartości pochodzą z DR `system_config` ale obecnie nie są w response —
-// gdy business zmieni progi, modyfikujemy TUTAJ + ewentualnie endpoint
-// wraca rzeczywiste wartości. Quality check LOW (single source of truth).
-const POWER_CALLING_MIN_PER_DAY = 3;
-const LINKEDIN_CV_PER_MD_TARGET = 5;
+// Business thresholds dla Power Calling + LinkedIn Performance — DEFAULTS.
+// Aktualne wartości pochodzą z `dashboard.scoring.power_calling_min_per_day` +
+// `dashboard.scoring.linkedin_cv_per_md_target` (admin editable w ScoringConfig
+// → Admin → Ustawienia). Te defaults są używane gdy dashboard jeszcze nie
+// załadowany (1st render fallback).
+const POWER_CALLING_MIN_PER_DAY_DEFAULT = 3;
+const LINKEDIN_CV_PER_MD_TARGET_DEFAULT = 5;
 
 const ROLE_LABEL_PL: Record<string, string> = {
   sourcer: "Sourcer",
@@ -582,8 +583,10 @@ export default function RekrutacjaPage() {
                   Power Calling — {powerCalling[0]?.week_label ?? ""}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Wymóg: min. {POWER_CALLING_MIN_PER_DAY} weryfikacji/dzień
-                  roboczy. Sortowane od najgorszych.
+                  Wymóg: min.{" "}
+                  {dashboard.scoring.power_calling_min_per_day ??
+                    POWER_CALLING_MIN_PER_DAY_DEFAULT}{" "}
+                  weryfikacji/dzień roboczy. Sortowane od najgorszych.
                 </p>
               </CardHeader>
               <CardContent>
@@ -600,9 +603,11 @@ export default function RekrutacjaPage() {
                     </TableHeader>
                     <TableBody>
                       {powerCalling.map((pc) => {
+                        const threshold =
+                          dashboard.scoring.power_calling_min_per_day ??
+                          POWER_CALLING_MIN_PER_DAY_DEFAULT;
                         const isUnderTarget =
-                          pc.per_day < POWER_CALLING_MIN_PER_DAY &&
-                          pc.days_worked > 0;
+                          pc.per_day < threshold && pc.days_worked > 0;
                         return (
                           <TableRow key={pc.user_id}>
                             <TableCell className="font-medium">{pc.user_name}</TableCell>
@@ -639,8 +644,10 @@ export default function RekrutacjaPage() {
                   LinkedIn Performance (TAC) — {dashboard.period_label}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Target: {LINKEDIN_CV_PER_MD_TARGET} CV/MD. Response Rate =
-                  responses / messages sent × 100.
+                  Target:{" "}
+                  {dashboard.scoring.linkedin_cv_per_md_target ??
+                    LINKEDIN_CV_PER_MD_TARGET_DEFAULT}{" "}
+                  CV/MD. Response Rate = responses / messages sent × 100.
                 </p>
               </CardHeader>
               <CardContent>
@@ -666,7 +673,9 @@ export default function RekrutacjaPage() {
                           <TableCell className="text-right tabular-nums">
                             <Badge
                               variant={
-                                l.cv_per_md >= LINKEDIN_CV_PER_MD_TARGET
+                                l.cv_per_md >=
+                                (dashboard.scoring.linkedin_cv_per_md_target ??
+                                  LINKEDIN_CV_PER_MD_TARGET_DEFAULT)
                                   ? "success"
                                   : "neutral"
                               }

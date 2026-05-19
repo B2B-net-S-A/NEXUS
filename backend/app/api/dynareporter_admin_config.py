@@ -26,10 +26,12 @@ router = APIRouter()
 
 
 class ChampionsLeagueScoring(BaseModel):
-    """Punktacja Ligi Mistrzów + prizes (admin editable).
+    """Punktacja Ligi Mistrzów + prizes + thresholds (admin editable).
 
     Punkty: placement / interview / recommendation / verification.
     Prizes: per-rank PLN amounts displayed na podium (1st = `prize_1`, etc).
+    Thresholds: power_calling_min_per_day + linkedin_cv_per_md_target —
+    konfigurowalne business thresholds (DR `system_config`).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -43,6 +45,21 @@ class ChampionsLeagueScoring(BaseModel):
     prize_1: int = Field(default=5000, ge=0, description="Nagroda za 1. miejsce (PLN)")
     prize_2: int = Field(default=3000, ge=0, description="Nagroda za 2. miejsce (PLN)")
     prize_3: int = Field(default=2000, ge=0, description="Nagroda za 3. miejsce (PLN)")
+    # Business thresholds — hardcoded w Rekrutacja page.tsx (Finding 11),
+    # teraz konfigurowalne. DR ma osobny `/config/power-calling-threshold` ale
+    # u nas pakujemy razem ze scoringiem żeby uniknąć kolejnego endpointu.
+    power_calling_min_per_day: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description="Min. weryfikacji/dzień roboczy dla Power Calling badge",
+    )
+    linkedin_cv_per_md_target: int = Field(
+        default=5,
+        ge=0,
+        le=20,
+        description="Target CV/MD dla LinkedIn Performance badge",
+    )
 
 
 def _require_admin(current_user) -> None:  # type: ignore[no-untyped-def]
@@ -116,7 +133,8 @@ async def update_scoring(
     await db.commit()
     logger.info(
         "Champions League scoring updated by admin=%s: placement=%s interview=%s "
-        "recommendation=%s verification=%s prize_1=%s prize_2=%s prize_3=%s",
+        "recommendation=%s verification=%s prize_1=%s prize_2=%s prize_3=%s "
+        "pc_threshold=%s linkedin_target=%s",
         current_user.id,
         payload.placement,
         payload.interview,
@@ -125,5 +143,7 @@ async def update_scoring(
         payload.prize_1,
         payload.prize_2,
         payload.prize_3,
+        payload.power_calling_min_per_day,
+        payload.linkedin_cv_per_md_target,
     )
     return payload

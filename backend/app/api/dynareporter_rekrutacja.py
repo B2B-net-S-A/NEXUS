@@ -58,6 +58,9 @@ DEFAULT_SCORING = {
     "prize_1": 5000,
     "prize_2": 3000,
     "prize_3": 2000,
+    # Business thresholds — admin editable via /admin-config/scoring.
+    "power_calling_min_per_day": 3,
+    "linkedin_cv_per_md_target": 5,
 }
 
 # Role które liczą się w widoku zespołu rekrutacji.
@@ -111,6 +114,18 @@ async def _load_scoring(db: AsyncSession) -> dict[str, int]:
                 "prize_1": int(raw.get("prize_1", DEFAULT_SCORING["prize_1"])),
                 "prize_2": int(raw.get("prize_2", DEFAULT_SCORING["prize_2"])),
                 "prize_3": int(raw.get("prize_3", DEFAULT_SCORING["prize_3"])),
+                "power_calling_min_per_day": int(
+                    raw.get(
+                        "power_calling_min_per_day",
+                        DEFAULT_SCORING["power_calling_min_per_day"],
+                    )
+                ),
+                "linkedin_cv_per_md_target": int(
+                    raw.get(
+                        "linkedin_cv_per_md_target",
+                        DEFAULT_SCORING["linkedin_cv_per_md_target"],
+                    )
+                ),
             }
     except Exception:
         # Jeśli klucza nie ma lub błąd parsowania — fallback do statycznego.
