@@ -3500,6 +3500,12 @@ export type DrRekrutacjaDashboard = {
   funnel: DrRekrutacjaFunnelStage[];
   users: DrRekrutacjaTeamMember[];
   league_ranking: DrRekrutacjaTeamMember[];
+  // Liga Mistrzów aggregowana po kwartale (Apr-Jun for Q2 2026) niezależnie
+  // od filtru `period`. DR pokazuje quarterly podium.
+  league_ranking_quarterly: DrRekrutacjaTeamMember[];
+  quarter_label: string;  // np. "Q2 2026"
+  quarter_start: string | null;
+  quarter_end: string | null;
   scoring: {
     placement: number;
     interview: number;
