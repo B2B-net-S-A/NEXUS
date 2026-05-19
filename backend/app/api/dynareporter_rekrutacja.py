@@ -426,7 +426,9 @@ async def get_dashboard(
     # DR pokazuje Q-level podium (3 miesiące zagregowane), niezależnie od
     # filtru `period` (week/month/year) — używamy bieżącego kwartału kalendarz.
     # LEAGUE_ROLES dołącza delivery_lead (Marlena/Diana — awansowani z tac).
-    today = date.today()
+    # NOTE: `date` jako nazwa parametru query shadow'uje `from datetime import date`,
+    # więc `date.today()` tu by zwracał AttributeError na stringu. Używamy `datetime.now().date()`.
+    today = datetime.now().date()
     q_start, q_end, quarter_label = _compute_quarter_bounds(today)
     q_rows = (
         await db.execute(
