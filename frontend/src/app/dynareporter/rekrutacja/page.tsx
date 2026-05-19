@@ -14,7 +14,7 @@
  * Uprawnienia: każdy zalogowany user (widok team-wide).
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Target, Calendar, RefreshCw, Trophy, Award } from "lucide-react";
 import {
@@ -62,11 +62,23 @@ type ViewMode = "week" | "month" | "year";
 
 export default function RekrutacjaPage() {
   const { user, hydrated } = useAuthStore();
-  const today = new Date();
+  // Stable initial state — bez `new Date()` w render body, żeby uniknąć
+  // hydration mismatch między SSR (server timezone) a client (browser
+  // timezone). Realne daty ustawiamy w useEffect po hydratacji — query
+  // gating `selectedMonth > 0` zapobiega fetch przed inicjalizacją.
   const [viewMode, setViewMode] = useState<ViewMode>("month");
-  const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(0);
+  const [selectedYear, setSelectedYear] = useState<number>(0);
   const [selectedWeekNumber, setSelectedWeekNumber] = useState<number | null>(null);
+
+  // Po mount: ustaw aktualny miesiąc + rok z browser timezone.
+  useEffect(() => {
+    if (selectedMonth === 0) {
+      const now = new Date();
+      setSelectedMonth(now.getMonth() + 1);
+      setSelectedYear(now.getFullYear());
+    }
+  }, [selectedMonth]);
 
   // Buduj query params dla endpointu /dashboard.
   const dashboardParams = useMemo(() => {
@@ -83,7 +95,8 @@ export default function RekrutacjaPage() {
     return { period: "year" as const, date: `${selectedYear}-01-01` };
   }, [viewMode, selectedMonth, selectedYear, selectedWeekNumber]);
 
-  const queryEnabled = hydrated && !!user;
+  // Nie odpalaj query przed inicjalizacją daty (sentinel selectedMonth=0).
+  const queryEnabled = hydrated && !!user && selectedMonth > 0;
   const {
     data: dashboard,
     isLoading,
