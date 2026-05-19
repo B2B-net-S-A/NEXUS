@@ -19,6 +19,12 @@ from app.schemas.dr_board_dashboard import BoardMonthlyRow, BoardPlacementClient
 
 router = APIRouter()
 
+# Earliest report_month brany pod uwagę dla widoku Rady Nadzorczej.
+# Dane sprzed 2024-01-01 to legacy DR — nie pokazujemy.
+# Górną granicę liczymy dynamicznie z `CURRENT_DATE` (poprzednio
+# hardcoded `'2026-12-01'` — quality check MEDIUM #6 silent empty 2027).
+BOARD_REPORT_START = "2024-01-01"
+
 # Rola umożliwiająca dostęp do widoku Board (financials).
 # admin + delivery_lead + head_of_recruitment = managerski layer.
 BOARD_ALLOWED_ROLES = (
@@ -65,11 +71,11 @@ async def get_monthly(
             avg_margin_per_hour::float AS avg_margin_per_hour,
             hit_ratio::float AS hit_ratio
         FROM dr_board_monthly_report
-        WHERE report_month >= '2024-01-01' AND report_month <= '2026-12-01'
+        WHERE report_month >= :start_date AND report_month <= CURRENT_DATE
         ORDER BY report_month ASC
         """
     )
-    rows = (await db.execute(sql_report)).all()
+    rows = (await db.execute(sql_report, {"start_date": BOARD_REPORT_START})).all()
 
     sql_clients = text(
         """
@@ -78,11 +84,13 @@ async def get_monthly(
             client_name,
             placement_count
         FROM dr_board_placement_clients
-        WHERE report_month >= '2024-01-01' AND report_month <= '2026-12-01'
+        WHERE report_month >= :start_date AND report_month <= CURRENT_DATE
         ORDER BY report_month, placement_count DESC
         """
     )
-    client_rows = (await db.execute(sql_clients)).all()
+    client_rows = (
+        await db.execute(sql_clients, {"start_date": BOARD_REPORT_START})
+    ).all()
 
     clients_by_month: dict[str, list[BoardPlacementClient]] = {}
     for c in client_rows:
