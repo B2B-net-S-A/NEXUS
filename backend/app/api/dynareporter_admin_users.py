@@ -456,6 +456,49 @@ async def add_dl_client(
     return {"id": assignment_id, "ok": True}
 
 
+@router.patch(
+    "/dl-clients/{assignment_id}",
+    summary="Toggle is_head dla DL-client assignment (admin only)",
+)
+async def patch_dl_client(
+    assignment_id: int,
+    payload: dict,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Toggle `is_head` flag dla istniejącego DL-client assignment.
+
+    Payload: {"is_head": bool}. Single-field update, brak innych mutowalnych pól.
+    """
+    _require_admin(current_user)
+    if "is_head" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Brak pola 'is_head' w payload",
+        )
+    is_head = bool(payload["is_head"])
+    result = await db.execute(
+        text(
+            "UPDATE dr_delivery_lead_client_assignments SET is_head = :h "
+            "WHERE id = :id RETURNING id"
+        ),
+        {"h": is_head, "id": assignment_id},
+    )
+    if not result.first():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Assignment id={assignment_id} nie istnieje",
+        )
+    await db.commit()
+    logger.info(
+        "DL-client assignment patched: id=%s is_head=%s by admin=%s",
+        assignment_id,
+        is_head,
+        current_user.id,
+    )
+    return {"id": assignment_id, "is_head": is_head, "ok": True}
+
+
 @router.delete(
     "/dl-clients/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
