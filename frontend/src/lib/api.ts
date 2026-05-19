@@ -4053,6 +4053,13 @@ export const dynareporterAdminUsersApi = {
         payload,
       )
       .then((r) => r.data),
+  patchDlClient: (assignmentId: number, isHead: boolean) =>
+    api
+      .patch<{ id: number; is_head: boolean; ok: boolean }>(
+        `/api/dynareporter/admin-users/dl-clients/${assignmentId}`,
+        { is_head: isHead },
+      )
+      .then((r) => r.data),
   deleteDlClient: (assignmentId: number) =>
     api
       .delete<void>(`/api/dynareporter/admin-users/dl-clients/${assignmentId}`)
