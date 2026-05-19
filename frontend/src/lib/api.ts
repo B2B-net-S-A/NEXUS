@@ -3812,6 +3812,12 @@ export const dynareporterBoardAdminApi = {
     api
       .post<DrBoardMonthlyRow>("/api/dynareporter/board-dashboard/monthly", payload)
       .then((r) => r.data),
+  deleteMonthly: (reportMonth: string) =>
+    api
+      .delete<void>(
+        `/api/dynareporter/board-dashboard/monthly/${encodeURIComponent(reportMonth)}`,
+      )
+      .then((r) => r.data),
 };
 
 // === Admin Config (Session 2) — Liga Mistrzów scoring ====================
