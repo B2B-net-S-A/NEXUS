@@ -40,7 +40,7 @@ const MODULES: ModuleCard[] = [
     section: "delivery-lead",
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
-    href: "/dynareporter/delivery-lead",
+    href: "/dynareporter/delivery-lead-dashboard",
     enabled: true, // B.2.3 deployed
   },
   {
@@ -75,7 +75,7 @@ const MODULES: ModuleCard[] = [
     section: "board",
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
-    href: "/dynareporter/board",
+    href: "/dynareporter/board-dashboard",
     enabled: true, // B.2.8 deployed
   },
   {
