@@ -99,6 +99,25 @@ class DLClientAssignment(BaseModel):
     is_head: bool = False
 
 
+class CompetenceCategoryRow(BaseModel):
+    id: int
+    name: str
+    color: str = "blue"
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class TacDlPayload(BaseModel):
+    tac_user_id: int
+    delivery_lead_user_id: int
+
+
+class SourcerCategoryPayload(BaseModel):
+    user_id: int
+    category_id: int
+    priority: int = 1
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -364,6 +383,178 @@ async def list_sourcer_categories(
         )
         for r in rows
     ]
+
+
+@router.get(
+    "/team/categories",
+    response_model=list[CompetenceCategoryRow],
+    summary="Competence categories list (read-only)",
+)
+async def list_competence_categories(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> list[CompetenceCategoryRow]:
+    """List wszystkich active competence categories — used dla dropdownów
+    w Sourcer-category assignment form.
+    """
+    sql = text(
+        """
+        SELECT
+            id,
+            name,
+            COALESCE(color, 'blue') AS color,
+            COALESCE(sort_order, 0) AS sort_order,
+            COALESCE(is_active, true) AS is_active
+        FROM dr_competence_categories
+        ORDER BY sort_order, name
+        """
+    )
+    rows = (await db.execute(sql)).all()
+    return [
+        CompetenceCategoryRow(
+            id=r.id,
+            name=r.name or "",
+            color=r.color or "blue",
+            sort_order=r.sort_order or 0,
+            is_active=bool(r.is_active),
+        )
+        for r in rows
+    ]
+
+
+@router.post(
+    "/team/tac-dl",
+    status_code=status.HTTP_201_CREATED,
+    summary="Add TAC ↔ DL assignment (admin only)",
+)
+async def add_tac_dl_assignment(
+    payload: TacDlPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    _require_admin(current_user)
+    # Idempotent — ON CONFLICT DO NOTHING (composite PK)
+    await db.execute(
+        text(
+            """
+            INSERT INTO dr_tac_delivery_lead_assignments (
+                tac_user_id, delivery_lead_user_id
+            ) VALUES (:tac, :dl)
+            ON CONFLICT (tac_user_id, delivery_lead_user_id) DO NOTHING
+            """
+        ),
+        {"tac": payload.tac_user_id, "dl": payload.delivery_lead_user_id},
+    )
+    await db.commit()
+    logger.info(
+        "TAC-DL assignment added: tac=%s dl=%s by admin=%s",
+        payload.tac_user_id,
+        payload.delivery_lead_user_id,
+        current_user.id,
+    )
+    return {"ok": True}
+
+
+@router.delete(
+    "/team/tac-dl/{tac_user_id}/{dl_user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    summary="Remove TAC ↔ DL assignment (admin only)",
+)
+async def delete_tac_dl_assignment(
+    tac_user_id: int,
+    dl_user_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    _require_admin(current_user)
+    await db.execute(
+        text(
+            "DELETE FROM dr_tac_delivery_lead_assignments "
+            "WHERE tac_user_id = :tac AND delivery_lead_user_id = :dl"
+        ),
+        {"tac": tac_user_id, "dl": dl_user_id},
+    )
+    await db.commit()
+    logger.info(
+        "TAC-DL assignment removed: tac=%s dl=%s by admin=%s",
+        tac_user_id,
+        dl_user_id,
+        current_user.id,
+    )
+
+
+@router.post(
+    "/team/sourcer-categories",
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Sourcer ↔ Category assignment (admin only)",
+)
+async def add_sourcer_category(
+    payload: SourcerCategoryPayload,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    _require_admin(current_user)
+    if payload.priority < 1 or payload.priority > 5:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="priority must be 1-5",
+        )
+    # ON CONFLICT DO UPDATE — pozwala admin zmienić priority bez Delete+Insert
+    await db.execute(
+        text(
+            """
+            INSERT INTO dr_sourcer_category_assignments (
+                user_id, category_id, priority
+            ) VALUES (:uid, :cid, :prio)
+            ON CONFLICT (user_id, category_id) DO UPDATE
+            SET priority = EXCLUDED.priority
+            """
+        ),
+        {
+            "uid": payload.user_id,
+            "cid": payload.category_id,
+            "prio": payload.priority,
+        },
+    )
+    await db.commit()
+    logger.info(
+        "Sourcer-category assignment upserted: user=%s cat=%s prio=%s by admin=%s",
+        payload.user_id,
+        payload.category_id,
+        payload.priority,
+        current_user.id,
+    )
+    return {"ok": True}
+
+
+@router.delete(
+    "/team/sourcer-categories/{user_id}/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    summary="Remove Sourcer ↔ Category assignment (admin only)",
+)
+async def delete_sourcer_category(
+    user_id: int,
+    category_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    _require_admin(current_user)
+    await db.execute(
+        text(
+            "DELETE FROM dr_sourcer_category_assignments "
+            "WHERE user_id = :uid AND category_id = :cid"
+        ),
+        {"uid": user_id, "cid": category_id},
+    )
+    await db.commit()
+    logger.info(
+        "Sourcer-category assignment removed: user=%s cat=%s by admin=%s",
+        user_id,
+        category_id,
+        current_user.id,
+    )
 
 
 # ---------------------------------------------------------------------------

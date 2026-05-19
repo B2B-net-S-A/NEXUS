@@ -4064,6 +4064,51 @@ export const dynareporterAdminUsersApi = {
     api
       .delete<void>(`/api/dynareporter/admin-users/dl-clients/${assignmentId}`)
       .then((r) => r.data),
+  // === Recruitment Team — Categories + TAC-DL + Sourcer-Category CRUD ====
+  competenceCategories: () =>
+    api
+      .get<DrCompetenceCategoryRow[]>(
+        "/api/dynareporter/admin-users/team/categories",
+      )
+      .then((r) => r.data),
+  addTacDl: (payload: { tac_user_id: number; delivery_lead_user_id: number }) =>
+    api
+      .post<{ ok: boolean }>(
+        "/api/dynareporter/admin-users/team/tac-dl",
+        payload,
+      )
+      .then((r) => r.data),
+  deleteTacDl: (tacUserId: number, dlUserId: number) =>
+    api
+      .delete<void>(
+        `/api/dynareporter/admin-users/team/tac-dl/${tacUserId}/${dlUserId}`,
+      )
+      .then((r) => r.data),
+  upsertSourcerCategory: (payload: {
+    user_id: number;
+    category_id: number;
+    priority: number;
+  }) =>
+    api
+      .post<{ ok: boolean }>(
+        "/api/dynareporter/admin-users/team/sourcer-categories",
+        payload,
+      )
+      .then((r) => r.data),
+  deleteSourcerCategory: (userId: number, categoryId: number) =>
+    api
+      .delete<void>(
+        `/api/dynareporter/admin-users/team/sourcer-categories/${userId}/${categoryId}`,
+      )
+      .then((r) => r.data),
+};
+
+export type DrCompetenceCategoryRow = {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  is_active: boolean;
 };
 
 // Sales mgmt + Przetargi admin API clients usunięte 2026-05-19 — Nexus nie ma
