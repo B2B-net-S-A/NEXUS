@@ -73,20 +73,31 @@ async def update_scoring(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionsLeagueScoring:
-    """Admin upsert do `dr_system_config.champions_league_scoring`."""
+    """Admin upsert do `dr_system_config.champions_league_scoring`.
+
+    SQL note: asyncpg parses `:value::jsonb` as conflict with named-parameter
+    syntax (`:value` followed by `::` triggers `syntax error at or near ":"`).
+    Solution: use ANSI `CAST(:value AS jsonb)` instead of postgres shorthand.
+    """
+    import json
+
     _require_admin(current_user)
     value_json = payload.model_dump()
     await db.execute(
         text(
             """
             INSERT INTO dr_system_config (key, value, updated_at)
-            VALUES ('champions_league_scoring', :value::jsonb, CURRENT_TIMESTAMP)
+            VALUES (
+                'champions_league_scoring',
+                CAST(:value AS jsonb),
+                CURRENT_TIMESTAMP
+            )
             ON CONFLICT (key) DO UPDATE SET
                 value = EXCLUDED.value,
                 updated_at = CURRENT_TIMESTAMP
             """
         ),
-        {"value": __import__("json").dumps(value_json)},
+        {"value": json.dumps(value_json)},
     )
     await db.commit()
     return payload
