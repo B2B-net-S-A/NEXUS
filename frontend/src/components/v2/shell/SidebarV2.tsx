@@ -154,10 +154,9 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
       {
-        href: "https://reports.dynaminds.pl/admin",
+        href: "/dynareporter/admin-dashboard",
         label: "Admin DR",
         icon: Settings,
-        external: true,
         roles: ["admin"],
       },
     ],
