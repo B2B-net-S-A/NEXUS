@@ -3515,6 +3515,76 @@ export type DrRekrutacjaAvailableWeek = {
   has_data: boolean;
 };
 
+// ============================================================
+// DynaReporter Delivery Lead dashboard (Session 2 port)
+// ============================================================
+export type DrDLMember = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  requests: number;
+  placements: number;
+  vacancies: number;
+  open_requests: number;
+  open_vacancies: number;
+  hit_ratio: number;
+  fill_rate: number;
+  avg_vacancies_per_request: number;
+  hit_ratio_target: number;
+  target_achieved: boolean;
+  rank: number;
+};
+
+export type DrDLTeamStats = {
+  total_requests: number;
+  total_placements: number;
+  total_vacancies: number;
+  total_open_requests: number;
+  total_open_vacancies: number;
+  average_hit_ratio: number;
+  average_fill_rate: number;
+  achieving_target: number;
+};
+
+export type DrDLTeamHistoryRow = {
+  month: string;
+  requests: number;
+  vacancies: number;
+  placements: number;
+  hit_ratio: number;
+  fill_rate: number;
+};
+
+export type DrDLTrendRow = {
+  month: string;
+  requests: number;
+  placements: number;
+  hit_ratio: number;
+};
+
+export type DrDLDashboard = {
+  delivery_leads: DrDLMember[];
+  team_stats: DrDLTeamStats;
+  team_history: DrDLTeamHistoryRow[];
+  hit_ratio_target: number;
+  period_label: string;
+  period_start: string | null;
+  period_end: string | null;
+};
+
+export const dynareporterDeliveryLeadApi = {
+  dashboard: (params?: { start_date?: string; end_date?: string }) =>
+    api
+      .get<DrDLDashboard>("/api/dynareporter/delivery-lead-dashboard/dashboard", { params })
+      .then((r) => r.data),
+  trend: (userId: number, months = 6) =>
+    api
+      .get<DrDLTrendRow[]>(`/api/dynareporter/delivery-lead-dashboard/trend/${userId}`, {
+        params: { months },
+      })
+      .then((r) => r.data),
+};
+
 export const dynareporterRekrutacjaApi = {
   dashboard: (params: {
     period: "week" | "month" | "year";
