@@ -32,21 +32,7 @@ router = APIRouter()
 HIT_RATIO_TARGET = 30  # %
 
 
-def _build_date_filter(
-    start_date: Optional[str], end_date: Optional[str]
-) -> tuple[str, dict]:
-    """Buduje SQL filter dla `k.report_month`. Pusty filter = all data."""
-    conditions: list[str] = []
-    params: dict = {}
-    if start_date:
-        conditions.append("k.report_month >= :start_date")
-        params["start_date"] = start_date
-    if end_date:
-        conditions.append("k.report_month <= :end_date")
-        params["end_date"] = end_date
-    if conditions:
-        return "AND " + " AND ".join(conditions), params
-    return "", {}
+_DATE_RE = r"^\d{4}-\d{2}-\d{2}$"
 
 
 @router.get(
@@ -58,17 +44,32 @@ async def get_dashboard(
     current_user: CurrentUser,  # noqa: ARG001
     db: AsyncSession = Depends(get_db),
     start_date: Optional[str] = Query(
-        default=None, description="YYYY-MM-DD start filter on report_month"
+        default=None,
+        pattern=_DATE_RE,
+        description="YYYY-MM-DD start filter on report_month",
     ),
     end_date: Optional[str] = Query(
-        default=None, description="YYYY-MM-DD end filter on report_month"
+        default=None,
+        pattern=_DATE_RE,
+        description="YYYY-MM-DD end filter on report_month",
     ),
 ) -> DLDashboard:
-    """Zwraca pełen DL dashboard. Bez parametrów = all-time aggregate."""
-    date_filter, params = _build_date_filter(start_date, end_date)
+    """Zwraca pełen DL dashboard. Bez parametrów = all-time aggregate.
 
-    # Per-DL aggregates
-    sql_per_dl = f"""
+    Filter `(:start IS NULL OR k.report_month >= :start)` pattern używany w
+    obu instancjach `k` i podzapytaniu `k2`. Zamiast budować fragment SQL i
+    interpolować przez f-string (poprzednia wersja z `replace('k.', 'k2.')`
+    była fragile — quality check HIGH #2), używamy zawsze tych samych
+    parametrów `:start_date` i `:end_date` z pełnym NULL-check wzorcem.
+
+    `CAST(:date AS date)` analogicznie do fixu w yearly-stats (PR #252) —
+    asyncpg potrzebuje explicit cast dla parametru używanego w `IS NULL`.
+    """
+    params = {"start_date": start_date, "end_date": end_date}
+
+    # Per-DL aggregates — single text() z bound params, brak f-string SQL.
+    sql_per_dl = text(
+        """
         SELECT
             u.id,
             u.name,
@@ -103,19 +104,24 @@ async def get_dashboard(
                 ELSE 0
             END AS avg_vacancies_per_request
         FROM users u
-        LEFT JOIN dr_kpi_delivery_lead k ON u.id = k.user_id {date_filter}
+        LEFT JOIN dr_kpi_delivery_lead k ON u.id = k.user_id
+            AND (CAST(:start_date AS date) IS NULL OR k.report_month >= :start_date)
+            AND (CAST(:end_date AS date) IS NULL OR k.report_month <= :end_date)
         WHERE u.role::text = 'delivery_lead'
           AND (
               u.is_active = true
               OR EXISTS (
                   SELECT 1 FROM dr_kpi_delivery_lead k2
-                  WHERE k2.user_id = u.id {date_filter.replace("k.", "k2.")}
+                  WHERE k2.user_id = u.id
+                    AND (CAST(:start_date AS date) IS NULL OR k2.report_month >= :start_date)
+                    AND (CAST(:end_date AS date) IS NULL OR k2.report_month <= :end_date)
               )
           )
         GROUP BY u.id, u.name, u.is_active
         ORDER BY hit_ratio DESC, total_placements DESC
-    """  # noqa: S608 — params are bound, not interpolated
-    rows = (await db.execute(text(sql_per_dl), params)).all()
+        """
+    )
+    rows = (await db.execute(sql_per_dl, params)).all()
     delivery_leads: list[DLMember] = []
     for i, row in enumerate(rows):
         hit_ratio = float(row.hit_ratio or 0)
@@ -139,7 +145,8 @@ async def get_dashboard(
         )
 
     # Team totals (all DL data, including inactive past employees)
-    sql_team = f"""
+    sql_team = text(
+        """
         SELECT
             COALESCE(SUM(k.requests), 0)::int AS total_requests,
             COALESCE(SUM(k.placements), 0)::int AS total_placements,
@@ -147,9 +154,11 @@ async def get_dashboard(
             COALESCE(SUM(k.open_requests), 0)::int AS total_open_requests,
             COALESCE(SUM(k.open_vacancies), 0)::int AS total_open_vacancies
         FROM dr_kpi_delivery_lead k
-        WHERE 1=1 {date_filter}
-    """  # noqa: S608
-    team_row = (await db.execute(text(sql_team), params)).first()
+        WHERE (CAST(:start_date AS date) IS NULL OR k.report_month >= :start_date)
+          AND (CAST(:end_date AS date) IS NULL OR k.report_month <= :end_date)
+        """
+    )
+    team_row = (await db.execute(sql_team, params)).first()
     active_dls = [dl for dl in delivery_leads if dl.is_active]
     team_stats = DLTeamStats(
         total_requests=team_row.total_requests if team_row else 0,

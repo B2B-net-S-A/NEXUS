@@ -15,6 +15,7 @@ Uprawnienia:
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -41,6 +42,8 @@ from app.schemas.dr_rekrutacja import (
     UserMetricValue,
     YearlyStatsRow,
 )
+
+logger = logging.getLogger("dynareporter.rekrutacja")
 
 router = APIRouter()
 
@@ -96,7 +99,12 @@ async def _load_scoring(db: AsyncSession) -> dict[str, int]:
             }
     except Exception:
         # Jeśli klucza nie ma lub błąd parsowania — fallback do statycznego.
-        pass
+        # Loguj z exc_info żeby Sentry/operators widzieli problem (np.
+        # connection failure, SSL reset, asyncpg pool exhaustion).
+        logger.warning(
+            "Failed to load champions_league_scoring; using DEFAULT_SCORING",
+            exc_info=True,
+        )
     return dict(DEFAULT_SCORING)
 
 
@@ -809,6 +817,9 @@ async def get_acceleration_path(
     twelve_m_ago = today - timedelta(days=365)
 
     # JUNIOR → SENIOR
+    # Single LEFT JOIN + COUNT FILTER zamiast 2 correlated subqueries per row
+    # (quality check HIGH #1). Wymaga composite idx (user_id, placement_date)
+    # na dr_placement_details (migracja 0115).
     sql_junior = text(
         """
         SELECT
@@ -816,21 +827,15 @@ async def get_acceleration_path(
             u.name,
             u.role::text AS role,
             s.acceleration_start_date AS start_date,
-            COALESCE(
-                (SELECT count(*) FROM dr_placement_details p
-                 WHERE p.user_id = s.user_id AND p.placement_date >= :six_m),
-                0
-            )::int AS placements_6m,
-            COALESCE(
-                (SELECT count(*) FROM dr_placement_details p
-                 WHERE p.user_id = s.user_id AND p.placement_date >= :twelve_m),
-                0
-            )::int AS placements_12m
+            COUNT(*) FILTER (WHERE p.placement_date >= :six_m)::int AS placements_6m,
+            COUNT(*) FILTER (WHERE p.placement_date >= :twelve_m)::int AS placements_12m
         FROM dr_user_seniority s
         JOIN users u ON u.id = s.user_id
+        LEFT JOIN dr_placement_details p ON p.user_id = s.user_id
         WHERE s.seniority_level = 'junior'
           AND s.acceleration_start_date IS NOT NULL
           AND u.is_active = true
+        GROUP BY s.user_id, u.name, u.role, s.acceleration_start_date
         ORDER BY placements_6m DESC, u.name
         """
     )
@@ -871,7 +876,7 @@ async def get_acceleration_path(
             )
         )
 
-    # SENIOR → EXPERT
+    # SENIOR → EXPERT (analogiczna refaktoryzacja co JUNIOR → SENIOR)
     sql_senior = text(
         """
         SELECT
@@ -879,21 +884,15 @@ async def get_acceleration_path(
             u.name,
             u.role::text AS role,
             s.senior_since AS start_date,
-            COALESCE(
-                (SELECT count(*) FROM dr_placement_details p
-                 WHERE p.user_id = s.user_id AND p.placement_date >= :six_m),
-                0
-            )::int AS placements_6m,
-            COALESCE(
-                (SELECT count(*) FROM dr_placement_details p
-                 WHERE p.user_id = s.user_id AND p.placement_date >= :twelve_m),
-                0
-            )::int AS placements_12m
+            COUNT(*) FILTER (WHERE p.placement_date >= :six_m)::int AS placements_6m,
+            COUNT(*) FILTER (WHERE p.placement_date >= :twelve_m)::int AS placements_12m
         FROM dr_user_seniority s
         JOIN users u ON u.id = s.user_id
+        LEFT JOIN dr_placement_details p ON p.user_id = s.user_id
         WHERE s.seniority_level = 'senior'
           AND s.senior_since IS NOT NULL
           AND u.is_active = true
+        GROUP BY s.user_id, u.name, u.role, s.senior_since
         ORDER BY placements_6m DESC, u.name
         """
     )

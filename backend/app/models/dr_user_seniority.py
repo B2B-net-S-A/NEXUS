@@ -31,5 +31,7 @@ class DrUserSeniority(Base):
     senior_since: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     expert_since: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.current_timestamp(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.current_timestamp(),
+        nullable=False,
     )

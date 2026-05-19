@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.dr_board_dashboard import BoardMonthlyRow, BoardPlacementClient
 
 router = APIRouter()
@@ -28,8 +28,12 @@ BOARD_ALLOWED_ROLES = (
 )
 
 
-def _require_board_access(current_user) -> None:  # type: ignore[no-untyped-def]
-    if current_user.role not in BOARD_ALLOWED_ROLES:
+def _require_board_access(current_user: User) -> None:
+    """Multi-role aware — używa `has_any_role()` żeby uznać secondary
+    role z `users.roles` JSONB (multi-role schema, migracja 0110).
+    Bez tego user z primary=`recruiter` + secondary=`delivery_lead`
+    byłby fałszywie odrzucany (quality check LOW #10)."""
+    if not current_user.has_any_role(*BOARD_ALLOWED_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Brak uprawnień do widoku Rady Nadzorczej",
