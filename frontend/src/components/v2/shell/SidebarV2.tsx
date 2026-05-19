@@ -128,21 +128,19 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // DynaReporter — pełen standalone dashboard na reports.dynaminds.pl
-    // (rollback z B.3 cutover 2026-05-19: skeleton w Nexusie miał ~20%
-    // feature parity vs original; do czasu pełnego portu sekcji
-    // Rekrutacja/Delivery Lead/Rada Nadzorcza/Admin do Nexusa
-    // używamy zewnętrznego linka — `target="_blank"` zachowuje sesję
-    // Nexusa i otwiera DR w nowej karcie, gdzie user loguje się raz
-    // do DR i ma pełną funkcjonalność wszystkich sekcji).
+    // DynaReporter — sekcje portowane do Nexusa po kolei.
+    // - "Rekrutacja" — natywna Nexus strona `/dynareporter/rekrutacja`
+    //   (port mega-dashboardu z artur-t-96/InfraReporter, dane z dr_*).
+    // - Pozostałe 3 sekcje (Delivery Lead / Rada Nadzorcza / Admin DR) —
+    //   na razie external link do standalone DR, do czasu portu w
+    //   kolejnych PR-ach.
     title: "Raporty KPI",
     icon: BarChart3,
     items: [
       {
-        href: "https://reports.dynaminds.pl/rekrutacja",
+        href: "/dynareporter/rekrutacja",
         label: "Rekrutacja",
         icon: Users,
-        external: true,
       },
       {
         href: "https://reports.dynaminds.pl/delivery-lead",

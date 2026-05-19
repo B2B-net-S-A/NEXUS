@@ -3450,6 +3450,90 @@ export const dynareporterSalesApi = {
     api.delete(`/api/dynareporter/kpi/sales/${entryId}`),
 };
 
+// ============================================================
+// DynaReporter Rekrutacja mega-dashboard (port z artur-t-96/InfraReporter)
+// ============================================================
+export type DrRekrutacjaMetricValue = {
+  value: number;
+  target: number;
+  percentage: number;
+};
+
+export type DrRekrutacjaUserMetrics = {
+  verifications: DrRekrutacjaMetricValue;
+  recommendations: DrRekrutacjaMetricValue;
+  interviews: DrRekrutacjaMetricValue;
+  placements: DrRekrutacjaMetricValue;
+  quality_score: DrRekrutacjaMetricValue;
+};
+
+export type DrRekrutacjaTeamMember = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  role: string;
+  is_active: boolean;
+  metrics: DrRekrutacjaUserMetrics;
+  league_points: number;
+};
+
+export type DrRekrutacjaFunnelStage = {
+  label: string;
+  short_label: string;
+  percentage: number;
+  numerator: number;
+  denominator: number;
+};
+
+export type DrRekrutacjaDashboard = {
+  period: "week" | "month" | "year";
+  period_label: string;
+  period_start: string;
+  period_end: string;
+  team_summary: {
+    total_verifications: number;
+    total_recommendations: number;
+    total_interviews: number;
+    total_placements: number;
+    average_quality_score: number;
+  };
+  funnel: DrRekrutacjaFunnelStage[];
+  users: DrRekrutacjaTeamMember[];
+  league_ranking: DrRekrutacjaTeamMember[];
+  scoring: {
+    placement: number;
+    interview: number;
+    recommendation: number;
+    verification: number;
+  };
+};
+
+export type DrRekrutacjaAvailableWeek = {
+  week_number: number;
+  year: number;
+  label: string;
+  has_data: boolean;
+};
+
+export const dynareporterRekrutacjaApi = {
+  dashboard: (params: {
+    period: "week" | "month" | "year";
+    date?: string; // YYYY-MM-DD for month/year
+    weekNumber?: number;
+    year?: number;
+  }) =>
+    api
+      .get<DrRekrutacjaDashboard>("/api/dynareporter/rekrutacja/dashboard", { params })
+      .then((r) => r.data),
+
+  availableWeeks: (params?: { limit?: number }) =>
+    api
+      .get<DrRekrutacjaAvailableWeek[]>("/api/dynareporter/rekrutacja/available-weeks", {
+        params,
+      })
+      .then((r) => r.data),
+};
+
 export const dynareporterBodyLeasingApi = {
   myEntries: (params?: { from_date?: string; to_date?: string }) =>
     api
