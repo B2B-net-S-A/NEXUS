@@ -45,6 +45,12 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   badgeKey?: keyof BadgeCounts;
   roles?: UserRole[];
+  /**
+   * Renderuje pozycję jako `<a href target="_blank" rel="noopener noreferrer">`
+   * zamiast Next.js `<Link>`. Używane dla zewnętrznych dashboardów
+   * (np. DynaReporter standalone — patrz sekcja "Raporty KPI").
+   */
+  external?: boolean;
 };
 
 type NavSection = {
@@ -119,12 +125,43 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Lightbulb,
     items: [
       { href: "/insights", label: "Insights", icon: Lightbulb },
+    ],
+  },
+  {
+    // DynaReporter — pełen standalone dashboard na reports.dynaminds.pl
+    // (rollback z B.3 cutover 2026-05-19: skeleton w Nexusie miał ~20%
+    // feature parity vs original; do czasu pełnego portu sekcji
+    // Rekrutacja/Delivery Lead/Rada Nadzorcza/Admin do Nexusa
+    // używamy zewnętrznego linka — `target="_blank"` zachowuje sesję
+    // Nexusa i otwiera DR w nowej karcie, gdzie user loguje się raz
+    // do DR i ma pełną funkcjonalność wszystkich sekcji).
+    title: "Raporty KPI",
+    icon: BarChart3,
+    items: [
       {
-        // DynaReporter (migracja B.0 + B.1, 0112+0113). Fine-grained access
-        // per moduł sprawdzany w komponencie przez `hasSection()`.
-        href: "/dynareporter",
-        label: "Raporty KPI",
+        href: "https://reports.dynaminds.pl/rekrutacja",
+        label: "Rekrutacja",
+        icon: Users,
+        external: true,
+      },
+      {
+        href: "https://reports.dynaminds.pl/delivery-lead",
+        label: "Delivery Lead",
+        icon: Handshake,
+        external: true,
+      },
+      {
+        href: "https://reports.dynaminds.pl/board",
+        label: "Rada Nadzorcza",
         icon: BarChart3,
+        external: true,
+      },
+      {
+        href: "https://reports.dynaminds.pl/admin",
+        label: "Admin DR",
+        icon: Settings,
+        external: true,
+        roles: ["admin"],
       },
     ],
   },
@@ -155,6 +192,7 @@ function NavLink({
   collapsed,
   badgeCount,
   onClick,
+  external,
 }: {
   href: string;
   label: string;
@@ -163,22 +201,18 @@ function NavLink({
   collapsed: boolean;
   badgeCount?: number;
   onClick?: () => void;
+  external?: boolean;
 }) {
-  const link = (
-    <Link
-      href={href}
-      onClick={onClick}
-      aria-label={label}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "relative flex items-center text-sm transition-colors duration-150",
-        "rounded-md focus:outline-none",
-        collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
-        active
-          ? "bg-muted text-foreground font-medium"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      )}
-    >
+  const sharedClassName = cn(
+    "relative flex items-center text-sm transition-colors duration-150",
+    "rounded-md focus:outline-none",
+    collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
+    active
+      ? "bg-muted text-foreground font-medium"
+      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+  );
+  const inner = (
+    <>
       <Icon className="shrink-0 h-4 w-4" />
       {!collapsed && (
         <>
@@ -192,6 +226,28 @@ function NavLink({
           aria-label={`${badgeCount} nowych`}
         />
       )}
+    </>
+  );
+  const link = external ? (
+    <a
+      href={href}
+      onClick={onClick}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${label} (otwiera się w nowej karcie)`}
+      className={sharedClassName}
+    >
+      {inner}
+    </a>
+  ) : (
+    <Link
+      href={href}
+      onClick={onClick}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={sharedClassName}
+    >
+      {inner}
     </Link>
   );
 
@@ -380,7 +436,7 @@ export function SidebarV2({
               )}
               {collapsed && !mobileOpen && <div className="my-2 border-t border-border mx-2" />}
               <div className={cn(collapsed && !mobileOpen ? "space-y-1" : "space-y-0.5")}>
-                {visibleItems.map(({ href, label, icon, badgeKey }) => (
+                {visibleItems.map(({ href, label, icon, badgeKey, external }) => (
                   <NavLink
                     key={href}
                     href={href}
@@ -390,6 +446,7 @@ export function SidebarV2({
                     collapsed={collapsed && !mobileOpen}
                     badgeCount={badgeKey ? badgeCounts[badgeKey] : undefined}
                     onClick={onClose}
+                    external={external}
                   />
                 ))}
               </div>
