@@ -58,6 +58,13 @@ DEFAULT_SCORING = {
 # Role które liczą się w widoku zespołu rekrutacji.
 RECRUITMENT_ROLES = ("sourcer", "tac", "recruiter")
 
+# Role które liczą się w Lidze Mistrzów. Rozszerzona o `delivery_lead` żeby
+# pokazać osoby z historią KPI w roli rekrutacyjnej, które awansowały na DL
+# (np. Marlena Rosół, Diana Sditanova — w DR jako `tac`, w Nexusie jako DL
+# po awansie). Bez tego ich punkty Q-level są niewidoczne na podium, co nie
+# odpowiada DR.
+LEAGUE_ROLES = ("sourcer", "tac", "recruiter", "delivery_lead")
+
 POLISH_MONTH_NAMES = [
     "Styczeń",
     "Luty",
@@ -418,6 +425,7 @@ async def get_dashboard(
     # ── Liga Mistrzów (kwartalna agregacja) ────────────────────────────────
     # DR pokazuje Q-level podium (3 miesiące zagregowane), niezależnie od
     # filtru `period` (week/month/year) — używamy bieżącego kwartału kalendarz.
+    # LEAGUE_ROLES dołącza delivery_lead (Marlena/Diana — awansowani z tac).
     today = date.today()
     q_start, q_end, quarter_label = _compute_quarter_bounds(today)
     q_rows = (
@@ -426,7 +434,7 @@ async def get_dashboard(
             {
                 "start_date": q_start,
                 "end_date": q_end,
-                "roles": list(RECRUITMENT_ROLES),
+                "roles": list(LEAGUE_ROLES),
             },
         )
     ).all()
@@ -437,8 +445,8 @@ async def get_dashboard(
         first_name = parts[0] if parts else ""
         last_name = parts[1] if len(parts) > 1 else ""
         # Quarterly targets — 3 miesiące * 20 dni roboczych
-        q_target_verif = 60 * 4 if row.role in RECRUITMENT_ROLES else 0
-        q_target_recom = 60 * 4 if row.role in RECRUITMENT_ROLES else 0
+        q_target_verif = 60 * 4 if row.role in LEAGUE_ROLES else 0
+        q_target_recom = 60 * 4 if row.role in LEAGUE_ROLES else 0
         q_target_inter = max(1, int(row.recommendations * 0.1))
         q_target_place = 3  # Warunek udziału: minimum 3 placements/kwartał (1/msc)
         q_quality = (
