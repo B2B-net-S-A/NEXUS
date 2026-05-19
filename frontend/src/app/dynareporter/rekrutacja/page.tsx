@@ -116,6 +116,22 @@ export default function RekrutacjaPage() {
     enabled: queryEnabled,
   });
 
+  // Early return pattern (mirror body-leasing) — SSR renderuje sam tekst
+  // "Ładowanie sesji…", co matchuje client initial render (hydrated=false).
+  // Pełna struktura (Cards, Table, etc.) renderuje się dopiero gdy
+  // hydration zakończy się klientem, co unika React 19 streaming
+  // Activity boundary stuck w `<!--$~-->`.
+  if (!hydrated) {
+    return <div className="p-8 text-sm text-muted-foreground">Ładowanie sesji…</div>;
+  }
+  if (!user) {
+    return (
+      <div className="p-8 text-sm text-muted-foreground">
+        Zaloguj się żeby zobaczyć dashboard Rekrutacji.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 p-4 sm:p-6">
       {/* Header + Filters */}
