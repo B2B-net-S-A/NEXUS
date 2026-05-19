@@ -10,6 +10,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    ForeignKey,
     Integer,
     Numeric,
     String,
@@ -37,7 +38,12 @@ class DrClientMrr(Base):
     __tablename__ = "dr_client_mrr"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    client_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # ForeignKey explicitly declared — DB has constraint but ORM was missing
+    # the declaration → Alembic autogenerate would try to ADD existing FK
+    # which would conflict. Quality check DB-M-1 finding.
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("dr_clients.id"), nullable=False, index=True
+    )
     report_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     consultants_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0"

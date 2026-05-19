@@ -7,11 +7,20 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RefreshCw, DollarSign, Plus, Trash2, AlertCircle, CheckCircle } from "lucide-react";
+import {
+  Save,
+  RefreshCw,
+  DollarSign,
+  Plus,
+  Trash2,
+  AlertCircle,
+  CheckCircle,
+} from "lucide-react";
 import {
   dynareporterBoardApi,
   dynareporterBoardAdminApi,
   type DrBoardPlacementClient,
+  extractErrorMsg,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +44,10 @@ export function BoardDataEntry() {
   const [avgMarginPerHour, setAvgMarginPerHour] = useState(0);
   const [hitRatio, setHitRatio] = useState(0);
   const [clients, setClients] = useState<DrBoardPlacementClient[]>([]);
-  const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [saveStatus, setSaveStatus] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
 
   // Load existing data for selected month
   useQuery({
@@ -92,7 +104,7 @@ export function BoardDataEntry() {
       setTimeout(() => setSaveStatus(null), 3000);
     },
     onError: (e: unknown) => {
-      setSaveStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+      setSaveStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
 
@@ -116,7 +128,11 @@ export function BoardDataEntry() {
               onChange={(e) => setReportMonth(e.target.value)}
               className="px-2 py-1.5 text-sm bg-background border border-input rounded-md"
             />
-            <Button variant="outline" size="sm" onClick={() => loadExisting(reportMonth)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadExisting(reportMonth)}
+            >
               <RefreshCw className="w-4 h-4" aria-hidden="true" />
               <span className="ml-1">Wczytaj istniejące</span>
             </Button>
@@ -132,31 +148,81 @@ export function BoardDataEntry() {
           </div>
 
           {saveStatus && (
-            <div className={`mb-3 flex items-center gap-2 text-sm ${saveStatus.type === "success" ? "text-emerald-600" : "text-rose-600"}`}>
-              {saveStatus.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+            <div
+              className={`mb-3 flex items-center gap-2 text-sm ${saveStatus.type === "success" ? "text-emerald-600" : "text-rose-600"}`}
+            >
+              {saveStatus.type === "success" ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
               {saveStatus.msg}
             </div>
           )}
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <NumberInput label="Revenue (PLN)" value={revenue} onChange={setRevenue} />
-            <NumberInput label="Consultant costs (PLN)" value={consultantCosts} onChange={setConsultantCosts} />
-            <NumberInput label="Other costs (PLN)" value={otherCosts} onChange={setOtherCosts} />
-            <NumberInput label="Avg margin/h (PLN)" value={avgMarginPerHour} onChange={setAvgMarginPerHour} />
-            <NumberInput label="Active consultants" value={activeConsultants} onChange={setActiveConsultants} integer />
-            <NumberInput label="Departures" value={departures} onChange={setDepartures} integer />
-            <NumberInput label="Placements" value={placements} onChange={setPlacements} integer />
-            <NumberInput label="Hit Ratio (%)" value={hitRatio} onChange={setHitRatio} step={0.1} />
+            <NumberInput
+              label="Revenue (PLN)"
+              value={revenue}
+              onChange={setRevenue}
+            />
+            <NumberInput
+              label="Consultant costs (PLN)"
+              value={consultantCosts}
+              onChange={setConsultantCosts}
+            />
+            <NumberInput
+              label="Other costs (PLN)"
+              value={otherCosts}
+              onChange={setOtherCosts}
+            />
+            <NumberInput
+              label="Avg margin/h (PLN)"
+              value={avgMarginPerHour}
+              onChange={setAvgMarginPerHour}
+            />
+            <NumberInput
+              label="Active consultants"
+              value={activeConsultants}
+              onChange={setActiveConsultants}
+              integer
+            />
+            <NumberInput
+              label="Departures"
+              value={departures}
+              onChange={setDepartures}
+              integer
+            />
+            <NumberInput
+              label="Placements"
+              value={placements}
+              onChange={setPlacements}
+              integer
+            />
+            <NumberInput
+              label="Hit Ratio (%)"
+              value={hitRatio}
+              onChange={setHitRatio}
+              step={0.1}
+            />
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="p-2 bg-muted/40 rounded">
-              <span className="text-muted-foreground">Margin (rev − koszty):</span>{" "}
-              <strong className="text-emerald-700 dark:text-emerald-400">{formatPLN(margin)}</strong>
+              <span className="text-muted-foreground">
+                Margin (rev − koszty):
+              </span>{" "}
+              <strong className="text-emerald-700 dark:text-emerald-400">
+                {formatPLN(margin)}
+              </strong>
             </div>
             <div className="p-2 bg-muted/40 rounded">
-              <span className="text-muted-foreground">Profit (po wszystkim):</span>{" "}
-              <strong className="text-purple-700 dark:text-purple-400">{formatPLN(profit)}</strong>
+              <span className="text-muted-foreground">
+                Profit (po wszystkim):
+              </span>{" "}
+              <strong className="text-purple-700 dark:text-purple-400">
+                {formatPLN(profit)}
+              </strong>
             </div>
           </div>
         </CardContent>
@@ -169,7 +235,9 @@ export function BoardDataEntry() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setClients([...clients, { client_name: "", count: 0 }])}
+              onClick={() =>
+                setClients([...clients, { client_name: "", count: 0 }])
+              }
             >
               <Plus className="w-4 h-4" aria-hidden="true" />
               <span className="ml-1">Dodaj klienta</span>
@@ -209,10 +277,15 @@ export function BoardDataEntry() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setClients(clients.filter((_, i) => i !== idx))}
+                    onClick={() =>
+                      setClients(clients.filter((_, i) => i !== idx))
+                    }
                     aria-label="Usuń klienta"
                   >
-                    <Trash2 className="w-4 h-4 text-rose-600" aria-hidden="true" />
+                    <Trash2
+                      className="w-4 h-4 text-rose-600"
+                      aria-hidden="true"
+                    />
                   </Button>
                 </div>
               ))}
@@ -239,7 +312,9 @@ function NumberInput({
 }) {
   return (
     <div>
-      <label className="block text-xs text-muted-foreground mb-1">{label}</label>
+      <label className="block text-xs text-muted-foreground mb-1">
+        {label}
+      </label>
       <input
         type="number"
         min={0}

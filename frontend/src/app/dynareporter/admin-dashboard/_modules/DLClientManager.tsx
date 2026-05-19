@@ -22,6 +22,7 @@ import {
 import {
   dynareporterAdminUsersApi,
   dynareporterAdminMasterDataApi,
+  extractErrorMsg,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,10 @@ export function DLClientManager() {
   const [selectedDl, setSelectedDl] = useState<number | null>(null);
   const [selectedClient, setSelectedClient] = useState<number | null>(null);
   const [isHead, setIsHead] = useState(false);
-  const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [status, setStatus] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
 
   const assignmentsQuery = useQuery({
     queryKey: ["dr-admin-dl-clients"],
@@ -73,7 +77,7 @@ export function DLClientManager() {
       setTimeout(() => setStatus(null), 3000);
     },
     onError: (e: unknown) => {
-      setStatus({ type: "error", msg: `Błąd: ${String(e)}` });
+      setStatus({ type: "error", msg: `Błąd: ${extractErrorMsg(e)}` });
     },
   });
 
@@ -85,11 +89,13 @@ export function DLClientManager() {
       setTimeout(() => setStatus(null), 3000);
     },
     onError: (e: unknown) => {
-      setStatus({ type: "error", msg: `Błąd usuwania: ${String(e)}` });
+      setStatus({ type: "error", msg: `Błąd usuwania: ${extractErrorMsg(e)}` });
     },
   });
 
-  const dlList = (teamQuery.data ?? []).filter((m) => m.role === "delivery_lead");
+  const dlList = (teamQuery.data ?? []).filter(
+    (m) => m.role === "delivery_lead",
+  );
 
   return (
     <Card>
@@ -100,7 +106,11 @@ export function DLClientManager() {
             DL ↔ Klienci ({assignmentsQuery.data?.length ?? "…"})
           </h3>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => assignmentsQuery.refetch()}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => assignmentsQuery.refetch()}
+            >
               <RefreshCw className="w-4 h-4" aria-hidden="true" />
             </Button>
             <Button size="sm" onClick={() => setShowForm((s) => !s)}>
@@ -129,10 +139,14 @@ export function DLClientManager() {
         {showForm && (
           <div className="mb-4 p-3 bg-muted/40 rounded grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">Delivery Lead</label>
+              <label className="block text-xs text-muted-foreground mb-1">
+                Delivery Lead
+              </label>
               <select
                 value={selectedDl ?? ""}
-                onChange={(e) => setSelectedDl(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) =>
+                  setSelectedDl(e.target.value ? Number(e.target.value) : null)
+                }
                 className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
               >
                 <option value="">— wybierz DL —</option>
@@ -144,11 +158,15 @@ export function DLClientManager() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-muted-foreground mb-1">Klient</label>
+              <label className="block text-xs text-muted-foreground mb-1">
+                Klient
+              </label>
               <select
                 value={selectedClient ?? ""}
                 onChange={(e) =>
-                  setSelectedClient(e.target.value ? Number(e.target.value) : null)
+                  setSelectedClient(
+                    e.target.value ? Number(e.target.value) : null,
+                  )
                 }
                 className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
               >
@@ -190,7 +208,9 @@ export function DLClientManager() {
 
         {/* Assignments table */}
         {assignmentsQuery.isLoading ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">Ładowanie…</p>
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            Ładowanie…
+          </p>
         ) : !assignmentsQuery.data || assignmentsQuery.data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">
             Brak przypisań DL ↔ Klient.
@@ -217,8 +237,12 @@ export function DLClientManager() {
               <tbody className="divide-y divide-border">
                 {assignmentsQuery.data.map((a) => (
                   <tr key={a.id}>
-                    <td className="px-2 py-2 font-medium">{a.delivery_lead_name}</td>
-                    <td className="px-2 py-2 text-muted-foreground">{a.client_name}</td>
+                    <td className="px-2 py-2 font-medium">
+                      {a.delivery_lead_name}
+                    </td>
+                    <td className="px-2 py-2 text-muted-foreground">
+                      {a.client_name}
+                    </td>
                     <td className="px-2 py-2 text-center">
                       {a.is_head ? (
                         <Badge variant="warning" size="sm">
@@ -244,7 +268,10 @@ export function DLClientManager() {
                         }}
                         aria-label={`Usuń ${a.delivery_lead_name}`}
                       >
-                        <Trash2 className="w-4 h-4 text-rose-600" aria-hidden="true" />
+                        <Trash2
+                          className="w-4 h-4 text-rose-600"
+                          aria-hidden="true"
+                        />
                       </Button>
                     </td>
                   </tr>

@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -6,6 +6,46 @@ export const api = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
 });
+
+/**
+ * Extract user-facing error message from any thrown value.
+ *
+ * Order of preference:
+ *  1. AxiosError with `response.data.detail` (FastAPI validation/HTTPException format)
+ *  2. AxiosError with `response.data.message`
+ *  3. Error.message (generic JS error)
+ *  4. String(e) fallback
+ *
+ * Usage:
+ *   try { await api.post(...) } catch (e) {
+ *     setStatus({ type: "error", msg: extractErrorMsg(e) });
+ *   }
+ *
+ * Quality check finding MEDIUM #23 — most onError handlers used String(e)
+ * which produces "Error: Request failed with status code 422" instead of
+ * the actionable Pydantic validation message that the user needs.
+ */
+export function extractErrorMsg(error: unknown): string {
+  if (error instanceof AxiosError && error.response) {
+    const data = error.response.data;
+    if (data && typeof data === "object") {
+      // FastAPI HTTPException(detail="...") → string detail
+      if (typeof data.detail === "string") return data.detail;
+      // FastAPI Pydantic ValidationError → list of { msg, loc, ... }
+      if (Array.isArray(data.detail) && data.detail.length > 0) {
+        const first = data.detail[0];
+        if (typeof first?.msg === "string") {
+          const field = Array.isArray(first.loc) ? first.loc.join(".") : "field";
+          return `${field}: ${first.msg}`;
+        }
+      }
+      if (typeof data.message === "string") return data.message;
+    }
+    return error.message || `HTTP ${error.response.status}`;
+  }
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 // Attach token from localStorage
 api.interceptors.request.use((config) => {
