@@ -254,3 +254,50 @@ async def upsert_monthly(
         hit_ratio=payload.hit_ratio,
         placement_clients=payload.placement_clients,
     )
+
+
+@router.delete(
+    "/monthly/{report_month}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,  # FastAPI 0.115 strict — 204 must not have body
+    summary="Usuń miesięczny raport Rady Nadzorczej (admin only)",
+)
+async def delete_monthly(
+    report_month: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Admin only — usuwa miesięczny raport + powiązane placement_clients.
+
+    Format `report_month`: 'YYYY-MM' (np. '2026-05').
+    """
+    _require_board_access(current_user)
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tylko admin może usuwać board data",
+        )
+
+    try:
+        month_date = datetime.strptime(f"{report_month}-01", "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"report_month must be YYYY-MM (got '{report_month}')",
+        ) from exc
+
+    # Cascade delete: placements_clients first, then main report.
+    await db.execute(
+        text("DELETE FROM dr_board_placement_clients WHERE report_month = :m"),
+        {"m": month_date},
+    )
+    await db.execute(
+        text("DELETE FROM dr_board_monthly_report WHERE report_month = :m"),
+        {"m": month_date},
+    )
+    await db.commit()
+    logger.info(
+        "Board monthly DELETED: month=%s by admin=%s",
+        report_month,
+        current_user.id,
+    )
