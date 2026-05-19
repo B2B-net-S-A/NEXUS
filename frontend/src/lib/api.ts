@@ -3887,6 +3887,60 @@ export const dynareporterAdminMasterDataApi = {
     api
       .get<DrAdminConsultantRow[]>("/api/dynareporter/admin-master-data/consultants")
       .then((r) => r.data),
+  createClient: (payload: { name: string; is_active?: boolean }) =>
+    api
+      .post<DrAdminClientRow>(
+        "/api/dynareporter/admin-master-data/clients",
+        payload,
+      )
+      .then((r) => r.data),
+  updateClient: (
+    clientId: number,
+    payload: { name?: string; is_active?: boolean },
+  ) =>
+    api
+      .patch<DrAdminClientRow>(
+        `/api/dynareporter/admin-master-data/clients/${clientId}`,
+        payload,
+      )
+      .then((r) => r.data),
+  deleteClient: (clientId: number) =>
+    api
+      .delete<void>(`/api/dynareporter/admin-master-data/clients/${clientId}`)
+      .then((r) => r.data),
+  createConsultant: (payload: {
+    name: string;
+    is_active?: boolean;
+    default_cost_rate?: number;
+    default_revenue_rate?: number;
+  }) =>
+    api
+      .post<DrAdminConsultantRow>(
+        "/api/dynareporter/admin-master-data/consultants",
+        payload,
+      )
+      .then((r) => r.data),
+  updateConsultant: (
+    consultantId: number,
+    payload: {
+      name?: string;
+      is_active?: boolean;
+      default_cost_rate?: number;
+      default_revenue_rate?: number;
+    },
+  ) =>
+    api
+      .patch<DrAdminConsultantRow>(
+        `/api/dynareporter/admin-master-data/consultants/${consultantId}`,
+        payload,
+      )
+      .then((r) => r.data),
+  deleteConsultant: (consultantId: number) =>
+    api
+      .delete<void>(
+        `/api/dynareporter/admin-master-data/consultants/${consultantId}`,
+      )
+      .then((r) => r.data),
 };
 
 // --- Admin Users / Team / DL Clients --------------------------------------
