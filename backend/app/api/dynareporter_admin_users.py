@@ -296,19 +296,20 @@ async def update_allowed_sections(
     """
     _require_admin(current_user)
     # Whitelist of known DR sections — przeciwko admin przypadkowo dodawał
-    # garbage strings. Synchronizowane z frontend SECTIONS list.
+    # garbage strings. Sync z `DynaReporterSection` type w
+    # `frontend/src/store/auth.ts` (DASHES, legacy DR convention) + DB values.
     VALID_SECTIONS = {
-        "rekrutacja",
+        "body-leasing",  # Rekrutacja
         "sales",
-        "delivery_lead",
+        "delivery-lead",
         "przetargi",
         "board",
-        "ai_analytics",
         "admin",
-        "clients_mrr",
+        "clients-mrr",
         "placements",
         "mindy",
         "competitions",
+        "sales-mgmt",
     }
     invalid = [s for s in payload.allowed_sections if s not in VALID_SECTIONS]
     if invalid:

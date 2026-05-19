@@ -44,15 +44,21 @@ const SENIORITY_LEVELS = [
 
 type SeniorityLevel = (typeof SENIORITY_LEVELS)[number]["value"];
 
+// Sekcje DR — canonical values matching `DynaReporterSection` type w
+// `store/auth.ts` (DASHES nie underscores). Te same wartości używane są
+// w middleware do route gating + w sidebar/nav. Były underscores w mojej
+// wcześniejszej wersji ale DB i type używają DASHES (legacy DR migration).
 const DR_SECTIONS = [
-  { value: "rekrutacja", label: "Rekrutacja" },
-  { value: "delivery_lead", label: "Delivery Lead" },
+  { value: "body-leasing", label: "Rekrutacja (Body Leasing)" },
+  { value: "delivery-lead", label: "Delivery Lead" },
   { value: "board", label: "Rada Nadzorcza" },
   { value: "competitions", label: "Liga Mistrzów" },
-  { value: "clients_mrr", label: "Klienci + MRR" },
+  { value: "clients-mrr", label: "Klienci + MRR" },
   { value: "placements", label: "Placements" },
   { value: "mindy", label: "MINDY AI" },
-  { value: "ai_analytics", label: "AI Analytics" },
+  { value: "sales-mgmt", label: "Sales Mgmt" },
+  { value: "sales", label: "Sales" },
+  { value: "przetargi", label: "Przetargi" },
   { value: "admin", label: "Admin (DR)" },
 ] as const;
 
