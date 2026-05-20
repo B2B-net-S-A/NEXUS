@@ -263,12 +263,22 @@ export function JobsListV2() {
  <h3 className="font-semibold text-foreground text-base truncate">
  {job.title}
  </h3>
+ <div className="flex items-center gap-2 flex-wrap">
  {job.client_name && (
  <p className="text-xs text-muted-foreground flex items-center gap-1">
  <Building2 className="h-3 w-3" />
  {job.client_name}
  </p>
  )}
+ {job.reference_number && (
+ <span
+ className="font-mono text-[10px] text-muted-foreground/80"
+ title="Numer referencyjny"
+ >
+ {job.reference_number}
+ </span>
+ )}
+ </div>
  </div>
  <div className="flex items-center gap-1 shrink-0">
  {job.status === "published" && (

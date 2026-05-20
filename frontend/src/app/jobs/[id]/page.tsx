@@ -624,8 +624,15 @@ function EmailTemplateModal({
   onClose: () => void;
 }) {
   const fullName = `${candidate.name} ${candidate.lastname}`.trim();
-  const subject = `Oferta pracy: ${job.title}`;
-  const body = `Dzień dobry ${candidate.name},\n\nZwracam się do Pana/Pani w imieniu B2B.net S.A. z ofertą stanowiska:\n\n**${job.title}**\n\nNa podstawie Pana/Pani profilu uważam, że ta rola idealnie odpowiada Pana/Pani kompetencjom.\n\nCzy byłby Pan/Pani zainteresowany/a rozmową wstępną?\n\nPozdrawiam,\nZespół Rekrutacji B2B.net`;
+  // Reference number (when present) is appended to the subject and quoted in
+  // the body so the candidate can cite it in replies — and so the recruiter's
+  // mailbox threads on a stable identifier.
+  const refSuffix = job.reference_number ? ` [${job.reference_number}]` : "";
+  const refLine = job.reference_number
+    ? `\n\nNumer referencyjny: ${job.reference_number}`
+    : "";
+  const subject = `Oferta pracy: ${job.title}${refSuffix}`;
+  const body = `Dzień dobry ${candidate.name},\n\nZwracam się do Pana/Pani w imieniu B2B.net S.A. z ofertą stanowiska:\n\n**${job.title}**${refLine}\n\nNa podstawie Pana/Pani profilu uważam, że ta rola idealnie odpowiada Pana/Pani kompetencjom.\n\nCzy byłby Pan/Pani zainteresowany/a rozmową wstępną?\n\nPozdrawiam,\nZespół Rekrutacji B2B.net`;
 
   const [copied, setCopied] = useState(false);
 
@@ -954,7 +961,17 @@ export default function JobDetailPage() {
       <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold">{job.title}</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-bold">{job.title}</h1>
+              {job.reference_number && (
+                <span
+                  className="font-mono text-xs px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border"
+                  title="Numer referencyjny oferty"
+                >
+                  {job.reference_number}
+                </span>
+              )}
+            </div>
             <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
               {job.location && (
                 <span className="flex items-center gap-1">

@@ -500,6 +500,21 @@ async def create_job(
     db.add(job)
     await db.flush()
 
+    # Auto-generate a human-readable reference number (Traffit parity) when
+    # the caller didn't supply one and it wasn't carried over from a Traffit
+    # import. Done post-flush so we have the persisted client_id; the UNIQUE
+    # constraint on jobs.reference_number backstops concurrent creates.
+    if not job.reference_number:
+        from datetime import datetime, timezone
+
+        from app.services.job_reference import generate_job_reference_number
+
+        job.reference_number = await generate_job_reference_number(
+            db,
+            client_id=job.client_id,
+            year=datetime.now(timezone.utc).year,
+        )
+
     # Persist secondary CC links (manual from caller, if any)
     if secondary_cc_ids:
         from app.models.cc_feedback import JobSecondaryCc
