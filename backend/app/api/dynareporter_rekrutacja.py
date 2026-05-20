@@ -70,15 +70,15 @@ DEFAULT_SCORING = {
     "linkedin_cv_per_md_target": 5,
 }
 
-# Role które liczą się w widoku zespołu rekrutacji.
-RECRUITMENT_ROLES = ("sourcer", "tac", "recruiter")
-
-# Role które liczą się w Lidze Mistrzów. Rozszerzona o `delivery_lead` żeby
-# pokazać osoby z historią KPI w roli rekrutacyjnej, które awansowały na DL
-# (np. Marlena Rosół, Diana Sditanova — w DR jako `tac`, w Nexusie jako DL
-# po awansie). Bez tego ich punkty Q-level są niewidoczne na podium, co nie
-# odpowiada DR.
-LEAGUE_ROLES = ("sourcer", "tac", "recruiter", "delivery_lead")
+# Roster zespołu rekrutacji (Liga Mistrzów, Wyścig Miesięczny, Power Calling) jest
+# wyznaczany przez kuratorowane tabele przypisań zarządzane w panelu admina:
+#   dr_sourcer_category_assignments  (Sourcer ↔ Kategoria kompetencji)
+#   dr_tac_delivery_lead_assignments (TAC ↔ Delivery Lead)
+# NIE przez `users.role`. Po migracji DR→Nexus role w `users` są zanieczyszczone
+# (AAD sync nadał `sourcer`/`recruiter` dziesiątkom userów ATS) i zdryfowane
+# (Marlena/Diana awansowane na `delivery_lead`; Malwina/Sandra/Martyna W./Dawid
+# trzymają KPI na koncie legacy z rolą `user`). Roster wskazuje konta data-bearing,
+# więc join do KPI jest poprawny, a duplikaty (ASCII twins bez KPI) są pomijane.
 
 POLISH_MONTH_NAMES = [
     "Styczeń",
@@ -346,9 +346,20 @@ async def get_dashboard(
     scoring = await _load_scoring(db)
 
     # Per-user agregaty + COUNT(DISTINCT report_date) jako days_reported.
-    # Filter: tylko rekruci-team roles + (aktywny LUB miał wpis w okresie).
+    # Roster Ligi Mistrzów = kuratorowana lista zespołu rekrutacji zarządzana
+    # w panelu admina (Sourcer↔Kategoria + TAC↔Delivery Lead), NIE filtr po
+    # `users.role`. Powód: po migracji DR→Nexus role w `users` są zanieczyszczone
+    # (AAD sync nadał `sourcer`/`recruiter` dziesiątkom userów ATS) oraz część
+    # zawodników ma KPI na koncie legacy z rolą `user`/`delivery_lead`
+    # (Malwina/Sandra/Martyna W./Dawid, Marlena DL). Roster wskazuje konta
+    # data-bearing → join do KPI działa poprawnie i dedupe jest automatyczny.
     sql = text(
         """
+        WITH roster AS (
+            SELECT user_id AS uid FROM dr_sourcer_category_assignments
+            UNION
+            SELECT tac_user_id FROM dr_tac_delivery_lead_assignments
+        )
         SELECT
             u.id,
             u.name,
@@ -361,20 +372,12 @@ async def get_dashboard(
             COALESCE(SUM(k.requests), 0)::int AS requests,
             COUNT(DISTINCT k.report_date)::int AS days_reported
         FROM users u
+        JOIN roster r ON r.uid = u.id
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
             AND k.is_draft = false
-        WHERE u.role::text = ANY(:roles)
-          AND (
-              u.is_active = true
-              OR EXISTS (
-                  SELECT 1 FROM dr_kpi_body_leasing k2
-                  WHERE k2.user_id = u.id
-                    AND k2.report_date BETWEEN :start_date AND :end_date
-                    AND k2.is_draft = false
-              )
-          )
+        WHERE u.is_active = true
         GROUP BY u.id, u.name, u.role, u.is_active
         ORDER BY u.name
         """
@@ -385,7 +388,6 @@ async def get_dashboard(
             {
                 "start_date": start,
                 "end_date": end,
-                "roles": list(RECRUITMENT_ROLES),
             },
         )
     ).all()
@@ -406,8 +408,10 @@ async def get_dashboard(
         first_name = parts[0] if parts else ""
         last_name = parts[1] if len(parts) > 1 else ""
 
-        target_verif = work_days * 4 if row.role in RECRUITMENT_ROLES else 0
-        target_recom = work_days * 4 if row.role in RECRUITMENT_ROLES else 0
+        # Wszyscy członkowie pochodzą z rostera zespołu rekrutacji, więc cele
+        # liczymy bezwarunkowo (rola w `users` bywa zdryfowana: user/delivery_lead).
+        target_verif = work_days * 4
+        target_recom = work_days * 4
         target_inter = max(1, int(row.recommendations * 0.1))
         target_place = 1
         quality_score = (
@@ -493,18 +497,18 @@ async def get_dashboard(
     # ── Liga Mistrzów (kwartalna agregacja) ────────────────────────────────
     # DR pokazuje Q-level podium (3 miesiące zagregowane), niezależnie od
     # filtru `period` (week/month/year) — używamy bieżącego kwartału kalendarz.
-    # LEAGUE_ROLES dołącza delivery_lead (Marlena/Diana — awansowani z tac).
+    # Roster (sourcer-category ∪ tac-dl) obejmuje też awansowanych na DL
+    # (Marlena/Diana), bo wskazuje konta data-bearing, nie filtruje po roli.
     # NOTE: `date` jako nazwa parametru query shadow'uje `from datetime import date`,
     # więc `date.today()` tu by zwracał AttributeError na stringu. Używamy `datetime.now().date()`.
     today = datetime.now().date()
     q_start, q_end, quarter_label = _compute_quarter_bounds(today)
     q_rows = (
         await db.execute(
-            sql,  # ten sam SQL co główny query — z innymi bounds
+            sql,  # ten sam SQL co główny query (roster-based) — z innymi bounds
             {
                 "start_date": q_start,
                 "end_date": q_end,
-                "roles": list(LEAGUE_ROLES),
             },
         )
     ).all()
@@ -514,9 +518,10 @@ async def get_dashboard(
         parts = full_name.split(" ", 1)
         first_name = parts[0] if parts else ""
         last_name = parts[1] if len(parts) > 1 else ""
-        # Quarterly targets — 3 miesiące * 20 dni roboczych
-        q_target_verif = 60 * 4 if row.role in LEAGUE_ROLES else 0
-        q_target_recom = 60 * 4 if row.role in LEAGUE_ROLES else 0
+        # Quarterly targets — 3 miesiące * 20 dni roboczych. Wszyscy członkowie
+        # pochodzą z rostera zespołu rekrutacji → cele bezwarunkowo.
+        q_target_verif = 60 * 4
+        q_target_recom = 60 * 4
         q_target_inter = max(1, int(row.recommendations * 0.1))
         q_target_place = 3  # Warunek udziału: minimum 3 placements/kwartał (1/msc)
         q_quality = (
@@ -796,6 +801,11 @@ async def get_monthly_race(
     # gdy main metric = 0.
     sql = text(
         f"""
+        WITH roster AS (
+            SELECT user_id AS uid FROM dr_sourcer_category_assignments
+            UNION
+            SELECT tac_user_id FROM dr_tac_delivery_lead_assignments
+        )
         SELECT
             u.id,
             u.name,
@@ -805,12 +815,12 @@ async def get_monthly_race(
             COALESCE(SUM(k.recommendations), 0)::int AS recommendations,
             COALESCE(SUM(k.days_worked), 0)::int AS days_worked
         FROM users u
+        JOIN roster r ON r.uid = u.id
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
             AND k.is_draft = false
-        WHERE u.role::text = ANY(:roles)
-          AND u.is_active = true
+        WHERE u.is_active = true
         GROUP BY u.id, u.name, u.role
         HAVING COALESCE(SUM(k.{metric_col}), 0) > 0
             OR COALESCE(SUM(k.verifications), 0) > 0
@@ -823,7 +833,6 @@ async def get_monthly_race(
             {
                 "start_date": month_date,
                 "end_date": month_end,
-                "roles": list(RECRUITMENT_ROLES),
             },
         )
     ).all()
@@ -846,6 +855,11 @@ async def get_monthly_race(
         q_start, q_end, _ = _compute_quarter_bounds(month_date)
         q_leader_sql = text(
             """
+            WITH roster AS (
+                SELECT user_id AS uid FROM dr_sourcer_category_assignments
+                UNION
+                SELECT tac_user_id FROM dr_tac_delivery_lead_assignments
+            )
             SELECT
                 u.id,
                 COALESCE(SUM(k.placements), 0) * :pts_p
@@ -853,11 +867,12 @@ async def get_monthly_race(
                   + COALESCE(SUM(k.recommendations), 0) * :pts_r
                   + COALESCE(SUM(k.verifications), 0) * :pts_v AS points
             FROM users u
+            JOIN roster r ON r.uid = u.id
             LEFT JOIN dr_kpi_body_leasing k
                 ON k.user_id = u.id
                 AND k.report_date BETWEEN :qs AND :qe
                 AND k.is_draft = false
-            WHERE u.role::text = ANY(:roles) AND u.is_active = true
+            WHERE u.is_active = true
             GROUP BY u.id
             ORDER BY points DESC
             LIMIT 1
@@ -869,7 +884,6 @@ async def get_monthly_race(
                 {
                     "qs": q_start,
                     "qe": q_end,
-                    "roles": list(LEAGUE_ROLES),
                     "pts_p": scoring["placement"],
                     "pts_i": scoring["interview"],
                     "pts_r": scoring["recommendation"],
@@ -977,6 +991,11 @@ async def get_power_calling(
 
     sql = text(
         """
+        WITH roster AS (
+            SELECT user_id AS uid FROM dr_sourcer_category_assignments
+            UNION
+            SELECT tac_user_id FROM dr_tac_delivery_lead_assignments
+        )
         SELECT
             u.id,
             u.name,
@@ -984,13 +1003,13 @@ async def get_power_calling(
             COALESCE(SUM(k.verifications), 0)::int AS verifications,
             COALESCE(SUM(k.days_worked), 0)::int AS days_worked
         FROM users u
+        JOIN roster r ON r.uid = u.id
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.week_number = :wk
             AND EXTRACT(YEAR FROM k.report_date)::int = :yr
             AND k.is_draft = false
-        WHERE u.role::text = ANY(:roles)
-          AND u.is_active = true
+        WHERE u.is_active = true
         GROUP BY u.id, u.name, u.role
         ORDER BY (CASE WHEN COALESCE(SUM(k.days_worked),0)>0
                        THEN COALESCE(SUM(k.verifications),0)::float
@@ -1004,7 +1023,6 @@ async def get_power_calling(
             {
                 "wk": target_week,
                 "yr": target_year,
-                "roles": list(RECRUITMENT_ROLES),
             },
         )
     ).all()
