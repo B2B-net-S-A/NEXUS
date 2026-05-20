@@ -28,6 +28,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.http_headers import content_disposition_attachment
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument
@@ -1866,7 +1867,7 @@ async def download_candidate_document(
         io.BytesIO(doc.file_content),
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition_attachment(filename),
             "Content-Length": str(len(doc.file_content)),
         },
     )

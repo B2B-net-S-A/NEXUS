@@ -28,6 +28,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
+
+from app.core.http_headers import content_disposition_attachment
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,7 +143,7 @@ async def download_original_cv(
         BytesIO(csv.original_cv_content),
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition_attachment(filename),
             "Content-Length": str(len(csv.original_cv_content)),
         },
     )
