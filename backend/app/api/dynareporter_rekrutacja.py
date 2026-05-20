@@ -363,7 +363,8 @@ async def get_dashboard(
         SELECT
             u.id,
             u.name,
-            u.role::text AS role,
+            CASE WHEN u.id IN (SELECT tac_user_id FROM dr_tac_delivery_lead_assignments)
+                 THEN 'tac' ELSE 'sourcer' END AS role,
             u.is_active,
             COALESCE(SUM(k.verifications), 0)::int AS verifications,
             COALESCE(SUM(k.recommendations), 0)::int AS recommendations,
@@ -809,7 +810,8 @@ async def get_monthly_race(
         SELECT
             u.id,
             u.name,
-            u.role::text AS role,
+            CASE WHEN u.id IN (SELECT tac_user_id FROM dr_tac_delivery_lead_assignments)
+                 THEN 'tac' ELSE 'sourcer' END AS role,
             COALESCE(SUM(k.{metric_col}), 0)::int AS metric_value,
             COALESCE(SUM(k.verifications), 0)::int AS verifications,
             COALESCE(SUM(k.recommendations), 0)::int AS recommendations,
@@ -997,7 +999,8 @@ async def get_power_calling(
         SELECT
             u.id,
             u.name,
-            u.role::text AS role,
+            CASE WHEN u.id IN (SELECT tac_user_id FROM dr_tac_delivery_lead_assignments)
+                 THEN 'tac' ELSE 'sourcer' END AS role,
             COALESCE(SUM(k.verifications), 0)::int AS verifications,
             COALESCE(SUM(k.days_worked), 0)::int AS days_worked
         FROM users u
@@ -1061,19 +1064,19 @@ async def get_linkedin_performance(
         SELECT
             u.id,
             u.name,
-            u.role::text AS role,
+            'tac' AS role,
             COALESCE(SUM(k.linkedin_cv_added), 0)::int AS cv_added,
             COALESCE(SUM(k.linkedin_messages_sent), 0)::int AS messages_sent,
             COALESCE(SUM(k.linkedin_responses_received), 0)::int AS responses_received,
             COALESCE(SUM(k.days_worked), 0)::int AS days_worked
         FROM users u
+        JOIN dr_tac_delivery_lead_assignments t ON t.tac_user_id = u.id
         LEFT JOIN dr_kpi_body_leasing k
             ON k.user_id = u.id
             AND k.report_date BETWEEN :start_date AND :end_date
             AND k.is_draft = false
-        WHERE u.role::text = 'tac'
-          AND u.is_active = true
-        GROUP BY u.id, u.name, u.role
+        WHERE u.is_active = true
+        GROUP BY u.id, u.name
         ORDER BY cv_added DESC, messages_sent DESC
         """
     )
