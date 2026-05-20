@@ -230,6 +230,11 @@ export function CVGeneratorStandaloneV2() {
       if (screeningNotes.trim()) fd.append("screening_notes", screeningNotes);
       if (championFile) fd.append("champion_file", championFile);
       const res = await api.post("/api/cv-generator/generate-upload", fd, {
+        // The shared axios instance defaults to application/json; FormData needs
+        // an explicit multipart Content-Type so axios fills in the boundary,
+        // otherwise FastAPI can't parse the upload (422). Matches every other
+        // upload in the app.
+        headers: { "Content-Type": "multipart/form-data" },
         responseType: "blob",
         timeout: 180_000,
       });
