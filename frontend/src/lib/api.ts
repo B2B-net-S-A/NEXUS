@@ -4276,6 +4276,59 @@ export const dynareporterRekrutacjaApi = {
     api
       .get<DrAccelerationPath>("/api/dynareporter/rekrutacja/acceleration-path")
       .then((r) => r.data),
+  placementAnalysis: (params?: {
+    period?: "week" | "month" | "year";
+    date?: string;
+    week_number?: number;
+    year?: number;
+  }) =>
+    api
+      .get<DrPlacementAnalysis>(
+        "/api/dynareporter/rekrutacja/placement-analysis",
+        { params },
+      )
+      .then((r) => r.data),
+  teamPanel: () =>
+    api
+      .get<DrTeamPanel>("/api/dynareporter/rekrutacja/team-panel")
+      .then((r) => r.data),
+};
+
+export type DrPlacementByPerson = {
+  user_id: number;
+  user_name: string;
+  role: string;
+  count: number;
+};
+export type DrPlacementByClient = {
+  client_id: number;
+  client_name: string;
+  count: number;
+};
+export type DrPlacementAnalysis = {
+  by_person: DrPlacementByPerson[];
+  by_client: DrPlacementByClient[];
+  total: number;
+};
+export type DrTeamPanelSourcer = {
+  user_id: number;
+  name: string;
+  priority: number;
+};
+export type DrTeamPanelCategory = {
+  category_id: number;
+  category_name: string;
+  first_priority: DrTeamPanelSourcer[];
+  second_priority: DrTeamPanelSourcer[];
+};
+export type DrTeamPanelTacDl = {
+  dl_user_id: number;
+  dl_name: string;
+  tac_names: string[];
+};
+export type DrTeamPanel = {
+  sourcer_categories: DrTeamPanelCategory[];
+  tac_dl: DrTeamPanelTacDl[];
 };
 
 export type DrAccelerationPathEntry = {

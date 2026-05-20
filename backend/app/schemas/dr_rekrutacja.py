@@ -283,6 +283,77 @@ class MonthlyRace(BaseModel):
     )
 
 
+class PlacementByPerson(BaseModel):
+    """Placement count per osoba (Analiza Placementów — wg osób)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    user_name: str
+    role: str
+    count: int
+
+
+class PlacementByClient(BaseModel):
+    """Placement count per klient (Analiza Placementów — wg klientów)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    client_id: int
+    client_name: str
+    count: int
+
+
+class PlacementAnalysis(BaseModel):
+    """Analiza Placementów — breakdown wg osób + wg klientów dla okresu."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    by_person: list[PlacementByPerson] = Field(default_factory=list)
+    by_client: list[PlacementByClient] = Field(default_factory=list)
+    total: int = 0
+
+
+class TeamPanelSourcer(BaseModel):
+    """Sourcer w kategorii kompetencji z priority."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int
+    name: str
+    priority: int
+
+
+class TeamPanelCategory(BaseModel):
+    """Kategoria kompetencji z sourcerami 1st/2nd priority (Zespół Rekrutacji)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    category_id: int
+    category_name: str
+    first_priority: list[TeamPanelSourcer] = Field(default_factory=list)
+    second_priority: list[TeamPanelSourcer] = Field(default_factory=list)
+
+
+class TeamPanelTacDl(BaseModel):
+    """DL → przypisane TAC (Zespół Rekrutacji — TAC-DL)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    dl_user_id: int
+    dl_name: str
+    tac_names: list[str] = Field(default_factory=list)
+
+
+class TeamPanel(BaseModel):
+    """Zespół Rekrutacji - Przypisania (read-only display dla dashboardu)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    sourcer_categories: list[TeamPanelCategory] = Field(default_factory=list)
+    tac_dl: list[TeamPanelTacDl] = Field(default_factory=list)
+
+
 class PowerCallingEntry(BaseModel):
     """Wiersz Power Calling — dzienna efektywność weryfikacji."""
 
