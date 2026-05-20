@@ -19,6 +19,8 @@ import {
  FileText,
  Files,
  Gauge,
+ GraduationCap,
+ Languages as LanguagesIcon,
  Link2,
  Linkedin,
  Mail,
@@ -51,6 +53,13 @@ import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
 import { PinButton } from"@/components/v2/PinButton";
+import { ExpandableText } from"@/components/v2/ExpandableText";
+import {
+ getCandidateSummaryLine,
+ getEducationList,
+ getLanguageList,
+} from"@/components/v2/pages/candidate-profile-helpers";
+import { getCurrentTitle, getExperienceLabel } from"@/components/v2/pages/candidate-list-helpers";
 import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
@@ -498,9 +507,11 @@ export function CandidateDetailV2({
  </Badge>
  )}
  </div>
- {candidate.current_role && (
+ {/* Scannable one-liner: title · experience · location · salary ·
+ availability — falls back to current_role when no facts resolve. */}
+ {(getCandidateSummaryLine(candidate) ?? candidate.current_role) && (
  <p className="text-sm text-foreground mt-0.5">
- {candidate.current_role}
+ {getCandidateSummaryLine(candidate) ?? candidate.current_role}
  </p>
  )}
 
@@ -625,52 +636,38 @@ export function CandidateDetailV2({
  )}
  {candidate && <PinButton candidateId={candidate.id} />}
  </div>
-
- {/* Key stats */}
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
- <StatTile
- label="Oczekiwania"
- value={
- candidate.expected_salary
- ? `${candidate.expected_salary.toLocaleString("pl-PL")} ${candidate.currency ??"PLN"}`
- :"—"
- }
- />
- <StatTile
- label="Wypowiedzenie"
- value={
- candidate.notice_period_weeks
- ? `${candidate.notice_period_weeks * 7} dni`
- :"—"
- }
- />
- <StatTile
- label="Dostępność"
- value={
- candidate.available_from
- ? formatDate(candidate.available_from) : "—"
- }
- />
- <StatTile
- label="Kategoria"
- value={candidate.competence_category ??"—"}
- />
- </div>
+ {/* Key stats moved into ProfilTab "Kluczowe fakty" grid for a single,
+ scannable source — see ProfilTab FactTile grid. */}
  </div>
  </Card>
 
- {/* AI summary */}
+ {/* 2-column layout on full-page (lg+): tabs left, sticky rail right.
+ Drawer (embedded) never gets lg:grid-cols → stays single column at any
+ viewport. */}
+ <div
+ className={cn(
+ "grid gap-5 items-start",
+ !embedded && "lg:grid-cols-[1fr_340px]",
+ )}
+ >
+ {/* Side rail — AI screening + suggestions (right column on full-page) */}
+ <aside
+ className={cn(
+ "space-y-4",
+ !embedded && "lg:order-2 lg:sticky lg:top-4",
+ )}
+ >
+ {/* AI screening summary (from /ai-profile — distinct from the CV-derived
+ candidate.ai_summary shown in the Profil tab). Truncated for scanability. */}
  {aiProfile?.summary && (
  <Card variant="default" size="md" className="!py-4">
  <div className="flex items-start gap-2">
  <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
  <div className="flex-1">
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">
- AI Summary
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-primary mb-1">
+ AI Screening
  </h3>
- <p className="text-sm text-foreground mt-1 italic">
- {aiProfile.summary}
- </p>
+ <ExpandableText text={aiProfile.summary} maxLines={3} className="italic" />
  </div>
  </div>
  </Card>
@@ -689,7 +686,10 @@ export function CandidateDetailV2({
 
  {/* AI-suggested talent pools (migracja 0041) */}
  <SuggestedPoolsWidget candidateId={Number(id)} />
+ </aside>
 
+ {/* Main column — tabs */}
+ <div className={cn("space-y-5 min-w-0", !embedded && "lg:order-1")}>
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
  <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -755,7 +755,7 @@ export function CandidateDetailV2({
 
  <div className="p-5">
  <TabsContent value="profil" className="mt-0">
- <ProfilTab candidate={candidate} />
+ <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
  </TabsContent>
  <TabsContent value="timeline" className="mt-0">
  <TimelineTab items={timeline ?? []} />
@@ -825,8 +825,12 @@ export function CandidateDetailV2({
  </div>
  </Tabs>
  </Card>
+ </div>
+ {/* /Main column */}
+ </div>
+ {/* /2-column grid */}
 
- {/* Side widgets (below tabs) */}
+ {/* Side widgets (below tabs) — full width under the grid */}
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <RateHistoryWidget candidateId={Number(id)} />
  <ConflictsWidget candidateId={Number(id)} />
@@ -1599,7 +1603,50 @@ function ConfirmModal({
  );
 }
 
-function ProfilTab({ candidate }: { candidate: any }) {
+/** Compact "key facts" tile — variant of StatTile that accepts an icon and
+ *  only renders when it has a value (keeps the facts grid free of "—" noise). */
+function FactTile({
+ icon,
+ label,
+ value,
+}: {
+ icon: React.ReactNode;
+ label: string;
+ value: React.ReactNode;
+}) {
+ return (
+ <div className="rounded-lg bg-background/60 border border-border px-3 py-2.5">
+ <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-1">
+ {icon}
+ {label}
+ </div>
+ <div className="text-sm font-bold text-foreground mt-0.5">{value}</div>
+ </div>
+ );
+}
+
+/** Coerce verified_tech (Optional[Any]) into a clean string list. */
+function verifiedTechList(candidate: any): string[] {
+ const raw = candidate.verified_tech;
+ if (!Array.isArray(raw)) return [];
+ const out: string[] = [];
+ for (const item of raw) {
+ if (typeof item === "string" && item.trim()) out.push(item.trim());
+ else if (item && typeof item === "object") {
+ const v = (item.name ?? item.tech ?? item.skill) as unknown;
+ if (typeof v === "string" && v.trim()) out.push(v.trim());
+ }
+ }
+ return out;
+}
+
+function ProfilTab({
+ candidate,
+ onOpenTab,
+}: {
+ candidate: any;
+ onOpenTab?: (tab: string) => void;
+}) {
  // Defensive: legacy/imported candidates may have these as string/object
  // instead of array (e.g. Traffit-imported with raw text). Array.isArray
  // guard prevents `string.map is not a function` crash.
@@ -1613,9 +1660,384 @@ function ProfilTab({ candidate }: { candidate: any }) {
  : [];
  const aiSource: string = candidate.cv_extracted_data?._source ??"";
  const aiBadge = aiSource.startsWith("claude") || aiSource.startsWith("ollama");
+ const education = getEducationList(candidate);
+ const languages = getLanguageList(candidate);
+ const verifiedTech = verifiedTechList(candidate);
+ const verifiedSet = new Set(verifiedTech.map((t) => t.toLowerCase()));
+ const title = getCurrentTitle(candidate);
+ const expLabel = getExperienceLabel(candidate.years_it_experience);
+ const location = candidate.city ?? candidate.location ?? null;
+ const salary =
+ candidate.expected_salary != null
+ ? `${candidate.expected_salary.toLocaleString("pl-PL")} ${candidate.currency ??"PLN"}`
+ : null;
+ const availability = candidate.available_from
+ ? formatDate(candidate.available_from)
+ : null;
+ const notice = candidate.notice_period_weeks
+ ? `${candidate.notice_period_weeks * 7} dni`
+ : null;
+
+ // Mini activity feed — last 5 events, so the recruiter sees recent history
+ // without switching to the Timeline tab (Traffit's Podsumowanie centerpiece).
+ const { data: feedRaw } = useQuery<{ timeline?: any[] } | any[]>({
+ queryKey: ["candidate-timeline-mini", candidate.id],
+ queryFn: () =>
+ api
+ .get(`/api/candidates/${candidate.id}/timeline?limit=5`)
+ .then((r) => r.data),
+ enabled: !!candidate.id,
+ staleTime: 30_000,
+ });
+ const feed: any[] = Array.isArray(feedRaw)
+ ? feedRaw
+ : (feedRaw?.timeline ?? []);
+
+ // CV quick-open — authenticated blob fetch via the shared axios instance
+ // (Bearer interceptor) so it works cross-origin. cv_filename is candidate-level.
+ const [cvOpening, setCvOpening] = useState(false);
+ const openCv = async () => {
+ setCvOpening(true);
+ try {
+ const res = await api.get(`/api/candidates/${candidate.id}/cv-download`, {
+ responseType: "blob",
+ });
+ const url = URL.createObjectURL(res.data as Blob);
+ window.open(url, "_blank", "noopener,noreferrer");
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ // Fall back to the Pliki tab when the candidate-level CV isn't available.
+ onOpenTab?.("pliki");
+ } finally {
+ setCvOpening(false);
+ }
+ };
+
+ const [adminOpen, setAdminOpen] = useState(false);
+ const hasJdg =
+ candidate.legal_name ||
+ candidate.nip ||
+ candidate.regon ||
+ candidate.business_address ||
+ candidate.business_form;
+
+ const facts: Array<{ icon: React.ReactNode; label: string; value: React.ReactNode }> = [];
+ if (title) facts.push({ icon: <User className="h-3 w-3" />, label: "Stanowisko", value: title });
+ if (expLabel)
+ facts.push({
+ icon: <Gauge className="h-3 w-3" />,
+ label: "Doświadczenie",
+ value: <Badge size="sm" variant={expLabel.variant}>{expLabel.label}</Badge>,
+ });
+ if (location) facts.push({ icon: <MapPin className="h-3 w-3" />, label: "Lokalizacja", value: location });
+ if (salary) facts.push({ icon: <Wallet className="h-3 w-3" />, label: "Oczekiwania", value: salary });
+ if (notice) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Wypowiedzenie", value: notice });
+ if (availability) facts.push({ icon: <Calendar className="h-3 w-3" />, label: "Dostępność", value: availability });
+ if (candidate.competence_category)
+ facts.push({ icon: <Target className="h-3 w-3" />, label: "Kategoria", value: candidate.competence_category });
 
  return (
  <div className="space-y-6">
+ {/* 1. Key facts — scannable grid (only tiles with data) */}
+ {facts.length > 0 && (
+ <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+ {facts.map((f) => (
+ <FactTile key={f.label} icon={f.icon} label={f.label} value={f.value} />
+ ))}
+ </div>
+ )}
+
+ {/* 2. Ostatnia aktywność — mini feed (last 5) */}
+ {feed.length > 0 && (
+ <section>
+ <div className="flex items-center justify-between mb-2">
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+ Ostatnia aktywność
+ </h3>
+ <button
+ type="button"
+ onClick={() => onOpenTab?.("timeline")}
+ className="text-xs font-medium text-primary hover:underline"
+ >
+ Cała historia →
+ </button>
+ </div>
+ <div className="space-y-0 rounded-lg bg-background/40 border border-border px-3">
+ {feed.slice(0, 5).map((item: any, i: number) => (
+ <div
+ key={`${item.type}-${item.id}-${i}`}
+ className="flex gap-2.5 py-2 border-b border-border/40 last:border-0"
+ >
+ <MessageSquare className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+ <div className="flex-1 min-w-0">
+ <div className="flex items-baseline gap-2">
+ <span className="text-xs font-medium text-foreground truncate">
+ {timelineItemLabel(item)}
+ </span>
+ <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
+ {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
+ </span>
+ </div>
+ {item.content && (
+ <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+ {item.content}
+ </p>
+ )}
+ </div>
+ </div>
+ ))}
+ </div>
+ </section>
+ )}
+
+ {/* 3. CV — quick access card */}
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ CV
+ </h3>
+ <div className="flex items-center gap-3 rounded-lg bg-background/40 border border-border p-3">
+ <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+ <div className="flex-1 min-w-0">
+ {candidate.cv_filename ? (
+ <>
+ <div className="text-sm font-medium text-foreground truncate">
+ {candidate.cv_filename}
+ </div>
+ {candidate.cv_parsed_at && (
+ <div className="text-[11px] text-muted-foreground">
+ Sparsowane {formatRelativeTime(candidate.cv_parsed_at)}
+ </div>
+ )}
+ </>
+ ) : (
+ <span className="text-sm text-muted-foreground">Brak CV w profilu</span>
+ )}
+ </div>
+ {candidate.cv_filename ? (
+ <Button size="sm" variant="outline" onClick={openCv} disabled={cvOpening}>
+ <FileText className="h-3.5 w-3.5" />
+ {cvOpening ? "Otwieram…" : "Otwórz"}
+ </Button>
+ ) : (
+ <Button size="sm" variant="ghost" onClick={() => onOpenTab?.("pliki")}>
+ Pliki →
+ </Button>
+ )}
+ </div>
+ </section>
+
+ {/* 4. Podsumowanie AI — truncated */}
+ {aiSummary && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
+ Podsumowanie AI
+ {aiBadge && (
+ <Badge size="sm" variant="info">
+ AI
+ </Badge>
+ )}
+ </h3>
+ <ExpandableText text={aiSummary} maxLines={3} />
+ </section>
+ )}
+
+ {/* 5. O sobie — truncated */}
+ {candidate.about && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ O sobie
+ </h3>
+ <ExpandableText text={candidate.about} maxLines={3} />
+ </section>
+ )}
+
+ {/* 6. Umiejętności — grouped (verified vs declared) */}
+ {skills.length > 0 && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ Umiejętności
+ </h3>
+ {verifiedTech.length > 0 && (
+ <div className="mb-2">
+ <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 mb-1">
+ Zweryfikowane
+ </div>
+ <div className="flex flex-wrap gap-2">
+ {verifiedTech.map((t, i) => (
+ <Badge key={i} size="sm" variant="success" className="gap-1">
+ <CheckCircle2 className="h-3 w-3" />
+ {t}
+ </Badge>
+ ))}
+ </div>
+ </div>
+ )}
+ <div className="flex flex-wrap gap-2">
+ {skills.map((s: any, i: number) => (
+ <div
+ key={i}
+ className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border"
+ >
+ <span className="text-sm font-medium text-foreground">
+ {s.name}
+ </span>
+ {s.level && (
+ <Badge size="sm" variant={SKILL_LEVEL_VARIANT[s.level] ??"neutral"}>
+ {s.level}
+ </Badge>
+ )}
+ {s.name && verifiedSet.has(String(s.name).toLowerCase()) && (
+ <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+ )}
+ {s.years && (
+ <span className="text-[10px] text-muted-foreground">{s.years}l</span>
+ )}
+ </div>
+ ))}
+ </div>
+ </section>
+ )}
+
+ {/* 7. Doświadczenie zawodowe — desc truncated */}
+ {experience.length > 0 && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3 flex items-center gap-2">
+ Doświadczenie zawodowe
+ {aiBadge && (
+ <Badge size="sm" variant="info">
+ AI
+ </Badge>
+ )}
+ </h3>
+ <div className="space-y-3">
+ {experience.map((exp: any, i: number) => {
+ const role = exp.role ?? exp.title ??"";
+ const company = exp.company ??"";
+ const start = exp.start ?? exp.start_date ??"";
+ const end = exp.end ?? exp.end_date ??"";
+ const desc = exp.desc ?? exp.description ??"";
+ const expLoc = exp.location ??"";
+ return (
+ <div
+ key={i}
+ className="rounded-lg bg-background/40 border border-border p-3"
+ >
+ <div className="flex items-start justify-between gap-2 flex-wrap">
+ <div className="min-w-0">
+ {role && <div className="font-medium text-foreground">{role}</div>}
+ <div className="text-xs text-muted-foreground">
+ {company}
+ {expLoc ? ` · ${expLoc}` :""}
+ </div>
+ </div>
+ {(start || end) && (
+ <div className="text-xs text-muted-foreground whitespace-nowrap">
+ {start ? formatDate(start) : ""} —{""}
+ {end ? formatDate(end) : "obecnie"}
+ </div>
+ )}
+ </div>
+ {desc && <ExpandableText text={desc} maxLines={2} className="mt-2" />}
+ </div>
+ );
+ })}
+ </div>
+ </section>
+ )}
+
+ {/* 8. Wykształcenie (NOWE) */}
+ {education.length > 0 && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
+ <GraduationCap className="h-3.5 w-3.5" />
+ Wykształcenie
+ </h3>
+ <div className="space-y-2">
+ {education.map((edu, i) => (
+ <div
+ key={i}
+ className="rounded-lg bg-background/40 border border-border p-3"
+ >
+ <div className="font-medium text-foreground text-sm">
+ {edu.degree || edu.field || "—"}
+ {edu.field && edu.degree ? ` · ${edu.field}` :""}
+ </div>
+ <div className="text-xs text-muted-foreground">
+ {edu.school}
+ {edu.year ? ` · ${edu.year}` :""}
+ </div>
+ </div>
+ ))}
+ </div>
+ </section>
+ )}
+
+ {/* 9. Języki (NOWE) */}
+ {languages.length > 0 && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
+ <LanguagesIcon className="h-3.5 w-3.5" />
+ Języki
+ </h3>
+ <div className="flex flex-wrap gap-2">
+ {languages.map((l, i) => (
+ <div
+ key={i}
+ className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border"
+ >
+ <span className="text-sm font-medium text-foreground">{l.lang}</span>
+ {l.level && (
+ <Badge size="sm" variant="soft">
+ {l.level}
+ </Badge>
+ )}
+ </div>
+ ))}
+ </div>
+ </section>
+ )}
+
+ {/* Firmy z CV — kept (AI-parsed), only when present */}
+ {aiCompanies.length > 0 && (
+ <section>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
+ Firmy z CV
+ {aiBadge && (
+ <Badge size="sm" variant="info">
+ AI
+ </Badge>
+ )}
+ </h3>
+ <div className="flex flex-wrap gap-2">
+ {aiCompanies.map((name: string, i: number) => (
+ <div
+ key={i}
+ className="inline-flex items-center px-3 py-1.5 rounded-lg bg-card border border-border"
+ >
+ <span className="text-sm font-medium text-foreground">{name}</span>
+ </div>
+ ))}
+ </div>
+ </section>
+ )}
+
+ {/* 10. Szczegóły administracyjne — collapsible, panels render only if relevant */}
+ <section className="rounded-lg border border-border">
+ <button
+ type="button"
+ onClick={() => setAdminOpen((v) => !v)}
+ className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-background/40"
+ aria-expanded={adminOpen}
+ >
+ Szczegóły administracyjne
+ {adminOpen ? (
+ <ChevronUp className="h-4 w-4" />
+ ) : (
+ <ChevronDown className="h-4 w-4" />
+ )}
+ </button>
+ {adminOpen && (
+ <div className="p-3 space-y-4 border-t border-border">
  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <CandidateEngagementPanel
  candidateId={candidate.id}
@@ -1644,11 +2066,10 @@ function ProfilTab({ candidate }: { candidate: any }) {
  }}
  />
  </div>
-
  <div className="rounded-xl bg-card border border-border p-4">
  <CandidateSourcesPanel candidateId={candidate.id} />
  </div>
-
+ {hasJdg && (
  <JDGPanel
  candidateId={candidate.id}
  initial={{
@@ -1659,150 +2080,11 @@ function ProfilTab({ candidate }: { candidate: any }) {
  business_form: candidate.business_form,
  }}
  />
-
-
- {aiSummary && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
- Podsumowanie AI
- {aiBadge && (
- <Badge size="sm" variant="info">
- AI
- </Badge>
  )}
- </h3>
- <p className="text-sm text-foreground whitespace-pre-line">
- {aiSummary}
- </p>
- </section>
- )}
-
- {candidate.about && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- O sobie
- </h3>
- <p className="text-sm text-foreground whitespace-pre-line">
- {candidate.about}
- </p>
- </section>
- )}
-
- {aiCompanies.length > 0 && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
- Firmy z CV
- {aiBadge && (
- <Badge size="sm" variant="info">
- AI
- </Badge>
- )}
- </h3>
- <div className="flex flex-wrap gap-2">
- {aiCompanies.map((name: string, i: number) => (
- <div
- key={i}
- className="inline-flex items-center px-3 py-1.5 rounded-lg bg-card border border-border"
- >
- <span className="text-sm font-medium text-foreground">
- {name}
- </span>
- </div>
- ))}
- </div>
- </section>
- )}
-
- {skills.length > 0 && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Umiejętności
- </h3>
- <div className="flex flex-wrap gap-2">
- {skills.map((s: any, i: number) => (
- <div
- key={i}
- className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border"
- >
- <span className="text-sm font-medium text-foreground">
- {s.name}
- </span>
- {s.level && (
- <Badge
- size="sm"
- variant={SKILL_LEVEL_VARIANT[s.level] ??"neutral"}
- >
- {s.level}
- </Badge>
- )}
- {s.years && (
- <span className="text-[10px] text-muted-foreground">
- {s.years}l
- </span>
- )}
- </div>
- ))}
- </div>
- </section>
- )}
-
  <LinkedinSyncPanel candidate={candidate} />
-
- {experience.length > 0 && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3 flex items-center gap-2">
- Doświadczenie zawodowe
- {aiBadge && (
- <Badge size="sm" variant="info">
- AI
- </Badge>
- )}
- </h3>
- <div className="space-y-3">
- {experience.map((exp: any, i: number) => {
- // Backend schema: {company, role, start, end, desc}
- // Legacy imports may still use: {title, start_date, end_date, description}
- const role = exp.role ?? exp.title ??"";
- const company = exp.company ??"";
- const start = exp.start ?? exp.start_date ??"";
- const end = exp.end ?? exp.end_date ??"";
- const desc = exp.desc ?? exp.description ??"";
- const location = exp.location ??"";
- return (
- <div
- key={i}
- className="rounded-lg bg-background/40 border border-border p-3"
- >
- <div className="flex items-start justify-between gap-2 flex-wrap">
- <div className="min-w-0">
- {role && (
- <div className="font-medium text-foreground">
- {role}
  </div>
  )}
- <div className="text-xs text-muted-foreground">
- {company}
- {location ? ` · ${location}` :""}
- </div>
- </div>
- {(start || end) && (
- <div className="text-xs text-muted-foreground whitespace-nowrap">
- {start ? formatDate(start) : ""} —{""}
- {end ? formatDate(end) : "obecnie"}
- </div>
- )}
- </div>
- {desc && (
- <p className="text-sm text-foreground mt-2 whitespace-pre-line">
- {desc}
- </p>
- )}
- </div>
- );
- })}
- </div>
  </section>
- )}
  </div>
  );
 }

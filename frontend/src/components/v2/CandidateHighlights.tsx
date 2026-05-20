@@ -1,6 +1,15 @@
 "use client";
 
-import { AlertTriangle, Circle, RefreshCw, Sparkles } from"lucide-react";
+import {
+ AlertTriangle,
+ Ban,
+ CheckCircle2,
+ Circle,
+ ExternalLink,
+ MinusCircle,
+ RefreshCw,
+ Sparkles,
+} from"lucide-react";
 import { Badge } from"@/components/ui/badge";
 import { cn } from"@/lib/utils";
 
@@ -124,6 +133,7 @@ export function CandidateHighlights({
 
  {isBlacklisted && (
  <Badge variant="alert-dark" size="sm" uppercase>
+ <Ban className="h-3 w-3" />
  Black list
  </Badge>
  )}
@@ -131,11 +141,13 @@ export function CandidateHighlights({
  {/* ── Tier 2: employment state (informational) ─────────────────── */}
  {employmentState === "on_bench" && (
  <Badge variant="success" size="sm">
+ <CheckCircle2 className="h-3 w-3" />
  Bez projektu
  </Badge>
  )}
  {variant === "full" && employmentState === "external" && (
  <Badge variant="soft" size="sm">
+ <ExternalLink className="h-3 w-3" />
  Zewnętrzny
  </Badge>
  )}
@@ -181,11 +193,13 @@ export function CandidateHighlights({
  )}
  {availability_status === "open_to_offers" && (
  <Badge variant="info" size="sm">
+ <Circle className="h-1.5 w-1.5 fill-current" />
  {isEmployedAtClient ?"Otwarty na dodatkowe" :"Otwarty na projekty"}
  </Badge>
  )}
  {variant === "full" && availability_status === "not_looking" && (
  <Badge variant="neutral" size="sm">
+ <MinusCircle className="h-3 w-3" />
  Nie szuka
  </Badge>
  )}
