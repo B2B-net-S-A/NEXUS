@@ -822,8 +822,6 @@ async def get_monthly_race(
             AND k.is_draft = false
         WHERE u.is_active = true
         GROUP BY u.id, u.name, u.role
-        HAVING COALESCE(SUM(k.{metric_col}), 0) > 0
-            OR COALESCE(SUM(k.verifications), 0) > 0
         ORDER BY metric_value DESC, verifications DESC
         """  # noqa: S608 — metric_col z whitelist guard wyżej
     )

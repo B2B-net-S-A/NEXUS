@@ -490,14 +490,18 @@ async def add_tac_dl_assignment(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     _require_admin(current_user)
-    # Idempotent — ON CONFLICT DO NOTHING (composite PK)
+    # Constraint to UNIQUE(tac_user_id) — TAC ma dokładnie jednego DL.
+    # Re-przypisanie TAC do innego DL = UPDATE (nie duplikat). Wcześniejszy
+    # ON CONFLICT (tac_user_id, delivery_lead_user_id) nie pasował do
+    # istniejącego ograniczenia i powodował 500 przy każdym dodaniu.
     await db.execute(
         text(
             """
             INSERT INTO dr_tac_delivery_lead_assignments (
                 tac_user_id, delivery_lead_user_id
             ) VALUES (:tac, :dl)
-            ON CONFLICT (tac_user_id, delivery_lead_user_id) DO NOTHING
+            ON CONFLICT (tac_user_id)
+            DO UPDATE SET delivery_lead_user_id = EXCLUDED.delivery_lead_user_id
             """
         ),
         {"tac": payload.tac_user_id, "dl": payload.delivery_lead_user_id},
@@ -557,15 +561,23 @@ async def add_sourcer_category(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="priority must be 1-5",
         )
-    # ON CONFLICT DO UPDATE — pozwala admin zmienić priority bez Delete+Insert
+    # Istniejące ograniczenie to UNIQUE(category_id, user_id, priority), które
+    # NIE pasuje do ON CONFLICT (user_id, category_id) → poprzednia wersja
+    # rzucała 500 przy każdym zapisie. Upsert "jeden priorytet per user+kategoria"
+    # realizujemy jako DELETE+INSERT w jednej transakcji.
+    await db.execute(
+        text(
+            "DELETE FROM dr_sourcer_category_assignments "
+            "WHERE user_id = :uid AND category_id = :cid"
+        ),
+        {"uid": payload.user_id, "cid": payload.category_id},
+    )
     await db.execute(
         text(
             """
             INSERT INTO dr_sourcer_category_assignments (
                 user_id, category_id, priority
             ) VALUES (:uid, :cid, :prio)
-            ON CONFLICT (user_id, category_id) DO UPDATE
-            SET priority = EXCLUDED.priority
             """
         ),
         {
