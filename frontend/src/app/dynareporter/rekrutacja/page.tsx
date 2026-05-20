@@ -207,6 +207,20 @@ export default function RekrutacjaPage() {
     enabled: queryEnabled,
   });
 
+  const { data: placementAnalysis } = useQuery({
+    queryKey: ["dr-rekrutacja-plac-analysis", dashboardParams],
+    queryFn: () => dynareporterRekrutacjaApi.placementAnalysis(dashboardParams),
+    staleTime: 5 * 60_000,
+    enabled: queryEnabled,
+  });
+
+  const { data: teamPanel } = useQuery({
+    queryKey: ["dr-rekrutacja-team-panel"],
+    queryFn: () => dynareporterRekrutacjaApi.teamPanel(),
+    staleTime: 10 * 60_000,
+    enabled: queryEnabled,
+  });
+
   // Year picker: 3 lata wstecz + bieżący + 1 rok naprzód. Derived
   // z `selectedYear` (initialized w useEffect post-mount, defaults
   // do bieżącego). Quality check LOW: nie hardcode `[2024..2027]`.
@@ -753,6 +767,190 @@ export default function RekrutacjaPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* === Analiza Placementów (wg osób + wg klientów) ============== */}
+          {placementAnalysis && placementAnalysis.total > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Award className="h-5 w-5 text-emerald-500" />
+                  Analiza Placementów — {dashboard.period_label} (
+                  {placementAnalysis.total})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* By person */}
+                  <div>
+                    <h4 className="text-sm font-semibold mb-2">
+                      Placementy wg osób
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Osoba</TableHead>
+                            <TableHead>Rola</TableHead>
+                            <TableHead className="text-right">Plac.</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {placementAnalysis.by_person.map((p) => (
+                            <TableRow key={p.user_id}>
+                              <TableCell className="font-medium">
+                                {p.user_name}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-xs">
+                                {ROLE_LABEL_PL[p.role] ?? p.role}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold">
+                                {p.count}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                  {/* By client */}
+                  <div>
+                    <h4 className="text-sm font-semibold mb-2">
+                      Placementy wg klientów
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Klient</TableHead>
+                            <TableHead className="text-right">Plac.</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {placementAnalysis.by_client.map((c) => (
+                            <TableRow key={c.client_id}>
+                              <TableCell className="font-medium">
+                                {c.client_name}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums font-semibold">
+                                {c.count}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* === Zespół Rekrutacji - Przypisania (read-only display) ====== */}
+          {teamPanel &&
+            (teamPanel.sourcer_categories.length > 0 ||
+              teamPanel.tac_dl.length > 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-5 w-5 text-teal-500" />
+                    Zespół Rekrutacji — Przypisania
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* Sourcerzy wg Kategorii Kompetencji */}
+                  {teamPanel.sourcer_categories.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1">
+                        👥 Sourcerzy wg Kategorii Kompetencji
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Kategoria kompetencji</TableHead>
+                              <TableHead>1st priority</TableHead>
+                              <TableHead>2nd priority</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {teamPanel.sourcer_categories.map((cat) => (
+                              <TableRow key={cat.category_id}>
+                                <TableCell className="font-medium">
+                                  {cat.category_name}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {cat.first_priority.map((s) => (
+                                      <Badge
+                                        key={s.user_id}
+                                        variant="success"
+                                        size="sm"
+                                      >
+                                        {s.name}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {cat.second_priority.map((s) => (
+                                      <Badge
+                                        key={s.user_id}
+                                        variant="neutral"
+                                        size="sm"
+                                      >
+                                        {s.name}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAC - Delivery Lead */}
+                  {teamPanel.tac_dl.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1">
+                        🔗 TAC — Delivery Lead
+                      </h4>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Delivery Lead</TableHead>
+                              <TableHead>TAC</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {teamPanel.tac_dl.map((dl) => (
+                              <TableRow key={dl.dl_user_id}>
+                                <TableCell className="font-medium">
+                                  {dl.dl_name}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {dl.tac_names.map((tac, i) => (
+                                      <Badge key={i} variant="warning" size="sm">
+                                        {tac}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
           {/* === Acceleration Path (Junior→Senior, Senior→Expert) ========= */}
           {accelerationPath &&

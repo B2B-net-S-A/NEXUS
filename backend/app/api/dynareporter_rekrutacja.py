@@ -34,9 +34,16 @@ from app.schemas.dr_rekrutacja import (
     LinkedInPerformanceRow,
     MonthlyRace,
     MonthlyRaceEntry,
+    PlacementAnalysis,
+    PlacementByClient,
+    PlacementByPerson,
     PowerCallingEntry,
     QuarterlyEntryRequirement,
     RekrutacjaDashboard,
+    TeamPanel,
+    TeamPanelCategory,
+    TeamPanelSourcer,
+    TeamPanelTacDl,
     TeamMember,
     TeamSummary,
     UserMetrics,
@@ -1275,4 +1282,156 @@ async def get_acceleration_path(
         senior_count=counts_map.get("senior", 0),
         expert_count=counts_map.get("expert", 0),
         ready_for_promotion=ready_count,
+    )
+
+
+@router.get(
+    "/placement-analysis",
+    response_model=PlacementAnalysis,
+    summary="Analiza Placementów — breakdown wg osób + wg klientów",
+)
+async def get_placement_analysis(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+    period: str = Query(default="month", pattern="^(week|month|year)$"),
+    date_str: Optional[str] = Query(default=None, alias="date"),
+    week_number: Optional[int] = Query(default=None),
+    year: Optional[int] = Query(default=None),
+) -> PlacementAnalysis:
+    """Placementy z dr_placement_details zgrupowane per osoba + per klient.
+
+    Port `PlacementRankingSection` z DR (titled "Analiza Placementów").
+    """
+    start, end, _ = _resolve_period_bounds(period, date_str, week_number, year)
+
+    by_person_sql = text(
+        """
+        SELECT
+            p.user_id,
+            COALESCE(NULLIF(u.name, ''), u.email) AS user_name,
+            u.role::text AS role,
+            count(*)::int AS cnt
+        FROM dr_placement_details p
+        JOIN users u ON u.id = p.user_id
+        WHERE p.placement_date BETWEEN :start_date AND :end_date
+        GROUP BY p.user_id, u.name, u.email, u.role
+        ORDER BY cnt DESC, user_name
+        """
+    )
+    by_client_sql = text(
+        """
+        SELECT
+            p.client_id,
+            COALESCE(c.name, '—') AS client_name,
+            count(*)::int AS cnt
+        FROM dr_placement_details p
+        LEFT JOIN dr_clients c ON c.id = p.client_id
+        WHERE p.placement_date BETWEEN :start_date AND :end_date
+        GROUP BY p.client_id, c.name
+        ORDER BY cnt DESC, client_name
+        """
+    )
+    params = {"start_date": start, "end_date": end}
+    person_rows = (await db.execute(by_person_sql, params)).all()
+    client_rows = (await db.execute(by_client_sql, params)).all()
+
+    by_person = [
+        PlacementByPerson(
+            user_id=r.user_id,
+            user_name=r.user_name or "",
+            role=r.role,
+            count=r.cnt,
+        )
+        for r in person_rows
+    ]
+    by_client = [
+        PlacementByClient(
+            client_id=r.client_id or 0,
+            client_name=r.client_name or "—",
+            count=r.cnt,
+        )
+        for r in client_rows
+    ]
+    total = sum(p.count for p in by_person)
+    return PlacementAnalysis(by_person=by_person, by_client=by_client, total=total)
+
+
+@router.get(
+    "/team-panel",
+    response_model=TeamPanel,
+    summary="Zespół Rekrutacji - Przypisania (sourcer categories + TAC-DL)",
+)
+async def get_team_panel(
+    current_user: CurrentUser,  # noqa: ARG001
+    db: AsyncSession = Depends(get_db),
+) -> TeamPanel:
+    """Read-only display: Sourcerzy wg Kategorii + TAC-DL assignments.
+
+    Port `RecruitmentTeamPanel` z DR — viewer-accessible (każdy zalogowany),
+    w przeciwieństwie do admin RTM (CRUD, wymaga admina).
+    """
+    # Sourcer ↔ category z priority
+    sc_sql = text(
+        """
+        SELECT
+            c.id AS category_id,
+            c.name AS category_name,
+            COALESCE(c.sort_order, 0) AS sort_order,
+            a.user_id,
+            COALESCE(NULLIF(u.name, ''), u.email) AS sourcer_name,
+            a.priority
+        FROM dr_sourcer_category_assignments a
+        JOIN dr_competence_categories c ON c.id = a.category_id
+        JOIN users u ON u.id = a.user_id
+        WHERE u.is_active = true
+        ORDER BY c.sort_order, c.name, a.priority, sourcer_name
+        """
+    )
+    sc_rows = (await db.execute(sc_sql)).all()
+    cat_map: dict[int, TeamPanelCategory] = {}
+    cat_order: list[int] = []
+    for r in sc_rows:
+        if r.category_id not in cat_map:
+            cat_map[r.category_id] = TeamPanelCategory(
+                category_id=r.category_id,
+                category_name=r.category_name or "—",
+                first_priority=[],
+                second_priority=[],
+            )
+            cat_order.append(r.category_id)
+        entry = TeamPanelSourcer(
+            user_id=r.user_id, name=r.sourcer_name or "", priority=r.priority
+        )
+        if r.priority == 1:
+            cat_map[r.category_id].first_priority.append(entry)
+        else:
+            cat_map[r.category_id].second_priority.append(entry)
+
+    # TAC ↔ DL
+    tac_sql = text(
+        """
+        SELECT
+            a.delivery_lead_user_id AS dl_id,
+            COALESCE(NULLIF(d.name, ''), d.email) AS dl_name,
+            COALESCE(NULLIF(t.name, ''), t.email) AS tac_name
+        FROM dr_tac_delivery_lead_assignments a
+        JOIN users d ON d.id = a.delivery_lead_user_id
+        JOIN users t ON t.id = a.tac_user_id
+        ORDER BY dl_name, tac_name
+        """
+    )
+    tac_rows = (await db.execute(tac_sql)).all()
+    dl_map: dict[int, TeamPanelTacDl] = {}
+    dl_order: list[int] = []
+    for r in tac_rows:
+        if r.dl_id not in dl_map:
+            dl_map[r.dl_id] = TeamPanelTacDl(
+                dl_user_id=r.dl_id, dl_name=r.dl_name or "", tac_names=[]
+            )
+            dl_order.append(r.dl_id)
+        dl_map[r.dl_id].tac_names.append(r.tac_name or "")
+
+    return TeamPanel(
+        sourcer_categories=[cat_map[cid] for cid in cat_order],
+        tac_dl=[dl_map[did] for did in dl_order],
     )
