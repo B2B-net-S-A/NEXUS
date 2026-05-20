@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -98,11 +99,20 @@ def _build_docx_response(
     processing_time_ms: int,
 ) -> Response:
     """Wrap a generated DOCX in the standard streaming Response with metadata
-    headers used by both ``/generate`` and ``/generate-upload``."""
+    headers used by both ``/generate`` and ``/generate-upload``.
+
+    HTTP header values must be latin-1 (ISO-8859-1) encodable. Candidate names
+    and Claude warnings routinely carry Polish characters (ł, ą, ę…) that fall
+    outside latin-1; emitting them raw makes the ASGI server raise
+    ``UnicodeEncodeError`` while serializing headers, surfacing as a bare 500.
+    Percent-encode the human-readable name and force ASCII-only ``\\uXXXX``
+    escapes in the warnings JSON — ``decodeURIComponent`` / ``JSON.parse`` on
+    the client decode both transparently.
+    """
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
-        "X-Generator-Candidate-Name": candidate_name,
-        "X-Generator-Warnings": json.dumps(warnings, ensure_ascii=False),
+        "X-Generator-Candidate-Name": quote(candidate_name),
+        "X-Generator-Warnings": json.dumps(warnings, ensure_ascii=True),
         "X-Generator-Processing-Ms": str(processing_time_ms),
         "Access-Control-Expose-Headers": (
             "Content-Disposition, X-Generator-Candidate-Name, "

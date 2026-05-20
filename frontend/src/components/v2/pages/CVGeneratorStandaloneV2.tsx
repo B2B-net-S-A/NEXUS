@@ -213,8 +213,8 @@ export function CVGeneratorStandaloneV2() {
       downloadBlob(blob, filename);
       toast.showSuccess("CV wygenerowane i pobrane.");
     },
-    onError: (err: unknown) => {
-      const detail = extractErrorDetail(err);
+    onError: async (err: unknown) => {
+      const detail = await extractErrorDetail(err);
       toast.showError(detail || "Generowanie nie powiodło się.");
     },
   });
@@ -247,8 +247,8 @@ export function CVGeneratorStandaloneV2() {
       downloadBlob(blob, filename);
       toast.showSuccess("CV wygenerowane i pobrane.");
     },
-    onError: (err: unknown) => {
-      const detail = extractErrorDetail(err);
+    onError: async (err: unknown) => {
+      const detail = await extractErrorDetail(err);
       toast.showError(detail || "Generowanie nie powiodło się.");
     },
   });
@@ -839,12 +839,21 @@ function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
-function extractErrorDetail(err: unknown): string {
+async function extractErrorDetail(err: unknown): Promise<string> {
   if (typeof err !== "object" || err === null) return "";
   const anyErr = err as { response?: { data?: unknown } };
   const data = anyErr.response?.data;
+  // With responseType: "blob" axios delivers error bodies as a Blob too, so the
+  // backend's JSON {detail} must be read out of the Blob before it can surface.
   if (data instanceof Blob) {
-    return "";
+    try {
+      const txt = await data.text();
+      const parsed = JSON.parse(txt);
+      if (typeof parsed?.detail === "string") return parsed.detail;
+      return txt;
+    } catch {
+      return "";
+    }
   }
   if (typeof data === "string") return data;
   if (data && typeof data === "object" && "detail" in data) {
