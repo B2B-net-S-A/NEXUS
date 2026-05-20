@@ -693,7 +693,9 @@ export function CandidateDetailV2({
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
  <Tabs value={activeTab} onValueChange={setActiveTab}>
- <TabsList className="px-4 pt-2">
+ {/* max-w-full + overflow-x-auto so the 10-tab list scrolls instead of
+ spilling over the right rail in the narrower 2-col main column. */}
+ <TabsList className="px-4 pt-2 max-w-full overflow-x-auto justify-start [&>*]:shrink-0">
  <TabsTrigger value="profil">
  <User className="h-3.5 w-3.5" />
  Profil
