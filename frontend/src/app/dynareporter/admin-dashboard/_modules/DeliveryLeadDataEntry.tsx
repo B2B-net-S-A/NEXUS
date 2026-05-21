@@ -32,6 +32,10 @@ import {
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DeliveryLeadBrowse } from "./DeliveryLeadBrowse";
+import { DataHistoryView } from "./DataHistoryView";
+
+type AdminTab = "entry" | "browse" | "history";
 
 const MONTH_NAMES_PL = [
   "Styczeń",
@@ -66,6 +70,7 @@ type DLRow = {
 export function DeliveryLeadDataEntry() {
   const queryClient = useQueryClient();
   const now = new Date();
+  const [tab, setTab] = useState<AdminTab>("entry");
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [rows, setRows] = useState<DLRow[]>([]);
@@ -261,6 +266,41 @@ export function DeliveryLeadDataEntry() {
 
   return (
     <div className="space-y-4">
+      {/* Zakładki: Wprowadzanie danych / Przeglądaj dane / Historia */}
+      <div className="flex gap-1 border-b border-border">
+        {(
+          [
+            ["entry", "Wprowadzanie danych"],
+            ["browse", "Przeglądaj dane"],
+            ["history", "Historia"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "browse" && <DeliveryLeadBrowse />}
+      {tab === "history" && (
+        <DataHistoryView
+          tableName="kpi_delivery_lead"
+          uploadFileType="delivery-lead"
+          title="Historia zmian — Delivery Lead"
+        />
+      )}
+
+      {tab === "entry" && (
+        <>
       <Card>
         <CardContent className="pt-6">
           <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -505,6 +545,8 @@ export function DeliveryLeadDataEntry() {
               </div>
             </CardContent>
           </Card>
+        </>
+      )}
         </>
       )}
     </div>

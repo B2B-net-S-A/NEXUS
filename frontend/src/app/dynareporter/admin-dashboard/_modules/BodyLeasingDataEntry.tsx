@@ -40,9 +40,11 @@ import {
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BodyLeasingBrowse } from "./BodyLeasingBrowse";
+import { DataHistoryView } from "./DataHistoryView";
 
 /**
- * Helper: ISO week number from a Date.
+ * Helper: ISO week number from a Date (do kolumny week_number w DB).
  */
 function getIsoWeek(d: Date): number {
   const t = new Date(d.getTime());
@@ -52,42 +54,15 @@ function getIsoWeek(d: Date): number {
   return Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff));
-}
-
-function getWeekEnd(date: Date): Date {
-  const start = getWeekStart(date);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  return end;
-}
-
 function formatDateInput(d: Date): string {
-  // Local-time format zamiast toISOString() — `toISOString` zwraca UTC,
-  // więc Mon May 18 00:00 CEST → "2026-05-17T22:00:00Z" → splits do "2026-05-17"
-  // (Sunday!). Wynik: weekStartDate utknięty na poprzednim Sunday zamiast
-  // bieżącym Monday. Bug confirmed live na prod 2026-05-20.
+  // Local-time format zamiast toISOString() (UTC shift bug — confirmed prod).
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
-function formatWeekRange(weekStart: string): string {
-  // `weekStart` jest already Monday (przekazane z weekStartDate state).
-  // Nie wywołujemy `getWeekEnd(start)` bo to recursively wywoła
-  // `getWeekStart(start)` → dla Sunday input zwraca poprzedni Monday →
-  // showed "17.05.2026 – 17.05.2026" zamiast właściwego range (bug).
-  const start = new Date(weekStart);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6);
-  return `${start.toLocaleDateString("pl-PL")} – ${end.toLocaleDateString("pl-PL")}`;
-}
-
+type AdminTab = "entry" | "browse" | "history";
 type RoleFilter = "all" | "sourcer" | "tac";
 
 type EditableRow = {
@@ -118,10 +93,10 @@ const ALLOWED_DATA_ENTRY_ROLES = ["sourcer", "tac", "recruiter"];
 
 export function BodyLeasingDataEntry() {
   const queryClient = useQueryClient();
-  const [weekStartDate, setWeekStartDate] = useState<string>(() => {
-    const today = new Date();
-    return formatDateInput(getWeekStart(today));
-  });
+  const [tab, setTab] = useState<AdminTab>("entry");
+  const [entryDate, setEntryDate] = useState<string>(() =>
+    formatDateInput(new Date()),
+  );
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [rows, setRows] = useState<EditableRow[]>([]);
   const [bulkDaysWorked, setBulkDaysWorked] = useState<string>("");
@@ -132,11 +107,11 @@ export function BodyLeasingDataEntry() {
 
   // Fetch existing entries for the target week
   const entriesQuery = useQuery({
-    queryKey: ["dr-bl-admin-entries", weekStartDate],
+    queryKey: ["dr-bl-admin-entries", entryDate],
     queryFn: () =>
       dynareporterBodyLeasingApi.allEntries({
-        from_date: weekStartDate,
-        to_date: weekStartDate,
+        from_date: entryDate,
+        to_date: entryDate,
       }),
     staleTime: 30_000,
   });
@@ -201,8 +176,8 @@ export function BodyLeasingDataEntry() {
     mutationFn: (row: EditableRow) =>
       dynareporterBodyLeasingApi.upsert({
         user_id: row.user_id,
-        report_date: weekStartDate,
-        week_number: getIsoWeek(new Date(weekStartDate)),
+        report_date: entryDate,
+        week_number: getIsoWeek(new Date(entryDate)),
         verifications: row.verifications,
         recommendations: row.recommendations,
         interviews: row.interviews,
@@ -355,6 +330,41 @@ export function BodyLeasingDataEntry() {
 
   return (
     <div className="space-y-4">
+      {/* Zakładki: Wprowadzanie danych / Przeglądaj dane / Historia */}
+      <div className="flex gap-1 border-b border-border">
+        {(
+          [
+            ["entry", "Wprowadzanie danych"],
+            ["browse", "Przeglądaj dane"],
+            ["history", "Historia"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "browse" && <BodyLeasingBrowse />}
+      {tab === "history" && (
+        <DataHistoryView
+          tableName="kpi_body_leasing"
+          uploadFileType="body-leasing"
+          title="Historia zmian — Rekrutacja"
+        />
+      )}
+
+      {tab === "entry" && (
+        <>
       {/* Header */}
       <Card>
         <CardContent className="pt-6">
@@ -362,24 +372,21 @@ export function BodyLeasingDataEntry() {
             <div className="flex items-center gap-2">
               <Building2 className="w-5 h-5 text-blue-600" />
               <h3 className="text-lg font-semibold">
-                Rekrutacja — wpisywanie tygodniowych KPI
+                Rekrutacja — wpisywanie KPI
               </h3>
             </div>
 
             <div className="flex items-center gap-2 ml-auto flex-wrap">
-              {/* Date picker */}
+              {/* Date picker — wolna data, bez podziału na tygodnie */}
               <Calendar className="w-4 h-4 text-muted-foreground" />
-              <label className="text-sm text-muted-foreground">Tydzień (pon):</label>
+              <label className="text-sm text-muted-foreground">Data:</label>
               <input
                 type="date"
-                value={weekStartDate}
-                onChange={(e) => setWeekStartDate(e.target.value)}
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
                 className="px-2 py-1.5 text-sm bg-background border border-input rounded-md"
-                aria-label="Wybierz datę poniedziałku tygodnia"
+                aria-label="Wybierz datę wpisu KPI"
               />
-              <span className="text-xs text-muted-foreground">
-                {formatWeekRange(weekStartDate)}
-              </span>
 
               {/* Role filter */}
               <Filter className="w-4 h-4 text-muted-foreground ml-2" />
@@ -492,7 +499,7 @@ export function BodyLeasingDataEntry() {
             <div className="py-12 text-center space-y-2">
               <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto" />
               <p className="text-sm text-muted-foreground">
-                Brak wpisów dla tygodnia od {weekStartDate}.
+                Brak wpisów dla daty {entryDate}.
               </p>
               <p className="text-xs text-muted-foreground">
                 Kliknij <strong>Wypełnij wszystkich</strong> aby dodać wiersze
@@ -709,6 +716,8 @@ export function BodyLeasingDataEntry() {
             </div>
           </CardContent>
         </Card>
+      )}
+        </>
       )}
     </div>
   );
