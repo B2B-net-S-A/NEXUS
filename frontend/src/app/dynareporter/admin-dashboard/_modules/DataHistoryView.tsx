@@ -11,8 +11,9 @@
  * (AdminPanel.tsx `activeTab === 'history'`).
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { History, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { History, FileSpreadsheet, AlertCircle, Calendar } from "lucide-react";
 import { dynareporterAdminApi } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -32,6 +33,19 @@ function fmtDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function fmtInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Czy data ISO mieści się w okresie [from, to] (porównanie po części dziennej). */
+function inRange(iso: string, from: string, to: string): boolean {
+  const day = (iso ?? "").slice(0, 10);
+  return (!from || day >= from) && (!to || day <= to);
 }
 
 interface DataHistoryViewProps {
@@ -58,20 +72,51 @@ export function DataHistoryView({
     staleTime: 30_000,
   });
 
+  // Ruchomy kalendarz okresu (Od/Do) — filtruje historię zmian po dacie.
+  // Domyślnie od początku bieżącego roku do dziś.
+  const [fromDate, setFromDate] = useState<string>(
+    () => `${new Date().getFullYear()}-01-01`,
+  );
+  const [toDate, setToDate] = useState<string>(() => fmtInput(new Date()));
+
   const auditRows = (auditQuery.data ?? []).filter(
-    (r) => r.table_name === tableName,
+    (r) => r.table_name === tableName && inRange(r.created_at, fromDate, toDate),
   );
   const uploadRows = (uploadsQuery.data ?? []).filter(
-    (r) => !uploadFileType || (r.file_type ?? "").includes(uploadFileType),
+    (r) =>
+      (!uploadFileType || (r.file_type ?? "").includes(uploadFileType)) &&
+      inRange(r.created_at, fromDate, toDate),
   );
 
   return (
     <div className="space-y-4">
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             <History className="w-5 h-5 text-violet-600" />
             <h3 className="text-lg font-semibold">{title}</h3>
+            {/* Ruchomy kalendarz okresu (bez podziału na tygodnie) */}
+            <div className="flex items-center gap-2 ml-auto">
+              <Calendar className="w-4 h-4 text-muted-foreground" />
+              <label className="text-sm text-muted-foreground">Od:</label>
+              <input
+                type="date"
+                value={fromDate}
+                max={toDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="px-2 py-1.5 text-sm bg-background border border-input rounded-md"
+                aria-label="Data początkowa okresu historii"
+              />
+              <label className="text-sm text-muted-foreground">Do:</label>
+              <input
+                type="date"
+                value={toDate}
+                min={fromDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="px-2 py-1.5 text-sm bg-background border border-input rounded-md"
+                aria-label="Data końcowa okresu historii"
+              />
+            </div>
           </div>
 
           {auditQuery.isLoading ? (
