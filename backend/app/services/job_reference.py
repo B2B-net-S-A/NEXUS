@@ -54,9 +54,7 @@ def client_initials(client_name: Optional[str]) -> str:
     if len(words) == 1:
         letters = re.sub(r"[^A-Za-z0-9]", "", words[0]).upper()
         return letters[:_MAX_INITIALS_LEN] or _FALLBACK_INITIALS
-    initials = "".join(
-        re.sub(r"[^A-Za-z0-9]", "", w)[:1] for w in words
-    ).upper()
+    initials = "".join(re.sub(r"[^A-Za-z0-9]", "", w)[:1] for w in words).upper()
     return initials[:_MAX_INITIALS_LEN] or _FALLBACK_INITIALS
 
 
@@ -101,10 +99,14 @@ async def generate_job_reference_number(
 
     pattern = f"{initials}/%/{year}"
     existing_refs = (
-        await db.execute(
-            select(Job.reference_number).where(Job.reference_number.like(pattern))
+        (
+            await db.execute(
+                select(Job.reference_number).where(Job.reference_number.like(pattern))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     used_seqs = {
         seq for seq in (_parse_seq(ref) for ref in existing_refs) if seq is not None
