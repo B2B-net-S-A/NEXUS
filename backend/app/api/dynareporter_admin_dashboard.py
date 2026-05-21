@@ -160,11 +160,11 @@ async def list_audit_log(
             a.records_count,
             a.performed_by AS performed_by_id,
             u.name AS performed_by_name,
-            a.created_at,
+            a.performed_at AS created_at,
             a.details
         FROM dr_data_audit_log a
         LEFT JOIN users u ON u.id = a.performed_by
-        ORDER BY a.created_at DESC
+        ORDER BY a.performed_at DESC
         LIMIT :lim
         """
     )
