@@ -56,6 +56,20 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_feedback_1h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'stage_stuck_7d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_profile_updated'",
+    # Migration 0029 ALSO creates the partial UNIQUE index `ix_notif_dedup_daily`
+    # — the ONLY thing enforcing 1-alert-per-(user,type,entity,Warsaw-day).
+    # `emit()` relies on "INSERT → IntegrityError → skip" for dedup. On prod the
+    # raw-SQL index from 0029 never applied (create_all builds the table from the
+    # ORM model, which does NOT declare this expression index, and alembic was
+    # stamped past 0029), so dedup silently no-op'd and triggers_loop re-inserted
+    # every stale-stage alert every 5 min → ~137M rows / 45GB by 2026-05-22, the
+    # per-user notifications query saturated the DB pool and took the whole API
+    # down. This safety-net guarantees the index exists so dedup actually works.
+    """CREATE UNIQUE INDEX IF NOT EXISTS ix_notif_dedup_daily
+        ON notifications
+        (user_id, notification_type, related_entity_id,
+         (date_trunc('day', created_at AT TIME ZONE 'Europe/Warsaw')))
+        WHERE related_entity_id IS NOT NULL""",
     # Kontrakty expansion (migration 0037) notificationtype extensions
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_ending_90d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_due_14d'",
