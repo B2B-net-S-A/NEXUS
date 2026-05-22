@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RecruiterPlus
@@ -34,6 +34,15 @@ class PlacementResponse(BaseModel):
     week_number: Optional[int] = None
     notes: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class PlacementWithDlCreate(BaseModel):
+    """Placement z panelu Rekrutacji: sourcer + odpowiedzialny DL + klient + data."""
+
+    sourcer_user_id: int
+    delivery_lead_user_id: int
+    client_id: int
+    placement_date: date
 
 
 class PlacementStatsByUser(BaseModel):
@@ -175,6 +184,63 @@ async def create_placement(
     await db.commit()
     await db.refresh(row)
     tgt = (await db.execute(select(User).where(User.id == target_uid))).scalar_one()
+    return PlacementResponse.model_validate({**row.__dict__, "user_name": tgt.name})
+
+
+@router.post(
+    "/with-delivery-lead",
+    response_model=PlacementResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Dodaj placement (sourcer+klient) i dolicz +1 do DL w miesiącu",
+)
+async def create_placement_with_dl(
+    payload: PlacementWithDlCreate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> PlacementResponse:
+    """Atomowo: tworzy `dr_placement_details` dla sourcera ORAZ inkrementuje
+    `dr_kpi_delivery_lead.placements` odpowiedzialnego DL w miesiącu daty
+    podpisania (tworzy wiersz DL jeśli go nie ma). Dzięki temu placement wpisany
+    w panelu Rekrutacji od razu widać w panelu Delivery Lead. Tylko admin/DL/head.
+    """
+    if current_user.role not in (
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
+    ):
+        raise HTTPException(status_code=403, detail="Brak uprawnień")
+
+    row = DrPlacementDetail(
+        user_id=payload.sourcer_user_id,
+        client_id=payload.client_id,
+        placement_date=payload.placement_date,
+        week_number=payload.placement_date.isocalendar().week,
+    )
+    db.add(row)
+
+    report_month = payload.placement_date.replace(day=1)
+    await db.execute(
+        text(
+            """
+            INSERT INTO dr_kpi_delivery_lead (
+                user_id, report_month, requests, placements, vacancies,
+                open_requests, open_vacancies, created_at, updated_at
+            ) VALUES (
+                :dl, :month, 0, 1, 0, 0, 0,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (user_id, report_month) DO UPDATE SET
+                placements = dr_kpi_delivery_lead.placements + 1,
+                updated_at = CURRENT_TIMESTAMP
+            """
+        ),
+        {"dl": payload.delivery_lead_user_id, "month": report_month},
+    )
+    await db.commit()
+    await db.refresh(row)
+    tgt = (
+        await db.execute(select(User).where(User.id == payload.sourcer_user_id))
+    ).scalar_one()
     return PlacementResponse.model_validate({**row.__dict__, "user_name": tgt.name})
 
 

@@ -34,12 +34,22 @@ import {
 import {
   dynareporterBodyLeasingApi,
   dynareporterAdminUsersApi,
+  dynareporterPlacementsApi,
+  dynareporterAdminMasterDataApi,
   type DrKpiBodyLeasingEntry,
   type DrEmployeeRow,
   extractErrorMsg,
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { BodyLeasingBrowse } from "./BodyLeasingBrowse";
 import { DataHistoryView } from "./DataHistoryView";
 
@@ -173,7 +183,7 @@ export function BodyLeasingDataEntry() {
   }, [rows, roleFilter]);
 
   const upsertMutation = useMutation({
-    mutationFn: (row: EditableRow) =>
+    mutationFn: ({ row, isDraft }: { row: EditableRow; isDraft: boolean }) =>
       dynareporterBodyLeasingApi.upsert({
         user_id: row.user_id,
         report_date: entryDate,
@@ -187,10 +197,11 @@ export function BodyLeasingDataEntry() {
         linkedin_cv_added: row.linkedin_cv_added,
         linkedin_messages_sent: row.linkedin_messages_sent,
         linkedin_responses_received: row.linkedin_responses_received,
-        is_draft: false,
+        is_draft: isDraft,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dr-bl-admin-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["dr-bl-browse"] });
       queryClient.invalidateQueries({ queryKey: ["dr-rekrutacja-dashboard"] });
     },
   });
@@ -212,7 +223,7 @@ export function BodyLeasingDataEntry() {
 
   const handleSaveRow = async (row: EditableRow) => {
     try {
-      await upsertMutation.mutateAsync(row);
+      await upsertMutation.mutateAsync({ row, isDraft: false });
       setRows((prev) =>
         prev.map((r) => (r.user_id === row.user_id ? { ...r, dirty: false } : r)),
       );
@@ -223,14 +234,14 @@ export function BodyLeasingDataEntry() {
     }
   };
 
-  const handleSaveAll = async () => {
+  const handleSave = async (isDraft: boolean) => {
     const dirtyRows = rows.filter((r) => r.dirty);
     if (dirtyRows.length === 0) return;
     const savedUserIds = new Set<number>();
     let failCount = 0;
     for (const row of dirtyRows) {
       try {
-        await upsertMutation.mutateAsync(row);
+        await upsertMutation.mutateAsync({ row, isDraft });
         savedUserIds.add(row.user_id);
       } catch {
         failCount++;
@@ -241,9 +252,10 @@ export function BodyLeasingDataEntry() {
         savedUserIds.has(r.user_id) ? { ...r, dirty: false } : r,
       ),
     );
+    const label = isDraft ? "Zapisano draft" : "Zapisano";
     setSaveStatus({
       type: failCount === 0 ? "success" : "error",
-      message: `Zapisano ${savedUserIds.size}/${dirtyRows.length}${failCount > 0 ? ` (${failCount} błędów)` : ""}`,
+      message: `${label} ${savedUserIds.size}/${dirtyRows.length}${failCount > 0 ? ` (${failCount} błędów)` : ""}`,
     });
     setTimeout(() => setSaveStatus(null), 5000);
   };
@@ -312,6 +324,103 @@ export function BodyLeasingDataEntry() {
   const handleRemoveRow = (user_id: number) => {
     setRows((prev) => prev.filter((r) => r.user_id !== user_id));
   };
+
+  // ── Dodaj wiersz (picker pojedynczej osoby) ──────────────────────────────
+  const [addRowUserId, setAddRowUserId] = useState("");
+  const allEmployees = useMemo(
+    () => employeesQuery.data ?? [],
+    [employeesQuery.data],
+  );
+  const usersNotInGrid = useMemo(() => {
+    const inGrid = new Set(rows.map((r) => r.user_id));
+    return allEmployees
+      .filter((u: DrEmployeeRow) => !inGrid.has(u.id))
+      .sort((a: DrEmployeeRow, b: DrEmployeeRow) =>
+        (a.name ?? "").localeCompare(b.name ?? "", "pl"),
+      );
+  }, [allEmployees, rows]);
+
+  const handleAddRow = () => {
+    const uid = Number(addRowUserId);
+    const u = allEmployees.find((x: DrEmployeeRow) => x.id === uid);
+    if (!u) return;
+    setRows((prev) => [
+      ...prev,
+      {
+        user_id: u.id,
+        user_name: u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim(),
+        user_email: u.email,
+        user_role: u.role,
+        verifications: 0,
+        recommendations: 0,
+        interviews: 0,
+        placements: 0,
+        requests: 0,
+        days_worked: 5,
+        linkedin_cv_added: 0,
+        linkedin_messages_sent: 0,
+        linkedin_responses_received: 0,
+        existing_entry_id: null,
+        dirty: true,
+      },
+    ]);
+    setAddRowUserId("");
+  };
+
+  // ── Dodaj placement (modal → placement_details + panel Delivery Lead) ────
+  const [placementOpen, setPlacementOpen] = useState(false);
+  const [placementForm, setPlacementForm] = useState({
+    sourcer_user_id: "",
+    delivery_lead_user_id: "",
+    client_id: "",
+    placement_date: entryDate,
+  });
+  const clientsQuery = useQuery({
+    queryKey: ["dr-clients-list"],
+    queryFn: () => dynareporterAdminMasterDataApi.clients(),
+    staleTime: 60_000,
+  });
+  const deliveryLeadUsers = allEmployees.filter(
+    (u: DrEmployeeRow) => u.role === "delivery_lead",
+  );
+  const placementMutation = useMutation({
+    mutationFn: () =>
+      dynareporterPlacementsApi.createWithDl({
+        sourcer_user_id: Number(placementForm.sourcer_user_id),
+        delivery_lead_user_id: Number(placementForm.delivery_lead_user_id),
+        client_id: Number(placementForm.client_id),
+        placement_date: placementForm.placement_date,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dr-rekrutacja-dashboard"] });
+      // Odśwież panele Delivery Lead (klucze zawierające "delivery"/"dl").
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const k = String(q.queryKey[0]).toLowerCase();
+          return k.includes("delivery") || k.includes("dl");
+        },
+      });
+      setPlacementOpen(false);
+      setPlacementForm((p) => ({
+        ...p,
+        sourcer_user_id: "",
+        delivery_lead_user_id: "",
+        client_id: "",
+      }));
+      setSaveStatus({
+        type: "success",
+        message: "Placement zapisany — widoczny też w panelu Delivery Lead.",
+      });
+      setTimeout(() => setSaveStatus(null), 4000);
+    },
+    onError: (e: unknown) =>
+      setSaveStatus({ type: "error", message: `Błąd: ${extractErrorMsg(e)}` }),
+  });
+  const placementValid =
+    placementForm.sourcer_user_id !== "" &&
+    placementForm.delivery_lead_user_id !== "" &&
+    placementForm.client_id !== "" &&
+    placementForm.placement_date !== "";
 
   const dirtyCount = rows.filter((r) => r.dirty).length;
 
@@ -412,8 +521,8 @@ export function BodyLeasingDataEntry() {
             </div>
           </div>
 
-          {/* Action row: Wypełnij wszystkich + Zapisz wszystkie */}
-          <div className="mt-3 flex flex-wrap gap-2">
+          {/* Action row: kafelki wprowadzania danych */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant="outline"
@@ -423,11 +532,58 @@ export function BodyLeasingDataEntry() {
               <Plus className="w-4 h-4" aria-hidden="true" />
               <span className="ml-1">Wypełnij wszystkich</span>
             </Button>
-            {dirtyCount > 0 && (
-              <Button size="sm" onClick={handleSaveAll} disabled={upsertMutation.isPending}>
-                <Save className="w-4 h-4" aria-hidden="true" />
-                <span className="ml-1">Zapisz wszystkie ({dirtyCount})</span>
+
+            {/* Dodaj wiersz — pojedyncza osoba nieobecna w siatce */}
+            <div className="flex items-center gap-1">
+              <select
+                value={addRowUserId}
+                onChange={(e) => setAddRowUserId(e.target.value)}
+                className="px-2 py-1.5 text-sm bg-background border border-input rounded-md max-w-[170px]"
+                aria-label="Wybierz osobę do dodania wiersza"
+              >
+                <option value="">— osoba —</option>
+                {usersNotInGrid.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleAddRow}
+                disabled={!addRowUserId}
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                <span className="ml-1">Dodaj wiersz</span>
               </Button>
+            </div>
+
+            <Button size="sm" variant="outline" onClick={() => setPlacementOpen(true)}>
+              <Plus className="w-4 h-4" aria-hidden="true" />
+              <span className="ml-1">Dodaj placement</span>
+            </Button>
+
+            {dirtyCount > 0 && (
+              <>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleSave(true)}
+                  disabled={upsertMutation.isPending}
+                >
+                  <Save className="w-4 h-4" aria-hidden="true" />
+                  <span className="ml-1">Zapisz draft ({dirtyCount})</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => handleSave(false)}
+                  disabled={upsertMutation.isPending}
+                >
+                  <Save className="w-4 h-4" aria-hidden="true" />
+                  <span className="ml-1">Zapisz dane ({dirtyCount})</span>
+                </Button>
+              </>
             )}
           </div>
 
@@ -719,6 +875,107 @@ export function BodyLeasingDataEntry() {
       )}
         </>
       )}
+
+      {/* Modal: Dodaj placement — zapisuje placement_details + panel Delivery Lead */}
+      <Dialog open={placementOpen} onOpenChange={setPlacementOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Dodaj placement</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Imię i nazwisko sourcera
+              </label>
+              <select
+                value={placementForm.sourcer_user_id}
+                onChange={(e) =>
+                  setPlacementForm((p) => ({ ...p, sourcer_user_id: e.target.value }))
+                }
+                className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
+              >
+                <option value="">— wybierz —</option>
+                {allEmployees
+                  .slice()
+                  .sort((a: DrEmployeeRow, b: DrEmployeeRow) =>
+                    (a.name ?? "").localeCompare(b.name ?? "", "pl"),
+                  )
+                  .map((u: DrEmployeeRow) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Odpowiedzialny Delivery Lead
+              </label>
+              <select
+                value={placementForm.delivery_lead_user_id}
+                onChange={(e) =>
+                  setPlacementForm((p) => ({
+                    ...p,
+                    delivery_lead_user_id: e.target.value,
+                  }))
+                }
+                className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
+              >
+                <option value="">— wybierz —</option>
+                {deliveryLeadUsers.map((u: DrEmployeeRow) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Klient</label>
+              <select
+                value={placementForm.client_id}
+                onChange={(e) =>
+                  setPlacementForm((p) => ({ ...p, client_id: e.target.value }))
+                }
+                className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
+              >
+                <option value="">— wybierz —</option>
+                {(clientsQuery.data ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Data podpisania umowy
+              </label>
+              <Input
+                type="date"
+                value={placementForm.placement_date}
+                onChange={(e) =>
+                  setPlacementForm((p) => ({ ...p, placement_date: e.target.value }))
+                }
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Placement zapisze się też w panelu Delivery Lead (placement +1 dla
+              wybranego DL w miesiącu podpisania).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPlacementOpen(false)}>
+              Anuluj
+            </Button>
+            <Button
+              onClick={() => placementMutation.mutate()}
+              disabled={!placementValid || placementMutation.isPending}
+            >
+              {placementMutation.isPending ? "Zapisywanie…" : "Zapisz placement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

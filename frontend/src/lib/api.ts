@@ -4391,4 +4391,19 @@ export const dynareporterBodyLeasingApi = {
     api.delete(`/api/dynareporter/kpi/body-leasing/${entryId}`),
 };
 
+export interface DrPlacementWithDlPayload {
+  sourcer_user_id: number;
+  delivery_lead_user_id: number;
+  client_id: number;
+  placement_date: string;
+}
+
+export const dynareporterPlacementsApi = {
+  /** Tworzy placement i dolicza +1 do panelu Delivery Lead w danym miesiącu. */
+  createWithDl: (payload: DrPlacementWithDlPayload) =>
+    api
+      .post("/api/dynareporter/placements/with-delivery-lead", payload)
+      .then((r) => r.data),
+};
+
 export default api;
