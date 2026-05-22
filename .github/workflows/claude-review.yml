@@ -28,5 +28,6 @@ jobs:
       - uses: anthropics/claude-code-action@20c8abf165d5f85ab3fc970db9498436377dc9d1 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: "Review this pull request for bugs, security issues, and missing test coverage. Be concise — only flag real problems and cite file:line. Skip style nitpicks."
           claude_args: "--model claude-sonnet-4-6 --max-turns 5"
