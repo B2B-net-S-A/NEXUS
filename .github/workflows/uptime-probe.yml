@@ -3,7 +3,7 @@ name: Uptime probe
 on:
   schedule:
     # Every 10 minutes — GitHub Actions cron minimum granularity for free tier.
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
