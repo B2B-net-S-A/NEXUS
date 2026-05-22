@@ -1,0 +1,32 @@
+name: Claude review
+
+# Automated Claude Code review on every PR. INERT until activated:
+#   1. run `claude setup-token` (Max subscription) -> set repo secret CLAUDE_CODE_OAUTH_TOKEN
+#   2. flip repo variable CLAUDE_ENABLED to 'true'
+# Runs on the Max subscription (no API cost). Kill-switch: set CLAUDE_ENABLED=false.
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: claude-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: vars.CLAUDE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 1
+      - uses: anthropics/claude-code-action@20c8abf165d5f85ab3fc970db9498436377dc9d1 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: "Review this pull request for bugs, security issues, and missing test coverage. Be concise — only flag real problems and cite file:line. Skip style nitpicks."
+          claude_args: "--model claude-sonnet-4-6 --max-turns 5"
