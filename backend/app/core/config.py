@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     CLIENT_FEEDBACK_ALERT_MINUTE: int = 30
     # "Zweryfikowany kandydat" utknął w cv_sent od X godzin → alert do DL.
     DL_STAGE_STALE_HOURS: int = 6
+    # Górna granica okna: nie alertuj kandydatów zalegających w cv_sent dłużej
+    # niż X dni. Bez tego limitu historyczny backlog (np. 10k+ kandydatów z
+    # importów nigdy nieprzesuniętych) odpalał alert codziennie — patrz
+    # incydent notifications 2026-05-22.
+    DL_STAGE_STALE_MAX_DAYS: int = 14
     # Kandydat na nieterminalnym etapie bez zmiany od X dni → alert do rekrutera.
     STAGE_STUCK_DAYS: int = 7
     # Call completed X minut temu bez ScreeningNote → alert do rekrutera.

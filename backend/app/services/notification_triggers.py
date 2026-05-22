@@ -152,14 +152,20 @@ async def _jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job
 async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
     """Do kogo trafia alert DL-owy.
 
-    Primary: `job.delivery_lead_id`. Jeśli NULL → fallback do wszystkich
-    userów z rolą `delivery_lead`.
+    Primary: `job.delivery_lead_id`. Jeśli NULL → eskalacja do
+    `head_of_recruitment` (przełożeni DL-i, którzy mogą przypisać DL), NIE
+    fan-out do wszystkich DL-i. Pusta lista = brak alertu.
+
+    Stary fallback rozsyłał do KAŻDEGO aktywnego delivery_lead — przy 3874/3882
+    jobach z NULL delivery_lead_id dawało to ~10983×15 ≈ 165k alertów/dzień
+    (incydent notifications 2026-05-22).
     """
     if job.delivery_lead_id:
         return [job.delivery_lead_id]
     rows = await db.execute(
         select(User.id).where(
-            User.role == UserRole.delivery_lead, User.is_active.is_(True)
+            User.roles.contains([UserRole.head_of_recruitment.value]),
+            User.is_active.is_(True),
         )
     )
     return list(rows.scalars().all())
@@ -182,15 +188,18 @@ def _date_as_int(moment: datetime) -> int:
 
 
 async def check_dl_stage_stale_6h(db: AsyncSession, now: datetime) -> int:
-    """Kandydat w `cv_sent` od ≥6h → alert do DL."""
+    """Kandydat w `cv_sent` od ≥6h (ale nie starszy niż MAX_DAYS) → alert do DL."""
     latest = await _latest_stage_per_pair(db)
-    cutoff = now.astimezone(timezone.utc) - timedelta(
-        hours=settings.DL_STAGE_STALE_HOURS
-    )
+    now_utc = now.astimezone(timezone.utc)
+    cutoff = now_utc - timedelta(hours=settings.DL_STAGE_STALE_HOURS)
+    floor = now_utc - timedelta(days=settings.DL_STAGE_STALE_MAX_DAYS)
+    # Okno: zaległy ≥6h, ale ≤MAX_DAYS. Bez dolnej granicy historyczny backlog
+    # (kandydaci z importów wiszący w cv_sent miesiącami) odpalał alert codziennie
+    # — patrz incydent notifications 2026-05-22.
     candidates = [
         s
         for s in latest.values()
-        if s.stage == PipelineStage.cv_sent and _moved_at_utc(s) <= cutoff
+        if s.stage == PipelineStage.cv_sent and floor <= _moved_at_utc(s) <= cutoff
     ]
     if not candidates:
         return 0

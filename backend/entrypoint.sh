@@ -70,6 +70,13 @@ _ENUM_STATEMENTS = [
         (user_id, notification_type, related_entity_id,
          (date_trunc('day', created_at AT TIME ZONE 'Europe/Warsaw')))
         WHERE related_entity_id IS NOT NULL""",
+    # Covering index for the per-user notifications poll
+    # (GET /api/notifications: WHERE user_id=? ORDER BY is_read, created_at DESC
+    # LIMIT ?). Lets Postgres return the top-N straight from the index instead
+    # of sorting a user's whole history — insurance so a large notifications
+    # table can never again exhaust the connection pool (incident 2026-05-22).
+    "CREATE INDEX IF NOT EXISTS ix_notifications_user_read_created "
+    "ON notifications (user_id, is_read, created_at DESC)",
     # Kontrakty expansion (migration 0037) notificationtype extensions
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'contract_ending_90d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_due_14d'",
