@@ -13,7 +13,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Calendar, RefreshCw, Trash2, AlertCircle, Search } from "lucide-react";
+import { Calendar, RefreshCw, Trash2, AlertCircle, Search, Pencil } from "lucide-react";
 import {
   dynareporterBodyLeasingApi,
   type DrKpiBodyLeasingEntry,
@@ -21,6 +21,27 @@ import {
 } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+
+/** Pola KPI edytowalne w modalu (numeryczne). */
+const EDIT_FIELDS: { key: keyof DrKpiBodyLeasingEntry; label: string }[] = [
+  { key: "verifications", label: "Weryfikacje" },
+  { key: "recommendations", label: "Rekomendacje" },
+  { key: "interviews", label: "Interviews" },
+  { key: "placements", label: "Placements" },
+  { key: "requests", label: "Zamknięte zapytania" },
+  { key: "days_worked", label: "Dni robocze" },
+  { key: "linkedin_cv_added", label: "LinkedIn — CV dodane" },
+  { key: "linkedin_messages_sent", label: "LinkedIn — wiadomości" },
+  { key: "linkedin_responses_received", label: "LinkedIn — odpowiedzi" },
+];
 
 function fmtInput(d: Date): string {
   const y = d.getFullYear();
@@ -84,6 +105,41 @@ export function BodyLeasingBrowse() {
     },
     onError: (e: unknown) => setStatus(`Błąd: ${extractErrorMsg(e)}`),
   });
+
+  // Edycja wiersza (ikona ołówka) — upsert po (user_id, report_date).
+  const [editRow, setEditRow] = useState<DrKpiBodyLeasingEntry | null>(null);
+  const [editVals, setEditVals] = useState<Record<string, number>>({});
+
+  const editMutation = useMutation({
+    mutationFn: () => {
+      if (!editRow) throw new Error("Brak wiersza do edycji");
+      return dynareporterBodyLeasingApi.upsert({
+        user_id: editRow.user_id,
+        report_date: editRow.report_date,
+        week_number: editRow.week_number,
+        is_draft: editRow.is_draft,
+        ...editVals,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dr-bl-browse"] });
+      queryClient.invalidateQueries({ queryKey: ["dr-bl-admin-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["dr-rekrutacja-dashboard"] });
+      setEditRow(null);
+      setStatus("Zapisano zmiany.");
+      setTimeout(() => setStatus(null), 3000);
+    },
+    onError: (e: unknown) => setStatus(`Błąd: ${extractErrorMsg(e)}`),
+  });
+
+  const openEdit = (row: DrKpiBodyLeasingEntry) => {
+    setEditVals(
+      Object.fromEntries(
+        EDIT_FIELDS.map((f) => [f.key, (row[f.key] as number) ?? 0]),
+      ),
+    );
+    setEditRow(row);
+  };
 
   const handleSort = (key: SortKey) => {
     setSortConfig((prev) =>
@@ -280,15 +336,25 @@ export function BodyLeasingBrowse() {
                         {e.days_worked ?? 0}
                       </td>
                       <td className="px-2 py-1.5 text-center">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDelete(e)}
-                          disabled={deleteMutation.isPending}
-                          aria-label={`Usuń wpis ${e.user_name ?? ""} z ${e.report_date}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => openEdit(e)}
+                            aria-label={`Edytuj wpis ${e.user_name ?? ""} z ${e.report_date}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5 text-violet-600" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDelete(e)}
+                            disabled={deleteMutation.isPending}
+                            aria-label={`Usuń wpis ${e.user_name ?? ""} z ${e.report_date}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -325,6 +391,49 @@ export function BodyLeasingBrowse() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal edycji wiersza (ikona ołówka) */}
+      <Dialog open={editRow !== null} onOpenChange={(o) => !o && setEditRow(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Edytuj wpis — {editRow?.user_name} ({editRow?.report_date})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            {EDIT_FIELDS.map((f) => (
+              <div key={String(f.key)} className="space-y-1">
+                <label className="text-xs text-muted-foreground">{f.label}</label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={editVals[f.key] ?? 0}
+                  onChange={(ev) =>
+                    setEditVals((prev) => ({
+                      ...prev,
+                      [f.key]: Math.max(0, Number(ev.target.value) || 0),
+                    }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          {editRow && status && status.startsWith("Błąd") && (
+            <p className="text-sm text-rose-600">{status}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRow(null)}>
+              Anuluj
+            </Button>
+            <Button
+              onClick={() => editMutation.mutate()}
+              disabled={editMutation.isPending}
+            >
+              {editMutation.isPending ? "Zapisywanie…" : "Zapisz"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

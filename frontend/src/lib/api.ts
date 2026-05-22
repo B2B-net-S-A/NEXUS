@@ -4375,10 +4375,17 @@ export const dynareporterBodyLeasingApi = {
       .get<DrKpiBodyLeasingRankingEntry[]>("/api/dynareporter/kpi/body-leasing/ranking", { params })
       .then((r) => r.data),
 
-  upsert: (payload: Partial<DrKpiBodyLeasingEntry>) =>
-    api
-      .post<DrKpiBodyLeasingEntry>("/api/dynareporter/kpi/body-leasing", payload)
-      .then((r) => r.data),
+  // Backend bierze docelowego usera z `?user_id=` (admin) lub JWT. `user_id`
+  // w bodzie jest ignorowane przez schemat, więc wyłuskujemy je do query —
+  // inaczej admin zapisywałby wszystkie wiersze pod własnym kontem.
+  upsert: (payload: Partial<DrKpiBodyLeasingEntry>) => {
+    const { user_id, ...body } = payload;
+    return api
+      .post<DrKpiBodyLeasingEntry>("/api/dynareporter/kpi/body-leasing", body, {
+        params: user_id != null ? { user_id } : undefined,
+      })
+      .then((r) => r.data);
+  },
 
   delete: (entryId: number) =>
     api.delete(`/api/dynareporter/kpi/body-leasing/${entryId}`),
