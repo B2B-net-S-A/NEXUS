@@ -2788,47 +2788,55 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  }
 
  async function handlePreview(doc: CandidateDocument) {
+ // Otwieramy kartę NATYCHMIAST w onClick, jeszcze przed pierwszym await.
+ // Chromium "spend"-uje user gesture po pierwszym await, więc późniejsze
+ // window.open zostałoby cicho zablokowane przez popup blocker.
+ const win = window.open("about:blank", "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ return;
+ }
  try {
  const resolved = await resolveUrl(doc.id, "inline");
  if (resolved.kind === "presigned") {
- const win = window.open(resolved.url, "_blank", "noopener,noreferrer");
- if (!win) {
- showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
- }
+ win.location.href = resolved.url;
  return;
  }
- // Proxy fallback — BYTEA, fetch blob i otwórz lokalny URL.
+ // Proxy fallback — BYTEA, fetch blob i podmień URL pustej karty.
  const blob = await fetchProxyBlob(doc.id, "inline");
  const typed = doc.content_type
  ? new Blob([blob], { type: doc.content_type })
  : blob;
- const url = URL.createObjectURL(typed);
- const win = window.open(url, "_blank", "noopener,noreferrer");
- if (!win) {
- showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
- }
- setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ const blobUrl = URL.createObjectURL(typed);
+ win.location.href = blobUrl;
+ setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
  } catch {
+ win.close();
  showError("Nie udało się otworzyć podglądu pliku.");
  }
  }
 
  async function handleDownload(doc: CandidateDocument) {
+ // Pre-open karty z about:blank zachowuje user gesture na późniejsze
+ // ustawienie `win.location.href`. Bucket Hetzner nie ma CORS — odpada
+ // `<a download>` (silent ignore) i iframe (Chromium cross-origin
+ // preflight → 503). Top-level navigation NIE wymaga preflightu; server
+ // zwraca `Content-Disposition: attachment` z presigned URL → browser
+ // pobiera plik i auto-zamyka pustą kartę.
+ const win = window.open("about:blank", "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się pobrać pliku — sprawdź blokadę popupów.");
+ return;
+ }
  try {
  const resolved = await resolveUrl(doc.id, "attachment");
  if (resolved.kind === "presigned") {
- // Bucket Hetzner nie ma CORS — odpada `<a download>` (silent ignore)
- // i iframe (Chromium robi cross-origin preflight → 503). `window.open`
- // to top-level navigation, NIE wymaga CORS preflightu; server zwraca
- // `Content-Disposition: attachment` (z presigned ResponseContent-
- // Disposition), browser pobiera plik i auto-zamyka pustą kartę.
- const win = window.open(resolved.url, "_blank", "noopener,noreferrer");
- if (!win) {
- showError("Nie udało się pobrać pliku — sprawdź blokadę popupów.");
- }
+ win.location.href = resolved.url;
  return;
  }
- // Proxy fallback — BYTEA, pobierz blob i wyzwól download.
+ // Proxy fallback — BYTEA, same-origin OK, zamykamy pre-open window
+ // i lecimy klasycznym `<a download>` na local blob URL.
+ win.close();
  const blob = await fetchProxyBlob(doc.id, "attachment");
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
@@ -2839,6 +2847,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  document.body.removeChild(a);
  URL.revokeObjectURL(url);
  } catch {
+ win.close();
  showError("Nie udało się pobrać pliku.");
  }
  }
