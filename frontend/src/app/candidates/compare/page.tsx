@@ -20,6 +20,25 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[code % AVATAR_COLORS.length];
 }
 
+function formatNoticePeriod(value: number | null | undefined, unit: string | null | undefined): string {
+  if (value == null) return "—";
+  const effectiveUnit = unit || "days";
+  const labels: Record<string, [string, string, string]> = {
+    days: ["dzień", "dni", "dni"],
+    weeks: ["tydzień", "tygodnie", "tygodni"],
+    months: ["miesiąc", "miesiące", "miesięcy"],
+  };
+  const forms = labels[effectiveUnit] ?? labels.days;
+  const n = Math.abs(value);
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  let label: string;
+  if (n === 1) label = forms[0];
+  else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) label = forms[1];
+  else label = forms[2];
+  return `${value} ${label}`;
+}
+
 function calcScore(c: any): number {
   let score = 0;
   const fields = [
@@ -137,7 +156,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
         <div className="flex justify-between">
           <span className="text-muted-foreground">Wypowiedzenie:</span>
           <span className="font-medium">
-            {candidate.notice_period != null ? `${candidate.notice_period} dni` : "—"}
+            {formatNoticePeriod(candidate.notice_period, candidate.notice_period_unit)}
           </span>
         </div>
       </div>

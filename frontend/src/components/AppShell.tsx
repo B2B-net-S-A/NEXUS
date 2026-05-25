@@ -243,6 +243,7 @@ interface CandidateFormData {
   salary_currency: string;
   availability_date: string;
   notice_period: string;
+  notice_period_unit: string; // "days" | "weeks" | "months"
   status: string;
   availability_status: string;
   tags: string;
@@ -264,7 +265,7 @@ interface CandidateFormData {
 const EMPTY_CANDIDATE: CandidateFormData = {
   name: "", lastname: "", email: "", phone: "", location: "",
   source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
-  availability_date: "", notice_period: "", status: "active", availability_status: "unknown", tags: "", notes: "",
+  availability_date: "", notice_period: "", notice_period_unit: "days", status: "active", availability_status: "unknown", tags: "", notes: "",
   years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
   pref_remote_modes: [], pref_rate_min: "", pref_rate_max: "",
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
@@ -299,6 +300,7 @@ function candidateToForm(c: any): CandidateFormData {
     salary_currency: c.salary_currency ?? "PLN",
     availability_date: c.availability_date ? c.availability_date.slice(0, 10) : "",
     notice_period: c.notice_period != null ? String(c.notice_period) : "",
+    notice_period_unit: c.notice_period_unit ?? (c.notice_period != null ? "days" : "days"),
     status: c.status ?? "active",
     availability_status: c.availability_status ?? "unknown",
     tags: Array.isArray(c.tags) ? c.tags.join(", ") : (c.tags ?? ""),
@@ -355,6 +357,7 @@ function candidateFormToPayload(form: CandidateFormData) {
     salary_currency: form.salary_currency,
     availability_date: form.availability_date || undefined,
     notice_period: form.notice_period ? Number(form.notice_period) : undefined,
+    notice_period_unit: form.notice_period ? (form.notice_period_unit || "days") : undefined,
     status: form.status,
     availability_status: form.availability_status || undefined,
     tags: tags.length ? tags : undefined,
@@ -448,8 +451,26 @@ function CandidateFormFields({
             <option value="USD">USD</option>
           </Select>
         </FieldGroup>
-        <FieldGroup label="Okres wypowiedzenia (dni)">
-          <Input type="number" value={form.notice_period} onChange={e => onChange("notice_period", e.target.value)} placeholder="30" />
+        <FieldGroup label="Okres wypowiedzenia">
+          <div className="grid grid-cols-[1fr,1.2fr] gap-2">
+            <Input
+              type="number"
+              min={0}
+              value={form.notice_period}
+              onChange={e => onChange("notice_period", e.target.value)}
+              placeholder="30"
+              aria-label="Okres wypowiedzenia — wartość"
+            />
+            <Select
+              value={form.notice_period_unit || "days"}
+              onChange={e => onChange("notice_period_unit", e.target.value)}
+              aria-label="Okres wypowiedzenia — jednostka"
+            >
+              <option value="days">dni</option>
+              <option value="weeks">tygodnie</option>
+              <option value="months">miesiące</option>
+            </Select>
+          </div>
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">

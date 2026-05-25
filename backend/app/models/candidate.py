@@ -92,7 +92,12 @@ class Candidate(Base, TimestampMixin):
     salary_expectation: Mapped[Optional[int]] = mapped_column(Integer)
     salary_currency: Mapped[Optional[str]] = mapped_column(String(3), default="PLN")
     availability_date: Mapped[Optional[date]] = mapped_column(Date)
-    notice_period: Mapped[Optional[int]] = mapped_column(Integer)  # days
+    notice_period: Mapped[Optional[int]] = mapped_column(
+        Integer
+    )  # value (interpreted via notice_period_unit; NULL unit = legacy days)
+    notice_period_unit: Mapped[Optional[str]] = mapped_column(
+        String(20)
+    )  # "days" | "weeks" | "months"
 
     # Źródło pozyskania kandydata
     source: Mapped[Optional[str]] = mapped_column(String(100), index=True)
