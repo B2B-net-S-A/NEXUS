@@ -101,9 +101,7 @@ def get_presigned_download_url(
     params: dict = {"Bucket": _bucket_name(), "Key": storage_key}
     if filename:
         safe = _safe_filename(filename)
-        params["ResponseContentDisposition"] = (
-            f'{disposition}; filename="{safe}"'
-        )
+        params["ResponseContentDisposition"] = f'{disposition}; filename="{safe}"'
     return _client().generate_presigned_url(
         "get_object", Params=params, ExpiresIn=expires_in
     )
