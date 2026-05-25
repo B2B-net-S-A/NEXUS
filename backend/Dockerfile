@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-pol \
     tesseract-ocr-eng \
     poppler-utils \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -48,10 +49,19 @@ RUN chmod +x /app/entrypoint.sh
 # blast radius on the candidate-CV upload directory and other writable
 # paths. The uploads + app dir are chowned so the entrypoint can write logs
 # and Alembic can apply migrations at boot.
+#
+# We intentionally keep the runtime user as root at the ENTRYPOINT level
+# (no `USER appuser` here): the entrypoint script must run a privileged
+# `chown -R appuser:appgroup /tmp/nexus/uploads` first, then self-re-exec
+# via `gosu appuser:appgroup`. This is required because Docker named
+# volumes (e.g. `uploads_data` mounted at /tmp/nexus/uploads) created
+# under earlier images that ran as root retain root ownership on first
+# mount, and `appuser` cannot create subdirectories there. The actual
+# Python process still runs as appuser thanks to the gosu drop in
+# entrypoint.sh — see that file for the privilege handoff.
 RUN groupadd --system --gid 10001 appgroup \
  && useradd  --system --uid 10001 --gid appgroup --no-create-home --shell /usr/sbin/nologin appuser \
  && chown -R appuser:appgroup /app /tmp/nexus
-USER appuser
 
 EXPOSE 8000
 

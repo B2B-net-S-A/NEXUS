@@ -1,9 +1,29 @@
 #!/bin/bash
 set -e
 
+# Privilege handoff (root → appuser). The Dockerfile leaves ENTRYPOINT as
+# root specifically so this block can heal volume ownership. Named Docker
+# volumes (e.g. `uploads_data` mounted at /tmp/nexus/uploads) created under
+# earlier images that ran as root retain root ownership on first mount, and
+# the unprivileged appuser cannot create subdirectories there. Without this
+# heal, `POST /api/clients/{id}/framework-contracts` 500'd in prod on
+# 2026-05-25 with `PermissionError: '/tmp/nexus/uploads/client_framework_contracts'`
+# because the volume from before commit 2b465d6 (P0/P1 security review,
+# which introduced the non-root user) was still root-owned. We chown the
+# entire `/tmp/nexus` tree as root, then `exec gosu appuser:appgroup` to
+# re-execute this same script as the unprivileged user — meaning the
+# Python process below still runs with the privilege drop intended by the
+# security hardening, just with writable uploads.
+if [ "$(id -u)" = "0" ]; then
+    echo "=== Nexus ATS Backend Privilege Handoff (root -> appuser) ==="
+    chown -R appuser:appgroup /tmp/nexus 2>/dev/null || \
+        echo "WARN: chown /tmp/nexus failed (volume read-only?); appuser may not be able to upload"
+    exec gosu appuser:appgroup "$0" "$@"
+fi
+
 export PYTHONPATH=/app:${PYTHONPATH}
 
-echo "=== Nexus ATS Backend Starting ==="
+echo "=== Nexus ATS Backend Starting (as $(id -un)) ==="
 
 # Wait for postgres to be ready
 echo "Waiting for database..."
