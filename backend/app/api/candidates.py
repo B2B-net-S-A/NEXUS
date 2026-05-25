@@ -1843,23 +1843,30 @@ async def download_candidate_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    media_type = doc.content_type or "application/octet-stream"
 
-    # Po migracji do Hetzner Object Storage (audit-2026-05-07 Faza 3): jeśli
-    # `storage_key` jest set, klient ściąga bezpośrednio przez presigned URL
-    # — backend nie pośredniczy w bytestream.
+    # Po migracji do Hetzner Object Storage (audit-2026-05-07 Faza 3): plik
+    # leży w buckecie pod `storage_key`. PROXY MODE — backend pobiera bytes
+    # z storage i streamuje do klienta. Nie używamy 302 redirect do presigned
+    # URL bo:
+    #   1. Bucket Hetzner nie ma skonfigurowanego CORS → `responseType: blob`
+    #      cross-origin fail w przeglądarce.
+    #   2. `window.open` na cross-origin URL po `await` jest blocked przez
+    #      Chromium Site Isolation (silent ignore set-location).
+    # Proxy przez backend = same-origin XHR z Bearer JWT, niezawodne.
     if doc.storage_key:
-        from fastapi.responses import RedirectResponse
-
-        from app.services.object_storage import (
-            get_presigned_download_url,
-            is_available,
-        )
+        from app.services.object_storage import download_cv, is_available
 
         if is_available():
-            url = get_presigned_download_url(
-                doc.storage_key, filename=filename, disposition=disposition
+            content = download_cv(doc.storage_key)
+            return StreamingResponse(
+                io.BytesIO(content),
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": content_disposition(filename, disposition),
+                    "Content-Length": str(len(content)),
+                },
             )
-            return RedirectResponse(url, status_code=302)
         # Storage env nie skonfigurowane — fallback do BYTEA jeśli jeszcze jest.
 
     # Legacy path: stream from postgres BYTEA. Po --finalize-delete-bytea
@@ -1869,9 +1876,6 @@ async def download_candidate_document(
     if not doc.file_content:
         raise HTTPException(status_code=404, detail="Document content not available")
 
-    import io
-
-    media_type = doc.content_type or "application/octet-stream"
     return StreamingResponse(
         io.BytesIO(doc.file_content),
         media_type=media_type,
