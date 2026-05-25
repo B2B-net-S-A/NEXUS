@@ -2791,7 +2791,13 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  // Otwieramy kartę NATYCHMIAST w onClick, jeszcze przed pierwszym await.
  // Chromium "spend"-uje user gesture po pierwszym await, więc późniejsze
  // window.open zostałoby cicho zablokowane przez popup blocker.
- const win = window.open("about:blank", "_blank", "noopener,noreferrer");
+ // UWAGA: BEZ `noopener,noreferrer` — Chromium z tymi feature'ami ZAWSZE
+ // zwraca null z window.open (celowo: nowa karta nie ma `window.opener`,
+ // ale my potrzebujemy reference żeby później ustawić `win.location.href`).
+ // Po nawigacji ręcznie zerujemy `win.opener` żeby zamknąć kierunek
+ // dostępu nowa-karta → bieżąca strona (Hetzner presigned URL jest na
+ // nasz bucket, więc nie ma ryzyka window-control attack).
+ const win = window.open("about:blank", "_blank");
  if (!win) {
  showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
  return;
@@ -2800,6 +2806,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  const resolved = await resolveUrl(doc.id, "inline");
  if (resolved.kind === "presigned") {
  win.location.href = resolved.url;
+ win.opener = null;
  return;
  }
  // Proxy fallback — BYTEA, fetch blob i podmień URL pustej karty.
@@ -2809,6 +2816,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  : blob;
  const blobUrl = URL.createObjectURL(typed);
  win.location.href = blobUrl;
+ win.opener = null;
  setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
  } catch {
  win.close();
@@ -2823,7 +2831,13 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  // preflight → 503). Top-level navigation NIE wymaga preflightu; server
  // zwraca `Content-Disposition: attachment` z presigned URL → browser
  // pobiera plik i auto-zamyka pustą kartę.
- const win = window.open("about:blank", "_blank", "noopener,noreferrer");
+ // UWAGA: BEZ `noopener,noreferrer` — Chromium z tymi feature'ami ZAWSZE
+ // zwraca null z window.open (celowo: nowa karta nie ma `window.opener`,
+ // ale my potrzebujemy reference żeby później ustawić `win.location.href`).
+ // Po nawigacji ręcznie zerujemy `win.opener` żeby zamknąć kierunek
+ // dostępu nowa-karta → bieżąca strona (Hetzner presigned URL jest na
+ // nasz bucket, więc nie ma ryzyka window-control attack).
+ const win = window.open("about:blank", "_blank");
  if (!win) {
  showError("Nie udało się pobrać pliku — sprawdź blokadę popupów.");
  return;
@@ -2832,6 +2846,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  const resolved = await resolveUrl(doc.id, "attachment");
  if (resolved.kind === "presigned") {
  win.location.href = resolved.url;
+ win.opener = null;
  return;
  }
  // Proxy fallback — BYTEA, same-origin OK, zamykamy pre-open window
