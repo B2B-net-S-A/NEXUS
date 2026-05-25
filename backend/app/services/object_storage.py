@@ -23,7 +23,7 @@ import os
 import re
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -86,17 +86,22 @@ def upload_cv(
 
 
 def get_presigned_download_url(
-    storage_key: str, expires_in: int = 300, filename: Optional[str] = None
+    storage_key: str,
+    expires_in: int = 300,
+    filename: Optional[str] = None,
+    disposition: Literal["attachment", "inline"] = "attachment",
 ) -> str:
     """Return URL z TTL — klient ściąga bezpośrednio z Hetzner.
 
     `filename` pozwala wymusić Content-Disposition (browser zapisze pod
-    oryginalną nazwą zamiast UUID-key).
+    oryginalną nazwą zamiast UUID-key). `disposition` decyduje czy plik ma
+    zostać zapisany jako attachment, czy wyrenderowany inline (preview PDF/img
+    w nowej karcie przeglądarki).
     """
     params: dict = {"Bucket": _bucket_name(), "Key": storage_key}
     if filename:
         safe = _safe_filename(filename)
-        params["ResponseContentDisposition"] = f'attachment; filename="{safe}"'
+        params["ResponseContentDisposition"] = f'{disposition}; filename="{safe}"'
     return _client().generate_presigned_url(
         "get_object", Params=params, ExpiresIn=expires_in
     )

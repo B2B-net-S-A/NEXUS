@@ -10,18 +10,27 @@ upload names) rather than a constant.
 
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import quote
 
-__all__ = ["content_disposition_attachment"]
+__all__ = ["content_disposition", "content_disposition_attachment"]
 
 
-def content_disposition_attachment(filename: str, fallback: str = "download") -> str:
-    """Build a latin-1-safe ``Content-Disposition: attachment`` header value.
+def content_disposition(
+    filename: str,
+    disposition: Literal["attachment", "inline"] = "attachment",
+    fallback: str = "download",
+) -> str:
+    """Build a latin-1-safe ``Content-Disposition`` header value.
 
     Emits both ``filename="<ascii>"`` (legacy clients) and
     ``filename*=UTF-8''<percent-encoded>`` (RFC 5987, modern browsers) so the
     original name — including non-ASCII characters — survives the download
     without breaking header encoding.
+
+    ``disposition`` controls whether the browser saves the file (``attachment``)
+    or renders it inline in the current tab (``inline`` — used for PDF/image
+    previews).
     """
     name = (filename or "").strip() or fallback
 
@@ -36,4 +45,9 @@ def content_disposition_attachment(filename: str, fallback: str = "download") ->
     # RFC 5987 token: percent-encode everything, always pure ASCII.
     quoted = quote(name, safe="")
 
-    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted}"
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted}"
+
+
+def content_disposition_attachment(filename: str, fallback: str = "download") -> str:
+    """Backwards-compatible alias for ``content_disposition(..., "attachment")``."""
+    return content_disposition(filename, "attachment", fallback)

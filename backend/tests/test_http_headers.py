@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from urllib.parse import unquote
 
-from app.core.http_headers import content_disposition_attachment
+from app.core.http_headers import content_disposition, content_disposition_attachment
 
 
 def test_polish_filename_is_latin1_safe():
@@ -58,3 +58,23 @@ def test_all_nonascii_name_still_safe():
     value.encode("latin-1")
     token = value.split("filename*=UTF-8''", 1)[1]
     assert unquote(token) == "Żółć.pdf"
+
+
+def test_inline_disposition_uses_inline_prefix():
+    value = content_disposition("Żółć.pdf", "inline")
+    value.encode("latin-1")  # must not raise
+    assert value.startswith("inline;")
+    assert "attachment" not in value
+    assert "filename*=UTF-8''" in value
+
+
+def test_default_disposition_is_attachment():
+    value = content_disposition("plain.pdf")
+    assert value.startswith("attachment;")
+
+
+def test_attachment_alias_matches_content_disposition():
+    # Backwards-compat alias must produce identical output for "attachment".
+    assert content_disposition_attachment("Żółć.pdf") == content_disposition(
+        "Żółć.pdf", "attachment"
+    )

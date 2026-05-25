@@ -15,6 +15,7 @@ import {
  ChevronDown,
  ChevronUp,
  Download,
+ Eye,
  FileSignature,
  FileText,
  Files,
@@ -2733,6 +2734,7 @@ function fileIcon(contentType: string | null): React.ReactNode {
 }
 
 function PlikiTab({ candidateId }: { candidateId: number }) {
+ const { showError } = useToast();
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: ["candidate-documents", candidateId],
  queryFn: async () => {
@@ -2743,6 +2745,104 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  },
  staleTime: 30_000,
  });
+
+ // Dwa flow w zależności od kind:
+ // - "presigned" (Object Storage path): backend zwraca krótkoterminowy
+ // Hetzner URL. Klient otwiera przez `window.open` (preview) lub
+ // programmatic `<a download>` na tym URL. Top-level navigation NIE
+ // wymaga CORS na Hetzner bucket — XHR z `responseType: blob` by się
+ // wywalił bo bucket nie ma Access-Control-Allow-Origin.
+ // - "proxy" (BYTEA legacy): backend nadal trzyma binary w postgresie,
+ // klient musi pobrać przez `/content` endpoint jako blob (axios wysyła
+ // Bearer z localStorage — `<a>` link by tego nie zrobił).
+ async function resolveUrl(
+ docId: number,
+ disposition: "attachment" | "inline",
+ ): Promise<
+ | { kind: "presigned"; url: string; filename: string }
+ | { kind: "proxy"; filename: string }
+ > {
+ const res = await api.get<{
+ kind: "presigned" | "proxy";
+ url?: string;
+ filename: string;
+ }>(
+ `/api/candidates/${candidateId}/documents/${docId}/url`,
+ { params: { disposition } },
+ );
+ if (res.data.kind === "presigned" && res.data.url) {
+ return { kind: "presigned", url: res.data.url, filename: res.data.filename };
+ }
+ return { kind: "proxy", filename: res.data.filename };
+ }
+
+ async function fetchProxyBlob(
+ docId: number,
+ disposition: "attachment" | "inline",
+ ): Promise<Blob> {
+ const res = await api.get(
+ `/api/candidates/${candidateId}/documents/${docId}/content`,
+ { responseType: "blob", params: { disposition } },
+ );
+ return res.data as Blob;
+ }
+
+ async function handlePreview(doc: CandidateDocument) {
+ try {
+ const resolved = await resolveUrl(doc.id, "inline");
+ if (resolved.kind === "presigned") {
+ const win = window.open(resolved.url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ }
+ return;
+ }
+ // Proxy fallback — BYTEA, fetch blob i otwórz lokalny URL.
+ const blob = await fetchProxyBlob(doc.id, "inline");
+ const typed = doc.content_type
+ ? new Blob([blob], { type: doc.content_type })
+ : blob;
+ const url = URL.createObjectURL(typed);
+ const win = window.open(url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ }
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ showError("Nie udało się otworzyć podglądu pliku.");
+ }
+ }
+
+ async function handleDownload(doc: CandidateDocument) {
+ try {
+ const resolved = await resolveUrl(doc.id, "attachment");
+ if (resolved.kind === "presigned") {
+ // Presigned URL ma już ResponseContentDisposition=attachment, więc
+ // `<a download>` z dowolnym filename'em zostanie nadpisany przez
+ // serwer — kept dla compat z UI behavior expectations.
+ const a = document.createElement("a");
+ a.href = resolved.url;
+ a.download = resolved.filename;
+ a.rel = "noopener noreferrer";
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ return;
+ }
+ // Proxy fallback — BYTEA, pobierz blob i wyzwól download.
+ const blob = await fetchProxyBlob(doc.id, "attachment");
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = doc.filename ?? `document-${doc.id}`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+ } catch {
+ showError("Nie udało się pobrać pliku.");
+ }
+ }
 
  if (isLoading) {
  return (
@@ -2811,15 +2911,26 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  )}
  </div>
  </div>
- <a
- href={`/api/candidates/${candidateId}/documents/${doc.id}/content`}
- target="_blank"
- rel="noopener noreferrer"
+ <div className="flex items-center gap-3 shrink-0">
+ <button
+ type="button"
+ onClick={() => handlePreview(doc)}
  className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+ title="Otwórz podgląd w nowej karcie"
+ >
+ <Eye className="h-3.5 w-3.5" />
+ Podgląd
+ </button>
+ <button
+ type="button"
+ onClick={() => handleDownload(doc)}
+ className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+ title="Pobierz plik na dysk"
  >
  <Download className="h-3.5 w-3.5" />
  Pobierz
- </a>
+ </button>
+ </div>
  </div>
  ))}
  </div>
