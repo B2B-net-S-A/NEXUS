@@ -40,6 +40,7 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User
@@ -47,6 +48,7 @@ from app.schemas.candidate import (
     CandidateCreate,
     CandidateDocumentOut,
     CandidateEngagementUpdate,
+    ActiveRecruitmentBrief,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
     CandidateFromLinkedInCreate,
@@ -379,6 +381,15 @@ async def list_candidates(
             "When true, each candidate gets a `match_stats` summary with the number "
             "of open jobs they match (score ≥ threshold) and their top match score. "
             "O(page_size × open_jobs) scoring work — enable lazily on the UI."
+        ),
+    ),
+    include_active_recruitments: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `active_recruitments` — list of "
+            "non-terminal pipeline stages (stage NOT IN rejected/withdrawn/hired). "
+            "One aggregated SQL per page (DISTINCT ON candidate_id, job_id, "
+            "ordered by moved_at DESC) + JOIN Job + Client. No N+1."
         ),
     ),
     match_threshold: float = Query(
@@ -770,6 +781,61 @@ async def list_candidates(
             for cand in items:
                 match_stats_by_candidate[cand.id] = zero
 
+    # Active recruitments aggregation (non-terminal stages). One SQL per page:
+    # DISTINCT ON (candidate_id, job_id) ORDER BY moved_at DESC, id DESC →
+    # najnowszy ruch per parę. Następnie WHERE stage NOT IN terminal
+    # (rejected/withdrawn/hired) + JOIN Job + Client. Lista bezpieczna dla
+    # response — żadnych szczegółów scorecard/rate'ów.
+    active_recruitments_by_candidate: dict[int, list[ActiveRecruitmentBrief]] = {}
+    if include_active_recruitments and items:
+        candidate_ids = [c.id for c in items]
+        # PostgreSQL DISTINCT ON — bierze pierwszy rekord per grupa zgodnie z ORDER BY.
+        latest_per_pair = (
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage,
+            )
+            .where(CandidateStage.candidate_id.in_(candidate_ids))
+            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+            .subquery()
+        )
+        terminal_stages = (
+            PipelineStage.rejected,
+            PipelineStage.withdrawn,
+            PipelineStage.hired,
+        )
+        active_stmt = (
+            select(
+                latest_per_pair.c.candidate_id,
+                latest_per_pair.c.job_id,
+                latest_per_pair.c.stage,
+                Job.title,
+                Client.name.label("client_name"),
+            )
+            .select_from(latest_per_pair)
+            .join(Job, Job.id == latest_per_pair.c.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .where(latest_per_pair.c.stage.not_in(terminal_stages))
+        )
+        for cand_id, job_id, stage, job_title, client_name in (
+            await db.execute(active_stmt)
+        ).all():
+            active_recruitments_by_candidate.setdefault(cand_id, []).append(
+                ActiveRecruitmentBrief(
+                    job_id=job_id,
+                    job_title=job_title or "—",
+                    client_name=client_name,
+                    stage=stage,
+                )
+            )
+
     # Snippet extraction (Phase: Traffit parity follow-up). Only computed
     # when the caller provided a positive search phrase — saves a notes
     # query for the common "browse all candidates" flow. Notes are batched
@@ -801,6 +867,14 @@ async def list_candidates(
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
+        if include_active_recruitments:
+            payload = payload.model_copy(
+                update={
+                    "active_recruitments": active_recruitments_by_candidate.get(
+                        cand.id, []
+                    )
+                }
+            )
         if search_terms:
             snippet = extract_snippet(
                 cand,

@@ -12,7 +12,9 @@ import {
  Columns3,
  Copy,
  Download,
+ ExternalLink,
  FileArchive,
+ FileText,
  Filter,
  GitCompare,
  Globe,
@@ -20,6 +22,7 @@ import {
  Link as LinkIcon,
  Linkedin,
  Loader2,
+ Mail,
  MapPin,
  Phone,
  Plus,
@@ -170,6 +173,34 @@ interface Candidate {
  open_to_side_projects?: boolean;
  open_to_sales_support?: boolean;
  open_to_expert_consult?: boolean;
+ cv_filename?: string | null;
+ active_recruitments?: Array<{
+ job_id: number;
+ job_title: string;
+ client_name?: string | null;
+ stage: string;
+ }> | null;
+}
+
+/** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
+const STAGE_LABELS: Record<string, string> = {
+ new: "Nowy",
+ prep_call: "Prep call",
+ screening: "Screening",
+ verified: "Zweryfikowany",
+ interview: "Interview",
+ cv_sent: "CV wysłane",
+ client_interview: "Rozmowa u klienta",
+ acceptance: "Akceptacja",
+ negotiation: "Negocjacje",
+ onboarding: "Onboarding",
+ hired: "Zatrudniony",
+ rejected: "Odrzucony",
+ withdrawn: "Wycofany",
+};
+
+function stageLabel(stage: string): string {
+ return STAGE_LABELS[stage] ?? stage;
 }
 
 // Role scopes the admin can target when saving candidates-columns as default.
@@ -210,6 +241,9 @@ function matchBadgeVariant(
 const ALL_COLUMNS = [
  { id: "candidate", label: "Kandydat", required: true, width: "minmax(220px, 1.6fr)" },
  { id: "phone", label: "Telefon", required: false, width: "minmax(140px, 0.9fr)" },
+ { id: "email", label: "Email", required: false, width: "minmax(180px, 1.2fr)" },
+ { id: "cv", label: "CV", required: false, width: "minmax(64px, 0.4fr)" },
+ { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(120px, 0.8fr)" },
  { id: "title", label: "Stanowisko", required: false, width: "minmax(160px, 1.1fr)" },
  { id: "company", label: "Firma", required: false, width: "minmax(140px, 1fr)" },
  { id: "location", label: "Lokalizacja", required: false, width: "minmax(120px, 0.7fr)" },
@@ -224,17 +258,143 @@ const ALL_COLUMNS = [
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
 // Default columns shown to a new user (no global override, no per-user override).
-// Triage-first set: identity + contact + role context + experience + skills + recency.
-// Status/Match/Position/Added-by are opt-in via the "Kolumny" popover.
+// Triage-first set: identity + contact + CV + active recruitments + role context
+// + experience + skills + recency. Status/Match/Position/Added-by are opt-in
+// via the"Kolumny" popover.
 const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "candidate",
  "phone",
+ "email",
+ "cv",
+ "recruitments",
  "title",
  "company",
  "experience",
  "skills",
  "created",
 ];
+
+/** Otwiera CV w nowej karcie z auth-blob (Bearer JWT). Używamy natywnego
+ *  fetch — axios + responseType:"blob" cross-origin był cancelowany
+ *  przez Chromium (potwierdzone 25.05.2026, patrz CandidateDetailV2.fetchBlob). */
+function CandidateCvCell({ candidate }: { candidate: Candidate }) {
+ const [opening, setOpening] = useState(false);
+ if (!candidate.cv_filename) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ const openCv = async (e: React.MouseEvent) => {
+ e.stopPropagation();
+ if (opening) return;
+ setOpening(true);
+ try {
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
+ const token =
+ typeof window !== "undefined"
+ ? localStorage.getItem("access_token")
+ : null;
+ const res = await fetch(
+ `${apiBase}/api/candidates/${candidate.id}/cv-download`,
+ {
+ headers: token ? { Authorization: `Bearer ${token}` } : {},
+ },
+ );
+ if (!res.ok) {
+ throw new Error(`HTTP ${res.status}`);
+ }
+ const blob = await res.blob();
+ // Default Blob MIME is application/octet-stream → wymuszałoby download.
+ // Pliki CV są PDF/DOCX — content_type ustala backend nagłówkiem.
+ const ct = res.headers.get("content-type") || "application/pdf";
+ const typed = new Blob([blob], { type: ct });
+ const url = URL.createObjectURL(typed);
+ window.open(url, "_blank", "noopener,noreferrer");
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ // Cicho — kandydat nie ma CV na dysku, fallback na detail.
+ } finally {
+ setOpening(false);
+ }
+ };
+ return (
+ <button
+ type="button"
+ onClick={openCv}
+ disabled={opening}
+ title="Otwórz CV"
+ className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+ >
+ {opening ? (
+ <Loader2 className="h-3.5 w-3.5 animate-spin" />
+ ) : (
+ <FileText className="h-3.5 w-3.5" />
+ )}
+ </button>
+ );
+}
+
+/** Pokazuje liczbę aktywnych rekrutacji (nie-terminalnych stages) z popoverem
+ *  na hover/click z listą {job_title, klient, stage}. Klik w wpis → /jobs/{id}. */
+function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
+ const recs = candidate.active_recruitments ?? [];
+ if (recs.length === 0) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <Popover>
+ <PopoverTrigger asChild>
+ <button
+ type="button"
+ onClick={(e) => e.stopPropagation()}
+ className="inline-flex items-center gap-1"
+ title={`Aktywne rekrutacje: ${recs.length}`}
+ >
+ <Badge size="sm" variant="soft" className="gap-1">
+ <Briefcase className="h-3 w-3" />
+ {recs.length}
+ </Badge>
+ </button>
+ </PopoverTrigger>
+ <PopoverContent
+ align="start"
+ className="w-80 p-0"
+ onClick={(e) => e.stopPropagation()}
+ >
+ <div className="px-3 py-2 border-b border-border">
+ <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+ Aktywne rekrutacje ({recs.length})
+ </div>
+ </div>
+ <ul className="max-h-80 overflow-auto">
+ {recs.map((r) => (
+ <li
+ key={`${r.job_id}-${r.stage}`}
+ className="border-b border-border last:border-0"
+ >
+ <Link
+ href={`/jobs/${r.job_id}`}
+ onClick={(e) => e.stopPropagation()}
+ className="flex items-start gap-2 px-3 py-2 hover:bg-primary/5"
+ >
+ <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground mt-1" />
+ <div className="min-w-0 flex-1">
+ <div className="text-sm font-medium text-foreground truncate">
+ {r.job_title}
+ </div>
+ <div className="text-xs text-muted-foreground truncate">
+ {r.client_name ?? "—"}
+ </div>
+ </div>
+ <Badge size="sm" variant="outline" className="shrink-0">
+ {stageLabel(r.stage)}
+ </Badge>
+ </Link>
+ </li>
+ ))}
+ </ul>
+ </PopoverContent>
+ </Popover>
+ );
+}
 
 interface CandidateCellProps {
  columnId: ColumnId;
@@ -325,6 +485,45 @@ function CandidateCell({
  </button>
  </div>
  );
+ }
+ case "email": {
+ const email = candidate.email;
+ if (!email) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ const onCopy = (e: React.MouseEvent) => {
+ e.stopPropagation();
+ if (typeof navigator !== "undefined" && navigator.clipboard) {
+ void navigator.clipboard.writeText(email);
+ }
+ };
+ return (
+ <div className="flex items-center gap-1.5 min-w-0 group">
+ <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <a
+ href={`mailto:${email}`}
+ onClick={(e) => e.stopPropagation()}
+ className="text-sm text-foreground truncate hover:text-primary"
+ title={email}
+ >
+ {email}
+ </a>
+ <button
+ type="button"
+ onClick={onCopy}
+ title="Kopiuj email"
+ className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary"
+ >
+ <Copy className="h-3 w-3" />
+ </button>
+ </div>
+ );
+ }
+ case "cv": {
+ return <CandidateCvCell candidate={candidate} />;
+ }
+ case "recruitments": {
+ return <CandidateRecruitmentsCell candidate={candidate} />;
  }
  case "title": {
  const title = getCurrentTitle(candidate);
@@ -728,6 +927,7 @@ export function CandidatesListV2() {
  page,
  sort: sortBy || undefined,
  include_match_stats: true,
+ include_active_recruitments: true,
  match_threshold: 35,
  skills: skillsFilter.length ? skillsFilter : undefined,
  skill_combine: skillsFilter.length > 1 ?"AND" : undefined,

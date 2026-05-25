@@ -233,6 +233,18 @@ class TalentPoolBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ActiveRecruitmentBrief(BaseModel):
+    """Aktywna (nie-terminalna) rekrutacja kandydata — używana w liście
+    kandydatów do pokazania w jakich pipeline'ach kandydat aktualnie się
+    znajduje. Wyłącznie najnowszy ruch per (candidate_id, job_id).
+    """
+
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    stage: PipelineStage
+
+
 class LinkedinSnapshotSummary(BaseModel):
     """One LinkedIn profile snapshot surfaced in the candidate detail view.
 
@@ -370,6 +382,10 @@ class CandidateResponse(BaseModel):
     # Talent pools the candidate belongs to. Populated when the list endpoint
     # eager-loads `pool_memberships → pool` (see `_candidate_list_options`).
     talent_pools: list[TalentPoolBrief] = Field(default_factory=list)
+    # Aktywne rekrutacje kandydata (najnowszy stage per job, stage NOT IN
+    # {rejected, withdrawn, hired}). Populated TYLKO przez list endpoint
+    # z parametrem `include_active_recruitments=true` (osobny lekki query).
+    active_recruitments: Optional[list[ActiveRecruitmentBrief]] = None
     # Populated only by GET /candidates/{id} — latest invite-link apply event
     # resolved to label + recruiter name (+ previous owner if transferred).
     invite_source: Optional[InviteSourceBrief] = None
