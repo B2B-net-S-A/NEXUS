@@ -2817,16 +2817,18 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  try {
  const resolved = await resolveUrl(doc.id, "attachment");
  if (resolved.kind === "presigned") {
- // Presigned URL ma już ResponseContentDisposition=attachment, więc
- // `<a download>` z dowolnym filename'em zostanie nadpisany przez
- // serwer — kept dla compat z UI behavior expectations.
- const a = document.createElement("a");
- a.href = resolved.url;
- a.download = resolved.filename;
- a.rel = "noopener noreferrer";
- document.body.appendChild(a);
- a.click();
- document.body.removeChild(a);
+ // `<a download>` na cross-origin URL bez CORS jest po cichu ignorowane
+ // przez Chromium (bucket Hetzner nie ma `Access-Control-Allow-Origin`).
+ // Używamy iframe — ukryta ramka triggeruje natychmiastowy GET, server
+ // zwraca `Content-Disposition: attachment` (z presigned ResponseContent-
+ // Disposition), browser pobiera plik bez nawigacji bieżącej strony.
+ const iframe = document.createElement("iframe");
+ iframe.style.display = "none";
+ iframe.src = resolved.url;
+ document.body.appendChild(iframe);
+ setTimeout(() => {
+ if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+ }, 30_000);
  return;
  }
  // Proxy fallback — BYTEA, pobierz blob i wyzwól download.
