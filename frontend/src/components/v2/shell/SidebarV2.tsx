@@ -127,13 +127,13 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/insights", label: "Insights", icon: Lightbulb },
     ],
   },
+  // ── HIDDEN 2026-05-22: cała sekcja "Raporty KPI" schowana z sidebara
+  //    na prośbę usera ("zajmiemy się tym później"). Routy /dynareporter/*
+  //    (rekrutacja / delivery-lead-dashboard / board-dashboard / admin-dashboard)
+  //    nadal działają — tylko nawigacja w sidebarze ukryta. Żeby przywrócić,
+  //    odkomentuj poniższy obiekt grupy.
+  /*
   {
-    // DynaReporter — sekcje portowane do Nexusa po kolei.
-    // - "Rekrutacja" — natywna Nexus strona `/dynareporter/rekrutacja`
-    //   (port mega-dashboardu z artur-t-96/InfraReporter, dane z dr_*).
-    // - Pozostałe 3 sekcje (Delivery Lead / Rada Nadzorcza / Admin DR) —
-    //   na razie external link do standalone DR, do czasu portu w
-    //   kolejnych PR-ach.
     title: "Raporty KPI",
     icon: BarChart3,
     items: [
@@ -161,6 +161,7 @@ const NAV_SECTIONS: NavSection[] = [
       },
     ],
   },
+  */
   {
     title: "System",
     icon: Settings,
