@@ -22,6 +22,7 @@ async def _seed_candidate_with_experience(
     *,
     location: str | None = "Warszawa",
     linkedin_current_company: str | None = None,
+    linkedin_current_title: str | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -34,6 +35,7 @@ async def _seed_candidate_with_experience(
             location=location,
             experience=experience,
             linkedin_current_company=linkedin_current_company,
+            linkedin_current_title=linkedin_current_title,
         )
         db.add(c)
         await db.commit()
@@ -269,6 +271,33 @@ async def test_filter_current_title(
         assert junior not in ids
     finally:
         await _cleanup(candidate_ids=[senior, junior])
+
+
+@pytest.mark.asyncio
+async def test_filter_current_title_matches_linkedin_only(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Filter must hit candidates whose CURRENT role comes from the
+    Proxycurl-synced `linkedin_current_title` column even when the JSONB
+    `experience` is empty — the UI card shows that value, so the filter must
+    reach it."""
+    target = await _seed_candidate_with_experience(
+        None, linkedin_current_title="Senior Software Engineer"
+    )
+    other = await _seed_candidate_with_experience(
+        None, linkedin_current_title="Junior Developer"
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?current_title=senior&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200
+        ids = [item["id"] for item in r.json()["items"]]
+        assert target in ids
+        assert other not in ids
+    finally:
+        await _cleanup(candidate_ids=[target, other])
 
 
 # ── worked_at_client_id ─────────────────────────────────────────────────────
