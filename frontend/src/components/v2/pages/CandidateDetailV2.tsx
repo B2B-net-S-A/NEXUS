@@ -2747,20 +2747,28 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  });
 
  // Backend `/content` proxy-stream'uje bytes z Object Storage (po Phase 3
- // migracji) lub z BYTEA (legacy). Same-origin XHR z Bearer JWT — najprost-
- // szy reliable pattern. Wcześniejsze próby (302 → presigned URL Hetzner)
- // wywalały się na CORS + Chromium Site Isolation (silent ignore set-
- // location po await). Tradeoff: backend zużywa CPU/RAM per request, ale
- // dla volumes ~50 CV downloads/day to znikomy koszt.
+ // migracji) lub z BYTEA (legacy). UŻYWAMY natywnego `fetch` zamiast axios
+ // bo axios z `responseType: "blob"` cross-origin daje status 0 (XHR cancel
+ // mid-stream) — testowane na prod 25.05.2026. Bare XHR i fetch z tymi
+ // samymi nagłówkami zwracają 200. Workaround: pomijamy axios dla tego
+ // jednego endpointu, jego interceptor 401-auto-redirect i tak by się tu
+ // nie przydał bo Bearer JWT w localStorage jest zawsze dołączany ręcznie.
  async function fetchBlob(
  docId: number,
  disposition: "attachment" | "inline",
  ): Promise<Blob> {
- const res = await api.get(
- `/api/candidates/${candidateId}/documents/${docId}/content`,
- { responseType: "blob", params: { disposition } },
- );
- return res.data as Blob;
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const token =
+ typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+ const url = `${apiBase}/api/candidates/${candidateId}/documents/${docId}/content?disposition=${disposition}`;
+ const res = await fetch(url, {
+ method: "GET",
+ headers: token ? { Authorization: `Bearer ${token}` } : {},
+ });
+ if (!res.ok) {
+ throw new Error(`HTTP ${res.status}`);
+ }
+ return await res.blob();
  }
 
  async function handlePreview(doc: CandidateDocument) {
