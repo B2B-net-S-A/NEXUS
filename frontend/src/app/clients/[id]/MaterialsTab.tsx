@@ -1171,12 +1171,20 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const payload: Partial<ContractTerms> = { ...form };
-    delete payload.id;
-    delete payload.client_id;
-    delete payload.updated_by_email;
-    delete payload.updated_at;
-    onSave(payload);
+    const skip = new Set<keyof ContractTerms>([
+      "id",
+      "client_id",
+      "updated_by_email",
+      "updated_at",
+    ]);
+    const payload: Record<string, unknown> = {};
+    for (const key of Object.keys(form) as (keyof ContractTerms)[]) {
+      if (skip.has(key)) continue;
+      if (form[key] !== initial[key]) {
+        payload[key] = form[key];
+      }
+    }
+    onSave(payload as Partial<ContractTerms>);
   }
 
   return (
