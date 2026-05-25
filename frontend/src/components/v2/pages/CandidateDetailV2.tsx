@@ -15,6 +15,7 @@ import {
  ChevronDown,
  ChevronUp,
  Download,
+ Eye,
  FileSignature,
  FileText,
  Files,
@@ -2733,6 +2734,7 @@ function fileIcon(contentType: string | null): React.ReactNode {
 }
 
 function PlikiTab({ candidateId }: { candidateId: number }) {
+ const { showError } = useToast();
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: ["candidate-documents", candidateId],
  queryFn: async () => {
@@ -2743,6 +2745,59 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  },
  staleTime: 30_000,
  });
+
+ // Fetch przez axios (wysyła Bearer JWT z localStorage) jako blob. Surowy
+ // `<a href>` link ginie na proda: domain frontu (nexus.dynaminds.pl) nie ma
+ // proxy /api/* → 404; nawet po proxy, browser nie dołącza Authorization
+ // header do `<a>`. Object Storage path zwraca 302 — axios follow'uje
+ // automatycznie i finalny blob pochodzi z presigned URL Hetznera.
+ async function fetchBlob(
+ docId: number,
+ disposition: "attachment" | "inline",
+ ): Promise<Blob> {
+ const res = await api.get(
+ `/api/candidates/${candidateId}/documents/${docId}/content`,
+ { responseType: "blob", params: { disposition } },
+ );
+ return res.data as Blob;
+ }
+
+ async function handlePreview(doc: CandidateDocument) {
+ try {
+ const blob = await fetchBlob(doc.id, "inline");
+ // Reuse content_type z DB — Hetzner-presigned URL serwuje bez explicit
+ // Content-Type override w niektórych przypadkach, więc rzutujemy tutaj
+ // na typ z metadanych żeby preview PDF/img zadziałał w nowej karcie.
+ const typed = doc.content_type
+ ? new Blob([blob], { type: doc.content_type })
+ : blob;
+ const url = URL.createObjectURL(typed);
+ const win = window.open(url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ }
+ // Browser musi zdążyć załadować — revoke po 60s żeby nie wisiało w pamięci.
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
+ } catch {
+ showError("Nie udało się otworzyć podglądu pliku.");
+ }
+ }
+
+ async function handleDownload(doc: CandidateDocument) {
+ try {
+ const blob = await fetchBlob(doc.id, "attachment");
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = doc.filename ?? `document-${doc.id}`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+ } catch {
+ showError("Nie udało się pobrać pliku.");
+ }
+ }
 
  if (isLoading) {
  return (
@@ -2811,15 +2866,26 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  )}
  </div>
  </div>
- <a
- href={`/api/candidates/${candidateId}/documents/${doc.id}/content`}
- target="_blank"
- rel="noopener noreferrer"
+ <div className="flex items-center gap-3 shrink-0">
+ <button
+ type="button"
+ onClick={() => handlePreview(doc)}
  className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+ title="Otwórz podgląd w nowej karcie"
+ >
+ <Eye className="h-3.5 w-3.5" />
+ Podgląd
+ </button>
+ <button
+ type="button"
+ onClick={() => handleDownload(doc)}
+ className="inline-flex items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+ title="Pobierz plik na dysk"
  >
  <Download className="h-3.5 w-3.5" />
  Pobierz
- </a>
+ </button>
+ </div>
  </div>
  ))}
  </div>

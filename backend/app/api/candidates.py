@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 import asyncio
 import io
 import logging
@@ -28,7 +28,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.http_headers import content_disposition_attachment
+from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument
@@ -1821,9 +1821,16 @@ async def download_candidate_document(
     doc_id: int,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    disposition: Literal["attachment", "inline"] = Query(
+        "attachment",
+        description=(
+            "`attachment` (default) — browser zapisze plik. `inline` — render "
+            "w nowej karcie (preview PDF/obrazu)."
+        ),
+    ),
 ):
     """Pobierz binary content pliku — StreamingResponse z proper
-    Content-Type i Content-Disposition: attachment.
+    Content-Type i Content-Disposition: attachment/inline.
     """
     result = await db.execute(
         select(CandidateDocument).where(
@@ -1849,7 +1856,9 @@ async def download_candidate_document(
         )
 
         if is_available():
-            url = get_presigned_download_url(doc.storage_key, filename=filename)
+            url = get_presigned_download_url(
+                doc.storage_key, filename=filename, disposition=disposition
+            )
             return RedirectResponse(url, status_code=302)
         # Storage env nie skonfigurowane — fallback do BYTEA jeśli jeszcze jest.
 
@@ -1867,7 +1876,7 @@ async def download_candidate_document(
         io.BytesIO(doc.file_content),
         media_type=media_type,
         headers={
-            "Content-Disposition": content_disposition_attachment(filename),
+            "Content-Disposition": content_disposition(filename, disposition),
             "Content-Length": str(len(doc.file_content)),
         },
     )
