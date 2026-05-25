@@ -11,6 +11,26 @@ interface NewContractorOrderDialogProps {
   onCreated: () => void;
 }
 
+const DATE_PLACEHOLDER = "RRRR-MM-DD lub DD.MM.RRRR";
+const DATE_PATTERN =
+  "\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[./-]\\d{1,2}[./-]\\d{4}";
+
+function normalizeDateInput(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  const iso = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const eu = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (eu) {
+    const [, d, m, y] = eu;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return trimmed;
+}
+
 /** Flow B — "Nowy kontraktor": atomic Contract + Order create. */
 export function NewContractorOrderDialog({
   clientId,
@@ -127,9 +147,13 @@ export function NewContractorOrderDialog({
           <label>
             <span className="text-sm">Contract start *</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={contractStart}
               onChange={(e) => setContractStart(e.target.value)}
+              onBlur={(e) => setContractStart(normalizeDateInput(e.target.value))}
               required
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
@@ -137,9 +161,13 @@ export function NewContractorOrderDialog({
           <label>
             <span className="text-sm">Contract end</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={contractEnd}
               onChange={(e) => setContractEnd(e.target.value)}
+              onBlur={(e) => setContractEnd(normalizeDateInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
@@ -149,19 +177,26 @@ export function NewContractorOrderDialog({
           <label>
             <span className="text-sm">Order start (PDF od klienta)</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={orderStart}
               onChange={(e) => setOrderStart(e.target.value)}
+              onBlur={(e) => setOrderStart(normalizeDateInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="default: contract start"
             />
           </label>
           <label>
             <span className="text-sm">Order end</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={orderEnd}
               onChange={(e) => setOrderEnd(e.target.value)}
+              onBlur={(e) => setOrderEnd(normalizeDateInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
