@@ -1,14 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import api, { extractErrorMsg } from "@/lib/api";
 
 interface NewContractorOrderDialogProps {
   clientId: number;
   onClose: () => void;
   onCreated: () => void;
+}
+
+interface CandidateSearchItem {
+  id: number;
+  name: string;
+  lastname: string;
+  email?: string | null;
+  location?: string | null;
+  competence_category?: string | null;
+}
+
+interface JobListItem {
+  id: number;
+  title: string;
+  status?: string | null;
 }
 
 const DATE_PLACEHOLDER = "RRRR-MM-DD lub DD.MM.RRRR";
@@ -37,10 +54,17 @@ export function NewContractorOrderDialog({
   onClose,
   onCreated,
 }: NewContractorOrderDialogProps) {
-  const { showToast } = useToast();
-  const [candidateId, setCandidateId] = useState("");
-  const [jobId, setJobId] = useState("");
+  const { showToast, showError } = useToast();
+
+  // Candidate typeahead state
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedCandidate, setSelectedCandidate] =
+    useState<CandidateSearchItem | null>(null);
+
+  const [jobId, setJobId] = useState<string>(""); // "" = brak
   const [title, setTitle] = useState("");
+  const [titleTouched, setTitleTouched] = useState(false);
   const [contractStart, setContractStart] = useState("");
   const [contractEnd, setContractEnd] = useState("");
   const [orderStart, setOrderStart] = useState("");
@@ -54,15 +78,66 @@ export function NewContractorOrderDialog({
   const [currency, setCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
 
+  // Debounce candidate search (300ms — same as AddCandidateToJobModal)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(candidateQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [candidateQuery]);
+
+  const { data: candidates = [], isFetching: candLoading } = useQuery<
+    CandidateSearchItem[]
+  >({
+    queryKey: ["new-contractor-candidate-search", debouncedQuery],
+    queryFn: async () => {
+      if (debouncedQuery.length < 2) return [];
+      const r = await api.get("/api/candidates", {
+        params: { q: debouncedQuery, page_size: 15 },
+      });
+      const payload = r.data;
+      return Array.isArray(payload) ? payload : payload?.items ?? [];
+    },
+    enabled: !selectedCandidate && debouncedQuery.length >= 2,
+  });
+
+  // Jobs of this client (for optional Job picker)
+  const { data: clientJobs = [] } = useQuery<JobListItem[]>({
+    queryKey: ["new-contractor-client-jobs", clientId],
+    queryFn: async () => {
+      const r = await api.get("/api/jobs", {
+        params: { client_id: clientId, page_size: 100 },
+      });
+      const payload = r.data;
+      return Array.isArray(payload) ? payload : payload?.items ?? [];
+    },
+  });
+
+  const selectedJobTitle = useMemo(() => {
+    if (!jobId) return null;
+    return clientJobs.find((j) => String(j.id) === jobId)?.title ?? null;
+  }, [jobId, clientJobs]);
+
+  // Auto-fill title from candidate + job (until user types)
+  useEffect(() => {
+    if (titleTouched) return;
+    if (!selectedCandidate) return;
+    const candName = `${selectedCandidate.name} ${selectedCandidate.lastname}`.trim();
+    setTitle(
+      selectedJobTitle ? `${candName} — ${selectedJobTitle}` : candName,
+    );
+  }, [selectedCandidate, selectedJobTitle, titleTouched]);
+
   const margin =
     rateClient && rateCandidate
       ? Number(rateClient) - Number(rateCandidate)
       : null;
 
   const mutation = useMutation({
-    mutationFn: () =>
-      dlPortalApi.createContractWithOrder(clientId, {
-        candidate_id: Number(candidateId),
+    mutationFn: () => {
+      if (!selectedCandidate) {
+        throw new Error("Wybierz kandydata");
+      }
+      return dlPortalApi.createContractWithOrder(clientId, {
+        candidate_id: selectedCandidate.id,
         job_id: jobId ? Number(jobId) : null,
         title,
         contract_start_date: contractStart,
@@ -75,7 +150,8 @@ export function NewContractorOrderDialog({
         billing_hours_per_month: Number(billingHours),
         currency,
         notes: notes || null,
-      }),
+      });
+    },
     onSuccess: (res) => {
       showToast(
         `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone (marża ${res.data.monthly_margin}/mc)`,
@@ -84,7 +160,7 @@ export function NewContractorOrderDialog({
       onCreated();
     },
     onError: (err: unknown) => {
-      showToast(err instanceof Error ? err.message : "Błąd zapisu", "error");
+      showError(extractErrorMsg(err));
     },
   });
 
@@ -93,8 +169,14 @@ export function NewContractorOrderDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!candidateId || !title || !contractStart || !rateClient || !rateCandidate) {
-            showToast("Wypełnij wymagane pola", "error");
+          if (
+            !selectedCandidate ||
+            !title ||
+            !contractStart ||
+            !rateClient ||
+            !rateCandidate
+          ) {
+            showError("Wypełnij wymagane pola (kandydat, tytuł, daty, stawki)");
             return;
           }
           mutation.mutate();
@@ -108,35 +190,120 @@ export function NewContractorOrderDialog({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Candidate ID *</span>
-            <input
-              type="number"
-              value={candidateId}
-              onChange={(e) => setCandidateId(e.target.value)}
-              required
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="np. 123"
-            />
-          </label>
-          <label>
-            <span className="text-sm">Job ID (rekrutacja)</span>
-            <input
-              type="number"
-              value={jobId}
-              onChange={(e) => setJobId(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="opcjonalnie"
-            />
-          </label>
+        {/* Candidate picker (typeahead search) */}
+        <div>
+          <span className="text-sm">Kandydat *</span>
+          {selectedCandidate ? (
+            <div className="mt-1 flex items-center justify-between gap-3 px-3 py-2 border border-border rounded bg-background">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {selectedCandidate.name} {selectedCandidate.lastname}{" "}
+                  <span className="text-xs text-muted-foreground">
+                    #{selectedCandidate.id}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {[
+                    selectedCandidate.competence_category,
+                    selectedCandidate.location,
+                    selectedCandidate.email,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCandidate(null);
+                  setCandidateQuery("");
+                  setDebouncedQuery("");
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+              >
+                Zmień
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="relative mt-1">
+                <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={candidateQuery}
+                  onChange={(e) => setCandidateQuery(e.target.value)}
+                  placeholder="Szukaj po imieniu, emailu, skillu..."
+                  className="w-full pl-9 pr-3 py-2 border border-border rounded bg-background"
+                />
+              </div>
+              {debouncedQuery.length >= 2 && (
+                <div className="mt-1 max-h-48 overflow-y-auto border border-border rounded bg-background">
+                  {candLoading ? (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      Szukam…
+                    </p>
+                  ) : candidates.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      Brak wyników dla „{debouncedQuery}".
+                    </p>
+                  ) : (
+                    candidates.map((c) => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCandidate(c);
+                          setCandidateQuery("");
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border last:border-b-0"
+                      >
+                        <p className="text-sm font-medium truncate">
+                          {c.name} {c.lastname}{" "}
+                          <span className="text-xs text-muted-foreground">
+                            #{c.id}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {[c.competence_category, c.location, c.email]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
+
+        {/* Job dropdown (jobs of this client) */}
+        <label className="block">
+          <span className="text-sm">Rekrutacja (opcjonalnie)</span>
+          <select
+            value={jobId}
+            onChange={(e) => setJobId(e.target.value)}
+            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+          >
+            <option value="">— brak —</option>
+            {clientJobs.map((j) => (
+              <option key={j.id} value={String(j.id)}>
+                #{j.id} · {j.title}
+                {j.status ? ` (${j.status})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label className="block">
           <span className="text-sm">Tytuł zamówienia *</span>
           <input
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitleTouched(true);
+              setTitle(e.target.value);
+            }}
             required
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             placeholder="np. Jan Kowalski — Senior Java Developer"
