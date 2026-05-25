@@ -5,6 +5,11 @@ import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
+import {
+  DATE_PATTERN,
+  DATE_PLACEHOLDER,
+  normalizeDateInput,
+} from "@/lib/dateInput";
 
 interface ExtendOrderDialogProps {
   clientId: number;
@@ -97,18 +102,26 @@ export function ExtendOrderDialog({
           <label>
             <span className="text-sm">Start</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
+              onBlur={(e) => setStartDate(normalizeDateInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
           <label>
             <span className="text-sm">Koniec</span>
             <input
-              type="date"
+              type="text"
+              inputMode="numeric"
+              pattern={DATE_PATTERN}
+              placeholder={DATE_PLACEHOLDER}
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
+              onBlur={(e) => setEndDate(normalizeDateInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>
