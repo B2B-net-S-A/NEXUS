@@ -68,6 +68,33 @@ describe("getCurrentCompany", () => {
     expect(getCurrentCompany({ experience: [] })).toBeNull();
     expect(getCurrentCompany({})).toBeNull();
   });
+
+  it("returns null when experience[0] is a NULL placeholder (variant 3b backfill)", () => {
+    // May 2026 backfill prepends {company:null,...} as exp[0] for Traffit
+    // candidates with only past employers — past employer at index 1 must NOT
+    // be reported as current company.
+    expect(
+      getCurrentCompany({
+        experience: [
+          { company: null, role: null, start: null, end: null, desc: null },
+          { company: "Past Employer", role: null },
+        ],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("getCurrentTitle (placeholder behavior)", () => {
+  it("returns null when experience[0] is a NULL placeholder", () => {
+    expect(
+      getCurrentTitle({
+        experience: [
+          { company: null, role: null, start: null, end: null, desc: null },
+          { company: "Past Employer", role: null },
+        ],
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("getSkillList", () => {

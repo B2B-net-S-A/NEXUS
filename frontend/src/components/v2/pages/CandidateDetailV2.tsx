@@ -1654,9 +1654,19 @@ function ProfilTab({
  // instead of array (e.g. Traffit-imported with raw text). Array.isArray
  // guard prevents `string.map is not a function` crash.
  const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
- const experience: any[] = Array.isArray(candidate.experience)
- ? candidate.experience
- : [];
+ // Backfill (May 2026) injects a NULL placeholder at experience[0] for
+ // Traffit candidates with only past employers — keeps `experience[0].company`
+ // out of the "obecna firma" filter. The placeholder has all fields null, so
+ // drop it from UI display (no empty card).
+ const experience: any[] = (
+ Array.isArray(candidate.experience) ? candidate.experience : []
+ ).filter((e: any) => {
+ if (!e || typeof e !== "object") return false;
+ return Boolean(
+ e.role || e.title || e.company || e.start || e.start_date ||
+ e.end || e.end_date || e.desc || e.description,
+ );
+ });
  const aiSummary: string | null = candidate.ai_summary ?? null;
  const aiCompanies: string[] = Array.isArray(candidate.cv_extracted_data?.companies)
  ? candidate.cv_extracted_data.companies
