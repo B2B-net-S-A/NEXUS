@@ -2817,18 +2817,15 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  try {
  const resolved = await resolveUrl(doc.id, "attachment");
  if (resolved.kind === "presigned") {
- // `<a download>` na cross-origin URL bez CORS jest po cichu ignorowane
- // przez Chromium (bucket Hetzner nie ma `Access-Control-Allow-Origin`).
- // Używamy iframe — ukryta ramka triggeruje natychmiastowy GET, server
- // zwraca `Content-Disposition: attachment` (z presigned ResponseContent-
- // Disposition), browser pobiera plik bez nawigacji bieżącej strony.
- const iframe = document.createElement("iframe");
- iframe.style.display = "none";
- iframe.src = resolved.url;
- document.body.appendChild(iframe);
- setTimeout(() => {
- if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
- }, 30_000);
+ // Bucket Hetzner nie ma CORS — odpada `<a download>` (silent ignore)
+ // i iframe (Chromium robi cross-origin preflight → 503). `window.open`
+ // to top-level navigation, NIE wymaga CORS preflightu; server zwraca
+ // `Content-Disposition: attachment` (z presigned ResponseContent-
+ // Disposition), browser pobiera plik i auto-zamyka pustą kartę.
+ const win = window.open(resolved.url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się pobrać pliku — sprawdź blokadę popupów.");
+ }
  return;
  }
  // Proxy fallback — BYTEA, pobierz blob i wyzwól download.
