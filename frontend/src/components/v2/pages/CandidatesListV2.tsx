@@ -274,9 +274,14 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "created",
 ];
 
-/** Otwiera CV w nowej karcie z auth-blob (Bearer JWT). Używamy natywnego
- *  fetch — axios + responseType:"blob" cross-origin był cancelowany
- *  przez Chromium (potwierdzone 25.05.2026, patrz CandidateDetailV2.fetchBlob). */
+/** Otwiera CV w nowej karcie z auth-blob (Bearer JWT). Pipeline:
+ *    1) GET /api/candidates/{id}/documents  → znajdź primary doc.
+ *    2) GET /documents/{doc_id}/content?disposition=inline → backend
+ *       proxy-streamuje bytes z Object Storage (Hetzner) lub BYTEA.
+ *  Stary endpoint `/cv-download` jest broken dla rows zmigrowanych do
+ *  Object Storage (2026-05-07) — szukał w lokalnym UPLOAD_DIR. Tutaj
+ *  użyty endpoint ma już proxy-mode (patrz PlikiTab.fetchBlob, ta sama
+ *  notatka o axios+responseType:blob cancelled cross-origin). */
 function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  const [opening, setOpening] = useState(false);
  if (!candidate.cv_filename) {
@@ -292,25 +297,39 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  typeof window !== "undefined"
  ? localStorage.getItem("access_token")
  : null;
- const res = await fetch(
- `${apiBase}/api/candidates/${candidate.id}/cv-download`,
- {
- headers: token ? { Authorization: `Bearer ${token}` } : {},
- },
+ const authHeaders: HeadersInit = token
+ ? { Authorization: `Bearer ${token}` }
+ : {};
+
+ const docsRes = await fetch(
+ `${apiBase}/api/candidates/${candidate.id}/documents`,
+ { headers: authHeaders },
  );
- if (!res.ok) {
- throw new Error(`HTTP ${res.status}`);
- }
- const blob = await res.blob();
- // Default Blob MIME is application/octet-stream → wymuszałoby download.
- // Pliki CV są PDF/DOCX — content_type ustala backend nagłówkiem.
- const ct = res.headers.get("content-type") || "application/pdf";
+ if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
+ const docs: Array<{
+ id: number;
+ is_primary?: boolean;
+ content_type?: string | null;
+ }> = await docsRes.json();
+ const primary = docs.find((d) => d.is_primary) ?? docs[0];
+ if (!primary) throw new Error("no document");
+
+ const fileRes = await fetch(
+ `${apiBase}/api/candidates/${candidate.id}/documents/${primary.id}/content?disposition=inline`,
+ { headers: authHeaders },
+ );
+ if (!fileRes.ok) throw new Error(`content HTTP ${fileRes.status}`);
+ const blob = await fileRes.blob();
+ const ct =
+ primary.content_type ||
+ fileRes.headers.get("content-type") ||
+ "application/pdf";
  const typed = new Blob([blob], { type: ct });
  const url = URL.createObjectURL(typed);
  window.open(url, "_blank", "noopener,noreferrer");
  setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
- // Cicho — kandydat nie ma CV na dysku, fallback na detail.
+ // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
  } finally {
  setOpening(false);
  }
