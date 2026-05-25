@@ -1882,6 +1882,73 @@ async def download_candidate_document(
     )
 
 
+@router.get("/{candidate_id}/documents/{doc_id}/url")
+async def get_candidate_document_url(
+    candidate_id: int,
+    doc_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    disposition: Literal["attachment", "inline"] = Query(
+        "attachment",
+        description=(
+            "`attachment` (default) — browser zapisze plik. `inline` — render "
+            "w nowej karcie (preview PDF/obrazu)."
+        ),
+    ),
+):
+    """Zwróć URL z którego klient może pobrać/zobaczyć plik.
+
+    Dwa warianty zwracanej `kind`:
+    - `presigned` — krótkoterminowy URL bezpośrednio do Hetzner Object Storage
+      (5 min TTL). Klient otwiera w `window.open` lub `<a href download>`.
+    - `proxy` — plik nadal w BYTEA postgresa, presigned URL nie istnieje.
+      Klient musi pobrać przez `/content` endpoint (backend streamuje).
+
+    Endpoint zaprojektowany żeby ominąć CORS preflight na Hetzner bucket
+    (XHR + 302 cross-origin zwykle się wywala bo bucket nie ma `Access-
+    Control-Allow-Origin: nexus.dynaminds.pl`). Top-level navigation z
+    `window.open(url)` nie wymaga CORS.
+    """
+    result = await db.execute(
+        select(CandidateDocument).where(
+            CandidateDocument.id == doc_id,
+            CandidateDocument.candidate_id == candidate_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    filename = doc.filename or f"document-{doc.id}"
+
+    if doc.storage_key:
+        from app.services.object_storage import (
+            get_presigned_download_url,
+            is_available,
+        )
+
+        if is_available():
+            url = get_presigned_download_url(
+                doc.storage_key, filename=filename, disposition=disposition
+            )
+            return {
+                "kind": "presigned",
+                "url": url,
+                "filename": filename,
+                "content_type": doc.content_type,
+            }
+
+    # BYTEA fallback (lub storage env nie skonfigurowane): klient musi
+    # pobrać przez backend stream. Nie zwracamy bezpośredniego URL z BYTEA
+    # bo to wymagałoby tokena w query (security hole). Klient użyje
+    # `/content` endpoint z Authorization Bearer w nagłówku.
+    return {
+        "kind": "proxy",
+        "filename": filename,
+        "content_type": doc.content_type,
+    }
+
+
 @router.get("/{candidate_id}/risk")
 async def get_candidate_risk(
     candidate_id: int,

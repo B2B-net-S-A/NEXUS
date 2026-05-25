@@ -2746,12 +2746,37 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  staleTime: 30_000,
  });
 
- // Fetch przez axios (wysyła Bearer JWT z localStorage) jako blob. Surowy
- // `<a href>` link ginie na proda: domain frontu (nexus.dynaminds.pl) nie ma
- // proxy /api/* → 404; nawet po proxy, browser nie dołącza Authorization
- // header do `<a>`. Object Storage path zwraca 302 — axios follow'uje
- // automatycznie i finalny blob pochodzi z presigned URL Hetznera.
- async function fetchBlob(
+ // Dwa flow w zależności od kind:
+ // - "presigned" (Object Storage path): backend zwraca krótkoterminowy
+ // Hetzner URL. Klient otwiera przez `window.open` (preview) lub
+ // programmatic `<a download>` na tym URL. Top-level navigation NIE
+ // wymaga CORS na Hetzner bucket — XHR z `responseType: blob` by się
+ // wywalił bo bucket nie ma Access-Control-Allow-Origin.
+ // - "proxy" (BYTEA legacy): backend nadal trzyma binary w postgresie,
+ // klient musi pobrać przez `/content` endpoint jako blob (axios wysyła
+ // Bearer z localStorage — `<a>` link by tego nie zrobił).
+ async function resolveUrl(
+ docId: number,
+ disposition: "attachment" | "inline",
+ ): Promise<
+ | { kind: "presigned"; url: string; filename: string }
+ | { kind: "proxy"; filename: string }
+ > {
+ const res = await api.get<{
+ kind: "presigned" | "proxy";
+ url?: string;
+ filename: string;
+ }>(
+ `/api/candidates/${candidateId}/documents/${docId}/url`,
+ { params: { disposition } },
+ );
+ if (res.data.kind === "presigned" && res.data.url) {
+ return { kind: "presigned", url: res.data.url, filename: res.data.filename };
+ }
+ return { kind: "proxy", filename: res.data.filename };
+ }
+
+ async function fetchProxyBlob(
  docId: number,
  disposition: "attachment" | "inline",
  ): Promise<Blob> {
@@ -2764,10 +2789,16 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
 
  async function handlePreview(doc: CandidateDocument) {
  try {
- const blob = await fetchBlob(doc.id, "inline");
- // Reuse content_type z DB — Hetzner-presigned URL serwuje bez explicit
- // Content-Type override w niektórych przypadkach, więc rzutujemy tutaj
- // na typ z metadanych żeby preview PDF/img zadziałał w nowej karcie.
+ const resolved = await resolveUrl(doc.id, "inline");
+ if (resolved.kind === "presigned") {
+ const win = window.open(resolved.url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ }
+ return;
+ }
+ // Proxy fallback — BYTEA, fetch blob i otwórz lokalny URL.
+ const blob = await fetchProxyBlob(doc.id, "inline");
  const typed = doc.content_type
  ? new Blob([blob], { type: doc.content_type })
  : blob;
@@ -2776,7 +2807,6 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  if (!win) {
  showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
  }
- // Browser musi zdążyć załadować — revoke po 60s żeby nie wisiało w pamięci.
  setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
  showError("Nie udało się otworzyć podglądu pliku.");
@@ -2785,7 +2815,22 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
 
  async function handleDownload(doc: CandidateDocument) {
  try {
- const blob = await fetchBlob(doc.id, "attachment");
+ const resolved = await resolveUrl(doc.id, "attachment");
+ if (resolved.kind === "presigned") {
+ // Presigned URL ma już ResponseContentDisposition=attachment, więc
+ // `<a download>` z dowolnym filename'em zostanie nadpisany przez
+ // serwer — kept dla compat z UI behavior expectations.
+ const a = document.createElement("a");
+ a.href = resolved.url;
+ a.download = resolved.filename;
+ a.rel = "noopener noreferrer";
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ return;
+ }
+ // Proxy fallback — BYTEA, pobierz blob i wyzwól download.
+ const blob = await fetchProxyBlob(doc.id, "attachment");
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
  a.href = url;
