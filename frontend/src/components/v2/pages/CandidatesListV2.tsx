@@ -1468,6 +1468,31 @@ export function CandidatesListV2() {
  />
  </FilterChipPopover>
  <FilterChipPopover
+ label="Obecne stanowisko"
+ activeLabel={
+ currentTitleFilter.length === 0
+ ? null
+ : currentTitleFilter.length === 1
+ ? currentTitleFilter[0]
+ : `${currentTitleFilter.length} stanowisk`
+ }
+ activeCount={currentTitleFilter.length}
+ onClear={() => {
+ setCurrentTitleFilter([]);
+ setPage(1);
+ }}
+ >
+ <CompanyAutocomplete
+ value={currentTitleFilter}
+ onChange={(v) => {
+ setCurrentTitleFilter(v);
+ setPage(1);
+ }}
+ placeholder="np. Senior Engineer, PM"
+ suggestEndpoint="/api/candidates/titles/suggest"
+ />
+ </FilterChipPopover>
+ <FilterChipPopover
  label="Talent pool"
  activeLabel={
  poolIds.length === 0
@@ -1518,19 +1543,6 @@ export function CandidatesListV2() {
  }}
  placeholder="np. IBM, Accenture"
  suggestEndpoint="/api/candidates/companies/suggest"
- />
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Obecne stanowisko
- </h3>
- <CompanyAutocomplete
- value={currentTitleFilter}
- onChange={(v) => {
- setCurrentTitleFilter(v);
- setPage(1);
- }}
- placeholder="np. Senior Engineer, PM"
  />
  </div>
  <div>
