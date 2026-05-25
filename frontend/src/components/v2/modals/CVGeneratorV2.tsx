@@ -170,7 +170,7 @@ export function CVGeneratorV2({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" className="p-0 max-h-[92vh]">
-        <div className="flex items-start justify-between px-6 py-4 border-b border-border">
+        <div className="flex shrink-0 items-start justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-primary/10 p-2 text-primary">
               <Sparkles className="h-4 w-4" />
@@ -190,7 +190,7 @@ export function CVGeneratorV2({
           </div>
         </div>
 
-        <div className="space-y-5 p-6 overflow-y-auto">
+        <div className="flex-1 min-h-0 space-y-5 p-6 overflow-y-auto">
           <div>
             <Label className="mb-2 block">Proces rekrutacyjny</Label>
             {recruitmentsQuery.isLoading ? (

@@ -310,7 +310,7 @@ export default function ScheduleInterviewModal({
           <DialogHeader>
             <DialogTitle>Spotkanie zaplanowane</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="flex-1 min-h-0 space-y-3 px-6 py-4 overflow-y-auto">
             <Alert
               variant="success"
               title="Link Teams wygenerowany"
@@ -371,7 +371,7 @@ export default function ScheduleInterviewModal({
           <DialogTitle>Zaplanuj spotkanie z kandydatem</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="flex-1 min-h-0 space-y-3 px-6 py-4 overflow-y-auto">
           <div>
             <label className="block text-xs font-medium text-muted-foreground mb-1">
               Tytuł
