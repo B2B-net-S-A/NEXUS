@@ -1783,6 +1783,116 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
   );
 }
 
+// ── Modal: Dodaj osobę kontaktową u klienta ──────────────────────────────────
+
+export function AddContactModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState({
+    client_id: "",
+    name: "",
+    position: "",
+    email: "",
+    phone: "",
+    department: "",
+    is_decision_maker: false,
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const queryClient = useQueryClient();
+
+  const { data: clientsData } = useQuery({
+    queryKey: ["clients-list-qa"],
+    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+  });
+  const clients = clientsData?.items ?? [];
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.client_id) { setError("Wybierz klienta"); return; }
+    if (!form.name.trim()) { setError("Imię i nazwisko jest wymagane"); return; }
+    setSaving(true); setError("");
+    try {
+      const clientIdNum = Number(form.client_id);
+      await api.post("/api/contacts", {
+        client_id: clientIdNum,
+        name: form.name.trim(),
+        position: form.position.trim() || undefined,
+        email: form.email.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        department: form.department.trim() || undefined,
+        is_decision_maker: form.is_decision_maker,
+        notes: form.notes.trim() || undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientIdNum] });
+      queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      onSuccess("Osoba kontaktowa dodana pomyślnie");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="Dodaj osobę kontaktową" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {error && <ErrorBanner error={error} />}
+        <FieldGroup label="Klient" required>
+          <Select value={form.client_id} onChange={e => set("client_id", e.target.value)}>
+            <option value="">— wybierz klienta —</option>
+            {clients.map((c: any) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </Select>
+        </FieldGroup>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Imię i nazwisko" required>
+            <Input value={form.name} onChange={e => set("name", e.target.value)} placeholder="Jan Kowalski" />
+          </FieldGroup>
+          <FieldGroup label="Stanowisko">
+            <Input value={form.position} onChange={e => set("position", e.target.value)} placeholder="IT Procurement Manager" />
+          </FieldGroup>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Email">
+            <Input type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="jan@firma.pl" />
+          </FieldGroup>
+          <FieldGroup label="Telefon">
+            <Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+48 500..." />
+          </FieldGroup>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Dział">
+            <Input value={form.department} onChange={e => set("department", e.target.value)} placeholder="IT / HR" />
+          </FieldGroup>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_decision_maker}
+                onChange={e => set("is_decision_maker", e.target.checked)}
+                className="w-4 h-4 rounded accent-primary"
+              />
+              <span className="text-sm text-foreground">Decydent</span>
+            </label>
+          </div>
+        </div>
+        <FieldGroup label="Notatki">
+          <Textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} />
+        </FieldGroup>
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Dodaj kontakt" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ── Quick actions dropdown ───────────────────────────────────────────────────
 
 type ModalType = "candidate" | "job" | "client" | "meeting" | null;
