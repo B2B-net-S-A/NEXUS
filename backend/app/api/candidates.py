@@ -170,11 +170,13 @@ def _current_company_predicate(values: list[str]):
         pat = f"%{v.lower()}%"
         clauses.append(
             or_(
+                func.lower(func.coalesce(Candidate.linkedin_current_company, "")).like(
+                    pat
+                ),
                 func.lower(
-                    func.coalesce(Candidate.linkedin_current_company, "")
-                ).like(pat),
-                func.lower(
-                    func.coalesce(Candidate.experience.op("->")(0).op("->>")("company"), "")
+                    func.coalesce(
+                        Candidate.experience.op("->")(0).op("->>")("company"), ""
+                    )
                 ).like(pat),
             )
         )
@@ -199,11 +201,13 @@ def _current_title_predicate(values: list[str]):
         pat = f"%{v.lower()}%"
         clauses.append(
             or_(
+                func.lower(func.coalesce(Candidate.linkedin_current_title, "")).like(
+                    pat
+                ),
                 func.lower(
-                    func.coalesce(Candidate.linkedin_current_title, "")
-                ).like(pat),
-                func.lower(
-                    func.coalesce(Candidate.experience.op("->")(0).op("->>")("role"), "")
+                    func.coalesce(
+                        Candidate.experience.op("->")(0).op("->>")("role"), ""
+                    )
                 ).like(pat),
             )
         )
