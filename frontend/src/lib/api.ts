@@ -56,6 +56,36 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Retry transient backend unavailability — Coolify big-bang deploys leave a
+// ~30-90s window where Traefik returns 502/503 with no CORS headers, so saves
+// fail with a cryptic "Nie udało się zapisać" toast. Retry up to 2× with
+// exponential backoff (1.5s, 3s) so users don't lose their input.
+const TRANSIENT_RETRY_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_RETRY_MAX = 2;
+const TRANSIENT_RETRY_BASE_MS = 1500;
+
+type RetryableConfig = { _transientRetryCount?: number };
+
+api.interceptors.response.use(
+  (res) => res,
+  async (err: AxiosError) => {
+    const config = err.config as (typeof err.config & RetryableConfig) | undefined;
+    if (!config) return Promise.reject(err);
+
+    const attempts = config._transientRetryCount ?? 0;
+    const isTransient =
+      !err.response || TRANSIENT_RETRY_STATUSES.has(err.response.status);
+    if (!isTransient || attempts >= TRANSIENT_RETRY_MAX) {
+      return Promise.reject(err);
+    }
+
+    config._transientRetryCount = attempts + 1;
+    const delay = TRANSIENT_RETRY_BASE_MS * Math.pow(2, attempts);
+    await new Promise((r) => setTimeout(r, delay));
+    return api.request(config);
+  }
+);
+
 // Auto-redirect on 401
 api.interceptors.response.use(
   (res) => res,
