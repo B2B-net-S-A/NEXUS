@@ -92,6 +92,7 @@ class CandidateCreate(BaseModel):
     salary_currency: Optional[str] = "PLN"
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
+    notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str] = None
     status: CandidateStatus = CandidateStatus.active
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
@@ -126,6 +127,7 @@ class CandidateUpdate(BaseModel):
     salary_currency: Optional[str] = None
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
+    notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str] = None
     status: Optional[CandidateStatus] = None
     availability_status: Optional[AvailabilityStatus] = None
@@ -283,6 +285,7 @@ class CandidateResponse(BaseModel):
     salary_currency: Optional[str] = "PLN"
     availability_date: Optional[date]
     notice_period: Optional[int] = None
+    notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
     source: Optional[str]
     competence_category: Optional[str] = None
     years_it_experience: Optional[int] = None

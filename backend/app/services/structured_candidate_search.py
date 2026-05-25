@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, cast, func, not_, or_
+from sqlalchemy import String, case, cast, func, not_, or_
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
@@ -155,9 +155,18 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
         )
 
     if req.notice_period_max is not None:
+        # Normalize value+unit to days for comparison. NULL unit = legacy days.
+        # Approximation: 1 week = 7 days, 1 month = 30 days. Stored intent
+        # (e.g. "3 months") is preserved on the candidate row; only the filter
+        # comparison is approximate.
+        notice_days = case(
+            (Candidate.notice_period_unit == "weeks", Candidate.notice_period * 7),
+            (Candidate.notice_period_unit == "months", Candidate.notice_period * 30),
+            else_=Candidate.notice_period,
+        )
         clauses.append(
             Candidate.notice_period.is_(None)
-            | (Candidate.notice_period <= req.notice_period_max)
+            | (notice_days <= req.notice_period_max)
         )
 
     if req.salary_min is not None:
