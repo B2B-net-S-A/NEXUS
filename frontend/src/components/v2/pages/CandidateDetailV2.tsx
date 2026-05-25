@@ -2772,10 +2772,11 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  ? new Blob([blob], { type: doc.content_type })
  : blob;
  const url = URL.createObjectURL(typed);
- const win = window.open(url, "_blank", "noopener,noreferrer");
- if (!win) {
- showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
- }
+ // UWAGA: `window.open(..., "noopener,noreferrer")` w Chromium ZAWSZE
+ // zwraca null (celowo zrywa referencję) — NIE oznacza to że popup
+ // został zablokowany. Tab faktycznie się otwiera w user gesture path.
+ // Pomijamy guard `if (!win)` żeby uniknąć false-positive toastu.
+ window.open(url, "_blank", "noopener,noreferrer");
  setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
  showError("Nie udało się otworzyć podglądu pliku.");
