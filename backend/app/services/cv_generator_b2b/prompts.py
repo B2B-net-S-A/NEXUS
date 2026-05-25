@@ -44,7 +44,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
   ],
   "experience": [
     {
-      "dates": "MM.YYYY – currently",
+      "dates": "MM.YYYY – obecnie",
       "company": "Nazwa firmy",
       "industry": "Branża firmy (np. IT, Fintech, E-commerce, Telekomunikacja, Bankowość, Retail, Produkcja)",
       "position": "Stanowisko",
@@ -60,7 +60,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
 
 KRYTYCZNE ZASADY:
 1. Zwróć TYLKO poprawny JSON, bez żadnego dodatkowego tekstu
-2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat
+2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Dla trwającego stanowiska użyj słowa "obecnie" (NIE "currently", "present" ani "now")
 3. Sekcja "why_points" musi być marketingowa i atrakcyjna - NIE używaj edukacji jako argumentu w why_points!
 4. Wyodrębnij minimum 5 kategorii umiejętności
 5. Jeśli brak certyfikatów, zwróć pustą listę []. NIE wymyślaj certyfikatów ani szkoleń których kandydat nie posiada
