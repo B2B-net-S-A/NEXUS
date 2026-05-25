@@ -19,6 +19,11 @@ import {
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -646,7 +651,21 @@ function RequiredDocRow({
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [uploading, setUploading] = useState(false);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const meta = STATUS_META[doc.status];
+
+  const statusMutation = useMutation({
+    mutationFn: (status: DocStatus) =>
+      api.patch(`/api/clients/${clientId}/required-documents/${doc.id}`, {
+        status,
+      }),
+    onSuccess: (_data, status) => {
+      qc.invalidateQueries({ queryKey: ["client-required-docs", clientId] });
+      showSuccess(`Status: ${STATUS_META[status].label}`);
+      setStatusMenuOpen(false);
+    },
+    onError: () => showError("Nie udało się zmienić statusu"),
+  });
 
   async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -708,12 +727,49 @@ function RequiredDocRow({
               wymagany
             </span>
           )}
-          <span
-            className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text}`}
-          >
-            {meta.icon}
-            {meta.label}
-          </span>
+          <Popover open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={statusMutation.isPending}
+                title="Zmień status"
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text} hover:ring-1 hover:ring-purple-400/40 transition disabled:opacity-50`}
+              >
+                {meta.icon}
+                {meta.label}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="p-1 min-w-[10rem]">
+              {(["pending", "uploaded", "signed", "n_a"] as DocStatus[]).map(
+                (s) => {
+                  const m = STATUS_META[s];
+                  const isCurrent = doc.status === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        if (!isCurrent) statusMutation.mutate(s);
+                        else setStatusMenuOpen(false);
+                      }}
+                      disabled={statusMutation.isPending}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-left transition-colors ${
+                        isCurrent
+                          ? "bg-muted text-foreground font-medium"
+                          : "hover:bg-muted text-foreground"
+                      }`}
+                    >
+                      <span className={`inline-flex ${m.text}`}>{m.icon}</span>
+                      <span className="flex-1">{m.label}</span>
+                      {isCurrent && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
+                      )}
+                    </button>
+                  );
+                }
+              )}
+            </PopoverContent>
+          </Popover>
         </div>
         {doc.description && (
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
