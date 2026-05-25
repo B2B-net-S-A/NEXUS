@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
+import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
@@ -752,7 +753,10 @@ type Tab =
 export default function ClientDetailPage() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState<Tab>("profil");
+  const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
+  const queryClient = useQueryClient();
+  const { showSuccess } = useToast();
 
   const { data: client, isLoading } = useQuery({
     queryKey: ["client", id],
@@ -810,13 +814,23 @@ export default function ClientDetailPage() {
                     <p className="text-sm text-purple-600 font-medium mt-0.5">{client.industry}</p>
                   )}
                 </div>
-                {client.status && (
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
+                <div className="flex items-center gap-2">
+                  {client.status && (
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
+                    >
+                      {STATUS_LABELS[client.status] || client.status}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setShowEdit(true)}
+                    title="Edytuj firmę"
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
                   >
-                    {STATUS_LABELS[client.status] || client.status}
-                  </span>
-                )}
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edytuj
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-4 mt-3 text-sm text-muted-foreground">
@@ -961,6 +975,18 @@ export default function ClientDetailPage() {
           )}
         </div>
       </div>
+
+      {showEdit && (
+        <EditClientModal
+          client={client}
+          onClose={() => setShowEdit(false)}
+          onSuccess={(msg) => {
+            queryClient.invalidateQueries({ queryKey: ["client", id] });
+            queryClient.invalidateQueries({ queryKey: ["client-profile", Number(id)] });
+            showSuccess(msg);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1704,6 +1704,50 @@ export function AddClientModal({ onClose, onSuccess }: { onClose: () => void; on
   );
 }
 
+export function EditClientModal({ client, onClose, onSuccess }: { client: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [form, setForm] = useState<ClientFormData>(() => clientToForm(client));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const onChange = (k: keyof ClientFormData, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const onCheckbox = (k: keyof ClientFormData, v: boolean) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name) { setError("Nazwa firmy jest wymagana"); return; }
+    setSaving(true); setError("");
+    try {
+      await api.patch(`/api/clients/${client.id}`, {
+        name: form.name,
+        industry: form.industry || null,
+        website: form.website || null,
+        address: form.address || null,
+        status: form.status,
+        nda_signed: form.nda_signed,
+        contract_type: form.contract_type || null,
+        notes: form.notes || null,
+      });
+      onSuccess("Firma zaktualizowana");
+      onClose();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {error && <ErrorBanner error={error} />}
+        <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
+        <div className="flex justify-end gap-3 pt-1">
+          <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
+          <SaveButton saving={saving} label="Zapisz zmiany" />
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ── Modal: Zaplanuj spotkanie ─────────────────────────────────────────────────
 
 export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
