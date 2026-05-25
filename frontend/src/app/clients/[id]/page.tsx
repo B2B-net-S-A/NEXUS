@@ -301,90 +301,30 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
 
 // ── Contacts Tab ──────────────────────────────────────────────────────────────
 
-function ContactsTab({ clientId }: { clientId: number }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [editContact, setEditContact] = useState<Contact | null>(null);
-  const [editingKeyRelationship, setEditingKeyRelationship] =
-    useState<Contact | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    position: "",
-    department: "",
-    is_decision_maker: false,
-    notes: "",
-  });
-  const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
+type ContactFormData = {
+  name: string;
+  email: string;
+  phone: string;
+  position: string;
+  department: string;
+  is_decision_maker: boolean;
+  notes: string;
+};
 
-  const { data: rawContacts = [] } = useQuery<Contact[]>({
-    queryKey: ["client-contacts", clientId],
-    queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
-  });
-  // Sort: key relationships first (within key — by strength), then alfabetycznie
-  const contacts = [...rawContacts].sort((a, b) => {
-    if (a.is_key_relationship !== b.is_key_relationship)
-      return a.is_key_relationship ? -1 : 1;
-    const strengthOrder: Record<string, number> = {
-      champion: 0,
-      strong: 1,
-      warm: 2,
-      cold: 3,
-    };
-    const sa = strengthOrder[a.relationship_strength ?? ""] ?? 99;
-    const sb = strengthOrder[b.relationship_strength ?? ""] ?? 99;
-    if (sa !== sb) return sa - sb;
-    return a.name.localeCompare(b.name);
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (data: object) => api.post(`/api/contacts`, { ...data, client_id: clientId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
-      setShowAdd(false);
-      resetForm();
-      showSuccess("Kontakt dodany pomyślnie");
-    },
-    onError: () => showError("Błąd podczas dodawania kontaktu"),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: object }) => api.put(`/api/contacts/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
-      setEditContact(null);
-      showSuccess("Kontakt zaktualizowany");
-    },
-    onError: () => showError("Błąd podczas aktualizacji"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => api.delete(`/api/contacts/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
-      showSuccess("Kontakt usunięty");
-    },
-    onError: () => showError("Błąd podczas usuwania"),
-  });
-
-  const resetForm = () =>
-    setForm({ name: "", email: "", phone: "", position: "", department: "", is_decision_maker: false, notes: "" });
-
-  const openEdit = (c: Contact) => {
-    setEditContact(c);
-    setForm({
-      name: c.name,
-      email: c.email || "",
-      phone: c.phone || "",
-      position: c.position || "",
-      department: c.department || "",
-      is_decision_maker: c.is_decision_maker,
-      notes: c.notes || "",
-    });
-  };
-
-  const ContactForm = ({ onSubmit, onCancel, isLoading }: { onSubmit: () => void; onCancel: () => void; isLoading: boolean }) => (
+function ContactForm({
+  form,
+  setForm,
+  onSubmit,
+  onCancel,
+  isLoading,
+}: {
+  form: ContactFormData;
+  setForm: React.Dispatch<React.SetStateAction<ContactFormData>>;
+  onSubmit: () => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}) {
+  return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -470,6 +410,90 @@ function ContactsTab({ clientId }: { clientId: number }) {
       </div>
     </div>
   );
+}
+
+function ContactsTab({ clientId }: { clientId: number }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editContact, setEditContact] = useState<Contact | null>(null);
+  const [editingKeyRelationship, setEditingKeyRelationship] =
+    useState<Contact | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    position: "",
+    department: "",
+    is_decision_maker: false,
+    notes: "",
+  });
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+
+  const { data: rawContacts = [] } = useQuery<Contact[]>({
+    queryKey: ["client-contacts", clientId],
+    queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
+  });
+  // Sort: key relationships first (within key — by strength), then alfabetycznie
+  const contacts = [...rawContacts].sort((a, b) => {
+    if (a.is_key_relationship !== b.is_key_relationship)
+      return a.is_key_relationship ? -1 : 1;
+    const strengthOrder: Record<string, number> = {
+      champion: 0,
+      strong: 1,
+      warm: 2,
+      cold: 3,
+    };
+    const sa = strengthOrder[a.relationship_strength ?? ""] ?? 99;
+    const sb = strengthOrder[b.relationship_strength ?? ""] ?? 99;
+    if (sa !== sb) return sa - sb;
+    return a.name.localeCompare(b.name);
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: object) => api.post(`/api/contacts`, { ...data, client_id: clientId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
+      setShowAdd(false);
+      resetForm();
+      showSuccess("Kontakt dodany pomyślnie");
+    },
+    onError: () => showError("Błąd podczas dodawania kontaktu"),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: object }) => api.put(`/api/contacts/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
+      setEditContact(null);
+      showSuccess("Kontakt zaktualizowany");
+    },
+    onError: () => showError("Błąd podczas aktualizacji"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/contacts/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["client-contacts", clientId] });
+      showSuccess("Kontakt usunięty");
+    },
+    onError: () => showError("Błąd podczas usuwania"),
+  });
+
+  const resetForm = () =>
+    setForm({ name: "", email: "", phone: "", position: "", department: "", is_decision_maker: false, notes: "" });
+
+  const openEdit = (c: Contact) => {
+    setEditContact(c);
+    setForm({
+      name: c.name,
+      email: c.email || "",
+      phone: c.phone || "",
+      position: c.position || "",
+      department: c.department || "",
+      is_decision_maker: c.is_decision_maker,
+      notes: c.notes || "",
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -493,6 +517,8 @@ function ContactsTab({ clientId }: { clientId: number }) {
             </button>
           </div>
           <ContactForm
+            form={form}
+            setForm={setForm}
             onSubmit={() => createMutation.mutate(form)}
             onCancel={() => setShowAdd(false)}
             isLoading={createMutation.isPending}
@@ -519,6 +545,8 @@ function ContactsTab({ clientId }: { clientId: number }) {
                     </button>
                   </div>
                   <ContactForm
+                    form={form}
+                    setForm={setForm}
                     onSubmit={() => updateMutation.mutate({ id: contact.id, data: form })}
                     onCancel={() => setEditContact(null)}
                     isLoading={updateMutation.isPending}
