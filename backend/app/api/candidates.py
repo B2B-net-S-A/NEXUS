@@ -170,11 +170,13 @@ def _current_company_predicate(values: list[str]):
         pat = f"%{v.lower()}%"
         clauses.append(
             or_(
+                func.lower(func.coalesce(Candidate.linkedin_current_company, "")).like(
+                    pat
+                ),
                 func.lower(
-                    func.coalesce(Candidate.linkedin_current_company, "")
-                ).like(pat),
-                func.lower(
-                    func.coalesce(Candidate.experience.op("->")(0).op("->>")("company"), "")
+                    func.coalesce(
+                        Candidate.experience.op("->")(0).op("->>")("company"), ""
+                    )
                 ).like(pat),
             )
         )
@@ -199,11 +201,13 @@ def _current_title_predicate(values: list[str]):
         pat = f"%{v.lower()}%"
         clauses.append(
             or_(
+                func.lower(func.coalesce(Candidate.linkedin_current_title, "")).like(
+                    pat
+                ),
                 func.lower(
-                    func.coalesce(Candidate.linkedin_current_title, "")
-                ).like(pat),
-                func.lower(
-                    func.coalesce(Candidate.experience.op("->")(0).op("->>")("role"), "")
+                    func.coalesce(
+                        Candidate.experience.op("->")(0).op("->>")("role"), ""
+                    )
                 ).like(pat),
             )
         )
@@ -952,6 +956,53 @@ async def suggest_companies(
     )
     result = await db.execute(sql, {"pat": pat, "lim": limit})
     return [CompanySuggestion(name=row[0], count=int(row[1])) for row in result]
+
+
+# ── Autocomplete: job titles from candidate CV experience ───────────────────
+
+
+class TitleSuggestion(BaseModel):
+    """A job title extracted from any candidate's parsed CV experience."""
+
+    name: str
+    count: int
+
+
+@router.get("/titles/suggest", response_model=list[TitleSuggestion])
+async def suggest_titles(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query(
+        "",
+        max_length=100,
+        description="Substring to match (ILIKE). Empty = top-N overall.",
+    ),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Return top-N job titles aggregated from all candidates' `experience[].role`.
+
+    Mirrors `/companies/suggest` for the `current_title` chip autocomplete.
+    Groups by lowercased role — same MVP trade-off (collapses "Senior Engineer"
+    / "senior engineer" to one suggestion).
+    """
+    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    sql = text(
+        "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
+        "FROM candidates c, "
+        "jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(c.experience) = 'array' "
+        "THEN c.experience ELSE '[]'::jsonb END"
+        ") AS elem "
+        "WHERE elem ? 'role' "
+        "AND elem->>'role' IS NOT NULL "
+        "AND elem->>'role' <> '' "
+        "AND (:pat = '' OR lower(elem->>'role') LIKE :pat) "
+        "GROUP BY lower(elem->>'role') "
+        "ORDER BY n DESC, role ASC "
+        "LIMIT :lim"
+    )
+    result = await db.execute(sql, {"pat": pat, "lim": limit})
+    return [TitleSuggestion(name=row[0], count=int(row[1])) for row in result]
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
