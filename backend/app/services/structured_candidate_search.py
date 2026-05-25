@@ -165,8 +165,7 @@ def build_structured_filter(req: CandidateSearchRequest) -> list[ColumnElement]:
             else_=Candidate.notice_period,
         )
         clauses.append(
-            Candidate.notice_period.is_(None)
-            | (notice_days <= req.notice_period_max)
+            Candidate.notice_period.is_(None) | (notice_days <= req.notice_period_max)
         )
 
     if req.salary_min is not None:
