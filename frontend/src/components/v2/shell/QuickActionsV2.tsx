@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Briefcase, Building2, CalendarPlus, Link2, Plus, UserPlus } from "lucide-react";
+import { Briefcase, Building2, CalendarPlus, Contact2, Link2, Plus, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
 import {
   AddCandidateModal,
   AddClientModal,
+  AddContactModal,
   AddJobModal,
   AddMeetingModal,
 } from "@/components/AppShell";
@@ -22,6 +23,7 @@ export type QuickActionModal =
   | "candidate"
   | "job"
   | "client"
+  | "contact"
   | "meeting"
   | "invite_link"
   | null;
@@ -80,6 +82,10 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
             <Building2 className="h-4 w-4" />
             Dodaj firmę
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setModal("contact")}>
+            <Contact2 className="h-4 w-4" />
+            Dodaj osobę kontaktową
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setModal("meeting")}>
             <CalendarPlus className="h-4 w-4" />
             Zaplanuj spotkanie
@@ -94,6 +100,7 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
       {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "job" && <AddJobModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "contact" && <AddContactModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}
 
       <GenerateInviteLinkV2
