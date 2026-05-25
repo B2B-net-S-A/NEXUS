@@ -2746,37 +2746,13 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  staleTime: 30_000,
  });
 
- // Dwa flow w zależności od kind:
- // - "presigned" (Object Storage path): backend zwraca krótkoterminowy
- // Hetzner URL. Klient otwiera przez `window.open` (preview) lub
- // programmatic `<a download>` na tym URL. Top-level navigation NIE
- // wymaga CORS na Hetzner bucket — XHR z `responseType: blob` by się
- // wywalił bo bucket nie ma Access-Control-Allow-Origin.
- // - "proxy" (BYTEA legacy): backend nadal trzyma binary w postgresie,
- // klient musi pobrać przez `/content` endpoint jako blob (axios wysyła
- // Bearer z localStorage — `<a>` link by tego nie zrobił).
- async function resolveUrl(
- docId: number,
- disposition: "attachment" | "inline",
- ): Promise<
- | { kind: "presigned"; url: string; filename: string }
- | { kind: "proxy"; filename: string }
- > {
- const res = await api.get<{
- kind: "presigned" | "proxy";
- url?: string;
- filename: string;
- }>(
- `/api/candidates/${candidateId}/documents/${docId}/url`,
- { params: { disposition } },
- );
- if (res.data.kind === "presigned" && res.data.url) {
- return { kind: "presigned", url: res.data.url, filename: res.data.filename };
- }
- return { kind: "proxy", filename: res.data.filename };
- }
-
- async function fetchProxyBlob(
+ // Backend `/content` proxy-stream'uje bytes z Object Storage (po Phase 3
+ // migracji) lub z BYTEA (legacy). Same-origin XHR z Bearer JWT — najprost-
+ // szy reliable pattern. Wcześniejsze próby (302 → presigned URL Hetzner)
+ // wywalały się na CORS + Chromium Site Isolation (silent ignore set-
+ // location po await). Tradeoff: backend zużywa CPU/RAM per request, ale
+ // dla volumes ~50 CV downloads/day to znikomy koszt.
+ async function fetchBlob(
  docId: number,
  disposition: "attachment" | "inline",
  ): Promise<Blob> {
@@ -2788,71 +2764,27 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  }
 
  async function handlePreview(doc: CandidateDocument) {
- // Otwieramy kartę NATYCHMIAST w onClick, jeszcze przed pierwszym await.
- // Chromium "spend"-uje user gesture po pierwszym await, więc późniejsze
- // window.open zostałoby cicho zablokowane przez popup blocker.
- // UWAGA: BEZ `noopener,noreferrer` — Chromium z tymi feature'ami ZAWSZE
- // zwraca null z window.open (celowo: nowa karta nie ma `window.opener`,
- // ale my potrzebujemy reference żeby później ustawić `win.location.href`).
- // Po nawigacji ręcznie zerujemy `win.opener` żeby zamknąć kierunek
- // dostępu nowa-karta → bieżąca strona (Hetzner presigned URL jest na
- // nasz bucket, więc nie ma ryzyka window-control attack).
- const win = window.open("about:blank", "_blank");
- if (!win) {
- showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
- return;
- }
  try {
- const resolved = await resolveUrl(doc.id, "inline");
- if (resolved.kind === "presigned") {
- win.location.href = resolved.url;
- win.opener = null;
- return;
- }
- // Proxy fallback — BYTEA, fetch blob i podmień URL pustej karty.
- const blob = await fetchProxyBlob(doc.id, "inline");
+ const blob = await fetchBlob(doc.id, "inline");
+ // Reuse content_type z DB — Blob default `application/octet-stream`
+ // wymusiłby download zamiast preview.
  const typed = doc.content_type
  ? new Blob([blob], { type: doc.content_type })
  : blob;
- const blobUrl = URL.createObjectURL(typed);
- win.location.href = blobUrl;
- win.opener = null;
- setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+ const url = URL.createObjectURL(typed);
+ const win = window.open(url, "_blank", "noopener,noreferrer");
+ if (!win) {
+ showError("Nie udało się otworzyć podglądu — sprawdź blokadę popupów.");
+ }
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
- win.close();
  showError("Nie udało się otworzyć podglądu pliku.");
  }
  }
 
  async function handleDownload(doc: CandidateDocument) {
- // Pre-open karty z about:blank zachowuje user gesture na późniejsze
- // ustawienie `win.location.href`. Bucket Hetzner nie ma CORS — odpada
- // `<a download>` (silent ignore) i iframe (Chromium cross-origin
- // preflight → 503). Top-level navigation NIE wymaga preflightu; server
- // zwraca `Content-Disposition: attachment` z presigned URL → browser
- // pobiera plik i auto-zamyka pustą kartę.
- // UWAGA: BEZ `noopener,noreferrer` — Chromium z tymi feature'ami ZAWSZE
- // zwraca null z window.open (celowo: nowa karta nie ma `window.opener`,
- // ale my potrzebujemy reference żeby później ustawić `win.location.href`).
- // Po nawigacji ręcznie zerujemy `win.opener` żeby zamknąć kierunek
- // dostępu nowa-karta → bieżąca strona (Hetzner presigned URL jest na
- // nasz bucket, więc nie ma ryzyka window-control attack).
- const win = window.open("about:blank", "_blank");
- if (!win) {
- showError("Nie udało się pobrać pliku — sprawdź blokadę popupów.");
- return;
- }
  try {
- const resolved = await resolveUrl(doc.id, "attachment");
- if (resolved.kind === "presigned") {
- win.location.href = resolved.url;
- win.opener = null;
- return;
- }
- // Proxy fallback — BYTEA, same-origin OK, zamykamy pre-open window
- // i lecimy klasycznym `<a download>` na local blob URL.
- win.close();
- const blob = await fetchProxyBlob(doc.id, "attachment");
+ const blob = await fetchBlob(doc.id, "attachment");
  const url = URL.createObjectURL(blob);
  const a = document.createElement("a");
  a.href = url;
@@ -2862,7 +2794,6 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  document.body.removeChild(a);
  URL.revokeObjectURL(url);
  } catch {
- win.close();
  showError("Nie udało się pobrać pliku.");
  }
  }
