@@ -33,6 +33,22 @@ interface JobListItem {
   status?: string | null;
 }
 
+/** Backend trzyma location jako JSON string ({lat, lng, locality, iso, ...}) lub plain string. */
+function formatCandidateLocation(loc?: string | null): string | null {
+  if (!loc) return null;
+  const trimmed = loc.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const locality = parsed.locality ?? parsed.city ?? parsed.region1;
+      return typeof locality === "string" && locality ? locality : null;
+    } catch {
+      return null;
+    }
+  }
+  return trimmed;
+}
 
 /** Flow B — "Nowy kontraktor": atomic Contract + Order create. */
 export function NewContractorOrderDialog({
@@ -191,7 +207,7 @@ export function NewContractorOrderDialog({
                 <p className="text-xs text-muted-foreground truncate">
                   {[
                     selectedCandidate.competence_category,
-                    selectedCandidate.location,
+                    formatCandidateLocation(selectedCandidate.location),
                     selectedCandidate.email,
                   ]
                     .filter(Boolean)
@@ -251,7 +267,7 @@ export function NewContractorOrderDialog({
                           </span>
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
-                          {[c.competence_category, c.location, c.email]
+                          {[c.competence_category, formatCandidateLocation(c.location), c.email]
                             .filter(Boolean)
                             .join(" · ") || "—"}
                         </p>
