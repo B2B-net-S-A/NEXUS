@@ -385,6 +385,7 @@ async def update_client(
             details=updates,
         )
     )
+    await db.flush()
     await db.refresh(client)
     return client
 
