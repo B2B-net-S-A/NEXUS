@@ -21,6 +21,7 @@ async def _seed_candidate_with_experience(
     experience: list[dict] | None,
     *,
     location: str | None = "Warszawa",
+    linkedin_current_company: str | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -32,6 +33,7 @@ async def _seed_candidate_with_experience(
             email=f"pos-{uuid.uuid4().hex[:8]}@example.com",
             location=location,
             experience=experience,
+            linkedin_current_company=linkedin_current_company,
         )
         db.add(c)
         await db.commit()
@@ -132,6 +134,33 @@ async def test_filter_current_company_match(
     )
     other = await _seed_candidate_with_experience(
         [{"company": "Globex Ltd", "role": "Dev"}]
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?current_company=acme&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200
+        ids = [item["id"] for item in r.json()["items"]]
+        assert target in ids
+        assert other not in ids
+    finally:
+        await _cleanup(candidate_ids=[target, other])
+
+
+@pytest.mark.asyncio
+async def test_filter_current_company_matches_linkedin_only(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Filter must hit candidates whose CURRENT employer comes from the
+    Proxycurl-synced `linkedin_current_company` column even when the JSONB
+    `experience` is empty — the UI card shows that value, so the filter must
+    reach it."""
+    target = await _seed_candidate_with_experience(
+        None, linkedin_current_company="Acme Corp"
+    )
+    other = await _seed_candidate_with_experience(
+        None, linkedin_current_company="Globex Ltd"
     )
     try:
         r = await app_client.get(

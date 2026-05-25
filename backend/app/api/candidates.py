@@ -151,7 +151,15 @@ def _at_client_predicate():
 
 
 def _current_company_predicate(values: list[str]):
-    """Match candidates whose experience[0].company ILIKE any of values (OR)."""
+    """Match candidates whose CURRENT company ILIKE any of values (OR).
+
+    Mirrors the frontend `getCurrentCompany` resolution order:
+    `linkedin_current_company` (Proxycurl-synced, freshest) first,
+    `experience[0].company` (top-of-CV JSONB) second. Without this OR the
+    filter would silently skip candidates whose only signal lives on the
+    LinkedIn snapshot — exactly the visible "obecna firma" the recruiter
+    typed in the chip.
+    """
     clauses = []
     for v in values:
         v = (v or "").strip()
@@ -159,9 +167,14 @@ def _current_company_predicate(values: list[str]):
             continue
         pat = f"%{v.lower()}%"
         clauses.append(
-            func.lower(
-                func.coalesce(Candidate.experience.op("->")(0).op("->>")("company"), "")
-            ).like(pat)
+            or_(
+                func.lower(
+                    func.coalesce(Candidate.linkedin_current_company, "")
+                ).like(pat),
+                func.lower(
+                    func.coalesce(Candidate.experience.op("->")(0).op("->>")("company"), "")
+                ).like(pat),
+            )
         )
     return or_(*clauses) if clauses else false()
 
@@ -412,8 +425,12 @@ async def list_candidates(
     current_company: Optional[list[str]] = Query(
         None,
         description=(
-            "LinkedIn-Recruiter style. Match candidates whose CURRENT job "
-            "(`experience[0].company`) ILIKE any of the values. OR-combined."
+            "LinkedIn-Recruiter style. Match candidates whose CURRENT employer "
+            "ILIKE any of the values. Resolves against `linkedin_current_company` "
+            "(Proxycurl-synced) OR `experience[0].company` (top-of-CV JSONB) — "
+            "same priority chain as the UI's `getCurrentCompany` helper, so the "
+            "filter matches whatever the recruiter sees on the candidate card. "
+            "OR-combined across values."
         ),
     ),
     past_company: Optional[list[str]] = Query(
