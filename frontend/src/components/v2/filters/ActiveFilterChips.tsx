@@ -48,6 +48,22 @@ const AVAILABILITY_LABELS: Record<string, string> = {
  unknown: "Nie wiemy",
 };
 
+const STAGE_LABELS: Record<string, string> = {
+ new: "Nowy",
+ prep_call: "Prep call",
+ screening: "Screening",
+ verified: "Zweryfikowany",
+ interview: "Interview",
+ cv_sent: "CV wysłane",
+ client_interview: "Rozmowa u klienta",
+ acceptance: "Akceptacja",
+ negotiation: "Negocjacje",
+ onboarding: "Onboarding",
+ hired: "Zatrudniony",
+ rejected: "Odrzucony",
+ withdrawn: "Wycofany",
+};
+
 interface Chip {
  key: string;
  label: string;
@@ -99,6 +115,17 @@ function collectChips(
  clear: () =>
  onUpdate({
  availability: filters.availability.filter((x) => x !== a),
+ page: 1,
+ }),
+ });
+ });
+ filters.pipelineStage.forEach((s) => {
+ chips.push({
+ key: `stage:${s}`,
+ label: `Etap: ${STAGE_LABELS[s] ?? s}`,
+ clear: () =>
+ onUpdate({
+ pipelineStage: filters.pipelineStage.filter((x) => x !== s),
  page: 1,
  }),
  });
@@ -272,6 +299,7 @@ export function ActiveFilterChips({
  status: [],
  employment: [],
  availability: [],
+ pipelineStage: [],
  location: "",
  remote: [],
  skills: [],

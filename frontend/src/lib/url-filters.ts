@@ -19,6 +19,20 @@ export type AvailabilityFilter =
   | "open_to_offers"
   | "not_looking"
   | "unknown";
+export type PipelineStageFilter =
+  | "new"
+  | "prep_call"
+  | "screening"
+  | "verified"
+  | "interview"
+  | "cv_sent"
+  | "client_interview"
+  | "acceptance"
+  | "negotiation"
+  | "onboarding"
+  | "hired"
+  | "rejected"
+  | "withdrawn";
 
 const CANDIDATE_STATUS_VALUES: ReadonlySet<string> = new Set([
   "active",
@@ -32,12 +46,28 @@ const AVAILABILITY_VALUES: ReadonlySet<string> = new Set([
   "not_looking",
   "unknown",
 ]);
+const PIPELINE_STAGE_VALUES: ReadonlySet<string> = new Set([
+  "new",
+  "prep_call",
+  "screening",
+  "verified",
+  "interview",
+  "cv_sent",
+  "client_interview",
+  "acceptance",
+  "negotiation",
+  "onboarding",
+  "hired",
+  "rejected",
+  "withdrawn",
+]);
 
 export interface CandidateFilters {
   q: string;
   status: CandidateStatusFilter[];
   employment: EmploymentFilter[];
   availability: AvailabilityFilter[];
+  pipelineStage: PipelineStageFilter[];
   sort: SortMode;
   page: number;
   remote: RemoteMode[];
@@ -64,6 +94,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   status: [],
   employment: [],
   availability: [],
+  pipelineStage: [],
   sort: "newest",
   page: 1,
   remote: [],
@@ -103,6 +134,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.status.length) p.set("status", CSV(f.status));
   if (f.employment.length) p.set("employment", CSV(f.employment));
   if (f.availability.length) p.set("availability", CSV(f.availability));
+  if (f.pipelineStage.length) p.set("stage", CSV(f.pipelineStage));
   if (f.sort !== "newest") p.set("sort", f.sort);
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
@@ -145,6 +177,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const availability = parseCsv(sp.get("availability")).filter(
     (v): v is AvailabilityFilter => AVAILABILITY_VALUES.has(v),
   );
+  const pipelineStage = parseCsv(sp.get("stage")).filter(
+    (v): v is PipelineStageFilter => PIPELINE_STAGE_VALUES.has(v),
+  );
   const pageRaw = Number.parseInt(sp.get("page") ?? "1", 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
   const ssRaw = sp.get("ss");
@@ -155,6 +190,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     status,
     employment,
     availability,
+    pipelineStage,
     sort,
     page,
     remote,
@@ -235,6 +271,7 @@ export function filtersToApiParams(
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
     availability: filters.availability.length ? filters.availability : undefined,
+    pipeline_stage: filters.pipelineStage.length ? filters.pipelineStage : undefined,
     location: filters.location || undefined,
     talent_pool_id: filters.poolIds.length ? filters.poolIds : undefined,
     added_by_user_id: filters.addedByIds.length ? filters.addedByIds : undefined,
