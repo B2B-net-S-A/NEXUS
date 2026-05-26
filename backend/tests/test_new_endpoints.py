@@ -153,3 +153,120 @@ async def test_candidates_skills_filter_narrows_result_set(
     assert filtered.status_code == 200
     total_py = filtered.json()["total"]
     assert 0 <= total_py <= total_all
+
+
+# ── Candidates last-activity inline fields (Phase „Search inline visibility") ──
+
+
+@pytest.mark.asyncio
+async def test_candidates_include_last_activity_adds_triage_fields(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Smoke test: `include_last_activity=true` returns the 3 new fields on every
+    item (None when no signal exists). Combined with active_recruitments so we
+    catch any accidental cross-blocking between the two aggregation blocks.
+    """
+    r = await app_client.get(
+        "/api/candidates",
+        params={
+            "include_last_activity": "true",
+            "include_active_recruitments": "true",
+            "page_size": 3,
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    if not items:  # DB may be empty in CI
+        return
+    for it in items:
+        assert "last_note_preview" in it
+        assert "last_rejection_reason" in it
+        assert "last_rate" in it
+        # Each is either None or a non-empty string.
+        for key in ("last_note_preview", "last_rejection_reason", "last_rate"):
+            value = it[key]
+            assert value is None or (isinstance(value, str) and len(value) > 0), (
+                f"{key} must be None or non-empty str, got {value!r}"
+            )
+        # Preview length cap is 120 chars + optional ellipsis
+        if isinstance(it["last_note_preview"], str):
+            assert len(it["last_note_preview"]) <= 121
+
+
+@pytest.mark.asyncio
+async def test_candidates_default_omits_last_activity(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Without `include_last_activity`, the 3 fields default to None (cheaper
+    response — keeps the flag opt-in for other callers)."""
+    r = await app_client.get(
+        "/api/candidates",
+        params={"page_size": 3},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200
+    items = r.json()["items"]
+    if not items:
+        return
+    for it in items:
+        assert it.get("last_note_preview") is None
+        assert it.get("last_rejection_reason") is None
+        assert it.get("last_rate") is None
+
+
+def test_format_helpers_strip_html_truncate_and_format_rate():
+    """Unit-test the 3 pure helpers — they don't touch DB so we don't need a
+    DB fixture. Keeps regression coverage cheap."""
+    from app.api.candidates import (
+        _format_note_preview,
+        _format_rate,
+        _format_rejection_reason,
+    )
+
+    assert _format_note_preview(
+        "<p>Świetny <strong>Python</strong> dev. &nbsp;Idzie do klienta.</p>"
+    ) == "Świetny Python dev. Idzie do klienta."
+    long_note = "a" * 200
+    preview = _format_note_preview(long_note)
+    assert preview.endswith("…")
+    assert len(preview) <= 121
+
+    assert _format_rate(150, "hourly", "PLN") == "150 PLN/h"
+    assert _format_rate(1500, "daily", None) == "1 500 PLN/d"
+    assert _format_rate(30000, "monthly", "EUR") == "30 000 EUR/mc"
+    # Non-integer Decimal-like value
+    assert "150.50" in _format_rate(150.5, "hourly", "PLN").replace(" ", "")
+
+    assert (
+        _format_rejection_reason(
+            reason_name="Cena za wysoka",
+            stage_notes=None,
+            rejection_note=None,
+            job_title="Senior Python",
+            client_name="Allegro",
+        )
+        == "Cena za wysoka · Senior Python (Allegro)"
+    )
+    # Fallback chain — no reason_name + no rejection_note → stage_notes used
+    assert (
+        _format_rejection_reason(
+            reason_name=None,
+            stage_notes="<p>Brak match na seniority</p>",
+            rejection_note=None,
+            job_title=None,
+            client_name=None,
+        )
+        == "Brak match na seniority"
+    )
+    # All-empty case → "Odrzucony" placeholder
+    assert (
+        _format_rejection_reason(
+            reason_name=None,
+            stage_notes=None,
+            rejection_note=None,
+            job_title=None,
+            client_name=None,
+        )
+        == "Odrzucony"
+    )

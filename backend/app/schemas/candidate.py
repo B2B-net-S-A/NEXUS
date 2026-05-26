@@ -386,6 +386,12 @@ class CandidateResponse(BaseModel):
     # {rejected, withdrawn, hired}). Populated TYLKO przez list endpoint
     # z parametrem `include_active_recruitments=true` (osobny lekki query).
     active_recruitments: Optional[list[ActiveRecruitmentBrief]] = None
+    # Quick-glance triage fields (Phase „Search inline visibility").
+    # Populated TYLKO gdy list endpoint dostanie `include_last_activity=true`.
+    # Trzy DISTINCT ON-style query'sy per page; brak N+1.
+    last_note_preview: Optional[str] = None
+    last_rejection_reason: Optional[str] = None
+    last_rate: Optional[str] = None
     # Populated only by GET /candidates/{id} — latest invite-link apply event
     # resolved to label + recruiter name (+ previous owner if transferred).
     invite_source: Optional[InviteSourceBrief] = None

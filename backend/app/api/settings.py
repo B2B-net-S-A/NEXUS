@@ -36,9 +36,23 @@ router = APIRouter()
 
 
 # Column ids the candidates list knows how to render. Mirrors `ALL_COLUMNS`
-# on the frontend — keep in sync.
+# on the frontend — keep in sync. New columns (phone/email/cv/recruitments,
+# rate/last_note/rejection_reason) live here so admin saves don't silently
+# drop columns that the user just turned on.
 ALLOWED_CANDIDATE_COLUMNS: set[str] = {
     "candidate",
+    "phone",
+    "email",
+    "cv",
+    "recruitments",
+    "title",
+    "company",
+    "location",
+    "experience",
+    "skills",
+    "rate",
+    "last_note",
+    "rejection_reason",
     "position",
     "status",
     "match",
@@ -50,8 +64,23 @@ ALLOWED_CANDIDATE_COLUMNS: set[str] = {
 # that identifies the row. Other columns are optional.
 REQUIRED_CANDIDATE_COLUMNS: set[str] = {"candidate"}
 
+# Triage-first default — same set as frontend HARD_DEFAULT_COLUMNS. Includes
+# the contact/CV/recruitment triple + rate + last_note so a recruiter doing
+# boolean search immediately sees phone, email, CV link, active recruitments,
+# rate and latest note without opening each candidate.
 DEFAULT_CANDIDATES_COLUMNS: dict[str, Any] = {
-    "columns": ["candidate", "position", "status", "match", "created", "added_by"],
+    "columns": [
+        "candidate",
+        "phone",
+        "email",
+        "cv",
+        "recruitments",
+        "rate",
+        "last_note",
+        "title",
+        "company",
+        "created",
+    ],
 }
 
 # Base key for the global default (no suffix). Per-role defaults append
