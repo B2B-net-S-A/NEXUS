@@ -242,7 +242,7 @@ const ALL_COLUMNS = [
  { id: "candidate", label: "Kandydat", required: true, width: "minmax(220px, 1.6fr)" },
  { id: "phone", label: "Telefon", required: false, width: "minmax(140px, 0.9fr)" },
  { id: "email", label: "Email", required: false, width: "minmax(180px, 1.2fr)" },
- { id: "cv", label: "CV", required: false, width: "minmax(64px, 0.4fr)" },
+ { id: "cv", label: "CV", required: false, width: "minmax(80px, 0.5fr)" },
  { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(120px, 0.8fr)" },
  { id: "title", label: "Stanowisko", required: false, width: "minmax(160px, 1.1fr)" },
  { id: "company", label: "Firma", required: false, width: "minmax(140px, 1fr)" },
@@ -285,7 +285,7 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
 function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  const [opening, setOpening] = useState(false);
  if (!candidate.cv_filename) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground" aria-label="Brak CV">—</span>;
  }
  const openCv = async (e: React.MouseEvent) => {
  e.stopPropagation();
@@ -339,14 +339,16 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  type="button"
  onClick={openCv}
  disabled={opening}
- title="Otwórz CV"
- className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+ title="Otwórz CV w nowej karcie"
+ aria-label="Otwórz CV kandydata w nowej karcie"
+ className="inline-flex h-7 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-0 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 disabled:opacity-50"
  >
  {opening ? (
- <Loader2 className="h-3.5 w-3.5 animate-spin" />
+ <Loader2 className="h-3 w-3 animate-spin" />
  ) : (
- <FileText className="h-3.5 w-3.5" />
+ <FileText className="h-3 w-3" />
  )}
+ <span>CV</span>
  </button>
  );
 }
