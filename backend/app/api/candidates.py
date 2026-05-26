@@ -39,6 +39,7 @@ from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
+from app.models.pipeline_template import RejectionReason
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -100,6 +101,88 @@ def _build_response(data: dict) -> dict:
 # Keeps worst-case latency bounded: page_size × _MATCH_STATS_JOB_CAP score computes.
 _MATCH_STATS_JOB_CAP = 50
 _MATCH_STATS_DEFAULT_THRESHOLD = 50.0
+
+
+_NOTE_PREVIEW_MAX_CHARS = 120
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+_HTML_ENTITIES = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&apos;": "'",
+}
+_RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
+
+
+def _format_note_preview(raw: str) -> str:
+    """Strip HTML + collapse whitespace + truncate. Notatki używają Tiptap rich-text,
+    więc często mają <p>, <strong> itp.; podgląd w liście kandydatów ma być tekstem.
+    """
+    if not raw:
+        return ""
+    text_only = _HTML_TAG_RE.sub(" ", raw)
+    for entity, replacement in _HTML_ENTITIES.items():
+        text_only = text_only.replace(entity, replacement)
+    text_only = _WHITESPACE_RE.sub(" ", text_only).strip()
+    if len(text_only) <= _NOTE_PREVIEW_MAX_CHARS:
+        return text_only
+    return text_only[: _NOTE_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
+
+
+def _format_rejection_reason(
+    *,
+    reason_name: Optional[str],
+    stage_notes: Optional[str],
+    rejection_note: Optional[str],
+    job_title: Optional[str],
+    client_name: Optional[str],
+) -> Optional[str]:
+    """Compose triage label dla najnowszego odrzucenia. Priority:
+    1. Structured rejection_reason.name (FK z pipeline_template). Cleanest signal.
+    2. CandidateStage.rejection_note (free-text rejection blob from `verified` flow).
+    3. CandidateStage.notes (general transition note).
+    Doklejamy " · job · (client)" gdy są — dzięki temu rekruter widzi gdzie kandydat odpadł.
+    """
+    primary = (reason_name or "").strip()
+    if not primary:
+        primary = (rejection_note or "").strip()
+    if not primary:
+        primary = (stage_notes or "").strip()
+    if not primary:
+        primary = "Odrzucony"
+    primary = _format_note_preview(primary) or "Odrzucony"
+
+    context_parts: list[str] = []
+    job = (job_title or "").strip()
+    client = (client_name or "").strip()
+    if job:
+        context_parts.append(job)
+    if client:
+        context_parts.append(f"({client})")
+    if context_parts:
+        return f"{primary} · {' '.join(context_parts)}"
+    return primary
+
+
+def _format_rate(value, unit: Optional[str], currency: Optional[str]) -> str:
+    """Render Decimal/int rate jako "150 PLN/h". Brak unit → bez sufiksu;
+    brak currency → "PLN" jako default (dominujący w NEXUS).
+    """
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if amount.is_integer():
+        amount_str = f"{int(amount):,}".replace(",", " ")
+    else:
+        amount_str = f"{amount:,.2f}".replace(",", " ")
+    cur = (currency or "PLN").strip().upper() or "PLN"
+    suffix = _RATE_UNIT_SHORT.get((unit or "").strip().lower(), "")
+    return f"{amount_str} {cur}{suffix}".strip()
 
 
 def _candidate_list_options():
@@ -426,6 +509,16 @@ async def list_candidates(
             "non-terminal pipeline stages (stage NOT IN rejected/withdrawn/hired). "
             "One aggregated SQL per page (DISTINCT ON candidate_id, job_id, "
             "ordered by moved_at DESC) + JOIN Job + Client. No N+1."
+        ),
+    ),
+    include_last_activity: bool = Query(
+        False,
+        description=(
+            "When true, each candidate gets `last_note_preview`, "
+            "`last_rejection_reason`, `last_rate` — used by the candidates list "
+            "to show triage context inline (no need to click the candidate to "
+            "see the most recent note / rejection reason / rate). Three DISTINCT "
+            "ON-style queries per page; no N+1."
         ),
     ),
     match_threshold: float = Query(
@@ -885,6 +978,100 @@ async def list_candidates(
                 )
             )
 
+    # Last-activity aggregation (Phase „Search inline visibility"). 3 DISTINCT ON
+    # queries po jednym SQL per page: najnowsza notatka, najnowszy rejection,
+    # najnowsza pozaiownnio-zerowana stawka z pipeline'u. Brak N+1.
+    last_note_by_candidate: dict[int, str] = {}
+    last_rejection_by_candidate: dict[int, str] = {}
+    last_rate_by_candidate: dict[int, str] = {}
+    if include_last_activity and items:
+        candidate_ids = [c.id for c in items]
+
+        last_note_stmt = (
+            select(Note.candidate_id, Note.content)
+            .where(Note.candidate_id.in_(candidate_ids))
+            .distinct(Note.candidate_id)
+            .order_by(
+                Note.candidate_id,
+                Note.created_at.desc(),
+                Note.id.desc(),
+            )
+        )
+        for cand_id, content in (await db.execute(last_note_stmt)).all():
+            if cand_id is None or not content:
+                continue
+            last_note_by_candidate[cand_id] = _format_note_preview(content)
+
+        last_rejection_stmt = (
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.notes,
+                CandidateStage.rejection_note,
+                RejectionReason.name.label("reason_name"),
+                Job.title.label("job_title"),
+                Client.name.label("client_name"),
+            )
+            .select_from(CandidateStage)
+            .outerjoin(
+                RejectionReason,
+                RejectionReason.id == CandidateStage.rejection_reason_id,
+            )
+            .outerjoin(Job, Job.id == CandidateStage.job_id)
+            .outerjoin(Client, Client.id == Job.client_id)
+            .where(
+                CandidateStage.candidate_id.in_(candidate_ids),
+                CandidateStage.stage == PipelineStage.rejected,
+            )
+            .distinct(CandidateStage.candidate_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+        )
+        for (
+            cand_id,
+            stage_notes,
+            rejection_note,
+            reason_name,
+            job_title,
+            client_name,
+        ) in (await db.execute(last_rejection_stmt)).all():
+            if cand_id is None:
+                continue
+            formatted = _format_rejection_reason(
+                reason_name=reason_name,
+                stage_notes=stage_notes,
+                rejection_note=rejection_note,
+                job_title=job_title,
+                client_name=client_name,
+            )
+            if formatted:
+                last_rejection_by_candidate[cand_id] = formatted
+
+        last_rate_stmt = (
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.expected_rate_value,
+                CandidateStage.expected_rate_unit,
+                CandidateStage.expected_rate_currency,
+            )
+            .where(
+                CandidateStage.candidate_id.in_(candidate_ids),
+                CandidateStage.expected_rate_value.is_not(None),
+            )
+            .distinct(CandidateStage.candidate_id)
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+        )
+        for cand_id, value, unit, currency in (await db.execute(last_rate_stmt)).all():
+            if cand_id is None or value is None:
+                continue
+            last_rate_by_candidate[cand_id] = _format_rate(value, unit, currency)
+
     # Snippet extraction (Phase: Traffit parity follow-up). Only computed
     # when the caller provided a positive search phrase — saves a notes
     # query for the common "browse all candidates" flow. Notes are batched
@@ -897,8 +1084,6 @@ async def list_candidates(
     search_terms = extract_search_terms(q, q_all, q_any)
     notes_by_candidate: dict[int, list[str]] = {}
     if search_terms and items:
-        from app.models.note import Note
-
         notes_stmt = select(Note.candidate_id, Note.content).where(
             Note.candidate_id.in_([c.id for c in items])
         )
@@ -922,6 +1107,14 @@ async def list_candidates(
                     "active_recruitments": active_recruitments_by_candidate.get(
                         cand.id, []
                     )
+                }
+            )
+        if include_last_activity:
+            payload = payload.model_copy(
+                update={
+                    "last_note_preview": last_note_by_candidate.get(cand.id),
+                    "last_rejection_reason": last_rejection_by_candidate.get(cand.id),
+                    "last_rate": last_rate_by_candidate.get(cand.id),
                 }
             )
         if search_terms:

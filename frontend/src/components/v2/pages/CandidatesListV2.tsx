@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from"next/navigation";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { useVirtualizer } from"@tanstack/react-virtual";
 import {
+ Banknote,
  Briefcase,
  Building2,
  ChevronRight,
@@ -24,6 +25,7 @@ import {
  Loader2,
  Mail,
  MapPin,
+ MessageSquare,
  Phone,
  Plus,
  Rows3,
@@ -33,6 +35,7 @@ import {
  Target,
  Upload,
  Users,
+ XCircle,
  X,
 } from"lucide-react";
 import api from"@/lib/api";
@@ -180,6 +183,13 @@ interface Candidate {
  client_name?: string | null;
  stage: string;
  }> | null;
+ // Quick-glance triage fields — populated when API called with
+ // include_last_activity=true. Backend already strips HTML + truncates
+ // last_note_preview to 120 chars; rejection reason includes job + client
+ // context; rate is formatted "150 PLN/h".
+ last_note_preview?: string | null;
+ last_rejection_reason?: string | null;
+ last_rate?: string | null;
 }
 
 /** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
@@ -249,6 +259,9 @@ const ALL_COLUMNS = [
  { id: "location", label: "Lokalizacja", required: false, width: "minmax(120px, 0.7fr)" },
  { id: "experience", label: "Doświadczenie", required: false, width: "minmax(110px, 0.6fr)" },
  { id: "skills", label: "Skills", required: false, width: "minmax(180px, 1.3fr)" },
+ { id: "rate", label: "Stawka", required: false, width: "minmax(110px, 0.7fr)" },
+ { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(200px, 1.4fr)" },
+ { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(180px, 1.2fr)" },
  { id: "position", label: "Pozycja", required: false, width: "minmax(160px, 1fr)" },
  { id: "status", label: "Status", required: false, width: "minmax(120px, 0.8fr)" },
  { id: "match", label: "Match", required: false, width: "minmax(110px, 0.7fr)" },
@@ -258,8 +271,9 @@ const ALL_COLUMNS = [
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
 // Default columns shown to a new user (no global override, no per-user override).
-// Triage-first set: identity + contact + CV + active recruitments + role context
-// + experience + skills + recency. Status/Match/Position/Added-by are opt-in
+// Triage-first set: identity + contact + CV + active recruitments + rate +
+// last note (the recruiter wants to see this WITHOUT clicking the candidate
+// after boolean search). Skills/Status/Match/Position/Added-by are opt-in
 // via the"Kolumny" popover.
 const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "candidate",
@@ -267,10 +281,10 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "email",
  "cv",
  "recruitments",
+ "rate",
+ "last_note",
  "title",
  "company",
- "experience",
- "skills",
  "created",
 ];
 
@@ -624,6 +638,57 @@ function CandidateCell({
  </div>
  );
  }
+ case "rate": {
+ const rate = candidate.last_rate;
+ if (!rate) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div className="flex items-center gap-1.5 min-w-0">
+ <Banknote className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <span
+ className="text-sm font-medium text-foreground truncate"
+ title={rate}
+ >
+ {rate}
+ </span>
+ </div>
+ );
+ }
+ case "last_note": {
+ const note = candidate.last_note_preview;
+ if (!note) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div className="flex items-start gap-1.5 min-w-0">
+ <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground mt-0.5" />
+ <span
+ className="text-xs text-muted-foreground line-clamp-2"
+ title={note}
+ >
+ {note}
+ </span>
+ </div>
+ );
+ }
+ case "rejection_reason": {
+ const reason = candidate.last_rejection_reason;
+ if (!reason) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div className="flex items-start gap-1.5 min-w-0">
+ <XCircle className="h-3 w-3 shrink-0 text-rose-500 mt-0.5" />
+ <span
+ className="text-xs text-foreground line-clamp-2"
+ title={reason}
+ >
+ {reason}
+ </span>
+ </div>
+ );
+ }
  case "position": {
  // Legacy column kept for back-compat — recruiters who opt-in still get
  // the old "Pozycja" value (rarely populated outside of pipeline rows).
@@ -949,6 +1014,7 @@ export function CandidatesListV2() {
  sort: sortBy || undefined,
  include_match_stats: true,
  include_active_recruitments: true,
+ include_last_activity: true,
  match_threshold: 35,
  skills: skillsFilter.length ? skillsFilter : undefined,
  skill_combine: skillsFilter.length > 1 ?"AND" : undefined,
