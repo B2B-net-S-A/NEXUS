@@ -65,9 +65,11 @@ ALLOWED_CANDIDATE_COLUMNS: set[str] = {
 REQUIRED_CANDIDATE_COLUMNS: set[str] = {"candidate"}
 
 # Triage-first default — same set as frontend HARD_DEFAULT_COLUMNS. Includes
-# the contact/CV/recruitment triple + rate + last_note so a recruiter doing
-# boolean search immediately sees phone, email, CV link, active recruitments,
-# rate and latest note without opening each candidate.
+# the contact/CV/recruitment triple + rate + last_note + rejection_reason so a
+# recruiter doing boolean search immediately sees phone, email, CV link, active
+# recruitments, rate, latest note and rejection reason without opening each
+# candidate. Title/Company opt-in przez "Kolumny" popover (rzadziej potrzebne
+# bezpośrednio po searchu).
 DEFAULT_CANDIDATES_COLUMNS: dict[str, Any] = {
     "columns": [
         "candidate",
@@ -77,8 +79,7 @@ DEFAULT_CANDIDATES_COLUMNS: dict[str, Any] = {
         "recruitments",
         "rate",
         "last_note",
-        "title",
-        "company",
+        "rejection_reason",
         "created",
     ],
 }
