@@ -1,7 +1,15 @@
 "use client";
 
+import { useMemo } from"react";
+import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
+import api from"@/lib/api";
 import type { CandidateFilters } from"@/lib/url-filters";
+
+interface TalentPoolLite {
+ id: number;
+ name: string;
+}
 
 interface NamedLookup {
  id: number;
@@ -239,7 +247,23 @@ export function ActiveFilterChips({
  usersById,
  clientsById,
 }: ActiveFilterChipsProps) {
- const chips = collectChips(filters, onUpdate, poolsById, usersById, clientsById);
+ // Hit the same React Query cache key as <TalentPoolMultiSelect> (staleTime
+ // 60s) — gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
+ // bez extra HTTP. Bez tego chip pokazywał "Pula #4" zamiast "Java Backend
+ // Senior" gdy user wrócił z URL share / saved search.
+ const { data: poolsData } = useQuery<TalentPoolLite[]>({
+ queryKey: ["talent-pools-lite"],
+ queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
+ staleTime: 60_000,
+ enabled: filters.poolIds.length > 0 && !poolsById,
+ });
+ const resolvedPools = useMemo(() => {
+ if (poolsById) return poolsById;
+ if (!poolsData) return undefined;
+ return new Map(poolsData.map((p) => [p.id, p.name] as const));
+ }, [poolsById, poolsData]);
+
+ const chips = collectChips(filters, onUpdate, resolvedPools, usersById, clientsById);
  if (chips.length === 0) return null;
 
  const clearAll = () =>
