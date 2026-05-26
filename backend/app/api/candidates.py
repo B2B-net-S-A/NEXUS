@@ -1058,9 +1058,7 @@ async def list_candidates(
                 CandidateStage.id.desc(),
             )
         )
-        for cand_id, value, unit, currency in (
-            await db.execute(last_rate_stmt)
-        ).all():
+        for cand_id, value, unit, currency in (await db.execute(last_rate_stmt)).all():
             if cand_id is None or value is None:
                 continue
             last_rate_by_candidate[cand_id] = _format_rate(value, unit, currency)
@@ -1106,9 +1104,7 @@ async def list_candidates(
             payload = payload.model_copy(
                 update={
                     "last_note_preview": last_note_by_candidate.get(cand.id),
-                    "last_rejection_reason": last_rejection_by_candidate.get(
-                        cand.id
-                    ),
+                    "last_rejection_reason": last_rejection_by_candidate.get(cand.id),
                     "last_rate": last_rate_by_candidate.get(cand.id),
                 }
             )
