@@ -67,7 +67,7 @@ from app.schemas.candidate import (
     TalentPoolBrief,
 )
 from app.models.linkedin_snapshot import LinkedinSyncStatus
-from app.models.recruitment_pipeline import PipelineStage
+from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
@@ -685,6 +685,39 @@ async def list_candidates(
             "See `q_all` for matched fields."
         ),
     ),
+    pipeline_stage: Optional[list[PipelineStage]] = Query(
+        None,
+        description=(
+            "Filter by candidate's pipeline stage — one or more values "
+            "(e.g. `new`, `screening`, `verified`, `interview`, `cv_sent`, "
+            "`client_interview`, `acceptance`, `negotiation`, `onboarding`, "
+            "`hired`, `rejected`, `withdrawn`). Repeat the param for "
+            "multi-select. OR-combined. By default matches CURRENT stage "
+            "(latest `CandidateStage.moved_at` per `(candidate_id, job_id)`); "
+            "switch with `stage_current_only=false` to match historical "
+            "presence on any of these stages."
+        ),
+    ),
+    stage_category: Optional[list[StageCategory]] = Query(
+        None,
+        description=(
+            "Coarse-grained pipeline filter — expands to `pipeline_stage` "
+            "by category (`internal`, `external`, `terminal`). Combined "
+            "with `pipeline_stage` via OR. Use when the recruiter wants "
+            "'every candidate currently in any external client step' "
+            "without listing all 4 external stages individually."
+        ),
+    ),
+    stage_current_only: bool = Query(
+        True,
+        description=(
+            "When true (default), `pipeline_stage` / `stage_category` "
+            "match the CURRENT stage of each candidate-job pair (latest "
+            "move per pair). When false, match any historical presence "
+            "on the selected stages — useful for 'show everyone who was "
+            "ever rejected' style queries."
+        ),
+    ),
     sort: str = Query(
         "newest",
         pattern="^(newest|oldest|name|relevance)$",
@@ -872,6 +905,56 @@ async def list_candidates(
     if recently_changed_jobs in (1, 2, 3):
         cutoff = datetime.now(timezone.utc) - timedelta(days=30 * recently_changed_jobs)
         query = query.where(Candidate.linkedin_employment_changed_at >= cutoff)
+
+    # Pipeline stage filter — match candidates by current stage (default) or by
+    # any historical move (`stage_current_only=false`). `stage_category` expands
+    # to PipelineStage values via STAGE_CATEGORY mapping, then OR-combined with
+    # `pipeline_stage` so the recruiter can mix coarse + specific selections.
+    requested_stages: set[PipelineStage] = set(pipeline_stage or [])
+    if stage_category:
+        cat_set = set(stage_category)
+        requested_stages.update(
+            stage for stage, cat in STAGE_CATEGORY.items() if cat in cat_set
+        )
+    if requested_stages:
+        stage_values = list(requested_stages)
+        if stage_current_only:
+            # CURRENT stage = latest move per (candidate_id, job_id). Use
+            # DISTINCT ON to pick the freshest row per pair, then EXISTS that
+            # the candidate has any pair whose current stage is in the set.
+            latest_per_pair = (
+                select(
+                    CandidateStage.candidate_id,
+                    CandidateStage.stage,
+                )
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                    CandidateStage.id.desc(),
+                )
+                .subquery()
+            )
+            stage_exists = (
+                select(1)
+                .select_from(latest_per_pair)
+                .where(
+                    latest_per_pair.c.candidate_id == Candidate.id,
+                    latest_per_pair.c.stage.in_(stage_values),
+                )
+                .exists()
+            )
+        else:
+            stage_exists = (
+                select(1)
+                .where(
+                    CandidateStage.candidate_id == Candidate.id,
+                    CandidateStage.stage.in_(stage_values),
+                )
+                .exists()
+            )
+        query = query.where(stage_exists)
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar()

@@ -89,10 +89,12 @@ import {
  CANDIDATE_STATUS_OPTIONS,
  EMPLOYMENT_OPTIONS,
  OPEN_TO_OPTIONS,
+ PIPELINE_STAGE_OPTIONS,
  type AvailabilityValue,
  type CandidateStatusValue,
  type EmploymentValue,
  type OpenToValue,
+ type PipelineStageValue,
 } from"@/lib/filter-options";
 import {
  decodeFilters,
@@ -101,6 +103,7 @@ import {
  type CandidateFilters,
  type CandidateStatusFilter,
  type EmploymentFilter,
+ type PipelineStageFilter,
 } from"@/lib/url-filters";
 import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
 import {
@@ -853,6 +856,26 @@ export function CandidatesListV2() {
  ["actively_looking","open_to_offers","not_looking","unknown"] as const,
  ),
  );
+ const [pipelineStageFilter, setPipelineStageFilter] = useState<PipelineStageFilter[]>(
+ parseEnumCsv(
+ searchParams.get("stage"),
+ [
+ "new",
+ "prep_call",
+ "screening",
+ "verified",
+ "interview",
+ "cv_sent",
+ "client_interview",
+ "acceptance",
+ "negotiation",
+ "onboarding",
+ "hired",
+ "rejected",
+ "withdrawn",
+ ] as const,
+ ),
+ );
  const [locationFilter, setLocationFilter] = useState<string>(
  searchParams.get("loc") ??""
  );
@@ -932,6 +955,7 @@ export function CandidatesListV2() {
  if (skillsFilter.length) params.set("skills", skillsFilter.join(","));
  if (employmentFilter.length) params.set("employment", employmentFilter.join(","));
  if (availabilityFilter.length) params.set("availability", availabilityFilter.join(","));
+ if (pipelineStageFilter.length) params.set("stage", pipelineStageFilter.join(","));
  if (locationFilter) params.set("loc", locationFilter);
  if (poolIds.length) params.set("pool", poolIds.join(","));
  if (addedByIds.length) params.set("added_by", addedByIds.join(","));
@@ -966,6 +990,7 @@ export function CandidatesListV2() {
  skillsFilter,
  employmentFilter,
  availabilityFilter,
+ pipelineStageFilter,
  locationFilter,
  poolIds,
  addedByIds,
@@ -992,6 +1017,7 @@ export function CandidatesListV2() {
  skillsFilter,
  employmentFilter,
  availabilityFilter,
+ pipelineStageFilter,
  locationFilter,
  poolIds,
  addedByIds,
@@ -1022,6 +1048,7 @@ export function CandidatesListV2() {
  remote_policy: remoteFilter.length ? remoteFilter : undefined,
  employment: employmentFilter.length ? employmentFilter : undefined,
  availability: availabilityFilter.length ? availabilityFilter : undefined,
+ pipeline_stage: pipelineStageFilter.length ? pipelineStageFilter : undefined,
  location: locationFilter || undefined,
  talent_pool_id: poolIds.length ? poolIds : undefined,
  added_by_user_id: addedByIds.length ? addedByIds : undefined,
@@ -1216,6 +1243,7 @@ export function CandidatesListV2() {
  status: statusFilter,
  employment: employmentFilter,
  availability: availabilityFilter,
+ pipelineStage: pipelineStageFilter,
  sort: (sortBy as CandidateFilters["sort"]) ||"newest",
  page,
  remote: remoteFilter as CandidateFilters["remote"],
@@ -1239,6 +1267,7 @@ export function CandidatesListV2() {
  statusFilter,
  employmentFilter,
  availabilityFilter,
+ pipelineStageFilter,
  sortBy,
  page,
  remoteFilter,
@@ -1260,6 +1289,7 @@ export function CandidatesListV2() {
  if (patch.status !== undefined) setStatusFilter(patch.status);
  if (patch.employment !== undefined) setEmploymentFilter(patch.employment);
  if (patch.availability !== undefined) setAvailabilityFilter(patch.availability);
+ if (patch.pipelineStage !== undefined) setPipelineStageFilter(patch.pipelineStage);
  if (patch.sort !== undefined) setSortBy(patch.sort);
  if (patch.page !== undefined) setPage(patch.page);
  if (patch.remote !== undefined) setRemoteFilter(patch.remote);
@@ -1428,6 +1458,24 @@ export function CandidatesListV2() {
  ? (AVAILABILITY_OPTIONS.find((o) => o.value === availabilityFilter[0])
  ?.label ??"Dyspozycyjność")
  : `Dyspozycyjność: ${n}`
+ }
+ />
+ <MultiSelectFilter<PipelineStageValue>
+ value={pipelineStageFilter}
+ onChange={(v) => {
+ setPipelineStageFilter(v);
+ setPage(1);
+ }}
+ options={PIPELINE_STAGE_OPTIONS}
+ placeholder="Etap"
+ searchPlaceholder="Szukaj etapu…"
+ triggerWidthClass="w-[170px]"
+ title="Filtruj po etapie w pipeline'ie rekrutacyjnym (aktualny etap kandydata)"
+ triggerLabel={(n) =>
+ n === 1
+ ? (PIPELINE_STAGE_OPTIONS.find((o) => o.value === pipelineStageFilter[0])
+ ?.label ??"Etap")
+ : `Etap: ${n}`
  }
  />
  <MultiSelectFilter<OpenToValue>

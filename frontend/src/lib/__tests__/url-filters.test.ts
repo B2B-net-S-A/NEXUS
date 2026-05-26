@@ -24,6 +24,7 @@ describe("url-filters", () => {
       status: ["active", "passive"],
       employment: ["available"],
       availability: ["actively_looking", "open_to_offers"],
+      pipelineStage: ["new", "screening", "verified"],
       sort: "name",
       page: 3,
       remote: ["remote", "hybrid"],
@@ -89,6 +90,19 @@ describe("url-filters", () => {
   it("status filters out unknown values (forward-compat)", () => {
     const decoded = decodeFilters(sp("status=active,bogus,blacklisted"));
     expect(decoded.status).toEqual(["active", "blacklisted"]);
+  });
+
+  it("pipeline stage accepts CSV and rejects unknown enum values", () => {
+    const decoded = decodeFilters(
+      sp("stage=new,bogus,screening,verified,not_a_stage"),
+    );
+    expect(decoded.pipelineStage).toEqual(["new", "screening", "verified"]);
+  });
+
+  it("empty pipelineStage stays out of URL", () => {
+    expect(encodeFilters({ ...DEFAULT_FILTERS, pipelineStage: [] }).has("stage")).toBe(
+      false,
+    );
   });
 
   it("legacy single status string decodes as 1-element array", () => {
