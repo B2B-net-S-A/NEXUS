@@ -19,7 +19,7 @@ import { jobChatApi } from "@/lib/api";
 import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
+import { proposalsBulkApi, type CandidateSearchRequest } from "@/lib/candidate-search-api";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -689,7 +689,9 @@ function EmailTemplateModal({
 
 function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
+  const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["ai-matches", jobId],
@@ -698,10 +700,29 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   });
 
   const addToPipelineMutation = useMutation({
-    mutationFn: ({ candidateId, jobId }: { candidateId: number; jobId: number }) =>
-      api.post("/api/pipeline/move", { candidate_id: candidateId, job_id: jobId, stage: "sourced" }),
-    onSuccess: () => {
+    mutationFn: ({ candidateId }: { candidateId: number }) =>
+      proposalsBulkApi.add(jobId, { candidate_ids: [candidateId] }),
+    onSuccess: (result, { candidateId }) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
+      if (result.total_added > 0) {
+        setAddedIds((prev) => new Set(prev).add(candidateId));
+        showSuccess("Kandydat dodany do pipeline");
+      } else {
+        const reason = result.skipped[0]?.reason;
+        if (reason === "already_in_job") {
+          setAddedIds((prev) => new Set(prev).add(candidateId));
+          showError("Kandydat już jest w tej rekrutacji");
+        } else if (reason === "blacklisted") {
+          showError("Kandydat jest na czarnej liście");
+        } else {
+          showError("Nie udało się dodać kandydata do pipeline");
+        }
+      }
+    },
+    onError: () => {
+      showError("Nie udało się dodać kandydata do pipeline");
     },
   });
 
@@ -817,14 +838,33 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
                   {/* Action buttons */}
                   <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, jobId })}
-                      disabled={addToPipelineMutation.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Dodaj do pipeline
-                    </button>
+                    {(() => {
+                      const isAdded = addedIds.has(c.id);
+                      const isPending =
+                        addToPipelineMutation.isPending &&
+                        addToPipelineMutation.variables?.candidateId === c.id;
+                      return (
+                        <button
+                          onClick={() =>
+                            addToPipelineMutation.mutate({ candidateId: c.id })
+                          }
+                          disabled={isAdded || isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        >
+                          {isAdded ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              W pipeline
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3 h-3" />
+                              {isPending ? "Dodaję..." : "Dodaj do pipeline"}
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
                     <button
                       onClick={() => setEmailTarget(c)}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted transition-colors"
