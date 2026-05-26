@@ -35,7 +35,7 @@ export async function downloadBulkCvs(
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
   const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
     method: "POST",

@@ -1166,7 +1166,7 @@ export function CandidatesListV2() {
  }
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL ||"";
- const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+ const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
  const res = await fetch(`${apiBase}/api/candidates/export?${params}`, {
  headers: token ? { Authorization: `Bearer ${token}` } : {},
  });
