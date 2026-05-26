@@ -222,12 +222,13 @@ class UserBrief(BaseModel):
 
 
 class JobOwnerAssignment(BaseModel):
-    """Set, change, or clear the primary owner (recruiter_id).
+    """Set/change the primary owner (`jobs.recruiter_id`).
 
-    Admin + Delivery Lead only. `recruiter_id = None` clears the assignment.
+    Admin + Delivery Lead only. To clear the assignment use
+    DELETE /api/jobs/{id}/owner instead — this payload requires a target user.
     """
 
-    recruiter_id: Optional[int] = None
+    user_id: int
 
 
 class JobCollaboratorAdd(BaseModel):
