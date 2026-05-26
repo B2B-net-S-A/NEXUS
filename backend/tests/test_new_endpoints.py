@@ -104,9 +104,7 @@ async def test_scoring_weights_create_list_delete(
     assert any(p["id"] == pid for p in r.json())
 
     # Cleanup
-    r = await app_client.delete(
-        f"/api/scoring-weights/{pid}", headers=app_auth_headers
-    )
+    r = await app_client.delete(f"/api/scoring-weights/{pid}", headers=app_auth_headers)
     assert r.status_code == 204
 
 
@@ -224,13 +222,40 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
         _format_rejection_reason,
     )
 
-    assert _format_note_preview(
-        "<p>Świetny <strong>Python</strong> dev. &nbsp;Idzie do klienta.</p>"
-    ) == "Świetny Python dev. Idzie do klienta."
+    assert (
+        _format_note_preview(
+            "<p>Świetny <strong>Python</strong> dev. &nbsp;Idzie do klienta.</p>"
+        )
+        == "Świetny Python dev. Idzie do klienta."
+    )
     long_note = "a" * 200
     preview = _format_note_preview(long_note)
     assert preview.endswith("…")
     assert len(preview) <= 121
+
+    # Tiptap JSON doc — should extract just the text leaves.
+    tiptap_doc = (
+        '{"type":"doc","content":['
+        '{"type":"paragraph","content":[{"type":"text","text":"Hello"},'
+        '{"type":"text","text":" world"}]}]}'
+    )
+    assert _format_note_preview(tiptap_doc) == "Hello world"
+
+    # Legacy shape used by older notes: {"content": "raw text"}.
+    assert (
+        _format_note_preview('{"content":"Quick chat z kandydatem"}')
+        == "Quick chat z kandydatem"
+    )
+
+    # User mentions are placeholders — replaced with @user so the preview
+    # doesn't leak internal ids.
+    assert (
+        _format_note_preview("Dziś $$user_37$$ ustalił z $$user_204$$ rate.")
+        == "Dziś @user ustalił z @user rate."
+    )
+
+    # Malformed JSON falls back to plain text (no exception leakage).
+    assert _format_note_preview("{broken") == "{broken"
 
     assert _format_rate(150, "hourly", "PLN") == "150 PLN/h"
     assert _format_rate(1500, "daily", None) == "1 500 PLN/d"
