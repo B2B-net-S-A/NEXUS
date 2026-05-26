@@ -49,4 +49,12 @@ export default withSentryConfig(nextConfig, {
     // them in Sentry only.
     deleteSourcemapsAfterUpload: true,
   },
+  // Resilience: Sentry release create/upload occasionally returns 5xx
+  // (e.g. 504 gateway timeout) — `sentry-cli releases new` then aborts
+  // the whole `next build`. Source maps are a debugging convenience,
+  // not a release blocker. Log + continue. (See compass commit 3c5b2ac
+  // for the bug that motivated this fix.)
+  errorHandler: (err) => {
+    console.warn("[sentry] non-fatal source-map upload error:", err.message);
+  },
 });
