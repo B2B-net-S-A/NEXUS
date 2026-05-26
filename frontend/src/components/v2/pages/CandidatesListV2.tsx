@@ -271,10 +271,12 @@ const ALL_COLUMNS = [
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
 // Default columns shown to a new user (no global override, no per-user override).
-// Triage-first set: identity + contact + CV + active recruitments + rate +
-// last note (the recruiter wants to see this WITHOUT clicking the candidate
-// after boolean search). Skills/Status/Match/Position/Added-by are opt-in
-// via the"Kolumny" popover.
+// Triage-first set: dokładnie te kolumny, których rekruter potrzebuje BEZ
+// klikania w kandydata po boolean searchu — identity + telefon + email + CV
+// + status w innych rekrutacjach + stawka + ostatnia notatka + powód
+// odrzucenia + data dodania. Title/Company/Skills/Status/Match/Position/
+// Added-by są opt-in via "Kolumny" popover (recruiter który chce stanowisko/
+// firmę z CV wciska Kolumny → Stanowisko / Firma).
 const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "candidate",
  "phone",
@@ -283,8 +285,7 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "recruitments",
  "rate",
  "last_note",
- "title",
- "company",
+ "rejection_reason",
  "created",
 ];
 
