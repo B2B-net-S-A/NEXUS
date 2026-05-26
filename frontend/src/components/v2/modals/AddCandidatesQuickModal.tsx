@@ -178,7 +178,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             <span>
               {debouncedQuery
                 ? `Znaleziono ${total} ${total === 1 ? "wynik" : total >= 2 && total <= 4 ? "wyniki" : "wyników"} (już dodani do tej rekrutacji są ukryci)`
-                : "Wpisz frazę aby wyszukać kandydatów"}
+                : `Najnowsi kandydaci — wpisz frazę, by przefiltrować (${total} łącznie)`}
             </span>
             {items.length > 0 && (
               <button
