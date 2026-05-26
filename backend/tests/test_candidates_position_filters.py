@@ -181,10 +181,24 @@ async def test_filter_current_company_matches_linkedin_only(
 async def test_filter_current_company_excludes_past(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    # Past = explicit `end` date (canonical marker post `_current_company_predicate`
+    # fix). Position-only semantics were unreliable: backfill placed empty
+    # placeholder slots at index 0 when it couldn't disambiguate the current job,
+    # pushing real current employers to idx 2+. We now match on `end IS NULL`.
     past_only = await _seed_candidate_with_experience(
         [
-            {"company": "Globex Ltd", "role": "Senior Dev"},
-            {"company": "Acme Corp", "role": "Junior Dev"},
+            {
+                "company": "Globex Ltd",
+                "role": "Senior Dev",
+                "start": "2024-01",
+                "end": "2025-01",
+            },
+            {
+                "company": "Acme Corp",
+                "role": "Junior Dev",
+                "start": "2020-01",
+                "end": "2023-12",
+            },
         ]
     )
     try:
@@ -197,6 +211,52 @@ async def test_filter_current_company_excludes_past(
         assert past_only not in ids
     finally:
         await _cleanup(candidate_ids=[past_only])
+
+
+@pytest.mark.asyncio
+async def test_filter_current_company_matches_any_position_with_end_null(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Regression: ?cur_co=Nordea on prod returned 1 result instead of ~406 because
+    the predicate only looked at experience[0]. Backfill places placeholder slots
+    at idx 0 and pushes real current employers to idx 2+. The fix uses
+    `end IS NULL` as the current-job marker, so position no longer matters."""
+    target = await _seed_candidate_with_experience(
+        [
+            # idx 0: placeholder slot (backfill couldn't disambiguate)
+            {"company": None, "role": None, "start": None, "end": None, "desc": None},
+            # idx 1: explicit past job
+            {
+                "company": "OldCo",
+                "role": "Junior",
+                "start": "2018-01",
+                "end": "2020-12",
+            },
+            # idx 2: real current job (end=null, company set)
+            {"company": "Nordea Bank", "role": "Engineer", "start": "2021-01"},
+        ]
+    )
+    other = await _seed_candidate_with_experience(
+        [
+            {
+                "company": "Nordea Bank",
+                "role": "Engineer",
+                "start": "2010-01",
+                "end": "2015-12",  # past — must NOT match
+            }
+        ]
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?current_company=nordea&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200
+        ids = [item["id"] for item in r.json()["items"]]
+        assert target in ids
+        assert other not in ids
+    finally:
+        await _cleanup(candidate_ids=[target, other])
 
 
 # ── past_company ────────────────────────────────────────────────────────────

@@ -155,29 +155,41 @@ def _at_client_predicate():
 def _current_company_predicate(values: list[str]):
     """Match candidates whose CURRENT company ILIKE any of values (OR).
 
-    Mirrors the frontend `getCurrentCompany` resolution order:
-    `linkedin_current_company` (Proxycurl-synced, freshest) first,
-    `experience[0].company` (top-of-CV JSONB) second. Without this OR the
-    filter would silently skip candidates whose only signal lives on the
-    LinkedIn snapshot — exactly the visible "obecna firma" the recruiter
-    typed in the chip.
+    Resolves against (OR-combined):
+      1. `linkedin_current_company` (Proxycurl-synced, freshest signal)
+      2. ANY `experience[*]` entry where `end IS NULL` AND `company` ILIKE pat
+         — the data convention (set by `backfill_candidate_experience`):
+         `end IS NULL` is the canonical "current job" marker.
+
+    Why not `experience[0].company`? The backfill places an empty placeholder
+    slot at index 0 when it cannot disambiguate the current job from a
+    multi-line aggregated `company` string in the CV. Real current employers
+    routinely land at idx 2+ with `end=null`. Position-0 lookup would silently
+    skip them — e.g. `?cur_co=Nordea` returned 1 result instead of ~406.
+    Using the `end IS NULL` marker catches them all, irrespective of position.
     """
     clauses = []
-    for v in values:
+    for i, v in enumerate(values):
         v = (v or "").strip()
         if not v:
             continue
         pat = f"%{v.lower()}%"
+        exists_clause = text(
+            "EXISTS ("
+            "SELECT 1 FROM jsonb_array_elements("
+            "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
+            "THEN candidates.experience ELSE '[]'::jsonb END"
+            ") AS e(elem) "
+            "WHERE elem->>'end' IS NULL "
+            f"AND lower(coalesce(elem->>'company', '')) LIKE :cur_co_{i}"
+            ")"
+        ).bindparams(**{f"cur_co_{i}": pat})
         clauses.append(
             or_(
                 func.lower(func.coalesce(Candidate.linkedin_current_company, "")).like(
                     pat
                 ),
-                func.lower(
-                    func.coalesce(
-                        Candidate.experience.op("->")(0).op("->>")("company"), ""
-                    )
-                ).like(pat),
+                exists_clause,
             )
         )
     return or_(*clauses) if clauses else false()
@@ -186,29 +198,36 @@ def _current_company_predicate(values: list[str]):
 def _current_title_predicate(values: list[str]):
     """Match candidates whose CURRENT role ILIKE any of values (OR).
 
-    Mirrors the frontend `getCurrentTitle` resolution order:
-    `linkedin_current_title` (Proxycurl-synced, freshest) first,
-    `experience[0].role` (top-of-CV JSONB) second. Without this OR the
-    filter would silently skip candidates whose only signal lives on the
-    LinkedIn snapshot — exactly the visible "obecne stanowisko" the recruiter
-    typed in the chip. Same symmetric fix as `_current_company_predicate`.
+    Same shape as `_current_company_predicate`:
+      1. `linkedin_current_title` (Proxycurl-synced, freshest signal)
+      2. ANY `experience[*]` entry where `end IS NULL` AND `role` ILIKE pat.
+
+    Uses the `end IS NULL` marker rather than `experience[0].role` for the
+    same reason — backfill placeholder slots at index 0 silently skip real
+    current titles that sit at idx 2+ with end=null.
     """
     clauses = []
-    for v in values:
+    for i, v in enumerate(values):
         v = (v or "").strip()
         if not v:
             continue
         pat = f"%{v.lower()}%"
+        exists_clause = text(
+            "EXISTS ("
+            "SELECT 1 FROM jsonb_array_elements("
+            "CASE WHEN jsonb_typeof(candidates.experience) = 'array' "
+            "THEN candidates.experience ELSE '[]'::jsonb END"
+            ") AS e(elem) "
+            "WHERE elem->>'end' IS NULL "
+            f"AND lower(coalesce(elem->>'role', '')) LIKE :cur_title_{i}"
+            ")"
+        ).bindparams(**{f"cur_title_{i}": pat})
         clauses.append(
             or_(
                 func.lower(func.coalesce(Candidate.linkedin_current_title, "")).like(
                     pat
                 ),
-                func.lower(
-                    func.coalesce(
-                        Candidate.experience.op("->")(0).op("->>")("role"), ""
-                    )
-                ).like(pat),
+                exists_clause,
             )
         )
     return or_(*clauses) if clauses else false()
