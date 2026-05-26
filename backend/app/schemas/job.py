@@ -149,6 +149,24 @@ class CcOverrideRequest(BaseModel):
     suggested_score: Optional[float] = None
 
 
+class UserBrief(BaseModel):
+    """Minimal user projection embedded in job owner/collaborator responses."""
+
+    id: int
+    email: str
+    name: str
+    role: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def _role_to_str(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        return getattr(v, "value", str(v))
+
+
 class JobResponse(BaseModel):
     id: int
     title: str
@@ -190,6 +208,12 @@ class JobResponse(BaseModel):
     close_notes: Optional[str] = None
     # Phase 15 / Phase D: programme tag surfaced to UI for autocomplete.
     train_name: Optional[str] = None
+    # Hydrated ownership data added by api/jobs.get_job and assign/release
+    # endpoints. ``primary_owner`` mirrors ``recruiter_id`` resolved to a
+    # ``UserBrief`` so the UI does not need to do a second fetch to render the
+    # owner badge. Both are ``None``/empty when the job is unassigned.
+    primary_owner: Optional[UserBrief] = None
+    collaborators: list[UserBrief] = []
     created_at: datetime
     updated_at: datetime
 
@@ -201,24 +225,6 @@ class JobList(BaseModel):
     total: int
     page: int
     page_size: int
-
-
-class UserBrief(BaseModel):
-    """Minimal user projection embedded in job owner/collaborator responses."""
-
-    id: int
-    email: str
-    name: str
-    role: Optional[str] = None
-
-    model_config = {"from_attributes": True}
-
-    @field_validator("role", mode="before")
-    @classmethod
-    def _role_to_str(cls, v: Any) -> Optional[str]:
-        if v is None:
-            return None
-        return getattr(v, "value", str(v))
 
 
 class JobOwnerAssignment(BaseModel):
