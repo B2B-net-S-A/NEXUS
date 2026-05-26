@@ -16,7 +16,8 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search } from "lucide-react";
+import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus } from "lucide-react";
+import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
@@ -881,6 +882,7 @@ export default function JobDetailPage() {
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
+  const [showAddCandidates, setShowAddCandidates] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
 
@@ -998,6 +1000,15 @@ export default function JobDetailPage() {
               className="mr-1"
             />
             <button
+              onClick={() => setShowAddCandidates(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+              data-testid="open-add-candidates"
+              title="Wyszukaj kandydatów po imieniu i nazwisku i dodaj ich do pipeline"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Dodaj kandydata
+            </button>
+            <button
               onClick={() => setShowEditJob(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
             >
@@ -1093,6 +1104,14 @@ export default function JobDetailPage() {
         open={showInviteLink}
         onOpenChange={setShowInviteLink}
         defaultJobId={Number(id)}
+      />
+
+      {/* Quick search + bulk-add candidates to this job */}
+      <AddCandidatesQuickModal
+        open={showAddCandidates}
+        onClose={() => setShowAddCandidates(false)}
+        jobId={Number(id)}
+        jobTitle={job.title}
       />
 
       {/* Tabs */}
@@ -1207,6 +1226,19 @@ export default function JobDetailPage() {
       {/* Tab Content */}
       {activeTab === "pipeline" && (
         <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-muted-foreground">
+              Dodaj kandydatów do tej rekrutacji przeszukując bazę po imieniu i nazwisku.
+            </p>
+            <button
+              onClick={() => setShowAddCandidates(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+              data-testid="open-add-candidates-pipeline"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Dodaj kandydata
+            </button>
+          </div>
           {kanbanLoading ? (
             <div className="text-muted-foreground">Ładowanie pipeline...</div>
           ) : (
