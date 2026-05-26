@@ -628,7 +628,16 @@ async def list_candidates(
                 + " "
                 + func.coalesce(Candidate.email, "")
             )
-            trigram_clause = func.similarity(identity_expr, q_stripped) > 0.2
+            # Adaptive trigram threshold: 0.2 (loose) fires for every "Piotr X"
+            # candidate when the query is "Piotr Banulski" because shared "Piotr"
+            # trigrams alone clear the bar. For multi-word queries (likely a
+            # full name), require 0.5 — keeps mild typo tolerance ("Banulsky"
+            # → "Banulski") while filtering shared-first-name noise. Single
+            # tokens stay at 0.2 for aggressive typo matching ("Banulsk" → "Banulski").
+            trigram_threshold = 0.5 if " " in q_stripped else 0.2
+            trigram_clause = (
+                func.similarity(identity_expr, q_stripped) > trigram_threshold
+            )
             if phrase_clause is not None:
                 query = query.where(or_(phrase_clause, trigram_clause))
             else:

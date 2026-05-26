@@ -434,3 +434,75 @@ async def test_sort_relevance_ranks_close_match_first(
             for cid in (close_id, far_id):
                 await db.execute(delete(Candidate).where(Candidate.id == cid))
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_full_name_query_matches_only_exact_pair(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Regression: ?q="First Last" must match (name=First, lastname=Last) and
+    NOT every candidate that shares only the first name.
+
+    Pre-fix, the phrase ILIKE was applied to each column independently — so
+    "Piotr Banulski" never matched (name="Piotr" doesn't contain the full
+    phrase, lastname="Banulski" doesn't either). The trigram fallback at 0.2
+    threshold then fired for every "Piotr X" candidate via shared "Piotr"
+    trigrams. Recruiters saw the full first-name list instead of the one
+    person they typed.
+
+    Fix: phrase scope now includes concat(name, ' ', lastname), and the
+    trigram threshold is 0.5 for multi-word queries (was 0.2 unconditionally).
+    """
+    suffix = uuid.uuid4().hex[:8]
+    target_lastname = f"Banulski-{suffix}"
+    noise_lastname_1 = f"Bartkowski-{suffix}"
+    noise_lastname_2 = f"Slowikowski-{suffix}"
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        target = Candidate(
+            name="Piotr",
+            lastname=target_lastname,
+            email=f"piotr-target-{suffix}@example.com",
+            raw_cv_text="unrelated cv body",
+        )
+        noise_1 = Candidate(
+            name="Piotr",
+            lastname=noise_lastname_1,
+            email=f"piotr-noise1-{suffix}@example.com",
+            raw_cv_text="unrelated cv body",
+        )
+        noise_2 = Candidate(
+            name="Piotr",
+            lastname=noise_lastname_2,
+            email=f"piotr-noise2-{suffix}@example.com",
+            raw_cv_text="unrelated cv body",
+        )
+        db.add_all([target, noise_1, noise_2])
+        await db.commit()
+        for c in (target, noise_1, noise_2):
+            await db.refresh(c)
+        target_id, noise_1_id, noise_2_id = target.id, noise_1.id, noise_2.id
+
+    try:
+        r = await app_client.get(
+            f"/api/candidates?q=Piotr {target_lastname}&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        result_ids = {item["id"] for item in r.json()["items"]}
+        assert target_id in result_ids, "exact name+lastname match must be returned"
+        assert noise_1_id not in result_ids, (
+            "shared-first-name candidates must NOT match a full-name query"
+        )
+        assert noise_2_id not in result_ids, (
+            "shared-first-name candidates must NOT match a full-name query"
+        )
+    finally:
+        async with AsyncSessionLocal() as db:
+            for cid in (target_id, noise_1_id, noise_2_id):
+                await db.execute(delete(Candidate).where(Candidate.id == cid))
+            await db.commit()

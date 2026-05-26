@@ -54,6 +54,10 @@ def _safe(col: ColumnElement) -> ColumnElement:
 _SEARCHABLE_COLUMNS: list[ColumnElement] = [
     _safe(Candidate.name),
     _safe(Candidate.lastname),
+    # Concatenated "name lastname" so a multi-word query like "Piotr Banulski"
+    # matches via ILIKE — searching each column independently misses the
+    # (name="Piotr", lastname="Banulski") case.
+    func.concat_ws(" ", Candidate.name, Candidate.lastname),
     _safe(Candidate.email),
     _safe(Candidate.phone),
     _safe(Candidate.location),
