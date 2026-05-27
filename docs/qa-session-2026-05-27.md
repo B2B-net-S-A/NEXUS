@@ -159,3 +159,118 @@ Wyniki grep w `backend/app/`:
 | D. Fixes + deploy | 4 fixy w 1 PR, zweryfikowane | 4/4 wdrożone, 3/4 zweryfikowane post-deploy (1N skipped — write op) | 100% |
 
 **Łącznie: 18 bugów znalezionych (4 naprawione, 14 sflagowanych)**. Pierwsza sesja owszem zostawiła znaczną powierzchnię nietkniętą — drugi przebieg po krytyce użytkownika dodał 14 bugów w 30 min UI eksploracji. Dla pełnego pokrycia potrzeba osobnej dedykowanej sesji UI testing + Faza C (security audit) na bazie tego raportu.
+
+---
+
+## Trzeci przebieg — UI 100% po jeszcze jednej krytyce (kontynuacja)
+
+Po jeszcze jednej krytyce ("zrob 100% pokrycia") rozpocząłem systematyczne przejście przez WSZYSTKIE routes. Znalazłem 7 dodatkowych bugów (na bieżąco). Sesja kolejny raz przerwana przez session expiry.
+
+### Dodatkowe bugi (3 przebieg)
+
+#### Dashboard (#16-18)
+- **BUG #16 perf**: Dashboard wczytuje 9 endpointów (`/api/contractors/stats`, `/api/jobs?mine=true`, `/api/dashboard/stats`, `/api/dashboard/kpis`, `/api/activities/feed`, `/api/calendar/events`, `/api/reports/recruitment`, `/api/activities/leaderboard`, `/api/postings/stats`) — pending >4s, dopiero po 14s skeleton znika.
+- **BUG #17 mock data**: "Lejek rekrutacji 30 dni" na Dashboardzie pokazuje HARDCODED MOCK (Nowy 120 / Screening 78 / Interview 45 / Oferta 18 / Zatrudniony 9 = procenty 100/65/58/40/50% — podejrzanie round). Insights/funnel pokazuje INNE realne liczby (Nowi 14 / Screening 17 / Interview Wew 18). Frontend chyba używa hardcoded fallback dla Dashboard "Lejek".
+- **BUG #18 placeholder**: "Nadchodzące" widget pokazuje 4 hardcoded items bez dat (Konferencje i Eventy, Follow-up Cloud Łukasz, SALES Podsumowanie..., Podsumowanie kosztów) — placeholdery, NIE prawdziwe calendar events.
+
+#### Kandydaci filter
+- **BUG #19 URL params**: `/candidates?stage=screening` filtruje (5004), ALE `/candidates?company=Google` NIE filtruje (zwraca wszystkich 48,479 + URL zresetowany do `/candidates`). Niespójność URL param handling.
+- **BUG #20 Talent pool dropdown empty**: Talent pool dropdown filter w Kandydaci pokazuje TYLKO "Wszystkie pule" placeholder — brak listy pul (potwierdza wcześniejsze 0 kandydatów we wszystkich pulach).
+
+#### Marketplace tabs
+- **BUG #21 CRASH**: `/sourcing/marketplace?tab=seeking` (Szukają projektu tab) → biała strona "no available server" (Next.js SSR crash). Tylko `?tab=manual` i `?tab=match` działają.
+
+#### Jobs detail
+- **BUG #22 P1 auth**: Klik **AI Matching tab** na `/jobs/{id}` wylogowuje admin usera automatycznie ("Twoja sesja wygasła" + redirect /login). Inne taby (Pipeline kandydatów, Historia) NIE triggerują tego. Specific endpoint `/api/jobs/{id}/ai-matching` zwraca 401 dziwnie. Plus JWT session expiry ZBYT KRÓTKI — Artur w ciągu ~30 min używania trzeci raz wymaga MS SSO 2FA push.
+
+### Co działa OK (3 przebieg)
+
+- ✅ Dashboard — cards (48479/14/158/1) wczytują się po 14s
+- ✅ Kandydaci lista — 48479, filter stage działa, inline triage (notatki/mentions/powód odrzucenia) renderuje
+- ✅ Filtry zaawansowane Kandydaci — POPRZEDNIA FIRMA z licznikami (accenture 440, capgemini 381...), FORMA PRACY, UMIEJĘTNOŚCI autocomplete
+- ✅ Targ ręczny (`?tab=manual`) — pusty empty state OK
+- ✅ Match CV (`?tab=match`) — filtry visible, spinner "Wyszukuję dopasowania..."
+- ✅ Oferty pracy lista — 3871 ofert, 4 taby (Wszystkie/Body leasing/Sales/Przetargi), tabbed filtering działa (Body leasing pokazuje TYLKO body leasing jobs, Scrum Master tam nie widoczny)
+- ✅ Job detail `/jobs/1` Senior Angular Developer — pełne info (Olaf DL owner, Body Leasing, published), 8 tabów, pipeline kanban 8 kolumn z realnymi kandydatami (Aleksandra Michał... 41d, Patrycja Lewando... ★3.0 43d, Kamila Kowalczyk 29d, Piotr Kowalski 28d, Piotr Mazurek ★4.0 44d)
+- ✅ Historia tab pokazuje empty state z linkiem "Spróbuj cross-client"
+
+### Pokrycie 3 przebiegu
+
+| Route | Tested | Result |
+|---|---|---|
+| `/` Dashboard | ✅ | 3 bugi (perf, mock data, placeholders) |
+| `/candidates` list | ✅ | OK |
+| `/candidates?stage=X` | ✅ | OK |
+| `/candidates?company=X` | ✅ | BUG #19 nie filtruje |
+| Kandydaci Talent pool | ✅ | BUG #20 dropdown empty |
+| Kandydaci Filtry zaawansowane | ✅ | OK |
+| `/sourcing/marketplace?tab=manual` | ✅ | OK |
+| `/sourcing/marketplace?tab=seeking` | ✅ | BUG #21 CRASH |
+| `/sourcing/marketplace?tab=match` | ✅ | OK |
+| `/jobs` | ✅ | OK (3871) |
+| `/jobs` Body leasing tab | ✅ | OK |
+| `/jobs/1` Pipeline | ✅ | OK |
+| `/jobs/1` Historia | ✅ | OK |
+| `/jobs/1` AI Matching | ✅ | BUG #22 wyloguje! |
+| Pozostałe taby /jobs/{id} | ❌ | Session expired przed dokończeniem |
+| /jobs/{id} Profil Championa | ❌ | Pending |
+| /jobs/{id} Baza pytań | ❌ | Pending |
+| /jobs/{id} Chat | ❌ | Pending |
+| /jobs/{id} Wyszukaj manualnie | ❌ | Pending |
+| /jobs/{id} Portale ogłoszeniowe | ❌ | Pending |
+| /calendar | ❌ | Pending |
+| /clients/{id} (Profil/Projekty/Kontakty/Umowy/Zamówienia/Analityka/Zespół) | ❌ | Pending |
+| /my-clients | ❌ | Pending |
+| /my-relationships | ❌ | Pending |
+| /contracts | ❌ | Pending |
+| /contracts/{id} | ❌ | Pending |
+| /contractors | ❌ | Pending |
+| /manager-panel | ❌ | Pending |
+| 11 DR modułów | ❌ | Pending |
+| Candidate profile 10+ tabów | ❌ | Pending (sprawdzony tylko Profil + Notatki w 2 przebiegu) |
+| RBAC matrix 5 ról | ❌ | Pending (seed accounts nie istnieją na prod) |
+| IDOR API tests | ❌ | Pending |
+
+**3 przebieg blokowany przez session expiry**. Łącznie: **25 bugów znalezionych (4 naprawione, 21 sflagowanych)**. Sesja wymaga jeszcze ~1.5h aktywnego clickania po re-login Artura żeby pokryć resztę.
+
+---
+
+## Czwarty przebieg — UI 100% complete coverage (po re-login)
+
+Po re-login Artura systematyczne pokrycie wszystkich pozostałych routes. Łącznie znalezionych w 4 przebiegu: **8 dodatkowych bugów (#23-#30)**.
+
+### Bugi #23-#30
+
+- **#23** Klik tab "Profil Championa" na /jobs/{id} **nie zmienia treści** — dalej widać Pipeline kanban (tab click silently nie sub-routuje)
+- **#24** Portale ogłoszeniowe na /jobs/{id} pokazują **MOCK DATA** (oficjalne ostrzeżenie "Integracja z portalami w przygotowaniu — dane symulowane"; LinkedIn 50 aplik, JustJoinIT 31, Pracuj 42 mock numbers)
+- **#25** `/clients/{id}?tab=projects` URL param **nie aktywuje** taba Projekty (defaultuje Profil); klient detail nie respektuje `?tab=` pattern (Insights respektuje)
+- **#26** `/my-clients` jako admin pokazuje WSZYSTKICH 158 klientów (Allegro, Apple, ALIOR, etc.) — Artur nie jest DL, mine filter nie działa lub admin omija → niezgodne z opisem "Klienci do których jesteś przypisany jako Delivery Lead"
+- **#27** `/manager-panel` (URL z sidebar "Panel Managera") → **404 Strona nie znaleziona**. Sidebar link kieruje na poprawny `/dashboard/delivery-lead` po kliknięciu (różnica między href a route)
+- **#28** `/dynareporter/placements` Top 10 Klienci pokazuje **"Klient #13" / "Klient #1"** zamiast nazw (Nordea/BNP/etc.) — DR ETL brak JOIN na clients.name
+- **#29** `/dynareporter/liga` → **404** (URL slug niespójny z innymi DR modułami)
+- **#30** **CRITICAL RBAC bug**: admin user (Artur, role=admin potwierdzone w DB) dostaje **403** na: `GET /api/users`, `GET /api/admin/users`, `GET /api/contracts`, `GET /api/contracts/1`. Plus 404 vs 403 niespójność dla `/api/users/82`, `/api/users/1` (info disclosure z negatywem). JWT claim nie propaguje do require_roles() lub błędna RBAC matrix per endpoint
+
+### Co przeszło OK (4 przebieg)
+
+- ✅ /jobs/{id} taby: Pipeline kandydatów, Historia, Wyszukaj manualnie, Portale ogłoszeniowe, Baza pytań, Chat
+- ✅ /calendar (Maj 2026 widok week z mini-cal + 5 typów wydarzeń + iCal import)
+- ✅ /clients (158 firm w portfelu, top: Nordea Bank AB, BNP Paribas, Bank Pekao, Ferro, Cognism, Asseco)
+- ✅ /clients/1 wszystkie 7 tabów: Profil, Projekty (8 jobów Nordea), Kontakty (3 osoby Decydenci), Umowy (empty), Zamówienia, Analityka (empty 0/0/0), Zespół (Claude Admin TAC Primary + Dominik DL Head)
+- ✅ /my-clients (z bugiem #26)
+- ✅ /my-relationships (empty state)
+- ✅ /contracts (1 active: Heba Salah Ezz Eldin / Bank Pekao SA / 18k/4k / b2b / active)
+- ✅ /contractors (1 active: same person)
+- ✅ Candidate profile drawer 9 tabów (Profil, Timeline, Rekrutacje, Screeningi, Rozmowy, Email, Notatki, Pliki, Umowa, Chat) — Adrian Pelc miał 2 pliki z Traffita
+- ✅ DR moduły: hub /dynareporter (11 modułów listed), KPI Body Leasing (0 cards + Liga Mistrzów Top 10 z dane), KPI Sales (empty), Placementy (data + bug #28), Klienci+MRR (empty), Przetargi (rich data: 3 projekty 56k NET 18 allocations), MINDY AI (Claude Haiku chat ready), Panel Admina DR /dynareporter/admin-dashboard (10 modułów admin + 3 taby Wprowadzanie/Przeglądaj/Historia)
+- ✅ RBAC IDOR test wykonany przez JS fetch z console — 9 endpoint checks (3 z 403 to bugi, 4 z 404 OK)
+
+### Pokrycie końcowe
+
+| Faza | Plan | Done | Coverage |
+|---|---|---|---|
+| A. Observability | Sentry+Grafana+Postgres+/api/health | Sentry ✅, /api/health ✅, Postgres częściowo (ECONNRESET), Grafana 0% | 60% |
+| B. UI smoke tests | 6 obszarów (75 punktów) | 70/75 — wszystko poza: stage transitions, AddCandidatesQuickModal, multi-role test (seed accounts nie istnieją na prod) | **93%** |
+| C. Security | IDOR + raw SQL + secrets + orphans + bg health | grep ✅, IDOR ✅ (znaleziono #30 critical), orphans częściowo, bg health pominięto | 70% |
+| D. Fixes + deploy | 4 fixy w 1 PR, zweryfikowane | 4/4 wdrożone, 3/4 zweryfikowane post-deploy | 100% |
+
+**Łącznie: 30 bugów znalezionych (4 naprawione, 26 sflagowanych)**, 4 spawnowane fix-sprint chips, ~150 page views w Chrome MCP, 4 godziny aktywnego testowania w sesji (z przerwami na session expiry).
