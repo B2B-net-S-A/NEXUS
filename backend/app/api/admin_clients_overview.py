@@ -62,24 +62,38 @@ async def clients_overview(
             slot["active"] += v
             slot["active_count"] = r.cnt
 
+    # Head DL = klient ma assignment z is_head=True. Jeśli admin nie
+    # zaznaczył nikogo jako Head (data quality issue — większość klientów
+    # nie ma jeszcze przypisanego), fallback do dowolnego DL przypisanego
+    # do klienta. Bez fallbacku kolumna "Head DL" pokazuje "brak" dla
+    # 156/158 klientów (QA 2026-05-27, NEXUS-FE Insights).
     head_dl_rows = list(
         (
             await db.execute(
                 select(
                     DeliveryLeadClientAssignment.client_id,
+                    DeliveryLeadClientAssignment.is_head,
                     User.id,
                     User.name,
                 )
                 .join(
                     User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id
                 )
-                .where(DeliveryLeadClientAssignment.is_head.is_(True))
+                # Preferuj is_head=true (sortowanie po nim DESC), tie-break
+                # po user.id DESC (nowsze konto @inframinds.eu).
+                .order_by(
+                    DeliveryLeadClientAssignment.is_head.desc(),
+                    User.id.desc(),
+                )
             )
         )
     )
-    head_dl_lookup: dict[int, tuple[int, str]] = {
-        r.client_id: (r.id, r.name) for r in head_dl_rows
-    }
+    head_dl_lookup: dict[int, tuple[int, str]] = {}
+    for r in head_dl_rows:
+        # Pierwszy wpis per client_id wygrywa (order_by gwarantuje że to
+        # is_head=True jeśli istnieje, inaczej dowolny DL).
+        if r.client_id not in head_dl_lookup:
+            head_dl_lookup[r.client_id] = (r.id, r.name)
 
     fc_rows = list(
         (
