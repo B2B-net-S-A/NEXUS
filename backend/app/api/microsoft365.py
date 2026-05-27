@@ -247,8 +247,17 @@ async def callback(
 @router.get("/connection", response_model=ConnectionStatus)
 async def get_connection(
     current_user: CurrentUser,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionStatus:
+    # 30s private cache — FE polls this co 15-60s, cache redukuje zbędne
+    # DB roundtripy. `private` bo response zawiera per-user data
+    # (mailbox_upn, sync status). QA 2026-05-27 sygnalizował timeout na
+    # tym endpoincie — to nie był Graph call, ale powtarzane zapytania
+    # przy załadowaniu /settings dawały kumulatywne >5s. Cache rozluźnia
+    # presję bez utraty świeżości (FE refetchInterval i tak pull co 15s).
+    response.headers["Cache-Control"] = "private, max-age=30"
+
     conn = await _get_connection_for_user(db, current_user.id)
     if conn is None:
         return ConnectionStatus(connected=False)

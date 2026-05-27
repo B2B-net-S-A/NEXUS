@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,8 +117,15 @@ class TeamsChannelResponse(BaseModel):
 @router.get("", response_model=List[TeamsChannelResponse])
 async def list_channels(
     _: AdminUser,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> List[TeamsChannelResponse]:
+    # 60s private cache — admin-only endpoint, channel config zmienia się
+    # rzadko (raz na deploy), więc 60s safe window. QA 2026-05-27
+    # sygnalizował timeout w admin /settings — DB query jest szybkie ale
+    # response 200ms+ × 4 ładowane karty integracji = user-perceived hang.
+    response.headers["Cache-Control"] = "private, max-age=60"
+
     rows = (
         (
             await db.execute(
