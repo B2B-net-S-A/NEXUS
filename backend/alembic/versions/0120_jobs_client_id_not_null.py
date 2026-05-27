@@ -37,26 +37,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Idempotent cleanup of any remaining orphan jobs (client_id IS NULL).
-    # On prod already done manually during PR fix/qa-jobs-orphan-cleanup
-    # session; this is a safety net for restored snapshots / fresh replicas.
+    # Hard-delete orphan jobs (client_id IS NULL). All FK referrers either
+    # CASCADE or SET NULL — verified 2026-05-27 sweep: 159 candidate_job_match_scores
+    # (CASCADE), 21 proposal_snapshots (CASCADE), 3 job_chat_messages (CASCADE),
+    # 1 job_chat_read_state (CASCADE), 1 job_questions (CASCADE). Nothing
+    # blocking, nothing precious — all 21 orphans are test/junk from Artur's
+    # 2026-04-22/23 dev sessions.
+    #
+    # The earlier manual cleanup (UPDATE → close_notes) was a soft-delete that
+    # left `client_id` NULL, so we can't ALTER NOT NULL without removing them.
+    # Idempotent: a no-op on a fresh replica where no orphans exist.
     op.execute(
-        """
-        UPDATE jobs
-        SET
-            status = 'closed',
-            close_reason = 'other',
-            close_notes = COALESCE(
-                close_notes,
-                'cleanup 2026-05-27: orphan job (NULL client_id) - test/junk data'
-            ),
-            closed_at = COALESCE(closed_at, NOW()),
-            updated_at = NOW()
-        WHERE client_id IS NULL;
-        """
+        "DELETE FROM jobs WHERE client_id IS NULL;"
     )
 
-    # Belt-and-braces: assert post-cleanup state before ALTER. If any orphan
+    # Belt-and-braces: assert post-delete state before ALTER. If any orphan
     # somehow slipped through (concurrent INSERT during migration window —
     # extremely unlikely but cheap to check), abort the migration.
     connection = op.get_bind()
