@@ -2,8 +2,18 @@ import axios, { AxiosError } from "axios";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// 30s global request timeout. Before this was unset → axios default = infinite
+// → user-visible "hangs forever" on Graph API endpoints or slow reports.
+// 30s daje wystarczająco czasu na heavy SQL (e.g. /api/reports/time-to-hire
+// pre-PR7 brał ~15s) ale ogranicza worst case do tractable wartości.
+// QA 2026-05-27 zaobserwował "API timeout" na /microsoft365/connection
+// i /teams-channels — diagnostykę poprawia 30s timeout zamiast wiecznego
+// hangu.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export const api = axios.create({
   baseURL: API_BASE,
+  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
 
