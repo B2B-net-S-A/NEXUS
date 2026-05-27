@@ -944,6 +944,11 @@ async def _compute_client_hit_ratio(
                     "filled_job_ids": set(),
                     "placements": 0,
                     "active_jobs": int(r.cnt),
+                    # Must match the closed-jobs bucket shape above — the
+                    # output loop reads bucket["close_reasons"] unconditionally
+                    # (Sentry NEXUS-BE-8, 20 events, KeyError on clients with
+                    # active jobs but zero closed in the period).
+                    "close_reasons": {},
                 }
 
     # 4. Materialize per-client output.

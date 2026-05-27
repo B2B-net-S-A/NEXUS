@@ -69,8 +69,18 @@ async def get_dashboard(
 
     `CAST(:date AS date)` analogicznie do fixu w yearly-stats (PR #252) —
     asyncpg potrzebuje explicit cast dla parametru używanego w `IS NULL`.
+
+    Same param appears bare elsewhere (`k.report_month >= :start_date`); asyncpg
+    infers DATE from that usage and fails to encode the Python `str` (Sentry
+    NEXUS-BE-V — 88 events). Parse to `datetime.date` once so every binding
+    sees the correct type. NULL handling stays at the CAST(:x AS date) IS NULL
+    sites (Python `None` → SQL NULL works for both date and text columns).
     """
-    params = {"start_date": start_date, "end_date": end_date}
+    start_date_obj = (
+        datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
+    )
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
+    params = {"start_date": start_date_obj, "end_date": end_date_obj}
 
     # Per-DL aggregates — single text() z bound params, brak f-string SQL.
     sql_per_dl = text(
@@ -254,12 +264,8 @@ async def get_dashboard(
         team_history=team_history,
         hit_ratio_target=HIT_RATIO_TARGET,
         period_label=period_label,
-        period_start=(
-            datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else None
-        ),
-        period_end=(
-            datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else None
-        ),
+        period_start=start_date_obj,
+        period_end=end_date_obj,
     )
 
 
