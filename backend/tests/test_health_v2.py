@@ -75,6 +75,53 @@ async def test_api_health_falls_back_to_filesystem_mtime_without_env(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_api_health_prefers_mtime_over_stale_built_at(monkeypatch):
+    """Gdy BUILT_AT env jest STARSZY od __file__ mtime, mtime wygrywa.
+
+    QA 2026-05-27: Coolify env vault miał static BUILT_AT=2026-05-01 mimo
+    że kontener był rebuilt 2026-05-27. Stale env nie powinien dominować
+    nad świeżym mtime. PR13 zmienia logic z 'prefer env' na 'max(env, mtime)'.
+    """
+    import re
+
+    monkeypatch.setenv("BUILT_AT", "2020-01-01T00:00:00Z")  # bardzo stary
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+
+    body = response.json()
+    # mtime (recent) > BUILT_AT (2020) → mtime wygrywa.
+    # __file__ jest świeży (modyfikowany w tym PR), więc deployedAt > 2020.
+    assert body["deployedAt"] != "2020-01-01T00:00:00Z", (
+        "Stale BUILT_AT env shouldn't dominate over fresh mtime"
+    )
+    iso_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+    assert re.match(iso_pattern, body["deployedAt"]), (
+        f"Expected ISO timestamp, got {body['deployedAt']!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_health_uses_future_built_at_when_set(monkeypatch):
+    """Gdy BUILT_AT env jest NEWER niż mtime (np. CI sets explicit deploy
+    time), env wygrywa."""
+    future_built_at = "2099-12-31T23:59:59Z"
+    monkeypatch.setenv("BUILT_AT", future_built_at)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health")
+
+    body = response.json()
+    assert body["deployedAt"] == future_built_at, (
+        "Future-dated BUILT_AT env should win over mtime"
+    )
+
+
+@pytest.mark.asyncio
 async def test_api_health_includes_database_check(env_with_metadata):
     """W CI postgres service jest dostępny → expect database == healthy.
     Lokalnie bez DB → expect database == unhealthy + HTTP 503.

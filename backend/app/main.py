@@ -725,28 +725,44 @@ async def health_check():
 def _resolve_deployed_at() -> str:
     """Return ISO-8601 deployedAt string.
 
-    Prefer BUILT_AT env var when it looks like a valid ISO timestamp (set by
-    Coolify/CI). Fallback to filesystem mtime of __file__ — kontener freshly
-    rebuilt at each deploy gets fresh mtime, so health "świeżość" reflects
-    actual deploy moment instead of static env var that may be stale.
+    Strategy: return MAX(BUILT_AT env, __file__ mtime). Bo:
+    - Coolify env vault często ma BUILT_AT jako static value (last manual
+      set), które nie aktualizuje się per deploy → stale info (QA
+      2026-05-27: prod pokazywał 27-dniowy timestamp mimo świeżego deployu)
+    - Filesystem mtime __file__ ZAWSZE świeży po Docker rebuild (Coolify
+      buduje od scratch przy każdym deploy)
+    - Max() z obu daje "best available freshness" — env wygrywa tylko
+      gdy ktoś świadomie ustawił go w przyszłości (np. test fixture)
+
+    QA 2026-05-27: deployedAt 2026-05-01 dla deployu z 2026-05-27. Fix:
+    fall through to mtime gdy env jest starszy od mtime.
     """
     import os
     from datetime import datetime, timezone
 
+    candidates: list[tuple[datetime, str]] = []
+
     explicit = os.environ.get("BUILT_AT", "").strip()
     if explicit and explicit != "unknown":
         try:
-            datetime.fromisoformat(explicit.replace("Z", "+00:00"))
-            return explicit
+            parsed = datetime.fromisoformat(explicit.replace("Z", "+00:00"))
+            candidates.append((parsed, explicit))
         except ValueError:
             pass
+
     try:
         mtime = os.path.getmtime(__file__)
-        return datetime.fromtimestamp(mtime, tz=timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        mtime_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        mtime_str = mtime_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        candidates.append((mtime_dt, mtime_str))
     except OSError:
+        pass
+
+    if not candidates:
         return "unknown"
+    # Pick most-recent timestamp — fresher beats stale.
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates[0][1]
 
 
 @app.get("/api/health")
