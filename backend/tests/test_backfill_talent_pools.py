@@ -61,12 +61,19 @@ async def _seed_job(
     seniority: Seniority | None,
     cc_id: int | None,
 ) -> int:
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"BFClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=f"BF Job {uuid.uuid4().hex[:6]}",
             subcategory=subcategory,
             seniority=seniority,
             competence_category_id=cc_id,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

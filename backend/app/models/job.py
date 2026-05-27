@@ -172,8 +172,10 @@ class Job(Base, TimestampMixin):
     close_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Foreign keys
-    client_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("clients.id"), index=True
+    # client_id: enforced NOT NULL od migracji 0120 (2026-05-27). Wcześniej
+    # nullable — QA sweep wykrył 21 orphan recordów (test/junk data) na prod.
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id"), index=True, nullable=False
     )
     # Primary Competence Category (migracja 0033_cc_entities + 0041_ai_cc_matching).
     # Kolumna istnieje w DB od 0033, ale dopiero 0041 domyka mapping w ORM —

@@ -31,15 +31,29 @@ async def _seed_user(*, role: str = "recruiter") -> int:
         return u.id
 
 
+async def _seed_client() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        c = Client(name=f"JobFltClient-{uuid.uuid4().hex[:6]}")
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        return c.id
+
+
 async def _seed_job(*, status: str, recruiter_id: int | None = None) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job, JobStatus
 
+    client_id = await _seed_client()
     async with AsyncSessionLocal() as db:
         j = Job(
             title=f"Job-{uuid.uuid4().hex[:6]}",
             status=JobStatus(status),
             recruiter_id=recruiter_id,
+            client_id=client_id,
         )
         db.add(j)
         await db.commit()

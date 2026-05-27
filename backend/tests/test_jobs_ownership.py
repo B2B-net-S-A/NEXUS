@@ -54,12 +54,25 @@ async def _seed_user(role: UserRole, prefix: str = "own") -> tuple[int, str, str
         return u.id, email, password
 
 
+async def _seed_client() -> int:
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        c = Client(name=f"OwnTestClient-{uuid.uuid4().hex[:6]}")
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        return c.id
+
+
 async def _seed_job(recruiter_id: int | None = None) -> int:
+    client_id = await _seed_client()
     async with AsyncSessionLocal() as db:
         j = Job(
             title=f"Ownership-test Job {uuid.uuid4().hex[:6]}",
             status=JobStatus.draft,
             recruiter_id=recruiter_id,
+            client_id=client_id,
         )
         db.add(j)
         await db.commit()

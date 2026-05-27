@@ -151,6 +151,12 @@ async def _seed_candidate(
 async def _seed_job(
     db, *, recruiter: User, title: str = "Senior Python Engineer"
 ) -> Job:
+    from app.models.client import Client
+
+    cli = Client(name=f"MpClient-{uuid.uuid4().hex[:6]}")
+    db.add(cli)
+    await db.commit()
+    await db.refresh(cli)
     job = Job(
         title=title,
         description="Budujemy ATS, szukamy seniora.",
@@ -161,6 +167,7 @@ async def _seed_job(
         recruiter_id=recruiter.id,
         created_by=recruiter.id,
         embedding_id="stub-embedding-id",  # by _should_scan_job przeszło
+        client_id=cli.id,
     )
     db.add(job)
     await db.commit()
@@ -370,8 +377,14 @@ async def test_score_below_threshold_no_alert(monkeypatch, fresh_db):
 
 
 async def test_skip_when_job_has_no_skills(monkeypatch, fresh_db):
+    from app.models.client import Client
+
     db = fresh_db
     owner = await _seed_user(db, name="NoSkills")
+    cli = Client(name=f"MpClient-NoSkills-{uuid.uuid4().hex[:6]}")
+    db.add(cli)
+    await db.commit()
+    await db.refresh(cli)
     job = Job(
         title="Test",
         description="x",
@@ -381,6 +394,7 @@ async def test_skip_when_job_has_no_skills(monkeypatch, fresh_db):
         recruiter_id=owner.id,
         created_by=owner.id,
         embedding_id="stub",
+        client_id=cli.id,
     )
     db.add(job)
     await db.commit()
