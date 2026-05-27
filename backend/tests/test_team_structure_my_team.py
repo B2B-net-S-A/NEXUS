@@ -47,9 +47,14 @@ async def _seed_job(
     delivery_lead_id: int | None = None,
 ) -> int:
     from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
     from app.models.job import Job, JobStatus, RemotePolicy
 
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"MTClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         j = Job(
             title=f"MT Job {title_suffix or uuid.uuid4().hex[:6]}",
             location="Warszawa",
@@ -57,6 +62,7 @@ async def _seed_job(
             remote_policy=RemotePolicy.hybrid,
             tac_id=tac_id,
             delivery_lead_id=delivery_lead_id,
+            client_id=cli.id,
         )
         db.add(j)
         await db.commit()

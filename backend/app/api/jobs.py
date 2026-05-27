@@ -243,6 +243,10 @@ async def list_jobs(
     from app.models.recruitment_pipeline import CandidateStage
 
     query = select(Job)
+    # Defense-in-depth: nigdy nie zwracaj jobs z NULL client_id na liście.
+    # Od migracji 0120 (2026-05-27) DB ma NOT NULL constraint — ten filtr
+    # chroni przed regresją gdyby ktoś kiedyś constraint zdjął.
+    query = query.where(Job.client_id.is_not(None))
     if status:
         query = query.where(Job.status.in_(status))
     if recruitment_type:

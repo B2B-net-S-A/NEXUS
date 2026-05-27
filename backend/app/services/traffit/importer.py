@@ -1017,9 +1017,9 @@ class TraffitImporter:
                 progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
                 continue
 
-            # Skip jobs bez znanego klienta (NOT NULL constraint na client_id
-            # nie ma — pole jest nullable — ale rzadko sensowne mieć job
-            # bez klienta. Logujemy jako skipped dla audit.)
+            # Skip jobs bez znanego klienta — DB ma NOT NULL constraint
+            # na `client_id` od migracji 0120 (2026-05-27), więc bezklientowy
+            # INSERT i tak by się wywalił. Logujemy jako skipped dla audit.
             if payload.get("client_id") is None:
                 progress.skipped += 1
                 if len(progress.error_samples) < 20:

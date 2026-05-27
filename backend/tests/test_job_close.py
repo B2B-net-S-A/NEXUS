@@ -21,11 +21,28 @@ pytestmark = pytest.mark.asyncio
 async def _create_draft_job(
     app_client: AsyncClient, headers: dict[str, str], title: str
 ) -> int:
-    """Create a draft job directly — returns its id. Requires TacPlus."""
+    """Create a draft job directly — returns its id. Requires TacPlus.
+
+    Seeds a throwaway client first (migration 0120 forces NOT NULL on
+    `jobs.client_id`).
+    """
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"CloseTestClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        cli_id = cli.id
+
     payload = {
         "title": title,
         "recruitment_type": "body_leasing",
         "work_mode": "fulltime",
+        "client_id": cli_id,
     }
     resp = await app_client.post("/api/jobs", json=payload, headers=headers)
     assert resp.status_code in (200, 201), resp.text
