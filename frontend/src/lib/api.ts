@@ -105,7 +105,7 @@ api.interceptors.response.use(
 const AUTH_SCOPED_PATHS = ["/api/auth/me", "/api/users/me"];
 const SESSION_403_WINDOW_MS = 5_000;
 const SESSION_403_THRESHOLD = 3;
-let recent403Endpoints = new Map<string, number>();
+const recent403Endpoints = new Map<string, number>();
 let sessionRedirectInFlight = false;
 
 function isAuthScopedPath(url: string | undefined): boolean {
