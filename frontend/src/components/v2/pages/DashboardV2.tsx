@@ -144,14 +144,28 @@ function StatCardV2({ title, value, subtitle, icon: Icon, trend, sparkline, href
 
 // ── Funnel ─────────────────────────────────────────────────────────────
 function FunnelV2({ data }: { data?: any }) {
+ // QA bug #17 (2026-05-27): previous version used hardcoded fallbacks
+ // 120/78/45/18/9 when the funnel API returned null/undefined. Those
+ // round numbers (100%/65%/58%/40%/50% conversion) were mistaken for
+ // real metrics by admins who compared them against Insights/Rekrutacja
+ // which showed actual 14/17/2/18/9 — confusing data integrity story.
+ // Now: 0 + "Brak danych" empty state when API has no response yet.
  const funnel = data?.funnel ?? data?.pipeline ?? null;
  const stages = [
- { key: "new", label: "Nowy", count: funnel?.new ?? funnel?.total_entered ?? 120 },
- { key: "screening", label: "Screening", count: funnel?.screening ?? funnel?.screening_done ?? 78 },
- { key: "interview", label: "Interview", count: funnel?.interview ?? funnel?.interviews ?? 45 },
- { key: "offer", label: "Oferta", count: funnel?.offer ?? funnel?.offers ?? 18 },
- { key: "hired", label: "Zatrudniony", count: funnel?.hired ?? funnel?.hired_count ?? 9 },
+ { key: "new", label: "Nowy", count: funnel?.new ?? funnel?.total_entered ?? 0 },
+ { key: "screening", label: "Screening", count: funnel?.screening ?? funnel?.screening_done ?? 0 },
+ { key: "interview", label: "Interview", count: funnel?.interview ?? funnel?.interviews ?? 0 },
+ { key: "offer", label: "Oferta", count: funnel?.offer ?? funnel?.offers ?? 0 },
+ { key: "hired", label: "Zatrudniony", count: funnel?.hired ?? funnel?.hired_count ?? 0 },
  ];
+ const allZero = stages.every((s) => s.count === 0);
+ if (allZero) {
+ return (
+ <p className="text-sm text-muted-foreground py-4">
+ Brak danych — żaden kandydat nie wszedł do lejka w wybranym okresie.
+ </p>
+ );
+ }
  const max = Math.max(...stages.map((s) => s.count), 1);
  return (
  <div className="space-y-2.5">
