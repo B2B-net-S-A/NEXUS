@@ -138,9 +138,12 @@ async def list_cloudtalk_agents(
         async with CloudTalkClient(cfg) as ct:
             raw = await ct.list_agents(limit=100)
     except CloudTalkAuthError as exc:
+        logger.warning(
+            "CloudTalk auth failed — check CLOUDTALK_API_KEY_ID/SECRET: %s", exc
+        )
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"CloudTalk auth failed: {exc.status}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CloudTalk integration not configured (auth failed)",
         ) from exc
     except CloudTalkError as exc:
         raise HTTPException(
@@ -225,6 +228,14 @@ async def sync_agents(
     try:
         async with CloudTalkClient(cfg) as ct:
             raw = await ct.list_agents(limit=100)
+    except CloudTalkAuthError as exc:
+        logger.warning(
+            "CloudTalk auth failed — check CLOUDTALK_API_KEY_ID/SECRET: %s", exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CloudTalk integration not configured (auth failed)",
+        ) from exc
     except CloudTalkError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -333,6 +344,14 @@ async def initiate_call(
                 agent_id=current_user.cloudtalk_agent_id,
                 phone_number=candidate.phone,
             )
+    except CloudTalkAuthError as exc:
+        logger.warning(
+            "CloudTalk auth failed — check CLOUDTALK_API_KEY_ID/SECRET: %s", exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CloudTalk integration not configured (auth failed)",
+        ) from exc
     except CloudTalkError as exc:
         logger.warning(
             "CloudTalk initiate_call failed for user=%s candidate=%s: %s",
