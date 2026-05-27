@@ -635,15 +635,23 @@ async def test_endpoint_shape_when_no_similar_jobs(
     app_client, app_auth_headers
 ) -> None:
     """When Qdrant returns nothing, endpoint must respond gracefully (not 500)."""
+    import uuid as _uuid
+
     from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
     from app.models.job import Job, JobStatus
 
     # Create a minimal job directly to get a real id for the endpoint to hit.
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"SimilarClient-{_uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title="pytest-similar-empty",
             description="pytest sentinel — no embedding expected",
             status=JobStatus.draft,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

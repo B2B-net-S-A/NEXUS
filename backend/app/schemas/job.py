@@ -28,7 +28,10 @@ class JobCreate(BaseModel):
     needs_sourcing: bool = False
     recruitment_type: RecruitmentType = RecruitmentType.body_leasing
     deadline: Optional[date] = None
-    client_id: Optional[int] = None
+    # client_id: required od migracji 0120 (2026-05-27). NOT NULL na DB.
+    # Tworzenie joba bez klienta zwraca 422 — orphan recordy nigdy nie wpadną
+    # na listę /jobs (patrz QA sweep PR fix/qa-jobs-orphan-cleanup).
+    client_id: int = Field(..., gt=0)
     recruiter_id: Optional[int] = None
     # TAC + Delivery Lead — jeśli podane jawnie, wygrywa nad auto-assignem
     # z `client_tac_assignments`/`delivery_lead_client_assignments`.

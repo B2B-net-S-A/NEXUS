@@ -308,8 +308,16 @@ async def report_sales(
 
     today = date.today()
 
-    # Active contracts
-    active_q = select(Contract).where(Contract.status == ContractStatus.active)
+    # MRR snapshot — only contracts that are *running today* (already started
+    # and not yet ended). status=active alone isn't enough: it leaks future
+    # contracts (start_date > today) and ones whose end_date has passed but
+    # status hasn't flipped yet. Matches the time-bound logic in `mrr_trend`
+    # below so KPI cards reconcile with the MoM comparison widget.
+    active_q = select(Contract).where(
+        Contract.status == ContractStatus.active,
+        Contract.start_date <= today,
+        (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+    )
     active_contracts = (await db.execute(active_q)).scalars().all()
 
     total_revenue = sum(_monthly_rate_client(c) for c in active_contracts)
@@ -1355,11 +1363,21 @@ async def report_board(
     ).scalar() or 0
     funnel_eff_avg = _safe_pct(placements_ytd, weryfikacje_ytd)
 
-    # ── Sales YTD ────────────────────────────────────────────────────────────
+    # ── Sales (MRR snapshot, not literally YTD) ──────────────────────────────
+    # NOTE: `revenue_ytd` / `margin_ytd` are misnomers preserved for API
+    # backward compat — they are actually MRR snapshots (sum of monthly
+    # rates for contracts running today). Filter must match `mrr_trend`
+    # logic in `/sales` and `trends` below so the BoardKPI card reconciles
+    # with the MoM comparison widget (QA 2026-05-27: card showed 18k while
+    # MoM showed 0 zł because 1 contract had start_date in the future).
     active_contracts = (
         (
             await db.execute(
-                select(Contract).where(Contract.status == ContractStatus.active)
+                select(Contract).where(
+                    Contract.status == ContractStatus.active,
+                    Contract.start_date <= today,
+                    (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+                )
             )
         )
         .scalars()

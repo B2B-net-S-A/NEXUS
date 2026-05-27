@@ -381,6 +381,14 @@ async def list_dl_clients(
     _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    """Return active DLs with their client assignments.
+
+    Deduplication: each person may have two active accounts after the
+    @b2bnetwork.pl → @inframinds.eu domain migration (legacy + SSO).
+    Group by normalized name, prefer the account with more client
+    assignments (tie-break: higher user_id = newer @inframinds.eu account),
+    and merge client lists across duplicates so no assignment is lost.
+    """
     dls = (
         (
             await db.execute(
@@ -415,10 +423,49 @@ async def list_dl_clients(
             ClientOfDl(id=r.id, name=r.name, is_head=r.is_head)
         )
 
-    return [
-        DlClientsRow(delivery_lead=_user_brief(dl), clients=by_dl.get(dl.id, []))
-        for dl in dls
-    ]
+    def _norm_name(name: str) -> str:
+        # Strip "(DL)"/"(TAC)" suffix tags that some @inframinds.eu names carry
+        # then case-fold so "Marlena Rosol" == "Marlena Rosół (DL)".
+        cleaned = name.split("(")[0].strip().lower()
+        # Drop Polish diacritics so display variants merge (rosol == rosół).
+        translate = str.maketrans("ąćęłńóśźż", "acelnoszz")
+        return cleaned.translate(translate)
+
+    # Group candidates by normalized name; pick the canonical row.
+    groups: dict[str, list[User]] = {}
+    for dl in dls:
+        groups.setdefault(_norm_name(dl.name), []).append(dl)
+
+    deduped: list[DlClientsRow] = []
+    for siblings in groups.values():
+        # Canonical row = the one with most clients (ties broken by highest
+        # id, which is the newer @inframinds.eu account post-migration).
+        canonical = max(
+            siblings,
+            key=lambda u: (len(by_dl.get(u.id, [])), u.id),
+        )
+        # Merge clients across all siblings, dedup by client.id.
+        merged: dict[int, ClientOfDl] = {}
+        for sib in siblings:
+            for c in by_dl.get(sib.id, []):
+                # Preserve is_head=True if any sibling marks it as head.
+                if c.id in merged:
+                    merged[c.id] = ClientOfDl(
+                        id=c.id,
+                        name=c.name,
+                        is_head=merged[c.id].is_head or c.is_head,
+                    )
+                else:
+                    merged[c.id] = c
+        deduped.append(
+            DlClientsRow(
+                delivery_lead=_user_brief(canonical),
+                clients=sorted(merged.values(), key=lambda c: c.name),
+            )
+        )
+
+    deduped.sort(key=lambda r: r.delivery_lead.name)
+    return deduped
 
 
 @router.post("/dl-clients", status_code=status.HTTP_201_CREATED)

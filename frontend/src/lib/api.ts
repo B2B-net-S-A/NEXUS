@@ -2,8 +2,18 @@ import axios, { AxiosError } from "axios";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// 30s global request timeout. Before this was unset → axios default = infinite
+// → user-visible "hangs forever" on Graph API endpoints or slow reports.
+// 30s daje wystarczająco czasu na heavy SQL (e.g. /api/reports/time-to-hire
+// pre-PR7 brał ~15s) ale ogranicza worst case do tractable wartości.
+// QA 2026-05-27 zaobserwował "API timeout" na /microsoft365/connection
+// i /teams-channels — diagnostykę poprawia 30s timeout zamiast wiecznego
+// hangu.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export const api = axios.create({
   baseURL: API_BASE,
+  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   headers: { "Content-Type": "application/json" },
 });
 
@@ -86,16 +96,88 @@ api.interceptors.response.use(
   }
 );
 
-// Auto-redirect on 401
+// Session-expired auto-redirect — handles 401 + 403 patterns the user would
+// otherwise need to recover from manually (clearing cookies, finding the login
+// URL). Three triggers:
+//
+//   1. Any 401             → token rejected, definitively expired
+//   2. 403 on /api/auth/me or /api/users/me/*   → session-scoped endpoints
+//      that should ALWAYS work for any authenticated user; one failure here
+//      is a clear "your session is dead" signal
+//   3. ≥3 unique 403s within a 5s window         → "dashboard scenario":
+//      multiple widgets fire in parallel on mount, all 403 → session expired.
+//      Single 403 on one endpoint is treated as a real permission denial and
+//      surfaced normally (e.g. recruiter hitting /api/admin/*).
+//
+// Repro for trigger 3: log in, wait for JWT to expire OR deploy with rotated
+// SECRET_KEY, open dashboard — every widget would show "Brak uprawnień" with
+// no way to log out (UserMenu doesn't render when user=null).
+const AUTH_SCOPED_PATHS = ["/api/auth/me", "/api/users/me"];
+const SESSION_403_WINDOW_MS = 5_000;
+const SESSION_403_THRESHOLD = 3;
+const recent403Endpoints = new Map<string, number>();
+let sessionRedirectInFlight = false;
+
+function isAuthScopedPath(url: string | undefined): boolean {
+  if (!url) return false;
+  return AUTH_SCOPED_PATHS.some((p) => url.startsWith(p));
+}
+
+function triggerSessionExpiredRedirect(): void {
+  if (typeof window === "undefined") return;
+  if (sessionRedirectInFlight) return;
+  // Already on the login flow (or any /login/* sub-route) — nothing to do.
+  if (window.location.pathname.startsWith("/login")) return;
+  sessionRedirectInFlight = true;
+  try {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("nexus_user");
+    document.cookie = "nexus_access=; path=/; max-age=0; samesite=lax";
+  } catch {
+    /* non-browser env */
+  }
+  const next = encodeURIComponent(
+    window.location.pathname + window.location.search,
+  );
+  window.location.href = `/login?reason=session_expired&next=${next}`;
+}
+
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("access_token");
-      window.location.href = "/login";
+  (res) => {
+    // Any 2xx response means the session is alive — reset the 403 sliding
+    // window so a later permission-denied click on a single admin endpoint
+    // doesn't compound with stale failures from the prior page.
+    if (recent403Endpoints.size > 0) recent403Endpoints.clear();
+    return res;
+  },
+  (err: AxiosError) => {
+    if (typeof window === "undefined") return Promise.reject(err);
+    const status = err.response?.status;
+    const url = err.config?.url;
+
+    if (status === 401) {
+      triggerSessionExpiredRedirect();
+      return Promise.reject(err);
+    }
+
+    if (status === 403) {
+      if (isAuthScopedPath(url)) {
+        triggerSessionExpiredRedirect();
+        return Promise.reject(err);
+      }
+      // Count unique-endpoint 403s within the rolling window — keyed by URL
+      // so a single endpoint retrying itself doesn't trip the heuristic.
+      const now = Date.now();
+      for (const [key, ts] of recent403Endpoints) {
+        if (now - ts > SESSION_403_WINDOW_MS) recent403Endpoints.delete(key);
+      }
+      if (url) recent403Endpoints.set(url, now);
+      if (recent403Endpoints.size >= SESSION_403_THRESHOLD) {
+        triggerSessionExpiredRedirect();
+      }
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 // ── Auth ─────────────────────────────────────────────────────────────────────

@@ -130,8 +130,13 @@ async def _create_test_job(
 ) -> int:
     """Helper: create a job via in-process DB session (faster than API)."""
     from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"IQClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=f"{title_prefix}-{uuid.uuid4().hex[:6]}",
             description="Test job dla testów Interview Questions",
@@ -139,6 +144,7 @@ async def _create_test_job(
             remote_policy=RemotePolicy.hybrid,
             status=JobStatus.draft,
             recruitment_type=RecruitmentType.body_leasing,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

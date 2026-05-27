@@ -114,36 +114,95 @@ async def sla_alerts(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """List CandidateStage rows that exceeded PipelineStageDef.sla_max_days."""
-    # Latest stage per (candidate, job)
-    q = await db.execute(
-        select(CandidateStage).order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.job_id,
-            CandidateStage.moved_at.desc(),
-        )
-    )
-    latest: dict[tuple[int, int], CandidateStage] = {}
-    for s in q.scalars().all():
-        key = (s.candidate_id, s.job_id)
-        if key not in latest:
-            latest[key] = s
+    """List CandidateStage rows that exceeded PipelineStageDef.sla_max_days.
 
-    stage_def_ids = {s.stage_def_id for s in latest.values() if s.stage_def_id}
-    stage_defs: dict[int, PipelineStageDef] = {}
-    if stage_def_ids:
-        sd_rows = await db.execute(
-            select(PipelineStageDef).where(PipelineStageDef.id.in_(stage_def_ids))
+    Optimized 2026-05-27: dawniej pełen scan 158k rows + Python loop "latest
+    per pair" — wisiało >15s. Teraz:
+    1. Pre-fetch tylko PipelineStageDef z sla_max_days IS NOT NULL i NOT
+       is_terminal (kilkanaście wpisów) — to definicje które MOGĄ breach
+    2. SELECT candidate_stages tylko ze stage_def_id w tej puli
+    3. DISTINCT ON w Postgres żeby dostać latest per pair w SQL zamiast
+       Python defaultdict
+    """
+    sla_defs = (
+        (
+            await db.execute(
+                select(PipelineStageDef).where(
+                    PipelineStageDef.sla_max_days.isnot(None),
+                    PipelineStageDef.is_terminal == False,  # noqa: E712
+                )
+            )
         )
-        stage_defs = {sd.id: sd for sd in sd_rows.scalars().all()}
+        .scalars()
+        .all()
+    )
+    if not sla_defs:
+        return {"count": 0, "alerts": []}
+
+    stage_defs: dict[int, PipelineStageDef] = {sd.id: sd for sd in sla_defs}
+    sla_def_ids = list(stage_defs.keys())
+
+    # DISTINCT ON dla "latest stage per (candidate, job)" — w SQL, nie
+    # w Python. Filtrujemy tylko po sla_def_ids więc skanujemy
+    # microscopic subset.
+    latest_rows = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(CandidateStage.stage_def_id.in_(sla_def_ids))
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Sprawdź czy najnowsza stage per pair NAPRAWDĘ należy do SLA-eligible
+    # def — pair może mieć nowszą stage w terminal/no-SLA def (np. hired).
+    candidate_pairs = [(s.candidate_id, s.job_id) for s in latest_rows]
+    if not candidate_pairs:
+        return {"count": 0, "alerts": []}
+
+    actually_latest_rows = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id.in_(
+                        list({c for c, _ in candidate_pairs})
+                    ),
+                    CandidateStage.job_id.in_(list({j for _, j in candidate_pairs})),
+                )
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    truly_latest: dict[tuple[int, int], CandidateStage] = {
+        (s.candidate_id, s.job_id): s for s in actually_latest_rows
+    }
 
     now = datetime.now(timezone.utc)
     breaches: list[dict] = []
-    for s in latest.values():
+    for s in latest_rows:
+        # Skip jeśli kandydat ma już nowszą stage poza SLA-eligible def
+        # (np. przeszedł do "hired" lub innej terminal).
+        current = truly_latest.get((s.candidate_id, s.job_id))
+        if current is None or current.id != s.id:
+            continue
         sd = stage_defs.get(s.stage_def_id or 0)
         if not sd or not sd.sla_max_days:
-            continue
-        if sd.is_terminal:
             continue
         moved = s.moved_at
         if moved.tzinfo is None:

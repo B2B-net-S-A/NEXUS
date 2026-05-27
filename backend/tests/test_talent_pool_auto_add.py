@@ -84,12 +84,19 @@ async def _seed_job(
     competence_category_id: int | None = None,
 ) -> int:
     """Insert minimal Job row for tests; returns job_id."""
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"TPClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=title or f"Test job {uuid.uuid4().hex[:6]}",
             subcategory=subcategory,
             seniority=seniority,
             competence_category_id=competence_category_id,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

@@ -89,49 +89,96 @@ async def _cleanup_jobs(job_ids: list[int]) -> None:
         await db.commit()
 
 
+async def _seed_client(name: str) -> int:
+    """Seed a client with a deterministic name and return its id.
+
+    Migration 0120 (2026-05-27) enforces NOT NULL on `jobs.client_id`, so the
+    integration tests below cannot post a client-less job anymore. They now
+    seed a throwaway client per-test and assert the reference uses *its*
+    initials (e.g. "RefTestClient" → "REFT/<seq>/<year>").
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=name)
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        return cli.id
+
+
+async def _cleanup_clients(client_ids: list[int]) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from sqlalchemy import delete
+
+    async with AsyncSessionLocal() as db:
+        for cid in client_ids:
+            await db.execute(delete(Client).where(Client.id == cid))
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_post_job_generates_reference(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
-    """A job created without a reference gets one auto-assigned (no client → NXS)."""
+    """A job created without a reference gets one auto-assigned (client → initials)."""
     created: list[int] = []
+    clients: list[int] = []
     try:
+        cli_id = await _seed_client(f"RefTestClient{uuid.uuid4().hex[:4]}")
+        clients.append(cli_id)
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={"title": f"Ref test {uuid.uuid4().hex[:6]}"},
+            json={
+                "title": f"Ref test {uuid.uuid4().hex[:6]}",
+                "client_id": cli_id,
+            },
         )
         assert resp.status_code in (200, 201), resp.text
         body = resp.json()
         created.append(body["id"])
         ref = body["reference_number"]
         assert ref is not None
-        # No client → NXS prefix; ends with current year.
-        assert ref.startswith("NXS/")
+        # Single-word client name → first 4 chars uppercased.
+        assert ref.startswith("REFT/"), ref
         parts = ref.split("/")
         assert len(parts) == 3
         assert parts[1].isdigit()
         assert len(parts[2]) == 4  # year
     finally:
         await _cleanup_jobs(created)
+        await _cleanup_clients(clients)
 
 
 @pytest.mark.asyncio
 async def test_post_job_sequence_increments_for_same_prefix(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
-    """Two client-less jobs in the same year get consecutive NXS sequences."""
+    """Two jobs for the same client in the same year get consecutive sequences."""
     created: list[int] = []
+    clients: list[int] = []
     try:
+        # Multi-word name → initials = "SQ" (predictable, unique-per-run).
+        cli_id = await _seed_client(f"Seq Q{uuid.uuid4().hex[:4]}")
+        clients.append(cli_id)
         r1 = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={"title": f"Seq A {uuid.uuid4().hex[:6]}"},
+            json={
+                "title": f"Seq A {uuid.uuid4().hex[:6]}",
+                "client_id": cli_id,
+            },
         )
         r2 = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
-            json={"title": f"Seq B {uuid.uuid4().hex[:6]}"},
+            json={
+                "title": f"Seq B {uuid.uuid4().hex[:6]}",
+                "client_id": cli_id,
+            },
         )
         assert r1.status_code in (200, 201), r1.text
         assert r2.status_code in (200, 201), r2.text
@@ -142,6 +189,7 @@ async def test_post_job_sequence_increments_for_same_prefix(
         assert seq2 == seq1 + 1, f"{seq1=} {seq2=}"
     finally:
         await _cleanup_jobs(created)
+        await _cleanup_clients(clients)
 
 
 @pytest.mark.asyncio
@@ -150,14 +198,18 @@ async def test_post_job_respects_caller_supplied_reference(
 ) -> None:
     """If the caller explicitly passes a reference_number, we keep it."""
     created: list[int] = []
+    clients: list[int] = []
     explicit = f"CUSTOM/{uuid.uuid4().hex[:8]}/2026"
     try:
+        cli_id = await _seed_client(f"ExplicitRefClient{uuid.uuid4().hex[:4]}")
+        clients.append(cli_id)
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
             json={
                 "title": f"Explicit ref {uuid.uuid4().hex[:6]}",
                 "reference_number": explicit,
+                "client_id": cli_id,
             },
         )
         assert resp.status_code in (200, 201), resp.text
@@ -166,3 +218,4 @@ async def test_post_job_respects_caller_supplied_reference(
         assert body["reference_number"] == explicit
     finally:
         await _cleanup_jobs(created)
+        await _cleanup_clients(clients)

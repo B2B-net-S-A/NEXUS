@@ -39,12 +39,18 @@ async def _seed_candidate(*, name_suffix: str = "") -> int:
 
 async def _seed_job() -> int:
     from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
     from app.models.job import Job, JobStatus
 
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"StageClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         j = Job(
             title=f"Stage-Job-{uuid.uuid4().hex[:6]}",
             status=JobStatus.published,
+            client_id=cli.id,
         )
         db.add(j)
         await db.commit()

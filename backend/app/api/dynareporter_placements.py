@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RecruiterPlus
 from app.core.database import get_db
+from app.models.client import Client
 from app.models.dr_placement_details import DrPlacementDetail
 from app.models.user import User, UserRole
 
@@ -53,6 +54,13 @@ class PlacementStatsByUser(BaseModel):
 
 class PlacementStatsByClient(BaseModel):
     client_id: int
+    # Name of the client, joined from clients table. Pre-2026-05-27 the
+    # endpoint returned only client_id which surfaced as "Klient #13" in
+    # DR Placements Top 10 UI (QA session bug #28) — useless for managers
+    # who need to know WHICH client converted, not the id. Optional because
+    # legacy placements created before clients was wired could have orphan
+    # client_id (the LEFT JOIN below tolerates that).
+    client_name: Optional[str] = None
     total_placements: int
 
 
@@ -148,18 +156,26 @@ async def stats_by_client(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> list[PlacementStatsByClient]:
     from_d = date.today() - timedelta(days=days)
+    # LEFT JOIN clients so orphan placements (legacy data with stale
+    # client_id) still appear in the leaderboard rather than being silently
+    # dropped — surface them with `client_name=None` so admins can spot
+    # the data quality issue and clean up.
     stmt = (
         select(
-            DrPlacementDetail.client_id, func.count(DrPlacementDetail.id).label("cnt")
+            DrPlacementDetail.client_id,
+            Client.name.label("client_name"),
+            func.count(DrPlacementDetail.id).label("cnt"),
         )
+        .outerjoin(Client, Client.id == DrPlacementDetail.client_id)
         .where(DrPlacementDetail.placement_date >= from_d)
-        .group_by(DrPlacementDetail.client_id)
+        .group_by(DrPlacementDetail.client_id, Client.name)
         .order_by(func.count(DrPlacementDetail.id).desc())
         .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
     return [
-        PlacementStatsByClient(client_id=cid, total_placements=cnt) for cid, cnt in rows
+        PlacementStatsByClient(client_id=cid, client_name=name, total_placements=cnt)
+        for cid, name, cnt in rows
     ]
 
 

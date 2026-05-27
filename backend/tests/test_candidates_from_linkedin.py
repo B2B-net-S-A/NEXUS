@@ -77,11 +77,18 @@ def patch_linkedin_sync(monkeypatch):
 
 @pytest_asyncio.fixture
 async def seeded_job(app_auth_headers) -> int:  # noqa: ARG001 — ensures admin user exists
-    """Insert a published Job with no client and return its id."""
+    """Insert a published Job (with a throwaway client) and return its id."""
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"LiTestClient-{time.time_ns()}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=f"Senior Python Engineer (pytest {time.time_ns()})",
             status=JobStatus.published,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

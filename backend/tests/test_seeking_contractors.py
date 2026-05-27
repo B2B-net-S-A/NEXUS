@@ -140,7 +140,15 @@ async def _seed_published_job(
     salary_min: int | None = 15000,
     salary_max: int | None = 25000,
 ) -> int:
+    import uuid
+
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"SeekClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=title,
             description=f"{title} description",
@@ -152,6 +160,7 @@ async def _seed_published_job(
             status=JobStatus.published,
             must_skills=[{"name": s} for s in skills],
             nice_skills=[],
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()

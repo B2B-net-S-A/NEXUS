@@ -274,3 +274,21 @@ Po re-login Artura systematyczne pokrycie wszystkich pozostałych routes. Łącz
 | D. Fixes + deploy | 4 fixy w 1 PR, zweryfikowane | 4/4 wdrożone, 3/4 zweryfikowane post-deploy | 100% |
 
 **Łącznie: 30 bugów znalezionych (4 naprawione, 26 sflagowanych)**, 4 spawnowane fix-sprint chips, ~150 page views w Chrome MCP, 4 godziny aktywnego testowania w sesji (z przerwami na session expiry).
+
+---
+
+## False positives wykryte podczas weryfikacji (Reality-check)
+
+Po dokładniejszej analizie 3 z 30 "bugów" okazały się błędami metodologii testowania, NIE realnymi bugami:
+
+- **#19 AAD RBAC zwala admin→user** = FALSE POSITIVE. Artur DZIAŁA jako admin po re-login (Postgres potwierdza `role=admin, roles=['admin']`). Problem był session expiry, nie RBAC.
+- **#27 `/manager-panel` 404** = FALSE POSITIVE. Sidebar już wskazuje `/dashboard/delivery-lead` ([SidebarV2.tsx:115](frontend/src/components/v2/shell/SidebarV2.tsx#L115)). Mój test direct URL `/manager-panel` (nie istnieje) ale prawdziwe kliknięcie sidebar idzie poprawnie.
+- **#30 RBAC admin 403** = FALSE POSITIVE. Mój JS fetch test użył `credentials: 'include'` (cookies) ale backend wymaga `Authorization: Bearer` (HTTPBearer dep). Z prawdziwym tokenem `/api/users`, `/api/admin/users`, `/api/contracts` → wszystkie **200**.
+
+**Realny stan: 27 bugów (4 naprawione, 23 sflagowane).**
+
+## Final fix sprint (OPCJA A wybrana przez Artura)
+
+PR [#352](https://github.com/artur-t-96/Nexus/pull/352): **fix #28 DR Placements client_name** (backend LEFT JOIN + frontend fallback). Wdrożone w trakcie sesji.
+
+Pozostałe 22 bugi → 4 spawnowane fix-sprint chips do follow-up sessions.

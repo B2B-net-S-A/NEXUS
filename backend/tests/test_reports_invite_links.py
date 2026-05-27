@@ -36,12 +36,19 @@ async def _seed_user(role: UserRole, label: str = "rep") -> tuple[int, str, str]
 
 
 async def _seed_published_job() -> int:
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"InvLinkClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         job = Job(
             title=f"Role {uuid.uuid4().hex[:6]}",
             location="Warszawa",
             status=JobStatus.published,
             remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
         )
         db.add(job)
         await db.commit()
