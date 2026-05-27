@@ -124,8 +124,6 @@ async def sla_alerts(
     3. DISTINCT ON w Postgres żeby dostać latest per pair w SQL zamiast
        Python defaultdict
     """
-    # 1. Tylko stage defs które mogą breachować — większość pipeline jest
-    # bez sla_max_days albo terminal (hired/rejected), te ignorujemy.
     sla_defs = (
         (
             await db.execute(
@@ -144,7 +142,7 @@ async def sla_alerts(
     stage_defs: dict[int, PipelineStageDef] = {sd.id: sd for sd in sla_defs}
     sla_def_ids = list(stage_defs.keys())
 
-    # 2. DISTINCT ON dla "latest stage per (candidate, job)" — w SQL, nie
+    # DISTINCT ON dla "latest stage per (candidate, job)" — w SQL, nie
     # w Python. Filtrujemy tylko po sla_def_ids więc skanujemy
     # microscopic subset.
     latest_rows = (
@@ -164,8 +162,8 @@ async def sla_alerts(
         .all()
     )
 
-    # 3. Sprawdź czy najnowsza stage per pair należy do SLA-eligible
-    # def — pair może mieć nowszą stage w terminal/no-SLA def.
+    # Sprawdź czy najnowsza stage per pair NAPRAWDĘ należy do SLA-eligible
+    # def — pair może mieć nowszą stage w terminal/no-SLA def (np. hired).
     candidate_pairs = [(s.candidate_id, s.job_id) for s in latest_rows]
     if not candidate_pairs:
         return {"count": 0, "alerts": []}
@@ -392,93 +390,44 @@ async def time_to_hire(
     """
     since = datetime.now(timezone.utc) - timedelta(days=days_lookback)
 
-    # Optimized 2026-05-27: original implementation scanned ALL ~55k rows in
-    # window just to find ~145 hires + their starts. Now we start from hires
-    # (small table thanks to partial index ix_candidate_stages_hired_moved_at
-    # from migration 0121), then fetch only the matching (candidate_id, job_id)
-    # pairs via a CTE-style join. P95 drops from >15s → <1s on prod-sized data.
-    hires = (
-        await db.execute(
-            select(
-                CandidateStage.candidate_id,
-                CandidateStage.job_id,
-                CandidateStage.moved_at,
-                CandidateStage.moved_by,
-            )
-            .where(
-                CandidateStage.stage == PipelineStage.hired,
-                CandidateStage.moved_at >= since,
-            )
-            .order_by(CandidateStage.moved_at)
-        )
-    ).all()
-
-    if not hires:
-        per_recruiter: dict[int, list[int]] = {}
-        placements = 0
-    else:
-        # For every hired (candidate, job) pair, find the earliest stage row.
-        # Aggregation in SQL is dramatically cheaper than fetching all rows.
-        hire_pairs = list({(h.candidate_id, h.job_id) for h in hires})
-
-        # Build a VALUES list-style filter via tuple_in_ requires Postgres
-        # row constructor; simpler: union of candidate_id IN + filter rows in
-        # Python. With <500 hires this is bounded.
-        candidate_ids = list({c for c, _ in hire_pairs})
-        job_ids = list({j for _, j in hire_pairs})
-
-        start_rows = (
+    # All stage rows in window
+    rows = (
+        (
             await db.execute(
-                select(
+                select(CandidateStage)
+                .where(CandidateStage.moved_at >= since)
+                .order_by(
                     CandidateStage.candidate_id,
                     CandidateStage.job_id,
-                    func.min(CandidateStage.moved_at).label("started_at"),
-                )
-                .where(
-                    CandidateStage.candidate_id.in_(candidate_ids),
-                    CandidateStage.job_id.in_(job_ids),
-                )
-                .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-            )
-        ).all()
-        starts_by_pair: dict[tuple[int, int], datetime] = {
-            (r.candidate_id, r.job_id): r.started_at for r in start_rows
-        }
-
-        # Owner fallback: when hired.moved_by is NULL, look up the first
-        # stage's moved_by for that pair.
-        first_owner_rows = (
-            await db.execute(
-                select(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.moved_by,
                     CandidateStage.moved_at,
                 )
-                .where(
-                    CandidateStage.candidate_id.in_(candidate_ids),
-                    CandidateStage.job_id.in_(job_ids),
-                )
-                .order_by(CandidateStage.moved_at)
             )
-        ).all()
-        first_owner_by_pair: dict[tuple[int, int], int | None] = {}
-        for r in first_owner_rows:
-            key = (r.candidate_id, r.job_id)
-            if key not in first_owner_by_pair:
-                first_owner_by_pair[key] = r.moved_by
+        )
+        .scalars()
+        .all()
+    )
 
-        per_recruiter = defaultdict(list)
-        placements = 0
-        for h in hires:
-            pair = (h.candidate_id, h.job_id)
-            started_at = starts_by_pair.get(pair)
-            if started_at is None:
-                continue
-            placements += 1
-            days = max(0, (h.moved_at - started_at).days)
-            owner = h.moved_by or first_owner_by_pair.get(pair) or 0
-            per_recruiter[owner].append(days)
+    # Group by (candidate, job)
+    groups: dict[tuple[int, int], list[CandidateStage]] = defaultdict(list)
+    for s in rows:
+        groups[(s.candidate_id, s.job_id)].append(s)
+
+    per_recruiter: dict[int, list[int]] = defaultdict(list)  # days_to_hire list
+    placements = 0
+    for (cid, jid), items in groups.items():
+        if not items:
+            continue
+        start = items[0].moved_at
+        hired = next(
+            (x for x in items if x.stage == PipelineStage.hired),
+            None,
+        )
+        if not hired:
+            continue
+        placements += 1
+        days = max(0, (hired.moved_at - start).days)
+        owner = hired.moved_by or items[0].moved_by or 0
+        per_recruiter[owner].append(days)
 
     # Collect recruiter names
     recruiter_ids = [r for r in per_recruiter if r > 0]
