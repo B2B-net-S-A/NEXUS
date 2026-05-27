@@ -45,11 +45,25 @@ async def proposals_client() -> AsyncClient:
 
 
 async def _create_job(client: AsyncClient, headers: dict) -> int:
-    """Create a job via the public API and return its id."""
+    """Create a job via the public API and return its id.
+
+    Seeds a throwaway client first (migration 0120: NOT NULL on client_id).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"ProposalsClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        cli_id = cli.id
+
     payload = {
         "title": f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
         "description": "Backend engineer with Python + FastAPI",
         "must_skills": [{"name": "Python", "level": 4, "years": 3}],
+        "client_id": cli_id,
     }
     resp = await client.post("/api/jobs", headers=headers, json=payload)
     assert resp.status_code in (200, 201), resp.text
