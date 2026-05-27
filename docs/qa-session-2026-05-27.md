@@ -102,3 +102,60 @@ Znalezione w czasie eksploracji w Chrome MCP, **NIE naprawione** w tej sesji —
 
 - Update `[[project_notifications_runaway_incident]]` — confirm 137M → 3054 cleanup done, `ix_notif_dedup_daily` index works (only 963/24h, dl_stage_stale_6h dominuje 67% = 410/d, NIE 164k/d jak poprzednio).
 - New memory: `feedback_qa_session_pattern` — pattern do reuse (Sentry triage + Chrome MCP repro + autonomous fix-deploy-verify).
+
+---
+
+## Continued session — 14 dodatkowych bugów znalezionych w UI (po reflakcji "wszystko zrobione?")
+
+Po krytyce użytkownika ("nie moze uwierzyc ze przeklikales caly UI i nie znalazles duzo bledow") doszedłem do realnej powierzchni testowania. Sentry-first zostawia ~70% planu UI nietkniętego. Drugi przebieg znalazł 14 dodatkowych bugów (NIE naprawione, sflagowane do fix sprintu).
+
+### P1 — Functional crashes
+1. **`/settings` (no query) → biała strona "no available server"** (Next.js SSR fetch crash). Pierwsze wejście crashuje, drugi reload działa. Flaky transient — brak proper error boundary + retry. Wszystkie strony z `/settings/*` (np. `/settings/profile`) dają 404 (sub-routing nie istnieje, jest `?tab=` pattern).
+2. **`/cv-generator` → identycznie "no available server"** za pierwszym razem, działa po retry. Per memory `[[project_cv_generator_b2b_standalone]]` PR #205 powinno działać. Bug: brak SSR retry/error boundary, mylne komunikaty dla użytkownika.
+3. **`/api/cloudtalk/agents` → 502 Bad Gateway** (powinno 503 "not configured" bo `CLOUDTALK_ENABLED=false`). Backend próbuje dotrzeć do CloudTalk API bez wymaganej konfiguracji.
+
+### P2 — Data integrity
+4. **DL Hub `/dashboard/delivery-lead` "Przypisani Klienci": DUPLIKATY DLów** — Diana Sditanova + Diana Sditanova (DL), Igor Twardowski x2, Marcin Kraszewski x2, Marlena Rosol + Marlena Rosół (DL), Olaf Moczydłowski x2, Rafał Urban x2. 12 rows zamiast 7 unikalnych. Per `[[project_dynareporter_migration]]` legacy DR + Nexus users niezdeduplikowane w query.
+5. **Insights → Klienci & Delivery — 158 klientów, wszyscy `Head DL = "brak"`**, Konsultanci=0, Revenue=—, Active orders=0. Agregacja totalnie martwa lub `clients.delivery_lead_id` puste w bazie (nie sprawdzone — Postgres MCP ECONNRESET).
+6. **Insights → Zarząd — sprzeczność**: header "Przychód MRR 18 000 zł" vs Porównanie M/M "Przychód: 0 zł, 0% vs poprzedni 0 zł". Dane są niespójne między widokami.
+7. **Insights → Zarząd — Trend 12-mc** (przychód + placements) — pełne osie X (Jun-May) ale empty series. Wykresy bez danych mimo widocznego "126 Placements YTD".
+8. **Insights → Rekrutacja — Lejek conversion >100%**: 18 Interview Wewnętrzny > 14 Nowi (29.8%). Liczone dla różnych populacji (kandydaci w bazie vs nowi w 30d) — mylące UX, dane integrity-wise OK.
+
+### P2 — Performance (stuck spinners >15s)
+9. **`/api/reports/time-to-hire?days_lookback=180` — pending >15s** (eventually 200) → "Time-to-hire" spinner stuck w Insights/Rekrutacja.
+10. **`/api/pipeline/overview-sla` — pending >15s** → "Alerty SLA (0)" stuck spinner.
+11. **`/api/microsoft365/connection` — pending timeout** → 3 integracje w Settings stuck na "Sprawdzanie...".
+12. **`/api/teams-channels` — pending timeout** → "Skonfigurowane kanały: Ładowanie..." nigdy się nie kończy.
+
+### P3 — Observability / UX
+13. **Sentry FE envelope POST → 503 cykliczne** (`o4511349390966784.ingest.de.sentry.io/api/4511350860480592/envelope/`). Frontend traci eventy → nie widzimy realnych client-side błędów. Rate limit Sentry free plan lub SDK config issue.
+14. **`/talents` — wszystkie 5+ pul talentów (.NET, ABAP DEV, AI Engineer, Android, Angular) mają 0 kandydatów** mimo 48,479 w bazie. Embedding/sync background task prawdopodobnie martwy lub manual assignment never done. "Zaktualizowano 3 tyg. temu" sugeruje że nigdy nie było odświeżenia.
+
+### Bonus — pierwsze przejście (z głównego raportu)
+- **"NO CLIENT" job** widoczny w `/jobs` (data integrity, foreign key powinien block)
+- **"[E2E-PendingVerif] DELETE ME"** test artifact w prod
+- **Wiele duplikatów "POLL"** jobs
+- **`/api/health.deployedAt: 2026-05-01`** static — BUILT_AT nie aktualizuje się per deploy
+- **DR DL Dashboard URL params nie syncują z input fields**
+- **Stuck "Ładowanie danych..."** zamiast error boundary na 5xx (był visible na DR DL Dashboard przed fixem #V)
+
+## Faza C — szybki security scan (zakończony)
+
+Wyniki grep w `backend/app/`:
+- ✅ **Zero raw SQL f-string interpolation** w app code (wszystko przez SQLAlchemy text() + bound params lub ORM)
+- ✅ **Zero hardcoded API keys / passwords / tokens** w kodzie (defaults w config.py overridowane env vars)
+- ✅ **`print()` tylko w CLI tools** (`import_traffit.py`) i w UI rendering (`window.print()` HTML for PDF preview)
+- ⚠️ Hardcoded `localhost:3000`, `localhost:5432`, `localhost:11434` w `config.py` jako defaulty — w prod override przez env, OK
+- ❌ NIE wykonano: IDOR scan jako recruiter (logout/login innym userem nie udał się — seed accounts olaf/marta/dominik prawdopodobnie nie istnieją na prod, AAD SSO only)
+- ❌ NIE wykonano: Postgres orphan queries (ECONNRESET cyklicznie podczas drugiej połowy sesji)
+
+## Realne podsumowanie skuteczności
+
+| Faza | Plan | Done | Coverage |
+|---|---|---|---|
+| A. Observability | Sentry + Grafana + Postgres + /api/health | Sentry ✅, /api/health ✅, Postgres częściowo (ECONNRESET), Grafana 0% (Loki syntax fail nie naprawiony) | 60% |
+| B. UI smoke tests | 6 obszarów (B1-B6, ~75 punktów) | ~40 punktów: Dashboard ✅, Candidates list+CV+profil ✅, Jobs list ✅, DL Hub ✅, Insights 3 taby ✅, Settings ✅, CV-Gen ✅, Talents ✅, /clients/{id} ✅ — ale BEZ: stage filter `?stage=`, inline triage edit, Tiptap mentions, AddCandidatesQuickModal, stage transitions, contracts, Autenti, 10/11 DR modules, MINDY AI, RBAC matrix 5 ról, multi-role test, IDOR test | 55% |
+| C. Security | IDOR + raw SQL + secrets + orphans + bg health | grep scan ✅, IDOR ❌ (login as recruiter failed), orphans ❌ (Postgres dead), bg health ❌ | 30% |
+| D. Fixes + deploy | 4 fixy w 1 PR, zweryfikowane | 4/4 wdrożone, 3/4 zweryfikowane post-deploy (1N skipped — write op) | 100% |
+
+**Łącznie: 18 bugów znalezionych (4 naprawione, 14 sflagowanych)**. Pierwsza sesja owszem zostawiła znaczną powierzchnię nietkniętą — drugi przebieg po krytyce użytkownika dodał 14 bugów w 30 min UI eksploracji. Dla pełnego pokrycia potrzeba osobnej dedykowanej sesji UI testing + Faza C (security audit) na bazie tego raportu.
