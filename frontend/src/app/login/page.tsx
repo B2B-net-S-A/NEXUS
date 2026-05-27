@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/api";
 import { requiresOnboarding, useAuthStore } from "@/store/auth";
-import { AlertCircle, ArrowRight } from "lucide-react";
+import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
@@ -34,6 +34,18 @@ function ssoErrorMessage(rawCode: string | null): string | null {
   return decodeURIComponent(rawCode);
 }
 
+// `?reason=session_expired` is set by the axios interceptor in lib/api.ts when
+// it detects an expired JWT (401, or 403 on auth-scoped endpoints, or 3+ 403s
+// in a 5s window). We surface it as an informational banner so the user knows
+// why they were bounced here.
+function sessionReasonMessage(rawReason: string | null): string | null {
+  if (!rawReason) return null;
+  if (rawReason === "session_expired") {
+    return "Twoja sesja wygasła. Zaloguj się ponownie, aby kontynuować.";
+  }
+  return null;
+}
+
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,6 +56,7 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next"));
   const ssoErrorRaw = searchParams.get("error");
+  const sessionReason = sessionReasonMessage(searchParams.get("reason"));
   const { setAuth, token } = useAuthStore();
 
   useEffect(() => {
@@ -116,6 +129,15 @@ function LoginForm() {
 
         <div className="bg-card border border-border rounded-xl shadow-sm p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {sessionReason && !error && (
+              <div
+                role="status"
+                className="flex items-start gap-2 text-sm text-foreground bg-muted/60 border border-border rounded-md px-3 py-2"
+              >
+                <Info className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                <span>{sessionReason}</span>
+              </div>
+            )}
             {error && (
               <div
                 role="alert"

@@ -452,14 +452,23 @@ export function SidebarV2({
         })}
       </nav>
 
-      {user && (
-        <div
-          className={cn(
-            "border-t border-border shrink-0 py-3",
-            collapsed && !mobileOpen ? "px-2" : "px-3"
-          )}
-        >
-          {collapsed && !mobileOpen ? (
+      {/*
+        Footer is ALWAYS rendered, even when `user === null` (e.g. /api/auth/me
+        just returned 403 because the JWT expired). In that case the
+        avatar/profile link is replaced with a "Zaloguj się ponownie" CTA and
+        a still-functional logout button, so the user is never locked out of
+        the app without a clear recovery path. The api.ts interceptor will
+        auto-redirect them within a few seconds anyway, but the visible button
+        gives them an immediate manual escape hatch.
+      */}
+      <div
+        className={cn(
+          "border-t border-border shrink-0 py-3",
+          collapsed && !mobileOpen ? "px-2" : "px-3"
+        )}
+      >
+        {collapsed && !mobileOpen ? (
+          user ? (
             <Link
               href="/profile"
               aria-label={`Profil: ${user.name}`}
@@ -468,31 +477,66 @@ export function SidebarV2({
               {initials}
             </Link>
           ) : (
-            <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
-              <Link
-                href="/profile"
-                className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shrink-0 hover:bg-primary/90 transition-colors"
-                aria-label="Profil"
-              >
-                {initials}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={logout}
+                  aria-label="Wyloguj — sesja wygasła"
+                  className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Wyloguj się</TooltipContent>
+            </Tooltip>
+          )
+        ) : user ? (
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted">
+            <Link
+              href="/profile"
+              className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shrink-0 hover:bg-primary/90 transition-colors"
+              aria-label="Profil"
+            >
+              {initials}
+            </Link>
+            <div className="flex-1 min-w-0">
+              <Link href="/profile" className="text-sm font-medium truncate block hover:text-primary">
+                {user.name}
               </Link>
-              <div className="flex-1 min-w-0">
-                <Link href="/profile" className="text-sm font-medium truncate block hover:text-primary">
-                  {user.name}
-                </Link>
-                <span className="text-[10px] text-muted-foreground">{ROLE_LABELS[user.role]}</span>
-              </div>
-              <button
-                onClick={logout}
-                aria-label="Wyloguj"
-                className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/80"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
+              <span className="text-[10px] text-muted-foreground">{ROLE_LABELS[user.role]}</span>
             </div>
-          )}
-        </div>
-      )}
+            <button
+              onClick={logout}
+              aria-label="Wyloguj"
+              className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/80"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
+            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground shrink-0">
+              <LogOut className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <Link
+                href="/login"
+                className="text-sm font-medium truncate block text-foreground hover:text-primary"
+              >
+                Zaloguj się ponownie
+              </Link>
+              <span className="text-[10px] text-muted-foreground">Sesja wygasła</span>
+            </div>
+            <button
+              onClick={logout}
+              aria-label="Wyloguj"
+              className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted/80"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
