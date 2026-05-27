@@ -112,10 +112,19 @@ async def test_get_latest_proposal_returns_404_for_job_without_snapshots(
 ):
     """Legacy jobs created before Phase 13 don't have a snapshot."""
     # Insert a bare Job without firing the create_job pipeline.
+    from app.models.client import Client
     from app.models.job import Job, JobStatus
 
     async with AsyncSessionLocal() as db:
-        job = Job(title=f"Legacy {uuid.uuid4().hex[:6]}", status=JobStatus.draft)
+        cli = Client(name=f"ProposalsLegacy-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        job = Job(
+            title=f"Legacy {uuid.uuid4().hex[:6]}",
+            status=JobStatus.draft,
+            client_id=cli.id,
+        )
         db.add(job)
         await db.commit()
         await db.refresh(job)

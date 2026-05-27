@@ -76,7 +76,16 @@ async def test_auto_add_picks_only_priority_one(seeded_cc_and_users):
         # Create a stub job
         import uuid
 
-        job = Job(title=f"TestJob-{uuid.uuid4().hex[:8]}", status="draft")
+        from app.models.client import Client
+
+        cli = Client(name=f"AutoCCClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"TestJob-{uuid.uuid4().hex[:8]}",
+            status="draft",
+            client_id=cli.id,
+        )
         db.add(job)
         await db.flush()
         job_id = job.id
@@ -119,7 +128,16 @@ async def test_auto_add_is_idempotent(seeded_cc_and_users):
     async with AsyncSessionLocal() as db:
         import uuid
 
-        job = Job(title=f"TestJobIdempotent-{uuid.uuid4().hex[:8]}", status="draft")
+        from app.models.client import Client
+
+        cli = Client(name=f"AutoCCClient-Idem-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"TestJobIdempotent-{uuid.uuid4().hex[:8]}",
+            status="draft",
+            client_id=cli.id,
+        )
         db.add(job)
         await db.flush()
         job_id = job.id

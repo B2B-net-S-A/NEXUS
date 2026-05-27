@@ -86,8 +86,14 @@ async def _seed_job(
     salary_max: int | None = 20000,
     delivery_lead_id: int | None = None,
 ) -> int:
+    from app.models.client import Client
+
     unique = uuid.uuid4().hex[:6]
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"PVClient-{unique}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         j = Job(
             title=f"PV Job {unique}",
             location="Warszawa",
@@ -96,6 +102,7 @@ async def _seed_job(
             salary_min=10000,
             salary_max=salary_max,
             delivery_lead_id=delivery_lead_id,
+            client_id=cli.id,
         )
         db.add(j)
         await db.commit()

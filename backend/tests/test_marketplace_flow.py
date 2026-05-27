@@ -405,8 +405,14 @@ async def test_skip_when_job_has_no_skills(monkeypatch, fresh_db):
 
 
 async def test_skip_when_job_closed(fresh_db):
+    from app.models.client import Client
+
     db = fresh_db
     owner = await _seed_user(db, name="ClosedJob")
+    cli = Client(name=f"MpClient-Closed-{uuid.uuid4().hex[:6]}")
+    db.add(cli)
+    await db.commit()
+    await db.refresh(cli)
     job = Job(
         title="Closed",
         description="x",
@@ -415,6 +421,7 @@ async def test_skip_when_job_closed(fresh_db):
         recruiter_id=owner.id,
         created_by=owner.id,
         embedding_id="stub",
+        client_id=cli.id,
     )
     db.add(job)
     await db.commit()

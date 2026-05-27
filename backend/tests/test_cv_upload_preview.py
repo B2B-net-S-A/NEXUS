@@ -88,7 +88,15 @@ def _patch_pipeline(
 @pytest_asyncio.fixture
 async def seeded_jobs():
     """Insert two published jobs and clean them up after the test."""
+    import uuid
+
+    from app.models.client import Client
+
     async with AsyncSessionLocal() as db:
+        cli = Client(name=f"CVPreviewClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
         j1 = Job(
             title="Senior Python Developer",
             description="Build Python services",
@@ -100,6 +108,7 @@ async def seeded_jobs():
             status=JobStatus.published,
             must_skills=[{"name": "Python"}, {"name": "FastAPI"}],
             nice_skills=[{"name": "PostgreSQL"}],
+            client_id=cli.id,
         )
         j2 = Job(
             title="Java Backend Engineer",
@@ -112,6 +121,7 @@ async def seeded_jobs():
             status=JobStatus.published,
             must_skills=[{"name": "Java"}, {"name": "Spring"}],
             nice_skills=[{"name": "Kafka"}],
+            client_id=cli.id,
         )
         db.add_all([j1, j2])
         await db.commit()
