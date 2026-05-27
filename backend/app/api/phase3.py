@@ -127,13 +127,17 @@ async def sla_alerts(
     # 1. Tylko stage defs które mogą breachować — większość pipeline jest
     # bez sla_max_days albo terminal (hired/rejected), te ignorujemy.
     sla_defs = (
-        await db.execute(
-            select(PipelineStageDef).where(
-                PipelineStageDef.sla_max_days.isnot(None),
-                PipelineStageDef.is_terminal == False,  # noqa: E712
+        (
+            await db.execute(
+                select(PipelineStageDef).where(
+                    PipelineStageDef.sla_max_days.isnot(None),
+                    PipelineStageDef.is_terminal == False,  # noqa: E712
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not sla_defs:
         return {"count": 0, "alerts": []}
 
@@ -144,17 +148,21 @@ async def sla_alerts(
     # w Python. Filtrujemy tylko po sla_def_ids więc skanujemy
     # microscopic subset.
     latest_rows = (
-        await db.execute(
-            select(CandidateStage)
-            .where(CandidateStage.stage_def_id.in_(sla_def_ids))
-            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-            .order_by(
-                CandidateStage.candidate_id,
-                CandidateStage.job_id,
-                CandidateStage.moved_at.desc(),
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(CandidateStage.stage_def_id.in_(sla_def_ids))
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     # 3. Sprawdź czy najnowsza stage per pair należy do SLA-eligible
     # def — pair może mieć nowszą stage w terminal/no-SLA def.
@@ -163,24 +171,26 @@ async def sla_alerts(
         return {"count": 0, "alerts": []}
 
     actually_latest_rows = (
-        await db.execute(
-            select(CandidateStage)
-            .where(
-                CandidateStage.candidate_id.in_(
-                    list({c for c, _ in candidate_pairs})
-                ),
-                CandidateStage.job_id.in_(
-                    list({j for _, j in candidate_pairs})
-                ),
-            )
-            .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
-            .order_by(
-                CandidateStage.candidate_id,
-                CandidateStage.job_id,
-                CandidateStage.moved_at.desc(),
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id.in_(
+                        list({c for c, _ in candidate_pairs})
+                    ),
+                    CandidateStage.job_id.in_(list({j for _, j in candidate_pairs})),
+                )
+                .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+                .order_by(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_at.desc(),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     truly_latest: dict[tuple[int, int], CandidateStage] = {
         (s.candidate_id, s.job_id): s for s in actually_latest_rows
     }
@@ -388,20 +398,18 @@ async def time_to_hire(
     # from migration 0121), then fetch only the matching (candidate_id, job_id)
     # pairs via a CTE-style join. P95 drops from >15s → <1s on prod-sized data.
     hires = (
-        (
-            await db.execute(
-                select(
-                    CandidateStage.candidate_id,
-                    CandidateStage.job_id,
-                    CandidateStage.moved_at,
-                    CandidateStage.moved_by,
-                )
-                .where(
-                    CandidateStage.stage == PipelineStage.hired,
-                    CandidateStage.moved_at >= since,
-                )
-                .order_by(CandidateStage.moved_at)
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_at,
+                CandidateStage.moved_by,
             )
+            .where(
+                CandidateStage.stage == PipelineStage.hired,
+                CandidateStage.moved_at >= since,
+            )
+            .order_by(CandidateStage.moved_at)
         )
     ).all()
 
@@ -420,19 +428,17 @@ async def time_to_hire(
         job_ids = list({j for _, j in hire_pairs})
 
         start_rows = (
-            (
-                await db.execute(
-                    select(
-                        CandidateStage.candidate_id,
-                        CandidateStage.job_id,
-                        func.min(CandidateStage.moved_at).label("started_at"),
-                    )
-                    .where(
-                        CandidateStage.candidate_id.in_(candidate_ids),
-                        CandidateStage.job_id.in_(job_ids),
-                    )
-                    .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
+            await db.execute(
+                select(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    func.min(CandidateStage.moved_at).label("started_at"),
                 )
+                .where(
+                    CandidateStage.candidate_id.in_(candidate_ids),
+                    CandidateStage.job_id.in_(job_ids),
+                )
+                .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
             )
         ).all()
         starts_by_pair: dict[tuple[int, int], datetime] = {
@@ -442,20 +448,18 @@ async def time_to_hire(
         # Owner fallback: when hired.moved_by is NULL, look up the first
         # stage's moved_by for that pair.
         first_owner_rows = (
-            (
-                await db.execute(
-                    select(
-                        CandidateStage.candidate_id,
-                        CandidateStage.job_id,
-                        CandidateStage.moved_by,
-                        CandidateStage.moved_at,
-                    )
-                    .where(
-                        CandidateStage.candidate_id.in_(candidate_ids),
-                        CandidateStage.job_id.in_(job_ids),
-                    )
-                    .order_by(CandidateStage.moved_at)
+            await db.execute(
+                select(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    CandidateStage.moved_by,
+                    CandidateStage.moved_at,
                 )
+                .where(
+                    CandidateStage.candidate_id.in_(candidate_ids),
+                    CandidateStage.job_id.in_(job_ids),
+                )
+                .order_by(CandidateStage.moved_at)
             )
         ).all()
         first_owner_by_pair: dict[tuple[int, int], int | None] = {}
