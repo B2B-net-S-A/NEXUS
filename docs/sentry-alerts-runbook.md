@@ -1,17 +1,27 @@
 # Sentry alert rules — runbook (NEXUS prod)
 
-> Setup ~15 min w Sentry UI (https://b2bnet-sa.sentry.io/alerts/rules/).
-> Każda rule = early detection dla incident-class problemu. Po wdrożeniu
-> kolejny "notifications runaway 137M rows" (2026-05-22, 4 dni od incident
-> do detection) zostanie wykryty w 5 minut.
+> **STATUS 2026-05-27: WSZYSTKIE 6 RULES UTWORZONE (email-only).**
+> Alert IDs: R1=593116, R2=593109, R3=593111, R4=593080, R5=593101, R6=593061.
+> Org: `b2bnet-sa.sentry.io` (Developer plan, free).
+> Action: "Notify on preferred channel" → email do Suggested Assignees/Recently Active (Artur).
+> Throttling: 24h per issue (wszystkie rules).
+>
+> Po wdrożeniu kolejny "notifications runaway 137M rows" (2026-05-22, 4 dni od incident
+> do detection) zostanie wykryty w 5 minut przez R1.
 
-## Prerekwizyt: Slack webhook
+## Prerekwizyt: Slack webhook (POMINIĘTE — gated za Team plan $26/mo)
 
-1. Sentry → Settings → Integrations → **Slack** → Add Workspace
-2. Wybierz Slack workspace (b2bnet.pl) → Authorize
-3. Skonfiguruj default channel `#nexus-alerts` (lub utwórz jeśli brak)
+Slack integration w Sentry wymaga upgrade z Developer (free) na Team plan ($26/mo / ~$312/yr).
+Decyzja Artura 2026-05-27: pominąć Slack, użyć email-only. Wszystkie rules dostają email do
+Suggested Assignees (z fallbackiem Recently Active Members).
 
-Bez tego alerty pójdą tylko na email — Slack widoczność = szybciej.
+Alternatywne ścieżki do Slack #nexus-alerts (przyszłe sesje):
+1. **Webhook → n8n → Slack**: free, wymaga setup n8n workflow (~10 min)
+2. **Grafana Cloud alerts → Slack**: free tier 50GB Loki + Slack contact point
+3. **Upgrade do Team plan**: prostsze ale +$26/mo
+
+Sentry UI legacy: https://b2bnet-sa.sentry.io/alerts/rules/ (deprecated)
+Sentry UI nowe: https://b2bnet-sa.sentry.io/monitors/alerts/ (Monitors & Alerts redesign)
 
 ## Rule 1: 🚨 Notifications insert rate >10k/h (P1 incident)
 
