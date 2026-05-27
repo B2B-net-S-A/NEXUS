@@ -137,7 +137,7 @@ function RankingList({
   loading,
   keyName,
 }: {
-  rows: Array<{ user_name?: string; client_id?: number; user_id?: number; total_placements: number }>;
+  rows: Array<{ user_name?: string; client_name?: string; client_id?: number; user_id?: number; total_placements: number }>;
   loading: boolean;
   keyName: "user" | "client";
 }) {
@@ -149,7 +149,9 @@ function RankingList({
         <li key={i} className="flex items-center text-xs">
           <span className="w-5 text-muted-foreground tabular-nums">{i + 1}.</span>
           <span className="flex-1 truncate">
-            {keyName === "user" ? r.user_name || `User #${r.user_id}` : `Klient #${r.client_id}`}
+            {keyName === "user"
+              ? r.user_name || `User #${r.user_id}`
+              : r.client_name || `Klient #${r.client_id}`}
           </span>
           <span className="font-semibold tabular-nums">{r.total_placements}</span>
         </li>
