@@ -1514,9 +1514,15 @@ async def create_candidate(
     db.add(user_activity)
     await db.flush()
 
-    # Notify all managers/admins about new candidate (real-time)
+    # Notify all managers/admins about new candidate (real-time).
+    # "manager" was the legacy enum name; the live `userrole` enum has
+    # `head_of_recruitment` (Olaf-type manager — see app/models/user.py).
+    # Sending "manager" raised InvalidTextRepresentationError on every
+    # POST /api/candidates (Sentry NEXUS-BE-1N, 9 events 2026-05-25).
     managers_result = await db.execute(
-        select(User).where(User.is_active, User.role.in_(["admin", "manager"]))
+        select(User).where(
+            User.is_active, User.role.in_(["admin", "head_of_recruitment"])
+        )
     )
     managers = managers_result.scalars().all()
     notif_ids = []

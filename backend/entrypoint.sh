@@ -16,8 +16,24 @@ set -e
 # security hardening, just with writable uploads.
 if [ "$(id -u)" = "0" ]; then
     echo "=== Nexus ATS Backend Privilege Handoff (root -> appuser) ==="
-    chown -R appuser:appgroup /tmp/nexus 2>/dev/null || \
+    # Pre-create upload subdirs so the chown -R below cascades into them.
+    # The Docker named volume `uploads_data` mounts on top of
+    # /tmp/nexus/uploads and clobbers the Dockerfile's `RUN mkdir`, so
+    # any subdir the app writes at runtime has to be materialised at boot
+    # while we are still root. Without this, attachment_handler._persist_bytes
+    # failed with PermissionError on /tmp/nexus/uploads/microsoft365 (Sentry
+    # NEXUS-BE-D — 303 events, ongoing 2026-05-25): the M365 sync loop tried
+    # mkdir-as-appuser on the volume root and never recovered.
+    mkdir -p \
+        /tmp/nexus/uploads/microsoft365 \
+        /tmp/nexus/uploads/client_framework_contracts \
+        /tmp/nexus/uploads/candidate_documents \
+        || echo "WARN: mkdir /tmp/nexus/uploads/* failed"
+    if chown -R appuser:appgroup /tmp/nexus; then
+        echo "chown /tmp/nexus ok"
+    else
         echo "WARN: chown /tmp/nexus failed (volume read-only?); appuser may not be able to upload"
+    fi
     exec gosu appuser:appgroup "$0" "$@"
 fi
 
