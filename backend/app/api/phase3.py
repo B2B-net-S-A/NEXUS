@@ -176,9 +176,7 @@ async def sla_alerts(
                     CandidateStage.candidate_id.in_(
                         list({c for c, _ in candidate_pairs})
                     ),
-                    CandidateStage.job_id.in_(
-                        list({j for _, j in candidate_pairs})
-                    ),
+                    CandidateStage.job_id.in_(list({j for _, j in candidate_pairs})),
                 )
                 .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
                 .order_by(
