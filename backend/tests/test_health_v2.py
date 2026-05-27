@@ -19,7 +19,9 @@ from app.main import app
 @pytest.fixture
 def env_with_metadata(monkeypatch):
     monkeypatch.setenv("GIT_SHA", "abc1234")
-    monkeypatch.setenv("BUILT_AT", "2026-04-29T12:00:00Z")
+    # Future-dated BUILT_AT — po PR13 _resolve_deployed_at() używa max(env, mtime),
+    # więc env musi być świeższy niż __file__ mtime żeby wygrać.
+    monkeypatch.setenv("BUILT_AT", "2099-12-31T12:00:00Z")
 
 
 @pytest.mark.asyncio
@@ -47,7 +49,7 @@ async def test_api_health_returns_metadata_from_env(env_with_metadata):
 
     body = response.json()
     assert body["version"] == "abc1234"
-    assert body["deployedAt"] == "2026-04-29T12:00:00Z"
+    assert body["deployedAt"] == "2099-12-31T12:00:00Z"
 
 
 @pytest.mark.asyncio
