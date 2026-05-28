@@ -246,10 +246,14 @@ describe("getTagName", () => {
     expect(getTagName("   ")).toBeNull();
   });
 
-  it("reads .name / .label / .value from object tags", () => {
+  it("reads .name / .label / .value / .domain from object tags", () => {
     expect(getTagName({ name: "python" })).toBe("python");
     expect(getTagName({ label: "remote" })).toBe("remote");
     expect(getTagName({ value: "senior" })).toBe("senior");
+    // Traffit source tag shape: {type:"traffit_source", domain:"Rekomendacja", value:null}
+    expect(getTagName({ type: "traffit_source", domain: "Rekomendacja", value: null })).toBe(
+      "Rekomendacja",
+    );
   });
 
   it("returns null for object tags with empty name", () => {

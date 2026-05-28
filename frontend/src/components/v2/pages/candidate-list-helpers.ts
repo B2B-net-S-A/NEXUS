@@ -115,10 +115,13 @@ export function formatCandidateLocation(loc?: string | null): string | null {
 
 /** Normalize a single tag entry to its display name.
  *
- *  Backend emits tags as either bare strings or {name|label} objects; some
- *  external imports produce rows with empty/whitespace names that render as a
- *  bare "#" chip. Returns null for anything that wouldn't produce a readable
- *  label so callers can filter the list before mapping. */
+ *  Backend emits tags in several shapes:
+ *    - bare strings: "python"
+ *    - manual tags: {name: "..."} or {label: "..."}
+ *    - Traffit source tags: {type:"traffit_source", domain:"Rekomendacja", value:null}
+ *  External imports also produce rows with empty/whitespace names that would
+ *  render as a bare "#" chip. Returns null for anything that wouldn't produce
+ *  a readable label so callers can filter the list before mapping. */
 export function getTagName(t: unknown): string | null {
   if (typeof t === "string") {
     const v = t.trim();
@@ -126,7 +129,7 @@ export function getTagName(t: unknown): string | null {
   }
   if (t && typeof t === "object") {
     const obj = t as Record<string, unknown>;
-    const raw = obj.name ?? obj.label ?? obj.value;
+    const raw = obj.name ?? obj.label ?? obj.value ?? obj.domain;
     if (typeof raw === "string") {
       const v = raw.trim();
       return v ? v : null;

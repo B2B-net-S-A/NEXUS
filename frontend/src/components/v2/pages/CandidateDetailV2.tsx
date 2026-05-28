@@ -564,9 +564,11 @@ export function CandidateDetailV2({
  {/* Tags */}
  {(() => {
  const tagNames: string[] = Array.isArray(candidate.tags)
- ? (candidate.tags as unknown[])
+ ? Array.from(new Set(
+ (candidate.tags as unknown[])
  .map((t) => getTagName(t))
- .filter((n): n is string => typeof n === "string")
+ .filter((n): n is string => typeof n === "string"),
+ ))
  : [];
  return tagNames.length > 0 ? (
  <div className="flex flex-wrap gap-1 mt-3">
