@@ -1,18 +1,27 @@
 /**
- * E2E flow stubs — TODO list dla pozostałych 27 critical flows.
+ * E2E flow stubs — TODO list dla pozostałych 21 critical flows.
  *
  * Każdy stub = `test.fixme()` ze szczegółowym opisem co testować + jaki
  * acceptance criteria. Spawn task chip "Implement E2E flow stubs" przejmie
  * implementację per-stub w follow-up sesji (~3-5 specs/sesja).
  *
  * Priorytet (per QA session 2026-05-27 manual coverage gap analysis):
- * P1 — core feature (block deploy gdy fail)
+ * P0 — biznes-critical (block deploy gdy fail)
+ * P1 — core feature
  * P2 — high impact UX
  * P3 — nice-to-have
+ *
+ * Implemented (session 1 — 2026-05-28, 6 stubs):
+ * - P0 create contract draft → render → finalize  →  flow-contract-draft.spec.ts
+ * - P0 render contract PDF preview                →  flow-contract-draft.spec.ts
+ * - P1 send contract via Autenti (503 default)    →  flow-contract-draft.spec.ts
+ * - P1 POST /api/jobs auto-assign TAC + DL        →  flow-job-create.spec.ts
+ * - P1 AddCandidatesQuickModal (bulk proposals)   →  flow-job-create.spec.ts
+ * - P1 schedule interview event                   →  flow-calendar-event.spec.ts
  */
 import { test } from "@playwright/test";
 
-test.describe("E2E flow stubs — TODO (27 flows)", () => {
+test.describe("E2E flow stubs — TODO (21 flows)", () => {
   // ── Candidate operations ────────────────────────────────────────────────
   test.fixme("P1 import CSV → 5 candidates z prefix → counts match", () => {
     // helpers.sampleCandidatesCsv() → POST /api/candidates/import-csv → verify
@@ -39,18 +48,11 @@ test.describe("E2E flow stubs — TODO (27 flows)", () => {
   });
 
   // ── Job operations ──────────────────────────────────────────────────────
-  test.fixme("P1 POST /api/jobs → auto-assign TAC + DL z primary clients TAC", () => {
-    // Per `[[project_auto_assign_owners]]`: stwórz job dla Nordea → verify
-    // response.tac_id = primary TAC Nordea, response.delivery_lead_id = head DL.
-  });
+  // P1 POST /api/jobs auto-assign TAC + DL  → flow-job-create.spec.ts ✓ DONE
+  // P1 AddCandidatesQuickModal              → flow-job-create.spec.ts ✓ DONE
 
   test.fixme("P1 edit job → PATCH fields → verify w UI", () => {
     // PATCH /api/jobs/{id} z {title, salary_min, salary_max} → GET → verify.
-  });
-
-  test.fixme("P1 AddCandidatesQuickModal — add 3 candidates do job", () => {
-    // Z /jobs/{id} kliknij Add candidates → search → bulk select → POST →
-    // verify 3 candidate_stages utworzone.
   });
 
   test.fixme("P1 close job z reason → verify status='closed' + close_reason set", () => {
@@ -63,10 +65,7 @@ test.describe("E2E flow stubs — TODO (27 flows)", () => {
   });
 
   // ── Interview + calendar ────────────────────────────────────────────────
-  test.fixme("P1 schedule interview → verify w kalendarzu + actionable card", () => {
-    // POST /api/calendar/events z type=interview → verify event w GET /api/calendar/events
-    // + jeśli M365 enabled, verify Outlook actionable message sent.
-  });
+  // P1 schedule interview event             → flow-calendar-event.spec.ts ✓ DONE
 
   test.fixme("P2 post-interview feedback form", () => {
     // POST /api/interview-feedback z scoring 1-5 + comments → verify
@@ -84,19 +83,9 @@ test.describe("E2E flow stubs — TODO (27 flows)", () => {
   });
 
   // ── Contracts (Umowa) — P0 biznes ───────────────────────────────────────
-  test.fixme("P0 create contract draft → Tiptap edit → finalize", () => {
-    // POST /api/contracts z draft state → PATCH content_html → POST /finalize
-    // → verify status flow: draft → finalize_pending → active.
-  });
-
-  test.fixme("P0 render contract PDF preview", () => {
-    // GET /api/contracts/{id}/render-pdf → verify PDF mime + > 1KB size.
-  });
-
-  test.fixme("P1 send contract via Autenti (gdy AUTENTI_ENABLED=true)", () => {
-    // POST /api/autenti/contracts/{id}/send → verify Autenti response +
-    // signature row utworzony.
-  });
+  // P0 create contract draft → finalize  → flow-contract-draft.spec.ts ✓ DONE
+  // P0 render contract PDF preview       → flow-contract-draft.spec.ts ✓ DONE
+  // P1 send contract via Autenti         → flow-contract-draft.spec.ts ✓ DONE
 
   // ── Talent management ───────────────────────────────────────────────────
   test.fixme("P2 add candidate do talent pool", () => {

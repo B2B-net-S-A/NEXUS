@@ -186,4 +186,31 @@ JWT expires ~30 min, Postgres MCP może padać ECONNRESET, Coolify container mo�
 - `docs/qa-session-2026-05-27.md` — pełen log + 30 bugów + reality-check
 - `docs/sentry-alerts-runbook.md` — 6 alert rules (15 min setup)
 - `frontend/e2e/qa-regression-2026-05-27.spec.ts` — 5 regression specs
+
+## E2E coverage status
+
+> Source of truth: `frontend/e2e/` (Playwright). Auth setup w `auth.setup.ts`,
+> helpers w `helpers/test-entities.ts` (EntityTracker + cleanup po każdym spec).
+>
+> Cel: 100% pokrycie 30 critical flows. Postęp incrementalny po ~5 stubs/sesja.
+
+**Coverage: 9/30 flows (30%)**
+
+Implemented specs (Playwright):
+- `flow-create-candidate.spec.ts` — manual create + duplicate email guard
+- `flow-stage-transition.spec.ts` — assign → screening → interview → reject
+- `flow-write-note-mention.spec.ts` — Tiptap mention round-trip
+- `flow-contract-draft.spec.ts` — P0 draft → render → finalize + Autenti 503 (sesja 2026-05-28)
+- `flow-job-create.spec.ts` — P1 auto-assign TAC+DL + bulk proposals (sesja 2026-05-28)
+- `flow-calendar-event.spec.ts` — P1 interview event (sesja 2026-05-28)
+
+Pending (21 stubs w `flow-stubs-todo.spec.ts`):
+- Candidate ops (5): CSV import, CV PDF parse, bulk CV download, searchbar, marketplace TTL
+- Job ops (3): edit job, close job, AI job posting
+- Communication (2): M365 email, file upload PDF
+- Talent (2): talent pool add, marketplace match
+- Client mgmt (4): create client, contact, MSA, SOW
+- Integrations (2): M365 OAuth, Teams notifications
+- DL Hub (2): pending verification, DL assignment
+- Interview (1): post-interview feedback
 - `~/.claude/projects/-Users-arturtwardowski-NEXUS--ATS-/memory/feedback_qa_sentry_first_pattern.md` — pattern memory
