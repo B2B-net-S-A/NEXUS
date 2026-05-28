@@ -118,6 +118,18 @@ describe("getCandidateSummaryLine", () => {
     expect(getCandidateSummaryLine({ location: "Remote PL" })).toBe("Remote PL");
   });
 
+  it("parses Traffit-style JSON location into human-readable label", () => {
+    const blob = JSON.stringify({
+      latitude: "52.235840",
+      locality: "Warszawa",
+      region1: "Mazowieckie",
+      country: "Polska",
+    });
+    expect(getCandidateSummaryLine({ location: blob })).toBe(
+      "Warszawa, Mazowieckie, Polska",
+    );
+  });
+
   it("returns null when nothing meaningful is available", () => {
     expect(getCandidateSummaryLine({})).toBeNull();
     expect(getCandidateSummaryLine({ expected_salary: 0 })).toBeNull();

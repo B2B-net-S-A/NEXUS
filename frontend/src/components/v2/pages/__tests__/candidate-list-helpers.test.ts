@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  formatCandidateLocation,
   getCurrentCompany,
   getCurrentTitle,
   getExperienceLabel,
   getSkillList,
+  getTagName,
 } from "@/components/v2/pages/candidate-list-helpers";
 
 describe("getCurrentTitle", () => {
@@ -176,5 +178,89 @@ describe("getExperienceLabel", () => {
   it("5+ years → success variant (Senior) with `+` suffix", () => {
     expect(getExperienceLabel(5)).toEqual({ label: "5+ lat", variant: "success" });
     expect(getExperienceLabel(12)).toEqual({ label: "12+ lat", variant: "success" });
+  });
+});
+
+describe("formatCandidateLocation", () => {
+  it("returns null for null/undefined/empty/whitespace", () => {
+    expect(formatCandidateLocation(null)).toBeNull();
+    expect(formatCandidateLocation(undefined)).toBeNull();
+    expect(formatCandidateLocation("")).toBeNull();
+    expect(formatCandidateLocation("   ")).toBeNull();
+  });
+
+  it("returns plain-text input unchanged (trimmed)", () => {
+    expect(formatCandidateLocation("Warszawa")).toBe("Warszawa");
+    expect(formatCandidateLocation("  Kraków, PL  ")).toBe("Kraków, PL");
+  });
+
+  it("parses Traffit-style JSON blob into 'locality, region1, country'", () => {
+    const blob = JSON.stringify({
+      latitude: "52.235840",
+      longitude: "21.011959",
+      locality: "Warszawa",
+      iso: "pl",
+      region1: "Mazowieckie",
+      region2: "Warszawa",
+      country: "Polska",
+    });
+    expect(formatCandidateLocation(blob)).toBe("Warszawa, Mazowieckie, Polska");
+  });
+
+  it("falls back to 'city' when 'locality' is missing", () => {
+    const blob = JSON.stringify({ city: "Gdańsk", region1: "Pomorskie" });
+    expect(formatCandidateLocation(blob)).toBe("Gdańsk, Pomorskie");
+  });
+
+  it("dedupes when region equals locality", () => {
+    const blob = JSON.stringify({
+      locality: "Warszawa",
+      region1: "Warszawa",
+      country: "Polska",
+    });
+    expect(formatCandidateLocation(blob)).toBe("Warszawa, Polska");
+  });
+
+  it("skips empty / whitespace JSON fields", () => {
+    const blob = JSON.stringify({ locality: "Berlin", region1: "  ", country: "" });
+    expect(formatCandidateLocation(blob)).toBe("Berlin");
+  });
+
+  it("returns null when JSON has no readable fields", () => {
+    expect(formatCandidateLocation(JSON.stringify({ latitude: "1", longitude: "2" }))).toBeNull();
+  });
+
+  it("returns null for malformed JSON starting with '{'", () => {
+    expect(formatCandidateLocation('{"locality":"Warszawa"')).toBeNull();
+  });
+});
+
+describe("getTagName", () => {
+  it("returns trimmed string for plain string input", () => {
+    expect(getTagName("python")).toBe("python");
+    expect(getTagName("  remote-ok  ")).toBe("remote-ok");
+  });
+
+  it("returns null for empty / whitespace strings", () => {
+    expect(getTagName("")).toBeNull();
+    expect(getTagName("   ")).toBeNull();
+  });
+
+  it("reads .name / .label / .value from object tags", () => {
+    expect(getTagName({ name: "python" })).toBe("python");
+    expect(getTagName({ label: "remote" })).toBe("remote");
+    expect(getTagName({ value: "senior" })).toBe("senior");
+  });
+
+  it("returns null for object tags with empty name", () => {
+    expect(getTagName({ name: "" })).toBeNull();
+    expect(getTagName({ name: "   " })).toBeNull();
+    expect(getTagName({})).toBeNull();
+  });
+
+  it("returns null for non-string / non-object input", () => {
+    expect(getTagName(null)).toBeNull();
+    expect(getTagName(undefined)).toBeNull();
+    expect(getTagName(42)).toBeNull();
   });
 });

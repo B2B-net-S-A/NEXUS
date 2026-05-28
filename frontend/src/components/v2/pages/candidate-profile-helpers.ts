@@ -8,6 +8,7 @@
  */
 
 import {
+  formatCandidateLocation,
   getCurrentTitle,
   getExperienceLabel,
   type CandidateLite,
@@ -126,7 +127,7 @@ export function getCandidateSummaryLine(c: CandidateProfileLite): string | null 
   const exp = getExperienceLabel(c.years_it_experience);
   if (exp) segments.push(exp.label);
 
-  const loc = (c.city ?? c.location ?? "").trim();
+  const loc = formatCandidateLocation(c.city ?? c.location ?? null);
   if (loc) segments.push(loc);
 
   const salary = _formatSalary(c);

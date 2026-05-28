@@ -80,6 +80,61 @@ export function getSkillList(c: CandidateLite, limit = 8): string[] {
   return out;
 }
 
+/** Normalize a candidate location field to a human-readable string.
+ *
+ *  Most candidates have a plain-text location ("Warszawa", "Kraków/remote").
+ *  External imports (Traffit, TalentRadar) may store a structured JSON blob:
+ *    {"latitude":"...","longitude":"...","locality":"Warszawa",
+ *     "region1":"Mazowieckie","region2":"Warszawa","country":"Polska",...}
+ *  Rendering that JSON verbatim leaks raw data into the UI, so we parse it
+ *  here and join `locality, region1, country` (deduped) into a readable label.
+ *  Returns null for empty/unparseable input. */
+export function formatCandidateLocation(loc?: string | null): string | null {
+  if (loc == null) return null;
+  const trimmed = String(loc).trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith("{")) return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const pick = (k: string): string | null => {
+      const v = parsed[k];
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    };
+    const locality = pick("locality") ?? pick("city");
+    const region = pick("region1");
+    const country = pick("country");
+    const parts: string[] = [];
+    if (locality) parts.push(locality);
+    if (region && region !== locality) parts.push(region);
+    if (country && country !== region && country !== locality) parts.push(country);
+    return parts.length > 0 ? parts.join(", ") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Normalize a single tag entry to its display name.
+ *
+ *  Backend emits tags as either bare strings or {name|label} objects; some
+ *  external imports produce rows with empty/whitespace names that render as a
+ *  bare "#" chip. Returns null for anything that wouldn't produce a readable
+ *  label so callers can filter the list before mapping. */
+export function getTagName(t: unknown): string | null {
+  if (typeof t === "string") {
+    const v = t.trim();
+    return v ? v : null;
+  }
+  if (t && typeof t === "object") {
+    const obj = t as Record<string, unknown>;
+    const raw = obj.name ?? obj.label ?? obj.value;
+    if (typeof raw === "string") {
+      const v = raw.trim();
+      return v ? v : null;
+    }
+  }
+  return null;
+}
+
 export type ExperienceVariant = "outline" | "soft" | "success" | "neutral";
 
 /** Bucket years_it_experience into Junior/Mid/Senior badge labels.

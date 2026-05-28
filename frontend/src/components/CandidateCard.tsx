@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Star, User } from "lucide-react";
 import Link from "next/link";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 interface CandidateCardProps {
   candidateId: number;
@@ -31,9 +32,12 @@ export const CandidateCard = memo(function CandidateCard({ candidateId, stage, r
             <p className="text-sm font-medium text-foreground dark:text-muted-foreground truncate">
               {candidate ? `${candidate.name} ${candidate.lastname}` : `Kandydat #${candidateId}`}
             </p>
-            {candidate?.location && (
-              <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">{candidate.location}</p>
-            )}
+            {(() => {
+              const loc = formatCandidateLocation(candidate?.location);
+              return loc ? (
+                <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">{loc}</p>
+              ) : null;
+            })()}
           </div>
         </div>
 

@@ -7,6 +7,7 @@ import { cn } from"@/lib/utils";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Checkbox } from"@/components/ui/checkbox";
 import { Badge } from"@/components/ui/badge";
+import { formatCandidateLocation } from"@/components/v2/pages/candidate-list-helpers";
 
 interface TileCandidate {
  id: number;
@@ -179,12 +180,15 @@ export function CandidatesTiles({
  {position}
  </div>
  )}
- {candidate.location && (
+ {(() => {
+ const loc = formatCandidateLocation(candidate.location);
+ return loc ? (
  <div className="text-[11px] text-muted-foreground truncate mt-1 flex items-center justify-center gap-1">
  <MapPin className="h-3 w-3" />
- {candidate.location}
+ {loc}
  </div>
- )}
+ ) : null;
+ })()}
  </div>
  </button>
  {(visiblePools.length > 0 || showMatch) && (

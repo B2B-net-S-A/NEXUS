@@ -107,6 +107,7 @@ import {
 } from"@/lib/url-filters";
 import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
 import {
+ formatCandidateLocation,
  getCurrentCompany,
  getCurrentTitle,
  getExperienceLabel,
@@ -478,7 +479,7 @@ function CandidateCell({
  <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
  {sourceIcon(candidate.source)}
  <span className="truncate">
- {candidate.email ?? candidate.location ??"—"}
+ {candidate.email ?? formatCandidateLocation(candidate.location) ??"—"}
  </span>
  </div>
  {snippet && searchTerms.length > 0 && (
@@ -593,7 +594,7 @@ function CandidateCell({
  );
  }
  case "location": {
- const loc = candidate.city ?? candidate.location ?? null;
+ const loc = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
  if (!loc) {
  return <span className="text-xs text-muted-foreground">—</span>;
  }

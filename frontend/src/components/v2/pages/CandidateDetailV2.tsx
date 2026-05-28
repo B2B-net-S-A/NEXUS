@@ -60,7 +60,12 @@ import {
  getEducationList,
  getLanguageList,
 } from"@/components/v2/pages/candidate-profile-helpers";
-import { getCurrentTitle, getExperienceLabel } from"@/components/v2/pages/candidate-list-helpers";
+import {
+ formatCandidateLocation,
+ getCurrentTitle,
+ getExperienceLabel,
+ getTagName,
+} from"@/components/v2/pages/candidate-list-helpers";
 import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngagementPanel";
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
@@ -534,12 +539,15 @@ export function CandidateDetailV2({
  compact
  />
  )}
- {candidate.location && (
+ {(() => {
+ const headerLoc = formatCandidateLocation(candidate.location);
+ return headerLoc ? (
  <span className="inline-flex items-center gap-1.5">
  <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
- {candidate.location}
+ {headerLoc}
  </span>
- )}
+ ) : null;
+ })()}
  {candidate.linkedin_url && (
  <a
  href={candidate.linkedin_url}
@@ -554,18 +562,25 @@ export function CandidateDetailV2({
  </div>
 
  {/* Tags */}
- {Array.isArray(candidate.tags) && candidate.tags.length > 0 && (
+ {(() => {
+ const tagNames: string[] = Array.isArray(candidate.tags)
+ ? (candidate.tags as unknown[])
+ .map((t) => getTagName(t))
+ .filter((n): n is string => typeof n === "string")
+ : [];
+ return tagNames.length > 0 ? (
  <div className="flex flex-wrap gap-1 mt-3">
- {candidate.tags.map((t: any, i: number) => (
+ {tagNames.map((name: string, i: number) => (
  <span
  key={i}
  className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
  >
- #{typeof t === "string" ? t : t.name}
+ #{name}
  </span>
  ))}
  </div>
- )}
+ ) : null;
+ })()}
  </div>
 
  {/* Active viewers (presence) — other users currently on this candidate */}
@@ -1679,7 +1694,7 @@ function ProfilTab({
  const verifiedSet = new Set(verifiedTech.map((t) => t.toLowerCase()));
  const title = getCurrentTitle(candidate);
  const expLabel = getExperienceLabel(candidate.years_it_experience);
- const location = candidate.city ?? candidate.location ?? null;
+ const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
  const salary =
  candidate.expected_salary != null
  ? `${candidate.expected_salary.toLocaleString("pl-PL")} ${candidate.currency ??"PLN"}`
