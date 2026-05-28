@@ -132,6 +132,24 @@ const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
  blacklisted: "danger",
 };
 
+// Deterministyczna kolorystyka awatara wg ID kandydata — 8 wariantów cycle.
+// Daje "kolorową" listę bez randomizacji (ten sam kandydat = ten sam kolor
+// między reloadami). Każdy wariant: jasne tło + ciemny tekst + ciemny ring.
+const AVATAR_COLOR_CLASSES = [
+ "bg-violet-100 text-violet-700 ring-1 ring-violet-200 dark:bg-violet-900/40 dark:text-violet-200 dark:ring-violet-800",
+ "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-900/40 dark:text-sky-200 dark:ring-sky-800",
+ "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:ring-emerald-800",
+ "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-800",
+ "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-900/40 dark:text-rose-200 dark:ring-rose-800",
+ "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-900/40 dark:text-cyan-200 dark:ring-cyan-800",
+ "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-200 dark:ring-indigo-800",
+ "bg-pink-100 text-pink-700 ring-1 ring-pink-200 dark:bg-pink-900/40 dark:text-pink-200 dark:ring-pink-800",
+];
+
+function avatarColorClass(id: number): string {
+ return AVATAR_COLOR_CLASSES[Math.abs(id) % AVATAR_COLOR_CLASSES.length];
+}
+
 const SORT_OPTIONS = [
  { value: "newest", label: "Najnowsi" },
  { value: "oldest", label: "Najstarsi" },
@@ -388,7 +406,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  className="inline-flex items-center gap-1"
  title={`Aktywne rekrutacje: ${recs.length}`}
  >
- <Badge size="sm" variant="soft" className="gap-1">
+ <Badge size="sm" variant="soft" className="gap-1 bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200">
  <Briefcase className="h-3 w-3" />
  {recs.length}
  </Badge>
@@ -470,7 +488,7 @@ function CandidateCell({
  className="flex items-center gap-3 min-w-0 text-left"
  >
  <Avatar size={density === "compact" ?"sm" :"md"}>
- <AvatarFallback>{initials}</AvatarFallback>
+ <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
  </Avatar>
  <div className="min-w-0">
  <div className="font-medium text-foreground truncate hover:text-primary">
@@ -506,7 +524,7 @@ function CandidateCell({
  };
  return (
  <div className="flex items-center gap-1.5 min-w-0 group">
- <Phone className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <Phone className="h-3 w-3 shrink-0 text-emerald-500" />
  <a
  href={`tel:${phone}`}
  onClick={(e) => e.stopPropagation()}
@@ -539,7 +557,7 @@ function CandidateCell({
  };
  return (
  <div className="flex items-center gap-1.5 min-w-0 group">
- <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <Mail className="h-3 w-3 shrink-0 text-sky-500" />
  <a
  href={`mailto:${email}`}
  onClick={(e) => e.stopPropagation()}
@@ -583,7 +601,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <Building2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <Building2 className="h-3 w-3 shrink-0 text-indigo-500" />
  <span
  className="text-sm text-foreground truncate"
  title={company}
@@ -600,7 +618,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <MapPin className="h-3 w-3 shrink-0 text-rose-500" />
  <span className="text-sm text-foreground truncate" title={loc}>
  {loc}
  </span>
@@ -650,9 +668,9 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <Banknote className="h-3 w-3 shrink-0 text-muted-foreground" />
+ <Banknote className="h-3 w-3 shrink-0 text-emerald-600" />
  <span
- className="text-sm font-medium text-foreground truncate"
+ className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 truncate"
  title={rate}
  >
  {rate}
@@ -667,7 +685,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-start gap-1.5 min-w-0">
- <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground mt-0.5" />
+ <MessageSquare className="h-3 w-3 shrink-0 text-sky-500 mt-0.5" />
  <span
  className="text-xs text-muted-foreground line-clamp-2"
  title={note}
@@ -1310,18 +1328,29 @@ export function CandidatesListV2() {
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header */}
+ {/* Header — gradient banner (violet → indigo → sky) dla mocniejszej
+ hierarchii wizualnej; left-side gradient owija tylko tekst, więc action
+ buttons po prawej zachowują standardowy variant="outline" / "primary". */}
  <div className="flex items-end justify-between flex-wrap gap-3">
- <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+ <div className="rounded-xl bg-gradient-to-br from-violet-600 via-indigo-600 to-sky-600 dark:from-violet-800 dark:via-indigo-900 dark:to-sky-900 px-5 py-4 text-white shadow-md flex-1 min-w-[280px]">
+ <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-100">
  Sourcing · Kandydaci
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground mt-1">
+ <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-white mt-1 drop-shadow-sm">
  Kandydaci
  </h1>
- <p className="text-sm text-muted-foreground mt-1">
- {isLoading ?"Ładowanie…" : `${total.toLocaleString("pl-PL")} w bazie`}
- {isFetching && !isLoading ?"· synchronizacja…" :""}
+ <p className="text-sm text-violet-100 mt-1">
+ {isLoading ? (
+ "Ładowanie…"
+ ) : (
+ <>
+ <span className="font-semibold text-white">
+ {total.toLocaleString("pl-PL")}
+ </span>{" "}
+ w bazie
+ </>
+ )}
+ {isFetching && !isLoading ? " · synchronizacja…" : ""}
  </p>
  </div>
 
@@ -2045,7 +2074,7 @@ export function CandidatesListV2() {
  {/* Header row (list view only) */}
  {candidatesView === "list" && (
  <div
- className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground bg-background/60 border-b border-border",
+ className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200 bg-gradient-to-r from-violet-50 via-indigo-50 to-sky-50 dark:from-violet-950/40 dark:via-indigo-950/40 dark:to-sky-950/40 border-b-2 border-violet-200 dark:border-violet-800 border-l-4 border-l-transparent sticky top-0 z-10",
  density === "compact" ?"h-9" :"h-10"
  )}
  style={{ gridTemplateColumns }}
@@ -2074,7 +2103,7 @@ export function CandidatesListV2() {
  {candidatesView === "tiles" ? (
  items.length === 0 && !isLoading ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
+ <Users className="h-12 w-12 mx-auto mb-3 text-violet-400" />
  Brak wyników. Zmień filtry lub{""}
  <button
  className="text-primary hover:underline"
@@ -2111,7 +2140,7 @@ export function CandidatesListV2() {
  </div>
  ) : items.length === 0 ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="h-10 w-10 mx-auto mb-2 opacity-40" />
+ <Users className="h-12 w-12 mx-auto mb-3 text-violet-400" />
  Brak wyników. Zmień filtry lub{""}
  <button
  className="text-primary hover:underline"
@@ -2161,8 +2190,13 @@ export function CandidatesListV2() {
  transform: `translateY(${virtualRow.start}px)`,
  gridTemplateColumns,
  }}
- className={cn("grid items-center gap-4 px-4 border-b border-border/50 transition-colors","hover:bg-primary/10",
- isSelected &&"bg-primary/10 hover:bg-primary/10"
+ className={cn(
+ "grid items-center gap-4 px-4 border-b border-border/50 transition-colors",
+ "border-l-4 border-l-transparent",
+ // Zebra striping: parzysty index = białe tło, nieparzysty = lekki violet tint.
+ virtualRow.index % 2 === 0 ? "bg-card" : "bg-violet-50/40 dark:bg-violet-950/15",
+ "hover:bg-violet-100/60 dark:hover:bg-violet-900/30 hover:border-l-violet-500",
+ isSelected && "!bg-violet-100 dark:!bg-violet-900/40 !border-l-violet-600"
  )}
  >
  <div
@@ -2209,7 +2243,7 @@ export function CandidatesListV2() {
 
  {/* Pagination */}
  {!isLoading && items.length > 0 && (
- <div className="flex items-center justify-between gap-3 px-4 h-12 border-t border-border bg-background/40 text-sm">
+ <div className="flex items-center justify-between gap-3 px-4 h-12 border-t-2 border-violet-200 dark:border-violet-800 bg-gradient-to-r from-violet-50/60 via-indigo-50/60 to-sky-50/60 dark:from-violet-950/30 dark:via-indigo-950/30 dark:to-sky-950/30 text-sm">
  <span className="text-muted-foreground">
  Strona <span className="font-semibold text-foreground">{page}</span> z {totalPages}
  {selectedIds.size > 0 && (
