@@ -107,6 +107,11 @@ const NAV_SECTIONS: NavSection[] = [
         icon: UserCog,
         roles: ["admin", "delivery_lead", "tac", "head_of_recruitment"],
       },
+      // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
+      //    na prośbę usera ("wylacz z UI na razie"). Route
+      //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
+      //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
+      /*
       {
         // DL Hub (PR #225/#229) — łączy widget weryfikacji + KPI + 3 taby
         // (klienci/zespół/aktywne joby). Stara osobna zakładka "Weryfikacje"
@@ -118,6 +123,7 @@ const NAV_SECTIONS: NavSection[] = [
         badgeKey: "pendingVerifications",
         roles: ["admin", "delivery_lead", "head_of_recruitment"],
       },
+      */
     ],
   },
   {
