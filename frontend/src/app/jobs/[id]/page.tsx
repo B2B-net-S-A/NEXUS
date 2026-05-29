@@ -693,7 +693,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["ai-matches", jobId],
-    queryFn: () => matchingApi.getMatches(jobId, 10).then((r) => r.data),
+    queryFn: () => matchingApi.getMatches(jobId).then((r) => r.data),
     staleTime: 60_000,
   });
 

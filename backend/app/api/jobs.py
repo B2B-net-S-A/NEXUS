@@ -602,12 +602,15 @@ async def create_job(
     try:
         snapshot_id = await create_pending_snapshot(
             job.id,
-            top_k=20,
+            top_k=settings.MATCH_MAX_RESULTS,
             source="create",
             created_by=current_user.id,
         )
         background_tasks.add_task(
-            compute_proposal_for_job, snapshot_id, job.id, top_k=20
+            compute_proposal_for_job,
+            snapshot_id,
+            job.id,
+            top_k=settings.MATCH_MAX_RESULTS,
         )
     except Exception as e:  # pragma: no cover — never block job creation
         logger.warning(

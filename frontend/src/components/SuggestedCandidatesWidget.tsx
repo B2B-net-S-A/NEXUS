@@ -97,7 +97,10 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
-  const [topK, setTopK] = useState(10);
+  // Show ALL candidates that fit — the backend applies the match-quality
+  // threshold; this is only a payload safety cap (was a user-facing "Top N"
+  // selector, removed when the product shifted to "show everyone who matches").
+  const topK = 200;
   const [regenerating, setRegenerating] = useState(false);
 
   const [assigning, setAssigning] = useState<number | null>(null);
@@ -224,19 +227,6 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
           )}
         </h3>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-muted-foreground">
-            Top&nbsp;
-            <select
-              value={topK}
-              onChange={(e) => setTopK(Number(e.target.value))}
-              className="rounded border border-border dark:border-border px-1.5 py-0.5 text-xs bg-card dark:bg-card"
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-            </select>
-          </label>
           {mode === "snapshot" ? (
             <button
               onClick={regenerate}
