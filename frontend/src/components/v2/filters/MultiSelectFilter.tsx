@@ -57,6 +57,7 @@ export function MultiSelectFilter<V extends string | number>({
 }: MultiSelectFilterProps<V>) {
  const [open, setOpen] = useState(false);
  const selected = useMemo(() => new Set(value), [value]);
+ const isActive = value.length > 0;
 
  const toggle = (v: V) => {
  const next = new Set(selected);
@@ -84,7 +85,14 @@ export function MultiSelectFilter<V extends string | number>({
  <Button
  size="md"
  variant="outline"
- className={cn("justify-between", triggerWidthClass, className)}
+ className={cn(
+ "justify-between bg-card shadow-sm",
+ "hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-950/30 dark:hover:border-violet-700",
+ isActive &&
+ "border-violet-400 bg-violet-50 text-violet-700 font-semibold dark:border-violet-500 dark:bg-violet-950/40 dark:text-violet-200",
+ triggerWidthClass,
+ className,
+ )}
  aria-expanded={open}
  title={title}
  >

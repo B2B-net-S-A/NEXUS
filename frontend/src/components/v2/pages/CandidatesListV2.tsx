@@ -1442,7 +1442,10 @@ export function CandidatesListV2() {
  </div>
  </div>
 
- {/* Toolbar */}
+ {/* Toolbar — wrapped in a soft tinted panel so the filters read as a
+ distinct zone and individual controls stand out instead of blending
+ into the white page / table. */}
+ <div className="rounded-xl border border-violet-200/70 bg-gradient-to-br from-violet-50/80 via-white to-sky-50/60 p-3 shadow-sm dark:border-violet-900/40 dark:from-violet-950/25 dark:via-background dark:to-sky-950/15">
  <div className="flex items-center gap-2 flex-wrap">
  <div className="flex-1 min-w-[240px] max-w-lg">
  <Input
@@ -1568,6 +1571,7 @@ export function CandidatesListV2() {
  <Button
  size="sm"
  variant="outline"
+ className="bg-card shadow-sm"
  onClick={() => {
  // Shortcut: show everyone who can realistically be sourced right now —
  // not at a client AND explicitly open to offers (or actively looking).
@@ -1582,6 +1586,7 @@ export function CandidatesListV2() {
  <Button
  size="sm"
  variant={openToFilter.length === OPEN_TO_OPTIONS.length ?"secondary" :"outline"}
+ className={openToFilter.length === OPEN_TO_OPTIONS.length ?"shadow-sm" :"bg-card shadow-sm"}
  onClick={() => {
  // Zakładka „Otwarci na extra": toggle ALL three flags at once.
  if (openToFilter.length === OPEN_TO_OPTIONS.length) {
@@ -1596,7 +1601,7 @@ export function CandidatesListV2() {
  <Sparkles className="h-4 w-4" /> Otwarci na extra
  </Button>
  <Select value={sortBy} onValueChange={setSortBy}>
- <SelectTrigger className="w-[160px]">
+ <SelectTrigger className="w-[160px] shadow-sm">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -1704,7 +1709,7 @@ export function CandidatesListV2() {
  </FilterChipPopover>
  <Popover>
  <PopoverTrigger asChild>
- <Button size="md" variant="outline">
+ <Button size="md" variant="outline" className="bg-card shadow-sm">
  <Filter className="h-4 w-4" /> Filtry zaawansowane
  {activeFilterCount > 0 && (
  <Badge variant="burgundy" size="sm">
@@ -1941,6 +1946,11 @@ export function CandidatesListV2() {
  ?"primary"
  :"outline"
  }
+ className={
+ addedByIds.length === 1 && addedByIds[0] === currentUser.id
+ ?"shadow-sm"
+ :"bg-card shadow-sm"
+ }
  onClick={() => {
  const alreadyMine =
  addedByIds.length === 1 && addedByIds[0] === currentUser.id;
@@ -2131,6 +2141,7 @@ export function CandidatesListV2() {
  </button>
  </div>
  </div>
+ </div>
 
  {/* Pinned candidates bar — short-list workflow (Phase 4). Hidden when
  user has zero pins so it doesn't waste space for casual browsing. */}
@@ -2174,7 +2185,7 @@ export function CandidatesListV2() {
  {/* Header row (list view only) */}
  {candidatesView === "list" && (
  <div
- className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200 bg-gradient-to-r from-violet-50 via-indigo-50 to-sky-50 dark:from-violet-950/40 dark:via-indigo-950/40 dark:to-sky-950/40 border-b-2 border-violet-200 dark:border-violet-800 border-l-4 border-l-transparent sticky top-0 z-10",
+ className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200 bg-gradient-to-r from-violet-100 via-indigo-100 to-sky-100 dark:from-violet-950/40 dark:via-indigo-950/40 dark:to-sky-950/40 border-b-2 border-violet-300 dark:border-violet-800 border-l-4 border-l-transparent sticky top-0 z-10",
  density === "compact" ?"h-9" :"h-10"
  )}
  style={{ gridTemplateColumns }}
@@ -2293,8 +2304,8 @@ export function CandidatesListV2() {
  className={cn(
  "grid items-center gap-4 px-4 border-b border-border/50 transition-colors",
  "border-l-4 border-l-transparent",
- // Zebra striping: parzysty index = białe tło, nieparzysty = lekki violet tint.
- virtualRow.index % 2 === 0 ? "bg-card" : "bg-violet-50/40 dark:bg-violet-950/15",
+ // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
+ virtualRow.index % 2 === 0 ? "bg-card" : "bg-violet-50 dark:bg-violet-950/20",
  "hover:bg-violet-100/60 dark:hover:bg-violet-900/30 hover:border-l-violet-500",
  isSelected && "!bg-violet-100 dark:!bg-violet-900/40 !border-l-violet-600"
  )}
