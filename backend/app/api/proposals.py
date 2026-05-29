@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TacPlus
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
@@ -191,7 +192,12 @@ async def regenerate_proposals(
     current_user: TacPlus,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    top_k: int = Query(20, ge=1, le=100),
+    top_k: int = Query(
+        settings.MATCH_MAX_RESULTS,
+        ge=1,
+        le=settings.MATCH_MAX_RESULTS,
+        description="Hard cap on stored proposals (payload safety bound).",
+    ),
     profile_id: Optional[int] = Query(None),
 ):
     """Trigger a new proposal snapshot. Returns the pending row (poll until ready)."""

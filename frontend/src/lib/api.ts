@@ -406,8 +406,12 @@ export const aiWriterApi = {
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
 export const matchingApi = {
-  getMatches: (jobId: number, topK = 10) =>
-    api.get(`/api/jobs/${jobId}/ai-matches`, { params: { top_k: topK } }),
+  // Returns ALL candidates that match the job (score >= backend threshold),
+  // ranked best-first. Optional overrides: `minScore` (0-1) and `limit`.
+  getMatches: (jobId: number, opts?: { minScore?: number; limit?: number }) =>
+    api.get(`/api/jobs/${jobId}/ai-matches`, {
+      params: { min_score: opts?.minScore, limit: opts?.limit },
+    }),
 };
 
 // ── Talent Pools ──────────────────────────────────────────────────────────────

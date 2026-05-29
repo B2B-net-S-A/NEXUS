@@ -150,15 +150,32 @@ def _parse_required_skills(job: Job) -> list[str]:
 async def get_ai_matches(
     job_id: int,
     current_user: CurrentUser,
-    top_k: int = 10,
+    min_score: float | None = None,
+    limit: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
     GET /api/jobs/{job_id}/ai-matches
 
-    Returns top candidates matching the given job using Qdrant semantic search.
-    Falls back to tag-based matching if Qdrant unavailable.
+    Returns **all** candidates that match the job (score >= ``min_score``),
+    ranked best-first, using Qdrant semantic search + optional Voyage rerank.
+    Falls back to tag-based matching if Qdrant is unavailable.
+
+    Replaces the old hard top-10 behaviour: the result set is now bounded only
+    by the match threshold and a safety cap (``MATCH_MAX_RESULTS``), so a job
+    with 60 genuine fits shows all 60 instead of an arbitrary first 10.
+
+    Query params (both optional; default to runtime-tunable settings):
+        min_score: minimum match score (0-1) a candidate must reach to be shown.
+        limit:     hard cap on the number of results (payload safety bound).
     """
+    threshold = min_score if min_score is not None else settings.AI_MATCH_MIN_SCORE
+    max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
+    # Retrieval/rerank pool is independent of the result cap: it bounds how many
+    # candidates the (cost-bearing) reranker scores, while max_results bounds the
+    # payload. Results are therefore effectively capped at the smaller of the two.
+    pool_size = settings.AI_MATCH_POOL_SIZE
+
     # Fetch job
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
@@ -175,12 +192,12 @@ async def get_ai_matches(
             search_candidates_semantic,
         )
 
-        # Fetch wider pool when rerank is on so the cross-encoder has more
-        # signal to work with. Plain semantic mode keeps the historical 2x
-        # multiplier to avoid behavioural regressions.
+        # Pull a wide pool so "show all who match" isn't artificially capped by
+        # retrieval. The threshold filter below — not a fixed top-K — decides
+        # who is shown. Rerank cost scales ~linearly with pool size, hence the
+        # tunable AI_MATCH_POOL_SIZE.
         rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
-        retrieval_k = 50 if rerank_enabled else top_k * 2
-        hits = await search_candidates_semantic(query_text, top_k=retrieval_k)
+        hits = await search_candidates_semantic(query_text, top_k=pool_size)
 
         if hits:
             candidate_ids = [h["candidate_id"] for h in hits]
@@ -209,22 +226,24 @@ async def get_ai_matches(
 
             if rerank_enabled and ordered:
                 docs = [_build_candidate_text(c)[:4000] for c in ordered]
-                pairs = await rerank_or_passthrough(query_text, docs, top_k=top_k)
+                # Rerank the whole pool (top_k=len(docs)) so threshold filtering
+                # below sees a fully-ranked list, not a pre-trimmed one.
+                pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
                 if pairs and any(score != 1.0 for _, score in pairs):
                     # Real rerank result (passthrough returns score=1.0 for all).
                     # Reorder per rerank, scores aligned to new positions.
                     search_type = "semantic+rerank"
                     ordered = [ordered[idx] for idx, _ in pairs]
                     scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
-                else:
-                    # Passthrough / failure — keep Qdrant order, trim to top_k.
-                    ordered = ordered[:top_k]
-            else:
-                ordered = ordered[:top_k]
+                # Passthrough / failure → keep Qdrant order + scores as-is.
 
             matches = [
                 _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
                 for i, c in enumerate(ordered)
+            ]
+            # Threshold filter: show everyone who fits, capped for payload safety.
+            matches = [m for m in matches if m["match_score"] >= threshold][
+                :max_results
             ]
 
             return {
@@ -232,6 +251,7 @@ async def get_ai_matches(
                 "job_title": job.title,
                 "required_skills": required_skills,
                 "search_type": search_type,
+                "min_score": round(threshold, 3),
                 "matches": matches,
             }
     except Exception as e:
@@ -242,26 +262,29 @@ async def get_ai_matches(
     # ── Fallback: tag-based matching ─────────────────────────────────────────
     logger.info(f"[AIMatch] Using tag-based fallback for job {job_id}")
 
-    # Grab all active candidates (limited to 200 for performance)
+    # Grab all active candidates (bounded by the retrieval pool for performance)
     all_result = await db.execute(
-        select(Candidate).where(Candidate.status != "blacklisted").limit(200)
+        select(Candidate).where(Candidate.status != "blacklisted").limit(pool_size)
     )
     all_candidates = all_result.scalars().all()
 
     matches = []
     for c in all_candidates:
         match = _build_match_info(c, required_skills, score=None)
-        if match["match_score"] > 0 or not required_skills:
+        # No required_skills → score is a profile-completeness proxy; keep the
+        # threshold floor so junk profiles don't surface as "matches".
+        if match["match_score"] >= threshold:
             matches.append(match)
 
-    # Sort by score desc, take top_k
+    # Sort by score desc, show all who clear the threshold (capped).
     matches.sort(key=lambda x: x["match_score"], reverse=True)
-    matches = matches[:top_k]
+    matches = matches[:max_results]
 
     return {
         "job_id": job_id,
         "job_title": job.title,
         "required_skills": required_skills,
         "search_type": "tag_fallback",
+        "min_score": round(threshold, 3),
         "matches": matches,
     }

@@ -15,6 +15,7 @@ from typing import Optional
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.job import Job
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 async def create_pending_snapshot(
     job_id: int,
     *,
-    top_k: int = 20,
+    top_k: int = settings.MATCH_MAX_RESULTS,
     source: str = "create",
     created_by: Optional[int] = None,
     profile_id: int = 0,
@@ -61,7 +62,7 @@ async def compute_proposal_for_job(
     snapshot_id: int,
     job_id: int,
     *,
-    top_k: int = 20,
+    top_k: int = settings.MATCH_MAX_RESULTS,
 ) -> None:
     """Populate snapshot `snapshot_id` with top-K scored candidates.
 
@@ -171,7 +172,15 @@ async def compute_proposal_for_job(
                     similarity_map=similarity_map,
                     profile=profile,
                 )
-                breakdowns = breakdowns[:top_k]
+                # Persist ALL candidates that fit (score >= threshold), ranked
+                # best-first — not a fixed top-K. `top_k` is now just a payload
+                # safety cap. Mirrors the live /recommendations endpoint so the
+                # snapshot and fallback paths agree on "who matches".
+                breakdowns = [
+                    b
+                    for b in breakdowns
+                    if b.total >= settings.RECOMMENDATION_MIN_SCORE
+                ][:top_k]
 
             snap.status = STATUS_READY
             snap.candidate_ids = [b.candidate_id for b in breakdowns]

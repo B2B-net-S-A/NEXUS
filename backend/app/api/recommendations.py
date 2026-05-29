@@ -73,7 +73,16 @@ router = APIRouter()
 async def recommend_candidates_for_job(
     request: Request,
     job_id: int,
-    top_k: int = Query(20, ge=1, le=100),
+    top_k: int = Query(
+        200, ge=1, le=200, description="Hard cap on results (payload safety bound)."
+    ),
+    min_score: float | None = Query(
+        None,
+        description=(
+            "Minimum hybrid score (0-100) a candidate must reach to be shown. "
+            "Defaults to settings.RECOMMENDATION_MIN_SCORE. Lower = show more."
+        ),
+    ),
     include_breakdown: bool = Query(True),
     exclude_in_pipeline: bool = Query(
         True, description="Skip candidates already added to this job's pipeline."
@@ -177,7 +186,14 @@ async def recommend_candidates_for_job(
             b.total = round(b.total + bonus, 2)
         breakdowns.sort(key=lambda r: -r.total)
 
-    breakdowns = breakdowns[:top_k]
+    # Show ALL candidates that fit (score >= threshold), not a fixed top-K.
+    # `top_k` now acts purely as a payload safety cap. The hybrid composite is a
+    # ranking signal with a low absolute range, so the default threshold is low
+    # (see settings.RECOMMENDATION_MIN_SCORE for calibration notes).
+    threshold = (
+        min_score if min_score is not None else settings.RECOMMENDATION_MIN_SCORE
+    )
+    breakdowns = [b for b in breakdowns if b.total >= threshold][:top_k]
 
     matches = []
     for b in breakdowns:
@@ -213,6 +229,7 @@ async def recommend_candidates_for_job(
         "job_id": job_id,
         "job_title": job.title,
         "search_type": "hybrid",
+        "min_score": round(threshold, 1),
         "profile": {"id": profile.id, "name": profile.name},
         "matches": matches,
     }

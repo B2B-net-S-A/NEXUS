@@ -38,6 +38,30 @@ class Settings(BaseSettings):
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
     RERANKER_ENABLED: bool = True
 
+    # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
+    # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
+    # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich
+    # kandydatów ze score >= próg, przycięte do MATCH_MAX_RESULTS jako bezpiecznik
+    # rozmiaru payloadu. Wszystkie tunowalne runtime przez Coolify env (bez
+    # rebuildu — is_runtime).
+    #
+    # Kalibracja 2026-05-29 na żywych rozkładach z joba 15 (Scrum Master):
+    #   • legacy rerank score (Voyage rerank-2.5, 0-1): klaster 0.61-0.87 →
+    #     próg 0.5 trzyma trafny zbiór, ucina szum gdy poszerzymy pulę.
+    #   • hybrydowy composite (0-100): 2 wyróżniki (58.9, 53.8) + długi płaski
+    #     ogon 24-34 (semantycznie dociągnięci, ale composite zaniżony bo
+    #     salary/location/availability często nieznane → punkty częściowe).
+    #     To sygnał RANKINGOWY, nie skalibrowane 0-100 → próg celowo niski (25
+    #     daje ~48 kandydatów; 30 dałoby tylko 6; 50 tylko 2).
+    # legacy /ai-matches (rerank/cosine/skill-fraction, skala 0-1)
+    AI_MATCH_MIN_SCORE: float = 0.5
+    # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank ~liniowy)
+    AI_MATCH_POOL_SIZE: int = 100
+    # hybrydowe /recommendations + proposals (skala 0-100)
+    RECOMMENDATION_MIN_SCORE: float = 25.0
+    # twardy bezpiecznik rozmiaru wyniku (oba silniki)
+    MATCH_MAX_RESULTS: int = 200
+
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
