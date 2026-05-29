@@ -55,7 +55,9 @@ export function FilterChipPopover({
           size="sm"
           variant={isActive ? "primary" : "outline"}
           className={cn(
-            "gap-1.5",
+            "gap-1.5 shadow-sm",
+            !isActive &&
+              "bg-card hover:bg-violet-50 hover:border-violet-300 dark:hover:bg-violet-950/30 dark:hover:border-violet-700",
             isActive && "pr-1.5",
           )}
         >
