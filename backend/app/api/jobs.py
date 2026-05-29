@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -210,13 +210,66 @@ async def list_jobs(
         ),
     ),
     recruitment_type: Optional[RecruitmentType] = None,
-    client_id: Optional[int] = None,
+    client_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by client id — one or more ids. Repeat the param for "
+            "multi-select (e.g. `?client_id=3&client_id=7`). OR-combined. "
+            "Single-value calls remain backward-compatible."
+        ),
+    ),
     q: Optional[str] = None,
     owner_id: Optional[list[int]] = Query(
         None,
         description=(
             "Filter by primary_owner user id (recruiter_id) — one or more ids. "
             "Repeat the param for multi-select. OR-combined."
+        ),
+    ),
+    responsible_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by responsible person ('Osoba odpowiedzialna') — matches if "
+            "the user is the recruiter, delivery lead, OR TAC on the job. One or "
+            "more ids, repeat the param for multi-select. OR-combined across both "
+            "the id set and the three responsibility roles."
+        ),
+    ),
+    competence_category_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by primary Competence Category id — one or more ids. Repeat "
+            "the param for multi-select. OR-combined."
+        ),
+    ),
+    needs_sourcing: Optional[bool] = Query(
+        None,
+        description=(
+            "Filter by `needs_sourcing` flag ('Potrzebny search'). True → only "
+            "jobs a Delivery Lead flagged as needing active sourcing."
+        ),
+    ),
+    active_in_search: Optional[bool] = Query(
+        None,
+        description=(
+            "Filter by 'Aktywni w searchu' — True → only jobs that have at least "
+            "one active recruiter collaborator (job_collaborators row with "
+            "removed_from_auto_cc=False). False → only jobs with none."
+        ),
+    ),
+    deadline_from: Optional[date] = Query(
+        None,
+        description="Lower bound (inclusive) on Job.deadline (ISO date).",
+    ),
+    deadline_to: Optional[date] = Query(
+        None,
+        description="Upper bound (inclusive) on Job.deadline (ISO date).",
+    ),
+    has_deadline: Optional[bool] = Query(
+        None,
+        description=(
+            "True → only jobs with a deadline set. False → only jobs with no "
+            "deadline."
         ),
     ),
     mine: bool = Query(
@@ -252,11 +305,40 @@ async def list_jobs(
     if recruitment_type:
         query = query.where(Job.recruitment_type == recruitment_type)
     if client_id:
-        query = query.where(Job.client_id == client_id)
+        query = query.where(Job.client_id.in_(client_id))
     if q:
         query = query.where(Job.title.ilike(f"%{q}%"))
     if owner_id:
         query = query.where(Job.recruiter_id.in_(owner_id))
+    if responsible_id:
+        query = query.where(
+            or_(
+                Job.recruiter_id.in_(responsible_id),
+                Job.delivery_lead_id.in_(responsible_id),
+                Job.tac_id.in_(responsible_id),
+            )
+        )
+    if competence_category_id:
+        query = query.where(Job.competence_category_id.in_(competence_category_id))
+    if needs_sourcing is not None:
+        query = query.where(Job.needs_sourcing.is_(needs_sourcing))
+    if active_in_search is not None:
+        active_collab_subq = select(JobCollaborator.job_id).where(
+            JobCollaborator.removed_from_auto_cc.is_(False)
+        )
+        if active_in_search:
+            query = query.where(Job.id.in_(active_collab_subq))
+        else:
+            query = query.where(Job.id.not_in(active_collab_subq))
+    if deadline_from is not None:
+        query = query.where(Job.deadline >= deadline_from)
+    if deadline_to is not None:
+        query = query.where(Job.deadline <= deadline_to)
+    if has_deadline is not None:
+        if has_deadline:
+            query = query.where(Job.deadline.is_not(None))
+        else:
+            query = query.where(Job.deadline.is_(None))
     if delivery_lead_id is not None:
         query = query.where(Job.delivery_lead_id == delivery_lead_id)
     if mine:

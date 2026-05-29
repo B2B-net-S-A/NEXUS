@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from"react";
+import { useState, type ReactNode } from"react";
 import Link from"next/link";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
@@ -34,6 +34,8 @@ import {
 import { OwnerBadge } from"@/components/v2/jobs/OwnerBadge";
 import { MultiSelectFilter } from"@/components/v2/filters/MultiSelectFilter";
 import { UserMultiSelect } from"@/components/v2/filters/UserMultiSelect";
+import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
+import { CompetenceCategoryMultiSelect } from"@/components/v2/filters/CompetenceCategoryMultiSelect";
 import {
  JOB_STATUS_OPTIONS,
  type JobStatusValue,
@@ -81,16 +83,96 @@ function extractSkills(must: unknown): string[] {
  return [];
 }
 
+type DeadlinePreset ="any" |"overdue" |"next7" |"next30" |"has" |"none";
+
+const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
+ { value: "any", label: "Termin: dowolny" },
+ { value: "overdue", label: "Po terminie" },
+ { value: "next7", label: "Najbliższe 7 dni" },
+ { value: "next30", label: "Najbliższe 30 dni" },
+ { value: "has", label: "Z terminem" },
+ { value: "none", label: "Bez terminu" },
+];
+
+/** Local-date ISO string (YYYY-MM-DD) — avoids UTC off-by-one near midnight. */
+function isoLocal(d: Date): string {
+ const y = d.getFullYear();
+ const m = String(d.getMonth() + 1).padStart(2,"0");
+ const day = String(d.getDate()).padStart(2,"0");
+ return `${y}-${m}-${day}`;
+}
+
+/** Map a deadline preset to backend query params. */
+function deadlineParams(preset: DeadlinePreset): {
+ deadline_from?: string;
+ deadline_to?: string;
+ has_deadline?: boolean;
+} {
+ if (preset === "any") return {};
+ if (preset === "has") return { has_deadline: true };
+ if (preset === "none") return { has_deadline: false };
+ const today = new Date();
+ const addDays = (n: number) => {
+ const d = new Date(today);
+ d.setDate(d.getDate() + n);
+ return d;
+ };
+ if (preset === "overdue") {
+ // Strictly before today → upper bound is yesterday (inclusive).
+ return { deadline_to: isoLocal(addDays(-1)) };
+ }
+ if (preset === "next7") {
+ return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(7)) };
+ }
+ // next30
+ return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(30)) };
+}
+
+function FilterToggle({
+ active,
+ onClick,
+ title,
+ children,
+}: {
+ active: boolean;
+ onClick: () => void;
+ title?: string;
+ children: ReactNode;
+}) {
+ return (
+ <button
+ type="button"
+ onClick={onClick}
+ aria-pressed={active}
+ title={title}
+ className={cn("px-3 h-9 rounded-lg text-sm font-medium transition-all border whitespace-nowrap",
+ active
+ ?"bg-primary text-white border-primary shadow-sm"
+ :"bg-card text-foreground border-border hover:text-foreground"
+ )}
+ >
+ {children}
+ </button>
+ );
+}
+
 export function JobsListV2() {
  const [search, setSearch] = useState("");
  const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>([]);
  const [typeFilter, setTypeFilter] = useState<JobType>("all");
  const [mine, setMine] = useState(false);
- const [ownerIds, setOwnerIds] = useState<number[]>([]);
+ const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
+ const [clientIds, setClientIds] = useState<number[]>([]);
+ const [ccIds, setCcIds] = useState<number[]>([]);
+ const [needsSourcing, setNeedsSourcing] = useState(false);
+ const [activeInSearch, setActiveInSearch] = useState(false);
+ const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>("any");
  const [page, setPage] = useState(1);
  const [showAdd, setShowAdd] = useState(false);
  const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
  const queryClient = useQueryClient();
+
+ const dl = deadlineParams(deadlinePreset);
 
  const { data, isLoading } = useQuery({
  queryKey: ["jobs-v2",
@@ -98,7 +180,12 @@ export function JobsListV2() {
  statusFilter,
  typeFilter,
  mine ? 1 : 0,
- ownerIds,
+ responsibleIds,
+ clientIds,
+ ccIds,
+ needsSourcing ? 1 : 0,
+ activeInSearch ? 1 : 0,
+ deadlinePreset,
  page,
  ],
  queryFn: () =>
@@ -109,7 +196,12 @@ export function JobsListV2() {
  status: statusFilter.length ? statusFilter : undefined,
  recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
  mine: mine ? true : undefined,
- owner_id: ownerIds.length ? ownerIds : undefined,
+ responsible_id: responsibleIds.length ? responsibleIds : undefined,
+ client_id: clientIds.length ? clientIds : undefined,
+ competence_category_id: ccIds.length ? ccIds : undefined,
+ needs_sourcing: needsSourcing ? true : undefined,
+ active_in_search: activeInSearch ? true : undefined,
+ ...dl,
  page,
  },
  paramsSerializer: { indexes: null },
@@ -192,31 +284,79 @@ export function JobsListV2() {
  : `Status: ${n}`
  }
  />
- <UserMultiSelect
- value={ownerIds}
+ <div className="w-[190px]">
+ <ClientMultiSelect
+ value={clientIds}
  onChange={(ids) => {
- setOwnerIds(ids);
+ setClientIds(ids);
  setPage(1);
  }}
- placeholder="Rekruter: dowolny"
- searchPlaceholder="Szukaj rekrutera…"
- triggerWidthClass="w-[220px]"
  />
- <button
- type="button"
- onClick={() => {
- setMine((prev) => !prev);
+ </div>
+ <CompetenceCategoryMultiSelect
+ value={ccIds}
+ onChange={(ids) => {
+ setCcIds(ids);
  setPage(1);
  }}
- aria-pressed={mine}
- className={cn("px-3 h-9 rounded-lg text-sm font-medium transition-all border",
- mine
- ?"bg-primary text-white border-primary shadow-sm"
- :"bg-card text-foreground border-border hover:text-foreground"
- )}
+ />
+ <UserMultiSelect
+ value={responsibleIds}
+ onChange={(ids) => {
+ setResponsibleIds(ids);
+ setPage(1);
+ }}
+ placeholder="Osoba odpowiedzialna"
+ searchPlaceholder="Szukaj osoby…"
+ triggerWidthClass="w-[210px]"
+ />
+ <Select
+ value={deadlinePreset}
+ onValueChange={(v) => {
+ setDeadlinePreset(v as DeadlinePreset);
+ setPage(1);
+ }}
+ >
+ <SelectTrigger className="h-9 w-[180px]">
+ <SelectValue placeholder="Termin: dowolny" />
+ </SelectTrigger>
+ <SelectContent>
+ {DEADLINE_OPTIONS.map((o) => (
+ <SelectItem key={o.value} value={o.value}>
+ {o.label}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ <FilterToggle
+ active={needsSourcing}
+ onClick={() => {
+ setNeedsSourcing((p) => !p);
+ setPage(1);
+ }}
+ title="Tylko oferty oznaczone jako wymagające sourcingu"
+ >
+ Potrzebny search
+ </FilterToggle>
+ <FilterToggle
+ active={activeInSearch}
+ onClick={() => {
+ setActiveInSearch((p) => !p);
+ setPage(1);
+ }}
+ title="Tylko oferty z aktywnym rekruterem w sourcingu"
+ >
+ Aktywni w searchu
+ </FilterToggle>
+ <FilterToggle
+ active={mine}
+ onClick={() => {
+ setMine((p) => !p);
+ setPage(1);
+ }}
  >
  Moje projekty
- </button>
+ </FilterToggle>
  </div>
 
  {/* Grid of job cards */}
