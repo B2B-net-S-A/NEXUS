@@ -268,8 +268,7 @@ async def list_jobs(
     has_deadline: Optional[bool] = Query(
         None,
         description=(
-            "True → only jobs with a deadline set. False → only jobs with no "
-            "deadline."
+            "True → only jobs with a deadline set. False → only jobs with no deadline."
         ),
     ),
     mine: bool = Query(
