@@ -17,11 +17,11 @@ import {
  CommandSeparator,
 } from"@/components/ui/command";
 
-interface UserLite {
+interface UserBrief {
  id: number;
  name: string;
- role: string;
- is_active: boolean;
+ email?: string | null;
+ role?: string | null;
 }
 
 interface AddedByMultiSelectProps {
@@ -33,12 +33,12 @@ const SYSTEM_SENTINEL = 0;
 
 export function AddedByMultiSelect({ value, onChange }: AddedByMultiSelectProps) {
  const [open, setOpen] = useState(false);
- const { data } = useQuery<UserLite[]>({
- queryKey: ["users-lite"],
- queryFn: () => api.get("/api/admin/users/lite").then((r) => r.data),
+ const { data } = useQuery<UserBrief[]>({
+ queryKey: ["users-directory"],
+ queryFn: () => api.get("/api/users").then((r) => r.data),
  staleTime: 60_000,
  });
- const users = (data ?? []).filter((u) => u.is_active);
+ const users = data ?? [];
  const selected = new Set(value);
 
  const toggle = (id: number) => {

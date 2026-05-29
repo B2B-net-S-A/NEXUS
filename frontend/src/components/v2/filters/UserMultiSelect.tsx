@@ -38,8 +38,8 @@ const DEFAULT_TRIGGER_WIDTH ="w-[220px]";
 /**
  * Multi-select picker for users (typically recruiters/owners).
  * Fetches `/api/users` (ownership-eligible roles only — excludes read-only viewers).
- * Distinct from `AddedByMultiSelect` which uses an admin-only endpoint with
- * a sentinel"system import" option.
+ * Distinct from `AddedByMultiSelect` which adds a sentinel"system import"
+ * option (created_by IS NULL) on top of the same `/api/users` source.
  */
 export function UserMultiSelect({
  value,
