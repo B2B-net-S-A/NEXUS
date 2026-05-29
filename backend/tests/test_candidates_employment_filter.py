@@ -156,7 +156,7 @@ async def test_at_client_includes_currently_hired(
     await _seed_stage(hired, job_id, "hired")
     try:
         r = await app_client.get(
-            "/api/candidates?employment=at_client&page_size=200",
+            "/api/candidates?employment=at_client&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -188,11 +188,11 @@ async def test_at_client_excludes_moved_past_hired(
     )
     try:
         at_client = await app_client.get(
-            "/api/candidates?employment=at_client&page_size=200",
+            "/api/candidates?employment=at_client&page_size=100",
             headers=app_auth_headers,
         )
         avail = await app_client.get(
-            "/api/candidates?employment=available&page_size=200",
+            "/api/candidates?employment=available&page_size=100",
             headers=app_auth_headers,
         )
         assert at_client.status_code == 200, at_client.text
@@ -218,7 +218,7 @@ async def test_at_client_excludes_never_hired(
     await _seed_stage(fresh, job_id, "new")
     try:
         r = await app_client.get(
-            "/api/candidates?employment=at_client&page_size=200",
+            "/api/candidates?employment=at_client&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -241,7 +241,7 @@ async def test_available_excludes_currently_hired(
     await _seed_stage(hired, job_id, "hired")
     try:
         r = await app_client.get(
-            "/api/candidates?employment=available&page_size=200",
+            "/api/candidates?employment=available&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -264,7 +264,7 @@ async def test_at_client_active_contract_still_matches(
     await _seed_contract(with_contract, client_id, status="active")
     try:
         r = await app_client.get(
-            "/api/candidates?employment=at_client&page_size=200",
+            "/api/candidates?employment=at_client&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
