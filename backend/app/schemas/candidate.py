@@ -24,15 +24,16 @@ class EmploymentState(str, Enum):
 class EmploymentInfo(BaseModel):
     """
     Employment snapshot rendered next to every candidate in the list/profile.
-    `source` exposes whether the fact came from a live Contract or a manual
-    CandidateConflict so UI can show a different tooltip.
+    `source` exposes whether the fact came from a live Contract, a manual
+    CandidateConflict, or the recruitment pipeline (a `hired` stage) so the UI
+    can show a different tooltip.
     """
 
     state: EmploymentState
     client_id: Optional[int] = None
     client_name: Optional[str] = None
     contract_end_date: Optional[date] = None
-    source: Literal["contract", "conflict", "none"] = "none"
+    source: Literal["contract", "conflict", "pipeline", "none"] = "none"
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}
