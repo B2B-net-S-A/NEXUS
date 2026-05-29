@@ -250,7 +250,12 @@ export function CVGeneratorStandaloneV2() {
     onSuccess: ({ blob, filename, warnings: w }) => {
       setWarnings(w);
       downloadBlob(blob, filename);
-      toast.showSuccess("CV wygenerowane i pobrane.");
+      // Clear the per-candidate inputs so the next CV can be dropped straight in
+      // without manually removing the previous file, champion and notes.
+      setCvFile(null);
+      setChampionFile(null);
+      setScreeningNotes("");
+      toast.showSuccess("CV wygenerowane i pobrane. Formularz wyczyszczony — możesz wgrać kolejne CV.");
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
