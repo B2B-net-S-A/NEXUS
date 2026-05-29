@@ -37,6 +37,9 @@ describe("url-filters", () => {
       pastCompany: ["Allegro"],
       currentTitle: ["Senior Engineer"],
       workedAtClientIds: [10, 11],
+      stageMovedByIds: [4, 0],
+      stageMovedAfter: "2026-05-01",
+      stageMovedBefore: "2026-05-29",
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],
@@ -139,6 +142,33 @@ describe("url-filters", () => {
   it("treats 0 sentinel in addedByIds as 'system import'", () => {
     const decoded = decodeFilters(sp("added_by=0,12"));
     expect(decoded.addedByIds).toEqual([0, 12]);
+  });
+
+  it("encodes stage-move filters (who + date range) on distinct params", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      stageMovedByIds: [4, 0],
+      stageMovedAfter: "2026-05-01",
+      stageMovedBefore: "2026-05-29",
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.get("stage_by")).toBe("4,0");
+    expect(encoded.get("stage_from")).toBe("2026-05-01");
+    expect(encoded.get("stage_to")).toBe("2026-05-29");
+    expect(decodeFilters(encoded).stageMovedByIds).toEqual([4, 0]);
+  });
+
+  it("rejects malformed stage dates so they never reach the API", () => {
+    const decoded = decodeFilters(sp("stage_from=not-a-date&stage_to=2026-13-99x"));
+    expect(decoded.stageMovedAfter).toBe("");
+    expect(decoded.stageMovedBefore).toBe("");
+  });
+
+  it("empty stage-move filters stay out of the URL", () => {
+    const encoded = encodeFilters({ ...DEFAULT_FILTERS });
+    expect(encoded.has("stage_by")).toBe(false);
+    expect(encoded.has("stage_from")).toBe(false);
+    expect(encoded.has("stage_to")).toBe(false);
   });
 
   it("omits skill_combine when only one skill selected", () => {

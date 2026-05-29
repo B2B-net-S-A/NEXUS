@@ -79,6 +79,7 @@ import { useAuthStore } from"@/store/auth";
 import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
+import { UserMultiSelect } from"@/components/v2/filters/UserMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
 import { FilterChipPopover } from"@/components/v2/filters/FilterChipPopover";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
@@ -926,6 +927,20 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
+ // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
+ // `pipelineStageFilter` on the backend (matched stage move's mover + date).
+ const [stageMovedByIds, setStageMovedByIds] = useState<number[]>(
+ (searchParams.get("stage_by") ??"")
+ .split(",")
+ .map((x) => Number.parseInt(x, 10))
+ .filter((n) => Number.isFinite(n))
+ );
+ const [stageMovedAfter, setStageMovedAfter] = useState<string>(
+ searchParams.get("stage_from") ??""
+ );
+ const [stageMovedBefore, setStageMovedBefore] = useState<string>(
+ searchParams.get("stage_to") ??""
+ );
  // LinkedIn-detected job change window —"1","2", or"3" months. Empty = off.
  const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
  searchParams.get("rcj") ??""
@@ -982,6 +997,9 @@ export function CandidatesListV2() {
  if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
  if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
  if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
+ if (stageMovedByIds.length) params.set("stage_by", stageMovedByIds.join(","));
+ if (stageMovedAfter) params.set("stage_from", stageMovedAfter);
+ if (stageMovedBefore) params.set("stage_to", stageMovedBefore);
  if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
  if (openToFilter.length) params.set("open_to", openToFilter.join(","));
  if (qAll.length) params.set("q_all", qAll.join("|"));
@@ -1017,6 +1035,9 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
  recentlyChangedJobs,
  openToFilter,
  qAll,
@@ -1044,6 +1065,9 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
  recentlyChangedJobs,
  openToFilter,
  qAll,
@@ -1075,6 +1099,9 @@ export function CandidatesListV2() {
  past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
  current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
  worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
+ stage_moved_by: stageMovedByIds.length ? stageMovedByIds : undefined,
+ stage_moved_after: stageMovedAfter || undefined,
+ stage_moved_before: stageMovedBefore || undefined,
  recently_changed_jobs: recentlyChangedJobs
  ? Number(recentlyChangedJobs)
  : undefined,
@@ -1250,6 +1277,8 @@ export function CandidatesListV2() {
  (pastCompanyFilter.length > 0 ? 1 : 0) +
  (currentTitleFilter.length > 0 ? 1 : 0) +
  (workedAtClientIds.length > 0 ? 1 : 0) +
+ (stageMovedByIds.length > 0 ? 1 : 0) +
+ (stageMovedAfter || stageMovedBefore ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
  (qAll.length > 0 ? 1 : 0) +
  (qAny.length > 0 ? 1 : 0) +
@@ -1275,6 +1304,9 @@ export function CandidatesListV2() {
  pastCompany: pastCompanyFilter,
  currentTitle: currentTitleFilter,
  workedAtClientIds,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
  view: "list",
  savedSearchId: null,
  qAll,
@@ -1298,6 +1330,9 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ stageMovedByIds,
+ stageMovedAfter,
+ stageMovedBefore,
  qAll,
  qAny,
  qNone,
@@ -1321,6 +1356,10 @@ export function CandidatesListV2() {
  if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
  if (patch.workedAtClientIds !== undefined)
  setWorkedAtClientIds(patch.workedAtClientIds);
+ if (patch.stageMovedByIds !== undefined) setStageMovedByIds(patch.stageMovedByIds);
+ if (patch.stageMovedAfter !== undefined) setStageMovedAfter(patch.stageMovedAfter);
+ if (patch.stageMovedBefore !== undefined)
+ setStageMovedBefore(patch.stageMovedBefore);
  if (patch.qAll !== undefined) setQAll(patch.qAll);
  if (patch.qAny !== undefined) setQAny(patch.qAny);
  if (patch.qNone !== undefined) setQNone(patch.qNone);
@@ -1749,6 +1788,60 @@ export function CandidatesListV2() {
  }}
  />
  </div>
+ {/* Stage-move filters — "kto dodał na etap i kiedy". Backend correlates
+ these with the „Etap" filter above (the matched stage move's mover +
+ date), so łącząc je dostajesz „kogo Jan przeniósł na Zweryfikowany w maju". */}
+ <div>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ Etap — kto dodał
+ </h3>
+ <UserMultiSelect
+ value={stageMovedByIds}
+ onChange={(ids) => {
+ setStageMovedByIds(ids);
+ setPage(1);
+ }}
+ placeholder="Dowolny rekruter"
+ searchPlaceholder="Szukaj rekrutera…"
+ triggerWidthClass="w-full"
+ />
+ <p className="text-[10px] text-muted-foreground mt-1">
+ Kto przeniósł kandydata na wybrany etap. Łącz z filtrem „Etap" powyżej.
+ </p>
+ </div>
+ <div>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ Etap — data dodania
+ </h3>
+ <div className="flex items-center gap-2">
+ <Input
+ type="date"
+ aria-label="Data dodania na etap — od"
+ value={stageMovedAfter}
+ max={stageMovedBefore ||undefined}
+ onChange={(e) => {
+ setStageMovedAfter(e.target.value);
+ setPage(1);
+ }}
+ className="text-sm"
+ />
+ <span className="text-xs text-muted-foreground">—</span>
+ <Input
+ type="date"
+ aria-label="Data dodania na etap — do"
+ value={stageMovedBefore}
+ min={stageMovedAfter ||undefined}
+ onChange={(e) => {
+ setStageMovedBefore(e.target.value);
+ setPage(1);
+ }}
+ className="text-sm"
+ />
+ </div>
+ <p className="text-[10px] text-muted-foreground mt-1">
+ Kiedy kandydat trafił na wybrany etap (zakres dat, włącznie).
+ </p>
+ </div>
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  Tryb pracy
@@ -1820,6 +1913,9 @@ export function CandidatesListV2() {
  setPastCompanyFilter([]);
  setCurrentTitleFilter([]);
  setWorkedAtClientIds([]);
+ setStageMovedByIds([]);
+ setStageMovedAfter("");
+ setStageMovedBefore("");
  setQAll([]);
  setQAny([]);
  setQNone([]);
@@ -1865,6 +1961,7 @@ export function CandidatesListV2() {
  status: decoded.status,
  employment: decoded.employment,
  availability: decoded.availability,
+ pipelineStage: decoded.pipelineStage,
  sort: decoded.sort,
  page: 1,
  remote: decoded.remote,
@@ -1876,6 +1973,9 @@ export function CandidatesListV2() {
  pastCompany: decoded.pastCompany,
  currentTitle: decoded.currentTitle,
  workedAtClientIds: decoded.workedAtClientIds,
+ stageMovedByIds: decoded.stageMovedByIds,
+ stageMovedAfter: decoded.stageMovedAfter,
+ stageMovedBefore: decoded.stageMovedBefore,
  qAll: decoded.qAll,
  qAny: decoded.qAny,
  qNone: decoded.qNone,

@@ -803,6 +803,37 @@ async def list_candidates(
             "ever rejected' style queries."
         ),
     ),
+    stage_moved_by: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by WHO moved the candidate onto the matched stage "
+            "(`CandidateStage.moved_by`) — one or more user ids, OR-combined. "
+            "Correlated with `pipeline_stage`/`stage_category`: when a stage is "
+            "also selected, only moves ONTO that stage count; with no stage "
+            "selected, any stage move by these users matches. Sentinel `0` "
+            "matches NULL (system / Traffit-imported moves). Respects "
+            "`stage_current_only` — by default the candidate's CURRENT move per "
+            "job-pair must satisfy this."
+        ),
+    ),
+    stage_moved_after: Optional[date] = Query(
+        None,
+        description=(
+            "Filter by WHEN the candidate was moved onto the matched stage — "
+            "lower bound (inclusive), `YYYY-MM-DD`. Matches "
+            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Correlated "
+            "with the stage filter exactly like `stage_moved_by`."
+        ),
+    ),
+    stage_moved_before: Optional[date] = Query(
+        None,
+        description=(
+            "Filter by WHEN the candidate was moved onto the matched stage — "
+            "upper bound (inclusive), `YYYY-MM-DD`. Matches "
+            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the "
+            "whole `before` day is included."
+        ),
+    ),
     sort: str = Query(
         "newest",
         pattern="^(newest|oldest|name|relevance)$",
@@ -1001,16 +1032,64 @@ async def list_candidates(
         requested_stages.update(
             stage for stage, cat in STAGE_CATEGORY.items() if cat in cat_set
         )
-    if requested_stages:
+    # "Kto dodał na etap i kiedy" — who/when of the stage move, correlated with
+    # the stage filter so the recruiter can ask e.g. "candidates Jan moved onto
+    # `verified` between X and Y". Date bounds are half-open UTC days:
+    # [moved_after 00:00, moved_before + 1 day 00:00).
+    moved_after_dt: Optional[datetime] = None
+    if stage_moved_after is not None:
+        moved_after_dt = datetime(
+            stage_moved_after.year,
+            stage_moved_after.month,
+            stage_moved_after.day,
+            tzinfo=timezone.utc,
+        )
+    moved_before_dt: Optional[datetime] = None
+    if stage_moved_before is not None:
+        _excl = stage_moved_before + timedelta(days=1)
+        moved_before_dt = datetime(
+            _excl.year, _excl.month, _excl.day, tzinfo=timezone.utc
+        )
+
+    def _move_predicates(moved_by_col, moved_at_col) -> list:
+        """Correlated who/when predicates on the matched stage move."""
+        preds: list = []
+        if stage_moved_by:
+            # Sentinel 0 = "no mover on record" (system / Traffit import).
+            real_ids = [uid for uid in stage_moved_by if uid != 0]
+            include_null = 0 in stage_moved_by
+            if include_null and real_ids:
+                preds.append(or_(moved_by_col.is_(None), moved_by_col.in_(real_ids)))
+            elif include_null:
+                preds.append(moved_by_col.is_(None))
+            elif real_ids:
+                preds.append(moved_by_col.in_(real_ids))
+        if moved_after_dt is not None:
+            preds.append(moved_at_col >= moved_after_dt)
+        if moved_before_dt is not None:
+            preds.append(moved_at_col < moved_before_dt)
+        return preds
+
+    has_move_filter = (
+        bool(stage_moved_by)
+        or moved_after_dt is not None
+        or moved_before_dt is not None
+    )
+
+    if requested_stages or has_move_filter:
         stage_values = list(requested_stages)
-        if stage_current_only:
+        if stage_current_only and stage_values:
             # CURRENT stage = latest move per (candidate_id, job_id). Use
             # DISTINCT ON to pick the freshest row per pair, then EXISTS that
             # the candidate has any pair whose current stage is in the set.
+            # moved_by/moved_at are carried into the projection so the who/when
+            # predicates apply to that SAME latest (current) move.
             latest_per_pair = (
                 select(
                     CandidateStage.candidate_id,
                     CandidateStage.stage,
+                    CandidateStage.moved_by,
+                    CandidateStage.moved_at,
                 )
                 .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
                 .order_by(
@@ -1021,24 +1100,25 @@ async def list_candidates(
                 )
                 .subquery()
             )
-            stage_exists = (
-                select(1)
-                .select_from(latest_per_pair)
-                .where(
-                    latest_per_pair.c.candidate_id == Candidate.id,
-                    latest_per_pair.c.stage.in_(stage_values),
-                )
-                .exists()
+            conds = [
+                latest_per_pair.c.candidate_id == Candidate.id,
+                latest_per_pair.c.stage.in_(stage_values),
+            ]
+            conds.extend(
+                _move_predicates(latest_per_pair.c.moved_by, latest_per_pair.c.moved_at)
             )
+            stage_exists = select(1).select_from(latest_per_pair).where(*conds).exists()
         else:
-            stage_exists = (
-                select(1)
-                .where(
-                    CandidateStage.candidate_id == Candidate.id,
-                    CandidateStage.stage.in_(stage_values),
-                )
-                .exists()
+            # Historical presence (`stage_current_only=false`) OR a who/when
+            # filter with no stage selected. Match ANY CandidateStage row that
+            # satisfies the (optional) stage set + who/when predicates.
+            conds = [CandidateStage.candidate_id == Candidate.id]
+            if stage_values:
+                conds.append(CandidateStage.stage.in_(stage_values))
+            conds.extend(
+                _move_predicates(CandidateStage.moved_by, CandidateStage.moved_at)
             )
+            stage_exists = select(1).where(*conds).exists()
         query = query.where(stage_exists)
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))

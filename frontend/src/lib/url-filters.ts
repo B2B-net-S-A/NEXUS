@@ -80,6 +80,13 @@ export interface CandidateFilters {
   pastCompany: string[];
   currentTitle: string[];
   workedAtClientIds: number[];
+  // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
+  // `pipelineStage` on the backend (the matched stage move's mover + date).
+  // `stageMovedByIds` mirrors `added_by`'s sentinel: `0` = system/Traffit import
+  // (CandidateStage.moved_by IS NULL). Dates are `YYYY-MM-DD` (inclusive bounds).
+  stageMovedByIds: number[];
+  stageMovedAfter: string;
+  stageMovedBefore: string;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -107,6 +114,9 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   pastCompany: [],
   currentTitle: [],
   workedAtClientIds: [],
+  stageMovedByIds: [],
+  stageMovedAfter: "",
+  stageMovedBefore: "",
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -128,6 +138,13 @@ const PIPE = (xs: string[]): string => xs.join("|");
 const parsePipe = (raw: string | null): string[] =>
   raw ? raw.split("|").map((x) => x.trim()).filter(Boolean) : [];
 
+// `YYYY-MM-DD` calendar date — what <input type="date"> emits and what the
+// backend's `date` query params expect. Reject anything else so a malformed
+// URL param can't leak a bogus value into the API call.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const parseIsoDate = (raw: string | null): string =>
+  raw && ISO_DATE.test(raw) ? raw : "";
+
 export function encodeFilters(f: CandidateFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set("q", f.q);
@@ -147,6 +164,9 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
+  if (f.stageMovedByIds.length) p.set("stage_by", CSV(f.stageMovedByIds));
+  if (f.stageMovedAfter) p.set("stage_from", f.stageMovedAfter);
+  if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   if (f.qAny.length) p.set("q_any", PIPE(f.qAny));
   if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
@@ -203,6 +223,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     pastCompany: parsePipe(sp.get("past_co")),
     currentTitle: parsePipe(sp.get("title")),
     workedAtClientIds: parseCsvInt(sp.get("client_hist")),
+    stageMovedByIds: parseCsvInt(sp.get("stage_by")),
+    stageMovedAfter: parseIsoDate(sp.get("stage_from")),
+    stageMovedBefore: parseIsoDate(sp.get("stage_to")),
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -281,6 +304,11 @@ export function filtersToApiParams(
     worked_at_client_id: filters.workedAtClientIds.length
       ? filters.workedAtClientIds
       : undefined,
+    stage_moved_by: filters.stageMovedByIds.length
+      ? filters.stageMovedByIds
+      : undefined,
+    stage_moved_after: filters.stageMovedAfter || undefined,
+    stage_moved_before: filters.stageMovedBefore || undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     q_any: filters.qAny.length ? filters.qAny : undefined,
     q_none: filters.qNone.length ? filters.qNone : undefined,
