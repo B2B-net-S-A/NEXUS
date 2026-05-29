@@ -1328,27 +1328,22 @@ export function CandidatesListV2() {
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header — gradient banner (violet → indigo → sky) dla mocniejszej
- hierarchii wizualnej; left-side gradient owija tylko tekst, więc action
- buttons po prawej zachowują standardowy variant="outline" / "primary". */}
+ {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
+ więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
+ przycisk „Zaawansowane" w toolbarze poniżej. */}
  <div className="flex items-end justify-between flex-wrap gap-3">
- <div className="rounded-xl bg-gradient-to-br from-violet-600 via-indigo-600 to-sky-600 dark:from-violet-800 dark:via-indigo-900 dark:to-sky-900 px-5 py-4 text-white shadow-md flex-1 min-w-[280px]">
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-violet-100">
+ <div>
+ <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60">
  Sourcing · Kandydaci
  </p>
- <h1 className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-white mt-1 drop-shadow-sm">
+ <h1 className="text-lg font-semibold tracking-tight text-foreground/80 mt-0.5">
  Kandydaci
  </h1>
- <p className="text-sm text-violet-100 mt-1">
+ <p className="text-xs text-muted-foreground mt-0.5">
  {isLoading ? (
  "Ładowanie…"
  ) : (
- <>
- <span className="font-semibold text-white">
- {total.toLocaleString("pl-PL")}
- </span>{" "}
- w bazie
- </>
+ <>{total.toLocaleString("pl-PL")} w bazie</>
  )}
  {isFetching && !isLoading ? " · synchronizacja…" : ""}
  </p>
@@ -1428,6 +1423,11 @@ export function CandidatesListV2() {
  title="Boolean search — ALL / ANY / NONE"
  aria-expanded={showAdvanced}
  aria-controls="boolean-search-panel"
+ className={cn(
+ "font-semibold",
+ !showAdvanced &&
+ "border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-900/40 hover:text-violet-800 dark:hover:text-violet-200 shadow-sm",
+ )}
  >
  <Filter className="h-4 w-4" />
  Zaawansowane
