@@ -1445,7 +1445,7 @@ export function CandidatesListV2() {
  {/* Toolbar — wrapped in a soft tinted panel so the filters read as a
  distinct zone and individual controls stand out instead of blending
  into the white page / table. */}
- <div className="rounded-xl border border-violet-200/70 bg-gradient-to-br from-violet-50/80 via-white to-sky-50/60 p-3 shadow-sm dark:border-violet-900/40 dark:from-violet-950/25 dark:via-background dark:to-sky-950/15">
+ <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-100 via-indigo-50 to-sky-100 p-3 shadow-sm dark:border-violet-900/40 dark:from-violet-950/30 dark:via-indigo-950/20 dark:to-sky-950/20">
  <div className="flex items-center gap-2 flex-wrap">
  <div className="flex-1 min-w-[240px] max-w-lg">
  <Input
