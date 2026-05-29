@@ -130,6 +130,33 @@ function collectChips(
  }),
  });
  });
+ // Stage-move "who" — correlated with the stage chip above.
+ filters.stageMovedByIds.forEach((id) => {
+ const name =
+ id === 0
+ ?"Import systemowy"
+ : (usersById?.get(id) ?? `Użytkownik #${id}`);
+ chips.push({
+ key: `stage_by:${id}`,
+ label: `Etap dodał: ${name}`,
+ clear: () =>
+ onUpdate({
+ stageMovedByIds: filters.stageMovedByIds.filter((x) => x !== id),
+ page: 1,
+ }),
+ });
+ });
+ // Stage-move "when" — single chip for the (inclusive) date range.
+ if (filters.stageMovedAfter || filters.stageMovedBefore) {
+ const from = filters.stageMovedAfter ||"…";
+ const to = filters.stageMovedBefore ||"…";
+ chips.push({
+ key: "stage_date",
+ label: `Etap dodany: ${from} – ${to}`,
+ clear: () =>
+ onUpdate({ stageMovedAfter: "", stageMovedBefore: "", page: 1 }),
+ });
+ }
  if (filters.location) {
  chips.push({
  key: "loc",
@@ -290,7 +317,25 @@ export function ActiveFilterChips({
  return new Map(poolsData.map((p) => [p.id, p.name] as const));
  }, [poolsById, poolsData]);
 
- const chips = collectChips(filters, onUpdate, resolvedPools, usersById, clientsById);
+ // Resolve recruiter names for the "Dodał" / "Etap dodał" chips. Shares the
+ // `users-directory` react-query key with <UserMultiSelect> (staleTime 60s),
+ // so this is a cache-hit once that picker was opened. Without it the chips
+ // fall back to "Użytkownik #N" after a URL share / saved-search restore.
+ const needsUsers =
+ filters.addedByIds.length > 0 || filters.stageMovedByIds.length > 0;
+ const { data: usersData } = useQuery<NamedLookup[]>({
+ queryKey: ["users-directory"],
+ queryFn: () => api.get("/api/users").then((r) => r.data),
+ staleTime: 60_000,
+ enabled: needsUsers && !usersById,
+ });
+ const resolvedUsers = useMemo(() => {
+ if (usersById) return usersById;
+ if (!usersData) return undefined;
+ return new Map(usersData.map((u) => [u.id, u.name] as const));
+ }, [usersById, usersData]);
+
+ const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, clientsById);
  if (chips.length === 0) return null;
 
  const clearAll = () =>
@@ -309,6 +354,9 @@ export function ActiveFilterChips({
  pastCompany: [],
  currentTitle: [],
  workedAtClientIds: [],
+ stageMovedByIds: [],
+ stageMovedAfter: "",
+ stageMovedBefore: "",
  qAll: [],
  qAny: [],
  qNone: [],

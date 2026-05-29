@@ -58,18 +58,41 @@ async def _seed_job() -> int:
         return j.id
 
 
+async def _seed_user() -> int:
+    """Insert an active recruiter and return its id (for `moved_by` tests)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        unique = uuid.uuid4().hex[:8]
+        u = User(
+            email=f"mover-{unique}@example.com",
+            password_hash=hash_password(f"T3st_{unique}!PassX"),
+            name=f"Mover {unique}",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(u)
+        await db.commit()
+        await db.refresh(u)
+        return u.id
+
+
 async def _seed_stage(
     candidate_id: int,
     job_id: int,
     stage_value: str,
     *,
     moved_at: datetime | None = None,
+    moved_by: int | None = None,
 ) -> int:
     """Insert a CandidateStage row at the given pipeline stage.
 
     `moved_at` controls ordering — pass increasing timestamps when seeding
     multiple moves for the same `(candidate_id, job_id)` pair so the
     DISTINCT-ON-based "current stage" lookup is deterministic.
+    `moved_by` is the user who performed the move (NULL = system/import).
     """
     from app.core.database import AsyncSessionLocal
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -80,6 +103,7 @@ async def _seed_stage(
             job_id=job_id,
             stage=PipelineStage(stage_value),
             moved_at=moved_at or datetime.now(timezone.utc),
+            moved_by=moved_by,
         )
         db.add(stage)
         await db.commit()
@@ -91,11 +115,13 @@ async def _cleanup(
     *,
     candidate_ids: list[int] | None = None,
     job_ids: list[int] | None = None,
+    user_ids: list[int] | None = None,
 ) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage
+    from app.models.user import User
     from sqlalchemy import delete
 
     async with AsyncSessionLocal() as db:
@@ -109,6 +135,8 @@ async def _cleanup(
                 delete(CandidateStage).where(CandidateStage.job_id == jid)
             )
             await db.execute(delete(Job).where(Job.id == jid))
+        for uid in user_ids or []:
+            await db.execute(delete(User).where(User.id == uid))
         await db.commit()
 
 
@@ -263,3 +291,165 @@ async def test_filter_invalid_stage_returns_422(
         headers=app_auth_headers,
     )
     assert r.status_code == 422
+
+
+# ── "kto dodał na etap i kiedy" — stage_moved_by / stage_moved_after/before ──
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_moved_by(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`stage_moved_by=<user>` returns only candidates whose matched stage move
+    was performed by that user."""
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    mover_b = await _seed_user()
+    by_a = await _seed_candidate(name_suffix="-A")
+    by_b = await _seed_candidate(name_suffix="-B")
+    await _seed_stage(by_a, job_id, "verified", moved_by=mover_a)
+    await _seed_stage(by_b, job_id, "verified", moved_by=mover_b)
+    try:
+        r = await app_client.get(
+            f"/api/candidates?stage_moved_by={mover_a}&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert by_a in ids
+        assert by_b not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[by_a, by_b],
+            job_ids=[job_id],
+            user_ids=[mover_a, mover_b],
+        )
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_moved_by_correlated_with_stage(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`pipeline_stage` + `stage_moved_by` are correlated on the SAME move.
+
+    A candidate that user A moved to `verified` matches `verified`+A. A
+    candidate that user A moved to `screening` (different stage) does NOT match
+    `verified`+A — the who/when must apply to the matched stage move, not to
+    any move by that user.
+    """
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    verified_by_a = await _seed_candidate(name_suffix="-V")
+    screening_by_a = await _seed_candidate(name_suffix="-S")
+    await _seed_stage(verified_by_a, job_id, "verified", moved_by=mover_a)
+    await _seed_stage(screening_by_a, job_id, "screening", moved_by=mover_a)
+    try:
+        r = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
+            "&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert verified_by_a in ids
+        assert screening_by_a not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[verified_by_a, screening_by_a],
+            job_ids=[job_id],
+            user_ids=[mover_a],
+        )
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_moved_date_range(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`stage_moved_after`/`stage_moved_before` bound the move date inclusively."""
+    job_id = await _seed_job()
+    in_range = await _seed_candidate(name_suffix="-IN")
+    too_old = await _seed_candidate(name_suffix="-OLD")
+    # Fixed, timezone-aware instants well clear of UTC day boundaries.
+    await _seed_stage(
+        in_range,
+        job_id,
+        "verified",
+        moved_at=datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        too_old,
+        job_id,
+        "verified",
+        moved_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=verified"
+            "&stage_moved_after=2026-05-01&stage_moved_before=2026-05-31"
+            "&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert in_range in ids
+        assert too_old not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[in_range, too_old], job_ids=[job_id]
+        )
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_moved_before_is_inclusive_of_whole_day(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A move late on the `stage_moved_before` day is still included (the bound
+    is the start of the NEXT day, exclusive)."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate()
+    await _seed_stage(
+        cand,
+        job_id,
+        "verified",
+        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=verified"
+            "&stage_moved_before=2026-05-31&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert cand in ids
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_moved_by_without_stage_matches_any_move(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`stage_moved_by` with NO stage selected matches any candidate that user
+    moved to any stage."""
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    moved = await _seed_candidate(name_suffix="-M")
+    untouched = await _seed_candidate(name_suffix="-U")
+    await _seed_stage(moved, job_id, "screening", moved_by=mover_a)
+    await _seed_stage(untouched, job_id, "screening", moved_by=None)
+    try:
+        r = await app_client.get(
+            f"/api/candidates?stage_moved_by={mover_a}&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert moved in ids
+        assert untouched not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[moved, untouched],
+            job_ids=[job_id],
+            user_ids=[mover_a],
+        )
