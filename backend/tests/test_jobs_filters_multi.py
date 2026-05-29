@@ -273,11 +273,11 @@ async def test_jobs_competence_category_filter(
 
 
 @pytest.mark.asyncio
-async def test_jobs_responsible_id_matches_recruiter_dl_tac(
+async def test_jobs_responsible_id_matches_recruiter_and_tac_only(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """`responsible_id` matches the recruiter, delivery lead, OR tac role —
-    unlike `owner_id`, which only matches recruiter_id."""
+    """`responsible_id` ('Osoba odpowiedzialna') matches the recruiter OR tac
+    role only — a delivery-lead-only assignment does NOT count as responsible."""
     u_rec = await _seed_user()
     u_dl = await _seed_user(role="delivery_lead")
     u_tac = await _seed_user(role="tac")
@@ -286,7 +286,7 @@ async def test_jobs_responsible_id_matches_recruiter_dl_tac(
     j_tac = await _seed_job(tac_id=u_tac)
     j_none = await _seed_job()
     try:
-        # All three roles in one query.
+        # All three ids in one query — recruiter + tac match, DL-only does not.
         r = await app_client.get(
             f"/api/jobs?responsible_id={u_rec}&responsible_id={u_dl}"
             f"&responsible_id={u_tac}&page_size=100",
@@ -294,16 +294,17 @@ async def test_jobs_responsible_id_matches_recruiter_dl_tac(
         )
         assert r.status_code == 200, r.text
         ids = {item["id"] for item in r.json()["items"]}
-        assert {j_rec, j_dl, j_tac} <= ids
+        assert {j_rec, j_tac} <= ids
+        assert j_dl not in ids
         assert j_none not in ids
 
-        # A DL-only id matches the job where the user is the delivery lead.
+        # A DL-only id matches nothing — delivery lead is not "responsible".
         r2 = await app_client.get(
             f"/api/jobs?responsible_id={u_dl}&page_size=100",
             headers=app_auth_headers,
         )
         ids2 = {item["id"] for item in r2.json()["items"]}
-        assert j_dl in ids2
+        assert j_dl not in ids2
         assert j_rec not in ids2
         assert j_tac not in ids2
     finally:

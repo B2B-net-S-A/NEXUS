@@ -18,16 +18,17 @@ odpowiedzialna**, **Deadline**. Goal: make recruitments filterable by each.
 | Aktywni w searchu (toggle) | `active_in_search=true` | job has ≥1 `job_collaborators` row with `removed_from_auto_cc=false` |
 | Competence Category (multi dropdown) | `competence_category_id=<id…>` | primary `Job.competence_category_id IN (…)` |
 | Klient (multi dropdown) | `client_id=<id…>` | `Job.client_id IN (…)` — param widened to a list (single-value back-compat) |
-| Osoba odpowiedzialna (multi dropdown) | `responsible_id=<id…>` | matches `recruiter_id` **OR** `delivery_lead_id` **OR** `tac_id` |
+| Osoba odpowiedzialna (multi dropdown) | `responsible_id=<id…>` | matches `recruiter_id` **OR** `tac_id` (delivery lead is **not** counted as responsible) |
 | Deadline (preset select) | `deadline_from` / `deadline_to` / `has_deadline` | po terminie / 7 dni / 30 dni / z / bez terminu |
 
-### Product decision (autonomous)
+### Product decision
 
 "Osoba odpowiedzialna" **replaces** the previous narrow "Rekruter" picker (which
-only matched `recruiter_id`). The new `responsible_id` filter matches any of the
-three responsibility roles (recruiter / delivery lead / TAC) — strictly broader
-and consistent with the label. The legacy `owner_id` param is retained on the
-backend for compatibility but is no longer used by the jobs page.
+only matched `recruiter_id`). Per product clarification (2026-05-29), the
+responsible person is the **recruiter or the TAC** — a delivery lead is *not*
+counted. So `responsible_id` matches `recruiter_id OR tac_id`. The legacy
+`owner_id` param is retained on the backend for compatibility but is no longer
+used by the jobs page.
 
 ## Files changed
 

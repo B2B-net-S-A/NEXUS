@@ -230,9 +230,9 @@ async def list_jobs(
         None,
         description=(
             "Filter by responsible person ('Osoba odpowiedzialna') — matches if "
-            "the user is the recruiter, delivery lead, OR TAC on the job. One or "
-            "more ids, repeat the param for multi-select. OR-combined across both "
-            "the id set and the three responsibility roles."
+            "the user is the recruiter OR TAC on the job. One or more ids, repeat "
+            "the param for multi-select. OR-combined across both the id set and "
+            "the two responsibility roles."
         ),
     ),
     competence_category_id: Optional[list[int]] = Query(
@@ -313,7 +313,6 @@ async def list_jobs(
         query = query.where(
             or_(
                 Job.recruiter_id.in_(responsible_id),
-                Job.delivery_lead_id.in_(responsible_id),
                 Job.tac_id.in_(responsible_id),
             )
         )
