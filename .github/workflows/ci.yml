@@ -126,6 +126,7 @@ jobs:
                  tests/test_aad_groups.py \
                  tests/test_candidates_check_exists.py \
                  tests/test_candidates_advanced_search.py \
+                 tests/test_candidates_employment_filter.py \
                  tests/test_candidate_pins.py \
                  tests/test_job_reference.py \
                  tests/test_dynareporter_profile.py \

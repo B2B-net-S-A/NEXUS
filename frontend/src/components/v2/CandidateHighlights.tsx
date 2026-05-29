@@ -32,7 +32,7 @@ export interface EmploymentInfo {
  client_id?: number | null;
  client_name?: string | null;
  contract_end_date?: string | null;
- source?:"contract" |"conflict" |"none";
+ source?:"contract" |"conflict" |"pipeline" |"none";
 }
 
 export interface HighlightableCandidate {
@@ -123,6 +123,8 @@ export function CandidateHighlights({
  title={
  employment?.source === "conflict"
  ?"Oznaczone ręcznie jako zatrudniony u tego klienta"
+ : employment?.source === "pipeline"
+ ?"Zatrudniony u klienta (etap „hired” w rekrutacji)"
  :"Aktywny kontrakt z naszym klientem"
  }
  >
@@ -247,6 +249,8 @@ export function AtOurClientBanner({
  if (employment.state !== "employed_at_client") return null;
  const endText = employment.contract_end_date
  ? `Kontrakt do: ${employment.contract_end_date}`
+ : employment.source === "pipeline"
+ ?"Zatrudniony u klienta (etap „hired” w rekrutacji)"
  :"Ręcznie oznaczony jako zatrudniony u klienta";
  const clientLabel = employment.client_name
  ? `: ${employment.client_name.toUpperCase()}`

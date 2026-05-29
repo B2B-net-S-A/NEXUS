@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import and_, false, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -235,6 +235,13 @@ def _candidate_list_options():
     return (
         selectinload(Candidate.contracts).selectinload(Contract.client),
         selectinload(Candidate.conflicts).selectinload(CandidateConflict.client),
+        # Pipeline stages → job → client: lets `_derive_employment` detect the
+        # "currently hired" signal (latest stage per job == hired) and name the
+        # client. Required by every `_derive_employment` caller to avoid an
+        # async lazy-load (MissingGreenlet).
+        selectinload(Candidate.pipeline_stages)
+        .selectinload(CandidateStage.job)
+        .selectinload(Job.client),
         selectinload(Candidate.creator),
         # Pool membership + pool name for the `talent_pools` field on
         # CandidateResponse (used by the tile view and the "Puli" chips).
@@ -251,8 +258,22 @@ def _candidate_list_options():
 
 def _at_client_predicate():
     """
-    Derived SQL predicate: candidate has either an active Contract OR an active
-    current_employment conflict. Used to filter the candidates list.
+    Derived SQL predicate: candidate is currently employed at one of our
+    clients. True when ANY of:
+      • an active Contract, OR
+      • an active `current_employment` conflict, OR
+      • a recruitment whose LATEST stage is `hired`.
+
+    The hired-stage clause is what makes `employment=at_client` return the real
+    placed-consultant population. `candidate_stages.stage='hired'` is documented
+    as "Zatrudniony / kontrakt aktywny" and is the signal the Traffit import
+    populated — the `contracts` table was never backfilled, so the contract /
+    conflict clauses alone matched ~1 row out of ~700 placed consultants.
+
+    `candidate_stages` is append-only history, so "currently hired" means a
+    `hired` row with no later move for the same job (mirrored in
+    `_derive_employment`). Drives the inverse `employment=available` filter too,
+    via `not_(_at_client_predicate())`.
     """
     contract_exists = (
         select(1)
@@ -275,7 +296,36 @@ def _at_client_predicate():
         )
         .exists()
     )
-    return or_(contract_exists, conflict_exists)
+    later_stage = aliased(CandidateStage)
+    hired_latest_exists = (
+        select(1)
+        .where(
+            and_(
+                CandidateStage.candidate_id == Candidate.id,
+                CandidateStage.stage == PipelineStage.hired,
+                # No later move exists for the same job → `hired` is current.
+                ~(
+                    select(1)
+                    .where(
+                        and_(
+                            later_stage.candidate_id == CandidateStage.candidate_id,
+                            later_stage.job_id == CandidateStage.job_id,
+                            or_(
+                                later_stage.moved_at > CandidateStage.moved_at,
+                                and_(
+                                    later_stage.moved_at == CandidateStage.moved_at,
+                                    later_stage.id > CandidateStage.id,
+                                ),
+                            ),
+                        )
+                    )
+                    .exists()
+                ),
+            )
+        )
+        .exists()
+    )
+    return or_(contract_exists, conflict_exists, hired_latest_exists)
 
 
 def _current_company_predicate(values: list[str]):
@@ -452,10 +502,15 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
 
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     """
-    Compute EmploymentInfo from eager-loaded `contracts` + `conflicts`.
-    Preference order: active Contract (source of truth) → active
-    current_employment conflict (manual flag) → on_bench (has history) →
-    external (never engaged).
+    Compute EmploymentInfo from eager-loaded `contracts` + `conflicts` +
+    `pipeline_stages`. Preference order: active Contract (source of truth) →
+    active current_employment conflict (manual flag) → currently hired
+    (latest pipeline stage == `hired`) → on_bench (has history, incl. past
+    placements) → external (never engaged).
+
+    Requires `pipeline_stages → job → client` eager-loaded (see
+    `_candidate_list_options`) — otherwise the `hired` branch lazy-loads and
+    raises MissingGreenlet in async.
     """
     active_contracts = [
         c for c in (candidate.contracts or []) if c.status == ContractStatus.active
@@ -488,8 +543,38 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             source="conflict",
         )
 
-    has_history = bool(candidate.contracts) or any(
-        cf.type == ConflictType.current_employment for cf in (candidate.conflicts or [])
+    # Pipeline signal: candidate currently sits at `hired` in some recruitment.
+    # `candidate_stages` is append-only history, so "current" = the latest row
+    # per job. Mirrors the hired-latest clause in `_at_client_predicate`.
+    latest_stage_by_job: dict[int, CandidateStage] = {}
+    for st in candidate.pipeline_stages or []:
+        cur = latest_stage_by_job.get(st.job_id)
+        if cur is None or (st.moved_at, st.id) > (cur.moved_at, cur.id):
+            latest_stage_by_job[st.job_id] = st
+    hired_now = [
+        st for st in latest_stage_by_job.values() if st.stage == PipelineStage.hired
+    ]
+    if hired_now:
+        chosen = max(hired_now, key=lambda s: (s.moved_at, s.id))
+        client = chosen.job.client if chosen.job else None
+        return EmploymentInfo(
+            state=EmploymentState.employed_at_client,
+            client_id=client.id if client else None,
+            client_name=client.name if client else None,
+            contract_end_date=None,
+            source="pipeline",
+        )
+
+    ever_hired = any(
+        st.stage == PipelineStage.hired for st in (candidate.pipeline_stages or [])
+    )
+    has_history = (
+        bool(candidate.contracts)
+        or any(
+            cf.type == ConflictType.current_employment
+            for cf in (candidate.conflicts or [])
+        )
+        or ever_hired
     )
     if has_history:
         return EmploymentInfo(state=EmploymentState.on_bench, source="none")
