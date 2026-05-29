@@ -48,6 +48,9 @@ from app.services.traffit.mappers import (
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
 )
+from app.services.traffit.rejection_backfill import (
+    backfill_rejection_notes_from_activities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1698,6 +1701,25 @@ class TraffitImporter:
 
         if not self.dry_run and since_commit > 0:
             await self.db.commit()
+
+        # Self-heal: the rejection *reason* lives only on these activities
+        # (details.content.rejection.name), never on the recruitment_history
+        # record that produced the rejected candidate_stages row. Stitch them
+        # back together by (candidate_id, exact moved_at) so the candidates
+        # list shows "Po Interview · job" instead of a bare "Odrzucony". Runs
+        # after `pipelines` (phase 8) so the rejected stages already exist.
+        if not self.dry_run:
+            try:
+                healed = await backfill_rejection_notes_from_activities(self.db)
+                await self.db.commit()
+                logger.info(
+                    "Activities self-heal: %d rejected stages got a rejection_note",
+                    healed,
+                )
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                progress.add_error(f"rejection_note backfill: {e!r}")
+
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(
             "Activities import done: %s",
