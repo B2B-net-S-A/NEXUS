@@ -509,9 +509,10 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const response = await api.post<{
  scheduled_rejection_email_id?: number | null;
  }>("/api/pipeline/move", {
- candidate_stage_id: item.id,
- to_stage: dst.stage,
- to_stage_def_id: dst.stage_def_id ?? undefined,
+ candidate_id: item.candidate_id,
+ job_id: jobId,
+ stage: dst.stage,
+ stage_def_id: dst.stage_def_id ?? undefined,
  rejection_reason_id: reason?.id,
  notes: reason?.notes,
  send_rejection_email: reason?.sendRejectionEmail ?? undefined,
@@ -563,7 +564,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  // TODO: revert optimistic on error
  }
  },
- [stagesWithScorecard, showActionToast, showSuccess, showError]
+ [jobId, stagesWithScorecard, showActionToast, showSuccess, showError]
  );
 
  const onDragEnd = useCallback(
