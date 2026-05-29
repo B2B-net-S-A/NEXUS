@@ -53,10 +53,14 @@ class Settings(BaseSettings):
     #     salary/location/availability często nieznane → punkty częściowe).
     #     To sygnał RANKINGOWY, nie skalibrowane 0-100 → próg celowo niski (25
     #     daje ~48 kandydatów; 30 dałoby tylko 6; 50 tylko 2).
-    AI_MATCH_MIN_SCORE: float = 0.5  # legacy /ai-matches (rerank/cosine/skill-fraction, 0-1)
-    AI_MATCH_POOL_SIZE: int = 100  # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank rośnie ~liniowo)
-    RECOMMENDATION_MIN_SCORE: float = 25.0  # hybrydowe /recommendations + proposals (0-100)
-    MATCH_MAX_RESULTS: int = 200  # twardy bezpiecznik rozmiaru wyniku (oba silniki)
+    # legacy /ai-matches (rerank/cosine/skill-fraction, skala 0-1)
+    AI_MATCH_MIN_SCORE: float = 0.5
+    # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank ~liniowy)
+    AI_MATCH_POOL_SIZE: int = 100
+    # hybrydowe /recommendations + proposals (skala 0-100)
+    RECOMMENDATION_MIN_SCORE: float = 25.0
+    # twardy bezpiecznik rozmiaru wyniku (oba silniki)
+    MATCH_MAX_RESULTS: int = 200
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"

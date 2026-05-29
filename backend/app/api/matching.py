@@ -228,9 +228,7 @@ async def get_ai_matches(
                 docs = [_build_candidate_text(c)[:4000] for c in ordered]
                 # Rerank the whole pool (top_k=len(docs)) so threshold filtering
                 # below sees a fully-ranked list, not a pre-trimmed one.
-                pairs = await rerank_or_passthrough(
-                    query_text, docs, top_k=len(docs)
-                )
+                pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
                 if pairs and any(score != 1.0 for _, score in pairs):
                     # Real rerank result (passthrough returns score=1.0 for all).
                     # Reorder per rerank, scores aligned to new positions.

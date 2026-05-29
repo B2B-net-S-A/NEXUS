@@ -73,7 +73,9 @@ router = APIRouter()
 async def recommend_candidates_for_job(
     request: Request,
     job_id: int,
-    top_k: int = Query(200, ge=1, le=200, description="Hard cap on results (payload safety bound)."),
+    top_k: int = Query(
+        200, ge=1, le=200, description="Hard cap on results (payload safety bound)."
+    ),
     min_score: float | None = Query(
         None,
         description=(
