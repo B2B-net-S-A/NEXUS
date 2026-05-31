@@ -1,0 +1,5 @@
+# Force LF line endings for shell scripts so they run inside Linux
+# containers regardless of the host OS that cloned the repo (Windows
+# checkouts with autocrlf=true would otherwise rewrite them to CRLF
+# and break `exec /app/entrypoint.sh` in the backend container).
+*.sh text eol=lf
