@@ -26,6 +26,10 @@ export const metadata: Metadata = {
   description: "Modern recruitment platform for IT staffing agencies",
 };
 
+// Applied before first paint to prevent a flash of the wrong theme/palette.
+// Mirrors the zustand-persist shape of `src/store/theme.ts` (key "nexus-theme").
+const themeBootstrap = `(function(){try{var d=document.documentElement;var p="violet",t="light";var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;}catch(e){document.documentElement.dataset.theme="violet";}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
@@ -33,6 +37,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${poppins.variable}`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+      </head>
       <body className="bg-background text-foreground font-sans antialiased">
         <QueryProvider>
           <ThemeProvider>
