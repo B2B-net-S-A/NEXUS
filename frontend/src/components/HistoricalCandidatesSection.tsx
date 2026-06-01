@@ -83,8 +83,8 @@ function TierBadge({ tier }: { tier: HistoricalCandidate["tier"] }) {
       className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${cls}`}
       title={
         tier === "A"
-          ? "Tier A — projekt bardzo podobny (cosine ≥ 0.70)"
-          : "Tier B — projekt pokrewny (cosine ≥ 0.55)"
+          ? "Tier A – projekt bardzo podobny (cosine ≥ 0.70)"
+          : "Tier B – projekt pokrewny (cosine ≥ 0.55)"
       }
     >
       Tier {tier}
@@ -214,7 +214,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
     staleTime: 60_000,
   });
 
-  // Quietly hide the section when nothing useful is available — we never want
+  // Quietly hide the section when nothing useful is available – we never want
   // to scream "no data" when the real answer is "we haven't run this before".
   const hasCandidates = (query.data?.candidates.length ?? 0) > 0;
   if (query.isError) return null;
@@ -257,7 +257,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
         <>
           <div className="mb-3 text-xs text-slate-500 flex items-center gap-1">
             <UserCheck className="h-3.5 w-3.5" />
-            AI podpowiada osoby, które już przeszły dalej w podobnych rekrutacjach — zacznij od nich, zanim zaczniesz szukać świeżej krwi.
+            AI podpowiada osoby, które już przeszły dalej w podobnych rekrutacjach – zacznij od nich, zanim zaczniesz szukać świeżej krwi.
           </div>
           <ul className="space-y-2">
             {candidates.map((c) => (

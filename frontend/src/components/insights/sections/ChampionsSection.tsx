@@ -34,7 +34,7 @@ export function ChampionsSection() {
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
         <Award className="w-5 h-5 text-amber-500" />
-        Liga Mistrzów — kwartalni championi
+        Liga Mistrzów – kwartalni championi
       </h2>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChampionsPodium

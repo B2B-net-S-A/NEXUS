@@ -27,7 +27,7 @@ import {
 import { ProcedureEditorModal } from"@/components/v2/modals/ProcedureEditorModal";
 
 /**
- * Help / FAQ z procedurami — wewnętrzna baza wiedzy (SOP) dla zespołu.
+ * Help / FAQ z procedurami – wewnętrzna baza wiedzy (SOP) dla zespołu.
  * Widoczna dla wszystkich zalogowanych; edycja tylko dla roli `admin`.
  */
 export function HelpPageV2() {

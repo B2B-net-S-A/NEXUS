@@ -13,7 +13,7 @@ import { CommandPaletteV2 } from "./CommandPaletteV2";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
- * AppShellV2 — Dynaminds redesign shell.
+ * AppShellV2 – Dynaminds redesign shell.
  *
  * Composition: SidebarV2 (plum chrome) + TopbarV2 + OpenTabsV2 + main content.
  * Bypasses: /login (bare form) and /share/* (public client-facing portal).
@@ -28,7 +28,7 @@ import type { QuickActionModal } from "./QuickActionsV2";
  */
 export function AppShellV2({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // `/login`, `/login/forgot-password`, `/login/reset` — wszystkie bare-form
+  // `/login`, `/login/forgot-password`, `/login/reset` – wszystkie bare-form
   // strony bez sidebaru. startsWith zamiast === żeby pokryć subpaths.
   const isLoginPage = pathname?.startsWith("/login") ?? false;
   const isSharePage = pathname?.startsWith("/share/") ?? false;
@@ -88,7 +88,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isOnboardingPage = pathname === "/onboarding" || pathname?.startsWith("/onboarding/");
   if (isOnboardingPage) return <>{children}</>;
 
-  // User must finish onboarding before seeing app content — render a blank
+  // User must finish onboarding before seeing app content – render a blank
   // shell while the redirect above takes effect.
   if (needsOnboarding) return null;
 

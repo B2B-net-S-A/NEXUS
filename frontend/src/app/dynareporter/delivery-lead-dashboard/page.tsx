@@ -8,7 +8,7 @@
  *
  * Zawiera:
  * - 4 KPI cards (Zapytania / Placements / Avg Hit Ratio / Osiąga target X/Y)
- * - History chart (12 mies. — requests/vacancies/placements + hit-ratio/fill-rate)
+ * - History chart (12 mies. – requests/vacancies/placements + hit-ratio/fill-rate)
  * - Sortable table per DL z trend chart przy kliknięciu wiersza
  */
 
@@ -105,7 +105,7 @@ export default function DeliveryLeadDashboardPage() {
   const [selectedDL, setSelectedDL] = useState<number | null>(null);
   // Chart type toggle for team history (DR parity).
   const [chartType, setChartType] = useState<"line" | "bar">("line");
-  // Date range filter (puste = cały zakres) — DR parity.
+  // Date range filter (puste = cały zakres) – DR parity.
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
@@ -116,7 +116,7 @@ export default function DeliveryLeadDashboardPage() {
     const p: { start_date?: string; end_date?: string } = {};
     if (dateFrom) p.start_date = `${dateFrom}-01`;
     if (dateTo) {
-      // End-of-month — Date(y, m+1, 0)
+      // End-of-month – Date(y, m+1, 0)
       const [y, m] = dateTo.split("-").map(Number);
       if (y && m) {
         p.end_date = new Date(y, m, 0).toISOString().slice(0, 10);
@@ -167,7 +167,7 @@ export default function DeliveryLeadDashboardPage() {
   // DR parity: filter duplicates z DR migration (DLs z 0 requests = legacy
   // DR user accounts which got migrated as separate users but mają zero KPI
   // bo cała aktywność jest pod main user_id). Pokazujemy tylko DLs z realnymi
-  // danymi w wybranym okresie — admin może te duplikaty cleanup w
+  // danymi w wybranym okresie – admin może te duplikaty cleanup w
   // /settings/users → Pracownicy.
   const sortedDLs: DrDLMember[] = [...(dashboard?.delivery_leads ?? [])]
     .filter((dl) => dl.is_active && dl.requests > 0)
@@ -197,7 +197,7 @@ export default function DeliveryLeadDashboardPage() {
               <h1 className="text-xl font-bold">Delivery Lead</h1>
               <p className="text-sm text-muted-foreground">
                 Hit Ratio i Placements · target {dashboard?.hit_ratio_target ?? 30}% ·{" "}
-                {dashboard?.period_label ?? "—"}
+                {dashboard?.period_label ?? "–"}
               </p>
             </div>
 
@@ -290,7 +290,7 @@ export default function DeliveryLeadDashboardPage() {
                   <BarChart3 className="w-5 h-5 text-indigo-500" />
                   Historia zespołu (ostatnie 12 mies.)
                 </CardTitle>
-                {/* Line/Bar toggle — DR parity */}
+                {/* Line/Bar toggle – DR parity */}
                 <div className="flex bg-muted rounded-md p-0.5">
                   <button
                     onClick={() => setChartType("line")}
@@ -534,7 +534,7 @@ export default function DeliveryLeadDashboardPage() {
               {selectedDL && trend && trend.length > 0 && (
                 <div className="mt-6 border-t border-border pt-4">
                   <h3 className="text-base font-semibold mb-3">
-                    Trend Hit Ratio —{" "}
+                    Trend Hit Ratio –{" "}
                     {dashboard.delivery_leads.find((dl) => dl.id === selectedDL)?.name}
                   </h3>
                   <ResponsiveContainer width="100%" height={200}>

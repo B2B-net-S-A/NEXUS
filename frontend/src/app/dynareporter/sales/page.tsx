@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.2 — KPI Sales dashboard.
+ * DynaReporter B.2.2 – KPI Sales dashboard.
  *
  * Tygodniowe stats sprzedawcy: leads, offers_sent, offers_won, offers_lost,
  * win_rate. Wymaga sekcji `sales` w `allowed_sections`.

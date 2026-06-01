@@ -22,7 +22,7 @@ interface PinButtonProps {
  *    - The drawer's pin icon reflects the new state immediately.
  *    - The PinnedCandidatesBar above the list re-fetches and re-renders.
  *
- *  Errors are handled by react-query's `isError` state — the button stays
+ *  Errors are handled by react-query's `isError` state – the button stays
  *  enabled so the user can retry. We don't surface toast spam for this
  *  micro-action, but disabling on `isPending` prevents double-click double-pin. */
 export function PinButton({
@@ -44,7 +44,7 @@ export function PinButton({
     mutationFn: () => candidatePinsApi.toggle(candidateId).then((r) => r.data),
     onSuccess: (resp) => {
       // Optimistically update the per-candidate state so the icon flips
-      // immediately — saves a round-trip to the next refetch.
+      // immediately – saves a round-trip to the next refetch.
       queryClient.setQueryData(["candidate-pin-state", candidateId], resp);
       // Top-of-list bar reads from the list endpoint; invalidate so it
       // re-fetches the full set (we don't try to surgically merge there).

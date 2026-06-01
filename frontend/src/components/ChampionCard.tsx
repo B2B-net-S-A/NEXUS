@@ -5,7 +5,7 @@
  *
  * Read-only widget rendered on the candidate profile (rekrutacje tab) next to
  * each CandidateStage that has screening answers. Shows the DL's Champion
- * questions alongside the recruiter's responses — a client-ready briefing.
+ * questions alongside the recruiter's responses – a client-ready briefing.
  */
 
 import { useState } from "react";
@@ -26,7 +26,7 @@ import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
 
 interface ChampionCardProps {
   stageId: number;
-  /** Optional override for heading — defaults to "Profil Championa". */
+  /** Optional override for heading – defaults to "Profil Championa". */
   title?: string;
   /**
    * When the candidate is currently employed at one of our clients, the
@@ -154,7 +154,7 @@ export function ChampionCard({
                     : "";
                   const ok = window.confirm(
                     `Uwaga: konsultant jest obecnie zatrudniony u naszego klienta${clientLabel}. ` +
-                      "Tworzysz link share — upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować ? "
+                      "Tworzysz link share – upewnij się, że nie wysyłasz go do tego samego klienta. Kontynuować ? "
                   );
                   if (!ok) return;
                 }

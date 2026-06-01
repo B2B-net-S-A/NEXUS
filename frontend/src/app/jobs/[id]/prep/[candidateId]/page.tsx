@@ -84,7 +84,7 @@ export default function PrepPage() {
  <Card variant="default" size="md">
  <CardTitle>Nieprawidłowe parametry URL</CardTitle>
  <CardDescription>
- Brak job_id lub candidate_id — wróć do listy kandydatów.
+ Brak job_id lub candidate_id – wróć do listy kandydatów.
  </CardDescription>
  </Card>
  </div>
@@ -148,7 +148,7 @@ export default function PrepPage() {
  </p>
  </Card>
 
- {/* Candidate strengths + gaps — grid */}
+ {/* Candidate strengths + gaps – grid */}
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:grid-cols-2">
  <Card variant="default" size="md">
  <CardTitle>Mocne strony kandydata</CardTitle>

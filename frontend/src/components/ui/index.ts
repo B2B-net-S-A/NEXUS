@@ -1,4 +1,4 @@
-// Dynaminds v2 UI primitives — barrel export.
+// Dynaminds v2 UI primitives – barrel export.
 // Import via `import { Button, Dialog, ... } from "@/components/ui"`.
 
 export * from "./button";

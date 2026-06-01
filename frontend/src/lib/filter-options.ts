@@ -45,7 +45,7 @@ export const AVAILABILITY_OPTIONS: ReadonlyArray<
   { value: "unknown", label: "Nie wiemy" },
 ];
 
-// Pipeline stage — etap kandydata w procesie rekrutacyjnym.
+// Pipeline stage – etap kandydata w procesie rekrutacyjnym.
 // Backend: OR-combined w GET /api/candidates?pipeline_stage=…
 // Mirror: backend/app/models/recruitment_pipeline.py:PipelineStage enum.
 export type PipelineStageValue =
@@ -81,7 +81,7 @@ export const PIPELINE_STAGE_OPTIONS: ReadonlyArray<
   { value: "withdrawn", label: "Wycofany" },
 ];
 
-// Engagement openness — 3 flags kandydat może zadeklarować w panelu „Zaangażowanie".
+// Engagement openness – 3 flags kandydat może zadeklarować w panelu „Zaangażowanie".
 // Backend: OR-combined w GET /api/candidates?open_to=…
 export type OpenToValue = "side_projects" | "sales_support" | "expert_consult";
 
@@ -108,7 +108,7 @@ export const JOB_STATUS_OPTIONS: ReadonlyArray<
 // ── Contracts ──────────────────────────────────────────────────────────────
 // NOTE: Backend `ContractStatus` enum is `draft | active | ending | ended`.
 // Pre-existing UI exposed extra labels ("Wypowiedziane" / "Kończące się") that
-// did not map to backend values — see plan "Out of scope" #1. Multi-select
+// did not map to backend values – see plan "Out of scope" #1. Multi-select
 // uses backend values only, so the filter is now wire-correct.
 
 export type ContractStatusValue = "draft" | "active" | "ending" | "ended";
@@ -132,7 +132,7 @@ export const CONTRACT_TYPE_OPTIONS: ReadonlyArray<
   { value: "t_and_m", label: "T&M" },
 ];
 
-// ── Sourcing — competence categories ───────────────────────────────────────
+// ── Sourcing – competence categories ───────────────────────────────────────
 
 export type CompetenceCategoryValue =
   | "Backend"

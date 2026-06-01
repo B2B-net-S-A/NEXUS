@@ -22,7 +22,7 @@ interface Props {
 }
 
 /**
- * AutoAssignedCollaborators — lista rekruterów przypisanych do wybranej CC.
+ * AutoAssignedCollaborators – lista rekruterów przypisanych do wybranej CC.
  *
  * Domyślnie zaznaczamy wszystkich z priority=1 + primary DL (te są auto-add
  * przez backend). Priority=2 sourcerzy pokazują się niezaznaczeni jako backup.
@@ -60,7 +60,7 @@ export function AutoAssignedCollaborators({
     return (
       <div className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1.5 flex items-center gap-1">
         <Users className="w-3 h-3" />W wybranej CC nie ma przypisanych
-        rekruterów — dodaj w "Struktura zespołu".
+        rekruterów – dodaj w "Struktura zespołu".
       </div>
     );
 

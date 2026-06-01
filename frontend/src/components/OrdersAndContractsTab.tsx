@@ -287,7 +287,7 @@ function ContractorCard({
 
       {contractor.orders.length === 0 ? (
         <div className="text-xs text-muted-foreground italic pl-2">
-          Brak zamówień — Contract bez aktualnego PDF od klienta.
+          Brak zamówień – Contract bez aktualnego PDF od klienta.
         </div>
       ) : (
         <div className="pl-2 border-l-2 border-violet-200 space-y-2">
@@ -404,9 +404,9 @@ function fmtDate(d: string | null): string | null {
 }
 
 function fmtMoney(v: number | string | null): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "–";
   const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "–";
   return num.toLocaleString("pl-PL");
 }
 

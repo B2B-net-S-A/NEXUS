@@ -1,7 +1,7 @@
 /**
  * Build a parent/child tree out of a flat list of emails in one conversation.
  *
- * Phase 5.3 — the Graph sync does not (yet) persist `In-Reply-To` headers, so
+ * Phase 5.3 – the Graph sync does not (yet) persist `In-Reply-To` headers, so
  * we use a chronological heuristic: sort by sent_at ASC (fallback received_at),
  * then every message's parent is the immediately preceding message in the same
  * conversation. This produces a degenerate chain (depth = N - 1 for N
@@ -45,7 +45,7 @@ export function buildThreadTree(emails: EmailMessage[]): ThreadNode[] {
     children: [],
   }));
 
-  // Linear chain — each node parents the next chronological message.
+  // Linear chain – each node parents the next chronological message.
   for (let i = 1; i < nodes.length; i++) {
     nodes[i - 1].children.push(nodes[i]);
   }

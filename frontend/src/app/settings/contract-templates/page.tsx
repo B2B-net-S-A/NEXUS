@@ -24,8 +24,8 @@ const STARTER_JINJA = `<h1>Umowa o świadczenie usług IT</h1>
 <p><strong>{{ candidate.full_name }}</strong> (Wykonawca)</p>
 
 <h2>§1 Przedmiot umowy</h2>
-<p>Wykonawca zobowiązuje się do świadczenia usług w roli {{ job.title or '—' }}
-  w ramach projektu {{ contract.project_name or '—' }} (zespół: {{ contract.team_name or '—' }}).</p>
+<p>Wykonawca zobowiązuje się do świadczenia usług w roli {{ job.title or '–' }}
+  w ramach projektu {{ contract.project_name or '–' }} (zespół: {{ contract.team_name or '–' }}).</p>
 
 <h2>§2 Wynagrodzenie</h2>
 <p>Stawka: {{ contract.rate_candidate }} {{ contract.currency }} / {{ contract.rate_unit }}.</p>
@@ -199,7 +199,7 @@ export default function ContractTemplatesPage() {
           <div className="bg-card dark:bg-muted rounded-2xl shadow-sm overflow-hidden">
             {!data || data.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground italic">
-                Brak szablonów — utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.
+                Brak szablonów – utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -219,7 +219,7 @@ export default function ContractTemplatesPage() {
                         {t.contract_type}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {t.is_default ? "Tak" : "—"}
+                        {t.is_default ? "Tak" : "–"}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="inline-flex gap-1">

@@ -20,7 +20,7 @@ interface PinnedCandidatesBarProps {
  *  Replaces Traffit's auto-recent "Otwarte karty" with an intentional
  *  short-list. Hidden when the user has zero pins so it doesn't take up
  *  space for the casual browsing flow. The bar updates reactively via the
- *  React Query "candidate-pins" key — the drawer's PinButton invalidates
+ *  React Query "candidate-pins" key – the drawer's PinButton invalidates
  *  this key after every toggle, so the bar stays in sync.
  *
  *  Click a chip to re-open the candidate in the drawer. The × on each chip

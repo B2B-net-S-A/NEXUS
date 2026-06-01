@@ -11,8 +11,8 @@ interface Props {
   /** Cap the number of matches shown. Default 10. */
   maxItems?: number;
   /**
-   * "full" — full-height card with title, refresh, and footer details.
-   * "compact" — trimmed for headers/sidebars; hides refresh button, shrinks rows.
+   * "full" – full-height card with title, refresh, and footer details.
+   * "compact" – trimmed for headers/sidebars; hides refresh button, shrinks rows.
    */
   variant?: "full" | "compact";
   /** Optional callback to jump to the full matches view (e.g. switch tabs). */
@@ -20,7 +20,7 @@ interface Props {
   /**
    * Optional pre-computed matches. When provided the widget renders these
    * directly instead of fetching `/api/candidates/{id}/recommendations`.
-   * Used by the CV-upload-preview flow on /sourcing/seeking-contractors —
+   * Used by the CV-upload-preview flow on /sourcing/seeking-contractors –
    * the candidate is ephemeral, so there is no candidateId-driven fetch path.
    * The "Przypisz do rekrutacji" action is hidden when no candidateId exists
    * (candidateId === 0 acts as a sentinel for the ephemeral case).

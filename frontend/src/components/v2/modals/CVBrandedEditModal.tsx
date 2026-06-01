@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * CVBrandedEditModal — edytor brandowanego CV per rekrutacja (Tiptap +
+ * CVBrandedEditModal – edytor brandowanego CV per rekrutacja (Tiptap +
  * autosave + finalize). Mirror `DraftEditor` z `CandidateDetailV2.tsx:1288`.
  *
- * PR2 — Faza 5. Lazy render przez backend GET /cv/branded — pierwszy raz
+ * PR2 – Faza 5. Lazy render przez backend GET /cv/branded – pierwszy raz
  * generuje template z `_generate_cv_html()`. PATCH save / re-render. POST
  * finalize → snapshot do storage_service, status `draft → finalized`,
  * dalsze edycje 409.
@@ -207,7 +207,7 @@ export function CVBrandedEditModal({
  {jobTitle ? (
  <span className="text-muted-foreground font-normal">
  {""}
- — {jobTitle}
+ – {jobTitle}
  </span>
  ) : null}
  </div>
@@ -353,7 +353,7 @@ export function CVBrandedEditModal({
  <div>
  <h3 className="font-medium">Sfinalizować brandowane CV?</h3>
  <p className="text-sm text-muted-foreground mt-1">
- Po finalizacji CV będzie immutable — żeby zmienić, trzeba
+ Po finalizacji CV będzie immutable – żeby zmienić, trzeba
  będzie odwołać udostępnienia. Możesz wtedy generować
  publiczne linki dla klienta.
  </p>

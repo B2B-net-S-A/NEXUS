@@ -5,7 +5,7 @@
  *
  * Lista modułów DynaReportera + status dostępu per user. Klikalne karty
  * prowadzą do każdego dashboardu (póki co tylko `/dynareporter/profile`
- * jest zaimplementowany — reszta w B.2).
+ * jest zaimplementowany – reszta w B.2).
  */
 
 import Link from "next/link";
@@ -67,20 +67,20 @@ const MODULES: ModuleCard[] = [
   {
     section: "przetargi",
     label: "Przetargi",
-    description: "Projekty publiczne — allocations, koszty, margin",
+    description: "Projekty publiczne – allocations, koszty, margin",
     href: "/dynareporter/przetargi",
     enabled: true, // B.2.7 deployed
   },
   {
     section: "board",
     label: "Rada Nadzorcza",
-    description: "Miesięczny raport — placementy, MRR, P&L",
+    description: "Miesięczny raport – placementy, MRR, P&L",
     href: "/dynareporter/board-dashboard",
     enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
-    label: "Sales — Zarządzanie",
+    label: "Sales – Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
     href: "/dynareporter/sales-mgmt",
     enabled: true, // B.2.9 deployed
@@ -94,7 +94,7 @@ const MODULES: ModuleCard[] = [
   },
   {
     section: "admin",
-    label: "Admin — Upload XLSX",
+    label: "Admin – Upload XLSX",
     description: "Wgrywanie Excel z KPI/MRR/finansów + historia uploadów",
     href: "/dynareporter/admin/upload",
     enabled: true, // B.2.11 deployed
@@ -125,7 +125,7 @@ export default function DynaReporterLandingPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Raporty KPI</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          DynaReporter — system raportowania KPI DynaMinds. Migracja
+          DynaReporter – system raportowania KPI DynaMinds. Migracja
           z reports.dynaminds.pl (Faza B w toku).
         </p>
       </header>

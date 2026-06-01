@@ -190,7 +190,7 @@ function RateBenchmarksAdmin() {
                 <tr key={row.id}>
                   <td className="px-3 py-2 font-medium">{row.role}</td>
                   <td className="px-3 py-2">
-                    {row.seniority ? SENIORITY_LABELS[row.seniority] : "—"}
+                    {row.seniority ? SENIORITY_LABELS[row.seniority] : "–"}
                   </td>
                   <td className="px-3 py-2">
                     {RATE_UNIT_LABELS[row.rate_unit] || row.rate_unit}
@@ -198,7 +198,7 @@ function RateBenchmarksAdmin() {
                   <td className="px-3 py-2 text-right">
                     {row.market_min != null
                       ? formatCurrency(row.market_min, row.currency)
-                      : "—"}
+                      : "–"}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold">
                     {formatCurrency(row.market_median, row.currency)}
@@ -206,9 +206,9 @@ function RateBenchmarksAdmin() {
                   <td className="px-3 py-2 text-right">
                     {row.market_max != null
                       ? formatCurrency(row.market_max, row.currency)
-                      : "—"}
+                      : "–"}
                   </td>
-                  <td className="px-3 py-2">{row.location || "—"}</td>
+                  <td className="px-3 py-2">{row.location || "–"}</td>
                   <td className="px-3 py-2">
                     <div className="text-xs">{row.source}</div>
                     <div className="text-xs text-muted-foreground">

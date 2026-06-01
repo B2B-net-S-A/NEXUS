@@ -50,7 +50,7 @@ function formatCandidateLocation(loc?: string | null): string | null {
   return trimmed;
 }
 
-/** Flow B — "Nowy kontraktor": atomic Contract + Order create. */
+/** Flow B – "Nowy kontraktor": atomic Contract + Order create. */
 export function NewContractorOrderDialog({
   clientId,
   onClose,
@@ -80,7 +80,7 @@ export function NewContractorOrderDialog({
   const [currency, setCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
 
-  // Debounce candidate search (300ms — same as AddCandidateToJobModal)
+  // Debounce candidate search (300ms – same as AddCandidateToJobModal)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(candidateQuery.trim()), 300);
     return () => clearTimeout(t);
@@ -124,7 +124,7 @@ export function NewContractorOrderDialog({
     if (!selectedCandidate) return;
     const candName = `${selectedCandidate.name} ${selectedCandidate.lastname}`.trim();
     setTitle(
-      selectedJobTitle ? `${candName} — ${selectedJobTitle}` : candName,
+      selectedJobTitle ? `${candName} – ${selectedJobTitle}` : candName,
     );
   }, [selectedCandidate, selectedJobTitle, titleTouched]);
 
@@ -211,7 +211,7 @@ export function NewContractorOrderDialog({
                     selectedCandidate.email,
                   ]
                     .filter(Boolean)
-                    .join(" · ") || "—"}
+                    .join(" · ") || "–"}
                 </p>
               </div>
               <button
@@ -269,7 +269,7 @@ export function NewContractorOrderDialog({
                         <p className="text-xs text-muted-foreground truncate">
                           {[c.competence_category, formatCandidateLocation(c.location), c.email]
                             .filter(Boolean)
-                            .join(" · ") || "—"}
+                            .join(" · ") || "–"}
                         </p>
                       </button>
                     ))
@@ -288,7 +288,7 @@ export function NewContractorOrderDialog({
             onChange={(e) => setJobId(e.target.value)}
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
           >
-            <option value="">— brak —</option>
+            <option value="">– brak –</option>
             {clientJobs.map((j) => (
               <option key={j.id} value={String(j.id)}>
                 #{j.id} · {j.title}
@@ -308,7 +308,7 @@ export function NewContractorOrderDialog({
             }}
             required
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. Jan Kowalski — Senior Java Developer"
+            placeholder="np. Jan Kowalski – Senior Java Developer"
           />
         </label>
 

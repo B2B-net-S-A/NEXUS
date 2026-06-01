@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * CVOriginalPreviewModal — pokazuje snapshot oryginalnego CV per rekrutacja.
+ * CVOriginalPreviewModal – pokazuje snapshot oryginalnego CV per rekrutacja.
  *
- * PR2 — Faza 5. PDF render w iframe (z download URL kontrolowanym przez auth
+ * PR2 – Faza 5. PDF render w iframe (z download URL kontrolowanym przez auth
  * cookie). Dla DOCX brak natywnego viewera, więc pokazujemy tylko link
  *"Pobierz".
  */
@@ -62,7 +62,7 @@ export function CVOriginalPreviewModal({
  {jobTitle ? (
  <span className="text-muted-foreground font-normal">
  {""}
- — {jobTitle}
+ – {jobTitle}
  </span>
  ) : null}
  </div>

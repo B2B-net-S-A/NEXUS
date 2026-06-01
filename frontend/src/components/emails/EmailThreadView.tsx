@@ -43,7 +43,7 @@ function initialsOf(name: string | null | undefined, fallback: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// Two-tone soft palette deterministic by from_address — same sender keeps
+// Two-tone soft palette deterministic by from_address – same sender keeps
 // the same color across cards so the eye can scan the thread quickly.
 const AVATAR_TONES = [
   "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
@@ -76,7 +76,7 @@ function ThreadMessageCard({
 }: ThreadMessageCardProps) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
 
-  // Only fetch the full body once the card is expanded — keeps the initial
+  // Only fetch the full body once the card is expanded – keeps the initial
   // open of a long thread cheap.
   const { data: fullMessage } = useQuery({
     queryKey: ["email", email.id],
@@ -102,7 +102,7 @@ function ThreadMessageCard({
 
   return (
     <div
-      // Inline padding-left for arbitrary depth — Tailwind doesn't generate
+      // Inline padding-left for arbitrary depth – Tailwind doesn't generate
       // every depth class up front and we cap at MAX_DEPTH so the value is
       // bounded (max 480px).
       style={{ paddingLeft: depth === 0 ? 0 : `${depth * 24}px` }}
@@ -175,7 +175,7 @@ function ThreadMessageCard({
             {email.is_private_filtered ? (
               <Alert
                 variant="warning"
-                description="Ta wiadomość jest oznaczona kategorią ATS:ignore w Outlooku — treść nie jest pobierana do Nexusa."
+                description="Ta wiadomość jest oznaczona kategorią ATS:ignore w Outlooku – treść nie jest pobierana do Nexusa."
               />
             ) : bodyHtml ? (
               <div

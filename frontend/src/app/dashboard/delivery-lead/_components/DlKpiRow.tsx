@@ -10,7 +10,7 @@ interface DlKpiRowProps {
   /** Personal rank in DL leaderboard (when scope=me). */
   rank?: number | null
   totalDls?: number
-  /** Team overall (always present — used for target threshold + team headline when scope=team). */
+  /** Team overall (always present – used for target threshold + team headline when scope=team). */
   teamOverall?: DlOverall
 }
 
@@ -51,7 +51,7 @@ export function DlKpiRow({
           title="Mój ranking"
           value={
             <>
-              {rank ?? "—"}
+              {rank ?? "–"}
               <span className="text-muted-foreground text-2xl">
                 /{totalDls ?? 0}
               </span>

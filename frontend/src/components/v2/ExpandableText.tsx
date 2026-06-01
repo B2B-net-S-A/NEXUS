@@ -8,7 +8,7 @@ interface ExpandableTextProps {
   text: string;
   /** How many lines to show when collapsed (Tailwind line-clamp-N). Default 3. */
   maxLines?: 2 | 3 | 4 | 5 | 6;
-  /** Only show the toggle when the text is at least this many characters —
+  /** Only show the toggle when the text is at least this many characters –
    *  avoids a pointless "Rozwiń" on a one-line summary. Default 160. */
   collapseThreshold?: number;
   className?: string;
@@ -25,7 +25,7 @@ const _CLAMP_CLASS: Record<number, string> = {
 /** Text block that collapses to `maxLines` with a "Rozwiń / Zwiń" toggle.
  *
  *  Used for AI summary, "O sobie", and long experience descriptions on the
- *  candidate profile — keeps the profile scannable without losing access to
+ *  candidate profile – keeps the profile scannable without losing access to
  *  the full text. Short text (< collapseThreshold chars) renders inline with
  *  no toggle. */
 export function ExpandableText({

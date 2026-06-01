@@ -16,7 +16,7 @@ export default function ForbiddenPage() {
         </div>
 
         <h1 className="text-2xl font-bold text-foreground dark:text-foreground mb-2">
-          403 — Brak uprawnień
+          403 – Brak uprawnień
         </h1>
 
         <p className="text-sm text-muted-foreground dark:text-muted-foreground mb-6">

@@ -57,7 +57,7 @@ export function SalesOverview() {
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
         <DollarSign className="w-5 h-5 text-green-600" />
-        Sprzedaż — przegląd
+        Sprzedaż – przegląd
       </h2>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -159,7 +159,7 @@ export function SalesOverview() {
                 <div className="flex items-center gap-4">
                   <span className="text-muted-foreground">{c.end_date}</span>
                   <span className="font-semibold text-foreground">
-                    {c.rate_client ? formatPLN(c.rate_client) : "—"}/h
+                    {c.rate_client ? formatPLN(c.rate_client) : "–"}/h
                   </span>
                 </div>
               </div>

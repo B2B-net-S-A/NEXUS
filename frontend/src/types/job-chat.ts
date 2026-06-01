@@ -1,4 +1,4 @@
-// Frontend typy dla Job Chat — wewnętrznego czatu zespołu per rekrutacja.
+// Frontend typy dla Job Chat – wewnętrznego czatu zespołu per rekrutacja.
 // Backend kontrakty: backend/app/schemas/job_chat.py + backend/app/api/job_chat.py.
 
 export interface ChatUserMini {

@@ -60,7 +60,7 @@ export function ScorecardSchemaBuilder({
               ? ((e as { response?: { data?: { detail?: string } } }).response?.data?.detail ??
                 "")
               : "";
-          // 404 or empty is fine — start blank
+          // 404 or empty is fine – start blank
           if (!msg.toLowerCase().includes("not found")) {
             setError(msg || "Błąd pobierania scorecard");
           }

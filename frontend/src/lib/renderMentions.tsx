@@ -36,7 +36,7 @@ export function MentionBadge({ email, user }: MentionBadgeProps) {
  * MentionBadge'ami. Zachowuje białe znaki (renderuj w `<span class="whitespace-pre-line">`).
  *
  * Email który nie pasuje do żadnego usera w `usersByEmail` dostaje fallback
- * `<span class="text-blue-600">@email</span>` — i tak czytelne, ale bez nazwy.
+ * `<span class="text-blue-600">@email</span>` – i tak czytelne, ale bez nazwy.
  */
 export function renderWithMentions(
   content: string,

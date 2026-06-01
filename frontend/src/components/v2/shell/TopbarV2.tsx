@@ -17,7 +17,7 @@ function ThemeToggleButton() {
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const [mounted, setMounted] = useState(false);
 
-  // Avoid hydration mismatch — theme is read from localStorage on client only.
+  // Avoid hydration mismatch – theme is read from localStorage on client only.
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {

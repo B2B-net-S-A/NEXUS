@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * Body Leasing Data Entry — admin form do wpisywania tygodniowych KPI per user.
+ * Body Leasing Data Entry – admin form do wpisywania tygodniowych KPI per user.
  *
  * Port `BodyLeasingDataEntry.tsx` z artur-t-96/InfraReporter (835 linii).
  *
  * Funkcje (DR parity):
- * - Filter po week (date picker — pon. wybranego tygodnia)
+ * - Filter po week (date picker – pon. wybranego tygodnia)
  * - Role filter: All / Sourcer / TAC
- * - "Wypełnij wszystkich" — auto-add rows dla wszystkich userów (zachowuje
+ * - "Wypełnij wszystkich" – auto-add rows dla wszystkich userów (zachowuje
  *   istniejące wpisy, dodaje brakujących)
  * - Inline edit verifications/recommendations/interviews/placements/days/LinkedIn
- * - "Zastosuj do wszystkich" — bulk days_worked update
+ * - "Zastosuj do wszystkich" – bulk days_worked update
  * - Per-row Save lub bulk "Zapisz wszystkie (N)"
  * - Zero-value yellow highlight (oznacza brakujące dane)
  * - Summary cards: sumy weryfikacji/rekomendacji/interviews/placements
@@ -65,7 +65,7 @@ function getIsoWeek(d: Date): number {
 }
 
 function formatDateInput(d: Date): string {
-  // Local-time format zamiast toISOString() (UTC shift bug — confirmed prod).
+  // Local-time format zamiast toISOString() (UTC shift bug – confirmed prod).
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -133,7 +133,7 @@ export function BodyLeasingDataEntry() {
     staleTime: 5 * 60_000,
   });
 
-  // Filtered users — only data-entry roles + active + matching role filter
+  // Filtered users – only data-entry roles + active + matching role filter
   const filteredUsers = useMemo(() => {
     const all = employeesQuery.data ?? [];
     return all
@@ -146,7 +146,7 @@ export function BodyLeasingDataEntry() {
       .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "pl"));
   }, [employeesQuery.data, roleFilter]);
 
-  // Build editable rows on entries load — keep only matching role filter.
+  // Build editable rows on entries load – keep only matching role filter.
   useEffect(() => {
     if (!entriesQuery.data || !employeesQuery.data) return;
     const userById = new Map(employeesQuery.data.map((u) => [u.id, u]));
@@ -261,7 +261,7 @@ export function BodyLeasingDataEntry() {
   };
 
   /**
-   * "Wypełnij wszystkich" — dodaj wiersz dla każdego usera spełniającego filter
+   * "Wypełnij wszystkich" – dodaj wiersz dla każdego usera spełniającego filter
    * jeśli już go nie ma na liście. Istniejące wiersze zostają nienaruszone.
    */
   const handleFillAllUsers = () => {
@@ -283,7 +283,7 @@ export function BodyLeasingDataEntry() {
         linkedin_messages_sent: 0,
         linkedin_responses_received: 0,
         existing_entry_id: null,
-        dirty: true, // mark as dirty by default — admin musi kliknąć Save
+        dirty: true, // mark as dirty by default – admin musi kliknąć Save
       }));
     if (newRows.length === 0) {
       setSaveStatus({
@@ -409,7 +409,7 @@ export function BodyLeasingDataEntry() {
       }));
       setSaveStatus({
         type: "success",
-        message: "Placement zapisany — widoczny też w panelu Delivery Lead.",
+        message: "Placement zapisany – widoczny też w panelu Delivery Lead.",
       });
       setTimeout(() => setSaveStatus(null), 4000);
     },
@@ -424,7 +424,7 @@ export function BodyLeasingDataEntry() {
 
   const dirtyCount = rows.filter((r) => r.dirty).length;
 
-  // Summary totals (visible rows only — match what user sees)
+  // Summary totals (visible rows only – match what user sees)
   const summary = useMemo(() => {
     return visibleRows.reduce(
       (acc, r) => ({
@@ -468,7 +468,7 @@ export function BodyLeasingDataEntry() {
         <DataHistoryView
           tableName="kpi_body_leasing"
           uploadFileType="body-leasing"
-          title="Historia zmian — Rekrutacja"
+          title="Historia zmian – Rekrutacja"
         />
       )}
 
@@ -481,12 +481,12 @@ export function BodyLeasingDataEntry() {
             <div className="flex items-center gap-2">
               <Building2 className="w-5 h-5 text-blue-600" />
               <h3 className="text-lg font-semibold">
-                Rekrutacja — wpisywanie KPI
+                Rekrutacja – wpisywanie KPI
               </h3>
             </div>
 
             <div className="flex items-center gap-2 ml-auto flex-wrap">
-              {/* Date picker — wolna data, bez podziału na tygodnie */}
+              {/* Date picker – wolna data, bez podziału na tygodnie */}
               <Calendar className="w-4 h-4 text-muted-foreground" />
               <label className="text-sm text-muted-foreground">Data:</label>
               <input
@@ -533,7 +533,7 @@ export function BodyLeasingDataEntry() {
               <span className="ml-1">Wypełnij wszystkich</span>
             </Button>
 
-            {/* Dodaj wiersz — pojedyncza osoba nieobecna w siatce */}
+            {/* Dodaj wiersz – pojedyncza osoba nieobecna w siatce */}
             <div className="flex items-center gap-1">
               <select
                 value={addRowUserId}
@@ -541,7 +541,7 @@ export function BodyLeasingDataEntry() {
                 className="px-2 py-1.5 text-sm bg-background border border-input rounded-md max-w-[170px]"
                 aria-label="Wybierz osobę do dodania wiersza"
               >
-                <option value="">— osoba —</option>
+                <option value="">– osoba –</option>
                 {usersNotInGrid.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
@@ -783,7 +783,7 @@ export function BodyLeasingDataEntry() {
                               />
                             ) : (
                               <span className="block text-center text-muted-foreground">
-                                —
+                                –
                               </span>
                             )}
                           </td>
@@ -876,7 +876,7 @@ export function BodyLeasingDataEntry() {
         </>
       )}
 
-      {/* Modal: Dodaj placement — zapisuje placement_details + panel Delivery Lead */}
+      {/* Modal: Dodaj placement – zapisuje placement_details + panel Delivery Lead */}
       <Dialog open={placementOpen} onOpenChange={setPlacementOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -894,7 +894,7 @@ export function BodyLeasingDataEntry() {
                 }
                 className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
               >
-                <option value="">— wybierz —</option>
+                <option value="">– wybierz –</option>
                 {allEmployees
                   .slice()
                   .sort((a: DrEmployeeRow, b: DrEmployeeRow) =>
@@ -921,7 +921,7 @@ export function BodyLeasingDataEntry() {
                 }
                 className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
               >
-                <option value="">— wybierz —</option>
+                <option value="">– wybierz –</option>
                 {deliveryLeadUsers.map((u: DrEmployeeRow) => (
                   <option key={u.id} value={u.id}>
                     {u.name ?? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim()}
@@ -938,7 +938,7 @@ export function BodyLeasingDataEntry() {
                 }
                 className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
               >
-                <option value="">— wybierz —</option>
+                <option value="">– wybierz –</option>
                 {(clientsQuery.data ?? []).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}

@@ -98,10 +98,10 @@ type CalendarEvent = {
   attendees?: string[];
   location?: string;
   teams_link?: string;
-  // Phase 7.1 — Graph-generated Teams meeting join URL (distinct from the
+  // Phase 7.1 – Graph-generated Teams meeting join URL (distinct from the
   // legacy free-text `teams_link`).
   online_meeting_url?: string | null;
-  // Phase 7.8 — OneDrive share link to the published Teams recording.
+  // Phase 7.8 – OneDrive share link to the published Teams recording.
   recording_url?: string | null;
   reminder_minutes: number;
   status: string;
@@ -177,7 +177,7 @@ export default function CalendarPage() {
       calendarApi.listEvents({ from_date: fromDate, to_date: toDate }).then((r) => r.data),
   });
 
-  // Phase 5.4 — bulk overlap map for the visible week. One request flags every
+  // Phase 5.4 – bulk overlap map for the visible week. One request flags every
   // event with the ids it conflicts with, so we don't have to fan out per-event.
   const { data: conflictPairs } = useQuery<Record<string, number[]>>({
     queryKey: ["calendar-conflicts-summary", fromDate],
@@ -804,7 +804,7 @@ function CreateEventModal({
               onChange={(e) => setForm({ ...form, candidate_id: e.target.value })}
               className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
             >
-              <option value="">— Wybierz kandydata —</option>
+              <option value="">– Wybierz kandydata –</option>
               {candidates.map((c: any) => (
                 <option key={c.id} value={c.id}>
                   {c.name} {c.lastname}
@@ -1019,7 +1019,7 @@ function EventDetailModal({
               </div>
             )}
 
-            {/* Phase 7.8 — Teams recording */}
+            {/* Phase 7.8 – Teams recording */}
             <RecordingBlock event={event} />
 
 
@@ -1120,7 +1120,7 @@ function RecordingBlock({ event }: RecordingBlockProps) {
     );
   }
 
-  // Hint state — meeting happened, no recording yet but the discovery loop
+  // Hint state – meeting happened, no recording yet but the discovery loop
   // is still scanning OneDrive. Only nag once the event ended at least 1h
   // ago (Teams typically publishes within an hour).
   if (!event.online_meeting_url || !event.end_time) {

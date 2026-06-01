@@ -71,7 +71,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     staleTime: 30_000,
   });
 
-  // ── Messages — infinite scroll w stronę "starsze" ─────────────────────────
+  // ── Messages – infinite scroll w stronę "starsze" ─────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
 

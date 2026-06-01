@@ -74,7 +74,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
       </div>
       {!data.market_median && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Brak danych rynkowych dla tej roli — dodaj wpis w{" "}
+          Brak danych rynkowych dla tej roli – dodaj wpis w{" "}
           <a
             href="/settings/rate-benchmarks"
             className="underline hover:text-foreground"
@@ -101,7 +101,7 @@ function MetricBlock({ label, value, currency, diffPct, extra }: MetricBlockProp
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-base font-semibold">
-        {value != null ? formatCurrency(value, currency) : "—"}
+        {value != null ? formatCurrency(value, currency) : "–"}
       </div>
       {diffPct != null && value != null && (
         <div

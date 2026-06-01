@@ -124,7 +124,7 @@ export default function EngagementDeclarationPage() {
           </h1>
           <p className="text-sm text-destructive dark:text-red-300 mt-2">{error}</p>
           <p className="text-xs text-muted-foreground mt-4">
-            Skontaktuj się z osobą, która Ci go wysłała — wygeneruje nowy link.
+            Skontaktuj się z osobą, która Ci go wysłała – wygeneruje nowy link.
           </p>
         </div>
       </main>
@@ -158,7 +158,7 @@ export default function EngagementDeclarationPage() {
             </h1>
             <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
               Zaznacz, w jakich dodatkowych formach zaangażowania chciałbyś z
-              nami współpracować — pomożesz mi (rekruterowi) lepiej dobierać
+              nami współpracować – pomożesz mi (rekruterowi) lepiej dobierać
               propozycje. Każda flaga jest opcjonalna.
             </p>
           </div>

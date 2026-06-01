@@ -1,7 +1,7 @@
 /**
- * Public Champion Card view — v2 redesign (theme-dark).
+ * Public Champion Card view – v2 redesign (theme-dark).
  *
- * Rendered server-side from a recruiter-issued token. No auth required —
+ * Rendered server-side from a recruiter-issued token. No auth required –
  * backend enforces `expires_at` + `revoked`. The page uses Dynaminds
  * theme-dark palette (black canvas, plum cards, cream text, burgundy
  * accents) for a premium client-facing feel.

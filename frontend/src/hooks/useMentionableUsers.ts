@@ -27,7 +27,7 @@ function toMini(u: UserBrief): ChatUserMini {
 interface UseMentionableUsersOptions {
   /**
    * Pokaż też nieaktywnych userów (np. 131 importowanych z Traffit jako
-   * disabled accounts w Faza A). Domyślnie false — pokazuje tylko aktywnych.
+   * disabled accounts w Faza A). Domyślnie false – pokazuje tylko aktywnych.
    * Włączane gdy renderujemy historyczne notatki/komentarze i chcemy mention'ować
    * autora którego konto wygasło.
    */
@@ -36,7 +36,7 @@ interface UseMentionableUsersOptions {
 
 /**
  * Lista użytkowników do autocomplete @mention. Cache'owana per scope przez
- * react-query (60s staleTime — odświeża się rzadko, członkostwo projektu /
+ * react-query (60s staleTime – odświeża się rzadko, członkostwo projektu /
  * lista pracowników nie zmienia się często).
  *
  * Scope:

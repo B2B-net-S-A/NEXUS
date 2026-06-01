@@ -33,7 +33,7 @@ interface JobOwnershipPanelProps {
 /**
  * Header panel for /jobs/[id] showing the primary owner + collaborators, with
  * inline Claim / Reassign / Add-collaborator actions gated by the current
- * user's role. Backend remains authoritative on all guards — UI only hides
+ * user's role. Backend remains authoritative on all guards – UI only hides
  * disallowed actions.
  */
 export function JobOwnershipPanel({

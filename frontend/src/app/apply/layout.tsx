@@ -1,5 +1,5 @@
 /**
- * Public apply layout — minimal shell (no sidebar/topbar, no auth).
+ * Public apply layout – minimal shell (no sidebar/topbar, no auth).
  * Theme: light, cream canvas consistent with v2.
  */
 

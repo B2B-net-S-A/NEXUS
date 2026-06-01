@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.6 — Liga Mistrzów.
+ * DynaReporter B.2.6 – Liga Mistrzów.
  *
  * Aktualne podium (top 3) + historia podiów + powiadomienia kompetycyjne.
  */

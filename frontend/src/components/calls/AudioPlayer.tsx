@@ -15,7 +15,7 @@ interface AudioPlayerProps {
  * the native player and also expose an external "Open" link as a fallback
  * for browsers that block the audio element (mixed-content) or codecs.
  *
- * No blob-fetching with auth headers yet — when CloudTalk requires auth on
+ * No blob-fetching with auth headers yet – when CloudTalk requires auth on
  * recording downloads we'll switch to fetch + URL.createObjectURL (planned
  * for a follow-up once we observe the real auth flow on the dashboard).
  */

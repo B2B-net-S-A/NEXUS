@@ -41,12 +41,12 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
 };
 
 interface CandidateSearchViewProps {
-  /** Optional initial overrides — used by the job-context tab to prefill. */
+  /** Optional initial overrides – used by the job-context tab to prefill. */
   initial?: Partial<CandidateSearchRequest>;
   /** Renders a "Wstecz" link if provided. */
   backHref?: string;
   /**
-   * Job context — when set, results carry checkboxes and a sticky bulk-add
+   * Job context – when set, results carry checkboxes and a sticky bulk-add
    * bar that posts to ``POST /api/jobs/{id}/proposals/bulk``. Also forces
    * ``exclude_in_job_id`` so already-added candidates don't appear.
    */
@@ -81,7 +81,7 @@ export function CandidateSearchView({
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkProposalsResponse | null>(null);
 
-  // Saved searches — list refetched after every mutation.
+  // Saved searches – list refetched after every mutation.
   const [savedSearches, setSavedSearches] = useState<SavedSearchOut[]>([]);
   const [saveDraftOpen, setSaveDraftOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -115,7 +115,7 @@ export function CandidateSearchView({
   const clearSelection = () => setSelected(new Set());
 
   const loadSavedSearch = (ss: SavedSearchOut) => {
-    // Filters were stored as a CandidateSearchRequest dump — restore but
+    // Filters were stored as a CandidateSearchRequest dump – restore but
     // never carry over paging or job-context exclusion (those are owned by
     // the current view).
     const filters = ss.filters as Partial<CandidateSearchRequest>;
@@ -132,7 +132,7 @@ export function CandidateSearchView({
     if (!name) return;
     setSavePending(true);
     try {
-      // Strip transient fields (page, exclude_in_job_id) — they're not part
+      // Strip transient fields (page, exclude_in_job_id) – they're not part
       // of the user's intent, just current view state.
       const { page: _page, exclude_in_job_id: _excl, ...rest } = request;
       void _page;
@@ -182,7 +182,7 @@ export function CandidateSearchView({
     }
   };
 
-  // Debounce search by 300ms — typing in the free-text input shouldn't fire
+  // Debounce search by 300ms – typing in the free-text input shouldn't fire
   // a roundtrip per keystroke. The page resets to 1 on any non-page edit.
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -437,7 +437,7 @@ export function CandidateSearchView({
         ))}
       </ul>
 
-      {/* Sticky bulk-add bar — only when in job context */}
+      {/* Sticky bulk-add bar – only when in job context */}
       {addToJob && selected.size > 0 && (
         <div className="sticky bottom-4 z-10 mx-auto flex w-fit items-center gap-3 rounded-full border bg-zinc-900 px-4 py-2 text-sm text-zinc-50 shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
           <span className="tabular-nums">

@@ -502,7 +502,7 @@ function CreateAmendmentDialog({
             onChange={(e) => setName(e.target.value)}
             required
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. Aneks 1 — zmiana stawek"
+            placeholder="np. Aneks 1 – zmiana stawek"
           />
         </label>
         <label>

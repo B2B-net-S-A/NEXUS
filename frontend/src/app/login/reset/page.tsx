@@ -54,7 +54,7 @@ function ResetPasswordForm() {
           ?.detail;
       setError(
         detail ??
-          "Nie udało się ustawić nowego hasła. Link mógł wygasnąć — poproś o nowy."
+          "Nie udało się ustawić nowego hasła. Link mógł wygasnąć – poproś o nowy."
       );
     } finally {
       setLoading(false);

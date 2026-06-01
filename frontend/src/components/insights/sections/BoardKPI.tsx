@@ -61,7 +61,7 @@ export function BoardKPI() {
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
         <Trophy className="w-5 h-5 text-amber-500" />
-        Board KPI — YTD
+        Board KPI – YTD
       </h2>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -95,7 +95,7 @@ export function BoardKPI() {
           color="indigo"
         />
         <KpiCard
-          label="Przetargi — win rate"
+          label="Przetargi – win rate"
           value={`${data.tenders.win_rate}%`}
           sub={`Łącznie: ${data.tenders.total}`}
           icon={Trophy}
@@ -180,7 +180,7 @@ export function BoardKPI() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — przychód</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc – przychód</h3>
           <div className="flex items-end gap-1 h-32">
             {data.trends.map((t) => (
               <div key={t.month} className="flex-1 flex flex-col items-center gap-1">
@@ -202,7 +202,7 @@ export function BoardKPI() {
         </div>
 
         <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc — placements</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Trend 12-mc – placements</h3>
           <div className="flex items-end gap-1 h-32">
             {data.trends.map((t) => (
               <div key={t.month} className="flex-1 flex flex-col items-center gap-1">

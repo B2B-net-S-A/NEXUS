@@ -34,7 +34,7 @@ interface Props {
 }
 
 /**
- * QuickActionsV2 — uses v2 primitives (Button + DropdownMenu) but reuses the
+ * QuickActionsV2 – uses v2 primitives (Button + DropdownMenu) but reuses the
  * existing v1 Add*Modal implementations (they'll be redesigned in Phase 8).
  */
 export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {

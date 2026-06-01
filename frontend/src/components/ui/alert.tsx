@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils";
 /**
  * Banner-style alert for inline notifications inside cards/forms.
  *
- * Phase 4.1 of the M365 plan — extracted from the Microsoft365Card backfill /
+ * Phase 4.1 of the M365 plan – extracted from the Microsoft365Card backfill /
  * error / reconnect banners so other integration cards (CloudTalk, Autenti,
  * future Gmail) can reuse the same shape and not drift on copy/paste.
  *
- * Intentionally NOT shadcn's `<Alert />` — we want a self-contained component
+ * Intentionally NOT shadcn's `<Alert />` – we want a self-contained component
  * that owns the leading icon + title + description layout without leaking
  * implementation details to callers.
  */
@@ -48,7 +48,7 @@ const ICONS: Record<AlertVariant, React.ComponentType<{ className?: string }>> =
   error: AlertCircle,
 };
 
-// Omit `title` from the underlying HTMLAttributes — the DOM `title` attr is a
+// Omit `title` from the underlying HTMLAttributes – the DOM `title` attr is a
 // string (tooltip), but we want ReactNode here for the bold heading slot.
 export interface AlertProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "title">,

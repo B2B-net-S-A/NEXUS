@@ -100,7 +100,7 @@ function PublishModal({
       <div className="bg-card rounded-xl shadow-xl w-full max-w-md p-6">
         <h2 className="text-lg font-bold mb-1">Opublikuj ogłoszenie</h2>
         <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
+          ⚠️ Integracja z portalami w przygotowaniu – dane symulowane
         </p>
 
         <div className="space-y-2 mb-4">
@@ -234,7 +234,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
 
       {/* Simulation notice */}
       <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-        ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
+        ⚠️ Integracja z portalami w przygotowaniu – dane symulowane
       </div>
 
       {/* Table */}
@@ -276,10 +276,10 @@ function PostingsSection({ jobId }: { jobId: number }) {
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-muted-foreground">
-                      {posting.published_at ? formatDate(posting.published_at) : "—"}
+                      {posting.published_at ? formatDate(posting.published_at) : "–"}
                     </td>
                     <td className="py-2.5 px-3 text-muted-foreground">
-                      {posting.expires_at ? formatDate(posting.expires_at) : "—"}
+                      {posting.expires_at ? formatDate(posting.expires_at) : "–"}
                     </td>
                     <td className="py-2.5 px-3 text-right font-medium">
                       {posting.views.toLocaleString()}
@@ -298,7 +298,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">–</span>
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-center">
@@ -626,7 +626,7 @@ function EmailTemplateModal({
 }) {
   const fullName = `${candidate.name} ${candidate.lastname}`.trim();
   // Reference number (when present) is appended to the subject and quoted in
-  // the body so the candidate can cite it in replies — and so the recruiter's
+  // the body so the candidate can cite it in replies – and so the recruiter's
   // mailbox threads on a stable identifier.
   const refSuffix = job.reference_number ? ` [${job.reference_number}]` : "";
   const refLine = job.reference_number
@@ -947,7 +947,7 @@ export default function JobDetailPage() {
       await api.patch(`/api/jobs/${id}`, { description });
       queryClient.invalidateQueries({ queryKey: ["job", id] });
     } catch (e) {
-      // silent — user can copy manually
+      // silent – user can copy manually
     }
   }, [id, queryClient]);
 
@@ -1099,7 +1099,7 @@ export default function JobDetailPage() {
         />
       )}
 
-      {/* Invite Link Modal — pre-selected current job */}
+      {/* Invite Link Modal – pre-selected current job */}
       <GenerateInviteLinkV2
         open={showInviteLink}
         onOpenChange={setShowInviteLink}

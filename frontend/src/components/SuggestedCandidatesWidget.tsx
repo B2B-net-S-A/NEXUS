@@ -67,7 +67,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
       } catch (e) {
         const err = e as AxiosError;
         if (err.response?.status === 404) {
-          // No snapshot yet — fall back to the live recommendation path.
+          // No snapshot yet – fall back to the live recommendation path.
           setMode("fallback-live");
           return null;
         }
@@ -97,7 +97,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
-  // Show ALL candidates that fit — the backend applies the match-quality
+  // Show ALL candidates that fit – the backend applies the match-quality
   // threshold; this is only a payload safety cap (was a user-facing "Top N"
   // selector, removed when the product shifted to "show everyone who matches").
   const topK = 200;

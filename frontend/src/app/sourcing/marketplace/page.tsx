@@ -44,7 +44,7 @@ function MarketplacePageContent() {
           </h1>
         </div>
         <p className="text-sm text-muted-foreground dark:text-muted-foreground max-w-3xl">
-          Wszyscy konsultanci dostępni do nowego projektu w jednym miejscu —
+          Wszyscy konsultanci dostępni do nowego projektu w jednym miejscu –
           z kończącymi się kontraktami, deklaracją „aktywnie szuka" lub
           ręcznie wystawieni na targ. AI dobiera top dopasowania do otwartych
           rekrutacji i alertuje gdy pojawia się świeży job.
@@ -91,7 +91,7 @@ function MarketplacePageContent() {
 
         <TabsContent value="cv" className="space-y-4">
           <p className="text-sm text-muted-foreground max-w-3xl">
-            Wrzuć CV osoby spoza bazy — AI dopasuje aktualne otwarte
+            Wrzuć CV osoby spoza bazy – AI dopasuje aktualne otwarte
             rekrutacje bez tworzenia kandydata. One-off check.
           </p>
           <CVDropzoneMatch />

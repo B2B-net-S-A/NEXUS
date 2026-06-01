@@ -63,7 +63,7 @@ function formDirtyOrValid(form: FormState): boolean {
 }
 
 /**
- * DraftCompletionModal — fills the 6 activation-required fields
+ * DraftCompletionModal – fills the 6 activation-required fields
  * (start_date, end_date, rate_candidate, rate_client, contract_type,
  * work_mode) then POSTs /activate. Two-step flow: PATCH first so values
  * persist even if activation fails for an unrelated reason, then
@@ -131,7 +131,7 @@ export function DraftCompletionModal({
  <DialogContent size="lg">
  <DialogHeader>
  <DialogTitle>
- Uzupełnij kontrakt — {contractor.candidate.name}{""}
+ Uzupełnij kontrakt – {contractor.candidate.name}{""}
  {contractor.candidate.lastname}
  </DialogTitle>
  <DialogDescription>

@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * DynaReporter Rada Nadzorcza (Board) dashboard — full 1:1 port z
+ * DynaReporter Rada Nadzorcza (Board) dashboard – full 1:1 port z
  * artur-t-96/InfraReporter `client/src/pages/Board.tsx`.
  *
  * Sekcje:
- * 1. Finanse — 4 YoY tabele (Revenue/Koszty kons./Marża/Zysk) + 2 charts
- * 2. HR — 3 YoY tabele (Konsultanci/Odejścia/Placementy) + 3 charts
- * 3. Dywersyfikacja — 2 YoY tabele + PlacementClientsTable + YearlyClientRanking
- * 4. Wskaźniki operacyjne — 2 YoY tabele (Margin/h, Hit Ratio) + 2 charts
+ * 1. Finanse – 4 YoY tabele (Revenue/Koszty kons./Marża/Zysk) + 2 charts
+ * 2. HR – 3 YoY tabele (Konsultanci/Odejścia/Placementy) + 3 charts
+ * 3. Dywersyfikacja – 2 YoY tabele + PlacementClientsTable + YearlyClientRanking
+ * 4. Wskaźniki operacyjne – 2 YoY tabele (Margin/h, Hit Ratio) + 2 charts
  *
  * Każda YoY tabela ma:
  * - 12 miesięcy × 3 lata (2024/2025/2026) z kolorami per rok
@@ -67,22 +67,22 @@ const YEAR_COLORS: Record<Year, string> = {
 };
 
 function formatPLN(value: number | undefined): string {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null) return "–";
   return value.toLocaleString("pl-PL") + " zł";
 }
 
 function formatNumber(value: number | undefined): string {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null) return "–";
   return value.toLocaleString("pl-PL");
 }
 
 function formatPercent(value: number | undefined): string {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null) return "–";
   return value.toFixed(1) + "%";
 }
 
 function formatMarginPerHour(value: number | undefined): string {
-  if (value === undefined || value === null) return "—";
+  if (value === undefined || value === null) return "–";
   return `${value.toFixed(2)} zł/h`;
 }
 
@@ -120,7 +120,7 @@ function DeltaCell({
 }) {
   if (delta === undefined)
     return (
-      <td className="px-3 py-2 text-right text-gray-400 text-xs">—</td>
+      <td className="px-3 py-2 text-right text-gray-400 text-xs">–</td>
     );
   const isPositive = delta >= 0;
   const isGood = lowerIsBetter ? !isPositive : isPositive;
@@ -149,7 +149,7 @@ function RatingCell({
 }) {
   if (delta1 === undefined || delta2 === undefined)
     return (
-      <td className="px-3 py-2 text-center text-gray-400 text-xs">—</td>
+      <td className="px-3 py-2 text-center text-gray-400 text-xs">–</td>
     );
   const newBetter = lowerIsBetter ? delta2 < delta1 : delta2 > delta1;
   const equal = Math.abs(delta2 - delta1) < 0.05;
@@ -298,20 +298,20 @@ function YoYTable({
                     className="px-4 py-2 text-right text-gray-600 dark:text-gray-400 tabular-nums"
                     title={tip2024}
                   >
-                    {hasVal(val2024) ? formatter(val2024) : "—"}
+                    {hasVal(val2024) ? formatter(val2024) : "–"}
                   </td>
                   <td
                     className="px-4 py-2 text-right text-gray-600 dark:text-gray-400 tabular-nums"
                     title={tip2025}
                   >
-                    {hasVal(val2025) ? formatter(val2025) : "—"}
+                    {hasVal(val2025) ? formatter(val2025) : "–"}
                   </td>
                   <DeltaCell delta={delta1} lowerIsBetter={lowerIsBetter} />
                   <td
                     className="px-4 py-2 text-right text-gray-600 dark:text-gray-400 tabular-nums"
                     title={tip2026}
                   >
-                    {hasVal(val2026) ? formatter(val2026) : "—"}
+                    {hasVal(val2026) ? formatter(val2026) : "–"}
                   </td>
                   <DeltaCell delta={delta2} lowerIsBetter={lowerIsBetter} />
                   <RatingCell
@@ -329,14 +329,14 @@ function YoYTable({
                 Suma / Średnia
               </td>
               <td className="px-4 py-2.5 text-right text-gray-800 dark:text-gray-200 tabular-nums">
-                {totals[2024] !== undefined ? formatter(totals[2024]) : "—"}
+                {totals[2024] !== undefined ? formatter(totals[2024]) : "–"}
               </td>
               <td className="px-4 py-2.5 text-right text-gray-800 dark:text-gray-200 tabular-nums">
-                {totals[2025] !== undefined ? formatter(totals[2025]) : "—"}
+                {totals[2025] !== undefined ? formatter(totals[2025]) : "–"}
               </td>
               <DeltaCell delta={totalDelta1} lowerIsBetter={lowerIsBetter} />
               <td className="px-4 py-2.5 text-right text-gray-800 dark:text-gray-200 tabular-nums">
-                {totals[2026] !== undefined ? formatter(totals[2026]) : "—"}
+                {totals[2026] !== undefined ? formatter(totals[2026]) : "–"}
               </td>
               <DeltaCell delta={totalDelta2} lowerIsBetter={lowerIsBetter} />
               <RatingCell
@@ -405,7 +405,7 @@ function YoYChart({ title, grouped, getValue, unit = "" }: YoYChartProps) {
                 fontSize: "12px",
               }}
               formatter={((value: number, name: string) => {
-                if (value === undefined || value === null) return ["—", name];
+                if (value === undefined || value === null) return ["–", name];
                 if (unit === "zł")
                   return [`${value.toLocaleString("pl-PL")} zł`, name];
                 if (unit === "%") return [`${value.toFixed(1)}%`, name];
@@ -434,7 +434,7 @@ function YoYChart({ title, grouped, getValue, unit = "" }: YoYChartProps) {
 
 function PlacementClientsTable({ grouped }: { grouped: DataByYearMonth }) {
   function formatClients(row: DrBoardMonthlyRow | undefined): string {
-    if (!row?.placement_clients?.length) return "—";
+    if (!row?.placement_clients?.length) return "–";
     return row.placement_clients
       .slice()
       .sort((a, b) => b.count - a.count)
@@ -504,12 +504,12 @@ function PlacementClientsTable({ grouped }: { grouped: DataByYearMonth }) {
                 const sorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
                 const summary =
                   sorted.length > 0
-                    ? `${total} — ${sorted
+                    ? `${total} – ${sorted
                         .map(([name, cnt]) => `${name} (${cnt})`)
                         .join(", ")}`
                     : total > 0
                       ? String(total)
-                      : "—";
+                      : "–";
                 return (
                   <td
                     key={year}
@@ -675,7 +675,7 @@ export default function BoardDashboardPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Shield className="w-6 h-6 text-indigo-600" />
-            Rada Nadzorcza — Przegląd 2024–2026
+            Rada Nadzorcza – Przegląd 2024–2026
           </h2>
           <button
             onClick={() => refetch()}
@@ -725,13 +725,13 @@ export default function BoardDashboardPage() {
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
           <YoYChart
-            title="Przychody — trend"
+            title="Przychody – trend"
             grouped={grouped}
             getValue={(r) => r.revenue}
             unit="zł"
           />
           <YoYChart
-            title="Zysk — trend"
+            title="Zysk – trend"
             grouped={grouped}
             getValue={(r) => r.profit}
             unit="zł"
@@ -775,17 +775,17 @@ export default function BoardDashboardPage() {
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
           <YoYChart
-            title="Konsultanci — trend"
+            title="Konsultanci – trend"
             grouped={grouped}
             getValue={(r) => r.active_consultants}
           />
           <YoYChart
-            title="Zejścia — trend"
+            title="Zejścia – trend"
             grouped={grouped}
             getValue={(r) => r.departures}
           />
           <YoYChart
-            title="Placementy — trend"
+            title="Placementy – trend"
             grouped={grouped}
             getValue={(r) => r.placements}
           />
@@ -828,7 +828,7 @@ export default function BoardDashboardPage() {
         </div>
         <div className="grid grid-cols-1 gap-4 mt-4">
           <YoYChart
-            title="Unikalni klienci — trend"
+            title="Unikalni klienci – trend"
             grouped={grouped}
             getValue={(r) => r.placement_clients?.length || 0}
           />
@@ -859,13 +859,13 @@ export default function BoardDashboardPage() {
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
           <YoYChart
-            title="Marża PLN/h — trend"
+            title="Marża PLN/h – trend"
             grouped={grouped}
             getValue={(r) => r.avg_margin_per_hour}
             unit="zł"
           />
           <YoYChart
-            title="Hit ratio — trend"
+            title="Hit ratio – trend"
             grouped={grouped}
             getValue={(r) => r.hit_ratio}
             unit="%"

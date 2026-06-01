@@ -69,7 +69,7 @@ export function MyTeamTab() {
                 </span>
               </td>
               <td className="px-3 py-2 text-muted-foreground text-xs">
-                {row.tac_email ?? "—"}
+                {row.tac_email ?? "–"}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {row.active_jobs}

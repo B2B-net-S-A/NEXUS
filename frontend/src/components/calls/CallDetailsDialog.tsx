@@ -19,14 +19,14 @@ interface CallDetailsDialogProps {
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds == null) return "—";
+  if (seconds == null) return "–";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   try {
     return new Date(iso).toLocaleString("pl-PL", {
       dateStyle: "medium",
@@ -84,7 +84,7 @@ export default function CallDetailsDialog({
                 <span className="text-xs">Agent CloudTalk</span>
               </div>
               <div className="text-foreground font-medium">
-                {call.cloudtalk_agent_id ?? "—"}
+                {call.cloudtalk_agent_id ?? "–"}
               </div>
             </div>
             <div className="space-y-1">

@@ -177,7 +177,7 @@ function GenerateDocumentButton({
       const html = await resp.text();
       const win = window.open("", "_blank");
       if (!win) {
-        alert("Popupy są blokowane — pozwól na okno i spróbuj ponownie.");
+        alert("Popupy są blokowane – pozwól na okno i spróbuj ponownie.");
         return;
       }
       win.document.write(html);
@@ -357,7 +357,7 @@ export default function ContractDetailPage() {
     enabled: !Number.isNaN(id) && activeTab === "rateHistory",
   });
 
-  // Compliance risk — eagerly fetch documents so the badge works on all tabs.
+  // Compliance risk – eagerly fetch documents so the badge works on all tabs.
   const { data: contractDocs } = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", id],
     queryFn: () => contractsApi.documents(id).then((r) => r.data),
@@ -407,7 +407,7 @@ export default function ContractDetailPage() {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form || !contract) return;
-    // Transitioning to "ended" — collect structured reason via dialog rather
+    // Transitioning to "ended" – collect structured reason via dialog rather
     // than silently flipping status. Revert the form value so the save below
     // doesn't double-fire.
     if (form.status === "ended" && contract.status !== "ended") {
@@ -631,7 +631,7 @@ export default function ContractDetailPage() {
                       {contract.job_title}
                     </Link>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span className="text-muted-foreground">–</span>
                   )}
                 </InfoRow>
                 <InfoRow icon={Calendar} label="Okres">
@@ -652,17 +652,17 @@ export default function ContractDetailPage() {
                   <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
                     {contract.target_rate_min != null
                       ? formatCurrency(contract.target_rate_min, contract.currency)
-                      : "—"}
+                      : "–"}
                     {" / "}
                     {contract.target_rate_max != null
                       ? formatCurrency(contract.target_rate_max, contract.currency)
-                      : "—"}
+                      : "–"}
                   </InfoRow>
                 )}
               </div>
             )}
 
-            {/* Rate benchmark card — compare vs internal avg + market */}
+            {/* Rate benchmark card – compare vs internal avg + market */}
             {!editing && (
               <ContractRateBenchmarkCard
                 contractId={id}
@@ -670,7 +670,7 @@ export default function ContractDetailPage() {
               />
             )}
 
-            {/* Termination info — visible only after the contract is ended */}
+            {/* Termination info – visible only after the contract is ended */}
             {!editing && contract.status === "ended" && contract.termination_reason && (
               <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-900 rounded-2xl p-5">
                 <h2 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-2">
@@ -732,7 +732,7 @@ export default function ContractDetailPage() {
               </div>
             )}
 
-            {/* Handover notes (C6) — wewnętrzne */}
+            {/* Handover notes (C6) – wewnętrzne */}
             {!editing && contract.handover_notes && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900 rounded-2xl p-5">
                 <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200 mb-2">
@@ -1019,7 +1019,7 @@ export default function ContractDetailPage() {
                           }
                           className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                         >
-                          <option value="">— nie określono —</option>
+                          <option value="">– nie określono –</option>
                           <option value="remote">Zdalnie</option>
                           <option value="hybrid">Hybrydowo</option>
                           <option value="onsite">Stacjonarnie</option>
@@ -1036,7 +1036,7 @@ export default function ContractDetailPage() {
                             setForm((f) => (f ? { ...f, office_location: e.target.value } : f))
                           }
                           className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-                          placeholder="Warszawa — Domaniewska 50"
+                          placeholder="Warszawa – Domaniewska 50"
                         />
                       </div>
                     </div>
@@ -1208,14 +1208,14 @@ export default function ContractDetailPage() {
                   >
                     <td className="px-4 py-2">{formatDate(row.start_date)}</td>
                     <td className="px-4 py-2">
-                      {row.end_date ? formatDate(row.end_date) : "—"}
+                      {row.end_date ? formatDate(row.end_date) : "–"}
                     </td>
                     <td className="px-4 py-2 uppercase">{row.contract_type}</td>
                     <td className="px-4 py-2 text-right font-medium">
                       {formatCurrency(row.rate, row.currency)}
                     </td>
                     <td className="px-4 py-2 text-muted-foreground dark:text-muted-foreground">
-                      {row.notes ?? "—"}
+                      {row.notes ?? "–"}
                     </td>
                   </tr>
                 ))}

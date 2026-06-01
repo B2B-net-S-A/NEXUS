@@ -56,7 +56,7 @@ export function DlClientsTable({ rows }: DlClientsTableProps) {
                   </td>
                   <td className="px-4 py-3">
                     {row.clients.length === 0 && (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <span className="text-xs text-muted-foreground">–</span>
                     )}
                     <div className="flex flex-wrap gap-1.5">
                       {row.clients.map((c) => (

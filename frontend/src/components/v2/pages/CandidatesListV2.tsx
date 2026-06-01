@@ -133,7 +133,7 @@ const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
  blacklisted: "danger",
 };
 
-// Deterministyczna kolorystyka awatara wg ID kandydata — 8 wariantów cycle.
+// Deterministyczna kolorystyka awatara wg ID kandydata – 8 wariantów cycle.
 // Daje "kolorową" listę bez randomizacji (ten sam kandydat = ten sam kolor
 // między reloadami). Każdy wariant: jasne tło + ciemny tekst + ciemny ring.
 const AVATAR_COLOR_CLASSES = [
@@ -206,7 +206,7 @@ interface Candidate {
  client_name?: string | null;
  stage: string;
  }> | null;
- // Quick-glance triage fields — populated when API called with
+ // Quick-glance triage fields – populated when API called with
  // include_last_activity=true. Backend already strips HTML + truncates
  // last_note_preview to 120 chars; rejection reason includes job + client
  // context; rate is formatted "150 PLN/h".
@@ -215,7 +215,7 @@ interface Candidate {
  last_rate?: string | null;
 }
 
-/** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
+/** Polskie etykiety pipeline'u – używamy w kolumnie "Rekrutacje" tooltipach. */
 const STAGE_LABELS: Record<string, string> = {
  new: "Nowy",
  prep_call: "Prep call",
@@ -295,7 +295,7 @@ type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
 // Default columns shown to a new user (no global override, no per-user override).
 // Triage-first set: dokładnie te kolumny, których rekruter potrzebuje BEZ
-// klikania w kandydata po boolean searchu — identity + telefon + email + CV
+// klikania w kandydata po boolean searchu – identity + telefon + email + CV
 // + status w innych rekrutacjach + stawka + ostatnia notatka + powód
 // odrzucenia + data dodania. Title/Company/Skills/Status/Match/Position/
 // Added-by są opt-in via "Kolumny" popover (recruiter który chce stanowisko/
@@ -317,13 +317,13 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  *    2) GET /documents/{doc_id}/content?disposition=inline → backend
  *       proxy-streamuje bytes z Object Storage (Hetzner) lub BYTEA.
  *  Stary endpoint `/cv-download` jest broken dla rows zmigrowanych do
- *  Object Storage (2026-05-07) — szukał w lokalnym UPLOAD_DIR. Tutaj
+ *  Object Storage (2026-05-07) – szukał w lokalnym UPLOAD_DIR. Tutaj
  *  użyty endpoint ma już proxy-mode (patrz PlikiTab.fetchBlob, ta sama
  *  notatka o axios+responseType:blob cancelled cross-origin). */
 function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  const [opening, setOpening] = useState(false);
  if (!candidate.cv_filename) {
- return <span className="text-xs text-muted-foreground" aria-label="Brak CV">—</span>;
+ return <span className="text-xs text-muted-foreground" aria-label="Brak CV">–</span>;
  }
  const openCv = async (e: React.MouseEvent) => {
  e.stopPropagation();
@@ -367,7 +367,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
  window.open(url, "_blank", "noopener,noreferrer");
  setTimeout(() => URL.revokeObjectURL(url), 60_000);
  } catch {
- // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
+ // Cicho – kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
  } finally {
  setOpening(false);
  }
@@ -396,7 +396,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
 function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  const recs = candidate.active_recruitments ?? [];
  if (recs.length === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <Popover>
@@ -440,7 +440,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  {r.job_title}
  </div>
  <div className="text-xs text-muted-foreground truncate">
- {r.client_name ?? "—"}
+ {r.client_name ?? "–"}
  </div>
  </div>
  <Badge size="sm" variant="outline" className="shrink-0">
@@ -498,7 +498,7 @@ function CandidateCell({
  <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
  {sourceIcon(candidate.source)}
  <span className="truncate">
- {candidate.email ?? formatCandidateLocation(candidate.location) ??"—"}
+ {candidate.email ?? formatCandidateLocation(candidate.location) ??"–"}
  </span>
  </div>
  {snippet && searchTerms.length > 0 && (
@@ -515,7 +515,7 @@ function CandidateCell({
  case "phone": {
  const phone = candidate.phone;
  if (!phone) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  const onCopy = (e: React.MouseEvent) => {
  e.stopPropagation();
@@ -548,7 +548,7 @@ function CandidateCell({
  case "email": {
  const email = candidate.email;
  if (!email) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  const onCopy = (e: React.MouseEvent) => {
  e.stopPropagation();
@@ -591,14 +591,14 @@ function CandidateCell({
  className="text-sm text-foreground truncate block"
  title={title ?? undefined}
  >
- {title ??"—"}
+ {title ??"–"}
  </span>
  );
  }
  case "company": {
  const company = getCurrentCompany(candidate);
  if (!company) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
@@ -615,7 +615,7 @@ function CandidateCell({
  case "location": {
  const loc = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
  if (!loc) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
@@ -629,7 +629,7 @@ function CandidateCell({
  case "experience": {
  const tag = getExperienceLabel(candidate.years_it_experience);
  if (!tag) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <Badge size="sm" variant={tag.variant}>
@@ -640,7 +640,7 @@ function CandidateCell({
  case "skills": {
  const skills = getSkillList(candidate, 8);
  if (skills.length === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  const shown = skills.slice(0, 3);
  const overflow = skills.length - shown.length;
@@ -665,7 +665,7 @@ function CandidateCell({
  case "rate": {
  const rate = candidate.last_rate;
  if (!rate) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
@@ -682,7 +682,7 @@ function CandidateCell({
  case "last_note": {
  const note = candidate.last_note_preview;
  if (!note) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <div className="flex items-start gap-1.5 min-w-0">
@@ -699,7 +699,7 @@ function CandidateCell({
  case "rejection_reason": {
  const reason = candidate.last_rejection_reason;
  if (!reason) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  return (
  <div className="flex items-start gap-1.5 min-w-0">
@@ -714,11 +714,11 @@ function CandidateCell({
  );
  }
  case "position": {
- // Legacy column kept for back-compat — recruiters who opt-in still get
+ // Legacy column kept for back-compat – recruiters who opt-in still get
  // the old "Pozycja" value (rarely populated outside of pipeline rows).
  return (
  <span className="text-sm text-foreground truncate block">
- {candidate.position ?? candidate.current_role ??"—"}
+ {candidate.position ?? candidate.current_role ??"–"}
  </span>
  );
  }
@@ -743,14 +743,14 @@ function CandidateCell({
  </Badge>
  );
  }
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  case "created": {
  return (
  <span className="text-xs text-muted-foreground truncate block">
  {candidate.created_at
  ? formatRelativeTime(candidate.created_at)
- :"—"}
+ :"–"}
  </span>
  );
  }
@@ -788,7 +788,7 @@ export function CandidatesListV2() {
  const queryClient = useQueryClient();
 
  // Global default column config (admin-editable via PUT /api/settings/candidates-columns).
- // Per-user overrides live in the zustand store — they always win.
+ // Per-user overrides live in the zustand store – they always win.
  const { data: globalColumnsConfig } = useQuery<{ columns: ColumnId[] }>({
  queryKey: ["settings","candidates-columns"],
  queryFn: () =>
@@ -816,7 +816,7 @@ export function CandidatesListV2() {
  ].join(" ");
  // Aggregate the user's positive search phrases (simple q + advanced
  // q_all + q_any). MatchSnippet uses these to <mark>-highlight matched
- // substrings inside each row's snippet. Skipped: q_none — exclusion
+ // substrings inside each row's snippet. Skipped: q_none – exclusion
  // phrases shouldn't be highlighted as matches.
 
  // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
@@ -911,7 +911,7 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
- // LinkedIn-Recruiter-style filters — pipe-separated to allow commas in company names
+ // LinkedIn-Recruiter-style filters – pipe-separated to allow commas in company names
  const [currentCompanyFilter, setCurrentCompanyFilter] = useState<string[]>(
  (searchParams.get("cur_co") ??"").split("|").filter(Boolean)
  );
@@ -927,7 +927,7 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
- // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
+ // Stage-move filters – "kto dodał na etap i kiedy". Correlated with
  // `pipelineStageFilter` on the backend (matched stage move's mover + date).
  const [stageMovedByIds, setStageMovedByIds] = useState<number[]>(
  (searchParams.get("stage_by") ??"")
@@ -941,11 +941,11 @@ export function CandidatesListV2() {
  const [stageMovedBefore, setStageMovedBefore] = useState<string>(
  searchParams.get("stage_to") ??""
  );
- // LinkedIn-detected job change window —"1","2", or"3" months. Empty = off.
+ // LinkedIn-detected job change window –"1","2", or"3" months. Empty = off.
  const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
  searchParams.get("rcj") ??""
  );
- // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
+ // Engagement openness – any of {side_projects, sales_support, expert_consult}, OR-combined.
  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
  (searchParams.get("open_to") ??"")
  .split(",")
@@ -953,7 +953,7 @@ export function CandidatesListV2() {
  v === "side_projects" || v === "sales_support" || v === "expert_consult"
  )
  );
- // Traffit-style boolean buckets — pipe-separated in URL, serialized as repeating
+ // Traffit-style boolean buckets – pipe-separated in URL, serialized as repeating
  // query params when calling the API.
  const [qAll, setQAll] = useState<string[]>(
  (searchParams.get("q_all") ??"").split("|").filter(Boolean)
@@ -965,7 +965,7 @@ export function CandidatesListV2() {
  (searchParams.get("q_none") ??"").split("|").filter(Boolean)
  );
  // Boolean-search panel visibility. Opens automatically when the URL arrives
- // with any q_all/q_any/q_none — the user has filters and needs to see them.
+ // with any q_all/q_any/q_none – the user has filters and needs to see them.
  // Otherwise opt-in via the `Boolean` toggle next to the search input. Persists
  // across reloads via `?boolean=1` once opened so the recruiter doesn't lose
  // their workspace.
@@ -1006,7 +1006,7 @@ export function CandidatesListV2() {
  if (qAny.length) params.set("q_any", qAny.join("|"));
  if (qNone.length) params.set("q_none", qNone.join("|"));
  // Persist Boolean-panel visibility ONLY when the user toggled it open
- // without any active phrases yet — otherwise the q_all/q_any/q_none params
+ // without any active phrases yet – otherwise the q_all/q_any/q_none params
  // already imply the panel should be shown (no need to clutter the URL).
  if (
  showAdvanced &&
@@ -1121,7 +1121,7 @@ export function CandidatesListV2() {
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
  // Positive search phrases used for <mark> highlighting in row snippets.
- // We memo on the raw arrays (not deps stringified) — referential equality
+ // We memo on the raw arrays (not deps stringified) – referential equality
  // is enough since each setter creates a new array. q_none is omitted by
  // design: exclusion phrases shouldn't render as matches.
  const searchTerms = useMemo(() => {
@@ -1367,7 +1367,7 @@ export function CandidatesListV2() {
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
- {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
+ {/* Header – celowo stonowany: tytuł/licznik to nie kluczowa informacja,
  więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
  przycisk „Zaawansowane" w toolbarze poniżej. */}
  <div className="flex items-end justify-between flex-wrap gap-3">
@@ -1442,7 +1442,7 @@ export function CandidatesListV2() {
  </div>
  </div>
 
- {/* Toolbar — wrapped in a soft tinted panel so the filters read as a
+ {/* Toolbar – wrapped in a soft tinted panel so the filters read as a
  distinct zone and individual controls stand out instead of blending
  into the white page / table. */}
  <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-100 via-indigo-50 to-sky-100 p-3 shadow-sm dark:border-violet-900/40 dark:from-violet-950/30 dark:via-indigo-950/20 dark:to-sky-950/20">
@@ -1462,7 +1462,7 @@ export function CandidatesListV2() {
  size="sm"
  variant={showAdvanced ?"primary" :"outline"}
  onClick={() => setShowAdvanced((v) => !v)}
- title="Boolean search — ALL / ANY / NONE"
+ title="Boolean search – ALL / ANY / NONE"
  aria-expanded={showAdvanced}
  aria-controls="boolean-search-panel"
  className={cn(
@@ -1573,7 +1573,7 @@ export function CandidatesListV2() {
  variant="outline"
  className="bg-card shadow-sm"
  onClick={() => {
- // Shortcut: show everyone who can realistically be sourced right now —
+ // Shortcut: show everyone who can realistically be sourced right now –
  // not at a client AND explicitly open to offers (or actively looking).
  setEmploymentFilter(["available"]);
  setAvailabilityFilter(["actively_looking"]);
@@ -1793,12 +1793,12 @@ export function CandidatesListV2() {
  }}
  />
  </div>
- {/* Stage-move filters — "kto dodał na etap i kiedy". Backend correlates
+ {/* Stage-move filters – "kto dodał na etap i kiedy". Backend correlates
  these with the „Etap" filter above (the matched stage move's mover +
  date), so łącząc je dostajesz „kogo Jan przeniósł na Zweryfikowany w maju". */}
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Etap — kto dodał
+ Etap – kto dodał
  </h3>
  <UserMultiSelect
  value={stageMovedByIds}
@@ -1816,12 +1816,12 @@ export function CandidatesListV2() {
  </div>
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Etap — data dodania
+ Etap – data dodania
  </h3>
  <div className="flex items-center gap-2">
  <Input
  type="date"
- aria-label="Data dodania na etap — od"
+ aria-label="Data dodania na etap – od"
  value={stageMovedAfter}
  max={stageMovedBefore ||undefined}
  onChange={(e) => {
@@ -1830,10 +1830,10 @@ export function CandidatesListV2() {
  }}
  className="text-sm"
  />
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  <Input
  type="date"
- aria-label="Data dodania na etap — do"
+ aria-label="Data dodania na etap – do"
  value={stageMovedBefore}
  min={stageMovedAfter ||undefined}
  onChange={(e) => {
@@ -2143,7 +2143,7 @@ export function CandidatesListV2() {
  </div>
  </div>
 
- {/* Pinned candidates bar — short-list workflow (Phase 4). Hidden when
+ {/* Pinned candidates bar – short-list workflow (Phase 4). Hidden when
  user has zero pins so it doesn't waste space for casual browsing. */}
  <PinnedCandidatesBar
  onOpenCandidate={(id) => {
@@ -2157,7 +2157,7 @@ export function CandidatesListV2() {
  }}
  />
 
- {/* Boolean-search panel — inline (Phase 3, Traffit parity). Toggled by
+ {/* Boolean-search panel – inline (Phase 3, Traffit parity). Toggled by
  the "Zaawansowane" button above; auto-opens when URL carries q_all/q_any/q_none
  so reloads don't hide active filters. */}
  {showAdvanced && (
@@ -2210,7 +2210,7 @@ export function CandidatesListV2() {
  </div>
  )}
 
- {/* Virtualized body — list or tiles */}
+ {/* Virtualized body – list or tiles */}
  {candidatesView === "tiles" ? (
  items.length === 0 && !isLoading ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
@@ -2452,13 +2452,13 @@ export function CandidatesListV2() {
  {/* Keyboard hints */}
  <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground justify-center">
  <span>
- <Kbd>⌘</Kbd> <Kbd>K</Kbd> — szybkie wyszukiwanie
+ <Kbd>⌘</Kbd> <Kbd>K</Kbd> – szybkie wyszukiwanie
  </span>
  <span>
- <Kbd>N</Kbd> — nowy kandydat
+ <Kbd>N</Kbd> – nowy kandydat
  </span>
  <span>
- <Kbd>Enter</Kbd> — dodaj umiejętność w filtrze
+ <Kbd>Enter</Kbd> – dodaj umiejętność w filtrze
  </span>
  </div>
 

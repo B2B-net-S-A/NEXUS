@@ -42,7 +42,7 @@ function stateEmoji(state: KpiResult["state"]): string {
 }
 
 /**
- *"Moje KPI" — widget w TopbarV2 (wariant compact) lub sekcja w
+ *"Moje KPI" – widget w TopbarV2 (wariant compact) lub sekcja w
  * DashboardV2 (wariant dashboard).
  *
  * - Role nieoperacyjne dostają pustą listę z backendu → widget zwraca null.

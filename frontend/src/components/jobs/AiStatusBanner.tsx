@@ -20,7 +20,7 @@ interface AiStatusBannerProps {
 /**
  * Surfaces the AI matching circuit-breaker state to the user.
  *
- * Renders nothing when the pipeline is healthy (the common case) — silence
+ * Renders nothing when the pipeline is healthy (the common case) – silence
  * is the right UX when everything is fine. Flipped on by the rolling
  * window in ``app/services/ai_health.py``.
  */
@@ -43,7 +43,7 @@ export function AiStatusBanner({
         <OctagonAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <div>
           <strong>AI matching niedostępny.</strong>{" "}
-          Voyage AI / Qdrant ma problem — propozycje kandydatów mogą być puste.{" "}
+          Voyage AI / Qdrant ma problem – propozycje kandydatów mogą być puste.{" "}
           <Link
             href={manualSearchHref}
             className="underline underline-offset-2 hover:text-rose-900 dark:hover:text-rose-100"
@@ -66,7 +66,7 @@ export function AiStatusBanner({
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <div>
         <strong>AI matching wolny.</strong>{" "}
-        Ostatnie zapytania trwały &gt; 5s — wyniki mogą być opóźnione.{" "}
+        Ostatnie zapytania trwały &gt; 5s – wyniki mogą być opóźnione.{" "}
         <Link
           href={manualSearchHref}
           className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100"

@@ -6,7 +6,7 @@ import { X } from"lucide-react";
 import { cn } from"@/lib/utils";
 
 /**
- * Side sheet — built on Radix Dialog. Replaces ad-hoc modals for forms with
+ * Side sheet – built on Radix Dialog. Replaces ad-hoc modals for forms with
  * 5+ fields (Screening, Scorecard, SendEmail). Slides in from side.
  */
 

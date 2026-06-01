@@ -98,7 +98,7 @@ function SourcerCategorySection({
  value={form.user_id}
  onChange={(e) => setForm({ ...form, user_id: e.target.value })}
  >
- <option value="">—</option>
+ <option value="">–</option>
  {users.map((u) => (
  <option key={u.id} value={u.id}>
  {u.name} ({u.role})
@@ -115,7 +115,7 @@ function SourcerCategorySection({
  value={form.category_id}
  onChange={(e) => setForm({ ...form, category_id: e.target.value })}
  >
- <option value="">—</option>
+ <option value="">–</option>
  {(summary?.categories ?? []).map((r) => (
  <option key={r.category.id} value={r.category.id}>
  {r.category.name_pl}
@@ -173,7 +173,7 @@ function SourcerCategorySection({
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1.5">
  {row.first_priority.length === 0 && (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  {row.first_priority.map((s) => (
  <Badge key={s.user_id} variant="soft" size="sm">
@@ -185,7 +185,7 @@ function SourcerCategorySection({
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1.5">
  {row.second_priority.length === 0 && (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  {row.second_priority.map((s) => (
  <Badge key={s.user_id} size="sm">
@@ -264,7 +264,7 @@ function TacDlSection({
  value={form.tac_user_id}
  onChange={(e) => setForm({ ...form, tac_user_id: e.target.value })}
  >
- <option value="">—</option>
+ <option value="">–</option>
  {tacs.map((u) => (
  <option key={u.id} value={u.id}>
  {u.name}
@@ -283,7 +283,7 @@ function TacDlSection({
  setForm({ ...form, delivery_lead_user_id: e.target.value })
  }
  >
- <option value="">—</option>
+ <option value="">–</option>
  {dls.map((u) => (
  <option key={u.id} value={u.id}>
  {u.name}
@@ -349,7 +349,7 @@ function TacDlSection({
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1">
  {tac.linkedin_farming.length === 0 && (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  {tac.linkedin_farming.map((c) => (
  <Badge key={c.id} variant="soft" size="sm">
@@ -391,7 +391,7 @@ function TacDlSection({
  setFarmForm({ ...farmForm, tac_user_id: e.target.value })
  }
  >
- <option value="">—</option>
+ <option value="">–</option>
  {tacs.map((u) => (
  <option key={u.id} value={u.id}>
  {u.name}
@@ -410,7 +410,7 @@ function TacDlSection({
  setFarmForm({ ...farmForm, category_id: e.target.value })
  }
  >
- <option value="">—</option>
+ <option value="">–</option>
  {categories.map((c) => (
  <option key={c.id} value={c.id}>
  {c.name_pl}
@@ -473,7 +473,7 @@ function DlClientsSection({
  <CardTitle>3. Delivery Lead → Klienci</CardTitle>
  <CardDescription>
  Przypisz DL do klientów. Zaznacz <span className="font-semibold">Head</span>{""}
- dla głównego opiekuna (max 1 per klient — automatycznie odznaczany u
+ dla głównego opiekuna (max 1 per klient – automatycznie odznaczany u
  innych).
  </CardDescription>
  </CardHeader>
@@ -490,7 +490,7 @@ function DlClientsSection({
  setForm({ ...form, delivery_lead_user_id: e.target.value })
  }
  >
- <option value="">—</option>
+ <option value="">–</option>
  {dls.map((u) => (
  <option key={u.id} value={u.id}>
  {u.name}
@@ -507,7 +507,7 @@ function DlClientsSection({
  value={form.client_id}
  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
  >
- <option value="">—</option>
+ <option value="">–</option>
  {clients.map((c) => (
  <option key={c.id} value={c.id}>
  {c.name}
@@ -559,7 +559,7 @@ function DlClientsSection({
  </td>
  <td className="px-3 py-2">
  {row.clients.length === 0 && (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  <div className="flex flex-wrap gap-1.5">
  {row.clients.map((c) => (

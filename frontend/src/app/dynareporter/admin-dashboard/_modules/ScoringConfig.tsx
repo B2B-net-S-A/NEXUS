@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Scoring Config — admin konfiguracja Liga Mistrzów punktacji.
+ * Scoring Config – admin konfiguracja Liga Mistrzów punktacji.
  * Port `ScoringConfig.tsx` z artur-t-96/InfraReporter.
  */
 
@@ -24,12 +24,12 @@ export function ScoringConfig() {
   const [interview, setInterview] = useState(15);
   const [recommendation, setRecommendation] = useState(5);
   const [verification, setVerification] = useState(0);
-  // Prize amounts (PLN) — previously hardcoded w Rekrutacja podium UI,
+  // Prize amounts (PLN) – previously hardcoded w Rekrutacja podium UI,
   // teraz editable. Finding 30 z QA review.
   const [prize1, setPrize1] = useState(5000);
   const [prize2, setPrize2] = useState(3000);
   const [prize3, setPrize3] = useState(2000);
-  // Business thresholds — previously hardcoded w Rekrutacja page.tsx.
+  // Business thresholds – previously hardcoded w Rekrutacja page.tsx.
   const [pcMinPerDay, setPcMinPerDay] = useState(3);
   const [linkedinTarget, setLinkedinTarget] = useState(5);
   const [saveStatus, setSaveStatus] = useState<{
@@ -76,7 +76,7 @@ export function ScoringConfig() {
       queryClient.invalidateQueries({ queryKey: ["dr-rekrutacja-dashboard"] });
       setSaveStatus({
         type: "success",
-        msg: "Punktacja zapisana — Liga Mistrzów zaktualizowana",
+        msg: "Punktacja zapisana – Liga Mistrzów zaktualizowana",
       });
       setTimeout(() => setSaveStatus(null), 4000);
     },
@@ -90,7 +90,7 @@ export function ScoringConfig() {
       <CardContent className="pt-6">
         <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
           <Settings className="w-5 h-5 text-gray-600" />
-          Liga Mistrzów — System punktowy
+          Liga Mistrzów – System punktowy
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
           Każda akcja rekrutera daje określoną liczbę punktów. Zmiany działają

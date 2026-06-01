@@ -19,7 +19,7 @@ interface Props {
 }
 
 /**
- * SuggestedPoolsWidget — sidebar card for candidate detail showing talent
+ * SuggestedPoolsWidget – sidebar card for candidate detail showing talent
  * pools ranked by centroid similarity. Rekruter jednym klikiem dodaje
  * kandydata do puli (akceptacja sugestii AI).
  */
@@ -69,7 +69,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
           Sugerowane pule
         </div>
         <p className="text-xs text-muted-foreground">
-          Brak trafnych sugestii — pula talentów może być pusta, albo kandydat
+          Brak trafnych sugestii – pula talentów może być pusta, albo kandydat
           nie ma jeszcze policzonego embedding.
         </p>
       </div>

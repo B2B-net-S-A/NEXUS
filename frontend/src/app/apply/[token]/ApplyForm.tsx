@@ -64,7 +64,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
  // Capture UTM query params on mount and stash for the eventual submit.
- // We snapshot once — if the user navigates away and back the URL might
+ // We snapshot once – if the user navigates away and back the URL might
  // have changed; sticking with first-touch matches GA conventions.
  const utmRef = useRef<Record<string, string>>({});
  useEffect(() => {
@@ -128,7 +128,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
 
  setStatus("submitting");
  try {
- // Raw fetch — do NOT reuse the internal axios client. This page must
+ // Raw fetch – do NOT reuse the internal axios client. This page must
  // not attach the recruiter's Authorization token to a public endpoint.
  const res = await fetch(`${apiBase()}/api/public/apply/${token}`, {
  method: "POST",

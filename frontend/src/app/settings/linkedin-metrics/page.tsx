@@ -38,7 +38,7 @@ function toISO(d: Date) {
 }
 
 function startOfWeek(d: Date) {
- // ISO week — monday
+ // ISO week – monday
  const copy = new Date(d)
  const day = copy.getDay() || 7
  if (day !== 1) copy.setDate(copy.getDate() - (day - 1))
@@ -175,7 +175,7 @@ export default function AdminLinkedInMetricsPage() {
  Admin · LinkedIn metrics (ręczne)
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
- Aktywność LinkedIn — bulk edit
+ Aktywność LinkedIn – bulk edit
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
  Wpisz dzienne liczby dla każdego TAC/recruiter/sourcer. Wiersze zerowe
@@ -228,7 +228,7 @@ export default function AdminLinkedInMetricsPage() {
  </CardContent>
  </Card>
 
- {/* Grid — 3 metryki per dzień per user */}
+ {/* Grid – 3 metryki per dzień per user */}
  <Card>
  <CardHeader>
  <CardTitle>Grid: użytkownik × dzień</CardTitle>

@@ -55,7 +55,7 @@ export function FunnelSection() {
                   {f.count}
                 </span>
                 <span className="w-16 text-xs text-muted-foreground text-right">
-                  {f.conversion_pct !== null ? `${f.conversion_pct}%` : "—"}
+                  {f.conversion_pct !== null ? `${f.conversion_pct}%` : "–"}
                 </span>
               </div>
             );

@@ -167,7 +167,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  title={
  isPending
- ? `Oczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
+ ? `Oczekuje akceptacji weryfikacji – rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
  : undefined
  }
  >
@@ -520,7 +520,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  reason?.candidateOfferResponse ?? undefined,
  });
 
- // 0045_rejection_emails — if the backend scheduled an auto-email,
+ // 0045_rejection_emails – if the backend scheduled an auto-email,
  // offer a 10-second"Cofnij wysyłkę" toast so the recruiter can
  // abort before the 15-minute countdown elapses.
  const scheduledId = response?.data?.scheduled_rejection_email_id;
@@ -576,7 +576,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const item = src.items[res.source.index];
  if (!item) return;
 
- // Pending verification (migracja 0056) — najpierw zapytaj o rate,
+ // Pending verification (migracja 0056) – najpierw zapytaj o rate,
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
  if (dst.stage === "verified") {
@@ -604,7 +604,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  [cols, applyOptimistic, sendMove]
  );
 
- // Submit z modala"Zweryfikowany — podaj rate"
+ // Submit z modala"Zweryfikowany – podaj rate"
  const submitVerifiedMove = useCallback(
  async (payload: { rate: number; unit: RateUnit; currency: string }) => {
  if (!verifiedRatePrompt) return;
@@ -623,7 +623,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  |"active"
  |"pending"
  | undefined;
- // Zaktualizuj kolumnę z faktycznym statusem (nie zgaduj — backend wie).
+ // Zaktualizuj kolumnę z faktycznym statusem (nie zgaduj – backend wie).
  setCols((prev) =>
  prev.map((c) => {
  if (colId(c) === srcColId) {
@@ -688,13 +688,13 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  if (!note.trim()) return;
  try {
  await pipelineApi.rejectVerification(item.id, note.trim());
- // Odśwież widok — backend tworzy nowy CandidateStage z poprzednim
+ // Odśwież widok – backend tworzy nowy CandidateStage z poprzednim
  // stage'em, więc najprościej ponownie pobrać kanban dla joba.
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
  setCols(fresh.data.columns as KanbanColumn[]);
  }
- showSuccess("Weryfikacja odrzucona — kandydat wrócił na poprzedni stage.");
+ showSuccess("Weryfikacja odrzucona – kandydat wrócił na poprzedni stage.");
  } catch (e) {
  console.error("Reject verification failed", e);
  showError("Nie udało się odrzucić weryfikacji.");
@@ -951,7 +951,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  />
  )}
 
- {/* Pending verification modal — recruiter wpisuje rate */}
+ {/* Pending verification modal – recruiter wpisuje rate */}
  {verifiedRatePrompt && (
  <VerifiedRateModal
  open={true}
@@ -964,7 +964,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  />
  )}
 
- {/* Reject verification modal — approver wpisuje notatkę */}
+ {/* Reject verification modal – approver wpisuje notatkę */}
  {pendingRejectVerification && (
  <Dialog
  open={true}

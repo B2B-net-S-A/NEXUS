@@ -45,11 +45,11 @@ interface Props {
 }
 
 /**
- * CompetenceCategoryPicker — dropdown of 5 CCs with AI auto-suggest banner.
+ * CompetenceCategoryPicker – dropdown of 5 CCs with AI auto-suggest banner.
  *
  * When `initialSuggestions.top` is available and not a tie, the picker
  * pre-highlights the suggested CC with a confidence badge. The user can still
- * freely change the selection — which fires `onAcceptSuggestion(null)`-like
+ * freely change the selection – which fires `onAcceptSuggestion(null)`-like
  * intent via `onChange`, so the caller can log a `cc-override`.
  */
 export function CompetenceCategoryPicker({
@@ -67,7 +67,7 @@ export function CompetenceCategoryPicker({
       api
         .get<CompetenceCategory[]>("/api/competence-categories")
         .then((r) => r.data),
-    staleTime: 60 * 60 * 1000, // 1h cache — CCs rarely change
+    staleTime: 60 * 60 * 1000, // 1h cache – CCs rarely change
   });
 
   const categories = useMemo(() => categoriesData ?? [], [categoriesData]);
@@ -94,7 +94,7 @@ export function CompetenceCategoryPicker({
     setSuggestError(null);
     setSuggestLoading(true);
     try {
-      // No job exists yet — call the classifier with a draft payload via dedicated endpoint?
+      // No job exists yet – call the classifier with a draft payload via dedicated endpoint?
       // MVP: for the create flow we rely on post-create classification; here we just
       // nudge the user with a keyword-based hint computed client-side.
       const corpus = [jobTitle, description, requirements]
@@ -123,7 +123,7 @@ export function CompetenceCategoryPicker({
       const top = scored[0];
       const second = scored[1];
       if (!top || top.score <= 0) {
-        setSuggestError("Za mało kontekstu — wybierz CC ręcznie.");
+        setSuggestError("Za mało kontekstu – wybierz CC ręcznie.");
         return;
       }
       const tie = !!second && Math.abs(top.score - second.score) < 0.1;
@@ -184,7 +184,7 @@ export function CompetenceCategoryPicker({
         }
         className="w-full h-10 rounded-lg border border-border dark:border-border bg-card dark:bg-card px-3 text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
       >
-        <option value="">— wybierz kategorię —</option>
+        <option value="">– wybierz kategorię –</option>
         {categories.map((cc) => (
           <option key={cc.id} value={cc.id}>
             {cc.name_pl}
@@ -202,7 +202,7 @@ export function CompetenceCategoryPicker({
       {suggestions?.tie && (
         <div className="text-[11px] text-amber-800 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1.5 flex items-center gap-1.5">
           <AlertCircle className="w-3.5 h-3.5" />
-          AI nie rozstrzyga — dwa bliskie dopasowania. Wybierz ręcznie.
+          AI nie rozstrzyga – dwa bliskie dopasowania. Wybierz ręcznie.
         </div>
       )}
 

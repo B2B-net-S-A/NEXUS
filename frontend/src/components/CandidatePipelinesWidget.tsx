@@ -92,7 +92,7 @@ function PipelineRow({
   muted?: boolean;
   employment?: EmploymentInfo;
 }) {
-  // Show Champion card once the candidate advances to an external stage —
+  // Show Champion card once the candidate advances to an external stage –
   // recruiter should have filled screening before moving into cv_sent+.
   const showChampion =
     row.stage_category === "external" || row.stage_category === "terminal";

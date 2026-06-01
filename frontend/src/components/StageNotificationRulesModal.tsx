@@ -109,7 +109,7 @@ export function StageNotificationRulesModal({
             <>
               {rules.length === 0 && editingId !== "new" && (
                 <p className="text-sm text-muted-foreground py-2">
-                  Brak reguł. Dodaj pierwszą — kandydat na tym etapie nie
+                  Brak reguł. Dodaj pierwszą – kandydat na tym etapie nie
                   wygeneruje powiadomień, dopóki nie skonfigurujesz adresatów.
                 </p>
               )}

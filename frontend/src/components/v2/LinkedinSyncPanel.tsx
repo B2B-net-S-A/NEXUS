@@ -49,7 +49,7 @@ const STATUS_LABEL: Record<LinkedinSyncStatus, string> = {
  ok: "Zsynchronizowano",
  not_found: "Profil nie znaleziony",
  error: "Błąd synchronizacji",
- rate_limited: "Limit API — spróbujemy ponownie",
+ rate_limited: "Limit API – spróbujemy ponownie",
  disabled: "Synchronizacja wyłączona",
 };
 
@@ -85,7 +85,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  onSuccess: (data) => {
  const kind = (data?.message ??"") as string;
  if (kind === "new_company") {
- showSuccess("Wykryto zmianę pracodawcy — profil zaktualizowany.");
+ showSuccess("Wykryto zmianę pracodawcy – profil zaktualizowany.");
  } else if (kind === "new_title_same_company") {
  showSuccess("Wykryto zmianę stanowiska w tej samej firmie.");
  } else if (kind === "first_snapshot") {
@@ -114,7 +114,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  <section>
  <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-2">
- LinkedIn — stan zatrudnienia
+ LinkedIn – stan zatrudnienia
  <Badge size="sm" variant={STATUS_VARIANT[status]}>
  {STATUS_LABEL[status]}
  </Badge>
@@ -172,7 +172,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  Obecna firma (LinkedIn)
  </div>
  <div className="text-foreground mt-0.5">
- {candidate.linkedin_current_company ??"—"}
+ {candidate.linkedin_current_company ??"–"}
  </div>
  </div>
  <div>
@@ -180,7 +180,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  Obecne stanowisko
  </div>
  <div className="text-foreground mt-0.5">
- {candidate.linkedin_current_title ??"—"}
+ {candidate.linkedin_current_title ??"–"}
  </div>
  </div>
  {candidate.linkedin_current_started_at && (
@@ -228,7 +228,7 @@ export function LinkedinSyncPanel({ candidate }: Props) {
  {changeSnapshots.map((s) => (
  <li key={s.id} className="text-foreground">
  <span className="font-medium text-foreground">
- {s.current_company ??"—"}
+ {s.current_company ??"–"}
  </span>
  {s.current_title ? ` · ${s.current_title}` :""} ·
  <span className="text-muted-foreground">

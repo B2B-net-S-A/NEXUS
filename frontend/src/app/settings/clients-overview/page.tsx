@@ -125,7 +125,7 @@ function ClientsTable() {
                   {fmt(r.active_revenue)}
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
-                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
+                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "–"}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">{r.active_consultants}</td>
@@ -217,7 +217,7 @@ function DlLeaderboard() {
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right text-violet-700">
-                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
+                  {r.monthly_margin_total !== null ? r.monthly_margin_total : "–"}
                 </td>
                 <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                 <td className="px-3 py-2 text-right">{r.active_consultants}</td>
@@ -231,8 +231,8 @@ function DlLeaderboard() {
 }
 
 function fmt(v: string | number | null): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "–";
   const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "–";
   return num.toLocaleString("pl-PL");
 }

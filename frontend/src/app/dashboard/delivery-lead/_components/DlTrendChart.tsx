@@ -95,11 +95,11 @@ export function DlTrendChart({ trend, title = "Moja historia 6 miesięcy" }: DlT
           </ResponsiveContainer>
         </div>
         <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-2 text-[11px] text-muted-foreground">
-          <div>• Zapytania — lewa oś</div>
-          <div>• Wakaty — lewa oś</div>
-          <div>• Placements — lewa oś</div>
-          <div>• Hit Ratio % — prawa oś</div>
-          <div>• Fill Rate % — prawa oś</div>
+          <div>• Zapytania – lewa oś</div>
+          <div>• Wakaty – lewa oś</div>
+          <div>• Placements – lewa oś</div>
+          <div>• Hit Ratio % – prawa oś</div>
+          <div>• Fill Rate % – prawa oś</div>
         </div>
       </CardContent>
     </Card>

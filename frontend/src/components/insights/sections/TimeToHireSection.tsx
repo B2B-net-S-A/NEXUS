@@ -42,7 +42,7 @@ export function TimeToHireSection() {
         </div>
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak zatrudnień w okresie — dane pojawią się po pierwszej zamkniętej rekrutacji ze stage „Zatrudniony".
+          Brak zatrudnień w okresie – dane pojawią się po pierwszej zamkniętej rekrutacji ze stage „Zatrudniony".
         </p>
       ) : (
         <table className="w-full text-sm">
@@ -59,8 +59,8 @@ export function TimeToHireSection() {
               <tr key={r.recruiter_id} className="border-t border-border">
                 <td className="py-2 font-medium text-foreground">{r.name}</td>
                 <td className="py-2 text-right">{r.placements}</td>
-                <td className="py-2 text-right">{r.median_days ?? "—"}</td>
-                <td className="py-2 text-right">{r.p90_days ?? "—"}</td>
+                <td className="py-2 text-right">{r.median_days ?? "–"}</td>
+                <td className="py-2 text-right">{r.p90_days ?? "–"}</td>
               </tr>
             ))}
           </tbody>

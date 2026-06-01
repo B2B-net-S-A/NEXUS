@@ -3,12 +3,12 @@
  *
  * Two modes:
  *
- * 1. `embedded` — parent (CandidatesListV2) already has the current page of
+ * 1. `embedded` – parent (CandidatesListV2) already has the current page of
  *    results in memory. It passes them in as `pageItems` so we render
  *    instantly. We still fetch adjacent pages on demand when navigation
  *    crosses a page boundary.
  *
- * 2. `url` — the candidate profile is opened on its own page
+ * 2. `url` – the candidate profile is opened on its own page
  *    (`/candidates/[id]?nav=search&pos=N&...filters`). The hook decodes the
  *    filters from URL, fetches the page that contains `pos`, and resolves
  *    the candidate at that position.
@@ -32,7 +32,7 @@ import { isInputActive } from "@/components/KeyboardShortcuts";
 
 const DEFAULT_PAGE_SIZE = 20;
 
-// Same extras `CandidatesListV2` sends — ensures cache key parity.
+// Same extras `CandidatesListV2` sends – ensures cache key parity.
 const LIST_VIEW_EXTRAS = {
   include_match_stats: true,
   match_threshold: 35,
@@ -190,7 +190,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
           onNavigate({ candidateId: target.id, position: nextPosition });
         }
       } catch {
-        // Swallow — UI will still allow retry on next click.
+        // Swallow – UI will still allow retry on next click.
       }
     },
     [effectiveItems, filters, onNavigate, pageSize, targetPage, total],

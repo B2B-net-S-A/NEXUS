@@ -5,7 +5,7 @@
 // QueryClientProvider mounts). Must include its own <html>/<body> because
 // root layout was the thing that broke.
 //
-// Keep this file minimal — no providers, no global CSS imports, no auth
+// Keep this file minimal – no providers, no global CSS imports, no auth
 // store, no api client. Anything that can throw belongs in deeper layers.
 import { useEffect } from 'react'
 import * as Sentry from '@sentry/nextjs'
@@ -65,7 +65,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
                         }}
                     >
                         Wystąpił krytyczny błąd ładowania. Zespół został powiadomiony.
-                        Spróbuj odświeżyć stronę — jeśli problem będzie się powtarzał,
+                        Spróbuj odświeżyć stronę – jeśli problem będzie się powtarzał,
                         sprawdź połączenie z internetem albo skontaktuj się z administratorem.
                     </p>
                     <button

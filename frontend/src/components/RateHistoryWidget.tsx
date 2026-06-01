@@ -88,7 +88,7 @@ export function RateHistoryWidget({ candidateId }: Props) {
   };
 
   const clientName = (id: number | null) =>
-    clients.find((c) => c.id === id)?.name ?? (id ? `#${id}` : "—");
+    clients.find((c) => c.id === id)?.name ?? (id ? `#${id}` : "–");
 
   return (
     <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">

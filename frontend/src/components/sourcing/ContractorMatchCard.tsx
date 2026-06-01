@@ -364,7 +364,7 @@ function BelowThresholdSection({ count }: { count: number }) {
       </button>
       {open && (
         <p className="mt-2 text-xs text-muted-foreground italic">
-          {count} ofert poniżej progu jakości — kliknij &ldquo;Pokaż wszystkie&rdquo;
+          {count} ofert poniżej progu jakości – kliknij &ldquo;Pokaż wszystkie&rdquo;
           przy karcie aby zobaczyć pełną listę (TODO).
         </p>
       )}

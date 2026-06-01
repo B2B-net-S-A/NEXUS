@@ -87,7 +87,7 @@ export default function DiagnosticsPage() {
           <div>
             <h1 className="text-2xl font-bold">Diagnostyka embeddingu</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Voyage AI + Qdrant — stan połączeń i kolekcji.
+              Voyage AI + Qdrant – stan połączeń i kolekcji.
             </p>
           </div>
           <div className="flex gap-2">
@@ -196,7 +196,7 @@ export default function DiagnosticsPage() {
 
               {report.qdrant.all_collections && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Wszystkie kolekcje: {report.qdrant.all_collections.join(", ") || "—"}
+                  Wszystkie kolekcje: {report.qdrant.all_collections.join(", ") || "–"}
                 </p>
               )}
             </section>

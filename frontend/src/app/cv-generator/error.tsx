@@ -24,7 +24,7 @@ export default function CvGeneratorError({ error, reset }: CvGeneratorErrorProps
             <AlertTriangle className="h-12 w-12 text-amber-500" />
             <h2 className="text-xl font-semibold">Generator CV chwilowo niedostępny</h2>
             <p className="max-w-md text-sm text-muted-foreground">
-                Nie udało się załadować generatora. Spróbuj ponownie za chwilę — jeśli problem
+                Nie udało się załadować generatora. Spróbuj ponownie za chwilę – jeśli problem
                 będzie się powtarzał, zgłoś to administratorowi.
             </p>
             {process.env.NODE_ENV === 'development' && (

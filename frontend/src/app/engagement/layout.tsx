@@ -1,6 +1,6 @@
 /**
- * Public engagement-declaration layout — magic-link landing page.
- * Bez auth, bez sidebar — same shell jak /apply.
+ * Public engagement-declaration layout – magic-link landing page.
+ * Bez auth, bez sidebar – same shell jak /apply.
  */
 
 export default function EngagementLayout({

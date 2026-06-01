@@ -294,7 +294,7 @@ export const dlPortalApi = {
       `/api/clients/${clientId}/framework-contracts/${fcId}/amendments/${amendmentId}`
     ),
 
-  // Orders (grouped by Contract — 1 kontraktor = 1 karta)
+  // Orders (grouped by Contract – 1 kontraktor = 1 karta)
   listContractorsWithOrders: (clientId: number) =>
     api.get<ClientOrdersGroupedResponse>(`/api/clients/${clientId}/orders`),
 

@@ -8,8 +8,8 @@
  * - Period picker (Tydzień / Miesiąc / Rok)
  * - KPI cards: Weryfikacje / Rekomendacje / Interviews / Placements
  * - Efektywność lejka: 4 konwersje (Wer→Rek, Rek→Int, Int→Plac, Overall)
- * - Performance per osoba — tabela team
- * - Liga Mistrzów — podium top-3 + ranking
+ * - Performance per osoba – tabela team
+ * - Liga Mistrzów – podium top-3 + ranking
  *
  * Uprawnienia: każdy zalogowany user (widok team-wide).
  */
@@ -71,7 +71,7 @@ const MONTH_NAMES_PL = [
   "Grudzień",
 ];
 
-// Business thresholds dla Power Calling + LinkedIn Performance — DEFAULTS.
+// Business thresholds dla Power Calling + LinkedIn Performance – DEFAULTS.
 // Aktualne wartości pochodzą z `dashboard.scoring.power_calling_min_per_day` +
 // `dashboard.scoring.linkedin_cv_per_md_target` (admin editable w ScoringConfig
 // → Admin → Ustawienia). Te defaults są używane gdy dashboard jeszcze nie
@@ -92,9 +92,9 @@ type ViewMode = "week" | "month" | "year";
 
 export default function RekrutacjaPage() {
   const { user, hydrated } = useAuthStore();
-  // Stable initial state — bez `new Date()` w render body, żeby uniknąć
+  // Stable initial state – bez `new Date()` w render body, żeby uniknąć
   // hydration mismatch między SSR (server timezone) a client (browser
-  // timezone). Realne daty ustawiamy w useEffect po hydratacji — query
+  // timezone). Realne daty ustawiamy w useEffect po hydratacji – query
   // gating `selectedMonth > 0` zapobiega fetch przed inicjalizacją.
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [selectedMonth, setSelectedMonth] = useState<number>(0);
@@ -229,7 +229,7 @@ export default function RekrutacjaPage() {
     return [base - 2, base - 1, base, base + 1];
   }, [selectedYear]);
 
-  // Early return pattern (mirror body-leasing) — SSR renderuje sam tekst
+  // Early return pattern (mirror body-leasing) – SSR renderuje sam tekst
   // "Ładowanie sesji…", co matchuje client initial render (hydrated=false).
   // Pełna struktura (Cards, Table, etc.) renderuje się dopiero gdy
   // hydration zakończy się klientem, co unika React 19 streaming
@@ -283,7 +283,7 @@ export default function RekrutacjaPage() {
                 }}
                 className="text-sm bg-background border border-input rounded-md px-2 py-1.5"
               >
-                <option value="">— wybierz tydzień —</option>
+                <option value="">– wybierz tydzień –</option>
                 {(availableWeeks ?? []).map((wk) => (
                   <option
                     key={`${wk.year}-${wk.week_number}`}
@@ -337,7 +337,7 @@ export default function RekrutacjaPage() {
             <div className="sm:ml-auto flex items-center gap-2">
               <Badge variant="neutral" className="gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {dashboard?.period_label ?? "—"}
+                {dashboard?.period_label ?? "–"}
               </Badge>
               {dashboard && dashboard.users.length > 0 && (
                 <Button
@@ -442,7 +442,7 @@ export default function RekrutacjaPage() {
             </CardContent>
           </Card>
 
-          {/* Liga Mistrzów — Quarterly League (full DR port) */}
+          {/* Liga Mistrzów – Quarterly League (full DR port) */}
           {dashboard.league_ranking_quarterly.length > 0 && (
             <QuarterlyLeagueSection dashboard={dashboard} />
           )}
@@ -451,7 +451,7 @@ export default function RekrutacjaPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Performance per osoba — {dashboard.period_label}
+                Performance per osoba – {dashboard.period_label}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -523,13 +523,13 @@ export default function RekrutacjaPage() {
             </div>
           )}
 
-          {/* === Statystyki Roczne — wykres tygodniowy ==================== */}
+          {/* === Statystyki Roczne – wykres tygodniowy ==================== */}
           {yearlyStats && yearlyStats.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-indigo-500" />
-                  Statystyki Roczne — {selectedYear}
+                  Statystyki Roczne – {selectedYear}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -594,7 +594,7 @@ export default function RekrutacjaPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Phone className="h-5 w-5 text-rose-500" />
-                  Power Calling — {powerCalling[0]?.week_label ?? ""}
+                  Power Calling – {powerCalling[0]?.week_label ?? ""}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   Wymóg: min.{" "}
@@ -655,7 +655,7 @@ export default function RekrutacjaPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Linkedin className="h-5 w-5 text-blue-600" />
-                  LinkedIn Performance (TAC) — {dashboard.period_label}
+                  LinkedIn Performance (TAC) – {dashboard.period_label}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground">
                   Target:{" "}
@@ -722,7 +722,7 @@ export default function RekrutacjaPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Medal className="h-5 w-5 text-amber-500" />
-                  Hall of Fame — historyczni zwycięzcy
+                  Hall of Fame – historyczni zwycięzcy
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -774,7 +774,7 @@ export default function RekrutacjaPage() {
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <Award className="h-5 w-5 text-emerald-500" />
-                  Analiza Placementów — {dashboard.period_label} (
+                  Analiza Placementów – {dashboard.period_label} (
                   {placementAnalysis.total})
                 </CardTitle>
               </CardHeader>
@@ -853,7 +853,7 @@ export default function RekrutacjaPage() {
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Users className="h-5 w-5 text-teal-500" />
-                    Zespół Rekrutacji — Przypisania
+                    Zespół Rekrutacji – Przypisania
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
@@ -916,7 +916,7 @@ export default function RekrutacjaPage() {
                   {teamPanel.tac_dl.length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold mb-2 flex items-center gap-1">
-                        🔗 TAC — Delivery Lead
+                        🔗 TAC – Delivery Lead
                       </h4>
                       <div className="overflow-x-auto">
                         <Table>
@@ -1069,7 +1069,7 @@ function AccelerationPathTable({
 }
 
 /**
- * Wyścig Rekomendacji / Placementów — full DR port z
+ * Wyścig Rekomendacji / Placementów – full DR port z
  * artur-t-96/InfraReporter `client/src/components/competitions/MonthlyRace.tsx`.
  *
  * Features:
@@ -1402,7 +1402,7 @@ function MonthlyRaceCard({
         )}
       </div>
 
-      {/* Footer — tie breaker */}
+      {/* Footer – tie breaker */}
       <div className="px-3 py-2 sm:px-5 sm:py-3 bg-black/20 text-center">
         <p className="text-white/60 text-xs">Remis: {race.tie_breaker}</p>
       </div>
@@ -1411,7 +1411,7 @@ function MonthlyRaceCard({
 }
 
 /**
- * Liga Mistrzów — full DR port z `client/src/components/competitions/QuarterlyLeague.tsx`.
+ * Liga Mistrzów – full DR port z `client/src/components/competitions/QuarterlyLeague.tsx`.
  *
  * Sections:
  * - Header: Trophy + quarter label + days_remaining countdown z progress bar
@@ -1511,11 +1511,11 @@ function QuarterlyLeagueSection({
         </div>
       </div>
 
-      {/* Podium top-3 — visual Olympic blocks */}
+      {/* Podium top-3 – visual Olympic blocks */}
       <div className="px-3 py-4 sm:px-6 sm:py-8">
         {top3.length === 0 ? (
           <p className="text-amber-200/70 text-center py-6">
-            Za mało danych — pojawi się top 3 gdy ktoś zacznie zdobywać punkty.
+            Za mało danych – pojawi się top 3 gdy ktoś zacznie zdobywać punkty.
           </p>
         ) : (
           <div className="flex items-end justify-center gap-2 sm:gap-4 mb-6 sm:mb-8">
@@ -1611,7 +1611,7 @@ function QuarterlyLeagueSection({
             </p>
             <p className="text-xs text-gray-500 mt-1">
               Osoby poniżej progu są oznaczone jako &quot;brakuje
-              placementu&quot; — nadal w grze, ale muszą nadrobić.
+              placementu&quot; – nadal w grze, ale muszą nadrobić.
             </p>
           </div>
         )}
@@ -1678,7 +1678,7 @@ function QuarterlyLeagueSection({
 }
 
 /**
- * Olympic podium column — 1 osoba.
+ * Olympic podium column – 1 osoba.
  */
 function PodiumColumn({
   member,
@@ -1695,7 +1695,7 @@ function PodiumColumn({
   rankIcon: string;
   star?: boolean;
 }) {
-  const fullName = `${member.first_name} ${member.last_name}`.trim() || "—";
+  const fullName = `${member.first_name} ${member.last_name}`.trim() || "–";
   return (
     <div className="flex flex-col items-center">
       <div className="mb-2 text-center">
@@ -1833,5 +1833,5 @@ function KpiCard({
   );
 }
 
-// QuarterlyPodiumCard removed — replaced by `PodiumColumn` (inline w
+// QuarterlyPodiumCard removed – replaced by `PodiumColumn` (inline w
 // QuarterlyLeagueSection) zgodnie z DR layout: Olympic blocks z varying height.

@@ -44,14 +44,14 @@ const ACTIONS: ActionConfig[] = [
     label: "Do talent pool",
     icon: <Users className="w-4 h-4" />,
     description:
-      "Otwiera picker talent pools — przypisanie wykona się przez bulk endpoint pools.",
+      "Otwiera picker talent pools – przypisanie wykona się przez bulk endpoint pools.",
   },
   {
     type: "assign_to_job",
     label: "Do rekrutacji",
     icon: <Briefcase className="w-4 h-4" />,
     description:
-      "Otwiera picker rekrutacji — propose przebiega przez /jobs/{id}/proposals/bulk.",
+      "Otwiera picker rekrutacji – propose przebiega przez /jobs/{id}/proposals/bulk.",
   },
   {
     type: "anonymize_pii",
@@ -66,7 +66,7 @@ const ACTIONS: ActionConfig[] = [
 /**
  * Floating bulk-action bar that appears when one or more candidates are
  * selected on the list view. Mirrors Traffit's "akcje masowe" floating
- * bar — sticks to the bottom of the viewport and shows the count + action
+ * bar – sticks to the bottom of the viewport and shows the count + action
  * buttons. Tag-input is inline; talent-pool / job pickers delegate to the
  * existing modals (callers wire those up).
  */
@@ -183,7 +183,7 @@ export function CandidatesBulkBar({
                 if (e.key === "Enter") submitTags();
                 if (e.key === "Escape") setActiveAction(null);
               }}
-              placeholder="senior, python, remote — oddziel przecinkami, Enter aby zapisać"
+              placeholder="senior, python, remote – oddziel przecinkami, Enter aby zapisać"
               className="flex-1 bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               autoFocus
             />
@@ -215,7 +215,7 @@ export function CandidatesBulkBar({
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>
               Wybierz {activeAction === "assign_talent_pool" ? "talent pool" : "rekrutację"} z
-              listy obok — przypisanie zostanie wykonane po wybraniu.
+              listy obok – przypisanie zostanie wykonane po wybraniu.
             </span>
             <button
               type="button"

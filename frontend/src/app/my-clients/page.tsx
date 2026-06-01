@@ -132,8 +132,8 @@ function ClientCard({ client }: ClientCardProps) {
 }
 
 function fmt(v: string | number | null): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "–";
   const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "–";
   return num.toLocaleString("pl-PL");
 }

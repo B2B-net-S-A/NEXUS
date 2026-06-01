@@ -316,15 +316,15 @@ export function ContractsListV2() {
  </Link>
  </TableCell>
  <TableCell>
- <div className="text-sm">{c.client_name ??"—"}</div>
+ <div className="text-sm">{c.client_name ??"–"}</div>
  <div className="text-xs text-muted-foreground truncate max-w-[200px]">
- {c.job_title ??"—"}
+ {c.job_title ??"–"}
  </div>
  </TableCell>
  <TableCell>
  <div className="flex items-center gap-1 text-xs text-foreground">
  <Calendar className="h-3 w-3" />
- {c.start_date ? formatDate(c.start_date) : "—"}
+ {c.start_date ? formatDate(c.start_date) : "–"}
  </div>
  {c.end_date && (
  <div className="text-xs text-muted-foreground">
@@ -339,14 +339,14 @@ export function ContractsListV2() {
  </TableCell>
  <TableCell>
  <Badge size="sm" variant="soft">
- {c.contract_type ??"—"}
+ {c.contract_type ??"–"}
  </Badge>
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
- {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "—"}
+ {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "–"}
  </TableCell>
  <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin, c.rate_client))}>
- {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"—"}
+ {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"–"}
  </TableCell>
  <TableCell>
  {c.status ? (
@@ -354,7 +354,7 @@ export function ContractsListV2() {
  {c.status}
  </Badge>
  ) : (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  </TableCell>
  </TableRow>

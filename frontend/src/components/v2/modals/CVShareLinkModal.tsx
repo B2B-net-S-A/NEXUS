@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * CVShareLinkModal — generuje token-link do brandowanego CV i pokazuje URL
+ * CVShareLinkModal – generuje token-link do brandowanego CV i pokazuje URL
  * gotowy do skopiowania. Klient otwiera link bez logowania.
  *
- * PR2 — Faza 5. Wymaga że brandowane CV jest sfinalizowane (status='finalized').
+ * PR2 – Faza 5. Wymaga że brandowane CV jest sfinalizowane (status='finalized').
  * Backend zwraca 409 inaczej.
  */
 

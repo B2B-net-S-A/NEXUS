@@ -58,16 +58,16 @@ interface ParsedPoolName {
  * Patterns produced by `talent_pool_auto_add.py`:
  *"{subcategory} {Seniority}" → e.g."DevOps Senior"
  *"{subcategory}" → e.g."DevOps"
- *"{Seniority} — Inne" → e.g."Senior — Inne"
+ *"{Seniority} – Inne" → e.g."Senior – Inne"
  *
  * Legacy/manual pools get `subcategory=name, seniority=null` → grouped under
  * the original name as a one-item group (sorted alphabetically near the
  * bottom; the"Pozostałe" bucket from explicit conventions stays last).
  */
 function parsePoolName(name: string): ParsedPoolName {
- //"{Seniority} — Inne" → seniority-only legacy bucket, render as"Inne"
- if (name.endsWith(" — Inne")) {
- const maybeSeniority = name.replace(" — Inne","") as SeniorityLabel;
+ //"{Seniority} – Inne" → seniority-only legacy bucket, render as"Inne"
+ if (name.endsWith(" – Inne")) {
+ const maybeSeniority = name.replace(" – Inne","") as SeniorityLabel;
  if ((SENIORITY_LABELS as readonly string[]).includes(maybeSeniority)) {
  return { subcategory: "Inne", seniority: maybeSeniority };
  }
@@ -427,7 +427,7 @@ function PoolDetailView({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 /**
- * Client-only gate — Next.js 15 + React 19 streaming SSR wiesza hydrację
+ * Client-only gate – Next.js 15 + React 19 streaming SSR wiesza hydrację
  * list z React Query (patrz commit b133403 dla /contracts, /jobs, /clients).
  * Pierwszy render placeholder, dopiero po mount renderujemy content.
  */
@@ -459,7 +459,7 @@ function TalentsPageContent() {
  const { data: ccList = [] } = useQuery({
  queryKey: ["competence-categories"],
  queryFn: () => competenceCategoriesApi.list(true),
- staleTime: 1000 * 60 * 60, // 1h — CC list is stable
+ staleTime: 1000 * 60 * 60, // 1h – CC list is stable
  });
 
  // Filter by CC (empty selection = all)
@@ -551,7 +551,7 @@ function TalentsPageContent() {
  </div>
  </div>
 
- {/* Pools — grouped by subcategory */}
+ {/* Pools – grouped by subcategory */}
  {isLoading ? (
  <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
  <div className="w-5 h-5 border-2 border-primary/30 border-t-transparent rounded-full animate-spin" />

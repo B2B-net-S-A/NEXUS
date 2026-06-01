@@ -16,7 +16,7 @@ interface FormFieldProps {
 }
 
 /**
- * FormField — composes Label + slot (input) + description + error.
+ * FormField – composes Label + slot (input) + description + error.
  * Works with any field primitive (Input, Textarea, Select, ...).
  */
 export function FormField({

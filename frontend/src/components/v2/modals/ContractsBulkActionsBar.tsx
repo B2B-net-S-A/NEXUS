@@ -17,7 +17,7 @@ interface Props {
 }
 
 /**
- * ContractsBulkActionsBarV2 — floating plum chrome bar (sticky bottom) with
+ * ContractsBulkActionsBarV2 – floating plum chrome bar (sticky bottom) with
  * extend +3m/+6m/+12m + mark ended bulk operations. Replaces v1 inline
  * BulkActionsBar inside ContractsPage.
  */

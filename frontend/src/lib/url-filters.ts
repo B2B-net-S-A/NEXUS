@@ -1,9 +1,9 @@
 /**
- * Candidate search URL filter state — single source of truth.
+ * Candidate search URL filter state – single source of truth.
  *
  * Every filter in `CandidatesListV2` round-trips through `encodeFilters` /
  * `decodeFilters`. Saved searches store the encoded querystring, so adding
- * new fields to `CandidateFilters` is backward-compatible — `decodeFilters`
+ * new fields to `CandidateFilters` is backward-compatible – `decodeFilters`
  * ignores unknown params and fills unknown fields with defaults.
  */
 
@@ -80,7 +80,7 @@ export interface CandidateFilters {
   pastCompany: string[];
   currentTitle: string[];
   workedAtClientIds: number[];
-  // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
+  // Stage-move filters – "kto dodał na etap i kiedy". Correlated with
   // `pipelineStage` on the backend (the matched stage move's mover + date).
   // `stageMovedByIds` mirrors `added_by`'s sentinel: `0` = system/Traffit import
   // (CandidateStage.moved_by IS NULL). Dates are `YYYY-MM-DD` (inclusive bounds).
@@ -132,13 +132,13 @@ const parseCsvInt = (raw: string | null): number[] =>
     .map((x) => Number.parseInt(x, 10))
     .filter((n) => Number.isFinite(n));
 
-// Pipe-separated list — used for company/title values that may contain commas
+// Pipe-separated list – used for company/title values that may contain commas
 // (e.g. "Intel, Inc."). Safer than comma for free-text inputs.
 const PIPE = (xs: string[]): string => xs.join("|");
 const parsePipe = (raw: string | null): string[] =>
   raw ? raw.split("|").map((x) => x.trim()).filter(Boolean) : [];
 
-// `YYYY-MM-DD` calendar date — what <input type="date"> emits and what the
+// `YYYY-MM-DD` calendar date – what <input type="date"> emits and what the
 // backend's `date` query params expect. Reject anything else so a malformed
 // URL param can't leak a bogus value into the API call.
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -187,7 +187,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     (v): v is RemoteMode => v === "remote" || v === "hybrid" || v === "onsite"
   );
   // Backward-compat: legacy URLs persisted `status` as a single value (no CSV).
-  // `parseCsv` happily handles both — single value yields a 1-element array.
+  // `parseCsv` happily handles both – single value yields a 1-element array.
   const status = parseCsv(sp.get("status")).filter(
     (v): v is CandidateStatusFilter => CANDIDATE_STATUS_VALUES.has(v),
   );
@@ -259,7 +259,7 @@ export function encodeNavContext(
 
 /**
  * Decode nav context from URLSearchParams. Returns `null` if `nav` is not set
- * (i.e., the profile was opened without nav context — show no prev/next UI).
+ * (i.e., the profile was opened without nav context – show no prev/next UI).
  */
 export function decodeNavContext(
   sp: URLSearchParams,

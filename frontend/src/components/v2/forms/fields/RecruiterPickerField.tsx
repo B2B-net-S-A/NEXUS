@@ -21,7 +21,7 @@ interface RecruiterPickerFieldProps {
  placeholder?: string;
  disabled?: boolean;
  /**
- * When true, the caller is editing the primary owner — empty value becomes
+ * When true, the caller is editing the primary owner – empty value becomes
  * null (unassigned). When false, the caller wants a required user_id and
  * empty is treated as"please select".
  */
@@ -85,7 +85,7 @@ export function RecruiterPickerField({
  </SelectTrigger>
  <SelectContent>
  {allowEmpty ? (
- <SelectItem value="__none__">— nieprzypisany —</SelectItem>
+ <SelectItem value="__none__">– nieprzypisany –</SelectItem>
  ) : null}
  {(data ?? []).map((u) => (
  <SelectItem key={u.id} value={String(u.id)}>

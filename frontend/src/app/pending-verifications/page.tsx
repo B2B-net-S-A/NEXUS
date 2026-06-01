@@ -31,7 +31,7 @@ const UNIT_LABEL: Record<string, string> = {
 };
 
 function formatRate(item: PendingVerificationItem): string {
- if (item.expected_rate_value == null) return"—";
+ if (item.expected_rate_value == null) return"–";
  const value = Number.parseFloat(item.expected_rate_value);
  const formatted = Number.isFinite(value)
  ? value.toLocaleString("pl-PL")
@@ -89,7 +89,7 @@ export default function PendingVerificationsPage() {
  mutationFn: async ({ id, note }: { id: number; note: string }) =>
  pipelineApi.rejectVerification(id, note),
  onSuccess: () => {
- showSuccess("Odrzucono — kandydat wrócił na poprzedni stage.");
+ showSuccess("Odrzucono – kandydat wrócił na poprzedni stage.");
  qc.invalidateQueries({ queryKey: ["pending-verifications"] });
  setRejectTarget(null);
  },
@@ -188,7 +188,7 @@ export default function PendingVerificationsPage() {
  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
  {row.budget_max_at_move != null
  ? `${row.budget_max_at_move.toLocaleString("pl-PL")} PLN`
- :"—"}
+ :"–"}
  </td>
  <td className="px-3 py-2 text-muted-foreground">
  {row.moved_by_name ??"?"}

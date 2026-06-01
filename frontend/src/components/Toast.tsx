@@ -11,7 +11,7 @@ type ToastType = "success" | "error" | "action";
 interface ActionToastOptions {
   actionLabel: string;
   onAction: () => void | Promise<void>;
-  // Visible window for the action button. Defaults to 10 seconds — matches
+  // Visible window for the action button. Defaults to 10 seconds – matches
   // the "Cofnij wysyłkę emaila" use case (the full undo window server-side
   // is 15 minutes, but the toast only prompts for the first few seconds).
   durationMs?: number;

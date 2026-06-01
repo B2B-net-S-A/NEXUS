@@ -31,7 +31,7 @@ import { Button } from"@/components/ui/button";
 /**
  * Response shape from POST /api/candidates/from-cv (201).
  * Kept deliberately loose (Record<string, any>) on the nested candidate so
- * we don't duplicate the full backend schema here — the modal only surfaces
+ * we don't duplicate the full backend schema here – the modal only surfaces
  * the handful of fields the recruiter needs to verify inline.
  */
 interface FromCVResponse {
@@ -112,11 +112,11 @@ function ConfidenceRow({
  <dd className="text-right text-foreground font-medium flex items-center gap-1.5">
  {low && (
  <AlertTriangle
- aria-label="AI ma niską pewność — zweryfikuj"
+ aria-label="AI ma niską pewność – zweryfikuj"
  className="h-3.5 w-3.5 text-amber-600"
  />
  )}
- <span>{value || <span className="text-muted-foreground">—</span>}</span>
+ <span>{value || <span className="text-muted-foreground">–</span>}</span>
  </dd>
  </div>
  );
@@ -215,7 +215,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <DialogTitle>Kandydat dodany</DialogTitle>
  </div>
  <DialogDescription>
- {c.name} {c.lastname} — profil utworzony z CV.
+ {c.name} {c.lastname} – profil utworzony z CV.
  {result.source && (
  <span className="ml-1 text-xs text-muted-foreground">
  (źródło: {result.source})
@@ -230,7 +230,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <span>
  {lowCount}{""}
  {lowCount === 1 ?"pole wymaga weryfikacji" :"pól wymaga weryfikacji"}{""}
- — AI nie miało pełnej pewności. Otwórz profil żeby poprawić.
+ – AI nie miało pełnej pewności. Otwórz profil żeby poprawić.
  </span>
  </div>
  )}
@@ -380,7 +380,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  <DialogTitle>Dodaj kandydata z CV</DialogTitle>
  </div>
  <DialogDescription>
- Wrzuć PDF, DOCX lub TXT — AI wyciągnie imię, nazwisko, email, telefon,
+ Wrzuć PDF, DOCX lub TXT – AI wyciągnie imię, nazwisko, email, telefon,
  miasto i technologie.
  </DialogDescription>
  </DialogHeader>

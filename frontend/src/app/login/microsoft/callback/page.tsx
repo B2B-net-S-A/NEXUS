@@ -80,7 +80,7 @@ function CallbackBody() {
         {error ? (
           <div className="flex items-start gap-2 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>Logowanie Microsoft nie powiodło się — przekierowuję…</span>
+            <span>Logowanie Microsoft nie powiodło się – przekierowuję…</span>
           </div>
         ) : (
           <>

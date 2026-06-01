@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * DynaReporter Profile page (Faza B.1 — walidacja wzorca).
+ * DynaReporter Profile page (Faza B.1 – walidacja wzorca).
  *
- * Pierwszy moduł migracji — readonly endpoint pokazujący info o zalogowanym
+ * Pierwszy moduł migracji – readonly endpoint pokazujący info o zalogowanym
  * userze + listę przyznanych sekcji DynaReportera. Walidacja end-to-end
  * pipeline'u: middleware → JWT → backend dependency → DB query → response →
  * React Query → Card UI.
@@ -25,9 +25,9 @@ const SECTION_LABELS: Record<string, string> = {
   competitions: "Liga Mistrzów",
   przetargi: "Przetargi",
   board: "Rada Nadzorcza",
-  "sales-mgmt": "Sales — Zarządzanie",
+  "sales-mgmt": "Sales – Zarządzanie",
   mindy: "MINDY AI",
-  admin: "Admin — DynaReporter",
+  admin: "Admin – DynaReporter",
 };
 
 export default function DynaReporterProfilePage() {
@@ -70,7 +70,7 @@ export default function DynaReporterProfilePage() {
           <h2 className="font-semibold text-destructive">Błąd ładowania</h2>
           <p className="mt-1 text-muted-foreground">
             Nie udało się pobrać profilu DynaReportera. Spróbuj odświeżyć
-            stronę. Jeśli problem występuje nadal — skontaktuj się z adminem.
+            stronę. Jeśli problem występuje nadal – skontaktuj się z adminem.
           </p>
         </div>
       </div>
@@ -101,7 +101,7 @@ export default function DynaReporterProfilePage() {
           value={
             profile.dynareporter_legacy_id !== null
               ? String(profile.dynareporter_legacy_id)
-              : "(brak — konto utworzone w Nexusie, nigdy w DynaReporterze)"
+              : "(brak – konto utworzone w Nexusie, nigdy w DynaReporterze)"
           }
         />
 
@@ -130,7 +130,7 @@ export default function DynaReporterProfilePage() {
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Faza B.1 — walidacja wzorca przed migracją konkretnych dashboardów
+        Faza B.1 – walidacja wzorca przed migracją konkretnych dashboardów
         (B.2 KPI Body Leasing → Sales → Liga → ...). Stara wersja systemu:{" "}
         <a
           className="underline"

@@ -1,5 +1,5 @@
 /**
- * Public CV layout — token-link landing page (no auth).
+ * Public CV layout – token-link landing page (no auth).
  * Same pattern as /engagement i /apply.
  */
 

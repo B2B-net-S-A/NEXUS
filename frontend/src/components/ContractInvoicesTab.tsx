@@ -227,7 +227,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                     <td
                       className={`px-3 py-2 ${overdue ? "text-destructive font-semibold" : ""}`}
                     >
-                      {inv.due_date ? formatDate(inv.due_date) : "—"}
+                      {inv.due_date ? formatDate(inv.due_date) : "–"}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {formatCurrency(inv.amount, inv.currency)}

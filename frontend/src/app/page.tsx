@@ -29,6 +29,6 @@ export default function DashboardPage() {
   }, [hydrated, user, router])
 
   // Admin/user widzą generyczny dashboard. Inne role przeszły przez redirect
-  // powyżej; zanim se react-router przeniesie — pokazujemy ten sam widok.
+  // powyżej; zanim se react-router przeniesie – pokazujemy ten sam widok.
   return <DashboardV2 />
 }

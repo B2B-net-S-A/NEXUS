@@ -45,7 +45,7 @@ export default function CallStatsWidget() {
   if (!data) return null;
 
   // Stay invisible when CloudTalk is disabled AND there are no historical
-  // calls anyway — keeps the dashboard tidy for accounts pre-activation.
+  // calls anyway – keeps the dashboard tidy for accounts pre-activation.
   if (
     data.cloudtalk_status === "disabled" &&
     data.user.total_calls === 0 &&

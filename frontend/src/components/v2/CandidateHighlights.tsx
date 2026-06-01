@@ -39,7 +39,7 @@ export interface HighlightableCandidate {
  status?: CandidateStatus;
  availability_status?: AvailabilityStatus;
  employment?: EmploymentInfo;
- /** ISO datetime of last detected employer change — populated by Proxycurl sync. */
+ /** ISO datetime of last detected employer change – populated by Proxycurl sync. */
  linkedin_employment_changed_at?: string | null;
  /** Engagement openness flags (Phase „Otwartość na dodatkowe projekty"). */
  open_to_side_projects?: boolean;
@@ -74,8 +74,8 @@ function formatLinkedinJobChange(days: number): {
 interface Props {
  candidate: HighlightableCandidate;
  /**
- * compact — only tier 1/2 highlights (for dense lists).
- * full — every applicable tier plus"not_looking" pill (for profile cards).
+ * compact – only tier 1/2 highlights (for dense lists).
+ * full – every applicable tier plus"not_looking" pill (for profile cards).
  */
  variant?:"compact" |"full";
  className?: string;
@@ -236,7 +236,7 @@ export const EMPLOYMENT_FILTER_OPTIONS: {
 
 /**
  * Full-width banner shown on top of a consultant profile when they're
- * currently employed at one of our clients. Intentionally loud — this is the
+ * currently employed at one of our clients. Intentionally loud – this is the
  *"do not send profile to the wrong client" guardrail.
  */
 export function AtOurClientBanner({

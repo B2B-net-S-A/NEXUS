@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 const DEFAULT_ITEMS = [
-  "BHP — szkolenie",
+  "BHP – szkolenie",
   "Podpisana umowa",
   "Sprzęt (laptop)",
   "Dostępy do VPN klienta",

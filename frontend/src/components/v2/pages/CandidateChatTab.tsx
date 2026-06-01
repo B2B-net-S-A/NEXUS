@@ -70,7 +70,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     staleTime: 30_000,
   });
 
-  // ── Messages — infinite scroll w stronę "starsze" ─────────────────────────
+  // ── Messages – infinite scroll w stronę "starsze" ─────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
 

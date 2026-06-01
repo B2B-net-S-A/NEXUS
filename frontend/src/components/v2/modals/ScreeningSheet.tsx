@@ -35,7 +35,7 @@ import {
 const FIT_OPTIONS = [
  { value: "fit" as const, label: "Pasuje", description: "Spełnia wszystkie kluczowe kryteria." },
  { value: "uncertain" as const, label: "Niepewne", description: "Warto dopytać lub zostawić do decyzji klienta." },
- { value: "miss" as const, label: "Nie pasuje", description: "Nie rekomenduję — deal-breaker lub brak kompetencji." },
+ { value: "miss" as const, label: "Nie pasuje", description: "Nie rekomenduję – deal-breaker lub brak kompetencji." },
 ];
 
 interface Props {
@@ -164,7 +164,7 @@ export function ScreeningSheet({
  <SheetBody>
  <div className="py-8 text-center text-sm text-muted-foreground">
  <AlertTriangle className="h-10 w-10 mx-auto mb-2 opacity-40" />
- Ta oferta nie ma skonfigurowanego Champion Profile — poproś TAC
+ Ta oferta nie ma skonfigurowanego Champion Profile – poproś TAC
  o uzupełnienie pytań screeningowych.
  </div>
  </SheetBody>
@@ -254,7 +254,7 @@ export function ScreeningSheet({
  <FormField
  name="notes"
  label="Notatki rekrutera"
- description="Kontekst, follow-upy, deal-breakers — widoczne w share portalu klienta."
+ description="Kontekst, follow-upy, deal-breakers – widoczne w share portalu klienta."
  >
  <TextareaField
  name="notes"

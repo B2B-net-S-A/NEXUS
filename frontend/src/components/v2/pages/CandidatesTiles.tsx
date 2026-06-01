@@ -197,7 +197,7 @@ export function CandidatesTiles({
  <Badge
  variant={matchBadgeVariant(topScore)}
  className="text-[10px] px-1.5 py-0"
- title={`Match: ${Math.round(topScore)}% — ${candidate.match_stats?.open_count ?? 0}/${candidate.match_stats?.total_open ?? 0} otwartych ofert`}
+ title={`Match: ${Math.round(topScore)}% – ${candidate.match_stats?.open_count ?? 0}/${candidate.match_stats?.total_open ?? 0} otwartych ofert`}
  >
  {Math.round(topScore)}%
  </Badge>

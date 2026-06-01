@@ -79,7 +79,7 @@ export function DLRevenueLeaderboard() {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right text-primary">
-                    {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
+                    {r.monthly_margin_total !== null ? r.monthly_margin_total : "–"}
                   </td>
                   <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
                   <td className="px-3 py-2 text-right">{r.active_consultants}</td>

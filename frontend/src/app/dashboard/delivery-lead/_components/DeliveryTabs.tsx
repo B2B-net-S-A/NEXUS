@@ -12,7 +12,7 @@ import { MyTeamTab } from "./tabs/MyTeamTab"
 type TabValue = "clients" | "team" | "jobs"
 
 interface DeliveryTabsProps {
-  /** Current user id — passed to ActiveJobsTab as delivery_lead_id filter. */
+  /** Current user id – passed to ActiveJobsTab as delivery_lead_id filter. */
   userId: number
 }
 

@@ -12,7 +12,7 @@ interface Props {
 }
 
 /**
- * ChipsField — tag input for arrays. Also normalizes polymorphic inputs:
+ * ChipsField – tag input for arrays. Also normalizes polymorphic inputs:
  * string → [string]
  * string[] → string[]
  * { name: string }[] → name[]

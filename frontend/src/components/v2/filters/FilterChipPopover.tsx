@@ -17,7 +17,7 @@ interface FilterChipPopoverProps {
   /** Active value summary shown next to the label when filter is non-empty.
    *  Pass null/undefined when no value is set. */
   activeLabel?: string | null;
-  /** Number of selected values — drives the count badge for multi-selects.
+  /** Number of selected values – drives the count badge for multi-selects.
    *  Omit / set to 0 to hide the badge. */
   activeCount?: number;
   /** Click handler for the × clear button. Only shown when activeLabel is
@@ -25,19 +25,19 @@ interface FilterChipPopoverProps {
   onClear?: () => void;
   /** Width hint for the popover content (e.g. "w-72"). Defaults to w-80. */
   contentWidthClass?: string;
-  /** Popover body — the actual filter input/selector. */
+  /** Popover body – the actual filter input/selector. */
   children: ReactNode;
 }
 
 /** Chip-style trigger button + popover for a single filter on the main
- *  toolbar (Phase 2 — Traffit parity).
+ *  toolbar (Phase 2 – Traffit parity).
  *
  *  Lifts individual filter components (LocationInput, CompanyAutocomplete,
  *  TalentPoolMultiSelect, …) out of the giant "Filtry zaawansowane" popup
  *  into always-visible chip buttons. When the filter has a value, the chip
- *  shows it inline and gets a × clear button — exactly Traffit's pattern.
+ *  shows it inline and gets a × clear button – exactly Traffit's pattern.
  *
- *  This is a presentational wrapper — wiring (value, onChange) lives on the
+ *  This is a presentational wrapper – wiring (value, onChange) lives on the
  *  child component the caller passes in. */
 export function FilterChipPopover({
   label,

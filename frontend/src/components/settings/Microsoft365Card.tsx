@@ -116,7 +116,7 @@ export default function Microsoft365Card() {
               Skrzynka
             </p>
             <p className="text-sm font-medium text-foreground dark:text-foreground truncate">
-              {status?.mailbox_upn ?? "—"}
+              {status?.mailbox_upn ?? "–"}
             </p>
           </div>
           <div className="bg-muted dark:bg-muted rounded-xl p-3">
@@ -132,7 +132,7 @@ export default function Microsoft365Card() {
         </div>
       )}
 
-      {/* Reconnect-required (amber) — server-side token decryption broke
+      {/* Reconnect-required (amber) – server-side token decryption broke
           (e.g. encryption key rotation). User must re-run OAuth. */}
       {requiresReconnect && (
         <Alert
@@ -174,7 +174,7 @@ export default function Microsoft365Card() {
           variant="info"
           spinning
           title="Pobieramy historię (ostatnie 12 miesięcy)"
-          description="Może to chwilę potrwać — wątki zaczną pojawiać się na profilach kandydatów po zakończeniu backfilla."
+          description="Może to chwilę potrwać – wątki zaczną pojawiać się na profilach kandydatów po zakończeniu backfilla."
           className="mb-4"
         />
       )}
@@ -217,7 +217,7 @@ export default function Microsoft365Card() {
               className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
               title={
                 backfillInProgress
-                  ? "Backfill w toku — poczekaj na jego zakończenie"
+                  ? "Backfill w toku – poczekaj na jego zakończenie"
                   : undefined
               }
             >
@@ -280,7 +280,7 @@ export default function Microsoft365Card() {
       {syncMutation.isSuccess && !syncMutation.isPending && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-green-700">
           <CheckCircle2 className="w-3.5 h-3.5" />
-          Synchronizacja uruchomiona w tle — odśwież za chwilę, żeby zobaczyć wynik.
+          Synchronizacja uruchomiona w tle – odśwież za chwilę, żeby zobaczyć wynik.
         </p>
       )}
     </div>

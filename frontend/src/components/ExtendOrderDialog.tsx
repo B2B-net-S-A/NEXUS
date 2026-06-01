@@ -18,7 +18,7 @@ interface ExtendOrderDialogProps {
   onCreated: () => void;
 }
 
-/** Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract. */
+/** Flow A – "Dodaj przedłużenie": tworzy Order pod istniejącym Contract. */
 export function ExtendOrderDialog({
   clientId,
   contract,
@@ -164,7 +164,7 @@ export function ExtendOrderDialog({
             value={jobId}
             onChange={(e) => setJobId(e.target.value)}
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder={contract.initial_job_id?.toString() ?? "—"}
+            placeholder={contract.initial_job_id?.toString() ?? "–"}
           />
         </label>
 

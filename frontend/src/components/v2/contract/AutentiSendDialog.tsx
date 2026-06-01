@@ -37,20 +37,20 @@ const SIGNATURE_TYPE_OPTIONS: SignatureTypeOption[] = [
     value: "SES",
     title: "Zwykły e-podpis (SES)",
     description:
-      "Podstawowy podpis Autenti — wystarczający do większości umów B2B z JDG. Najszybsza ścieżka, kandydat klika i podpisuje na ekranie.",
+      "Podstawowy podpis Autenti – wystarczający do większości umów B2B z JDG. Najszybsza ścieżka, kandydat klika i podpisuje na ekranie.",
     badge: "Domyślny",
   },
   {
     value: "AdES",
     title: "Zaawansowany e-podpis (AdES)",
     description:
-      "Z weryfikacją SMS — kandydat dostaje kod jednorazowy przed podpisem. Wymaga numeru telefonu w profilu kandydata.",
+      "Z weryfikacją SMS – kandydat dostaje kod jednorazowy przed podpisem. Wymaga numeru telefonu w profilu kandydata.",
   },
   {
     value: "QES",
     title: "Kwalifikowany podpis (QES, eIDAS)",
     description:
-      "Równoważny własnoręcznemu (eIDAS). Kandydat musi posiadać profil zaufany / mObywatela albo certyfikat kwalifikowany. Friction wyższe — wybierz tylko gdy klient lub prawo wymaga.",
+      "Równoważny własnoręcznemu (eIDAS). Kandydat musi posiadać profil zaufany / mObywatela albo certyfikat kwalifikowany. Friction wyższe – wybierz tylko gdy klient lub prawo wymaga.",
   },
 ];
 
@@ -84,7 +84,7 @@ export function AutentiSendDialog({
     mutationFn: (payload: AutentiSendRequest) =>
       autentiApi.send(contractId, payload).then((r) => r.data),
     onSuccess: () => {
-      showSuccess("Wysłano do podpisu — status pojawi się za chwilę");
+      showSuccess("Wysłano do podpisu – status pojawi się za chwilę");
       queryClient.invalidateQueries({
         queryKey: ["autenti-signatures", contractId],
       });
@@ -170,7 +170,7 @@ export function AutentiSendDialog({
 
           {phoneMissing && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-              Brak numeru telefonu kandydata. AdES wymaga SMS-OTP — uzupełnij
+              Brak numeru telefonu kandydata. AdES wymaga SMS-OTP – uzupełnij
               telefon w profilu albo wybierz inny typ podpisu.
             </div>
           )}

@@ -111,7 +111,7 @@ export function ClientsHitRatio({ period }: Props) {
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
         <Target className="w-5 h-5 text-primary" />
-        Klienci — hit ratio & at-risk
+        Klienci – hit ratio & at-risk
       </h2>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -236,7 +236,7 @@ export function ClientsHitRatio({ period }: Props) {
           <div className="text-sm text-muted-foreground py-3">Ładowanie…</div>
         ) : !atRisk || atRisk.clients.length === 0 ? (
           <div className="text-center py-6 text-sm text-muted-foreground">
-            Żaden klient nie spełnia kryterium — stabilnie.
+            Żaden klient nie spełnia kryterium – stabilnie.
           </div>
         ) : (
           <table className="w-full text-sm">

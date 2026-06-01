@@ -43,7 +43,7 @@ export const CHAMPION_PROFILE_CHANGED_EVENT = "nexus:cp-changed";
 // constant in sync with frontend/src/components/v2/kpi/KpiNudgeToaster.tsx.
 export const KPI_NUDGE_EVENT = "nexus:kpi-nudge";
 
-// Job + Candidate Chat events — re-broadcast z WS do *ChatTab. Komponent
+// Job + Candidate Chat events – re-broadcast z WS do *ChatTab. Komponent
 // listenuje odpowiedni event bus i sam invaliduje React Query keys.
 import {
   CANDIDATE_CHAT_BUS_EVENT,
@@ -98,7 +98,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
     try {
       ws = new WebSocket(url);
     } catch {
-      // WebSocket not supported or URL invalid — fall back to polling
+      // WebSocket not supported or URL invalid – fall back to polling
       startPolling();
       return;
     }
@@ -109,7 +109,7 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
       if (!mountedRef.current) return;
       reconnectAttemptsRef.current = 0;
       setWsConnected(true);
-      stopPolling(); // WS is up — no need to poll
+      stopPolling(); // WS is up – no need to poll
 
       // Expose a sender to `usePresence` without it needing the ws ref.
       setWsSender((msg) => ws.send(JSON.stringify(msg)));

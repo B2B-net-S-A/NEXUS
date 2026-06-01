@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * BodyLeasingBrowse — zakładka "Przeglądaj dane" dla Rekrutacji.
+ * BodyLeasingBrowse – zakładka "Przeglądaj dane" dla Rekrutacji.
  *
  * Ruchomy kalendarz (Od / Do, bez podziału na tygodnie) → lista wpisów KPI
  * w wybranym okresie. Funkcje (parytet z artur-t-96/InfraReporter AdminPanel):
@@ -38,9 +38,9 @@ const EDIT_FIELDS: { key: keyof DrKpiBodyLeasingEntry; label: string }[] = [
   { key: "placements", label: "Placements" },
   { key: "requests", label: "Zamknięte zapytania" },
   { key: "days_worked", label: "Dni robocze" },
-  { key: "linkedin_cv_added", label: "LinkedIn — CV dodane" },
-  { key: "linkedin_messages_sent", label: "LinkedIn — wiadomości" },
-  { key: "linkedin_responses_received", label: "LinkedIn — odpowiedzi" },
+  { key: "linkedin_cv_added", label: "LinkedIn – CV dodane" },
+  { key: "linkedin_messages_sent", label: "LinkedIn – wiadomości" },
+  { key: "linkedin_responses_received", label: "LinkedIn – odpowiedzi" },
 ];
 
 function fmtInput(d: Date): string {
@@ -106,7 +106,7 @@ export function BodyLeasingBrowse() {
     onError: (e: unknown) => setStatus(`Błąd: ${extractErrorMsg(e)}`),
   });
 
-  // Edycja wiersza (ikona ołówka) — upsert po (user_id, report_date).
+  // Edycja wiersza (ikona ołówka) – upsert po (user_id, report_date).
   const [editRow, setEditRow] = useState<DrKpiBodyLeasingEntry | null>(null);
   const [editVals, setEditVals] = useState<Record<string, number>>({});
 
@@ -397,7 +397,7 @@ export function BodyLeasingBrowse() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Edytuj wpis — {editRow?.user_name} ({editRow?.report_date})
+              Edytuj wpis – {editRow?.user_name} ({editRow?.report_date})
             </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">

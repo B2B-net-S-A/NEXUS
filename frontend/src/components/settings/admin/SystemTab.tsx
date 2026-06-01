@@ -35,8 +35,8 @@ export function SystemTab() {
   ];
 
   const healthMetrics = [
-    { label: "Rozmiar bazy danych", value: stats.database?.size || "—", icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
-    { label: "Uptime serwera", value: stats.uptime || "—", icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
+    { label: "Rozmiar bazy danych", value: stats.database?.size || "–", icon: Database, color: "bg-primary/10 dark:bg-primary/30 text-primary" },
+    { label: "Uptime serwera", value: stats.uptime || "–", icon: Clock, color: "bg-green-50 dark:bg-green-900/30 text-green-600" },
     { label: "Cache", value: "Redis OK", icon: Cpu, color: "bg-purple-50 dark:bg-purple-900/30 text-purple-600" },
   ];
 
@@ -64,7 +64,7 @@ export function SystemTab() {
               <span>{icon}</span>
               <span>{label}</span>
             </div>
-            <p className="text-3xl font-bold text-foreground dark:text-foreground">{value?.toLocaleString() ?? "—"}</p>
+            <p className="text-3xl font-bold text-foreground dark:text-foreground">{value?.toLocaleString() ?? "–"}</p>
           </div>
         ))}
       </div>

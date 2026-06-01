@@ -21,7 +21,7 @@ export function KlienciPanel() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Klienci, Delivery Leads, sprzedaż i hiring managers — pełna perspektywa biznesowa.
+          Klienci, Delivery Leads, sprzedaż i hiring managers – pełna perspektywa biznesowa.
         </p>
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>

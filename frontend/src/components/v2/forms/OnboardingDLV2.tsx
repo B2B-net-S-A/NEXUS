@@ -92,7 +92,7 @@ export function OnboardingDLV2() {
  role: payload.user.role as never,
  profile_completed: payload.user.profile_completed,
  profile_completed_at: payload.user.profile_completed_at,
- // Onboarding endpoint nie zwraca tych pól — backfill default false
+ // Onboarding endpoint nie zwraca tych pól – backfill default false
  // (user dopiero przeszedł onboarding, na pewno nie ma admin-resetu).
  force_password_change: false,
  force_password_change_at: null,
@@ -193,7 +193,7 @@ export function OnboardingDLV2() {
  <div className="py-10 text-center">
  <Sparkles className="h-8 w-8 mx-auto text-primary opacity-50 mb-2" />
  <p className="text-sm text-muted-foreground">
- Nie masz jeszcze ofert w systemie. Możesz pominąć ten krok —
+ Nie masz jeszcze ofert w systemie. Możesz pominąć ten krok –
  uzupełnisz priorytety później z ekranu ofert.
  </p>
  </div>

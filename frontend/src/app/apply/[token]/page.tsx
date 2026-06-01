@@ -1,5 +1,5 @@
 /**
- * Public candidate apply page — served at /apply/{token}.
+ * Public candidate apply page – served at /apply/{token}.
  *
  * Renders hero + ApplyForm when the token is valid. On any error (expired,
  * revoked, unknown) we `notFound()` which renders not-found.tsx.

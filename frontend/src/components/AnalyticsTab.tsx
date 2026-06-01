@@ -1,6 +1,6 @@
 "use client";
 
-// Per-client analytics view — montowany jako sub-tab w `/clients/[id]?tab=analityka`.
+// Per-client analytics view – montowany jako sub-tab w `/clients/[id]?tab=analityka`.
 // To NIE jest część top-level `/insights` (organizacyjne dashboardy). Top-level
 // stronę `/analytics` usunęliśmy w PR #232; nie przenosić tutaj jej logiki.
 
@@ -26,14 +26,14 @@ export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
   if (error || !data) {
     return (
       <div className="text-destructive">
-        Błąd analityki — sprawdź uprawnienia lub spróbuj ponownie.
+        Błąd analityki – sprawdź uprawnienia lub spróbuj ponownie.
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">{data.client_name} — analityka</h3>
+      <h3 className="text-lg font-semibold">{data.client_name} – analityka</h3>
 
       <KpiGrid data={data} />
 
@@ -59,7 +59,7 @@ function KpiGrid({ data }: { data: ClientDashboardResponse }) {
       />
       <KpiCard
         label="Marża/mc (gross)"
-        value={data.monthly_margin_total !== null ? `${data.monthly_margin_total}` : "—"}
+        value={data.monthly_margin_total !== null ? `${data.monthly_margin_total}` : "–"}
         sublabel={
           data.monthly_margin_pct !== null ? `${data.monthly_margin_pct}%` : undefined
         }
@@ -72,7 +72,7 @@ function KpiGrid({ data }: { data: ClientDashboardResponse }) {
       />
       <KpiCard
         label="Avg time to fill"
-        value={data.avg_days_to_fill !== null ? `${data.avg_days_to_fill} dni` : "—"}
+        value={data.avg_days_to_fill !== null ? `${data.avg_days_to_fill} dni` : "–"}
       />
       <KpiCard
         label="MSA"
@@ -160,8 +160,8 @@ function AlertsList({ alerts }: { alerts: ExpiringAlert[] }) {
 }
 
 function fmtMoney(v: string | number | null): string {
-  if (v === null || v === undefined || v === "") return "—";
+  if (v === null || v === undefined || v === "") return "–";
   const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "–";
   return num.toLocaleString("pl-PL");
 }

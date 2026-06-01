@@ -60,7 +60,7 @@ type HitSortDir ="asc" |"desc" | null;
 
 function HitRatioCell({ row }: { row: HitRatioRow | undefined }) {
  if (!row || row.closed_jobs === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
+ return <span className="text-xs text-muted-foreground">–</span>;
  }
  if (row.closed_jobs < MIN_CLOSED_FOR_RATIO) {
  return (
@@ -72,7 +72,7 @@ function HitRatioCell({ row }: { row: HitRatioRow | undefined }) {
  </span>
  );
  }
- // Color bands — >=50% zielony, 20-49% amber, <20% czerwony
+ // Color bands – >=50% zielony, 20-49% amber, <20% czerwony
  const tone =
  row.hit_ratio >= 50
  ?"bg-[#dcfce7] text-[#166534]"
@@ -106,8 +106,8 @@ export function ClientsListV2() {
  .then((r) => r.data),
  });
 
- // Hit ratio per client (12m) — joined by client_id on render.
- // RBAC: admin/delivery_lead/tac/HoR. Recruiter/sourcer see undefined →"—".
+ // Hit ratio per client (12m) – joined by client_id on render.
+ // RBAC: admin/delivery_lead/tac/HoR. Recruiter/sourcer see undefined →"–".
  const { data: ratioData } = useQuery<HitRatioResponse>({
  queryKey: ["clients-hit-ratio","year"],
  queryFn: () =>
@@ -115,7 +115,7 @@ export function ClientsListV2() {
  .get("/api/reports/clients", { params: { period: "year", min_closed: 0 } })
  .then((r) => r.data),
  staleTime: 5 * 60 * 1000, // backend cache is 5min, match it
- retry: false, // 403 for recruiters — just hide the column data
+ retry: false, // 403 for recruiters – just hide the column data
  });
 
  const ratioByClient = useMemo(() => {
@@ -254,14 +254,14 @@ export function ClientsListV2() {
  <span className="font-medium text-foreground">{c.name}</span>
  </Link>
  </TableCell>
- <TableCell>{c.industry ??"—"}</TableCell>
+ <TableCell>{c.industry ??"–"}</TableCell>
  <TableCell>
  {c.status ? (
  <Badge size="sm" variant={STATUS_VARIANT[c.status] ??"neutral"}>
  {c.status}
  </Badge>
  ) : (
- <span className="text-xs text-muted-foreground">—</span>
+ <span className="text-xs text-muted-foreground">–</span>
  )}
  </TableCell>
  <TableCell>
@@ -279,7 +279,7 @@ export function ClientsListV2() {
  )}
  </TableCell>
  <TableCell className="text-xs text-muted-foreground">
- {c.created_at ? formatRelativeTime(c.created_at) : "—"}
+ {c.created_at ? formatRelativeTime(c.created_at) : "–"}
  </TableCell>
  </TableRow>
  );

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.7 — Przetargi (projects + allocations + costs).
+ * DynaReporter B.2.7 – Przetargi (projects + allocations + costs).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -76,7 +76,7 @@ export default function PrzetargiPage() {
       <header>
         <h1 className="text-2xl font-bold tracking-tight">Przetargi</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Projekty publiczne — konsultanci, godziny, koszty, margin. Target NET 55k PLN/mc.
+          Projekty publiczne – konsultanci, godziny, koszty, margin. Target NET 55k PLN/mc.
         </p>
       </header>
 
@@ -87,7 +87,7 @@ export default function PrzetargiPage() {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <h2 className="font-semibold text-sm mb-3">Projekty — P&L</h2>
+        <h2 className="font-semibold text-sm mb-3">Projekty – P&L</h2>
         {summaryQ.isLoading ? (
           <p className="text-sm text-muted-foreground">Ładowanie…</p>
         ) : (summaryQ.data ?? []).length === 0 ? (
@@ -127,7 +127,7 @@ export default function PrzetargiPage() {
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4">
-        <h2 className="font-semibold text-sm mb-3">Allocations — recent (30)</h2>
+        <h2 className="font-semibold text-sm mb-3">Allocations – recent (30)</h2>
         {allocQ.isLoading ? (
           <p className="text-sm text-muted-foreground">Ładowanie…</p>
         ) : (allocQ.data ?? []).length === 0 ? (

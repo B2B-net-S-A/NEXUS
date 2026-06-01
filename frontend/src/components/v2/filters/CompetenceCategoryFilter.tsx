@@ -21,7 +21,7 @@ interface CompetenceCategoryFilterProps {
 }
 
 /**
- * Flagship filter for the manual candidate search — pinned in the planning
+ * Flagship filter for the manual candidate search – pinned in the planning
  * brief as the primary chip. Renders the 5 NEXUS competence categories
  * (Infrastructure / Development / Data & AI / Security & QA / Management)
  * fetched from `GET /api/competence-categories` so admin-facing additions or

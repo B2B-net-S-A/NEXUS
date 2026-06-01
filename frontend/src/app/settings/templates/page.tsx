@@ -407,7 +407,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
             type="text"
             value={form.subject}
             onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
-            placeholder="np. Zaproszenie na rozmowę — {{job_title}}"
+            placeholder="np. Zaproszenie na rozmowę – {{job_title}}"
             className="w-full px-3 py-2.5 border border-border dark:border-border rounded-xl text-sm bg-card dark:bg-muted dark:text-foreground focus:outline-none focus:ring-2 focus-visible:ring-ring focus:border-transparent"
           />
         </div>
@@ -635,7 +635,7 @@ export default function EmailTemplatesPage() {
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex items-start gap-3 flex-shrink-0">
         <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700 dark:text-amber-400">
-          <strong>Tryb symulacji:</strong> Wysyłka emaili jest rejestrowana w konsoli serwera — wiadomości nie są faktycznie wysyłane. Integracja SMTP zostanie dodana w kolejnej wersji.
+          <strong>Tryb symulacji:</strong> Wysyłka emaili jest rejestrowana w konsoli serwera – wiadomości nie są faktycznie wysyłane. Integracja SMTP zostanie dodana w kolejnej wersji.
         </p>
       </div>
 

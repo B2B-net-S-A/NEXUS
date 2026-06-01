@@ -39,7 +39,7 @@ import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 
-// Lazy-load heavy tabs — content loaded only when tab activated.
+// Lazy-load heavy tabs – content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
 // PipelineTemplatesTab pulls @hello-pangea/dnd (~50kB).
 const AdminUsersTab = dynamic(
@@ -77,7 +77,7 @@ interface TabConfig {
   id: Tab;
   label: string;
   icon: React.ReactNode;
-  /** Jeśli ustawione — tab widoczny tylko dla użytkowników z którąkolwiek z tych ról. */
+  /** Jeśli ustawione – tab widoczny tylko dla użytkowników z którąkolwiek z tych ról. */
   roles?: UserRole[];
 }
 
@@ -104,7 +104,7 @@ const TABS: TabConfig[] = [
 // Taby które wymagają szerszego kontenera (tabele, dnd, grid).
 const WIDE_TABS: Tab[] = ["procesy", "administracja"];
 
-// Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
+// Sub-pages dostępne via direct URL – sklejone razem dla discoverability.
 const ADVANCED_LINKS: Array<{
   href: string;
   title: string;
@@ -140,7 +140,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/templates",
     title: "Szablony email",
-    description: "Wiadomości szablonowe — outreach, follow-up, rejection.",
+    description: "Wiadomości szablonowe – outreach, follow-up, rejection.",
     icon: <Mail className="w-5 h-5" />,
   },
   {
@@ -158,7 +158,7 @@ const ADVANCED_LINKS: Array<{
   {
     href: "/settings/dictionaries",
     title: "Słowniki",
-    description: "Edytowalne taksonomie — branże, powody odrzucenia. Dodaj wartości bez deploya.",
+    description: "Edytowalne taksonomie – branże, powody odrzucenia. Dodaj wartości bez deploya.",
     icon: <FileText className="w-5 h-5" />,
   },
   {
@@ -266,7 +266,7 @@ function FirefliesCard() {
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="bg-muted dark:bg-muted rounded-xl p-3 text-center">
           <p className="text-xl font-bold text-foreground dark:text-foreground">
-            {status?.transcript_count ?? "—"}
+            {status?.transcript_count ?? "–"}
           </p>
           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">Transkrypcji w bazie</p>
         </div>
@@ -527,7 +527,7 @@ function CoachingSettings() {
             Włącz coaching
           </p>
           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Toast + powiadomienie w dzwonku. Bez spamu — dedup per KPI / okres,
+            Toast + powiadomienie w dzwonku. Bez spamu – dedup per KPI / okres,
             max 3 przypomnienia dziennie per wskaźnik.
           </p>
         </div>
@@ -559,7 +559,7 @@ function CoachingSettings() {
         <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mt-4">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>
-            Coaching wyłączony — nie będziesz dostawać toastów ani powiadomień z
+            Coaching wyłączony – nie będziesz dostawać toastów ani powiadomień z
             KPI Coach. Sam widget KPI w dashboardzie pozostaje widoczny.
           </span>
         </div>

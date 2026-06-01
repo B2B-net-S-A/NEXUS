@@ -214,7 +214,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
             </div>
           )}
           <div className="text-xs text-muted-foreground dark:text-muted-foreground">
-            Maks. 20 MB. PDF / DOCX / JPG / PNG. Dla OC i NIP ustaw datę ważności —
+            Maks. 20 MB. PDF / DOCX / JPG / PNG. Dla OC i NIP ustaw datę ważności –
             system powiadomi o wygaśnięciu.
           </div>
         </div>
@@ -285,7 +285,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
                           {formatDate(d.expiry_date)}
                         </span>
                       ) : (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">–</span>
                       )}
                     </td>
                     <td className="px-4 py-2 text-xs text-muted-foreground dark:text-muted-foreground">

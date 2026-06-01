@@ -187,7 +187,7 @@ export function SendEmailV2({
  }
  >
  <SelectTrigger id="email-template">
- <SelectValue placeholder="Brak szablonu — piszę od zera" />
+ <SelectValue placeholder="Brak szablonu – piszę od zera" />
  </SelectTrigger>
  <SelectContent>
  <SelectItem value="_blank">Brak szablonu</SelectItem>

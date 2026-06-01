@@ -94,7 +94,7 @@ const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
  { value: "none", label: "Bez terminu" },
 ];
 
-/** Local-date ISO string (YYYY-MM-DD) — avoids UTC off-by-one near midnight. */
+/** Local-date ISO string (YYYY-MM-DD) – avoids UTC off-by-one near midnight. */
 function isoLocal(d: Date): string {
  const y = d.getFullYear();
  const m = String(d.getMonth() + 1).padStart(2,"0");
@@ -515,7 +515,7 @@ export function JobsListV2() {
  )}
  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border">
  <span>
- {job.created_at ? formatRelativeTime(job.created_at) : "—"}
+ {job.created_at ? formatRelativeTime(job.created_at) : "–"}
  </span>
  <Sparkles className="h-3 w-3 text-primary" />
  </div>

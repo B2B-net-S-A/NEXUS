@@ -68,7 +68,7 @@ const TYPE_CONFIG: Record<
     color: "text-cyan-600",
     bgColor: "bg-cyan-100",
   },
-  // Phase 13 — automatyczne triggery
+  // Phase 13 – automatyczne triggery
   dl_stage_stale_6h: {
     icon: <ClockAlert className="w-3.5 h-3.5" />,
     color: "text-amber-600",
@@ -94,7 +94,7 @@ const TYPE_CONFIG: Record<
     color: "text-muted-foreground",
     bgColor: "bg-muted",
   },
-  // Phase 14 — post-interview feedback chain
+  // Phase 14 – post-interview feedback chain
   post_interview_t15: {
     icon: <Phone className="w-3.5 h-3.5" />,
     color: "text-indigo-600",
@@ -115,7 +115,7 @@ const TYPE_CONFIG: Record<
     color: "text-emerald-600",
     bgColor: "bg-emerald-100",
   },
-  // Targ kandydatów — nowy projekt dopasował się do kandydata w puli marketplace
+  // Targ kandydatów – nowy projekt dopasował się do kandydata w puli marketplace
   marketplace_match: {
     icon: <Store className="w-3.5 h-3.5" />,
     color: "text-teal-600",
@@ -227,7 +227,7 @@ export function NotificationsDropdown() {
     if (!notif.is_read) {
       markReadMutation.mutate(notif.id);
     }
-    // Phase 14 — post-interview notifications open feedback modal in-place
+    // Phase 14 – post-interview notifications open feedback modal in-place
     // instead of navigating, so the user can collect feedback right after the call.
     if (POST_INTERVIEW_TYPES.has(notif.notification_type)) {
       const eventId = parseEventIdFromLink(notif.link);
@@ -372,7 +372,7 @@ export function NotificationsDropdown() {
         <NotifToast notif={toastNotif} onClose={() => setToastNotif(null)} />
       )}
 
-      {/* Phase 14 — Feedback modal triggered by post_interview_* notifications */}
+      {/* Phase 14 – Feedback modal triggered by post_interview_* notifications */}
       {feedbackModal && (
         <InterviewFeedbackModal
           open={true}

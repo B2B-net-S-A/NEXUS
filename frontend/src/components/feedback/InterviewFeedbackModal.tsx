@@ -21,7 +21,7 @@ type InterviewFeedbackModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   calendarEventId: number;
-  /** Wymuszony tab — jeśli brak, wybieramy per default candidate_side i user może przełączyć. */
+  /** Wymuszony tab – jeśli brak, wybieramy per default candidate_side i user może przełączyć. */
   initialSource?: FeedbackSource;
 };
 
@@ -198,7 +198,7 @@ export function InterviewFeedbackModal({
   const handleSubmit = () => {
     setError(null);
     if (!eventQuery.data?.candidate_id) {
-      setError("Event nie ma powiązanego kandydata — nie mogę zapisać feedbacku.");
+      setError("Event nie ma powiązanego kandydata – nie mogę zapisać feedbacku.");
       return;
     }
     const payload: Record<string, unknown> = {
@@ -249,12 +249,12 @@ export function InterviewFeedbackModal({
           <DialogTitle>Feedback po interview</DialogTitle>
           <DialogDescription>
             {eventTitle}
-            {candidateName ? ` — ${candidateName}` : ""}
+            {candidateName ? ` – ${candidateName}` : ""}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-4">
-          {/* Kontakt — tel: i mailto: */}
+          {/* Kontakt – tel: i mailto: */}
           {candidate && (candidate.phone || candidate.email) && (
             <div className="flex flex-wrap gap-2">
               {candidate.phone && (
@@ -304,7 +304,7 @@ export function InterviewFeedbackModal({
             <div className="p-3 rounded-md bg-amber-50 text-amber-800 text-sm">
               Feedback tej strony już istnieje (zapisany{" "}
               {existingForSource.id ? `#${existingForSource.id}` : ""}). Po submit
-              dostaniesz błąd 409 — użyj PATCH żeby edytować istniejący wpis.
+              dostaniesz błąd 409 – użyj PATCH żeby edytować istniejący wpis.
             </div>
           )}
 
@@ -329,10 +329,10 @@ export function InterviewFeedbackModal({
                   })
                 }
                 options={[
-                  { value: "hot", label: "🔥 Hot — gotowy iść dalej teraz" },
-                  { value: "warm", label: "☀️ Warm — zainteresowany, ale rozważa" },
-                  { value: "cold", label: "❄️ Cold — chłodne, niska pilność" },
-                  { value: "dead", label: "💀 Dead — rezygnuje" },
+                  { value: "hot", label: "🔥 Hot – gotowy iść dalej teraz" },
+                  { value: "warm", label: "☀️ Warm – zainteresowany, ale rozważa" },
+                  { value: "cold", label: "❄️ Cold – chłodne, niska pilność" },
+                  { value: "dead", label: "💀 Dead – rezygnuje" },
                 ]}
               />
               <SelectField
@@ -406,9 +406,9 @@ export function InterviewFeedbackModal({
                   })
                 }
                 options={[
-                  { value: "advance", label: "✅ Advance — iść dalej" },
-                  { value: "reject", label: "❌ Reject — nie pasuje" },
-                  { value: "on_hold", label: "⏸ On hold — zaczekać" },
+                  { value: "advance", label: "✅ Advance – iść dalej" },
+                  { value: "reject", label: "❌ Reject – nie pasuje" },
+                  { value: "on_hold", label: "⏸ On hold – zaczekać" },
                 ]}
               />
               <TextAreaField
@@ -527,7 +527,7 @@ function SelectField({
         onChange={(e) => onChange(e.target.value || null)}
         className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring"
       >
-        <option value="">— wybierz —</option>
+        <option value="">– wybierz –</option>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}

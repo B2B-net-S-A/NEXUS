@@ -19,7 +19,7 @@ import { MarketplaceStatusBadge } from "./MarketplaceStatusBadge";
 import { CandidateMatchesExpansion } from "./CandidateMatchesExpansion";
 
 function formatDate(iso?: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   const d = new Date(iso);
   return d.toLocaleDateString("pl-PL", {
     day: "2-digit",
@@ -107,7 +107,7 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
           </h3>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
             {emptyHint ??
-              "Dodaj przez profil kandydata („Wrzuć na targ\"), albo ustaw availability na „Aktywnie szuka\" — auto-sync wciągnie ich tu sam w ciągu 30 minut."}
+              "Dodaj przez profil kandydata („Wrzuć na targ\"), albo ustaw availability na „Aktywnie szuka\" – auto-sync wciągnie ich tu sam w ciągu 30 minut."}
           </p>
         </div>
       ) : (
@@ -174,7 +174,7 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
                         <MarketplaceStatusBadge status={c.availability_status} />
                       </td>
                       <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
-                        {c.competence_category ?? "—"}
+                        {c.competence_category ?? "–"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
                         {c.owner?.name ?? (

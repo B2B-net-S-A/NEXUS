@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.1 — KPI Body Leasing dashboard.
+ * DynaReporter B.2.1 – KPI Body Leasing dashboard.
  *
  * Dashboard widok dla rekrutera/sourcera/DL pokazujący:
  * - Summary cards (placements, interviews, recommendations, verifications)
@@ -180,7 +180,7 @@ export default function BodyLeasingPage() {
         )}
       </div>
 
-      {/* Recent entries table + Ranking — 2 cols */}
+      {/* Recent entries table + Ranking – 2 cols */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-lg border border-border bg-card p-4">
           <h2 className="font-semibold text-sm mb-3">Twoje ostatnie wpisy</h2>
@@ -190,7 +190,7 @@ export default function BodyLeasingPage() {
           />
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="font-semibold text-sm mb-3">🏆 Liga Mistrzów — Top 10</h2>
+          <h2 className="font-semibold text-sm mb-3">🏆 Liga Mistrzów – Top 10</h2>
           <Ranking
             rows={rankingQuery.data ?? []}
             loading={rankingQuery.isLoading}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 /**
- * Next.js middleware — gate routing based on role-based access control (RBAC).
+ * Next.js middleware – gate routing based on role-based access control (RBAC).
  *
  * Token jest czytany z cookie `nexus_access` (ustawianego przez auth store po loginie).
  * Middleware dekoduje claim `role` z JWT i porównuje z wymaganiami route'u.
@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server"
  * Zły rola → redirect /403.
  *
  * Uwaga: to *defense in depth*. Guardy backendu (deps.py) pozostają ostatecznym
- * arbitrem — middleware blokuje tylko nawigację do UI, nie chroni API.
+ * arbitrem – middleware blokuje tylko nawigację do UI, nie chroni API.
  */
 
 type UserRole =
@@ -25,22 +25,22 @@ type UserRole =
 const COOKIE_NAME = "nexus_access"
 
 // Route → dozwolone role. `null` = każda zalogowana rola (także `user`).
-// Kolejność prefixów nie ma znaczenia — dopasowywany jest pierwszy prefix
+// Kolejność prefixów nie ma znaczenia – dopasowywany jest pierwszy prefix
 // który pasuje do pathname (sprawdzane od najdłuższego, patrz resolveAllowedRoles).
 const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
-  // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
+  // przez `user.allowed_sections` (sprawdzane client-side w komponentach –
   // middleware nie ma dostępu do user object, tylko JWT payload).
   { prefix: "/dynareporter", roles: null },
-  // Granular admin-only podstrony settings (defense in depth) — kolejność nie ma
+  // Granular admin-only podstrony settings (defense in depth) – kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin"] },
   { prefix: "/settings/team-structure", roles: ["admin"] },
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
   { prefix: "/settings/clients-overview", roles: ["admin", "head_of_recruitment"] },
   { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
-  // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
+  // Wszystkie pozostałe chronione trasy – tylko „musisz być zalogowany":
   { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },
   { prefix: "/contracts", roles: null },
@@ -62,7 +62,7 @@ function isPublicPath(pathname: string): boolean {
 }
 
 function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
-  // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
+  // Sortuj po długości prefiksu malejąco – /candidates/123/edit pasuje do /candidates,
   // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
   const sorted = [...PROTECTED_ROUTES].sort(
     (a, b) => b.prefix.length - a.prefix.length
@@ -73,11 +73,11 @@ function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
 
 /**
  * Dekoduje payload JWT bez weryfikacji podpisu.
- * Dlaczego bez weryfikacji: middleware Next.js działa w runtime edge — nie
+ * Dlaczego bez weryfikacji: middleware Next.js działa w runtime edge – nie
  * mamy tu `jsonwebtoken` ani dostępu do SECRET_KEY (który jest po stronie
  * backendu). Dekodujemy payload, aby wyciągnąć `role` na potrzeby routingu UI.
  * Prawdziwa walidacja sygnatury odbywa się przy każdym wywołaniu API
- * (backend/app/api/deps.py::get_current_user) — middleware to tylko UX guard.
+ * (backend/app/api/deps.py::get_current_user) – middleware to tylko UX guard.
  */
 function decodeJwtPayload(
   token: string
@@ -115,7 +115,7 @@ export function middleware(request: NextRequest) {
   const isProtected = allowedRoles !== undefined
 
   if (!isProtected) {
-    // Trasy root (np. /), not-found, itp. — zostaw Next.js
+    // Trasy root (np. /), not-found, itp. – zostaw Next.js
     return NextResponse.next()
   }
 
@@ -131,7 +131,7 @@ export function middleware(request: NextRequest) {
     const loginUrl = new URL("/login", request.url)
     if (pathname !== "/") loginUrl.searchParams.set("next", pathname)
     const response = NextResponse.redirect(loginUrl)
-    // Wyczyść zepsute cookie — żeby unknąć pętli redirectów.
+    // Wyczyść zepsute cookie – żeby unknąć pętli redirectów.
     response.cookies.delete(COOKIE_NAME)
     return response
   }

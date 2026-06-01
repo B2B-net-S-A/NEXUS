@@ -112,7 +112,7 @@ export default function ManagerDashboard() {
           📊 Panel Managera Rekrutacji
         </h1>
         <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-1">
-          Widok bird&apos;s eye — wszystkie procesy, bottlenecki, workload
+          Widok bird&apos;s eye – wszystkie procesy, bottlenecki, workload
         </p>
       </div>
 
@@ -136,7 +136,7 @@ export default function ManagerDashboard() {
           {data.bottlenecks.length > 0 && (
             <div className="bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 rounded-xl p-4">
               <h3 className="font-semibold text-destructive dark:text-destructive flex items-center gap-2 mb-3">
-                <AlertTriangle className="w-4 h-4" /> Bottlenecki — potrzebna pomoc!
+                <AlertTriangle className="w-4 h-4" /> Bottlenecki – potrzebna pomoc!
               </h3>
               <div className="space-y-2">
                 {data.bottlenecks.map((b, i) => (
@@ -166,10 +166,10 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      {/* Pipeline heatmap — all jobs × all stages */}
+      {/* Pipeline heatmap – all jobs × all stages */}
       <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border dark:border-border">
-          <h3 className="font-semibold text-foreground dark:text-white">Pipeline — Wszystkie procesy</h3>
+          <h3 className="font-semibold text-foreground dark:text-white">Pipeline – Wszystkie procesy</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

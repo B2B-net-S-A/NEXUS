@@ -130,7 +130,7 @@ export function ImportTab() {
           <div className="mt-5 space-y-4 pt-4 border-t border-border dark:border-border">
             <div className="flex justify-between items-center">
               <span className="text-sm">
-                Zadanie <code className="text-xs">{task.task_id}</code> — status:{" "}
+                Zadanie <code className="text-xs">{task.task_id}</code> – status:{" "}
                 <strong
                   className={
                     task.status === "done"

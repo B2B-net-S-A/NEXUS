@@ -1,23 +1,23 @@
 "use client";
 
 /**
- * DynaReporter Admin Panel — port z artur-t-96/InfraReporter.
+ * DynaReporter Admin Panel – port z artur-t-96/InfraReporter.
  *
- * Sales + Przetargi są usunięte (per user 2026-05-19) — Nexus nie ma
+ * Sales + Przetargi są usunięte (per user 2026-05-19) – Nexus nie ma
  * top-level dashboardów Sales / Przetargi, więc admin entry dla tych
  * modułów nie ma sensu.
  *
  * Modules (10 zaimplementowane):
- *  1. body_leasing — KPI działu Rekrutacja
- *  2. delivery_lead — Hit Ratio i Placements
- *  3. board_data — Dane miesięczne Rady Nadzorczej
- *  4. employees — Lista userów + seniority + toggle active
- *  5. recruitment_team — Members + TAC↔DL + Sourcer↔Category
- *  6. dl_clients — Delivery Lead ↔ Klient assignments
- *  7. master_data — Centralna baza klientów + konsultantów
- *  8. hall_of_fame — Zarządzanie zwycięzcami
- *  9. settings — Champions League scoring config
- * 10. history — Upload history + audit log
+ *  1. body_leasing – KPI działu Rekrutacja
+ *  2. delivery_lead – Hit Ratio i Placements
+ *  3. board_data – Dane miesięczne Rady Nadzorczej
+ *  4. employees – Lista userów + seniority + toggle active
+ *  5. recruitment_team – Members + TAC↔DL + Sourcer↔Category
+ *  6. dl_clients – Delivery Lead ↔ Klient assignments
+ *  7. master_data – Centralna baza klientów + konsultantów
+ *  8. hall_of_fame – Zarządzanie zwycięzcami
+ *  9. settings – Champions League scoring config
+ * 10. history – Upload history + audit log
  *
  * Tylko rola `admin` może wyświetlać.
  */
@@ -52,10 +52,10 @@ import { EmployeesManager } from "./_modules/EmployeesManager";
 import { RecruitmentTeamManager } from "./_modules/RecruitmentTeamManager";
 import { DLClientManager } from "./_modules/DLClientManager";
 
-// Sales + Przetargi usunięte z Admin DR (per user request 2026-05-19) — nie mamy
+// Sales + Przetargi usunięte z Admin DR (per user request 2026-05-19) – nie mamy
 // głównych dashboardów Sales / Przetargi w Nexusie, więc admin entry dla nich
 // nie jest potrzebny. SalesDataEntry.tsx + PrzetargiDataEntry.tsx zachowane na
-// dysku ale nie wpięte tutaj — można usunąć w follow-up cleanup.
+// dysku ale nie wpięte tutaj – można usunąć w follow-up cleanup.
 
 type ModuleType =
   | "body_leasing"
@@ -134,7 +134,7 @@ export default function AdminDashboardPage() {
       </div>
     );
   }
-  // Multi-role aware — `hasRole` sprawdza primary + secondary roles
+  // Multi-role aware – `hasRole` sprawdza primary + secondary roles
   // (multi-role schema z PR #207). Bez tego user z secondary=admin
   // (np. po AAD group sync) by był blokowany mimo posiadania uprawnień.
   if (!hasRole(user, "admin")) {
@@ -155,15 +155,15 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      {/* Header — gradient match DR */}
+      {/* Header – gradient match DR */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <FileSpreadsheet className="w-7 h-7" />
-          Panel Admina — Zarządzanie Danymi
+          Panel Admina – Zarządzanie Danymi
         </h2>
       </div>
 
-      {/* Module Selector — 11 cards w grid 2/4 col, color-coded selection (1:1 z DR) */}
+      {/* Module Selector – 11 cards w grid 2/4 col, color-coded selection (1:1 z DR) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         {MODULE_CARDS.map((card) => {
           const Icon = card.icon;
@@ -357,7 +357,7 @@ function HistorySection() {
                         {a.records_count}
                       </td>
                       <td className="px-3 py-2 text-sm text-muted-foreground">
-                        {a.performed_by_name ?? "—"}
+                        {a.performed_by_name ?? "–"}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {formatDate(a.created_at)}

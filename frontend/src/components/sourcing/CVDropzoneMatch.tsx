@@ -91,7 +91,7 @@ export function CVDropzoneMatch() {
       <div className="flex items-center gap-2 mb-3">
         <Sparkles className="w-4 h-4 text-purple-500" />
         <h3 className="font-semibold text-sm text-foreground dark:text-foreground">
-          Wrzuć CV — AI dopasuje otwarte projekty
+          Wrzuć CV – AI dopasuje otwarte projekty
         </h3>
         {result && (
           <button

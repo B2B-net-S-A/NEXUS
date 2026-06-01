@@ -173,7 +173,7 @@ export function ScorecardV2({
  <SheetHeader>
  <div className="flex items-center gap-2">
  <Sparkles className="h-4 w-4 text-primary" />
- <SheetTitle>Scorecard — {schemaRes?.stage_name ?? stageName}</SheetTitle>
+ <SheetTitle>Scorecard – {schemaRes?.stage_name ?? stageName}</SheetTitle>
  </div>
  <SheetDescription>
  Ocena kandydata na etapie. Zapisane oceny wpływają na rating w pipeline.

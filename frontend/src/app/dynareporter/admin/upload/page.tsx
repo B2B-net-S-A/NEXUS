@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.11 — Upload + History (admin).
+ * DynaReporter B.2.11 – Upload + History (admin).
  */
 
 import { useState } from "react";
@@ -68,7 +68,7 @@ export default function AdminUploadPage() {
         <div className="rounded-lg border border-destructive bg-destructive/5 p-4">
           <h2 className="font-semibold text-destructive">Brak dostępu</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Brak sekcji <code>admin</code> — upload XLSX wymaga uprawnień administracyjnych.
+            Brak sekcji <code>admin</code> – upload XLSX wymaga uprawnień administracyjnych.
           </p>
         </div>
       </div>
@@ -81,7 +81,7 @@ export default function AdminUploadPage() {
         <h1 className="text-2xl font-bold tracking-tight">Upload XLSX + Historia</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Wgrywanie Excel z KPI/MRR/finansów. NOTE: parsing XLSX jest TODO w
-          follow-up — obecnie endpoint zapisuje audit log z error_message.
+          follow-up – obecnie endpoint zapisuje audit log z error_message.
         </p>
       </header>
 

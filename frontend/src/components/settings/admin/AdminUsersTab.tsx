@@ -215,7 +215,7 @@ export function AdminUsersTab() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
-                      {u.recruiter_role ? (RECRUITER_ROLE_LABELS[u.recruiter_role] ?? u.recruiter_role) : "—"}
+                      {u.recruiter_role ? (RECRUITER_ROLE_LABELS[u.recruiter_role] ?? u.recruiter_role) : "–"}
                     </td>
                     <td className="px-4 py-3">
                       <span

@@ -52,16 +52,16 @@ const MAX_SUGGESTIONS_DEFAULT = 6;
 
 /**
  * Reusable textarea z @mention autocomplete. Eliminuje duplikację z
- * JobChatTab/CandidateChatTab (handwritten autocomplete) — używana też w
+ * JobChatTab/CandidateChatTab (handwritten autocomplete) – używana też w
  * NotatkiTab kandydata i ScreeningNote editorze.
  *
  * Składnia mention: `@email@domena.pl ` (spacja po wstawieniu). To bezpośredni
- * format który backend (`mention_parser.py`) parsuje regex'em — zero migracji
+ * format który backend (`mention_parser.py`) parsuje regex'em – zero migracji
  * danych, zero zmian formatu.
  *
- * onKeyDown jest pass-through gdy popup zamknięty — żeby chat mógł obsłużyć
+ * onKeyDown jest pass-through gdy popup zamknięty – żeby chat mógł obsłużyć
  * Enter-to-submit. Gdy popup otwarty: Enter wybiera highlightIdx, Escape
- * zamyka, Strzałki nawigują (todo v2 — w v1 tylko Enter na pierwszym wyniku).
+ * zamyka, Strzałki nawigują (todo v2 – w v1 tylko Enter na pierwszym wyniku).
  */
 export function MentionTextarea({
   value,

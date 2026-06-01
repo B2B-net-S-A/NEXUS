@@ -320,7 +320,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
         </div>
       ) : amendments.length === 0 ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-sm">
-          Brak aneksów — użyj przycisków powyżej, żeby przedłużyć, zmienić stawkę,
+          Brak aneksów – użyj przycisków powyżej, żeby przedłużyć, zmienić stawkę,
           zakres lub zakończyć kontrakt wcześniej.
         </div>
       ) : (

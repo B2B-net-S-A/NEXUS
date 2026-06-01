@@ -15,7 +15,7 @@ import { cn } from"@/lib/utils";
 import { Label } from"@/components/ui/label";
 
 /**
- * v2 Forms — react-hook-form + zod wrapper.
+ * v2 Forms – react-hook-form + zod wrapper.
  *
  * Usage:
  * const methods = useForm<FormValues>({ resolver: zodResolver(schema) });
@@ -63,7 +63,7 @@ interface FormFieldProps {
 }
 
 /**
- * FormField — wraps a controlled field with label + error from RHF state.
+ * FormField – wraps a controlled field with label + error from RHF state.
  * Child field component reads `error` via useFieldError hook OR via being
  * inside useFormContext (Controller or register).
  */

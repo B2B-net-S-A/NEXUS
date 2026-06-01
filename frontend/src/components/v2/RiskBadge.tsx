@@ -21,7 +21,7 @@ interface RiskBadgeProps {
  profile: CandidateRiskProfile;
  /**
  * Hide entirely when level === "low". Set this for list/table views to
- * reduce visual noise — only flag medium/high candidates there.
+ * reduce visual noise – only flag medium/high candidates there.
  */
  hideLow?: boolean;
  /**
@@ -190,7 +190,7 @@ function RiskTooltipBody({ profile }: { profile: CandidateRiskProfile }) {
 }
 
 /**
- * Convenience hook — fetches risk profile via React Query.
+ * Convenience hook – fetches risk profile via React Query.
  * Caller passes their own `useQuery` typing to avoid coupling here.
  */
 export const RISK_QUERY_KEY = (candidateId: number | string | undefined) =>

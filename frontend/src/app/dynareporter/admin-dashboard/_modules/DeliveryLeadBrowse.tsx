@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DeliveryLeadBrowse — zakładka "Przeglądaj dane" dla Delivery Lead.
+ * DeliveryLeadBrowse – zakładka "Przeglądaj dane" dla Delivery Lead.
  *
  * Wybór miesiąca + roku (zostaje, zgodnie z modelem miesięcznych KPI) → tabela
  * per-DL (requests / placements / vacancies / hit ratio / fill rate) z dashboardu

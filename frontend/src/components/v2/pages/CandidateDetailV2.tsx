@@ -163,7 +163,7 @@ export interface CandidateDetailNavigation {
  pageNumber: number;
  /** Page size used by parent's list query. */
  pageSize: number;
- /** Called when user navigates — parent updates which candidate is shown. */
+ /** Called when user navigates – parent updates which candidate is shown. */
  onNavigate: (next: { candidateId: number; position: number }) => void;
 }
 
@@ -194,7 +194,7 @@ export function CandidateDetailV2({
  // Embedded mode receives `navigation` from parent (CandidatesListV2).
  // Full-page mode reads it from URL search params (?nav=search&pos=N&...).
  // Use `useSearchParams` so the value re-evaluates after client hydration
- // and on every push() — `window.location` inside useMemo wouldn't.
+ // and on every push() – `window.location` inside useMemo wouldn't.
  const searchParamsForNav = useSearchParams();
  const urlNav = React.useMemo(() => {
  if (embedded) return null; // embedded uses props, not URL
@@ -212,7 +212,7 @@ export function CandidateDetailV2({
 
  // URL mode: keep an internal position state so the counter updates *now*
  // (on click) rather than waiting for `useSearchParams` to re-emit after
- // `router.push` settles — when the dynamic `[id]` segment is cached the
+ // `router.push` settles – when the dynamic `[id]` segment is cached the
  // re-emit can lag a render. Sync from URL whenever it actually changes
  // (back/forward, refresh, deep link).
  const [urlPosition, setUrlPosition] = React.useState<number>(
@@ -233,7 +233,7 @@ export function CandidateDetailV2({
  }
  // URL mode: navigate to the new candidate, preserving filters + new pos.
  if (urlNav) {
- setUrlPosition(next.position); // optimistic — counter updates instantly
+ setUrlPosition(next.position); // optimistic – counter updates instantly
  const sp = encodeNavContext(urlNav.filters, next.position);
  router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
  // Next.js caches the dynamic `[id]` segment, so `useSearchParams`
@@ -267,7 +267,7 @@ export function CandidateDetailV2({
  onNavigate: navOnNavigate,
  }
  : {
- // Disabled — no nav context available.
+ // Disabled – no nav context available.
  mode: "url",
  enabled: false,
  filters: DEFAULT_FILTERS,
@@ -308,7 +308,7 @@ export function CandidateDetailV2({
  }
  }, [candidate, id, openTab, embedded]);
 
- // Timeline API returns `{ timeline: [...] }` — normalize to array.
+ // Timeline API returns `{ timeline: [...] }` – normalize to array.
  const { data: timelineRaw } = useQuery<{ timeline?: any[] } | any[]>({
  queryKey: ["candidate-timeline", id],
  queryFn: () =>
@@ -319,14 +319,14 @@ export function CandidateDetailV2({
  ? timelineRaw
  : (timelineRaw?.timeline ?? []);
 
- // History API returns `{ jobs: [...], contracts: [...] }` — flatten jobs.
+ // History API returns `{ jobs: [...], contracts: [...] }` – flatten jobs.
  const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
  queryKey: ["candidate-history", id],
  queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
  enabled: !!id && activeTab === "rekrutacje",
  });
 
- // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
+ // Phase 17 (migracja 0068): risk profile – pokazujemy badge w nagłówku.
  // Recompute następuje event-driven po każdej tranzycji + TTL 24h, więc
  // staleTime 5 min jest tu bezpieczny.
  const { data: riskProfile } = useQuery<CandidateRiskProfile>({
@@ -342,7 +342,7 @@ export function CandidateDetailV2({
  ? []
  : (historyRaw?.contracts ?? []);
 
- // Screenings & calls may come as array or { items: [...] } — normalize both.
+ // Screenings & calls may come as array or { items: [...] } – normalize both.
  const { data: screeningsRaw } = useQuery<{ items?: any[] } | any[]>({
  queryKey: ["candidate-screenings", id],
  queryFn: () => api.get(`/api/candidates/${id}/screenings`).then((r) => r.data),
@@ -365,7 +365,7 @@ export function CandidateDetailV2({
  enabled: !!id,
  });
 
- // Lista umów kandydata — dla zakładki"Umowa". Backend już akceptuje
+ // Lista umów kandydata – dla zakładki"Umowa". Backend już akceptuje
  // ?candidate_id w GET /api/contracts; zwraca paginowaną kopertę.
  const { data: candidateContractsRaw } = useQuery<{ items?: any[] } | any[]>({
  queryKey: ["candidate-contracts", id],
@@ -514,7 +514,7 @@ export function CandidateDetailV2({
  )}
  </div>
  {/* Scannable one-liner: title · experience · location · salary ·
- availability — falls back to current_role when no facts resolve. */}
+ availability – falls back to current_role when no facts resolve. */}
  {(getCandidateSummaryLine(candidate) ?? candidate.current_role) && (
  <p className="text-sm text-foreground mt-0.5">
  {getCandidateSummaryLine(candidate) ?? candidate.current_role}
@@ -585,14 +585,14 @@ export function CandidateDetailV2({
  })()}
  </div>
 
- {/* Active viewers (presence) — other users currently on this candidate */}
+ {/* Active viewers (presence) – other users currently on this candidate */}
  <ActiveViewers
  resourceType="candidate"
  resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
  viewers={presenceViewers}
  />
 
- {/* Close button (embedded fallback — when nav strip isn't shown). */}
+ {/* Close button (embedded fallback – when nav strip isn't shown). */}
  {embedded && !showNav && onClose && (
  <button
  onClick={onClose}
@@ -655,7 +655,7 @@ export function CandidateDetailV2({
  {candidate && <PinButton candidateId={candidate.id} />}
  </div>
  {/* Key stats moved into ProfilTab "Kluczowe fakty" grid for a single,
- scannable source — see ProfilTab FactTile grid. */}
+ scannable source – see ProfilTab FactTile grid. */}
  </div>
  </Card>
 
@@ -668,14 +668,14 @@ export function CandidateDetailV2({
  !embedded && "lg:grid-cols-[1fr_340px]",
  )}
  >
- {/* Side rail — AI screening + suggestions (right column on full-page) */}
+ {/* Side rail – AI screening + suggestions (right column on full-page) */}
  <aside
  className={cn(
  "space-y-4",
  !embedded && "lg:order-2 lg:sticky lg:top-4",
  )}
  >
- {/* AI screening summary (from /ai-profile — distinct from the CV-derived
+ {/* AI screening summary (from /ai-profile – distinct from the CV-derived
  candidate.ai_summary shown in the Profil tab). Truncated for scanability. */}
  {aiProfile?.summary && (
  <Card variant="default" size="md" className="!py-4">
@@ -691,7 +691,7 @@ export function CandidateDetailV2({
  </Card>
  )}
 
- {/* Sticky screening summary — always visible across tabs */}
+ {/* Sticky screening summary – always visible across tabs */}
  {aiProfile && aiProfile.screening_count > 0 && (
  <ScreeningSummary
  aiProfile={aiProfile}
@@ -706,7 +706,7 @@ export function CandidateDetailV2({
  <SuggestedPoolsWidget candidateId={Number(id)} />
  </aside>
 
- {/* Main column — tabs */}
+ {/* Main column – tabs */}
  <div className={cn("space-y-5 min-w-0", !embedded && "lg:order-1")}>
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
@@ -850,7 +850,7 @@ export function CandidateDetailV2({
  </div>
  {/* /2-column grid */}
 
- {/* Side widgets (below tabs) — full width under the grid */}
+ {/* Side widgets (below tabs) – full width under the grid */}
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
  <RateHistoryWidget candidateId={Number(id)} />
  <ConflictsWidget candidateId={Number(id)} />
@@ -1013,7 +1013,7 @@ function JDGPanel({
  setForm((f) => ({ ...f, business_form: e.target.value }))
  }
  >
- <option value="">— wybierz —</option>
+ <option value="">– wybierz –</option>
  {BUSINESS_FORM_OPTIONS.map((opt) => (
  <option key={opt.value} value={opt.value}>
  {opt.label}
@@ -1078,7 +1078,7 @@ function formatRate(
  currency: string | null | undefined,
  unit: string | null | undefined,
 ): string {
- if (amount == null) return"—";
+ if (amount == null) return"–";
  const unitLabel =
  unit === "hourly" ?"/h" : unit === "daily" ?"/d" :"/mies.";
  return `${amount.toLocaleString("pl-PL")} ${currency ??"PLN"}${unitLabel}`;
@@ -1211,7 +1211,7 @@ function UmowaTab({
  {c.client_name ?? `Klient #${c.client_id}`}
  </div>
  <div className="text-xs text-muted-foreground">
- {formatDate(c.start_date)} —{""}
+ {formatDate(c.start_date)} –{""}
  {c.end_date ? formatDate(c.end_date) : "?"} ·{""}
  {c.contract_type?.toUpperCase()}
  </div>
@@ -1257,7 +1257,7 @@ function CurrentContractCard({
  {contract.project_name ? ` · ${contract.project_name}` :""}
  </div>
  <div className="text-xs text-muted-foreground">
- {formatDate(contract.start_date)} —{""}
+ {formatDate(contract.start_date)} –{""}
  {contract.end_date ? formatDate(contract.end_date) : "open-ended"}
  </div>
  </div>
@@ -1303,7 +1303,7 @@ function CurrentContractCard({
  />
  <StatTile
  label="Tryb pracy"
- value={contract.work_mode ??"—"}
+ value={contract.work_mode ??"–"}
  />
  </div>
  <div>
@@ -1440,7 +1440,7 @@ function DraftEditor({
  const finalize = useMutation({
  mutationFn: () => contractsApi.draft.finalize(contractId),
  onSuccess: () => {
- showSuccess("Umowa sfinalizowana — status: aktywna");
+ showSuccess("Umowa sfinalizowana – status: aktywna");
  setConfirmFinalize(false);
  queryClient.invalidateQueries({
  queryKey: ["candidate-contracts"],
@@ -1482,7 +1482,7 @@ function DraftEditor({
  <div className="flex items-start justify-between gap-3 flex-wrap">
  <div className="min-w-0">
  <div className="text-sm text-muted-foreground">
- Draft umowy dla <strong>{candidateName}</strong> — kontrakt #
+ Draft umowy dla <strong>{candidateName}</strong> – kontrakt #
  {contractId}
  {contractMeta.client_name
  ? ` (${contractMeta.client_name})`
@@ -1504,7 +1504,7 @@ function DraftEditor({
  }
  }}
  >
- <option value="">— wybierz szablon —</option>
+ <option value="">– wybierz szablon –</option>
  {data.available_templates.map((t) => (
  <option key={t.id} value={t.id}>
  {t.name}
@@ -1623,8 +1623,8 @@ function ConfirmModal({
  );
 }
 
-/** Compact "key facts" tile — variant of StatTile that accepts an icon and
- *  only renders when it has a value (keeps the facts grid free of "—" noise). */
+/** Compact "key facts" tile – variant of StatTile that accepts an icon and
+ *  only renders when it has a value (keeps the facts grid free of "–" noise). */
 function FactTile({
  icon,
  label,
@@ -1672,7 +1672,7 @@ function ProfilTab({
  // guard prevents `string.map is not a function` crash.
  const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
  // Backfill (May 2026) injects a NULL placeholder at experience[0] for
- // Traffit candidates with only past employers — keeps `experience[0].company`
+ // Traffit candidates with only past employers – keeps `experience[0].company`
  // out of the "obecna firma" filter. The placeholder has all fields null, so
  // drop it from UI display (no empty card).
  const experience: any[] = (
@@ -1708,7 +1708,7 @@ function ProfilTab({
  ? `${candidate.notice_period_weeks * 7} dni`
  : null;
 
- // Mini activity feed — last 5 events, so the recruiter sees recent history
+ // Mini activity feed – last 5 events, so the recruiter sees recent history
  // without switching to the Timeline tab (Traffit's Podsumowanie centerpiece).
  const { data: feedRaw } = useQuery<{ timeline?: any[] } | any[]>({
  queryKey: ["candidate-timeline-mini", candidate.id],
@@ -1723,7 +1723,7 @@ function ProfilTab({
  ? feedRaw
  : (feedRaw?.timeline ?? []);
 
- // CV quick-open — authenticated blob fetch via the shared axios instance
+ // CV quick-open – authenticated blob fetch via the shared axios instance
  // (Bearer interceptor) so it works cross-origin. cv_filename is candidate-level.
  const [cvOpening, setCvOpening] = useState(false);
  const openCv = async () => {
@@ -1768,7 +1768,7 @@ function ProfilTab({
 
  return (
  <div className="space-y-6">
- {/* 1. Key facts — scannable grid (only tiles with data) */}
+ {/* 1. Key facts – scannable grid (only tiles with data) */}
  {facts.length > 0 && (
  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
  {facts.map((f) => (
@@ -1777,7 +1777,7 @@ function ProfilTab({
  </div>
  )}
 
- {/* 2. Ostatnia aktywność — mini feed (last 5) */}
+ {/* 2. Ostatnia aktywność – mini feed (last 5) */}
  {feed.length > 0 && (
  <section>
  <div className="flex items-center justify-between mb-2">
@@ -1820,7 +1820,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 3. CV — quick access card */}
+ {/* 3. CV – quick access card */}
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  CV
@@ -1856,7 +1856,7 @@ function ProfilTab({
  </div>
  </section>
 
- {/* 4. Podsumowanie AI — truncated */}
+ {/* 4. Podsumowanie AI – truncated */}
  {aiSummary && (
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
@@ -1871,7 +1871,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 5. O sobie — truncated */}
+ {/* 5. O sobie – truncated */}
  {candidate.about && (
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
@@ -1881,7 +1881,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 6. Umiejętności — grouped (verified vs declared) */}
+ {/* 6. Umiejętności – grouped (verified vs declared) */}
  {skills.length > 0 && (
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
@@ -1928,7 +1928,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 7. Doświadczenie zawodowe — desc truncated */}
+ {/* 7. Doświadczenie zawodowe – desc truncated */}
  {experience.length > 0 && (
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-3 flex items-center gap-2">
@@ -1962,7 +1962,7 @@ function ProfilTab({
  </div>
  {(start || end) && (
  <div className="text-xs text-muted-foreground whitespace-nowrap">
- {start ? formatDate(start) : ""} —{""}
+ {start ? formatDate(start) : ""} –{""}
  {end ? formatDate(end) : "obecnie"}
  </div>
  )}
@@ -1989,7 +1989,7 @@ function ProfilTab({
  className="rounded-lg bg-background/40 border border-border p-3"
  >
  <div className="font-medium text-foreground text-sm">
- {edu.degree || edu.field || "—"}
+ {edu.degree || edu.field || "–"}
  {edu.field && edu.degree ? ` · ${edu.field}` :""}
  </div>
  <div className="text-xs text-muted-foreground">
@@ -2027,7 +2027,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* Firmy z CV — kept (AI-parsed), only when present */}
+ {/* Firmy z CV – kept (AI-parsed), only when present */}
  {aiCompanies.length > 0 && (
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
@@ -2051,7 +2051,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 10. Szczegóły administracyjne — collapsible, panels render only if relevant */}
+ {/* 10. Szczegóły administracyjne – collapsible, panels render only if relevant */}
  <section className="rounded-lg border border-border">
  <button
  type="button"
@@ -2126,17 +2126,17 @@ const TIMELINE_LABEL: Record<string, string> = {
  user_activity: "Akcja użytkownika",
 };
 
-// 0045_rejection_emails — map scheduler activity actions to Polish labels.
+// 0045_rejection_emails – map scheduler activity actions to Polish labels.
 const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
  rejection_email_scheduled: "Zaplanowano email odrzucenia (wyśle się za 15 min)",
  rejection_email_sent: "Wysłano email odrzucenia do kandydata",
  rejection_email_cancelled: "Anulowano wysyłkę email odrzucenia",
- rejection_email_skipped: "Email odrzucenia pominięty — brak skrzynki MS365",
- rejection_email_failed: "Email odrzucenia — błąd wysyłki",
+ rejection_email_skipped: "Email odrzucenia pominięty – brak skrzynki MS365",
+ rejection_email_failed: "Email odrzucenia – błąd wysyłki",
 };
 
 function timelineItemLabel(item: any): string {
- if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` :""}`;
+ if (item.type === "note") return `Notatka${item.note_type ? ` – ${item.note_type}` :""}`;
  if (item.type === "stage_change")
  return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` :""}`;
  if (item.type === "activity") {
@@ -2298,7 +2298,7 @@ function RekrutacjaCard({
  {job.job_title ?? `Oferta #${job.job_id ?? job.id}`}
  </Link>
  <div className="text-xs text-muted-foreground">
- {job.latest_stage ??"—"}
+ {job.latest_stage ??"–"}
  {job.first_seen
  ? ` · dodano ${formatDate(job.first_seen)}`
  :""}
@@ -2657,7 +2657,7 @@ function NotatkiTab({
  );
 
  // Mentionable users dla autocomplete + render badge'y w liście notatek.
- // Reużywamy jednego query — staleTime 60s w hooku.
+ // Reużywamy jednego query – staleTime 60s w hooku.
  const { data: users = [] } = useMentionableUsers({ kind: "global" });
  const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
 
@@ -2711,7 +2711,7 @@ function NotatkiTab({
  >
  <div className="flex items-baseline gap-2 text-xs text-muted-foreground flex-wrap">
  <span className="font-medium text-foreground">
- {n.note_type ? `Notatka — ${n.note_type}` :"Notatka"}
+ {n.note_type ? `Notatka – ${n.note_type}` :"Notatka"}
  </span>
  {n.author_name && (
  <>
@@ -2735,7 +2735,7 @@ function NotatkiTab({
  );
 }
 
-// ── Pliki (multi-file CV — Faza A migracji Traffit) ────────────────────
+// ── Pliki (multi-file CV – Faza A migracji Traffit) ────────────────────
 
 interface CandidateDocument {
  id: number;
@@ -2749,7 +2749,7 @@ interface CandidateDocument {
 }
 
 function formatFileSize(bytes: number | null): string {
- if (!bytes) return"—";
+ if (!bytes) return"–";
  if (bytes < 1024) return `${bytes} B`;
  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -2776,7 +2776,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  // Backend `/content` proxy-stream'uje bytes z Object Storage (po Phase 3
  // migracji) lub z BYTEA (legacy). UŻYWAMY natywnego `fetch` zamiast axios
  // bo axios z `responseType: "blob"` cross-origin daje status 0 (XHR cancel
- // mid-stream) — testowane na prod 25.05.2026. Bare XHR i fetch z tymi
+ // mid-stream) – testowane na prod 25.05.2026. Bare XHR i fetch z tymi
  // samymi nagłówkami zwracają 200. Workaround: pomijamy axios dla tego
  // jednego endpointu, jego interceptor 401-auto-redirect i tak by się tu
  // nie przydał bo Bearer JWT w localStorage jest zawsze dołączany ręcznie.
@@ -2801,14 +2801,14 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  async function handlePreview(doc: CandidateDocument) {
  try {
  const blob = await fetchBlob(doc.id, "inline");
- // Reuse content_type z DB — Blob default `application/octet-stream`
+ // Reuse content_type z DB – Blob default `application/octet-stream`
  // wymusiłby download zamiast preview.
  const typed = doc.content_type
  ? new Blob([blob], { type: doc.content_type })
  : blob;
  const url = URL.createObjectURL(typed);
  // UWAGA: `window.open(..., "noopener,noreferrer")` w Chromium ZAWSZE
- // zwraca null (celowo zrywa referencję) — NIE oznacza to że popup
+ // zwraca null (celowo zrywa referencję) – NIE oznacza to że popup
  // został zablokowany. Tab faktycznie się otwiera w user gesture path.
  // Pomijamy guard `if (!win)` żeby uniknąć false-positive toastu.
  window.open(url, "_blank", "noopener,noreferrer");
@@ -3159,7 +3159,7 @@ function ScreeningSummary({
  {motivation_trend.map((m, i) => (
  <Badge key={i} variant="outline" size="sm">
  {MOTIVATION_LABEL_PL[m.primary ??""] ??
- m.primary ??"—"}
+ m.primary ??"–"}
  </Badge>
  ))}
  </div>

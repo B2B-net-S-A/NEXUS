@@ -46,7 +46,7 @@ function errorMessage(error: unknown): string {
   return e?.message ?? "Spróbuj ponownie za chwilę.";
 }
 
-// Reusable error block — exported so callers can compose it inside their own
+// Reusable error block – exported so callers can compose it inside their own
 // container (e.g. a Card) when a bare error block looks out of place.
 export function WidgetErrorBlock({
   error,

@@ -265,7 +265,7 @@ export function GlobalSearchBar() {
             }}
             placeholder={
               aiMode
-                ? "AI Search — opisz kandydata... (⌘K)"
+                ? "AI Search – opisz kandydata... (⌘K)"
                 : "Szukaj kandydatów, ofert, klientów... (⌘K)"
             }
             data-global-search="true"
@@ -339,7 +339,7 @@ export function GlobalSearchBar() {
                 <div>
                   <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1 text-xs font-semibold text-purple-500 dark:text-purple-400 uppercase tracking-wide">
                     <Sparkles className="w-3.5 h-3.5" />
-                    Kandydaci — AI
+                    Kandydaci – AI
                   </div>
                   {semanticResults!.results.map((hit) => (
                     <button

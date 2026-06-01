@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Public CV viewer — token-based link do brandowanego CV per rekrutacja.
+ * Public CV viewer – token-based link do brandowanego CV per rekrutacja.
  *
- * Phase: CV per rekrutacja (PR2 — Faza 4). Rekruter klika "Wyślij klientowi"
+ * Phase: CV per rekrutacja (PR2 – Faza 4). Rekruter klika "Wyślij klientowi"
  * → finalizes brandowane CV → generuje token (POST /share-token) → kopiuje
  * link `/cv/{token}` → klient otwiera w przeglądarce bez logowania → widzi
  * CV w iframe.
@@ -108,7 +108,7 @@ export default function PublicCvPage() {
             {view.candidate_first_name ?? "Kandydat"}
             {view.job_title ? (
               <span className="ml-2 text-base font-normal text-muted-foreground">
-                — {view.job_title}
+                – {view.job_title}
               </span>
             ) : null}
           </h1>
@@ -127,7 +127,7 @@ export default function PublicCvPage() {
         </button>
       </div>
 
-      {/* CV iframe — sandboxed, srcDoc-rendered */}
+      {/* CV iframe – sandboxed, srcDoc-rendered */}
       <div className="rounded-lg border border-border dark:border-border bg-card shadow-sm overflow-hidden">
         <iframe
           title="CV"

@@ -14,7 +14,7 @@ export function ZarzadPanel() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Executive dashboard — YTD KPI, trendy, przetargi, linki aplikacyjne, Liga Mistrzów.
+          Executive dashboard – YTD KPI, trendy, przetargi, linki aplikacyjne, Liga Mistrzów.
         </p>
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>

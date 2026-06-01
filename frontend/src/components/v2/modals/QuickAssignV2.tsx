@@ -59,7 +59,7 @@ export function QuickAssignV2({
  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
- // "AI sugestie" (domyślny) vs "Wszystkie" — pozwala przypisać do dowolnej rekrutacji.
+ // "AI sugestie" (domyślny) vs "Wszystkie" – pozwala przypisać do dowolnej rekrutacji.
  const [tab, setTab] = useState<"ai" |"all">("ai");
  const [searchQuery, setSearchQuery] = useState("");
  const [allJobs, setAllJobs] = useState<JobLite[]>([]);
@@ -101,7 +101,7 @@ export function QuickAssignV2({
  };
  }, [candidateId, open]);
 
- // Reset state otwarcia/zamknięcia — żeby search query nie został z poprzedniego kandydata.
+ // Reset state otwarcia/zamknięcia – żeby search query nie został z poprzedniego kandydata.
  useEffect(() => {
  if (!open) {
  setTab("ai");
@@ -236,7 +236,7 @@ export function QuickAssignV2({
  wycofań w 24mc
  {risk.breakdown.post_accept > 0 &&
  `, w tym ${risk.breakdown.post_accept}× po akceptacji oferty`}
- . Decyzja należy do Ciebie — system tylko ostrzega.
+ . Decyzja należy do Ciebie – system tylko ostrzega.
  </div>
  </div>
  )}

@@ -48,7 +48,7 @@ type NavItem = {
   /**
    * Renderuje pozycję jako `<a href target="_blank" rel="noopener noreferrer">`
    * zamiast Next.js `<Link>`. Używane dla zewnętrznych dashboardów
-   * (np. DynaReporter standalone — patrz sekcja "Raporty KPI").
+   * (np. DynaReporter standalone – patrz sekcja "Raporty KPI").
    */
   external?: boolean;
 };
@@ -109,13 +109,13 @@ const NAV_SECTIONS: NavSection[] = [
       },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
-      //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
+      //    `/dashboard/delivery-lead` nadal działa – tylko link w nawigacji
       //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
       /*
       {
-        // DL Hub (PR #225/#229) — łączy widget weryfikacji + KPI + 3 taby
+        // DL Hub (PR #225/#229) – łączy widget weryfikacji + KPI + 3 taby
         // (klienci/zespół/aktywne joby). Stara osobna zakładka "Weryfikacje"
-        // została zwinięta do widgeta na górze panelu — link do pełnej
+        // została zwinięta do widgeta na górze panelu – link do pełnej
         // listy (`/pending-verifications`) jest w widgecie.
         href: "/dashboard/delivery-lead",
         label: "Panel Managera",
@@ -136,7 +136,7 @@ const NAV_SECTIONS: NavSection[] = [
   // ── HIDDEN 2026-05-22: cała sekcja "Raporty KPI" schowana z sidebara
   //    na prośbę usera ("zajmiemy się tym później"). Routy /dynareporter/*
   //    (rekrutacja / delivery-lead-dashboard / board-dashboard / admin-dashboard)
-  //    nadal działają — tylko nawigacja w sidebarze ukryta. Żeby przywrócić,
+  //    nadal działają – tylko nawigacja w sidebarze ukryta. Żeby przywrócić,
   //    odkomentuj poniższy obiekt grupy.
   /*
   {
@@ -377,7 +377,7 @@ export function SidebarV2({
       >
         <Link
           href="/"
-          aria-label="Nexus — strona główna"
+          aria-label="Nexus – strona główna"
           className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-none"
         >
           <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-primary text-primary-foreground font-semibold text-sm shrink-0">
@@ -487,7 +487,7 @@ export function SidebarV2({
               <TooltipTrigger asChild>
                 <button
                   onClick={logout}
-                  aria-label="Wyloguj — sesja wygasła"
+                  aria-label="Wyloguj – sesja wygasła"
                   className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors"
                 >
                   <LogOut className="h-4 w-4" />

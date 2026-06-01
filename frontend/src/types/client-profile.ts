@@ -1,6 +1,6 @@
 // Types for GET /api/clients/{id}/profile.
 // Mirrors backend/app/schemas/client_profile.py. Keep in sync when backend
-// changes — there's no codegen step.
+// changes – there's no codegen step.
 
 import type { ContractTerminationReason } from "@/lib/api";
 
@@ -110,7 +110,7 @@ export interface ClientProfileResponse {
 // ── Small formatters used across profile components ────────────────────────
 
 export function formatPLN(value: number | null | undefined): string {
-  if (value == null) return "—";
+  if (value == null) return "–";
   return new Intl.NumberFormat("pl-PL", {
     style: "currency",
     currency: "PLN",
@@ -119,7 +119,7 @@ export function formatPLN(value: number | null | undefined): string {
 }
 
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   try {
     return new Date(iso).toLocaleDateString("pl-PL");
   } catch {

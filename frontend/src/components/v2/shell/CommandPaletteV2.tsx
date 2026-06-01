@@ -105,7 +105,7 @@ export function CommandPaletteV2({
         }
         setResults(r);
       } catch {
-        // Ignore aborts / errors — empty state handles it
+        // Ignore aborts / errors – empty state handles it
       }
     }, 250);
     return () => {

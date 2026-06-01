@@ -45,7 +45,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     const id = buildTabId(type, entityId);
     const { tabs } = get();
 
-    // Already open — just activate
+    // Already open – just activate
     const existing = tabs.find((t) => t.id === id);
     if (existing) {
       set({ activeTabId: id });

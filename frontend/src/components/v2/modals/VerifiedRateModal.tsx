@@ -114,7 +114,7 @@ export function VerifiedRateModal({
  <div className="rounded-md p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs">
  Stawka <strong>{numericRate.toLocaleString("pl-PL")} {currency}</strong> przekracza
  budżet projektu (<strong>{jobBudgetMax!.toLocaleString("pl-PL")} {currency}</strong>).
- Kandydat trafi w stan <strong>"Pending verification"</strong> — delivery lead
+ Kandydat trafi w stan <strong>"Pending verification"</strong> – delivery lead
  dostanie powiadomienie i zaakceptuje lub odrzuci.
  </div>
  )}

@@ -36,7 +36,7 @@ type ComposeMode =
 type EmailComposeProps = ComposeMode & {
   candidateId: number;
   candidateName: string;
-  /** Optional active recruitment / job context — used when rendering templates. */
+  /** Optional active recruitment / job context – used when rendering templates. */
   requestId?: number;
   onClose: () => void;
 };
@@ -58,7 +58,7 @@ export default function EmailCompose(props: EmailComposeProps) {
       ? props.replyTo.subject?.toLowerCase().startsWith("re: ")
         ? (props.replyTo.subject ?? "")
         : `Re: ${props.replyTo.subject ?? ""}`
-      : `Kontakt — ${candidateName}`,
+      : `Kontakt – ${candidateName}`,
   );
   const [error, setError] = useState<string | null>(null);
   const [templateNotice, setTemplateNotice] = useState<TemplateNotice | null>(
@@ -76,7 +76,7 @@ export default function EmailCompose(props: EmailComposeProps) {
     },
   });
 
-  // Templates are loaded lazily — only when the dropdown is opened the first
+  // Templates are loaded lazily – only when the dropdown is opened the first
   // time. `enabled: !isReply` because in reply mode the subject is locked.
   const { data: templates } = useQuery({
     queryKey: ["user-email-templates"],

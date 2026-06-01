@@ -26,10 +26,10 @@ export interface CandidateLite {
 /** Best-effort extractor for the candidate's CURRENT job title.
  *
  *  Resolution order (highest signal first):
- *    1. linkedin_current_title — populated by Proxycurl sync, freshest source
- *    2. experience[0].role — top-of-CV current role
- *    3. position — legacy free-text field
- *    4. current_role — alternative legacy field
+ *    1. linkedin_current_title – populated by Proxycurl sync, freshest source
+ *    2. experience[0].role – top-of-CV current role
+ *    3. position – legacy free-text field
+ *    4. current_role – alternative legacy field
  *  Returns null when no source has a non-empty value. */
 export function getCurrentTitle(c: CandidateLite): string | null {
   if (c.linkedin_current_title) return c.linkedin_current_title;
@@ -46,8 +46,8 @@ export function getCurrentTitle(c: CandidateLite): string | null {
 /** Best-effort extractor for the candidate's CURRENT employer name.
  *
  *  Resolution order:
- *    1. linkedin_current_company — Proxycurl-synced, freshest
- *    2. experience[0].company — top-of-CV current employer */
+ *    1. linkedin_current_company – Proxycurl-synced, freshest
+ *    2. experience[0].company – top-of-CV current employer */
 export function getCurrentCompany(c: CandidateLite): string | null {
   if (c.linkedin_current_company) return c.linkedin_current_company;
   const exp = Array.isArray(c.experience)
@@ -58,7 +58,7 @@ export function getCurrentCompany(c: CandidateLite): string | null {
 
 /** Coerce the loosely-typed skills payload to a clean string array.
  *
- *  The backend stores skills as JSONB and emits various shapes — accept:
+ *  The backend stores skills as JSONB and emits various shapes – accept:
  *    - array of strings → ["Python","AWS"]
  *    - array of {name|skill|label|value: string} objects (legacy parsers)
  *  Trims whitespace, drops empties, caps at `limit` entries. */
@@ -145,7 +145,7 @@ export type ExperienceVariant = "outline" | "soft" | "success" | "neutral";
  *  Buckets (Polish recruiter convention):
  *    0–1 years → outline ("Junior")
  *    2–4 years → soft ("Mid")
- *    5+ years  → success ("Senior") — uses `5+` notation regardless of exact value */
+ *    5+ years  → success ("Senior") – uses `5+` notation regardless of exact value */
 export function getExperienceLabel(
   years: number | null | undefined,
 ): { label: string; variant: ExperienceVariant } | null {

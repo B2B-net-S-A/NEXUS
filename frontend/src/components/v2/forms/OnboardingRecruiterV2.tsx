@@ -84,7 +84,7 @@ export function OnboardingRecruiterV2() {
  role: payload.user.role as never,
  profile_completed: payload.user.profile_completed,
  profile_completed_at: payload.user.profile_completed_at,
- // Onboarding endpoint nie zwraca tych pól — backfill default false.
+ // Onboarding endpoint nie zwraca tych pól – backfill default false.
  force_password_change: false,
  force_password_change_at: null,
  },
@@ -129,7 +129,7 @@ export function OnboardingRecruiterV2() {
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
  Zaznacz oferty, nad którymi aktywnie pracujesz. Zostaniesz dopisany
- jako współpracownik — nie zmieni to głównego przypisania.
+ jako współpracownik – nie zmieni to głównego przypisania.
  </p>
  </div>
 
@@ -158,7 +158,7 @@ export function OnboardingRecruiterV2() {
  <div className="py-10 text-center">
  <Sparkles className="h-8 w-8 mx-auto text-primary opacity-50 mb-2" />
  <p className="text-sm text-muted-foreground">
- Nie ma jeszcze ofert w systemie. Możesz pominąć ten krok —
+ Nie ma jeszcze ofert w systemie. Możesz pominąć ten krok –
  wrócisz do niego, gdy będzie co oznaczać.
  </p>
  </div>

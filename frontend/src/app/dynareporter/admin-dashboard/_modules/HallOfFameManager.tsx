@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Hall of Fame Manager — admin CRUD na dr_competition_winners.
+ * Hall of Fame Manager – admin CRUD na dr_competition_winners.
  *
  * Pełen port `HallOfFameManager.tsx` z artur-t-96/InfraReporter (562 linii).
  *
@@ -11,7 +11,7 @@
  * - Modal "Dodaj/Edytuj zwycięzcę" z:
  *   - Competition type dropdown (3 typy)
  *   - Period dropdown (Q1-Q4 dla quarterly, YYYY-MM dla monthly)
- *   - Rank picker (3 buttons z badges — tylko dla quarterly)
+ *   - Rank picker (3 buttons z badges – tylko dla quarterly)
  *   - User dropdown z (name + role)
  *   - Prize text input (opcjonalnie)
  * - Delete confirmation modal
@@ -450,7 +450,7 @@ export function HallOfFameManager() {
                         {winner.points || "–"}
                       </td>
                       <td className="px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
-                        {winner.prize || "—"}
+                        {winner.prize || "–"}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button

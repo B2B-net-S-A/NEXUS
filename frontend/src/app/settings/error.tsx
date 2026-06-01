@@ -24,7 +24,7 @@ export default function SettingsError({ error, reset }: SettingsErrorProps) {
             <AlertTriangle className="h-12 w-12 text-amber-500" />
             <h2 className="text-xl font-semibold">Ustawienia chwilowo niedostępne</h2>
             <p className="max-w-md text-sm text-muted-foreground">
-                Nie udało się załadować ustawień. Najczęściej pomaga odświeżenie —
+                Nie udało się załadować ustawień. Najczęściej pomaga odświeżenie –
                 jeśli problem będzie się powtarzał, zgłoś to administratorowi.
             </p>
             {process.env.NODE_ENV === 'development' && (

@@ -7,7 +7,7 @@ import { Button } from"@/components/ui/button";
 import { Input } from"@/components/ui/input";
 
 /**
- * ListScaffoldV2 — shared header + toolbar pattern for v2 list pages
+ * ListScaffoldV2 – shared header + toolbar pattern for v2 list pages
  * (Clients / Jobs / Contracts / Talents / Contacts).
  *
  * Wrap the entity-specific content (table, grid, filters) as children.
@@ -117,7 +117,7 @@ export function ListScaffoldV2({
 }
 
 /**
- * SimplePagination — reusable pagination block for list pages.
+ * SimplePagination – reusable pagination block for list pages.
  */
 export interface SimplePaginationProps {
  page: number;

@@ -88,7 +88,7 @@ export function CandidateNav({
  </span>{""}
  / {total}
  </>
- ) : ("—"
+ ) : ("–"
  )}
  </div>
 

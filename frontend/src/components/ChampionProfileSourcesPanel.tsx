@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Sources Panel — Phase 14 (Fireflies enrichment).
+ * Sources Panel – Phase 14 (Fireflies enrichment).
  *
  * Sits next to the ChampionProfileEditor on the Job detail view. Shows:
  *   1. Pending AI suggestions for this Job (each can be reviewed in the modal)
  *   2. Meetings (Fireflies transcripts) already attached to this Job
- *   3. Unlinked recent meetings — DL can manually attach any of them, which
+ *   3. Unlinked recent meetings – DL can manually attach any of them, which
  *      triggers a fresh enrichment suggestion.
  */
 
@@ -36,7 +36,7 @@ interface ChampionProfileSourcesPanelProps {
   jobId: number;
   currentProfile: ChampionProfile;
   /** Phase 15: scope Qdrant retrieval to this client's closed jobs.
-   *  `null` means "no client" — panel falls back to cross-client mode. */
+   *  `null` means "no client" – panel falls back to cross-client mode. */
   clientId?: number | null;
 }
 

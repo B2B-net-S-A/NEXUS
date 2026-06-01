@@ -109,7 +109,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  <DialogHeader>
  <div className="flex items-center gap-2">
  <Sparkles className="h-4 w-4 text-primary" />
- <DialogTitle>Kryteria AI — must-have / nice-to-have</DialogTitle>
+ <DialogTitle>Kryteria AI – must-have / nice-to-have</DialogTitle>
  {source && (
  <Badge variant="soft" size="sm">
  {source === "ollama" ?"Ollama" :"heurystyka"}

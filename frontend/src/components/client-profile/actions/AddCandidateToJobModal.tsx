@@ -113,7 +113,7 @@ export function AddCandidateToJobModal({
                 <p className="text-xs text-muted-foreground dark:text-muted-foreground truncate">
                   {[c.competence_category, c.location, c.email]
                     .filter(Boolean)
-                    .join(" · ") || "—"}
+                    .join(" · ") || "–"}
                 </p>
               </div>
               <span className="text-xs text-purple-600 font-semibold flex-shrink-0">

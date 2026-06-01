@@ -28,7 +28,7 @@ const UNIT_LABEL: Record<string, string> = {
 }
 
 function formatRate(item: PendingVerificationItem): string {
-  if (item.expected_rate_value == null) return "—"
+  if (item.expected_rate_value == null) return "–"
   const value = Number.parseFloat(item.expected_rate_value)
   const formatted = Number.isFinite(value)
     ? value.toLocaleString("pl-PL")
@@ -95,7 +95,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
     mutationFn: async ({ id, note }: { id: number; note: string }) =>
       pipelineApi.rejectVerification(id, note),
     onSuccess: () => {
-      showSuccess("Odrzucono — kandydat wrócił na poprzedni stage.")
+      showSuccess("Odrzucono – kandydat wrócił na poprzedni stage.")
       invalidate()
       setRejectTarget(null)
     },
@@ -151,7 +151,7 @@ export function PendingVerificationsWidget({ mine }: PendingVerificationsWidgetP
                 Weryfikacje wymagające akcji
               </div>
               <div className="text-xs text-amber-800/70">
-                Kandydaci ze stawką poza budżetem — czekają na Twoją decyzję.
+                Kandydaci ze stawką poza budżetem – czekają na Twoją decyzję.
               </div>
             </div>
           </div>

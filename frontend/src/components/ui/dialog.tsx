@@ -62,7 +62,7 @@ const DialogContent = React.forwardRef<
  )}
  {...props}
  >
- {/* Fallback opis dla a11y — wymóg radix-ui Dialog. Klient może override */}
+ {/* Fallback opis dla a11y – wymóg radix-ui Dialog. Klient może override */}
  {/* poprzez <DialogDescription> w children. */}
  {!ariaDescribedBy && (
  <DialogPrimitive.Description className="sr-only">

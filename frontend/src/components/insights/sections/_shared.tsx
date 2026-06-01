@@ -14,9 +14,9 @@ export function formatPLN(value: number): string {
 }
 
 export function fmtNumber(v: string | number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined) return "–";
   const num = typeof v === "string" ? parseFloat(v) : v;
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "–";
   return num.toLocaleString("pl-PL");
 }
 

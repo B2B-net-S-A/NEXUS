@@ -130,7 +130,7 @@ function collectChips(
  }),
  });
  });
- // Stage-move "who" — correlated with the stage chip above.
+ // Stage-move "who" – correlated with the stage chip above.
  filters.stageMovedByIds.forEach((id) => {
  const name =
  id === 0
@@ -146,7 +146,7 @@ function collectChips(
  }),
  });
  });
- // Stage-move "when" — single chip for the (inclusive) date range.
+ // Stage-move "when" – single chip for the (inclusive) date range.
  if (filters.stageMovedAfter || filters.stageMovedBefore) {
  const from = filters.stageMovedAfter ||"…";
  const to = filters.stageMovedBefore ||"…";
@@ -302,7 +302,7 @@ export function ActiveFilterChips({
  clientsById,
 }: ActiveFilterChipsProps) {
  // Hit the same React Query cache key as <TalentPoolMultiSelect> (staleTime
- // 60s) — gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
+ // 60s) – gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
  // bez extra HTTP. Bez tego chip pokazywał "Pula #4" zamiast "Java Backend
  // Senior" gdy user wrócił z URL share / saved search.
  const { data: poolsData } = useQuery<TalentPoolLite[]>({

@@ -1,4 +1,4 @@
-// Next.js 15 instrumentation hook — runs once per server worker on boot.
+// Next.js 15 instrumentation hook – runs once per server worker on boot.
 // Sentry init is split per runtime so the right SDK is loaded for Node vs Edge.
 //
 // Sentry init is idempotent and a no-op when SENTRY_DSN is unset, so this file

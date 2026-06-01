@@ -4,7 +4,7 @@ import { useEffect, useState } from"react";
 import { JobsListV2 } from"@/components/v2/pages/JobsListV2";
 
 /**
- * Client-only gate — patrz komentarz w /contracts/page.tsx.
+ * Client-only gate – patrz komentarz w /contracts/page.tsx.
  */
 export default function JobsPage() {
  const [mounted, setMounted] = useState(false);

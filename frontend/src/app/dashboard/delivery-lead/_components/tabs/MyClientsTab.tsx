@@ -83,7 +83,7 @@ export function MyClientsTab() {
                 </Link>
               </td>
               <td className="px-3 py-2 text-muted-foreground">
-                {row.industry ?? "—"}
+                {row.industry ?? "–"}
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
                 {row.active_orders_count}

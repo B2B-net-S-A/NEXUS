@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Master Data Manager — admin CRUD na dr_clients + dr_consultants.
+ * Master Data Manager – admin CRUD na dr_clients + dr_consultants.
  *
  * Pełen port `MasterDataManager.tsx` z artur-t-96/InfraReporter (564 linii).
  *
@@ -278,7 +278,7 @@ export function MasterDataManager() {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className="text-lg font-semibold flex items-center gap-2">
               <Database className="w-5 h-5 text-violet-600" />
-              Master Data — Klienci i Konsultanci
+              Master Data – Klienci i Konsultanci
             </h3>
             <div className="flex items-center gap-2">
               <Button

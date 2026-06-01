@@ -25,7 +25,7 @@ interface CallButtonProps {
  * `cloudtalk_call_id` with duration/transcript/recording.
  *
  * Falls back to `tel:` link when phone is set but CloudTalk returns 412
- * (user not mapped to an agent) or 503 (kill-switch off) — the user can
+ * (user not mapped to an agent) or 503 (kill-switch off) – the user can
  * still dial manually on mobile.
  */
 export default function CallButton({
@@ -45,7 +45,7 @@ export default function CallButton({
     setLoading(true);
     try {
       await cloudtalkApi.initiateCall(candidateId);
-      showSuccess("Dzwonimy — odbierz swój softphone CloudTalk");
+      showSuccess("Dzwonimy – odbierz swój softphone CloudTalk");
     } catch (err: unknown) {
       const status =
         (err as { response?: { status?: number } })?.response?.status;
@@ -55,7 +55,7 @@ export default function CallButton({
       if (status === 412) {
         showError(detail);
       } else if (status === 503) {
-        showError("CloudTalk wyłączony — skontaktuj się z administratorem");
+        showError("CloudTalk wyłączony – skontaktuj się z administratorem");
       } else {
         showError(detail);
       }

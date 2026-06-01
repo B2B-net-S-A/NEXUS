@@ -33,7 +33,7 @@ import { hasRole, useAuthStore } from"@/store/auth";
 import { UserCog } from"lucide-react";
 
 /**
- * DashboardV2 — Dynaminds redesign. Uses the same TanStack queries as v1
+ * DashboardV2 – Dynaminds redesign. Uses the same TanStack queries as v1
  * (/api/dashboard/stats, /api/dashboard/kpis, /api/activities/feed, etc.)
  * but renders with v2 primitives + plum/burgundy/cream palette.
  */
@@ -148,7 +148,7 @@ function FunnelV2({ data }: { data?: any }) {
  // 120/78/45/18/9 when the funnel API returned null/undefined. Those
  // round numbers (100%/65%/58%/40%/50% conversion) were mistaken for
  // real metrics by admins who compared them against Insights/Rekrutacja
- // which showed actual 14/17/2/18/9 — confusing data integrity story.
+ // which showed actual 14/17/2/18/9 – confusing data integrity story.
  // Now: 0 + "Brak danych" empty state when API has no response yet.
  const funnel = data?.funnel ?? data?.pipeline ?? null;
  const stages = [
@@ -162,7 +162,7 @@ function FunnelV2({ data }: { data?: any }) {
  if (allZero) {
  return (
  <p className="text-sm text-muted-foreground py-4">
- Brak danych — żaden kandydat nie wszedł do lejka w wybranym okresie.
+ Brak danych – żaden kandydat nie wszedł do lejka w wybranym okresie.
  </p>
  );
  }
@@ -349,7 +349,7 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
  <Target className="h-5 w-5" />
  </span>
  <div className="flex-1">
- <CardTitle>Placements — ten miesiąc</CardTitle>
+ <CardTitle>Placements – ten miesiąc</CardTitle>
  <CardDescription>zatrudnienia B2B.net</CardDescription>
  </div>
  <span className="font-semibold text-3xl font-extrabold text-foreground tracking-[-0.02em]">
@@ -422,7 +422,7 @@ function ContractorDraftsWidget() {
  Drafty do uzupełnienia: {incomplete}
  </p>
  <p className="text-xs text-amber-800">
- Kontraktorzy czekają na uzupełnienie stawek i dat — kliknij, żeby
+ Kontraktorzy czekają na uzupełnienie stawek i dat – kliknij, żeby
  otworzyć listę.
  </p>
  </div>
@@ -581,7 +581,7 @@ export function DashboardV2() {
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
  <StatCardV2
  title="Kandydaci"
- value={stats?.candidates?.total ??"—"}
+ value={stats?.candidates?.total ??"–"}
  subtitle={`${stats?.candidates?.active ?? 0} aktywnych`}
  icon={Users}
  trend={{ value: 8, label: "vs. poprzedni miesiąc" }}
@@ -590,7 +590,7 @@ export function DashboardV2() {
  />
  <StatCardV2
  title="Otwarte oferty"
- value={stats?.jobs?.open ??"—"}
+ value={stats?.jobs?.open ??"–"}
  subtitle={`${stats?.jobs?.total ?? 0} łącznie`}
  icon={Briefcase}
  trend={{ value: 5, label: "vs. poprzedni miesiąc" }}
@@ -599,7 +599,7 @@ export function DashboardV2() {
  />
  <StatCardV2
  title="Klienci"
- value={stats?.clients?.total ??"—"}
+ value={stats?.clients?.total ??"–"}
  subtitle="aktywne konta"
  icon={Building2}
  trend={{ value: -2, label: "vs. poprzedni miesiąc" }}
@@ -608,7 +608,7 @@ export function DashboardV2() {
  />
  <StatCardV2
  title="Aktywne kontrakty"
- value={stats?.contracts?.active ??"—"}
+ value={stats?.contracts?.active ??"–"}
  subtitle={`${stats?.contracts?.expiring_soon ?? 0} kończących się`}
  icon={FileText}
  trend={{ value: 12, label: "vs. poprzedni miesiąc" }}
@@ -619,7 +619,7 @@ export function DashboardV2() {
  </WidgetState>
  </section>
 
- {/* Contractor drafts — only visible when count > 0 and role qualifies */}
+ {/* Contractor drafts – only visible when count > 0 and role qualifies */}
  <ContractorDraftsWidget />
 
  {/* My projects (Recruiter Ownership) */}

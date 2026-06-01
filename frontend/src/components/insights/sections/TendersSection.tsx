@@ -123,7 +123,7 @@ export function TendersSection({ period }: Props) {
             <div className="flex-1">
               <div className="text-xs text-muted-foreground mb-1">Śr. wartość przetargu</div>
               <div className="text-2xl font-bold text-foreground">
-                {avgTenderValue > 0 ? formatPLN(avgTenderValue) : "—"}
+                {avgTenderValue > 0 ? formatPLN(avgTenderValue) : "–"}
               </div>
             </div>
             <div className="flex-1">
@@ -192,9 +192,9 @@ export function TendersSection({ period }: Props) {
                     <td className="px-6 py-3 text-muted-foreground">{t.client}</td>
                     <td className="px-6 py-3">{resultBadge(t.result)}</td>
                     <td className="px-6 py-3 text-muted-foreground">
-                      {t.value ? formatPLN(t.value) : "—"}
+                      {t.value ? formatPLN(t.value) : "–"}
                     </td>
-                    <td className="px-6 py-3 text-muted-foreground">{t.deadline || "—"}</td>
+                    <td className="px-6 py-3 text-muted-foreground">{t.deadline || "–"}</td>
                   </tr>
                 ))
               )}

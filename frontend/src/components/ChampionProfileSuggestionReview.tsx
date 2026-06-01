@@ -60,7 +60,7 @@ export function ChampionProfileSuggestionReview({
     const acc = Object.fromEntries(
       CHAMPION_SECTIONS.map((s) => [s, false]),
     ) as Record<ChampionSectionName, boolean>;
-    // Check sections with confidence >= 0.5 by default — DL can uncheck.
+    // Check sections with confidence >= 0.5 by default – DL can uncheck.
     for (const p of patches) {
       if (p.confidence >= 0.5) acc[p.section] = true;
     }
@@ -443,7 +443,7 @@ function SideCol({
 
 function ValuePreview({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === "") {
-    return <span className="text-xs italic text-muted-foreground">— puste —</span>;
+    return <span className="text-xs italic text-muted-foreground">– puste –</span>;
   }
   if (typeof value === "string") {
     return (
@@ -457,7 +457,7 @@ function ValuePreview({ value }: { value: unknown }) {
   }
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <span className="text-xs italic text-muted-foreground">— pusta lista —</span>;
+      return <span className="text-xs italic text-muted-foreground">– pusta lista –</span>;
     }
     return (
       <ul className="list-disc pl-5 space-y-0.5 text-foreground dark:text-muted-foreground">

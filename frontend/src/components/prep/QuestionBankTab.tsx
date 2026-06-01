@@ -361,7 +361,7 @@ function CreateQuestionDialog({
  }
  >
  <SelectTrigger>
- <SelectValue placeholder="— wybierz —" />
+ <SelectValue placeholder="– wybierz –" />
  </SelectTrigger>
  <SelectContent>
  {TYPE_OPTIONS.map((o) => (
@@ -381,7 +381,7 @@ function CreateQuestionDialog({
  }
  >
  <SelectTrigger>
- <SelectValue placeholder="— dowolne —" />
+ <SelectValue placeholder="– dowolne –" />
  </SelectTrigger>
  <SelectContent>
  {SENIORITY_OPTIONS.map((o) => (

@@ -22,11 +22,11 @@ import { useQueryClient } from"@tanstack/react-query";
 /**
  * Per-file upload state shown in the progress table.
  *
- * pending — queued, not started yet
- * parsing — POST in flight
- * success — 201 response, candidate created (id + name stored)
- * duplicate — 409 response, existing candidate found (id stored so UI links)
- * error — any other failure, message stored for display
+ * pending – queued, not started yet
+ * parsing – POST in flight
+ * success – 201 response, candidate created (id + name stored)
+ * duplicate – 409 response, existing candidate found (id stored so UI links)
+ * error – any other failure, message stored for display
  */
 type Status ="pending" |"parsing" |"success" |"duplicate" |"error";
 
@@ -42,7 +42,7 @@ interface Row {
  duplicateOfName?: string;
 }
 
-/** Batch size for parallel uploads — keeps Voyage + Claude APIs responsive. */
+/** Batch size for parallel uploads – keeps Voyage + Claude APIs responsive. */
 const CONCURRENCY = 3;
 const ALLOWED_EXT = [".pdf",".docx",".txt"];
 const LOW_CONFIDENCE = 0.7;
@@ -180,7 +180,7 @@ export function BulkImportCVsV2() {
  }));
  setRows((prev) => [...prev, ...next]);
  if (rejected > 0) {
- // Cheap inline alert via a single error row — keeps UI simple.
+ // Cheap inline alert via a single error row – keeps UI simple.
  setRows((prev) => [
  ...prev,
  {
@@ -198,7 +198,7 @@ export function BulkImportCVsV2() {
  setRunning(true);
  try {
  // Process in batches of CONCURRENCY. Each batch awaits before starting
- // the next — this keeps DB + LLM pressure bounded and gives steady UI
+ // the next – this keeps DB + LLM pressure bounded and gives steady UI
  // updates.
  const queue = rows
  .filter((r) => r.status === "pending")
@@ -276,7 +276,7 @@ export function BulkImportCVsV2() {
  Bulk import CV
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Wrzuć wiele PDF/DOCX naraz — każdy plik trafia do osobnego kandydata.
+ Wrzuć wiele PDF/DOCX naraz – każdy plik trafia do osobnego kandydata.
  Duplikaty są wyłapywane po emailu / telefonie / LinkedIn.
  </p>
  </div>

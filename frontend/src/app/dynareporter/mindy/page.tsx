@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * DynaReporter B.2.10 — MINDY AI chatbot.
+ * DynaReporter B.2.10 – MINDY AI chatbot.
  *
  * Dwa tryby:
- * - "Komentarz" — jednorazowy insight MINDY (analyze KPI + sugestia)
- * - Chat — interactive z history (localStorage)
+ * - "Komentarz" – jednorazowy insight MINDY (analyze KPI + sugestia)
+ * - Chat – interactive z history (localStorage)
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -172,7 +172,7 @@ export default function MindyPage() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
           {chatHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
-              Zadaj MINDY pytanie — np. „Jak poprawić moje placementy?" lub „Czy mam szansę na podium tego kwartału?"
+              Zadaj MINDY pytanie – np. „Jak poprawić moje placementy?" lub „Czy mam szansę na podium tego kwartału?"
             </p>
           ) : (
             chatHistory.map((m, i) => (

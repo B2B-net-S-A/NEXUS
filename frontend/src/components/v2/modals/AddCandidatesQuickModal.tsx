@@ -120,7 +120,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
         );
       } else if (result.total_skipped > 0) {
         showError(
-          `Nie dodano nikogo — wszyscy zostali pominięci (${result.total_skipped})`,
+          `Nie dodano nikogo – wszyscy zostali pominięci (${result.total_skipped})`,
         );
       }
       setSelected(new Set());
@@ -178,7 +178,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             <span>
               {debouncedQuery
                 ? `Znaleziono ${total} ${total === 1 ? "wynik" : total >= 2 && total <= 4 ? "wyniki" : "wyników"} (już dodani do tej rekrutacji są ukryci)`
-                : `Najnowsi kandydaci — wpisz frazę, by przefiltrować (${total} łącznie)`}
+                : `Najnowsi kandydaci – wpisz frazę, by przefiltrować (${total} łącznie)`}
             </span>
             {items.length > 0 && (
               <button
@@ -249,7 +249,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm text-foreground truncate">
-                      {fullName || "—"}
+                      {fullName || "–"}
                     </span>
                     {c.is_champion && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">

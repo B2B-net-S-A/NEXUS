@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.5 — Clients + MRR + Finances (readonly).
+ * DynaReporter B.2.5 – Clients + MRR + Finances (readonly).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -89,7 +89,7 @@ export default function ClientsMrrPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="font-semibold text-sm mb-3">MRR — ostatnie miesiące</h2>
+          <h2 className="font-semibold text-sm mb-3">MRR – ostatnie miesiące</h2>
           {mrrQ.isLoading ? <p className="text-sm text-muted-foreground">Ładowanie…</p> :
            (mrrQ.data ?? []).length === 0 ? <p className="text-sm text-muted-foreground py-4">Brak danych.</p> :
            <div className="overflow-x-auto max-h-96 overflow-y-auto">

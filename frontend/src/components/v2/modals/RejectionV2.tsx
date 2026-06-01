@@ -39,7 +39,7 @@ interface Props {
  // Stage the candidate is coming FROM. Drives the default state of the
  //"send email" checkbox: pre-checked for external (= client-visible)
  // rejections, off for early-internal ones. Null when unknown (e.g.
- // quick-action path) — defaults to off to avoid surprise emails.
+ // quick-action path) – defaults to off to avoid surprise emails.
  previousStageCategory?: PreviousStageCategory;
  // Phase 17 (migracja 0068): konkretny stage z którego kandydat wychodzi.
  // Gdy ∈ {acceptance, negotiation, onboarding} ORAZ terminalType='withdrawn',
@@ -71,14 +71,14 @@ export function RejectionV2({
  const [reasonId, setReasonId] = useState("");
  const [notes, setNotes] = useState("");
 
- // Only `rejected` triggers the auto-email — withdrawals are initiated by
+ // Only `rejected` triggers the auto-email – withdrawals are initiated by
  // the candidate, no notification needed from our side. For `rejected`,
  // we pre-check when the previous stage was external (client-visible).
  const emailAvailable =
  terminalType === "rejected" && previousStageCategory === "external";
  const [sendEmail, setSendEmail] = useState<boolean>(emailAvailable);
 
- // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
+ // Phase 17 – show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
  terminalType === "withdrawn" &&
  !!previousStage &&
@@ -119,7 +119,7 @@ export function RejectionV2({
  <DialogTitle>{TYPE_LABEL[terminalType]}</DialogTitle>
  </div>
  <DialogDescription>
- Podaj powód — pomoże to raportom o lejku rekrutacyjnym.
+ Podaj powód – pomoże to raportom o lejku rekrutacyjnym.
  </DialogDescription>
  </DialogHeader>
 
@@ -141,7 +141,7 @@ export function RejectionV2({
  {offerResponseRequired && (
  <FormField
  label="Reakcja kandydata na ofertę"
- description="Pomaga w analizie ryzyka — wycofanie po akceptacji to mocny sygnał."
+ description="Pomaga w analizie ryzyka – wycofanie po akceptacji to mocny sygnał."
  required
  >
  <RadioGroup
@@ -192,7 +192,7 @@ export function RejectionV2({
  <span className="flex items-start gap-1.5">
  <Mail className="mt-0.5 h-3.5 w-3.5 text-[hsl(var(--muted-foreground))] flex-shrink-0" />
  <span>
- Wyślij e-mail z informacją zwrotną do kandydata — za 15
+ Wyślij e-mail z informacją zwrotną do kandydata – za 15
  minut. Do tego czasu można anulować wysyłkę.
  </span>
  </span>

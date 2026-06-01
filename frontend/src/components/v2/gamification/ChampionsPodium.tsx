@@ -110,7 +110,7 @@ export function ChampionsPodium({
  </span>
  </div>
 
- {/* Podium grid — porządek wizualny: 2 | 1 | 3 */}
+ {/* Podium grid – porządek wizualny: 2 | 1 | 3 */}
  <div className="grid grid-cols-3 gap-3 items-end">
  {[2, 1, 3].map((rank) => {
  const entry = byRank.get(rank)
@@ -133,7 +133,7 @@ export function ChampionsPodium({
  )}
  title={entry?.name}
  >
- {entry?.name ??"—"}
+ {entry?.name ??"–"}
  </p>
  {entry && (
  <>

@@ -7,7 +7,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // 30s daje wystarczająco czasu na heavy SQL (e.g. /api/reports/time-to-hire
 // pre-PR7 brał ~15s) ale ogranicza worst case do tractable wartości.
 // QA 2026-05-27 zaobserwował "API timeout" na /microsoft365/connection
-// i /teams-channels — diagnostykę poprawia 30s timeout zamiast wiecznego
+// i /teams-channels – diagnostykę poprawia 30s timeout zamiast wiecznego
 // hangu.
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -31,7 +31,7 @@ export const api = axios.create({
  *     setStatus({ type: "error", msg: extractErrorMsg(e) });
  *   }
  *
- * Quality check finding MEDIUM #23 — most onError handlers used String(e)
+ * Quality check finding MEDIUM #23 – most onError handlers used String(e)
  * which produces "Error: Request failed with status code 422" instead of
  * the actionable Pydantic validation message that the user needs.
  */
@@ -66,7 +66,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Retry transient backend unavailability — Coolify big-bang deploys leave a
+// Retry transient backend unavailability – Coolify big-bang deploys leave a
 // ~30-90s window where Traefik returns 502/503 with no CORS headers, so saves
 // fail with a cryptic "Nie udało się zapisać" toast. Retry up to 2× with
 // exponential backoff (1.5s, 3s) so users don't lose their input.
@@ -96,7 +96,7 @@ api.interceptors.response.use(
   }
 );
 
-// Session-expired auto-redirect — handles 401 + 403 patterns the user would
+// Session-expired auto-redirect – handles 401 + 403 patterns the user would
 // otherwise need to recover from manually (clearing cookies, finding the login
 // URL). Three triggers:
 //
@@ -110,7 +110,7 @@ api.interceptors.response.use(
 //      surfaced normally (e.g. recruiter hitting /api/admin/*).
 //
 // Repro for trigger 3: log in, wait for JWT to expire OR deploy with rotated
-// SECRET_KEY, open dashboard — every widget would show "Brak uprawnień" with
+// SECRET_KEY, open dashboard – every widget would show "Brak uprawnień" with
 // no way to log out (UserMenu doesn't render when user=null).
 const AUTH_SCOPED_PATHS = ["/api/auth/me", "/api/users/me"];
 const SESSION_403_WINDOW_MS = 5_000;
@@ -126,7 +126,7 @@ function isAuthScopedPath(url: string | undefined): boolean {
 function triggerSessionExpiredRedirect(): void {
   if (typeof window === "undefined") return;
   if (sessionRedirectInFlight) return;
-  // Already on the login flow (or any /login/* sub-route) — nothing to do.
+  // Already on the login flow (or any /login/* sub-route) – nothing to do.
   if (window.location.pathname.startsWith("/login")) return;
   sessionRedirectInFlight = true;
   try {
@@ -144,7 +144,7 @@ function triggerSessionExpiredRedirect(): void {
 
 api.interceptors.response.use(
   (res) => {
-    // Any 2xx response means the session is alive — reset the 403 sliding
+    // Any 2xx response means the session is alive – reset the 403 sliding
     // window so a later permission-denied click on a single admin endpoint
     // doesn't compound with stale failures from the prior page.
     if (recent403Endpoints.size > 0) recent403Endpoints.clear();
@@ -165,7 +165,7 @@ api.interceptors.response.use(
         triggerSessionExpiredRedirect();
         return Promise.reject(err);
       }
-      // Count unique-endpoint 403s within the rolling window — keyed by URL
+      // Count unique-endpoint 403s within the rolling window – keyed by URL
       // so a single endpoint retrying itself doesn't trip the heuristic.
       const now = Date.now();
       for (const [key, ts] of recent403Endpoints) {
@@ -230,14 +230,14 @@ export interface KpiResult {
 export const kpisApi = {
   /** KPI rekrutera dla current usera (pusta lista dla ról nieoperacyjnych). */
   myToday: () => api.get<KpiResult[]>("/api/kpis/me/today"),
-  /** KPI dowolnego usera — dla delivery_leada / admina monitorującego team. */
+  /** KPI dowolnego usera – dla delivery_leada / admina monitorującego team. */
   userToday: (userId: number) =>
     api.get<KpiResult[]>(`/api/kpis/users/${userId}/today`),
 };
 
 // ── Candidates ───────────────────────────────────────────────────────────────
 
-/** AI-extracted CV data — Phase D4 adds `companies` and `career_summary`.
+/** AI-extracted CV data – Phase D4 adds `companies` and `career_summary`.
  *  The `_source` tag (e.g. "claude:cv_enrichment:v2") lets the UI show an
  *  "AI" badge and helps support debug why a given record is missing fields. */
 export interface CvExtractedData {
@@ -250,7 +250,7 @@ export interface CvExtractedData {
   companies?: string[];
   /** Phase D4: 3-4 sentence career trajectory summary in Polish. */
   career_summary?: string | null;
-  /** Identifier of the parse source — "regex", "ollama:...", "claude:...". */
+  /** Identifier of the parse source – "regex", "ollama:...", "claude:...". */
   _source?: string;
   /** Set when a recruiter manually edited `candidate.experience`.
    *  Blocks AI from overwriting curated data on subsequent uploads. */
@@ -570,7 +570,7 @@ export const calendarApi = {
   updateEvent: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/calendar/events/${id}`, data),
   deleteEvent: (id: number) => api.delete(`/api/calendar/events/${id}`),
-  // Phase 5.4 — overlap check used by ScheduleInterviewModal before booking.
+  // Phase 5.4 – overlap check used by ScheduleInterviewModal before booking.
   conflicts: (params: {
     start: string;
     end: string;
@@ -793,7 +793,7 @@ export const contractsApi = {
 // Plan: ~/.claude/plans/zaplanuj-wszystko-zgodnie-z-tranquil-torvalds.md
 // Backend mounts /api/autenti/* only when AUTENTI_ENABLED=true; the FE feature
 // is gated by the same flag (sourced from a future /api/health/features
-// endpoint or an env-injected build flag — Phase 2 just hides the button when
+// endpoint or an env-injected build flag – Phase 2 just hides the button when
 // the request returns 404 / 503).
 
 export type AutentiSignatureType ="SES" | "AdES" | "QES";
@@ -1272,7 +1272,7 @@ export interface ScoreBreakdown {
   salary: LayerPoints;
   location: LayerPoints;
   availability: LayerPoints;
-  /** Phase 10: Champion screening layer — optional for backwards-compat. */
+  /** Phase 10: Champion screening layer – optional for backwards-compat. */
   champion_fit?: LayerPoints;
   matching_must: string[];
   gap_must: string[];
@@ -1499,7 +1499,7 @@ export const savedSearchesApi = {
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
 };
 
-// ── Candidate Pins (Phase 4 — short-list workflow) ─────────────────────────
+// ── Candidate Pins (Phase 4 – short-list workflow) ─────────────────────────
 
 export interface CandidatePinBrief {
   id: number;
@@ -1554,7 +1554,7 @@ export const matchHistoryApi = {
     api.post("/api/match-history", data),
 };
 
-// ── Historical candidates (Phase 14 — from similar past jobs) ──────────────
+// ── Historical candidates (Phase 14 – from similar past jobs) ──────────────
 
 export type HistoricalTier = "A" | "B";
 export type HistoricalTierUsed = "primary" | "extended" | "empty";
@@ -1781,7 +1781,7 @@ export interface SeekingContractorsParams {
   salary_min?: number;
   salary_max?: number;
   /**
-   * One or more competence categories — backend OR-combines them.
+   * One or more competence categories – backend OR-combines them.
    * Sent as repeated `competence_category=X&competence_category=Y` query
    * params via axios's array serializer.
    */
@@ -2205,7 +2205,7 @@ export const championSuggestionsApi = {
         cross_client: payload.cross_client ?? false,
       },
     ),
-  // Phase 15 / Phase C — persist DL feedback on a terminated suggestion.
+  // Phase 15 / Phase C – persist DL feedback on a terminated suggestion.
   // Rating: -1 (bezużyteczne) | 0 (nijak) | 1 (trafione). Comment optional.
   rate: (suggestionId: number, rating: -1 | 0 | 1, comment?: string) =>
     api.post<ChampionProfileSuggestion>(
@@ -2286,7 +2286,7 @@ export const screeningApi = {
       match_percent: number;
       screening_answers: ScreeningAnswers;
     }>(`/api/pipeline/stages/${stageId}/screening`, answers),
-  // Phase 12 — client-shareable token for the Champion card.
+  // Phase 12 – client-shareable token for the Champion card.
   createShareToken: (stageId: number, expiresInDays = 30) =>
     api.post<{
       token: string;
@@ -2501,7 +2501,7 @@ export const microsoft365Api = {
   }) => api.post<FreeBusyResponse>("/api/microsoft365/free-busy", payload),
 };
 
-// ── User Email Templates (Phase 4.5 — M365 outreach library) ────────────────
+// ── User Email Templates (Phase 4.5 – M365 outreach library) ────────────────
 
 export interface UserEmailTemplate {
   id: number;
@@ -3360,7 +3360,7 @@ export const entityFieldsApi = {
 };
 
 export const dictionariesApi = {
-  // Public-ish (any authenticated user) — used by form pickers.
+  // Public-ish (any authenticated user) – used by form pickers.
   itemsBySlug: (slug: string, includeArchived = false) =>
     api.get<DictionaryItemDto[]>(`/api/dictionaries/${slug}/items`, {
       params: { include_archived: includeArchived },
@@ -3668,7 +3668,7 @@ export type DrRekrutacjaTeamMember = {
   metrics: DrRekrutacjaUserMetrics;
   league_points: number;
   /**
-   * Warunek udziału w Lidze Mistrzów — placement >= month_in_quarter
+   * Warunek udziału w Lidze Mistrzów – placement >= month_in_quarter
    * (1 placement/mc kalendarzowy = min 3/kwartał).
    */
   is_qualified?: boolean;
@@ -3721,12 +3721,12 @@ export type DrRekrutacjaDashboard = {
     interview: number;
     recommendation: number;
     verification: number;
-    // Prize amounts (PLN) — admin editable via /dynareporter/admin-dashboard
+    // Prize amounts (PLN) – admin editable via /dynareporter/admin-dashboard
     // → Ustawienia. Previously hardcoded (Finding 30 from QA review).
     prize_1: number;
     prize_2: number;
     prize_3: number;
-    // Business thresholds — admin editable.
+    // Business thresholds – admin editable.
     power_calling_min_per_day?: number;
     linkedin_cv_per_md_target?: number;
   };
@@ -3940,17 +3940,17 @@ export const dynareporterBoardAdminApi = {
       .then((r) => r.data),
 };
 
-// === Admin Config (Session 2) — Liga Mistrzów scoring ====================
+// === Admin Config (Session 2) – Liga Mistrzów scoring ====================
 export type DrScoringConfig = {
   placement: number;
   interview: number;
   recommendation: number;
   verification: number;
-  // Prize amounts (PLN) — admin editable via ScoringConfig form.
+  // Prize amounts (PLN) – admin editable via ScoringConfig form.
   prize_1: number;
   prize_2: number;
   prize_3: number;
-  // Business thresholds — admin editable.
+  // Business thresholds – admin editable.
   power_calling_min_per_day: number;
   linkedin_cv_per_md_target: number;
 };
@@ -4188,7 +4188,7 @@ export const dynareporterAdminUsersApi = {
     api
       .delete<void>(`/api/dynareporter/admin-users/dl-clients/${assignmentId}`)
       .then((r) => r.data),
-  // === Recruitment Team — Categories + TAC-DL + Sourcer-Category CRUD ====
+  // === Recruitment Team – Categories + TAC-DL + Sourcer-Category CRUD ====
   competenceCategories: () =>
     api
       .get<DrCompetenceCategoryRow[]>(
@@ -4235,7 +4235,7 @@ export type DrCompetenceCategoryRow = {
   is_active: boolean;
 };
 
-// Sales mgmt + Przetargi admin API clients usunięte 2026-05-19 — Nexus nie ma
+// Sales mgmt + Przetargi admin API clients usunięte 2026-05-19 – Nexus nie ma
 // głównych dashboardów Sales/Przetargi, więc admin entry dla tych modułów
 // nie był potrzebny. Backend endpointy `/api/dynareporter/sales-mgmt/*` i
 // `/api/dynareporter/przetargi/*` (read-only) zostają na backend dla MINDY AI
@@ -4243,7 +4243,7 @@ export type DrCompetenceCategoryRow = {
 
 // Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
 export type DrHallOfFameEntry = {
-  id: number;  // PK z dr_competition_winners — używane przez admin delete UI
+  id: number;  // PK z dr_competition_winners – używane przez admin delete UI
   competition_type:
     | "quarterly"
     | "monthly_recommendations"
@@ -4492,7 +4492,7 @@ export const dynareporterBodyLeasingApi = {
       .then((r) => r.data),
 
   // Backend bierze docelowego usera z `?user_id=` (admin) lub JWT. `user_id`
-  // w bodzie jest ignorowane przez schemat, więc wyłuskujemy je do query —
+  // w bodzie jest ignorowane przez schemat, więc wyłuskujemy je do query –
   // inaczej admin zapisywałby wszystkie wiersze pod własnym kontem.
   upsert: (payload: Partial<DrKpiBodyLeasingEntry>) => {
     const { user_id, ...body } = payload;

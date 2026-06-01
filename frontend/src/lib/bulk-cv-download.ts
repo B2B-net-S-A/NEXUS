@@ -21,7 +21,7 @@ function messageForStatus(status: number): string {
     return "Za dużo zaznaczonych kandydatów (max 200) lub lista jest pusta.";
   }
   if (status === 429) {
-    return "Zbyt wiele pobrań w krótkim czasie — spróbuj ponownie za chwilę.";
+    return "Zbyt wiele pobrań w krótkim czasie – spróbuj ponownie za chwilę.";
   }
   return "Nie udało się pobrać CV. Spróbuj ponownie.";
 }

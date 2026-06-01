@@ -27,7 +27,7 @@ import {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
+  if (!dateStr) return "–";
   try {
     return new Intl.DateTimeFormat("pl-PL", {
       day: "2-digit",
@@ -42,7 +42,7 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 function formatDateShort(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
+  if (!dateStr) return "–";
   try {
     return new Intl.DateTimeFormat("pl-PL", {
       day: "2-digit",
@@ -133,7 +133,7 @@ export default function ProfilePage() {
 
   // Force-change-password gate. Pokazujemy banner gdy:
   //   - middleware przekierował tu z innego route'u (?force_password_change=1), lub
-  //   - user.force_password_change=true w store (zapasowe — middleware to klucz)
+  //   - user.force_password_change=true w store (zapasowe – middleware to klucz)
   const forcedFromUrl = searchParams.get("force_password_change") === "1";
   const forcedFromStore = user?.force_password_change === true;
   const mustChangePassword = forcedFromUrl || forcedFromStore;
@@ -198,7 +198,7 @@ export default function ProfilePage() {
       // Po zmianie hasła backend wyczyścił flag force_password_change.
       // Re-fetch /me + nowy login do refreshu JWT (claim fpc zniknie)
       // żeby middleware przestał redirectować z innych route'ów.
-      // Tutaj tylko refresh /me — full re-login wymagany jest dopiero przy
+      // Tutaj tylko refresh /me – full re-login wymagany jest dopiero przy
       // następnej akcji którą middleware zatrzyma. Bezpieczniej: wymuś
       // ponowny login by JWT się przeładował.
       try {
@@ -206,7 +206,7 @@ export default function ProfilePage() {
         if (token) {
           // setAuth z tym samym tokenem zapisuje świeży user object
           // (bez force_password_change). JWT pozostaje stary aż do
-          // następnego loginu — ale fpc claim w JWT wymaga full re-login,
+          // następnego loginu – ale fpc claim w JWT wymaga full re-login,
           // więc dla mustChangePassword case wylogowujemy + redirect.
           setAuth(me.data, token);
         }
@@ -229,9 +229,9 @@ export default function ProfilePage() {
     }
   };
 
-  const displayName = profile?.name || user?.name || "—";
-  const displayEmail = profile?.email || user?.email || "—";
-  const displayRole = profile?.role || user?.role || "—";
+  const displayName = profile?.name || user?.name || "–";
+  const displayEmail = profile?.email || user?.email || "–";
+  const displayRole = profile?.role || user?.role || "–";
 
   const initials = displayName
     .split(" ")

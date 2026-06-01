@@ -36,7 +36,7 @@ type FormValues = {
 /**
  * Right-side sheet letting Admin/DL pick a new primary owner for a job, or
  * clear the owner (unassign). Caller is responsible for gating visibility
- * on role — the backend still enforces the guard.
+ * on role – the backend still enforces the guard.
  */
 export function ReassignOwnerV2({
  open,

@@ -361,7 +361,7 @@ export default function ScoringWeightsPage() {
       )}
       {!isLoading && data && data.length === 0 && editing === null && (
         <div className="text-center py-10 text-muted-foreground dark:text-muted-foreground text-sm border border-dashed border-border dark:border-border rounded-xl">
-          Brak profili — scoring używa domyślnych wag (40/30/15/10/5).
+          Brak profili – scoring używa domyślnych wag (40/30/15/10/5).
         </div>
       )}
       {data && data.length > 0 && (

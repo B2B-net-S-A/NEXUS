@@ -189,7 +189,7 @@ export function NotificationsTab({ clientId }: Props) {
                       </span>
                     ) : (
                       <span className="text-xs text-primary">
-                        Override aktywny ({list.length}) — baseline pominięty
+                        Override aktywny ({list.length}) – baseline pominięty
                       </span>
                     )}
                     <button

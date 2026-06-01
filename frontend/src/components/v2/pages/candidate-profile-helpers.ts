@@ -1,6 +1,6 @@
 /** Pure helpers for the candidate PROFILE view (CandidateDetailV2).
  *
- *  Companion to `candidate-list-helpers.ts` — these derive profile-specific
+ *  Companion to `candidate-list-helpers.ts` – these derive profile-specific
  *  display values (education list, language list, the scannable one-liner)
  *  from the loosely-typed candidate payload. Kept pure (no React/DOM) so they
  *  can be unit-tested in isolation. Reuses `getCurrentTitle` /

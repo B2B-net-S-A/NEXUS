@@ -42,7 +42,7 @@ export function SLAAlertsSection() {
         </div>
       ) : alerts.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak alertów — wszystko w normie 🎉
+          Brak alertów – wszystko w normie 🎉
         </p>
       ) : (
         <ul className="space-y-1 text-sm">

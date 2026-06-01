@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Legacy modal bundle — housed in AppShell.tsx historically; after Phase 11
+ * Legacy modal bundle – housed in AppShell.tsx historically; after Phase 11
  * decommission this file keeps only the Add/Edit modals used across the app
  * (AddCandidate, EditCandidate, AddJob, EditJob, AddClient, AddMeeting) plus
  * their internal helpers. The old `<AppShell>` wrapper was replaced by
@@ -97,7 +97,7 @@ function Breadcrumb() {
     const prevSeg = segments[i - 1];
 
     if (isNumeric(seg) && prevSeg && ENTITY_NAME_FETCHERS[prevSeg]) {
-      // This is an ID segment — show dynamic entity name
+      // This is an ID segment – show dynamic entity name
       crumbs.push({
         label: <DynamicLabel entityType={prevSeg} id={seg} />,
         href: path,
@@ -459,12 +459,12 @@ function CandidateFormFields({
               value={form.notice_period}
               onChange={e => onChange("notice_period", e.target.value)}
               placeholder="30"
-              aria-label="Okres wypowiedzenia — wartość"
+              aria-label="Okres wypowiedzenia – wartość"
             />
             <Select
               value={form.notice_period_unit || "days"}
               onChange={e => onChange("notice_period_unit", e.target.value)}
-              aria-label="Okres wypowiedzenia — jednostka"
+              aria-label="Okres wypowiedzenia – jednostka"
             >
               <option value="days">dni</option>
               <option value="weeks">tygodnie</option>
@@ -499,7 +499,7 @@ function CandidateFormFields({
         </FieldGroup>
         <FieldGroup label="Aktualnie u klienta (opcjonalnie)">
           <div className="text-xs text-muted-foreground dark:text-muted-foreground px-3 py-2 bg-muted dark:bg-card/40 rounded-lg">
-            Oznacz w zakładce <strong>Konflikty</strong> w profilu —
+            Oznacz w zakładce <strong>Konflikty</strong> w profilu –
             typ <code>current_employment</code>. Dzięki temu karta dostanie
             burgundowy alert „U KLIENTA”.
           </div>
@@ -531,7 +531,7 @@ function CandidateFormFields({
               value={form.verifier_id}
               onChange={e => onChange("verifier_id", e.target.value)}
             >
-              <option value="">— brak —</option>
+              <option value="">– brak –</option>
               {users.map(u => (
                 <option key={u.id} value={u.id}>
                   {u.full_name || u.email}
@@ -832,7 +832,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Lightweight `useDebouncedValue` — kept inline because we don't want to
+ * Lightweight `useDebouncedValue` – kept inline because we don't want to
  * pull in a new shared hook for one call site. 500ms is enough to avoid
  * banging the preview endpoint on every keystroke.
  */
@@ -861,17 +861,17 @@ interface JobFormData {
   priority: string;
   deadline: string;
   recruiter_id: string;
-  // TAC + Delivery Lead — auto-fill z primary TAC / head DL klienta po wyborze
+  // TAC + Delivery Lead – auto-fill z primary TAC / head DL klienta po wyborze
   // klienta (endpoint /api/clients/{id}/team). Jawna zmiana = override.
   tac_id: string;
   delivery_lead_id: string;
-  // Hiring manager po stronie klienta — Contact w firmie klienta odpowiedzialny
+  // Hiring manager po stronie klienta – Contact w firmie klienta odpowiedzialny
   // za rekrutację (migracja 0097, 2026-05-11). Autocomplete z Contacts klienta.
   hiring_manager_contact_id: string;
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
-  // Phase 15 / Phase D: programme / Agile Release Train tag — opcjonalne.
+  // Phase 15 / Phase D: programme / Agile Release Train tag – opcjonalne.
   // Auto-extract z JD w backendzie gdy DL nie wpisze; możliwy manual override.
   train_name: string;
 }
@@ -964,7 +964,7 @@ function JobFormFields({
   const primaryTac = clientTeam?.tacs.find(t => t.is_primary);
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
 
-  // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
+  // Hiring manager autocomplete – fetch Contacts klienta (2026-05-11).
   // Key relationships first (gwiazdka), potem alfabetycznie.
   const { data: clientContacts = [] } = useQuery<Array<{
     id: number;
@@ -991,7 +991,7 @@ function JobFormFields({
     return a.name.localeCompare(b.name);
   });
 
-  // Auto-fill — tylko gdy pole jest puste (użytkownik nie nadpisał).
+  // Auto-fill – tylko gdy pole jest puste (użytkownik nie nadpisał).
   useEffect(() => {
     if (!clientTeam) return;
     if (!form.tac_id && primaryTac) {
@@ -1016,7 +1016,7 @@ function JobFormFields({
       </FieldGroup>
       <FieldGroup label="Klient">
         <Select value={form.client_id} onChange={e => onChange("client_id", e.target.value)}>
-          <option value="">— wybierz klienta —</option>
+          <option value="">– wybierz klienta –</option>
           {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
       </FieldGroup>
@@ -1096,7 +1096,7 @@ function JobFormFields({
       </div>
       <FieldGroup label="Rekruter (primary owner)">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
-          <option value="">— nieprzypisany —</option>
+          <option value="">– nieprzypisany –</option>
           {users.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
@@ -1107,12 +1107,12 @@ function JobFormFields({
       </FieldGroup>
       {clientIdNum !== null && clientTeam && !primaryTac && (
         <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
-          ⚠️ Klient nie ma przypisanego primary TAC. Projekt zostanie zapisany bez TAC — head_of_recruitment może uzupełnić w zakładce „Opiekunowie" klienta.
+          ⚠️ Klient nie ma przypisanego primary TAC. Projekt zostanie zapisany bez TAC – head_of_recruitment może uzupełnić w zakładce „Opiekunowie" klienta.
         </div>
       )}
       <FieldGroup label="TAC (opiekun klienta)">
         <Select value={form.tac_id} onChange={e => onChange("tac_id", e.target.value)}>
-          <option value="">— brak TAC —</option>
+          <option value="">– brak TAC –</option>
           {tacAssignableUsers.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
@@ -1133,7 +1133,7 @@ function JobFormFields({
       </FieldGroup>
       <FieldGroup label="Delivery Lead">
         <Select value={form.delivery_lead_id} onChange={e => onChange("delivery_lead_id", e.target.value)}>
-          <option value="">— brak DL —</option>
+          <option value="">– brak DL –</option>
           {dlAssignableUsers.map((u: any) => (
             <option key={u.id} value={u.id}>
               {u.name || u.full_name || u.email}
@@ -1158,7 +1158,7 @@ function JobFormFields({
           onChange={e => onChange("hiring_manager_contact_id", e.target.value)}
           disabled={!form.client_id}
         >
-          <option value="">— brak hiring managera —</option>
+          <option value="">– brak hiring managera –</option>
           {sortedContactsForHM.map((c) => (
             <option key={c.id} value={c.id}>
               {c.is_key_relationship ? "★ " : ""}
@@ -1185,7 +1185,7 @@ function JobFormFields({
           value={form.pipeline_template_id}
           onChange={e => onChange("pipeline_template_id", e.target.value)}
         >
-          <option value="">— domyślny szablon —</option>
+          <option value="">– domyślny szablon –</option>
           {templates
             .filter(t => !t.archived)
             .map(t => (
@@ -1228,7 +1228,7 @@ export function AddJobModal({
   onClose: () => void;
   onSuccess: (msg: string) => void;
   /**
-   * "Skopiuj jako template" handoff — gdy ustawione, modal startuje
+   * "Skopiuj jako template" handoff – gdy ustawione, modal startuje
    * z prefilled polami z source jobu. Backend dokonuje finalnego
    * zoznaczenia w POST /api/jobs (przekazujemy `from_job_id`), więc
    * tutaj prefill jest tylko visualnym preview formularza.
@@ -1255,21 +1255,21 @@ export function AddJobModal({
         if (cancelled) return;
         const src = r.data;
         const prefilled = jobToForm(src);
-        // User świadomie wybiera klienta i nadaje nową nazwę roli — nie
+        // User świadomie wybiera klienta i nadaje nową nazwę roli – nie
         // kopiujemy `client_id` ani `title` (zmuszamy DL do potwierdzenia).
         prefilled.client_id = "";
         prefilled.title = "";
         setForm(prefilled);
       })
       .catch(() => {
-        // Cichy fallback — DL może wypełnić ręcznie.
+        // Cichy fallback – DL może wypełnić ręcznie.
       });
     return () => {
       cancelled = true;
     };
   }, [fromJobId]);
 
-  // Banner z siostrzanymi requestami — pokazujemy gdy klient wybrany
+  // Banner z siostrzanymi requestami – pokazujemy gdy klient wybrany
   // i tytuł >=5 znaków. Debounced przez staleTime + enabled gate.
   const debouncedTitle = useDebouncedValue(form.title, 500);
   const clientIdNum = form.client_id ? Number(form.client_id) : null;
@@ -1293,7 +1293,7 @@ export function AddJobModal({
       return r.data;
     },
     enabled:
-      fromJobId == null && // banner zbędny gdy już mamy template — DL widział historię
+      fromJobId == null && // banner zbędny gdy już mamy template – DL widział historię
       clientIdNum !== null &&
       debouncedTitle.length >= 5,
     staleTime: 30_000,
@@ -1382,7 +1382,7 @@ export function AddJobModal({
         // Phase 15 / Phase D: opcjonalne, auto-extract z opisu po stronie
         // backendu gdy puste (regex w `train_name_extractor`).
         train_name: form.train_name.trim() || undefined,
-        // "Skopiuj jako template" handoff — backend kopiuje brakujące pola
+        // "Skopiuj jako template" handoff – backend kopiuje brakujące pola
         // i pinned interview questions (idempotent, same-client champion only).
         from_job_id: fromJobId ?? undefined,
         copy_questions: fromJobId != null ? true : undefined,
@@ -1406,7 +1406,7 @@ export function AddJobModal({
           // Non-fatal: user can still edit collaborators on the job page.
         }
       }
-      onSuccess("Projekt utworzony — AI szuka kandydatów…");
+      onSuccess("Projekt utworzony – AI szuka kandydatów…");
       onClose();
       // Phase 13: redirect to the job detail page with AI proposals section
       // highlighted so the recruiter sees the snapshot load progress.
@@ -1430,7 +1430,7 @@ export function AddJobModal({
           <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
             Tworzysz kopię z roli #{fromJobId}. Pola opisu, wymagań, skills,
             seniority i train zostały prefillowane. Wybierz klienta i nadaj
-            tytuł — Champion Profile zostanie skopiowany tylko gdy zachowasz
+            tytuł – Champion Profile zostanie skopiowany tylko gdy zachowasz
             tego samego klienta.
           </div>
         )}
@@ -1547,7 +1547,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
         // Override TAC / DL w PATCH. `undefined` jest pomijane (zachowa DB);
         // jeśli form.tac_id == "" oznacza to, że user jawnie chce "nieprzypisany"
-        // i musimy wysłać null — inaczej zostanie stary auto-assign.
+        // i musimy wysłać null – inaczej zostanie stary auto-assign.
         tac_id: form.tac_id ? Number(form.tac_id) : null,
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         hiring_manager_contact_id: form.hiring_manager_contact_id
@@ -1791,7 +1791,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         {error && <ErrorBanner error={error} />}
         <FieldGroup label="Tytuł" required>
-          <Input value={form.title} onChange={e => set("title", e.target.value)} placeholder="Screening call — Jan Kowalski" />
+          <Input value={form.title} onChange={e => set("title", e.target.value)} placeholder="Screening call – Jan Kowalski" />
         </FieldGroup>
         <FieldGroup label="Typ spotkania">
           <Select value={form.event_type} onChange={e => set("event_type", e.target.value)}>
@@ -1812,7 +1812,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
         </div>
         <FieldGroup label="Kandydat">
           <Select value={form.candidate_id} onChange={e => set("candidate_id", e.target.value)}>
-            <option value="">— opcjonalnie —</option>
+            <option value="">– opcjonalnie –</option>
             {candidates.map((c: any) => (
               <option key={c.id} value={c.id}>{c.name} {c.lastname}</option>
             ))}
@@ -1887,7 +1887,7 @@ export function AddContactModal({ onClose, onSuccess }: { onClose: () => void; o
         {error && <ErrorBanner error={error} />}
         <FieldGroup label="Klient" required>
           <Select value={form.client_id} onChange={e => set("client_id", e.target.value)}>
-            <option value="">— wybierz klienta —</option>
+            <option value="">– wybierz klienta –</option>
             {clients.map((c: any) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}

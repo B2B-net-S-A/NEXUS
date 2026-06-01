@@ -56,7 +56,7 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 export const RECRUITER_ROLE_LABELS: Record<string, string> = {
-  "": "—",
+  "": "–",
   recruiter: "Rekruter",
   sourcer: "Sourcer",
   tac: "TAC",
@@ -66,7 +66,7 @@ export const RECRUITER_ROLE_LABELS: Record<string, string> = {
 };
 
 export function formatDate(iso: string | null) {
-  if (!iso) return "—";
+  if (!iso) return "–";
   return new Date(iso).toLocaleDateString("pl-PL", {
     year: "numeric",
     month: "short",

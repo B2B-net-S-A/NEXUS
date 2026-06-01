@@ -110,7 +110,7 @@ export function InviteLinksSection({ period }: Props) {
                             month: "short",
                             year: "numeric",
                           })
-                        : "—"}
+                        : "–"}
                     </td>
                   </tr>
                 ))}

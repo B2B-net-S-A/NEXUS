@@ -14,10 +14,10 @@ export type UserRole =
   | "sourcer"
   | "user"
 
-// Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
+// Ranga – liczbowa reprezentacja pozwala na porównanie "min rola".
 // admin > head_of_recruitment > delivery_lead > tac > recruiter/sourcer > user
 // head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
-// admina — wg backend/app/models/user.py).
+// admina – wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
   admin: 5,
   head_of_recruitment: 4.5,
@@ -62,7 +62,7 @@ interface User {
   /** Multi-role (migracja 0110). Lista wszystkich ról jakie user posiada.
    *  ``role`` to primary (legacy single-role kod); ``roles`` to authoritative
    *  source dla permission checks. Hybrid users (np. DL+TAC) mają tu obie
-   *  wartości. Optional przy hydration ze starego localStorage cache —
+   *  wartości. Optional przy hydration ze starego localStorage cache –
    *  helper hasRole() fallbackuje wtedy na ``[role]``. */
   roles?: UserRole[]
   /** Pierwsze logowanie: DL i rekruter muszą uzupełnić dane operacyjne,
@@ -78,10 +78,10 @@ interface User {
   force_password_change: boolean
   force_password_change_at: string | null
   /** DynaReporter per-module access list (migracja 0112). Pusta lista
-   *  domyślnie — userzy ATS nie mają automatycznie dostępu do raportów
+   *  domyślnie – userzy ATS nie mają automatycznie dostępu do raportów
    *  KPI; admin nadaje sekcję per użytkownik. Backend filter point.
    *  Optional: stary kod tworzący `User` (np. OnboardingDLV2/RecruiterV2)
-   *  nie ma tego pola — wtedy traktujemy jako []. */
+   *  nie ma tego pola – wtedy traktujemy jako []. */
   allowed_sections?: DynaReporterSection[]
 }
 
@@ -103,11 +103,11 @@ export function requiresOnboarding(
 
 // ── Role helpers ────────────────────────────────────────────────────────────
 //
-// Pure funkcje — łatwe do testowania, używane w komponentach i middleware.
+// Pure funkcje – łatwe do testowania, używane w komponentach i middleware.
 
-/** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
+/** All roles a user holds – primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
- *  API odpowiedź) — używamy ``[role]``. */
+ *  API odpowiedź) – używamy ``[role]``. */
 export function getUserRoles(
   user: Pick<User, "role" | "roles"> | null | undefined
 ): UserRole[] {
@@ -120,7 +120,7 @@ export function getUserRoles(
 /**
  * Czy user ma którąkolwiek z podanych ról (exact match).
  * Użyj gdy dopuszczasz zestaw konkretnych ról (np. ["admin", "delivery_lead"]).
- * Multi-role aware — sprawdza primary + secondary roles (migracja 0110).
+ * Multi-role aware – sprawdza primary + secondary roles (migracja 0110).
  */
 export function hasRole(
   user: Pick<User, "role" | "roles"> | null | undefined,
@@ -134,7 +134,7 @@ export function hasRole(
 /**
  * Czy user ma rangę >= minRole (porównanie hierarchiczne).
  * Użyj gdy myślisz w kategoriach "delivery_lead lub wyżej".
- * Multi-role aware — bierze max z primary + secondary.
+ * Multi-role aware – bierze max z primary + secondary.
  */
 export function hasMinRole(
   user: Pick<User, "role" | "roles"> | null | undefined,
@@ -179,8 +179,8 @@ const COOKIE_MAX_AGE = 60 * 60 * 8 // 8h, spójne z ACCESS_TOKEN_EXPIRE_MINUTES
 
 function writeAuthCookie(token: string): void {
   if (typeof document === "undefined") return
-  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
-  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
+  // SameSite=Lax wystarcza – logowanie nie jest cross-site, CSRF surface nikła.
+  // Bez httpOnly (świadoma decyzja – patrz plan/docs/SUPABASE_ANALYSIS.md).
   document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
     token
   )}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`
@@ -191,7 +191,7 @@ function clearAuthCookie(): void {
   document.cookie = `${COOKIE_NAME}=; path=/; max-age=0; samesite=lax`
 }
 
-// Bezpieczne odczyty z localStorage — w środowisku testowym (jsdom/Vitest)
+// Bezpieczne odczyty z localStorage – w środowisku testowym (jsdom/Vitest)
 // localStorage może być niedostępny lub częściowo inicjowany.
 // Zwracamy null zamiast rzucać na module load.
 function safeGet(key: string): string | null {
@@ -207,10 +207,10 @@ function readInitialToken(): string | null {
   return safeGet("access_token")
 }
 
-// User jest persystowany w localStorage razem z tokenem — inaczej po
+// User jest persystowany w localStorage razem z tokenem – inaczej po
 // hard navigation (np. middleware redirect → /403) Zustand resetuje się
 // i Sidebar/RequireRole dostają user=null, co chowa wszystkie role-gated
-// linki. Token samo nie wystarczy, bo frontend nie dekoduje JWT payload —
+// linki. Token samo nie wystarczy, bo frontend nie dekoduje JWT payload –
 // user.role musi być dostępny synchronicznie w store.
 const USER_STORAGE_KEY = "nexus_user"
 
@@ -237,7 +237,7 @@ function readInitialUser(): User | null {
         user.profile_completed_at = null
       }
       // Backfill for users cached before force_password_change existed
-      // (migracja 0078). Default false — nie redirectuj istniejących sesji.
+      // (migracja 0078). Default false – nie redirectuj istniejących sesji.
       if (typeof user.force_password_change !== "boolean") {
         user.force_password_change = false
       }
@@ -250,7 +250,7 @@ function readInitialUser(): User | null {
         user.roles = [user.role as UserRole]
       }
       // Backfill for users cached before allowed_sections existed
-      // (migracja 0112, DynaReporter B.0). Default `[]` — nikt nie dostaje
+      // (migracja 0112, DynaReporter B.0). Default `[]` – nikt nie dostaje
       // dostępu do raportów retroaktywnie; admin nadaje sekcje per user.
       if (!Array.isArray(user.allowed_sections)) {
         user.allowed_sections = []

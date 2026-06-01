@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Recruitment Team Manager — admin CRUD na team assignments.
+ * Recruitment Team Manager – admin CRUD na team assignments.
  *
  * Port `RecruitmentTeamManager.tsx` z artur-t-96/InfraReporter (695 linii).
  *
@@ -392,7 +392,7 @@ export function RecruitmentTeamManager() {
                     className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                     aria-label="Wybierz TAC"
                   >
-                    <option value="">— wybierz TAC —</option>
+                    <option value="">– wybierz TAC –</option>
                     {tacList.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
@@ -414,7 +414,7 @@ export function RecruitmentTeamManager() {
                     className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                     aria-label="Wybierz Delivery Lead"
                   >
-                    <option value="">— wybierz DL —</option>
+                    <option value="">– wybierz DL –</option>
                     {dlList.map((dl) => (
                       <option key={dl.id} value={dl.id}>
                         {dl.name}
@@ -527,7 +527,7 @@ export function RecruitmentTeamManager() {
                     className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                     aria-label="Wybierz Sourcer"
                   >
-                    <option value="">— wybierz Sourcer —</option>
+                    <option value="">– wybierz Sourcer –</option>
                     {sourcerList.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -549,7 +549,7 @@ export function RecruitmentTeamManager() {
                     className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                     aria-label="Wybierz Kategorię"
                   >
-                    <option value="">— wybierz kategorię —</option>
+                    <option value="">– wybierz kategorię –</option>
                     {(categoriesQuery.data ?? [])
                       .filter((c: DrCompetenceCategoryRow) => c.is_active)
                       .map((c: DrCompetenceCategoryRow) => (

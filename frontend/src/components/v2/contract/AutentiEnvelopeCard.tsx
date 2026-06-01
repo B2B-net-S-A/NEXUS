@@ -72,7 +72,7 @@ const STATUS_ICON: Record<SignatureStatus, React.ElementType> = {
 };
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return "—";
+  if (!value) return "–";
   try {
     return new Date(value).toLocaleString("pl-PL", {
       dateStyle: "medium",
@@ -244,7 +244,7 @@ export function AutentiEnvelopeCard({
     queryKey: ["autenti-signatures", contractId],
     queryFn: () => autentiApi.list(contractId).then((r) => r.data),
     // Backend returns 404 when AUTENTI_ENABLED=false (router not mounted).
-    // Don't spam logs / retry storms — single attempt, soft-fail to "feature off".
+    // Don't spam logs / retry storms – single attempt, soft-fail to "feature off".
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -279,7 +279,7 @@ export function AutentiEnvelopeCard({
             disabled={hasActive}
             title={
               hasActive
-                ? "Aktywna wysyłka — wycofaj lub poczekaj na status końcowy."
+                ? "Aktywna wysyłka – wycofaj lub poczekaj na status końcowy."
                 : undefined
             }
           >

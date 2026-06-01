@@ -42,7 +42,7 @@ export default function ForgotPasswordPage() {
             Zapomniałeś hasła?
           </h1>
           <p className="text-sm text-muted-foreground mt-1.5 text-center">
-            Wpisz email — wyślemy link do ustawienia nowego hasła.
+            Wpisz email – wyślemy link do ustawienia nowego hasła.
           </p>
         </div>
 

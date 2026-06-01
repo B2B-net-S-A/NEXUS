@@ -70,7 +70,7 @@ function MasterToggle({ enabled, onChange, disabled }: MasterToggleProps) {
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
             {enabled
-              ? "AI jest włączone — funkcje poniżej działają zgodnie z indywidualnymi ustawieniami."
+              ? "AI jest włączone – funkcje poniżej działają zgodnie z indywidualnymi ustawieniami."
               : "Wszystkie funkcje AI są wyłączone globalnie. Włącz aby przywrócić działanie."}
           </p>
         </div>

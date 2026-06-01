@@ -11,7 +11,7 @@ const STEPS = [
     id: "dashboard",
     icon: <LayoutDashboard className="w-8 h-8 text-primary" />,
     title: "Dashboard",
-    description: "Twoje centrum dowodzenia — statystyki rekrutacji, aktywności i KPI w jednym miejscu. Szybki podgląd pipeline'ów i nadchodzących spotkań.",
+    description: "Twoje centrum dowodzenia – statystyki rekrutacji, aktywności i KPI w jednym miejscu. Szybki podgląd pipeline'ów i nadchodzących spotkań.",
     action: "Zobacz Dashboard",
     href: "/",
   },

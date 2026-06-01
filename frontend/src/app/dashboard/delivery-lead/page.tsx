@@ -42,7 +42,7 @@ export default function DeliveryLeadDashboard() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Personal report — only fetched for DL (endpoint is role-gated to delivery_lead).
+  // Personal report – only fetched for DL (endpoint is role-gated to delivery_lead).
   const { data: myReport, refetch: refetchMine } = useQuery<MyDlReport | null>({
     queryKey: ["my-delivery-lead", "month"],
     queryFn: async () => {
@@ -54,7 +54,7 @@ export default function DeliveryLeadDashboard() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Personal 6m trend (DL only — endpoint requires dl_id).
+  // Personal 6m trend (DL only – endpoint requires dl_id).
   const { data: trendAll } = useQuery<{ trend: TrendPoint[] } | null>({
     queryKey: ["dl-trend-all", "6m"],
     queryFn: async () => {
@@ -157,7 +157,7 @@ export default function DeliveryLeadDashboard() {
         <DlTrendChart trend={trendAll.trend} />
       )}
 
-      {/* DL Hub tabs — personal scope only (DL). HoR/admin widzi team aggregat
+      {/* DL Hub tabs – personal scope only (DL). HoR/admin widzi team aggregat
           niżej (ranking + DL→klienci) z osobnymi narzędziami. */}
       {isMeDl && user && <DeliveryTabs userId={user.id} />}
 

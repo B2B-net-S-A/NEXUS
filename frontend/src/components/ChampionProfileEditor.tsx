@@ -96,7 +96,7 @@ export function ChampionProfileEditor({
     },
     onSuccess: (suggestion) => {
       if (suggestion.status === "rejected") {
-        // LLM failure already captured server-side — surface the error but
+        // LLM failure already captured server-side – surface the error but
         // still open the modal so the DL can see what went wrong.
       }
       setActiveSuggestion(suggestion);
@@ -239,7 +239,7 @@ export function ChampionProfileEditor({
           data-testid="champion-profile-remote-update"
         >
           <RefreshCw className="w-4 h-4" />
-          {remoteChange.by} zaktualizował profil — odświeżono
+          {remoteChange.by} zaktualizował profil – odświeżono
         </div>
       )}
 
@@ -445,7 +445,7 @@ export function ChampionProfileEditor({
       >
         {draft.screening_questions.length === 0 && (
           <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
-            Brak pytań. Dodaj przynajmniej 1 — rekruter będzie musiał odpowiedzieć
+            Brak pytań. Dodaj przynajmniej 1 – rekruter będzie musiał odpowiedzieć
             przed wysłaniem CV.
           </div>
         )}
@@ -609,7 +609,7 @@ export function ChampionProfileEditor({
       {!canEdit && (
         <div className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
           <AlertTriangle className="w-4 h-4" />
-          Podgląd — edycja wymaga roli Delivery Lead lub Admin.
+          Podgląd – edycja wymaga roli Delivery Lead lub Admin.
         </div>
       )}
 

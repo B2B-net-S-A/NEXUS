@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Delivery Lead Data Entry — admin formularz miesięcznych KPI dla DL.
+ * Delivery Lead Data Entry – admin formularz miesięcznych KPI dla DL.
  *
  * Port `DeliveryLeadDataEntry.tsx` z artur-t-96/InfraReporter (419 linii).
  *
  * Funkcje (DR parity):
  * - Year + Month picker
- * - "Wypełnij wszystkich" — auto-add wiersze dla wszystkich aktywnych DLs,
+ * - "Wypełnij wszystkich" – auto-add wiersze dla wszystkich aktywnych DLs,
  *   pre-fill istniejące wartości z bazy
  * - Per-row inline edit (requests/vacancies/placements/open_requests/open_vacancies)
  * - Team stats summary (hit ratio + fill rate + sumy)
@@ -110,7 +110,7 @@ export function DeliveryLeadDataEntry() {
   }, []);
 
   /**
-   * "Wypełnij wszystkich" — automatycznie buduje rows dla wszystkich aktywnych
+   * "Wypełnij wszystkich" – automatycznie buduje rows dla wszystkich aktywnych
    * DLs, z pre-fill z monthQuery snapshot (istniejące wartości) lub zerami.
    */
   const handleFillAll = () => {
@@ -295,7 +295,7 @@ export function DeliveryLeadDataEntry() {
         <DataHistoryView
           tableName="kpi_delivery_lead"
           uploadFileType="delivery-lead"
-          title="Historia zmian — Delivery Lead"
+          title="Historia zmian – Delivery Lead"
         />
       )}
 
@@ -305,7 +305,7 @@ export function DeliveryLeadDataEntry() {
         <CardContent className="pt-6">
           <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Target className="w-5 h-5 text-orange-600" />
-            Delivery Lead — wpisywanie miesięcznych KPI
+            Delivery Lead – wpisywanie miesięcznych KPI
           </h3>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -516,7 +516,7 @@ export function DeliveryLeadDataEntry() {
               <div className="flex items-center gap-2 mb-3">
                 <TrendingUp className="w-4 h-4 text-orange-600" />
                 <span className="text-sm font-medium text-orange-800 dark:text-orange-200">
-                  Statystyki zespołu DL — {MONTH_NAMES_PL[selectedMonth - 1]}{" "}
+                  Statystyki zespołu DL – {MONTH_NAMES_PL[selectedMonth - 1]}{" "}
                   {selectedYear}
                 </span>
               </div>

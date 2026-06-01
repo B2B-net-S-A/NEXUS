@@ -311,7 +311,7 @@ export default function DictionariesPage() {
         </Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">Słowniki</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Edytuj wartości używane w listach rozwijanych — branże, powody
+          Edytuj wartości używane w listach rozwijanych – branże, powody
           odrzucenia, etc. Zarchiwizowane wartości pozostają w historycznych
           rekordach, ale znikają z list rozwijanych.
         </p>

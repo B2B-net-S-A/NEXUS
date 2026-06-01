@@ -97,7 +97,7 @@ export function ContractTerminationDialog({
               onChange={(e) => setLessons(e.target.value)}
               className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950"
               rows={4}
-              placeholder="Np.: klient poprosił o konsultanta na 6 mies., potrzebowali 12 — zbadać wcześniej…"
+              placeholder="Np.: klient poprosił o konsultanta na 6 mies., potrzebowali 12 – zbadać wcześniej…"
             />
           </label>
           {mut.isError && (

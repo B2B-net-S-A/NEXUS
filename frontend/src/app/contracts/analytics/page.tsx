@@ -121,7 +121,7 @@ function MarginLeaderboard({
           <tbody>
             {rows.map((r, i) => {
               const linkId = (r.candidate_id ?? r.client_id) as number;
-              const name = (r[nameKey] ?? "—") as string;
+              const name = (r[nameKey] ?? "–") as string;
               return (
                 <tr key={linkId} className="border-t border-border dark:border-border">
                   <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
@@ -141,7 +141,7 @@ function MarginLeaderboard({
                     {formatCurrency(r.total_monthly_margin, "PLN")}
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground dark:text-muted-foreground">
-                    {r.margin_pct !== null ? `${r.margin_pct}%` : "—"}
+                    {r.margin_pct !== null ? `${r.margin_pct}%` : "–"}
                   </td>
                 </tr>
               );
@@ -275,7 +275,7 @@ export default function ContractAnalyticsPage() {
           <MetricCard
             icon={Users}
             label="Utylizacja"
-            value={util ? `${util.utilization_pct}%` : "—"}
+            value={util ? `${util.utilization_pct}%` : "–"}
             sub={
               util
                 ? `${util.candidates_active}/${util.total_candidates} kandydatów aktywnych`
@@ -285,7 +285,7 @@ export default function ContractAnalyticsPage() {
           <MetricCard
             icon={Building2}
             label="Śr. dni na bench"
-            value={util?.avg_bench_days !== null && util?.avg_bench_days !== undefined ? `${util.avg_bench_days}` : "—"}
+            value={util?.avg_bench_days !== null && util?.avg_bench_days !== undefined ? `${util.avg_bench_days}` : "–"}
             sub={util ? `${util.candidates_on_bench} kandydatów bez kontraktu` : undefined}
           />
         </div>

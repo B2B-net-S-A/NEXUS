@@ -26,7 +26,7 @@ interface Props {
 }
 
 /**
- * ConfirmV2 — reusable confirmation dialog. Replaces window.confirm() +
+ * ConfirmV2 – reusable confirmation dialog. Replaces window.confirm() +
  * ad-hoc confirm patterns scattered across v1.
  */
 export function ConfirmV2({

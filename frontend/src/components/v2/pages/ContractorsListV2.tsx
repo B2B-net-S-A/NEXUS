@@ -99,7 +99,7 @@ export function ContractorsListV2() {
  Kontraktorzy
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Zatrudnieni kandydaci — aktywni, kończący się i drafty do uzupełnienia.
+ Zatrudnieni kandydaci – aktywni, kończący się i drafty do uzupełnienia.
  </p>
  </div>
  </div>
@@ -186,7 +186,7 @@ export function ContractorsListV2() {
  <UserCog className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  {tab === "draft"
- ?"Brak draftów do uzupełnienia — wszystko aktywne."
+ ?"Brak draftów do uzupełnienia – wszystko aktywne."
  : tab === "active"
  ?"Brak aktywnych kontraktorów."
  :"Żaden kontrakt nie kończy się w najbliższym czasie."}
@@ -213,9 +213,9 @@ export function ContractorsListV2() {
  )}
  </TableCell>
  <TableCell>
- <div className="text-sm">{c.client_name ??"—"}</div>
+ <div className="text-sm">{c.client_name ??"–"}</div>
  <div className="text-xs text-muted-foreground truncate max-w-[200px]">
- {c.job_title ??"—"}
+ {c.job_title ??"–"}
  </div>
  </TableCell>
  <TableCell>
@@ -229,17 +229,17 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell>
  <Badge size="sm" variant="soft">
- {c.work_mode ??"—"}
+ {c.work_mode ??"–"}
  </Badge>
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
  ? `${formatCurrency(c.rate_client, "PLN")}${rateUnitLabel(c.rate_unit)}`
- :"—"}
+ :"–"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {c.margin != null
- ? formatCurrency(c.margin, "PLN") : "—"}
+ ? formatCurrency(c.margin, "PLN") : "–"}
  </TableCell>
  <TableCell>
  {isDraft && c.missing_fields.length > 0 ? (

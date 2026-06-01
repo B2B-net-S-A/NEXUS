@@ -139,7 +139,7 @@ export function GenerateInviteLinkV2({
  params: { status: "published", page_size: 100 },
  });
  const data = res.data;
- // jobs endpoint can return either {items: [...]} or raw array — normalize.
+ // jobs endpoint can return either {items: [...]} or raw array – normalize.
  const items: JobLite[] = Array.isArray(data)
  ? data
  : (data.items ?? []);
@@ -212,7 +212,7 @@ export function GenerateInviteLinkV2({
  setCopied(true);
  setTimeout(() => setCopied(false), 2_500);
  } catch {
- // ignore — user can copy manually
+ // ignore – user can copy manually
  }
  };
 
@@ -341,7 +341,7 @@ export function GenerateInviteLinkV2({
  <div className="space-y-4">
  <div className="flex items-center gap-2 text-sm text-foreground">
  <CheckCircle2 className="h-4 w-4 text-green-600" />
- Link gotowy — skopiuj i wyślij kandydatowi.
+ Link gotowy – skopiuj i wyślij kandydatowi.
  </div>
  <div className="rounded-md border border-border bg-background/40 p-3 space-y-2">
  <div className="text-xs uppercase tracking-wider text-muted-foreground">

@@ -86,7 +86,7 @@ export function ResetPasswordModal({
             <p className="text-sm text-foreground dark:text-muted-foreground">
               Wyślemy na adres <strong>{user.email}</strong> wiadomość z linkiem
               do ustawienia nowego hasła. Link jest ważny <strong>60 minut</strong>.
-              User sam wybiera nowe hasło — Ty go nie znasz.
+              User sam wybiera nowe hasło – Ty go nie znasz.
             </p>
           </div>
         )}

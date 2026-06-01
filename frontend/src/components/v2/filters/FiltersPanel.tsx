@@ -48,7 +48,7 @@ const LANG_LEVELS: LanguageLevel[] = ["A1", "A2", "B1", "B2", "C1", "C2", "nativ
  * The boolean buckets (q_all/q_any/q_none) live inside a popover so the panel
  * stays compact; everything else is visible up-front for fast scanning.
  *
- * Pure controlled component — does not fire searches itself; the parent owns
+ * Pure controlled component – does not fire searches itself; the parent owns
  * `value` and is responsible for triggering the API call (typically debounced
  * after `onChange` fires).
  */
@@ -203,7 +203,7 @@ export function FiltersPanel({
         </Button>
       </div>
 
-      {/* Competence Category — flagship filter */}
+      {/* Competence Category – flagship filter */}
       <div className="space-y-2">
         <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
           Kategoria kompetencji
@@ -216,7 +216,7 @@ export function FiltersPanel({
         />
       </div>
 
-      {/* Skills — must / any / none chip pickers */}
+      {/* Skills – must / any / none chip pickers */}
       <div className="grid gap-3 sm:grid-cols-3">
         {(
           [
@@ -403,7 +403,7 @@ export function FiltersPanel({
         </div>
       </div>
 
-      {/* Status + availability — chip toggles */}
+      {/* Status + availability – chip toggles */}
       <div className="flex flex-wrap items-start gap-4">
         <div className="space-y-1.5">
           <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
@@ -466,7 +466,7 @@ export function FiltersPanel({
         </div>
       </div>
 
-      {/* "Więcej" — collapsible advanced toggles */}
+      {/* "Więcej" – collapsible advanced toggles */}
       <div>
         <button
           type="button"

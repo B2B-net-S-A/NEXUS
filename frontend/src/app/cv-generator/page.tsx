@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 /**
- * Standalone CV Generator — dynamic import with ssr:false eliminates the
+ * Standalone CV Generator – dynamic import with ssr:false eliminates the
  * "no available server" hydration error from Next 15 App Router. The
  * CVGeneratorStandaloneV2 component depends on browser-only APIs (TanStack
  * Query devtools, blob downloads) and shouldn't be SSR'd anyway.

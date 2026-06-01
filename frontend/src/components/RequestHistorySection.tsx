@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * RequestHistorySection — zakładka "Historia" w widoku joba.
+ * RequestHistorySection – zakładka "Historia" w widoku joba.
  *
  * Pokazuje siostrzane requesty tego samego klienta (i opcjonalnie cross-client)
  * w dwóch sekcjach: "W toku" + "Zamknięte". Każdy wiersz: tytuł + train +
@@ -9,7 +9,7 @@
  * owners / liczbą kandydatów. CTA: Otwórz, Skopiuj jako template, Dodaj
  * championa.
  *
- * Designed to be source-agnostic — działa zarówno gdy backend zwraca SQL
+ * Designed to be source-agnostic – działa zarówno gdy backend zwraca SQL
  * fast-path matches (similarity=1.0, źródło "sql_same_client") jak i Voyage
  * fallback z cosine.
  */
@@ -166,7 +166,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             Historia requestu
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Bliźniacze requesty tego klienta — outcome, champion, TTH, fee,
+            Bliźniacze requesty tego klienta – outcome, champion, TTH, fee,
             owner.
             {meta && meta.voyage_count > 0 ? (
               <>
@@ -268,7 +268,7 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
         ))}
       </ul>
 
-      {/* Skopiuj jako template — modal rendered locally */}
+      {/* Skopiuj jako template – modal rendered locally */}
       {templateJobId !== null && (
         <AddJobModal
           fromJobId={templateJobId}

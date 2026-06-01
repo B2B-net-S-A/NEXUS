@@ -168,7 +168,7 @@ export function StageRuleForm({
             className="w-full rounded-md border border-border dark:border-border bg-card dark:bg-muted px-2 py-1.5 text-sm"
             disabled={usersLoading}
           >
-            <option value="">— wybierz —</option>
+            <option value="">– wybierz –</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name} ({u.email})
@@ -193,7 +193,7 @@ export function StageRuleForm({
             onChange={(e) => setRole(e.target.value)}
             className="w-full rounded-md border border-border dark:border-border bg-card dark:bg-muted px-2 py-1.5 text-sm"
           >
-            <option value="">— wybierz —</option>
+            <option value="">– wybierz –</option>
             {ROLE_OPTIONS.map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}

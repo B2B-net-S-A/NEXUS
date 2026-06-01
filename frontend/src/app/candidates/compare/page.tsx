@@ -21,7 +21,7 @@ function getAvatarColor(name: string): string {
 }
 
 function formatNoticePeriod(value: number | null | undefined, unit: string | null | undefined): string {
-  if (value == null) return "—";
+  if (value == null) return "–";
   const effectiveUnit = unit || "days";
   const labels: Record<string, [string, string, string]> = {
     days: ["dzień", "dni", "dni"],
@@ -138,7 +138,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <span className="font-medium">
             {candidate.salary_expectation
               ? `${candidate.salary_expectation.toLocaleString()} ${candidate.salary_currency || "PLN"}`
-              : "—"}
+              : "–"}
           </span>
         </div>
         <div className="flex justify-between">
@@ -146,12 +146,12 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <span className="font-medium">
             {candidate.availability_date
               ? new Date(candidate.availability_date).toLocaleDateString("pl-PL")
-              : "—"}
+              : "–"}
           </span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Źródło:</span>
-          <span className="font-medium capitalize">{candidate.source || "—"}</span>
+          <span className="font-medium capitalize">{candidate.source || "–"}</span>
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Wypowiedzenie:</span>
@@ -168,7 +168,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <div className="space-y-1">
             {languages.slice(0, 4).map((l: any, i: number) => (
               <div key={i} className="flex justify-between text-xs">
-                <span>{typeof l === "string" ? l : l.lang || l.language || l.name || "—"}</span>
+                <span>{typeof l === "string" ? l : l.lang || l.language || l.name || "–"}</span>
                 <span className="text-muted-foreground">{l.level || ""}</span>
               </div>
             ))}
@@ -182,7 +182,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">Umiejętności</h4>
           <div className="space-y-1.5">
             {skills.slice(0, 8).map((s: any, i: number) => {
-              const name = typeof s === "string" ? s : s.name || "—";
+              const name = typeof s === "string" ? s : s.name || "–";
               const level = typeof s === "object" ? s.level : undefined;
               return <SkillBar key={i} name={name} level={level} />;
             })}
@@ -197,7 +197,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           <div className="space-y-2">
             {experience.slice(0, 4).map((e: any, i: number) => (
               <div key={i} className="text-xs">
-                <div className="font-medium text-foreground dark:text-muted-foreground">{e.role || e.position || "—"}</div>
+                <div className="font-medium text-foreground dark:text-muted-foreground">{e.role || e.position || "–"}</div>
                 <div className="text-muted-foreground">{e.company || ""}</div>
                 {(e.start || e.end) && (
                   <div className="text-muted-foreground">{e.start || "?"} – {e.end || "nadal"}</div>

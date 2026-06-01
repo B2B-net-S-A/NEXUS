@@ -59,7 +59,7 @@ const EMPTY: FormState = {
 };
 
 function range(min: number | null, max: number | null, currency: string): string {
-  if (min === null && max === null) return "—";
+  if (min === null && max === null) return "–";
   if (min !== null && max !== null && min === max)
     return formatCurrency(min, currency);
   if (min === null) return `≤ ${formatCurrency(max, currency)}`;
@@ -209,7 +209,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
               >
                 {SENIORITIES.map((s) => (
                   <option key={s || "any"} value={s}>
-                    {s || "— dowolna —"}
+                    {s || "– dowolna –"}
                   </option>
                 ))}
               </select>
@@ -334,7 +334,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
         </div>
       ) : cards.length === 0 ? (
         <div className="text-sm text-muted-foreground italic">
-          Brak wpisów cennika — dodaj pierwszy, żeby móc korzystać z auto-suggest przy tworzeniu kontraktu.
+          Brak wpisów cennika – dodaj pierwszy, żeby móc korzystać z auto-suggest przy tworzeniu kontraktu.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border dark:border-border">
@@ -354,7 +354,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                 <tr key={c.id} className="border-t border-border dark:border-border">
                   <td className="px-3 py-2 font-medium">{c.role}</td>
                   <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground">
-                    {c.seniority ?? "—"}
+                    {c.seniority ?? "–"}
                   </td>
                   <td className="px-3 py-2">
                     {range(c.rate_candidate_min, c.rate_candidate_max, c.currency)}
@@ -369,7 +369,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground dark:text-muted-foreground">
-                    {c.valid_from || "—"} → {c.valid_to || "∞"}
+                    {c.valid_from || "–"} → {c.valid_to || "∞"}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <RequireRole roles={["admin", "delivery_lead"]}>

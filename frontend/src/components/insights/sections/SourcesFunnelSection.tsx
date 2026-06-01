@@ -65,10 +65,10 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
                 {groupByUtm && (
                   <>
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                      {row.utm_source || "—"}
+                      {row.utm_source || "–"}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                      {row.utm_campaign || "—"}
+                      {row.utm_campaign || "–"}
                     </td>
                   </>
                 )}

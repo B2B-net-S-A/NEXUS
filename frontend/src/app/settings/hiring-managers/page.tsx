@@ -108,7 +108,7 @@ export default function HiringManagersAnalyticsPage() {
                         {r.jobs_open}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">–</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">{r.contracts_total}</td>

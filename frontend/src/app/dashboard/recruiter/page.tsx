@@ -297,7 +297,7 @@ export default function RecruiterDashboard() {
  <CardTitle>Brak dostępu</CardTitle>
  <CardDescription>
  Panel dla ról: sourcer, TAC, rekruter. Twoja rola:{""}
- {user ? ROLE_LABELS[user.role] : "—"}.
+ {user ? ROLE_LABELS[user.role] : "–"}.
  </CardDescription>
  </CardHeader>
  </Card>
@@ -321,7 +321,7 @@ export default function RecruiterDashboard() {
  Panel Rekrutacja · {ROLE_LABELS[user.role]}
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
- {isMeRecruiter ? `Cześć, ${user.name.split("")[0]}` :"Rekrutacja — widok zespołu"}
+ {isMeRecruiter ? `Cześć, ${user.name.split("")[0]}` :"Rekrutacja – widok zespołu"}
  </h1>
  </div>
  <Button
@@ -339,7 +339,7 @@ export default function RecruiterDashboard() {
  </div>
 
  {/* Report-driven sections (KPI + lejka). Without explicit error handling
- these would silently render zeros when the report endpoint errors — making
+ these would silently render zeros when the report endpoint errors – making
  the dashboard look broken instead of failed. */}
  {reportIsError ? (
  <Card>
@@ -351,7 +351,7 @@ export default function RecruiterDashboard() {
  </Card>
  ) : (
  <>
- {/* KPI row — pastel cards */}
+ {/* KPI row – pastel cards */}
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
  <PastelKpi
  title="Weryfikacje"
@@ -383,7 +383,7 @@ export default function RecruiterDashboard() {
  />
  </div>
 
- {/* Efektywność lejka — 4 pasy */}
+ {/* Efektywność lejka – 4 pasy */}
  <div>
  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
  Efektywność lejka
@@ -487,7 +487,7 @@ export default function RecruiterDashboard() {
  </div>
  ) : null}
 
- {/* Power Calling — pomarańczowy gradient, weryfikacje/dzień w ubiegłym tygodniu */}
+ {/* Power Calling – pomarańczowy gradient, weryfikacje/dzień w ubiegłym tygodniu */}
  {powerCalling && (
  <PowerCallingSection
  weekLabel={powerCalling.week_label}
@@ -500,7 +500,7 @@ export default function RecruiterDashboard() {
  />
  )}
 
- {/* CloudTalk stats — auto-hides when integration disabled and 0 historical calls */}
+ {/* CloudTalk stats – auto-hides when integration disabled and 0 historical calls */}
  <CallStatsWidget />
 
  {/* Hall of Fame (mały) */}
@@ -509,7 +509,7 @@ export default function RecruiterDashboard() {
  <CardHeader>
  <CardTitle className="flex items-center gap-2 text-base">
  <span className="text-amber-500">🏆</span>
- Hall of Fame — all time
+ Hall of Fame – all time
  </CardTitle>
  </CardHeader>
  <CardContent>
@@ -538,7 +538,7 @@ export default function RecruiterDashboard() {
  </Card>
  )}
 
- {/* LinkedIn metrics (manual) — tylko dla recruitera */}
+ {/* LinkedIn metrics (manual) – tylko dla recruitera */}
  {isMeRecruiter && (
  <div>
  <div className="flex items-center gap-2 mb-2">
@@ -673,7 +673,7 @@ export default function RecruiterDashboard() {
  </span>
  ) : (
  <span className="text-xs text-muted-foreground">
- —
+ –
  </span>
  )}
  </td>
@@ -684,7 +684,7 @@ export default function RecruiterDashboard() {
  </span>
  ) : (
  <span className="text-xs text-muted-foreground">
- —
+ –
  </span>
  )}
  </td>

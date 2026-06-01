@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.9 — Sales Management (projects/leads/offers/people).
+ * DynaReporter B.2.9 – Sales Management (projects/leads/offers/people).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -81,7 +81,7 @@ export default function SalesMgmtPage() {
   return (
     <div className="container mx-auto max-w-7xl p-6 space-y-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">Sales — Zarządzanie</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Sales – Zarządzanie</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Projekty, leady, oferty, ludzie, weekly activity.
         </p>

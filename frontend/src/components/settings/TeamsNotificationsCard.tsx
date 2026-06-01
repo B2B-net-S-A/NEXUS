@@ -150,10 +150,10 @@ export default function TeamsNotificationsCard() {
       if (result.sent) {
         showSuccess(`Karta testowa wysłana do "${channel.workspace_label}"`);
       } else {
-        showError(result.detail || "Test nie powiódł się — sprawdź konfigurację.");
+        showError(result.detail || "Test nie powiódł się – sprawdź konfigurację.");
       }
     } catch {
-      showError("Test nie powiódł się — sprawdź logi backendu.");
+      showError("Test nie powiódł się – sprawdź logi backendu.");
     } finally {
       setTestingId(null);
     }
@@ -476,7 +476,7 @@ function ChannelRow({
       {!channel.enabled && (
         <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           <AlertCircle className="h-3 w-3" />
-          Kanał wyłączony — nie otrzyma powiadomień.
+          Kanał wyłączony – nie otrzyma powiadomień.
         </div>
       )}
     </li>

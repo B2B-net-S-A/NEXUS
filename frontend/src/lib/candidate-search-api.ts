@@ -1,7 +1,7 @@
 /**
  * Typed wrapper for `POST /api/search/candidates` (hybrid search V2).
  *
- * Mirrors `backend/app/schemas/candidate_search.py`. Keep these in lockstep —
+ * Mirrors `backend/app/schemas/candidate_search.py`. Keep these in lockstep –
  * new optional fields can be added without breaking the wire (backend defaults
  * empty arrays / nulls), but renaming or changing types must be coordinated.
  */
@@ -60,8 +60,8 @@ export interface CandidateSearchRequest {
   page?: number;
   page_size?: number;
   /**
-   * "boolean" — Postgres FTS only (default).
-   * "hybrid"  — BM25 + Voyage dense + RRF + rerank-2.5. Higher recall, +rerank latency.
+   * "boolean" – Postgres FTS only (default).
+   * "hybrid"  – BM25 + Voyage dense + RRF + rerank-2.5. Higher recall, +rerank latency.
    */
   search_mode?: "boolean" | "hybrid";
 }

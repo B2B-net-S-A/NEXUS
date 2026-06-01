@@ -32,7 +32,7 @@ export function ProfileTab({ clientId }: Props) {
       api.get(`/api/clients/${clientId}/profile`).then((r) => r.data),
   });
 
-  // Modal state — a single in-flight action at a time. Keeping each modal's
+  // Modal state – a single in-flight action at a time. Keeping each modal's
   // trigger data colocated here avoids drilling setState through every Row.
   const [addCandidateTo, setAddCandidateTo] = useState<OpenJobItem | null>(null);
   const [closeJobAsLost, setCloseJobAsLost] = useState<OpenJobItem | null>(null);
@@ -264,7 +264,7 @@ function HistorySection({
         )
       ) : lostJobs.length === 0 ? (
         <EmptyState icon={<XCircle className="w-8 h-8" />}>
-          Świetnie — żadna oferta u tego klienta nie została przegrana.
+          Świetnie – żadna oferta u tego klienta nie została przegrana.
         </EmptyState>
       ) : (
         <div className="space-y-2">

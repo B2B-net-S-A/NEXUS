@@ -77,7 +77,7 @@ const EVENT_TYPE_LABELS: Record<EventType, string> = {
 };
 
 // Event types that default to including a Teams meeting link. Mirrors
-// `_TEAMS_DEFAULT_EVENT_TYPES` in backend/app/services/m365/calendar.py — keep
+// `_TEAMS_DEFAULT_EVENT_TYPES` in backend/app/services/m365/calendar.py – keep
 // in sync so the checkbox default matches what the server would pick.
 const TEAMS_DEFAULT_FOR: ReadonlySet<EventType> = new Set<EventType>([
   "interview",
@@ -101,7 +101,7 @@ export default function ScheduleInterviewModal({
   const [duration, setDuration] = useState(45); // minutes
   const [inviteCandidate, setInviteCandidate] = useState(true);
   const [extraAttendees, setExtraAttendees] = useState("");
-  // Phase 7.1 — opt-in Teams meeting link. `userTouched` records whether the
+  // Phase 7.1 – opt-in Teams meeting link. `userTouched` records whether the
   // user toggled the checkbox manually; until then, switching event_type
   // adjusts the default automatically.
   const [addTeamsMeeting, setAddTeamsMeeting] = useState(true);
@@ -136,7 +136,7 @@ export default function ScheduleInterviewModal({
   // Free-busy advisory: ask Graph whether the recruiter (and candidate, if we
   // have their email) is already booked in the chosen window. Debounced so we
   // don't fire a Graph call on every keystroke. Errors and "unknown" statuses
-  // intentionally render nothing — the API does not affect submit.
+  // intentionally render nothing – the API does not affect submit.
   const currentUserEmail = useAuthStore((s) => s.user?.email ?? null);
   const debouncedStart = useDebouncedValue(start, 500);
   const debouncedDuration = useDebouncedValue(duration, 500);
@@ -174,7 +174,7 @@ export default function ScheduleInterviewModal({
       return res.data;
     },
     enabled: open && checkWindow !== null && checkAttendees.length > 0,
-    // M365 connection missing / Graph upstream blip — surface nothing rather
+    // M365 connection missing / Graph upstream blip – surface nothing rather
     // than spam the modal with retry banners. Submit is still allowed.
     retry: false,
     staleTime: 30_000,
@@ -212,7 +212,7 @@ export default function ScheduleInterviewModal({
           "Outlook kandydata pokazuje zajętość w wybranym terminie.",
       };
     }
-    // Both sides free — only celebrate when we actually checked both.
+    // Both sides free – only celebrate when we actually checked both.
     if (currentUserEmail && (!inviteCandidate || candidateEmail)) {
       return {
         variant: "success" as const,
@@ -229,7 +229,7 @@ export default function ScheduleInterviewModal({
     inviteCandidate,
   ]);
 
-  // Phase 5.4 — Nexus-side overlap check against the recruiter's own calendar
+  // Phase 5.4 – Nexus-side overlap check against the recruiter's own calendar
   // events (interviews/screenings already booked here, not in Outlook). Reuses
   // the same debounced inputs so we share one keystroke window with free-busy.
   const conflictsQuery = useQuery<ConflictsResponse>({
@@ -264,7 +264,7 @@ export default function ScheduleInterviewModal({
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["candidate-calls", candidateId] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-      // Linger on a confirmation step when Graph returned a Teams join URL —
+      // Linger on a confirmation step when Graph returned a Teams join URL –
       // recruiter wants to copy it into the candidate ping. When no URL is
       // present (non-Teams event or older backend) we close immediately.
       if (res.data?.online_meeting_url) {
@@ -450,7 +450,7 @@ export default function ScheduleInterviewModal({
                       {formatConflictTime(c.start_time, c.end_time)}
                     </span>
                     {c.candidate_name && (
-                      <span className="opacity-70">— {c.candidate_name}</span>
+                      <span className="opacity-70">– {c.candidate_name}</span>
                     )}
                   </li>
                 ))}

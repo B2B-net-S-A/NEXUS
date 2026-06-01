@@ -6,17 +6,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number | null | undefined, currency = "PLN"): string {
-  if (amount == null) return "—";
+  if (amount == null) return "–";
   return new Intl.NumberFormat("pl-PL", { style: "currency", currency }).format(amount);
 }
 
 export function formatDate(date: string | Date | null | undefined): string {
-  if (!date) return "—";
+  if (!date) return "–";
   return new Intl.DateTimeFormat("pl-PL").format(new Date(date));
 }
 
 export function formatRelativeTime(date: string | Date | null | undefined): string {
-  if (!date) return "—";
+  if (!date) return "–";
   const now = new Date();
   const d = new Date(date);
   const diffMs = now.getTime() - d.getTime();

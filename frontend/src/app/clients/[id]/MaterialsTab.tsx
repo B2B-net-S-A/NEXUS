@@ -89,7 +89,7 @@ const MAX_UPLOAD_MB = 20;
 const ALLOWED_EXT = /\.(pdf|docx|doc)$/i;
 
 function formatSize(bytes: number | null): string {
-  if (!bytes) return "—";
+  if (!bytes) return "–";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -567,7 +567,7 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
             Wymagane dokumenty
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            NDA, RODO, klauzule off-limits — wymogi przed startem współpracy
+            NDA, RODO, klauzule off-limits – wymogi przed startem współpracy
           </p>
         </div>
         <button
@@ -1198,7 +1198,7 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
             Najważniejsze rzeczy w umowie
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Kluczowe klauzule z umowy ramowej — off-limits, internalizacja,
+            Kluczowe klauzule z umowy ramowej – off-limits, internalizacja,
             płatności
           </p>
           {initial.updated_at && (
@@ -1278,7 +1278,7 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
             value={form.payment_currency}
             onChange={(v) => update("payment_currency", v)}
             options={[
-              { value: "", label: "—" },
+              { value: "", label: "–" },
               { value: "PLN", label: "PLN" },
               { value: "EUR", label: "EUR" },
               { value: "USD", label: "USD" },
@@ -1290,7 +1290,7 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
             value={form.payment_invoice_cycle}
             onChange={(v) => update("payment_invoice_cycle", v)}
             options={[
-              { value: "", label: "—" },
+              { value: "", label: "–" },
               { value: "monthly", label: "Miesięczny" },
               { value: "biweekly", label: "Co 2 tyg." },
               { value: "other", label: "Inny" },

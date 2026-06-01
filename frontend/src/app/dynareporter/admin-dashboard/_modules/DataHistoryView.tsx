@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * DataHistoryView — wspólna zakładka "Historia" dla modułów admina DR.
+ * DataHistoryView – wspólna zakładka "Historia" dla modułów admina DR.
  *
  * Pokazuje historię operacji na danych modułu z `dr_data_audit_log`
- * (filtr po `table_name`) — kto, kiedy, jaka akcja, ile rekordów.
+ * (filtr po `table_name`) – kto, kiedy, jaka akcja, ile rekordów.
  * Dodatkowo (jeśli są) historia importów Excel z `dr_upload_history`.
  *
  * Port odpowiednika zakładki "Historia" z artur-t-96/InfraReporter
@@ -72,7 +72,7 @@ export function DataHistoryView({
     staleTime: 30_000,
   });
 
-  // Ruchomy kalendarz okresu (Od/Do) — filtruje historię zmian po dacie.
+  // Ruchomy kalendarz okresu (Od/Do) – filtruje historię zmian po dacie.
   // Domyślnie od początku bieżącego roku do dziś.
   const [fromDate, setFromDate] = useState<string>(
     () => `${new Date().getFullYear()}-01-01`,
@@ -170,7 +170,7 @@ export function DataHistoryView({
                         {r.records_count}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {r.performed_by_name ?? "—"}
+                        {r.performed_by_name ?? "–"}
                       </td>
                     </tr>
                   ))}
@@ -216,11 +216,11 @@ export function DataHistoryView({
                       <td className="px-3 py-2 tabular-nums whitespace-nowrap">
                         {fmtDateTime(r.created_at)}
                       </td>
-                      <td className="px-3 py-2">{r.file_name || "—"}</td>
+                      <td className="px-3 py-2">{r.file_name || "–"}</td>
                       <td className="px-3 py-2 text-center tabular-nums">
                         {r.records_count}
                       </td>
-                      <td className="px-3 py-2">{r.status || "—"}</td>
+                      <td className="px-3 py-2">{r.status || "–"}</td>
                       <td className="px-3 py-2 text-muted-foreground">
                         {r.uploaded_by_name}
                       </td>

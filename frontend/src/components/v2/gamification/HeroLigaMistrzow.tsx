@@ -27,17 +27,17 @@ interface HeroLigaMistrzowProps {
  period: string
  /** Dni pozostałe do końca kwartału */
  daysRemaining: number
- /** TOP 3 (rank 1/2/3 — porządek wizualny 2/1/3 na podiumie) */
+ /** TOP 3 (rank 1/2/3 – porządek wizualny 2/1/3 na podiumie) */
  top3: HeroPodiumEntry[]
- /** Pełny ranking (10) — collapsible */
+ /** Pełny ranking (10) – collapsible */
  fullRanking?: HeroPodiumEntry[]
  /** Nagrody: {1: 5000, 2: 3000, 3: 2000} */
  quarterlyPrizes: Record<number, number>
- /**"placementów" lub"pkt" — podpis pod value na podium */
+ /**"placementów" lub"pkt" – podpis pod value na podium */
  metricLabel: string
- /**"pkt" — sufiks wartości (dla rekruter po punktach) */
+ /**"pkt" – sufiks wartości (dla rekruter po punktach) */
  metricUnit?: string
- /** Jeśli system punktowy — pokaż formułę */
+ /** Jeśli system punktowy – pokaż formułę */
  pointsFormula?: { placement: number; interview: number; recommendation: number } | null
  /** Warunek udziału (amber alert) */
  requirement?: string | null
@@ -136,7 +136,7 @@ function PodiumColumn({
  <div className="text-2xl leading-none mb-1" aria-hidden>
  {style.medal}
  </div>
- <div className="text-white font-semibold text-sm">—</div>
+ <div className="text-white font-semibold text-sm">–</div>
  </div>
  )}
  {/* Block */}

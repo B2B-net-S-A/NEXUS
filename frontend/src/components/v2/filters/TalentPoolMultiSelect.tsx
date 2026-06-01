@@ -42,7 +42,7 @@ export function TalentPoolMultiSelect({ value, onChange }: TalentPoolMultiSelect
  // Backend domyślnie sortuje po `created_at DESC`, więc świeżo utworzone puste
  // pule dominują nad starszymi populated. W filtrze dzielimy listę: najpierw
  // pule z kandydatami (po liczbie malejąco, potem alfabetycznie), poniżej
- // wizualnie wytłumione puste — żeby user nie wybierał np. "Java" (0 członków)
+ // wizualnie wytłumione puste – żeby user nie wybierał np. "Java" (0 członków)
  // myśląc że to "Java Backend Senior" (3 członków).
  const { populated, empty } = useMemo(() => {
  const pop = pools.filter((p) => (p.candidate_count ?? 0) > 0);

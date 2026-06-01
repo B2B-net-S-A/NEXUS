@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * DL Clients Manager — Delivery Lead ↔ Klient assignments.
+ * DL Clients Manager – Delivery Lead ↔ Klient assignments.
  *
  * Port `DLClientManager.tsx` z artur-t-96/InfraReporter (485 linii).
  *
  * Funkcje (DR parity):
- * - **Grouped view** — assignments grupowane per DL (header z liczbą klientów +
+ * - **Grouped view** – assignments grupowane per DL (header z liczbą klientów +
  *   liczbą Head)
- * - **Toggle is_head inline** — click przycisk żeby zmienić Head/zwykły
- * - **Add form** — DL + Client + Head checkbox
+ * - **Toggle is_head inline** – click przycisk żeby zmienić Head/zwykły
+ * - **Add form** – DL + Client + Head checkbox
  * - **Delete confirmation** modal
- * - **Search filter** — szukaj po DL name lub client name
+ * - **Search filter** – szukaj po DL name lub client name
  * - Sortuj klientów per DL (Head pierwszy)
  */
 
@@ -132,7 +132,7 @@ export function DLClientManager() {
     (m) => m.role === "delivery_lead",
   );
 
-  // Group assignments per DL (DR parity — visual hierarchy)
+  // Group assignments per DL (DR parity – visual hierarchy)
   const grouped = useMemo(() => {
     const all = assignmentsQuery.data ?? [];
     const filtered = searchQuery.trim()
@@ -256,7 +256,7 @@ export function DLClientManager() {
                   className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                   aria-label="Wybierz Delivery Lead"
                 >
-                  <option value="">— wybierz DL —</option>
+                  <option value="">– wybierz DL –</option>
                   {dlList.map((dl) => (
                     <option key={dl.id} value={dl.id}>
                       {dl.name}
@@ -278,7 +278,7 @@ export function DLClientManager() {
                   className="w-full px-2 py-1.5 text-sm bg-background border border-input rounded-md"
                   aria-label="Wybierz klienta"
                 >
-                  <option value="">— wybierz klienta —</option>
+                  <option value="">– wybierz klienta –</option>
                   {(clientsQuery.data ?? [])
                     .filter((c) => c.is_active)
                     .map((c) => (

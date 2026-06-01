@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * DynaReporter B.2.4 — Placements (lista + stats per user/client).
+ * DynaReporter B.2.4 – Placements (lista + stats per user/client).
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -115,11 +115,11 @@ export default function PlacementsPage() {
 
         <div className="space-y-4">
           <div className="rounded-lg border border-border bg-card p-4">
-            <h2 className="font-semibold text-sm mb-3">Top 10 — User (90 dni)</h2>
+            <h2 className="font-semibold text-sm mb-3">Top 10 – User (90 dni)</h2>
             <RankingList rows={byUserQ.data ?? []} loading={byUserQ.isLoading} keyName="user" />
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
-            <h2 className="font-semibold text-sm mb-3">Top 10 — Klienci (90 dni)</h2>
+            <h2 className="font-semibold text-sm mb-3">Top 10 – Klienci (90 dni)</h2>
             <RankingList rows={byClientQ.data ?? []} loading={byClientQ.isLoading} keyName="client" />
           </div>
         </div>

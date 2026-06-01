@@ -413,7 +413,7 @@ export default function EntityFieldsPage() {
     setLocalFields(next);
 
     // Persist (single PATCH per moved field; sibling re-ordering follows in
-    // separate PATCH calls — small data set, no batching needed).
+    // separate PATCH calls – small data set, no batching needed).
     update.mutate({
       id: fieldId,
       payload: { section: movedSection, ordinal: movedOrdinal },

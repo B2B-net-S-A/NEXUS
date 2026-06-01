@@ -35,7 +35,7 @@ const FLAG_LABELS: {
   key: keyof CandidateEngagementPayload;
   label: string;
   description: string;
-  /** Klucz timestampu w `initial` — tylko dla 3 flag open_to_*. */
+  /** Klucz timestampu w `initial` – tylko dla 3 flag open_to_*. */
   timestampKey?: OpenToTimestampKey;
 }[] = [
   {
@@ -118,7 +118,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
     },
   });
 
-  /** Touch single flag — wysyła obecną wartość, backend odświeża timestamp. */
+  /** Touch single flag – wysyła obecną wartość, backend odświeża timestamp. */
   const touchFlag = (key: OpenToFlagKey) => {
     mut.mutate({ [key]: Boolean(flags[key]) } as CandidateEngagementPayload);
   };
@@ -142,7 +142,7 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
         }
       }
     } catch (e) {
-      // Toast niepotrzebny — UI pokaże brak linku.
+      // Toast niepotrzebny – UI pokaże brak linku.
     } finally {
       setLinkPending(false);
     }
@@ -193,11 +193,11 @@ export function CandidateEngagementPanel({ candidateId, initial }: Props) {
                   type="button"
                   onClick={() => touchFlag(f.key as OpenToFlagKey)}
                   className="ml-7 mt-1 inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 hover:underline"
-                  title="Wyślij ponownie tę samą wartość — backend odświeży timestamp"
+                  title="Wyślij ponownie tę samą wartość – backend odświeży timestamp"
                   disabled={mut.isPending}
                 >
                   <RefreshCcw className="w-3 h-3" />
-                  {formatStaleness(days)} — potwierdź
+                  {formatStaleness(days)} – potwierdź
                 </button>
               )}
             </div>

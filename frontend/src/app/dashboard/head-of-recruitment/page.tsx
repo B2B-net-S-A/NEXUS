@@ -137,7 +137,7 @@ function SourcerCategoryMatrix({ rows }: { rows: SourcerCategoryRow[] }) {
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1.5">
  {row.first_priority.length === 0 && (
- <span className="text-muted-foreground text-xs">—</span>
+ <span className="text-muted-foreground text-xs">–</span>
  )}
  {row.first_priority.map((s) => (
  <Badge key={s.user_id} variant="soft" size="sm">
@@ -149,7 +149,7 @@ function SourcerCategoryMatrix({ rows }: { rows: SourcerCategoryRow[] }) {
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1.5">
  {row.second_priority.length === 0 && (
- <span className="text-muted-foreground text-xs">—</span>
+ <span className="text-muted-foreground text-xs">–</span>
  )}
  {row.second_priority.map((s) => (
  <Badge key={s.user_id} size="sm">
@@ -220,7 +220,7 @@ function TacDlMatrix({ rows }: { rows: DlWithTacsRow[] }) {
  <td className="px-3 py-2">
  <div className="flex flex-wrap gap-1.5">
  {tac.linkedin_farming.length === 0 && (
- <span className="text-muted-foreground text-xs">—</span>
+ <span className="text-muted-foreground text-xs">–</span>
  )}
  {tac.linkedin_farming.map((c) => (
  <Badge key={c.id} variant="soft" size="sm">
@@ -262,7 +262,7 @@ function DlClientsMatrix({ rows }: { rows: DlClientsRow[] }) {
  </td>
  <td className="px-3 py-2">
  {row.clients.length === 0 && (
- <span className="text-muted-foreground text-xs">—</span>
+ <span className="text-muted-foreground text-xs">–</span>
  )}
  <div className="flex flex-wrap gap-1.5">
  {row.clients.map((c) => (
@@ -425,7 +425,7 @@ export default function HeadOfRecruitmentDashboard() {
  </CardContent>
  </Card>
 
- {/* Podia — DL + Recruiter */}
+ {/* Podia – DL + Recruiter */}
  <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
  <ChampionsPodium
  title="Liga Mistrzów DL"

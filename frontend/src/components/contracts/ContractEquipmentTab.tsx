@@ -152,9 +152,9 @@ export function ContractEquipmentTab({ contractId }: Props) {
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="font-medium">{item.brand_model || "—"}</div>
+                    <div className="font-medium">{item.brand_model || "–"}</div>
                     <div className="text-xs text-muted-foreground">
-                      {item.serial_number || "—"}
+                      {item.serial_number || "–"}
                     </div>
                   </td>
                   <td className="px-3 py-2">{OWNER_LABELS[item.owner]}</td>
@@ -167,7 +167,7 @@ export function ContractEquipmentTab({ contractId }: Props) {
                         {formatDate(item.return_due_date)}
                       </span>
                     ) : (
-                      "—"
+                      "–"
                     )}
                   </td>
                   <td className="px-3 py-2">

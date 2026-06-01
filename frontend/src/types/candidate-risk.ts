@@ -1,5 +1,5 @@
 /**
- * Candidate Risk Profile types — mirror of `app/schemas/candidate_risk.py`.
+ * Candidate Risk Profile types – mirror of `app/schemas/candidate_risk.py`.
  *
  * Backend route: `GET /api/candidates/{id}/risk`
  * Migracja:     0068_candidate_risk

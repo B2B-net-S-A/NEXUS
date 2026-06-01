@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Board Data Entry — admin formularz miesięcznych raportów Rady Nadzorczej.
+ * Board Data Entry – admin formularz miesięcznych raportów Rady Nadzorczej.
  *
  * Pełen port `BoardDataEntry.tsx` z artur-t-96/InfraReporter (536 linii).
  *
@@ -10,7 +10,7 @@
  * - 3-section colored layout: Finanse (emerald) / HR (blue) / Wskaźniki (amber)
  * - Auto-calculated Marża + Zysk (readonly z color-coded green/red)
  * - Placement clients editor: master_data dropdown + custom client input + count
- * - Overview table na dole — wszystkie miesiące grouped per year + Suma row
+ * - Overview table na dole – wszystkie miesiące grouped per year + Suma row
  * - Edit/Delete actions per row
  */
 
@@ -524,7 +524,7 @@ export function BoardDataEntry() {
                               </option>
                             ))}
                             <option value="__custom__">
-                              — Inny (wpisz ręcznie) —
+                              – Inny (wpisz ręcznie) –
                             </option>
                           </select>
                         )}
@@ -610,7 +610,7 @@ export function BoardDataEntry() {
         </div>
       )}
 
-      {/* Tabela przeglądowa — wszystkie miesiące grouped per year */}
+      {/* Tabela przeglądowa – wszystkie miesiące grouped per year */}
       {monthlyQuery.data && monthlyQuery.data.length > 0 && (
         <OverviewTable
           rows={monthlyQuery.data}

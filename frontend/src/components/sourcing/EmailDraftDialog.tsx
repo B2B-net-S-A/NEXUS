@@ -36,7 +36,7 @@ export function EmailDraftDialog({
       setCopied(kind);
       window.setTimeout(() => setCopied((c) => (c === kind ? null : c)), 2000);
     } catch {
-      // best effort — clipboard might be denied
+      // best effort – clipboard might be denied
     }
   };
 
@@ -127,7 +127,7 @@ export function EmailDraftDialog({
           </div>
 
           <p className="text-xs text-muted-foreground italic">
-            Draft jest przeglądowy — wyślesz go z własnego klienta poczty
+            Draft jest przeglądowy – wyślesz go z własnego klienta poczty
             (Gmail, Outlook, M365), żeby utrzymać tożsamość nadawcy. Nic nie
             zostało jeszcze wysłane.
           </p>

@@ -24,13 +24,13 @@ interface KeyRelationshipDialogProps {
 }
 
 const STRENGTH_LABELS: Record<RelationshipStrength, string> = {
-  cold: "🥶 Cold — wymiana maili biznesowych",
-  warm: "🌤️ Warm — pamiętają nas, odpowiadają chętnie",
-  strong: "🤝 Strong — spotkania osobiste, znamy się dobrze",
-  champion: "⭐ Champion — wewnętrzny ambasador, poleca nas",
+  cold: "🥶 Cold – wymiana maili biznesowych",
+  warm: "🌤️ Warm – pamiętają nas, odpowiadają chętnie",
+  strong: "🤝 Strong – spotkania osobiste, znamy się dobrze",
+  champion: "⭐ Champion – wewnętrzny ambasador, poleca nas",
 };
 
-/** Modal edycji "kluczowej relacji" — flaga + siła + notatki + last touchpoint. */
+/** Modal edycji "kluczowej relacji" – flaga + siła + notatki + last touchpoint. */
 export function KeyRelationshipDialog({
   contact,
   onClose,
@@ -117,7 +117,7 @@ export function KeyRelationshipDialog({
                 }
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
               >
-                <option value="">— wybierz —</option>
+                <option value="">– wybierz –</option>
                 {(Object.keys(STRENGTH_LABELS) as RelationshipStrength[]).map(
                   (s) => (
                     <option key={s} value={s}>

@@ -196,7 +196,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
               value={tacUserId}
               onChange={(e) => setTacUserId(e.target.value)}
             >
-              <option value="">— wybierz —</option>
+              <option value="">– wybierz –</option>
               {tacCandidates.map((u) => (
                 <option key={u.id} value={u.id}>
                   {userLabel(u)} ({u.role})
@@ -313,7 +313,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
               value={dlUserId}
               onChange={(e) => setDlUserId(e.target.value)}
             >
-              <option value="">— wybierz —</option>
+              <option value="">– wybierz –</option>
               {dlCandidates.map((u) => (
                 <option key={u.id} value={u.id}>
                   {userLabel(u)} ({u.role})
@@ -326,7 +326,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                 checked={dlIsHead}
                 onChange={(e) => setDlIsHead(e.target.checked)}
               />
-              Ustaw jako head (główny DL klienta — auto-assign do nowych projektów)
+              Ustaw jako head (główny DL klienta – auto-assign do nowych projektów)
             </label>
             <div className="flex gap-2">
               <button
@@ -411,7 +411,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         <strong>Jak to działa:</strong> przy tworzeniu nowego projektu dla tego
         klienta system automatycznie przypisze <strong>primary TAC</strong> oraz{" "}
         <strong>head Delivery Lead</strong>. Operator może jawnie nadpisać
-        wybór — override jest logowany.
+        wybór – override jest logowany.
       </div>
     </div>
   );

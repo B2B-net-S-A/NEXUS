@@ -4,11 +4,11 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 
 interface MatchSnippetProps {
-  /** Raw snippet from `candidate.match_snippet` — already includes the
+  /** Raw snippet from `candidate.match_snippet` – already includes the
    *  field prefix ("CV:", "Notatka:", …) from the backend. */
   snippet: string;
   /** Phrases the user searched for (q + q_all + q_any). Used to wrap
-   *  matching substrings in <mark>. Order doesn't matter — we sort by
+   *  matching substrings in <mark>. Order doesn't matter – we sort by
    *  length DESC so longer phrases get highlighted before shorter ones
    *  that are substrings of them. */
   terms: string[];
@@ -19,7 +19,7 @@ interface MatchSnippetProps {
  *
  *  Highlight is case-insensitive but preserves the original casing in the
  *  output. We scan the snippet character-by-character so the React output
- *  stays as plain strings + JSX nodes — no `dangerouslySetInnerHTML`, no
+ *  stays as plain strings + JSX nodes – no `dangerouslySetInnerHTML`, no
  *  XSS surface even if the backend snippet contains untrusted CV content
  *  (CV content is user-supplied, never trusted). */
 export function MatchSnippet({
@@ -57,7 +57,7 @@ interface HighlightPart {
   match: boolean;
 }
 
-/** Pure helper — splits `text` into alternating plain/match parts based on
+/** Pure helper – splits `text` into alternating plain/match parts based on
  *  the (case-insensitive) `terms`. Exported for unit testing. */
 export function highlightTerms(text: string, terms: string[]): HighlightPart[] {
   if (!text) return [];
@@ -76,7 +76,7 @@ export function highlightTerms(text: string, terms: string[]): HighlightPart[] {
   let cursor = 0;
 
   while (cursor < text.length) {
-    // Find the next match across all terms — earliest start wins.
+    // Find the next match across all terms – earliest start wins.
     let nextStart = -1;
     let nextLen = 0;
     for (const term of cleanTerms) {
@@ -88,7 +88,7 @@ export function highlightTerms(text: string, terms: string[]): HighlightPart[] {
       }
     }
     if (nextStart < 0) {
-      // No more matches — flush the rest as plain text.
+      // No more matches – flush the rest as plain text.
       parts.push({ text: text.slice(cursor), match: false });
       break;
     }

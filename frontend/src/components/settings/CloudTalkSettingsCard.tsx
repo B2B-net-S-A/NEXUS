@@ -163,7 +163,7 @@ export default function CloudTalkSettingsCard() {
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive flex items-start gap-2 mb-4">
           <AlertCircle className="h-4 w-4 mt-0.5" />
           <div>
-            CloudTalk zwraca 401/403 — zweryfikuj{" "}
+            CloudTalk zwraca 401/403 – zweryfikuj{" "}
             <code className="font-mono text-xs">CLOUDTALK_API_KEY_SECRET</code>{" "}
             w Coolify.
           </div>
@@ -225,7 +225,7 @@ export default function CloudTalkSettingsCard() {
                           .join(" ") || `Agent #${agent.id}`}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {agent.email || "—"}
+                        {agent.email || "–"}
                       </td>
                       <td className="px-3 py-2">
                         <select
@@ -236,7 +236,7 @@ export default function CloudTalkSettingsCard() {
                             handleAssign(agent, Number(e.target.value))
                           }
                         >
-                          <option value={0}>— Brak —</option>
+                          <option value={0}>– Brak –</option>
                           {users.map((u) => (
                             <option key={u.id} value={u.id}>
                               {u.email}
@@ -254,7 +254,7 @@ export default function CloudTalkSettingsCard() {
           <div className="mt-3 text-xs text-muted-foreground flex items-center gap-1">
             <CheckCircle2 className="h-3 w-3" />
             Webhooki przychodzące:{" "}
-            <code className="font-mono text-xs">/api/calls/webhook</code> —
+            <code className="font-mono text-xs">/api/calls/webhook</code> –
             CloudTalk panel → Integrations → Webhooks
           </div>
         </>

@@ -40,8 +40,8 @@ import { RateCardsTab } from "@/components/RateCardsTab";
 import { MaterialsTab } from "./MaterialsTab";
 import { OwnersTab } from "./OwnersTab";
 import { ProfileTab } from "./ProfileTab";
-// NotificationsTab — usunięty po konsolidacji 12→6 tabów (2026-05-11).
-// Powiadomienia per-klient zostały zlikwidowane jako tab — globalny bell w
+// NotificationsTab – usunięty po konsolidacji 12→6 tabów (2026-05-11).
+// Powiadomienia per-klient zostały zlikwidowane jako tab – globalny bell w
 // topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
@@ -434,7 +434,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
     queryKey: ["client-contacts", clientId],
     queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
   });
-  // Sort: key relationships first (within key — by strength), then alfabetycznie
+  // Sort: key relationships first (within key – by strength), then alfabetycznie
   const contacts = [...rawContacts].sort((a, b) => {
     if (a.is_key_relationship !== b.is_key_relationship)
       return a.is_key_relationship ? -1 : 1;
@@ -731,7 +731,7 @@ function ProjectsTab({ clientId }: { clientId: number }) {
   );
 }
 
-// Kontrakty Tab — usunięty w refaktorze DL portal Order:Contract M:N → 1:N
+// Kontrakty Tab – usunięty w refaktorze DL portal Order:Contract M:N → 1:N
 // (2026-05-11). Wszystkie kontrakty kandydackie są teraz wyświetlane w tabie
 // "Zamówienia & Kontrakty" (OrdersAndContractsTab) jako karta per Contract
 // z historią Orderów. Globalna lista `/contracts` zostaje dla admin view.
@@ -861,7 +861,7 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
+        {/* Tabs – horizontal scroll z visible scrollbar (macOS hide by default
             ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
             padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
         <div className="border-t border-border min-w-0">
@@ -887,7 +887,7 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
+        {/* Tab content – po konsolidacji 12→6 tabów reszta sekcji wbudowana
             jako collapsibles (<details>/<summary> = native HTML, no React state) */}
         <div className="p-6">
           {activeTab === "profil" && (
@@ -1061,7 +1061,7 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
 
   const row = hitData?.clients.find((c) => c.client_id === clientId);
 
-  // Empty state — new client, no data yet. Still show the header + placeholder.
+  // Empty state – new client, no data yet. Still show the header + placeholder.
   const hasData = row && (row.closed_jobs > 0 || row.active_jobs > 0);
   const tonePill = row && row.closed_jobs >= 3
     ? row.hit_ratio >= 50
@@ -1107,7 +1107,7 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
               <div className="text-xs text-muted-foreground mt-0.5">
                 {row!.total_vacancies > 0
                   ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
-                  : "—"}
+                  : "–"}
               </div>
             </div>
             <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">

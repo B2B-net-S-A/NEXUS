@@ -159,7 +159,7 @@ export default function EmailTemplatesCard() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {t.subject ?? "—"} · aktualizacja {formatRelativeTime(t.updated_at)}
+                  {t.subject ?? "–"} · aktualizacja {formatRelativeTime(t.updated_at)}
                 </p>
               </div>
               <button

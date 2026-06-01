@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ChampionHistoricalMatchesPanel — Phase 15.
+ * ChampionHistoricalMatchesPanel – Phase 15.
  *
  * Shows the DL up to 3 historical closed roles (same-client preferred) whose
  * `champion_profile` is populated, plus aggregated must/nice skill frequency
@@ -10,7 +10,7 @@
  * parent's pending-suggestions query, and hands the new suggestion up via
  * `onSuggestionGenerated` so the existing review modal opens transparently.
  *
- * Designed to be source-agnostic — the generated draft carries source_type
+ * Designed to be source-agnostic – the generated draft carries source_type
  * "historical_jobs", which `sourceLabel` in ChampionProfileSourcesPanel
  * already renders.
  */
@@ -54,7 +54,7 @@ export function ChampionHistoricalMatchesPanel({
       return res.data;
     },
     // Preview endpoint is cheap but not free (Voyage embed). Avoid refetching
-    // on window focus — DL usually scrolls past once.
+    // on window focus – DL usually scrolls past once.
     refetchOnWindowFocus: false,
     enabled: clientId != null || crossClient,
   });
@@ -161,7 +161,7 @@ export function ChampionHistoricalMatchesPanel({
             </button>
             {matches.length < 2 && (
               <span className="text-xs text-muted-foreground italic">
-                Wymagane min. 2 matches — znalezione: {matches.length}
+                Wymagane min. 2 matches – znalezione: {matches.length}
               </span>
             )}
           </div>
@@ -273,7 +273,7 @@ function SkillChip({
   return (
     <span
       className={`text-xs px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${cls}`}
-      title={`${entry.count} z ${Math.round(entry.count / Math.max(entry.fraction, 0.0001))} — ${Math.round(entry.fraction * 100)}%`}
+      title={`${entry.count} z ${Math.round(entry.count / Math.max(entry.fraction, 0.0001))} – ${Math.round(entry.fraction * 100)}%`}
     >
       <span className="font-medium">{entry.name}</span>
       <span className="opacity-60">

@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Employees Manager — admin CRUD na users + dr_user_seniority.
+ * Employees Manager – admin CRUD na users + dr_user_seniority.
  *
  * Port skrócony `EmployeeManagement.tsx` z artur-t-96/InfraReporter
- * (oryginał: dodawanie userów, edycja role/sections — w Nexusie userzy są
+ * (oryginał: dodawanie userów, edycja role/sections – w Nexusie userzy są
  * zarządzani przez AAD + admin panel main Nexus). Tutaj fokus na:
  * - listę userów z search + filter active/role
  * - toggle is_active (admin)
@@ -44,7 +44,7 @@ const SENIORITY_LEVELS = [
 
 type SeniorityLevel = (typeof SENIORITY_LEVELS)[number]["value"];
 
-// Sekcje DR — canonical values matching `DynaReporterSection` type w
+// Sekcje DR – canonical values matching `DynaReporterSection` type w
 // `store/auth.ts` (DASHES nie underscores). Te same wartości używane są
 // w middleware do route gating + w sidebar/nav. Były underscores w mojej
 // wcześniejszej wersji ale DB i type używają DASHES (legacy DR migration).
@@ -323,7 +323,7 @@ export function EmployeesManager() {
                       <td className="px-2 py-2">
                         {!canSeniority ? (
                           <span className="text-xs text-muted-foreground italic">
-                            —
+                            –
                           </span>
                         ) : isEditing ? (
                           <div className="space-y-1">
@@ -391,7 +391,7 @@ export function EmployeesManager() {
                       <td className="px-2 py-2">
                         {(e.allowed_sections ?? []).length === 0 ? (
                           <span className="text-xs text-muted-foreground italic">
-                            —
+                            –
                           </span>
                         ) : (
                           <div className="flex flex-wrap gap-1">
@@ -504,7 +504,7 @@ export function EmployeesManager() {
               <div className="px-6 py-4 border-b border-border flex items-center justify-between">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                   <Key className="w-5 h-5 text-blue-600" />
-                  Sekcje DR — {fullName(editingSectionsUser)}
+                  Sekcje DR – {fullName(editingSectionsUser)}
                 </h3>
                 <button
                   onClick={() => setEditingSectionsUser(null)}
