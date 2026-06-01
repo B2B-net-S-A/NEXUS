@@ -1252,8 +1252,16 @@ export function CandidatesListV2() {
  const a = document.createElement("a");
  a.href = url;
  a.download = `kandydaci-${new Date().toISOString().slice(0, 10)}.${format}`;
+ // Anchor MUST be in the DOM for a.click() to trigger the download in all
+ // browsers, and the object URL MUST NOT be revoked synchronously right
+ // after click() — for multi-MB exports (up to 10k rows) the browser is
+ // still reading the blob and the download silently aborts. Mirrors the
+ // working download idiom used everywhere else in the app (MaterialsTab,
+ // CVGenerator, CandidateDetail) + deferred revoke.
+ document.body.appendChild(a);
  a.click();
- URL.revokeObjectURL(url);
+ document.body.removeChild(a);
+ setTimeout(() => URL.revokeObjectURL(url), 60_000);
  };
 
  // Skill input helpers
