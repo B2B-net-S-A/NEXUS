@@ -52,7 +52,7 @@ export function FilterChipPopover({
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          size="sm"
+          size="md"
           variant={isActive ? "primary" : "outline"}
           className={cn(
             "gap-1.5 shadow-sm",
@@ -82,7 +82,7 @@ export function FilterChipPopover({
               <X className="h-3 w-3" />
             </span>
           ) : (
-            <ChevronDown className="h-3 w-3 opacity-60" />
+            <ChevronDown className="h-4 w-4 opacity-60" />
           )}
         </Button>
       </PopoverTrigger>
