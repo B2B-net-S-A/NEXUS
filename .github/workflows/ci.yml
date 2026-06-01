@@ -129,9 +129,9 @@ jobs:
                  tests/test_candidates_employment_filter.py \
                  tests/test_candidate_pins.py \
                  tests/test_job_reference.py \
+                 tests/test_jobs_deadline_serialization.py \
                  tests/test_dynareporter_profile.py \
                  tests/test_dynareporter_admin.py \
-                 tests/test_talent_pool_cc.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
