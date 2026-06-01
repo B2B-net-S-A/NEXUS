@@ -7,7 +7,11 @@ Two independent phases, controlled by --cc-only / --memberships-only
     For every TalentPool with competence_category_id IS NULL:
       - collect distinct source_job_id from its memberships
       - pick the mode() of job.competence_category_id (most common non-NULL)
-      - update pool if found; leave NULL otherwise (legacy general pool)
+      - if no source-job CC exists (true for all legacy pools on prod — every
+        job currently has CC=NULL), fall back to a deterministic name-based
+        classification (services.talent_pool_cc)
+      - update pool if a CC was resolved; leave NULL otherwise (e.g. non-role
+        buckets like "Targ kandydatów")
 
   Phase B — Historical membership backfill
     Replay every CandidateStage row with stage = cv_sent (in chronological
@@ -45,6 +49,7 @@ from sqlalchemy import select  # noqa: E402
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
+from app.models.competence_category import CompetenceCategory  # noqa: E402
 from app.models.job import Job  # noqa: E402
 from app.models.recruitment_pipeline import (  # noqa: E402
     CandidateStage,
@@ -52,6 +57,9 @@ from app.models.recruitment_pipeline import (  # noqa: E402
 )
 from app.models.talent_pool import TalentPool, TalentPoolMembership  # noqa: E402
 from app.services.talent_pool_auto_add import auto_add_on_cv_sent  # noqa: E402
+from app.services.talent_pool_cc import (  # noqa: E402
+    classify_pool_name_to_cc_slug,
+)
 
 logger = logging.getLogger("backfill_talent_pools")
 
@@ -75,48 +83,63 @@ async def _backfill_cc(commit: bool) -> int:
         )
         logger.info("Phase A: %s pools with CC=NULL", len(pools))
 
+        cc_rows = (
+            await db.execute(
+                select(CompetenceCategory.id, CompetenceCategory.slug)
+            )
+        ).all()
+        slug_to_id = {slug: cid for cid, slug in cc_rows}
+
         for pool in pools:
+            resolved_cc: Optional[int] = None
+            source = ""
+
+            # 1) Authoritative path — mode of source-job CCs (when any exist).
             job_ids_result = await db.execute(
                 select(TalentPoolMembership.source_job_id)
                 .where(TalentPoolMembership.talent_pool_id == pool.id)
                 .where(TalentPoolMembership.source_job_id.is_not(None))
             )
             job_ids = [row[0] for row in job_ids_result.all()]
-            if not job_ids:
+            if job_ids:
+                cc_ids_result = await db.execute(
+                    select(Job.competence_category_id).where(
+                        Job.id.in_(job_ids)
+                    )
+                )
+                cc_ids = [
+                    row[0] for row in cc_ids_result.all() if row[0] is not None
+                ]
+                if cc_ids:
+                    resolved_cc, count = Counter(cc_ids).most_common(1)[0]
+                    source = f"lineage ({count}/{len(job_ids)} jobs agree)"
+
+            # 2) Fallback — deterministic name-based classification. On prod
+            #    every job has CC=NULL, so this is what actually categorises the
+            #    legacy pools.
+            if resolved_cc is None:
+                slug = classify_pool_name_to_cc_slug(pool.name)
+                resolved_cc = slug_to_id.get(slug) if slug else None
+                source = f"name → {slug}" if slug else "no rule match"
+
+            if resolved_cc is None:
                 logger.info(
-                    "pool=%s (%r): no memberships with source_job_id — skip",
+                    "pool=%s (%r): %s — leave NULL",
                     pool.id,
                     pool.name,
+                    source,
                 )
                 continue
 
-            cc_ids_result = await db.execute(
-                select(Job.competence_category_id).where(Job.id.in_(job_ids))
-            )
-            cc_ids = [
-                row[0] for row in cc_ids_result.all() if row[0] is not None
-            ]
-            if not cc_ids:
-                logger.info(
-                    "pool=%s (%r): all %s source jobs have CC=NULL — leave NULL",
-                    pool.id,
-                    pool.name,
-                    len(job_ids),
-                )
-                continue
-
-            # Mode — most common CC across source jobs
-            most_common_cc, count = Counter(cc_ids).most_common(1)[0]
             logger.info(
-                "pool=%s (%r): CC=%s (%s/%s source jobs agree)",
+                "pool=%s (%r): CC=%s via %s",
                 pool.id,
                 pool.name,
-                most_common_cc,
-                count,
-                len(job_ids),
+                resolved_cc,
+                source,
             )
             if commit:
-                pool.competence_category_id = most_common_cc
+                pool.competence_category_id = resolved_cc
             updated += 1
 
         if commit:

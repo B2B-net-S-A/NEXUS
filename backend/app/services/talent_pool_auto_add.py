@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.job import Job, Seniority
 from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.services.talent_pool_cc import resolve_cc_id_for_pool_name
 
 logger = logging.getLogger(__name__)
 
@@ -145,16 +146,23 @@ async def auto_add_on_cv_sent(
         )
         return AutoAddResult(status="skipped_no_category")
 
+    pool = await db.scalar(select(TalentPool).where(TalentPool.name == pool_name))
+
+    # Prefer the Job's CC; fall back to a pure name-based classification when
+    # the Job has none (true for every legacy job on prod). The fallback is
+    # only needed when we're about to create the pool or heal a NULL one, so we
+    # skip the lookup for pools that already carry a CC. Still no Qdrant I/O.
     cc_id = _resolve_cc_id(job)
+    if cc_id is None and (pool is None or pool.competence_category_id is None):
+        cc_id = await resolve_cc_id_for_pool_name(db, pool_name)
     if cc_id is None:
         logger.info(
-            "auto_add_on_cv_sent: job=%s has no competence_category_id "
-            "(pool=%r will be created/kept without CC)",
+            "auto_add_on_cv_sent: job=%s + name=%r yielded no competence "
+            "category (pool will be created/kept without CC)",
             job.id,
             pool_name,
         )
 
-    pool = await db.scalar(select(TalentPool).where(TalentPool.name == pool_name))
     pool_created = False
     if pool is None:
         subcat = _clean(job.subcategory)

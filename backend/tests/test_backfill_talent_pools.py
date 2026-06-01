@@ -2,8 +2,9 @@
 
 Covers:
   Phase A (CC backfill):
-    - Pools get CC from source jobs' mode
-    - Pools stay NULL when source jobs have no CC
+    - Pools get CC from source jobs' mode (lineage takes priority)
+    - Pools get CC from a deterministic name classification when lineage lacks CC
+    - Pools stay NULL when neither lineage nor the name yields a CC
   Phase B (memberships backfill):
     - Idempotent (run 2×, identical counts)
     - Skip jobs without subcategory + seniority
@@ -154,7 +155,12 @@ async def test_backfill_cc_populates_from_source_jobs() -> None:
 
 
 async def test_backfill_cc_leaves_null_when_source_jobs_lack_cc() -> None:
-    """Pool stays NULL if all source jobs have CC=NULL."""
+    """Pool stays NULL when neither lineage nor the name yields a CC.
+
+    The synthetic ``BFCC-<hex>`` subcategory is intentionally a non-role name
+    so the name-classifier fallback also returns None — otherwise the fallback
+    would categorise it (see test_backfill_cc_falls_back_to_name_when_no_lineage_cc).
+    """
     subcategory = f"BFCC-{uuid.uuid4().hex[:6]}"
     pool_name = f"{subcategory} Junior"
 
@@ -191,6 +197,53 @@ async def test_backfill_cc_leaves_null_when_source_jobs_lack_cc() -> None:
                 select(TalentPool).where(TalentPool.name == pool_name)
             )
             assert pool.competence_category_id is None
+    finally:
+        await _cleanup_pool_by_name(pool_name)
+
+
+async def test_backfill_cc_falls_back_to_name_when_no_lineage_cc() -> None:
+    """No source-job CC → pool CC is derived from a name classification.
+
+    Mirrors production, where every job has CC=NULL: lineage yields nothing, so
+    the deterministic name classifier ("DevOps …" → infrastructure_operations)
+    is what actually categorises the legacy pools.
+    """
+    infra_id = await _get_cc_id("infrastructure_operations")
+    pool_name = f"DevOps {uuid.uuid4().hex[:6]}"
+
+    job_id = await _seed_job(
+        subcategory="DevOps", seniority=Seniority.senior, cc_id=None
+    )
+    candidate_id = await _seed_candidate()
+
+    async with AsyncSessionLocal() as db:
+        pool = TalentPool(
+            name=pool_name,
+            description="BF test name-fallback",
+            criteria={},
+            competence_category_id=None,
+        )
+        db.add(pool)
+        await db.commit()
+        await db.refresh(pool)
+
+        m = TalentPoolMembership(
+            talent_pool_id=pool.id,
+            candidate_id=candidate_id,
+            source_event="cv_sent",
+            source_job_id=job_id,
+        )
+        db.add(m)
+        await db.commit()
+
+    try:
+        await _backfill_cc(commit=True)
+
+        async with AsyncSessionLocal() as db:
+            pool = await db.scalar(
+                select(TalentPool).where(TalentPool.name == pool_name)
+            )
+            assert pool.competence_category_id == infra_id
     finally:
         await _cleanup_pool_by_name(pool_name)
 
