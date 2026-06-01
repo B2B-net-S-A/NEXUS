@@ -1305,7 +1305,7 @@ export function AddJobModal({
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
-    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
   });
   const { data: usersData } = useQuery({
     queryKey: ["users-list-qa"],
@@ -1315,7 +1315,7 @@ export function AddJobModal({
     queryKey: ["pipeline-templates-list"],
     queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
   });
-  const clients = clientsData?.items ?? [];
+  const clients = clientsData ?? [];
   const users = usersData ?? [];
   const templates = templatesData ?? [];
 
@@ -1510,7 +1510,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
-    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
   });
   const { data: usersData } = useQuery({
     queryKey: ["users-list-qa"],
@@ -1520,7 +1520,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     queryKey: ["pipeline-templates-list"],
     queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
   });
-  const clients = clientsData?.items ?? [];
+  const clients = clientsData ?? [];
   const users = usersData ?? [];
   const templates = templatesData ?? [];
 
@@ -1762,7 +1762,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
 
   const { data: candidatesData } = useQuery({
     queryKey: ["candidates-list-qa"],
-    queryFn: () => api.get("/api/candidates", { params: { page_size: 200 } }).then(r => r.data),
+    queryFn: () => api.get("/api/candidates", { params: { page_size: 100 } }).then(r => r.data),
   });
   const candidates = candidatesData?.items ?? [];
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -1846,9 +1846,9 @@ export function AddContactModal({ onClose, onSuccess }: { onClose: () => void; o
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
-    queryFn: () => api.get("/api/clients", { params: { page_size: 200 } }).then(r => r.data),
+    queryFn: () => phase5Api.clientsLookup().then(r => r.data),
   });
-  const clients = clientsData?.items ?? [];
+  const clients = clientsData ?? [];
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
     setForm(f => ({ ...f, [k]: v }));
