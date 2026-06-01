@@ -1451,6 +1451,7 @@ export function CandidatesListV2() {
  <Input
  leadingIcon={<Search className="h-4 w-4" />}
  placeholder="Szukaj po imieniu, emailu, stanowisku…"
+ className="h-9 rounded-md"
  value={search}
  onChange={(e) => {
  setSearch(e.target.value);
@@ -1459,7 +1460,7 @@ export function CandidatesListV2() {
  />
  </div>
  <Button
- size="sm"
+ size="md"
  variant={showAdvanced ?"primary" :"outline"}
  onClick={() => setShowAdvanced((v) => !v)}
  title="Boolean search — ALL / ANY / NONE"
@@ -1569,7 +1570,7 @@ export function CandidatesListV2() {
  }
  />
  <Button
- size="sm"
+ size="md"
  variant="outline"
  className="bg-card shadow-sm"
  onClick={() => {
@@ -1584,7 +1585,7 @@ export function CandidatesListV2() {
  <Sparkles className="h-4 w-4" /> Dostępni do sourcingu
  </Button>
  <Button
- size="sm"
+ size="md"
  variant={openToFilter.length === OPEN_TO_OPTIONS.length ?"secondary" :"outline"}
  className={openToFilter.length === OPEN_TO_OPTIONS.length ?"shadow-sm" :"bg-card shadow-sm"}
  onClick={() => {
@@ -1601,7 +1602,7 @@ export function CandidatesListV2() {
  <Sparkles className="h-4 w-4" /> Otwarci na extra
  </Button>
  <Select value={sortBy} onValueChange={setSortBy}>
- <SelectTrigger className="w-[160px] shadow-sm">
+ <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
@@ -1940,7 +1941,7 @@ export function CandidatesListV2() {
  </Popover>
  {currentUser && (
  <Button
- size="sm"
+ size="md"
  variant={
  addedByIds.length === 1 && addedByIds[0] === currentUser.id
  ?"primary"
