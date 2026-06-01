@@ -14,6 +14,10 @@ from app.api.deps import get_db, get_current_user
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.services.talent_pool_cc import (
+    classify_pool_name_to_cc_slug,
+    resolve_cc_id_for_pool_name,
+)
 
 router = APIRouter()
 
@@ -131,10 +135,16 @@ async def create_talent_pool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Derive the Competence Category from the pool name so the /talents category
+    # filter works for manually-created pools too (the create form doesn't ask
+    # for a CC). Deterministic + dependency-free — see services/talent_pool_cc.
+    cc_id = await resolve_cc_id_for_pool_name(db, data.name)
+
     pool = TalentPool(
         name=data.name,
         description=data.description,
         criteria=data.criteria or {},
+        competence_category_id=cc_id,
         created_by=current_user.id,
     )
     db.add(pool)
@@ -149,6 +159,12 @@ async def create_talent_pool(
         created_by=pool.created_by,
         created_at=pool.created_at,
         candidate_count=0,
+        competence_category_id=pool.competence_category_id,
+        competence_category_slug=(
+            classify_pool_name_to_cc_slug(pool.name)
+            if pool.competence_category_id is not None
+            else None
+        ),
     )
 
 
