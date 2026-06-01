@@ -43,6 +43,7 @@ import {
 } from"lucide-react";
 import api, {
  contractsApi,
+ extractErrorMsg,
  type ContractDraftResponse,
  candidateStageCvApi,
  type CVOriginalSnapshot,
@@ -188,6 +189,7 @@ export function CandidateDetailV2({
  const router = useRouter();
  const id = candidateId ?? Number(routeParams?.id);
  const queryClient = useQueryClient();
+ const { showError } = useToast();
  const openTab = useTabsStore((s) => s.openTab);
 
  // ── Prev/Next candidate navigation context ─────────────────────────────
@@ -381,13 +383,18 @@ export function CandidateDetailV2({
  if (!noteText.trim()) return;
  setNoteSaving(true);
  try {
- await api.post("/api/notes/", {
+ // Bez trailing slash — backend rejestruje POST /api/notes (router prefix
+ // + path ""). Wariant "/api/notes/" zwracał 404, a brak catcha połykał
+ // błąd po cichu → przycisk "nie działał" (nic się nie dodawało).
+ await api.post("/api/notes", {
  candidate_id: Number(id),
  content: noteText.trim(),
  note_type: "general",
  });
  setNoteText("");
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ } catch (e) {
+ showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
  } finally {
  setNoteSaving(false);
  }
