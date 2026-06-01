@@ -3,11 +3,14 @@ Traffit-style boolean advanced search for candidates.
 
 Builds a SQLAlchemy WHERE clause from three buckets of free-text phrases:
 - `q_all`  — every phrase must appear in at least one searchable field (AND).
-- `q_any`  — at least one phrase must appear (OR).
+- `q_any`  — at least one phrase must appear (OR). Supports MULTIPLE OR-groups
+  that AND together (e.g. ``(react OR vue) AND (java OR kotlin)``) — the legacy
+  flat ``q_any`` is group 0, extra groups arrive via ``q_any_groups``.
 - `q_none` — no phrase may appear (NOT).
 
 Each phrase matches case-insensitively as an ILIKE substring (`%phrase%`).
-The filter composes as: AND(all_clause, any_clause, NOT p1, NOT p2, ...).
+The filter composes as:
+``AND(all_clause, OR(group_0), OR(group_1), ..., NOT p1, NOT p2, ...)``.
 
 Search scope (Traffit parity, follow-up 2026-05-19):
 - All scalar identity fields: name, lastname, email, phone, location, city,
@@ -35,6 +38,9 @@ from app.models.note import Note
 
 _MAX_PHRASES_PER_BUCKET = 20
 _MIN_PHRASE_LEN = 2
+# Cap on the number of OR-groups in the ANY bucket. A defensive bound so a
+# crafted URL can't fan out into an unbounded AND-of-ORs query plan.
+_MAX_ANY_GROUPS = 10
 
 
 def _safe(col: ColumnElement) -> ColumnElement:
@@ -146,22 +152,43 @@ def build_advanced_filter(
     q_all: Optional[list[str]],
     q_any: Optional[list[str]],
     q_none: Optional[list[str]],
+    q_any_groups: Optional[list[list[str]]] = None,
 ) -> Optional[ColumnElement]:
     """
-    Combine the three buckets into a single SQLAlchemy expression.
+    Combine the buckets into a single SQLAlchemy expression.
+
+    The ANY bucket supports MULTIPLE OR-groups that AND together::
+
+        (a OR b) AND (c OR d)
+
+    ``q_any`` is the legacy single group; ``q_any_groups`` carries additional
+    groups. Each group is cleaned/capped independently, contributes one
+    ``OR(...)`` clause, and empty groups are dropped. This makes the ANY bucket
+    a Traffit-style "any of these AND any of those" matcher rather than a single
+    flat OR.
 
     Returns `None` when all buckets are effectively empty — caller should
     skip the `.where(...)` call in that case.
     """
     all_phrases = _clean(q_all)
-    any_phrases = _clean(q_any)
     none_phrases = _clean(q_none)
+
+    # Assemble every OR-group: the legacy flat ``q_any`` is group 0, followed
+    # by any explicit extra groups. Clean each group independently and drop the
+    # ones that come out empty so a stray blank group can't void the whole row.
+    raw_groups: list[list[str]] = []
+    if q_any:
+        raw_groups.append(q_any)
+    if q_any_groups:
+        raw_groups.extend(q_any_groups)
+    any_groups = [cleaned for group in raw_groups if (cleaned := _clean(group))]
+    any_groups = any_groups[:_MAX_ANY_GROUPS]
 
     clauses: list[ColumnElement] = []
     if all_phrases:
         clauses.append(and_(*(_phrase_match(p) for p in all_phrases)))
-    if any_phrases:
-        clauses.append(or_(*(_phrase_match(p) for p in any_phrases)))
+    for group in any_groups:
+        clauses.append(or_(*(_phrase_match(p) for p in group)))
     if none_phrases:
         clauses.extend(not_(_phrase_match(p)) for p in none_phrases)
 

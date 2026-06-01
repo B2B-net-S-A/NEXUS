@@ -43,7 +43,10 @@ describe("url-filters", () => {
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],
-      qAny: ["next.js", "remix"],
+      qAny: [
+        ["next.js", "remix"],
+        ["go", "rust"],
+      ],
       qNone: ["junior", "stażysta"],
     };
     const encoded = encodeFilters(full);
@@ -77,8 +80,37 @@ describe("url-filters", () => {
       sp("q_all=react%20native|typescript&q_any=next.js&q_none=junior|stażysta"),
     );
     expect(decoded.qAll).toEqual(["react native", "typescript"]);
-    expect(decoded.qAny).toEqual(["next.js"]);
+    expect(decoded.qAny).toEqual([["next.js"]]);
     expect(decoded.qNone).toEqual(["junior", "stażysta"]);
+  });
+
+  it("encodes ANY OR-groups as repeated q_any params and round-trips", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      qAny: [
+        ["React", "TypeScript"],
+        ["Java", "Node.js"],
+      ],
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.getAll("q_any")).toEqual(["React|TypeScript", "Java|Node.js"]);
+    expect(decodeFilters(encoded).qAny).toEqual([
+      ["React", "TypeScript"],
+      ["Java", "Node.js"],
+    ]);
+  });
+
+  it("decodes a legacy single q_any param as one OR-group (back-compat)", () => {
+    const decoded = decodeFilters(sp("q_any=React|TypeScript"));
+    expect(decoded.qAny).toEqual([["React", "TypeScript"]]);
+  });
+
+  it("drops empty ANY groups from the encoded URL", () => {
+    const encoded = encodeFilters({
+      ...DEFAULT_FILTERS,
+      qAny: [["React"], [], ["Java"]],
+    });
+    expect(encoded.getAll("q_any")).toEqual(["React", "Java"]);
   });
 
   it("status / employment / availability accept multiple CSV values", () => {

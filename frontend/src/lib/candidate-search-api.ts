@@ -26,7 +26,13 @@ export interface LanguageRequirement {
 
 export interface CandidateSearchRequest {
   q_all?: string[];
+  /** Legacy single OR-group (kept for back-compat; group 0 on the backend). */
   q_any?: string[];
+  /**
+   * ANY bucket as OR-groups that AND together. Each inner array is one OR-group;
+   * groups combine with AND. `[["React","TS"],["Java"]]` = (React OR TS) AND Java.
+   */
+  q_any_groups?: string[][];
   q_none?: string[];
   q?: string | null;
   competence_category_ids?: number[];
