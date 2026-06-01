@@ -163,9 +163,16 @@ def test_live_catalogue_has_full_coverage() -> None:
         ("  pYtHoN  ", SW),
     ],
     ids=[
-        "empty", "blank", "none", "tester-with-etl", "service-manager",
-        "service-desk", "solution-architect", "data-architect",
-        "mainframe-no-false-ai", "case-insensitive",
+        "empty",
+        "blank",
+        "none",
+        "tester-with-etl",
+        "service-manager",
+        "service-desk",
+        "solution-architect",
+        "data-architect",
+        "mainframe-no-false-ai",
+        "case-insensitive",
     ],
 )
 def test_classify_edge_cases(name: str | None, expected: str | None) -> None:

@@ -265,9 +265,7 @@ async def test_backfill_memberships_idempotent() -> None:
 
     try:
         # 1st run — should add
-        added1, already1 = await _backfill_memberships(
-            commit=True, since=None
-        )
+        added1, already1 = await _backfill_memberships(commit=True, since=None)
 
         async with AsyncSessionLocal() as db:
             pool = await db.scalar(

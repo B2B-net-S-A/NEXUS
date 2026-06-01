@@ -84,9 +84,7 @@ async def _backfill_cc(commit: bool) -> int:
         logger.info("Phase A: %s pools with CC=NULL", len(pools))
 
         cc_rows = (
-            await db.execute(
-                select(CompetenceCategory.id, CompetenceCategory.slug)
-            )
+            await db.execute(select(CompetenceCategory.id, CompetenceCategory.slug))
         ).all()
         slug_to_id = {slug: cid for cid, slug in cc_rows}
 
@@ -103,13 +101,9 @@ async def _backfill_cc(commit: bool) -> int:
             job_ids = [row[0] for row in job_ids_result.all()]
             if job_ids:
                 cc_ids_result = await db.execute(
-                    select(Job.competence_category_id).where(
-                        Job.id.in_(job_ids)
-                    )
+                    select(Job.competence_category_id).where(Job.id.in_(job_ids))
                 )
-                cc_ids = [
-                    row[0] for row in cc_ids_result.all() if row[0] is not None
-                ]
+                cc_ids = [row[0] for row in cc_ids_result.all() if row[0] is not None]
                 if cc_ids:
                     resolved_cc, count = Counter(cc_ids).most_common(1)[0]
                     source = f"lineage ({count}/{len(job_ids)} jobs agree)"
@@ -199,9 +193,7 @@ async def _backfill_memberships(
             except IntegrityError as e:
                 # Race with live cv_sent — rollback this row and retry once
                 await db.rollback()
-                logger.warning(
-                    "row=%s: IntegrityError, retrying once (%s)", row.id, e
-                )
+                logger.warning("row=%s: IntegrityError, retrying once (%s)", row.id, e)
                 try:
                     job2 = await db.get(Job, row.job_id)
                     if job2 is None:
@@ -216,9 +208,7 @@ async def _backfill_memberships(
                     )
                 except Exception as retry_err:  # noqa: BLE001
                     await db.rollback()
-                    logger.error(
-                        "row=%s: retry failed: %s", row.id, retry_err
-                    )
+                    logger.error("row=%s: retry failed: %s", row.id, retry_err)
                     errors += 1
                     continue
 
@@ -279,9 +269,7 @@ async def _run(
         total += await _backfill_cc(commit=commit)
 
     if not cc_only:
-        added, _already = await _backfill_memberships(
-            commit=commit, since=since
-        )
+        added, _already = await _backfill_memberships(commit=commit, since=since)
         total += added
 
     return total
@@ -302,9 +290,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Backfill Talent Pool CC + historical cv_sent memberships."
     )
-    parser.add_argument(
-        "--commit", action="store_true", help="Persist updates to DB."
-    )
+    parser.add_argument("--commit", action="store_true", help="Persist updates to DB.")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -331,9 +317,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.commit and args.dry_run:
         parser.error("--commit and --dry-run are mutually exclusive")
     if args.cc_only and args.memberships_only:
-        parser.error(
-            "--cc-only and --memberships-only are mutually exclusive"
-        )
+        parser.error("--cc-only and --memberships-only are mutually exclusive")
 
     logging.basicConfig(
         level=logging.INFO,
