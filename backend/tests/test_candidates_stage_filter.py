@@ -453,3 +453,142 @@ async def test_filter_stage_moved_by_without_stage_matches_any_move(
             job_ids=[job_id],
             user_ids=[mover_a],
         )
+
+
+# ── Move-filter implies HISTORICAL matching (regression for the "kogo ──────────
+# zweryfikowałem w maju" use case — candidates that progressed past the stage
+# must still be returned). See `effective_current_only` in candidates.py. ──────
+
+
+@pytest.mark.asyncio
+async def test_stage_moved_by_matches_after_candidate_progressed(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A candidate that user A moved onto `verified` and who has SINCE moved on
+    to `interview` must STILL match `pipeline_stage=verified&stage_moved_by=A`.
+
+    This is the core regression: the recruiter asks "who did I verify" and must
+    see everyone they verified, not just those still parked at `verified`. With
+    the old `stage_current_only=true` default the candidate (current stage =
+    `interview`) was silently dropped.
+    """
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    progressed = await _seed_candidate(name_suffix="-PROG")
+    base = datetime.now(timezone.utc) - timedelta(days=10)
+    # A verifies the candidate, then the candidate advances to interview.
+    await _seed_stage(progressed, job_id, "verified", moved_at=base, moved_by=mover_a)
+    await _seed_stage(
+        progressed,
+        job_id,
+        "interview",
+        moved_at=base + timedelta(days=2),
+        moved_by=mover_a,
+    )
+    try:
+        r = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
+            "&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert progressed in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a]
+        )
+
+
+@pytest.mark.asyncio
+async def test_stage_moved_date_matches_after_candidate_progressed(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Same regression via the date-range filter: a candidate verified inside
+    the window who then progressed past `verified` must still match."""
+    job_id = await _seed_job()
+    progressed = await _seed_candidate(name_suffix="-PROGD")
+    await _seed_stage(
+        progressed,
+        job_id,
+        "verified",
+        moved_at=datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        progressed,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=verified"
+            "&stage_moved_after=2026-05-01&stage_moved_before=2026-05-31"
+            "&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert progressed in ids
+    finally:
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_bare_stage_filter_stays_current_only_after_progression(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Guard: with NO move-filter, `pipeline_stage=verified` keeps current-only
+    semantics — a candidate now at `interview` must NOT appear. (Ensures the
+    auto-historical switch is scoped to move-filters only.)"""
+    job_id = await _seed_job()
+    progressed = await _seed_candidate(name_suffix="-BARE")
+    base = datetime.now(timezone.utc) - timedelta(days=10)
+    await _seed_stage(progressed, job_id, "verified", moved_at=base)
+    await _seed_stage(
+        progressed, job_id, "interview", moved_at=base + timedelta(days=2)
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=verified&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert progressed not in ids
+    finally:
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_stage_current_only_true_overrides_move_filter(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Explicit `stage_current_only=true` still restricts a move-filtered query
+    to the candidate's CURRENT move — a candidate verified by A who progressed
+    to `interview` must NOT match `verified&stage_moved_by=A&stage_current_only=true`."""
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    progressed = await _seed_candidate(name_suffix="-OVR")
+    base = datetime.now(timezone.utc) - timedelta(days=10)
+    await _seed_stage(progressed, job_id, "verified", moved_at=base, moved_by=mover_a)
+    await _seed_stage(
+        progressed,
+        job_id,
+        "interview",
+        moved_at=base + timedelta(days=2),
+        moved_by=mover_a,
+    )
+    try:
+        r = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
+            "&stage_current_only=true&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert progressed not in ids
+    finally:
+        await _cleanup(
+            candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a]
+        )

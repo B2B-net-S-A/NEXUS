@@ -793,14 +793,21 @@ async def list_candidates(
             "without listing all 4 external stages individually."
         ),
     ),
-    stage_current_only: bool = Query(
-        True,
+    stage_current_only: Optional[bool] = Query(
+        None,
         description=(
-            "When true (default), `pipeline_stage` / `stage_category` "
-            "match the CURRENT stage of each candidate-job pair (latest "
-            "move per pair). When false, match any historical presence "
-            "on the selected stages — useful for 'show everyone who was "
-            "ever rejected' style queries."
+            "When true, `pipeline_stage` / `stage_category` match the CURRENT "
+            "stage of each candidate-job pair (latest move per pair). When "
+            "false, match any historical presence on the selected stages — "
+            "useful for 'show everyone who was ever rejected' style queries. "
+            "When omitted (default), the mode is resolved automatically: a "
+            "bare stage filter matches the CURRENT stage, but as soon as a "
+            "who/when move-filter (`stage_moved_by` / `stage_moved_after` / "
+            "`stage_moved_before`) is present the query becomes HISTORICAL — "
+            "because 'everyone Jan moved onto Verified in May' must include "
+            "candidates who have since progressed past Verified. Pass "
+            "`stage_current_only=true` explicitly to override and keep the "
+            "current-stage restriction even with a move-filter."
         ),
     ),
     stage_moved_by: Optional[list[int]] = Query(
@@ -811,9 +818,11 @@ async def list_candidates(
             "Correlated with `pipeline_stage`/`stage_category`: when a stage is "
             "also selected, only moves ONTO that stage count; with no stage "
             "selected, any stage move by these users matches. Sentinel `0` "
-            "matches NULL (system / Traffit-imported moves). Respects "
-            "`stage_current_only` — by default the candidate's CURRENT move per "
-            "job-pair must satisfy this."
+            "matches NULL (system / Traffit-imported moves). By default the "
+            "presence of this filter switches matching to HISTORICAL (any "
+            "qualifying move counts, even if the candidate has since moved on); "
+            "pass `stage_current_only=true` to restrict to the candidate's "
+            "CURRENT move per job-pair instead."
         ),
     ),
     stage_moved_after: Optional[date] = Query(
@@ -1076,9 +1085,21 @@ async def list_candidates(
         or moved_before_dt is not None
     )
 
+    # Resolve current-vs-historical matching. An explicit `stage_current_only`
+    # always wins. When unspecified (None), a who/when move-filter implies a
+    # historical question — "everyone X moved onto Verified in May", most of
+    # whom have since progressed past Verified — so we match any qualifying
+    # move; a bare stage filter keeps the current-stage default. (Without this,
+    # the default current-only matching silently drops ~80-95% of the recruiter's
+    # answer: candidates who were verified but moved on.)
+    if stage_current_only is None:
+        effective_current_only = not has_move_filter
+    else:
+        effective_current_only = stage_current_only
+
     if requested_stages or has_move_filter:
         stage_values = list(requested_stages)
-        if stage_current_only and stage_values:
+        if effective_current_only and stage_values:
             # CURRENT stage = latest move per (candidate_id, job_id). Use
             # DISTINCT ON to pick the freshest row per pair, then EXISTS that
             # the candidate has any pair whose current stage is in the set.
