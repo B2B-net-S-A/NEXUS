@@ -10,6 +10,7 @@ import { QuickActionsV2, type QuickActionModal } from "./QuickActionsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
+import { PaletteSwitcher } from "./PaletteSwitcher";
 import { useThemeStore } from "@/store/theme";
 
 function ThemeToggleButton() {
@@ -97,6 +98,7 @@ export function TopbarV2({
 
       <div className="flex items-center gap-2 shrink-0">
         <MyKpiWidget variant="compact" className="hidden md:block" />
+        <PaletteSwitcher />
         <ThemeToggleButton />
         <NotificationsDropdown />
         <QuickActionsV2

@@ -212,7 +212,7 @@ function NavLink({
     collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
     active
       ? "bg-white/15 text-white font-medium"
-      : "text-blue-100 hover:bg-white/10 hover:text-white"
+      : "text-sidebar-foreground hover:bg-white/10 hover:text-white"
   );
   const inner = (
     <>
@@ -362,10 +362,10 @@ export function SidebarV2({
       onMouseEnter={() => !mobileOpen && setHovered(true)}
       onMouseLeave={() => !mobileOpen && setHovered(false)}
       className={cn(
-        "bg-blue-700 text-blue-50",
+        "bg-sidebar text-sidebar-foreground",
         "flex flex-col h-full shrink-0 overflow-hidden",
         "transition-[width] duration-200 ease-in-out",
-        "border-r border-blue-900/50",
+        "border-r border-sidebar-border",
         mobileOpen ? "w-64" : collapsed ? "w-[60px]" : "w-60"
       )}
     >
@@ -388,7 +388,7 @@ export function SidebarV2({
               <div className="font-semibold text-sm leading-tight tracking-tight">
                 Nexus
               </div>
-              <div className="text-[10px] text-blue-200 leading-none">ATS · B2B.net</div>
+              <div className="text-[10px] text-sidebar-muted leading-none">ATS · B2B.net</div>
             </div>
           )}
         </Link>
@@ -398,7 +398,7 @@ export function SidebarV2({
             onClick={togglePinned}
             aria-label={pinned ? "Zwiń sidebar" : "Rozwiń sidebar"}
             className={cn(
-              "text-blue-200 hover:text-white",
+              "text-sidebar-muted hover:text-white",
               "p-1 rounded-md hover:bg-white/10 transition-colors",
               collapsed ? "opacity-0" : "opacity-100"
             )}
@@ -411,7 +411,7 @@ export function SidebarV2({
           <button
             onClick={onClose}
             aria-label="Zamknij menu"
-            className="p-1 rounded-md text-blue-200 hover:text-white hover:bg-white/10"
+            className="p-1 rounded-md text-sidebar-muted hover:text-white hover:bg-white/10"
           >
             <X className="h-4 w-4" />
           </button>
@@ -433,7 +433,7 @@ export function SidebarV2({
           return (
             <div key={section.title} className="mb-3">
               {(!collapsed || mobileOpen) && (
-                <p className="px-3 pt-2 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-blue-200 select-none">
+                <p className="px-3 pt-2 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none">
                   {section.title}
                 </p>
               )}
@@ -488,7 +488,7 @@ export function SidebarV2({
                 <button
                   onClick={logout}
                   aria-label="Wyloguj — sesja wygasła"
-                  className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-blue-100 hover:bg-white/20 hover:text-white transition-colors"
+                  className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-sidebar-foreground hover:bg-white/20 hover:text-white transition-colors"
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
@@ -509,34 +509,34 @@ export function SidebarV2({
               <Link href="/profile" className="text-sm font-medium truncate block hover:text-white">
                 {user.name}
               </Link>
-              <span className="text-[10px] text-blue-200">{ROLE_LABELS[user.role]}</span>
+              <span className="text-[10px] text-sidebar-muted">{ROLE_LABELS[user.role]}</span>
             </div>
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-blue-200 hover:text-white p-1 rounded-md hover:bg-white/10"
+              className="text-sidebar-muted hover:text-white p-1 rounded-md hover:bg-white/10"
             >
               <LogOut className="h-4 w-4" />
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-            <div className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center text-blue-100 shrink-0">
+            <div className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center text-sidebar-foreground shrink-0">
               <LogOut className="h-4 w-4" />
             </div>
             <div className="flex-1 min-w-0">
               <Link
                 href="/login"
-                className="text-sm font-medium truncate block text-white hover:text-blue-200"
+                className="text-sm font-medium truncate block text-white hover:text-sidebar-muted"
               >
                 Zaloguj się ponownie
               </Link>
-              <span className="text-[10px] text-blue-200">Sesja wygasła</span>
+              <span className="text-[10px] text-sidebar-muted">Sesja wygasła</span>
             </div>
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-blue-200 hover:text-white p-1 rounded-md hover:bg-white/10"
+              className="text-sidebar-muted hover:text-white p-1 rounded-md hover:bg-white/10"
             >
               <LogOut className="h-4 w-4" />
             </button>
