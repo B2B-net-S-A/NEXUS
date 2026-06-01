@@ -114,6 +114,7 @@ class RecruitmentReadiness:
     stage: str
     has_champion: bool
     has_notes: bool
+    has_cv: bool = False
 
     @property
     def ready(self) -> bool:
@@ -231,6 +232,13 @@ async def list_recruitments_with_readiness(
     )
     candidate_has_note = (await db.scalar(candidate_has_note_q)) is not None
 
+    candidate_has_cv_q = (
+        select(CandidateDocument.id)
+        .where(CandidateDocument.candidate_id == candidate_id)
+        .limit(1)
+    )
+    candidate_has_cv = (await db.scalar(candidate_has_cv_q)) is not None
+
     result: list[RecruitmentReadiness] = []
     for stage in stages:
         job = stage.job
@@ -261,6 +269,7 @@ async def list_recruitments_with_readiness(
                 stage=stage.stage.value if stage.stage else "",
                 has_champion=has_champion,
                 has_notes=has_notes,
+                has_cv=candidate_has_cv,
             )
         )
 
@@ -277,6 +286,8 @@ async def generate_cv_for_candidate(
     stage_id: int,
     language: Language = "pl",
     blind_cv: bool = False,
+    allow_incomplete: bool = False,
+    extra_note: str = "",
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -350,7 +361,7 @@ async def generate_cv_for_candidate(
         )
 
     # ── 2. Champion ───────────────────────────────────────────────────────
-    if not _champion_present(job):
+    if not _champion_present(job) and not allow_incomplete:
         raise StandaloneGenerationError(
             code="no_champion",
             message=(
@@ -413,7 +424,10 @@ async def generate_cv_for_candidate(
         if body:
             screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
 
-    if not screening_parts:
+    if extra_note and extra_note.strip():
+        screening_parts.append(f"[Notatka rekrutera]\n{extra_note.strip()}")
+
+    if not screening_parts and not allow_incomplete:
         raise StandaloneGenerationError(
             code="no_notes",
             message=(
@@ -495,8 +509,14 @@ async def generate_cv_for_candidate(
         ) from err
 
     candidate_name = str(candidate_data.get("name") or candidate.name or "Kandydat")
-    sanitized_name = _sanitize_for_filename(candidate_name)
-    filename = f"CV_B2B_{sanitized_name}.docx"
+    # Filename: B2B_<stanowisko>_<Imie_Nazwisko>.docx (blind CV omits the name).
+    # stanowisko = the recruitment process job title (job.title).
+    db_full_name = f"{candidate.name} {candidate.lastname}"
+    job_part = _sanitize_for_filename(job.title or "")
+    parts = ["B2B", job_part]
+    if not blind_cv:
+        parts.append(_sanitize_for_filename(db_full_name))
+    filename = "_".join(p for p in parts if p) + ".docx"
 
     duration_ms = int((time.time() - started_at) * 1000)
     warnings_raw = candidate_data.get("warnings") or []
@@ -679,8 +699,14 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         ) from err
 
     candidate_name = str(candidate_data.get("name") or "Kandydat")
-    sanitized_name = _sanitize_for_filename(candidate_name)
-    filename = f"CV_B2B_{sanitized_name}.docx"
+    # Filename: B2B_<stanowisko>_<Imie_Nazwisko>.docx (blind CV omits the name).
+    # stanowisko = the candidate's most recent / current position, i.e. the same
+    # "position" field the renderer shows as the CV headline (CV + filename match).
+    job_part = _sanitize_for_filename(str(candidate_data.get("position") or ""))
+    parts = ["B2B", job_part]
+    if not payload.blind_cv:
+        parts.append(_sanitize_for_filename(candidate_name))
+    filename = "_".join(p for p in parts if p) + ".docx"
 
     duration_ms = int((time.time() - started_at) * 1000)
     warnings_raw = candidate_data.get("warnings") or []

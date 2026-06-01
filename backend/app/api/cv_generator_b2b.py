@@ -64,6 +64,7 @@ class RecruitmentOption(BaseModel):
     stage: str
     has_champion: bool
     has_notes: bool
+    has_cv: bool = False
     ready: bool
 
 
@@ -72,6 +73,8 @@ class GenerateRequest(BaseModel):
     stage_id: int = Field(..., ge=1)
     language: Literal["pl", "en"] = "pl"
     blind_cv: bool = False
+    allow_incomplete: bool = False
+    extra_note: str = ""
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -203,6 +206,7 @@ async def list_candidate_recruitments(
             stage=r.stage,
             has_champion=r.has_champion,
             has_notes=r.has_notes,
+            has_cv=r.has_cv,
             ready=r.ready,
         )
         for r in readiness
@@ -232,6 +236,8 @@ async def generate(
             stage_id=payload.stage_id,
             language=payload.language,
             blind_cv=payload.blind_cv,
+            allow_incomplete=payload.allow_incomplete,
+            extra_note=payload.extra_note,
         )
     except StandaloneGenerationError as err:
         raise HTTPException(

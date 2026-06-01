@@ -13,7 +13,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
 {
   "name": "Pełne imię i nazwisko",
   "first_name": "Imię",
-  "position": "Główne stanowisko/tytuł zawodowy (np. 'Java Developer', 'Senior DevOps Engineer')",
+  "position": "Najnowsze/obecne stanowisko kandydata z CV — najświeższa rola według dat, nie starsza (np. 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
     "3-5 kluczowych punktów marketingowych według schematu:",
     "1. [X] lat doświadczenia jako [Stanowisko], w tym [Y] lat w [Największa firma]",
@@ -126,7 +126,7 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
 {
   "name": "Full name",
   "first_name": "First name",
-  "position": "Main position/job title (e.g., 'Java Developer', 'Senior DevOps Engineer')",
+  "position": "The candidate's most recent/current position from the CV — the latest role by date, not an older one (e.g., 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
     "3-5 key marketing points according to the following scheme:",
     "1. [X] years of experience as [Position], including [Y] years at [Biggest company]",

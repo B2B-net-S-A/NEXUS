@@ -124,7 +124,7 @@ export function CVGeneratorV2({
     );
   }, [recruitmentsQuery.data, stageId]);
 
-  const canSubmit = !!selectedRecruitment && selectedRecruitment.ready;
+  const canSubmit = !!selectedRecruitment;
 
   const generateMut = useMutation({
     mutationFn: async () => {
@@ -136,6 +136,7 @@ export function CVGeneratorV2({
           stage_id: selectedRecruitment.stage_id,
           language,
           blind_cv: blindCv,
+          allow_incomplete: !selectedRecruitment.ready,
         },
         {
           responseType: "blob",
@@ -200,7 +201,7 @@ export function CVGeneratorV2({
             ) : !hasAny ? (
               <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
                 Kandydat nie uczestniczy w żadnej rekrutacji. Jeśli chcesz
-                wygenerować CV bez kontekstu klienta — otwórz{" "}
+                wygenerować CV bez kontekstu klienta – otwórz{" "}
                 <a href="/cv-generator" className="text-primary underline">
                   /cv-generator → Old mode
                 </a>{" "}
@@ -251,13 +252,13 @@ export function CVGeneratorV2({
                     <div className="space-y-1">
                       {!selectedRecruitment.has_champion && (
                         <div>
-                          Brakuje Profilu Championa na ofercie — uzupełnij go na
+                          Brakuje Profilu Championa na ofercie – uzupełnij go na
                           karcie oferty.
                         </div>
                       )}
                       {!selectedRecruitment.has_notes && (
                         <div>
-                          Brak notatek z rozmów — wymagana co najmniej jedna:
+                          Brak notatek z rozmów – wymagana co najmniej jedna:
                           screening, transkrypt CloudTalk albo notatka procesu.
                         </div>
                       )}
@@ -336,6 +337,12 @@ export function CVGeneratorV2({
               size="md"
               disabled={!canSubmit || generateMut.isPending}
               onClick={() => {
+                if (selectedRecruitment && !selectedRecruitment.ready) {
+                  const ok = window.confirm(
+                    "Brakuje Profilu Championa lub notatek z rozmów. Wygenerować uproszczone CV mimo to?",
+                  );
+                  if (!ok) return;
+                }
                 setError(null);
                 setWarnings([]);
                 generateMut.mutate();

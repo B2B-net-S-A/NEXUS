@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -17,8 +17,8 @@ import {
   X,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
   Card,
   CardContent,
@@ -66,6 +66,7 @@ type RecruitmentOption = {
   stage: string;
   has_champion: boolean;
   has_notes: boolean;
+  has_cv: boolean;
   ready: boolean;
 };
 
@@ -132,6 +133,8 @@ export function CVGeneratorStandaloneV2() {
   const [candidateOpen, setCandidateOpen] = useState(false);
   const [candidateQuery, setCandidateQuery] = useState("");
   const [stageId, setStageId] = useState<string>("");
+  const [processNote, setProcessNote] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // ── Old mode state ──────────────────────────────────────────────────────
   const [cvFile, setCvFile] = useState<File | null>(null);
@@ -175,10 +178,36 @@ export function CVGeneratorStandaloneV2() {
     );
   }, [recruitmentsQuery.data, stageId]);
 
+  // Reset the inline note whenever the candidate or the selected process changes
+  // so a note typed for one process never leaks into another generation.
+  useEffect(() => {
+    setProcessNote("");
+  }, [candidate?.id, stageId]);
+
   const canSubmitNew =
-    !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
+    !!candidate && !!selectedRecruitment && selectedRecruitment.has_cv;
   const canSubmitOld = !!cvFile;
   const canSubmit = mode === "new" ? canSubmitNew : canSubmitOld;
+
+  // Effective notes presence — a typed inline note satisfies the notes
+  // requirement just like stored notes do.
+  const hasNotesEffective =
+    !!selectedRecruitment &&
+    (selectedRecruitment.has_notes || processNote.trim().length > 0);
+
+  // Confirmation is only needed in new mode when champion profile or notes are
+  // missing (CV is a hard requirement gated by canSubmitNew, never bypassed).
+  const needsConfirm =
+    !!selectedRecruitment &&
+    (!selectedRecruitment.has_champion || !hasNotesEffective);
+
+  const confirmMessage = !selectedRecruitment
+    ? ""
+    : !selectedRecruitment.has_champion && !hasNotesEffective
+      ? "Czy na pewno chcesz wygenerować CV bez informacji z Profilu Championa oraz notatek z rozmów?"
+      : !selectedRecruitment.has_champion && hasNotesEffective
+        ? "Czy na pewno chcesz wygenerować CV bez informacji z Profilu Championa?"
+        : "Czy na pewno chcesz wygenerować CV bez notatek z rozmów?";
 
   // ── New mode mutation ───────────────────────────────────────────────────
   const generateMut = useMutation({
@@ -193,6 +222,8 @@ export function CVGeneratorStandaloneV2() {
           stage_id: selectedRecruitment.stage_id,
           language,
           blind_cv: blindCv,
+          allow_incomplete: needsConfirm,
+          extra_note: processNote.trim() || undefined,
         },
         {
           responseType: "blob",
@@ -255,7 +286,7 @@ export function CVGeneratorStandaloneV2() {
       setCvFile(null);
       setChampionFile(null);
       setScreeningNotes("");
-      toast.showSuccess("CV wygenerowane i pobrane. Formularz wyczyszczony — możesz wgrać kolejne CV.");
+      toast.showSuccess("CV wygenerowane i pobrane. Formularz wyczyszczony – możesz wgrać kolejne CV.");
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
@@ -265,9 +296,17 @@ export function CVGeneratorStandaloneV2() {
 
   const activeMut = mode === "new" ? generateMut : uploadMut;
 
-  function handleSubmit() {
+  function runGenerate() {
     setWarnings([]);
     activeMut.mutate();
+  }
+
+  function handleSubmit() {
+    if (mode === "new" && needsConfirm) {
+      setConfirmOpen(true);
+      return;
+    }
+    runGenerate();
   }
 
   function handleModeChange(next: string) {
@@ -314,7 +353,7 @@ export function CVGeneratorStandaloneV2() {
               <div>
                 <div className="text-sm font-medium">New (z procesu)</div>
                 <div className="text-xs text-muted-foreground">
-                  Wybierz konsultanta i rekrutację — system zaciąga CV, profil
+                  Wybierz konsultanta i rekrutację – system zaciąga CV, profil
                   championa i notatki z NEXUSa.
                 </div>
               </div>
@@ -332,7 +371,7 @@ export function CVGeneratorStandaloneV2() {
                 <div className="text-sm font-medium">Old (upload plików)</div>
                 <div className="text-xs text-muted-foreground">
                   Wgraj CV (PDF / DOCX), opcjonalnie Profil Championa i
-                  notatki — 1:1 jak external CV-Generator.
+                  notatki – 1:1 jak external CV-Generator.
                 </div>
               </div>
             </label>
@@ -349,6 +388,8 @@ export function CVGeneratorStandaloneV2() {
           recruitmentsQuery={recruitmentsQuery}
           selectedRecruitment={selectedRecruitment}
           stageId={stageId}
+          processNote={processNote}
+          setProcessNote={setProcessNote}
           setCandidate={setCandidate}
           setCandidateOpen={setCandidateOpen}
           setCandidateQuery={setCandidateQuery}
@@ -393,7 +434,7 @@ export function CVGeneratorStandaloneV2() {
             <div>
               <Label className="block">Blind CV</Label>
               <p className="text-xs text-muted-foreground">
-                Anonimizuje imię, nazwisko i nazwy firm w doświadczeniu — używaj
+                Anonimizuje imię, nazwisko i nazwy firm w doświadczeniu – używaj
                 przy share-ach klientom przed zaakceptowaniem profilu.
               </p>
             </div>
@@ -440,6 +481,19 @@ export function CVGeneratorStandaloneV2() {
           )}
         </Button>
       </div>
+
+      <ConfirmV2
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Wygenerować CV mimo braków?"
+        description={confirmMessage}
+        confirmLabel="Generuj CV"
+        cancelLabel="Anuluj"
+        onConfirm={() => {
+          setConfirmOpen(false);
+          runGenerate();
+        }}
+      />
     </div>
   );
 }
@@ -460,6 +514,8 @@ type NewModeFormProps = {
   };
   selectedRecruitment: RecruitmentOption | null;
   stageId: string;
+  processNote: string;
+  setProcessNote: (v: string) => void;
   setCandidate: (c: CandidateOption | null) => void;
   setCandidateOpen: (v: boolean) => void;
   setCandidateQuery: (v: string) => void;
@@ -475,6 +531,8 @@ function NewModeForm({
   recruitmentsQuery,
   selectedRecruitment,
   stageId,
+  processNote,
+  setProcessNote,
   setCandidate,
   setCandidateOpen,
   setCandidateQuery,
@@ -485,7 +543,7 @@ function NewModeForm({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Krok 1 — Konsultant</CardTitle>
+          <CardTitle>Krok 1 – Konsultant</CardTitle>
           <CardDescription>
             Zacznij wpisywać imię, nazwisko lub e-mail.
           </CardDescription>
@@ -571,7 +629,7 @@ function NewModeForm({
       {candidate && (
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Krok 2 — Proces rekrutacyjny</CardTitle>
+            <CardTitle>Krok 2 – Proces rekrutacyjny</CardTitle>
             <CardDescription>
               Wymagany Profil Championa oraz co najmniej jedna notatka z rozmowy
               dla wybranego procesu.
@@ -604,41 +662,29 @@ function NewModeForm({
             </Select>
 
             {selectedRecruitment && (
-              <div className="flex flex-wrap gap-2 text-xs">
-                <ReadyBadge
-                  label="Profil Championa"
-                  ok={selectedRecruitment.has_champion}
+              <div className="space-y-2">
+                <Label htmlFor="cv-gen-process-note">
+                  Notatka z rozmowy (opcjonalnie)
+                </Label>
+                <Textarea
+                  id="cv-gen-process-note"
+                  rows={4}
+                  value={processNote}
+                  onChange={(e) => setProcessNote(e.target.value)}
+                  placeholder="Np. „Kandydat ma 3 lata doświadczenia z Kubernetes, prowadził migrację Jenkinsa do GitHub Actions…”"
                 />
-                <ReadyBadge
-                  label="Notatki z rozmów"
-                  ok={selectedRecruitment.has_notes}
-                />
+                <p className="text-xs text-muted-foreground">
+                  Wklej szybką notatkę — zostanie użyta tylko do tej generacji
+                  (nie zapisuje się w systemie).
+                </p>
               </div>
             )}
 
-            {selectedRecruitment && !selectedRecruitment.ready && (
-              <Alert
-                variant="warning"
-                title="Nie można wygenerować CV"
-                description={
-                  <div className="space-y-1">
-                    {!selectedRecruitment.has_champion && (
-                      <div>
-                        Brakuje Profilu Championa (must-have, nice-to-have,
-                        kontekst projektu). Uzupełnij go na karcie oferty zanim
-                        wygenerujesz CV.
-                      </div>
-                    )}
-                    {!selectedRecruitment.has_notes && (
-                      <div>
-                        Brak notatek z rozmów — wymagana co najmniej jedna:
-                        screening, transkrypt rozmowy CloudTalk albo notatka
-                        procesu.
-                      </div>
-                    )}
-                  </div>
-                }
-              />
+            {selectedRecruitment && !selectedRecruitment.has_cv && (
+              <p className="text-sm text-muted-foreground">
+                Kandydat nie ma wgranego CV w systemie — dodaj CV kandydata, aby
+                wygenerować.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -670,9 +716,9 @@ function OldModeForm({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Krok 1 — Plik CV</CardTitle>
+          <CardTitle>Krok 1 – Plik CV</CardTitle>
           <CardDescription>
-            Wgraj surowe CV kandydata (PDF lub DOCX, max {MAX_UPLOAD_MB} MB) —
+            Wgraj surowe CV kandydata (PDF lub DOCX, max {MAX_UPLOAD_MB} MB) –
             Claude przeanalizuje treść i wyciągnie strukturę.
           </CardDescription>
         </CardHeader>
@@ -689,10 +735,10 @@ function OldModeForm({
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Krok 2 — Profil Championa (opcjonalnie)</CardTitle>
+          <CardTitle>Krok 2 – Profil Championa (opcjonalnie)</CardTitle>
           <CardDescription>
             Wgraj DOCX z sekcjami MUST-HAVE / NICE-TO-HAVE / Kontekst /
-            Pytania — system wytłuści kluczowe technologie w wygenerowanym CV
+            Pytania – system wytłuści kluczowe technologie w wygenerowanym CV
             i zwróci listę brakujących wymagań.
           </CardDescription>
         </CardHeader>
@@ -709,9 +755,9 @@ function OldModeForm({
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Krok 3 — Notatki ze screeningu (opcjonalnie)</CardTitle>
+          <CardTitle>Krok 3 – Notatki ze screeningu (opcjonalnie)</CardTitle>
           <CardDescription>
-            Wklej notatki z rozmowy rekrutera — Claude wzbogaci CV o
+            Wklej notatki z rozmowy rekrutera – Claude wzbogaci CV o
             technologie i kompetencje wspomniane na screeningu.
           </CardDescription>
         </CardHeader>
@@ -833,21 +879,6 @@ function ReadinessChip({ ready }: { ready: boolean }) {
   );
 }
 
-function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
-  return (
-    <Badge
-      variant={ok ? "success" : "warning"}
-      className={cn("flex items-center gap-1")}
-    >
-      {ok ? (
-        <CheckCircle2 className="h-3 w-3" />
-      ) : (
-        <AlertTriangle className="h-3 w-3" />
-      )}
-      {label}
-    </Badge>
-  );
-}
 
 async function extractErrorDetail(err: unknown): Promise<string> {
   if (typeof err !== "object" || err === null) return "";

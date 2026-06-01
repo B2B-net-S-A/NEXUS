@@ -30,7 +30,7 @@ def _assert_all_headers_latin1(response) -> None:
 def test_polish_candidate_name_header_is_latin1_safe():
     response = _build_docx_response(
         docx_bytes=b"PK\x03\x04 fake docx",
-        filename="CV_B2B_Rafal_Pogorzelski.docx",
+        filename="B2B_Java_Developer_Rafal_Pogorzelski.docx",
         candidate_name="Rafał Pogorzelski",
         warnings=[],
         processing_time_ms=1234,
@@ -50,7 +50,7 @@ def test_polish_warnings_header_is_latin1_safe_and_roundtrips():
     ]
     response = _build_docx_response(
         docx_bytes=b"PK\x03\x04 fake docx",
-        filename="CV_B2B_kandydat.docx",
+        filename="B2B_kandydat.docx",
         candidate_name="Małgorzata Żółć",
         warnings=warnings,
         processing_time_ms=42,
@@ -66,7 +66,7 @@ def test_polish_warnings_header_is_latin1_safe_and_roundtrips():
 def test_ascii_name_is_unchanged_enough_to_read():
     response = _build_docx_response(
         docx_bytes=b"PK\x03\x04 fake docx",
-        filename="CV_B2B_Anna_Kowalska.docx",
+        filename="B2B_Java_Developer_Anna_Kowalska.docx",
         candidate_name="Anna Kowalska",
         warnings=[],
         processing_time_ms=0,
@@ -76,5 +76,5 @@ def test_ascii_name_is_unchanged_enough_to_read():
     assert unquote(response.headers["X-Generator-Candidate-Name"]) == "Anna Kowalska"
     assert (
         response.headers["Content-Disposition"]
-        == 'attachment; filename="CV_B2B_Anna_Kowalska.docx"'
+        == 'attachment; filename="B2B_Java_Developer_Anna_Kowalska.docx"'
     )
