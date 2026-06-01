@@ -1,44 +1,44 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
-asyncpg==0.30.0
-alembic==1.14.0
-pydantic[email]==2.10.3
-pydantic-settings==2.7.0
-email-validator==2.1.0
-python-jose[cryptography]==3.3.0
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+sqlalchemy==2.0.50
+asyncpg==0.31.0
+alembic==1.18.4
+pydantic[email]==2.13.4
+pydantic-settings==2.14.1
+email-validator==2.3.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
 voyageai==0.3.2
-qdrant-client==1.12.1
+qdrant-client==1.18.0
 anthropic>=0.40,<1.0
 pdfminer.six==20231228
-pdfplumber==0.11.4
+pdfplumber==0.11.9
 pytesseract==0.3.13
 pdf2image==1.17.0
-python-docx==1.1.2
-python-dotenv==1.0.1
-python-multipart==0.0.20
+python-docx==1.2.0
+python-dotenv==1.2.2
+python-multipart==0.0.30
 aiofiles==24.1.0
-jinja2==3.1.4
-psycopg2-binary==2.9.10
+jinja2==3.1.6
+psycopg2-binary==2.9.12
 openpyxl==3.1.5
 icalendar==6.1.0
 python-json-logger==2.0.7
 # Security & observability
 slowapi==0.1.9
-sentry-sdk[fastapi]==2.20.0
+sentry-sdk[fastapi]==2.61.1
 # Microsoft 365 integration (Phase M365.1)
-msal==1.31.0
+msal==1.37.0
 cryptography==44.0.0
-bleach==6.2.0
+bleach==6.3.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
-rapidfuzz==3.10.1
+rapidfuzz==3.14.5
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==63.0
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
-boto3==1.35.0
+boto3==1.43.18
