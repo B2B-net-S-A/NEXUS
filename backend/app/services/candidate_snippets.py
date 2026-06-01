@@ -161,10 +161,11 @@ def extract_search_terms(
     q: Optional[str],
     q_all: Optional[list[str]],
     q_any: Optional[list[str]],
+    q_any_groups: Optional[list[list[str]]] = None,
 ) -> list[str]:
-    """Combine all positive search inputs (q + q_all + q_any) into a single
-    deduped lowercase list. `q_none` is intentionally ignored — exclusion
-    phrases shouldn't drive snippet highlighting."""
+    """Combine all positive search inputs (q + q_all + q_any + q_any_groups)
+    into a single deduped lowercase list. `q_none` is intentionally ignored —
+    exclusion phrases shouldn't drive snippet highlighting."""
     parts: list[Optional[str]] = []
     if q:
         parts.append(q)
@@ -172,4 +173,7 @@ def extract_search_terms(
         parts.extend(q_all)
     if q_any:
         parts.extend(q_any)
+    if q_any_groups:
+        for group in q_any_groups:
+            parts.extend(group)
     return _normalize_terms(parts)

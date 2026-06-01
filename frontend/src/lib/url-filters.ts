@@ -92,7 +92,11 @@ export interface CandidateFilters {
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
   // across name/email/CV/ai_summary/competence_category/experience/skills/tags.
   qAll: string[]; // every phrase must match (AND)
-  qAny: string[]; // at least one phrase matches (OR)
+  // ANY bucket = list of OR-groups that AND together. Each inner array is one
+  // OR-group (phrases OR'd); groups AND with each other. `[["a","b"],["c"]]`
+  // means `(a OR b) AND c`. A single group is the classic "any of these" and
+  // round-trips from legacy `?q_any=a|b` URLs (decoded as one group).
+  qAny: string[][];
   qNone: string[]; // none of these phrases may match (NOT)
 }
 
@@ -168,7 +172,11 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.stageMovedAfter) p.set("stage_from", f.stageMovedAfter);
   if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
-  if (f.qAny.length) p.set("q_any", PIPE(f.qAny));
+  // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
+  // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
+  for (const group of f.qAny) {
+    if (group.length) p.append("q_any", PIPE(group));
+  }
   if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
@@ -229,7 +237,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
-    qAny: parsePipe(sp.get("q_any")),
+    // Each repeated `q_any` value is one pipe-joined OR-group. Drop empties.
+    qAny: sp.getAll("q_any").map(parsePipe).filter((g) => g.length > 0),
     qNone: parsePipe(sp.get("q_none")),
   };
 }
@@ -310,7 +319,10 @@ export function filtersToApiParams(
     stage_moved_after: filters.stageMovedAfter || undefined,
     stage_moved_before: filters.stageMovedBefore || undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
-    q_any: filters.qAny.length ? filters.qAny : undefined,
+    // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
+    q_any_group: filters.qAny.some((g) => g.length)
+      ? filters.qAny.filter((g) => g.length).map((g) => g.join("|"))
+      : undefined,
     q_none: filters.qNone.length ? filters.qNone : undefined,
     ...extras,
   };

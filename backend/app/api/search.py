@@ -140,7 +140,9 @@ async def advanced_candidate_search(
     clauses: list[Any] = []
 
     # === Layer 1: boolean buckets (Traffit-style ILIKE) ======================
-    boolean_clause = build_advanced_filter(body.q_all, body.q_any, body.q_none)
+    boolean_clause = build_advanced_filter(
+        body.q_all, body.q_any, body.q_none, body.q_any_groups
+    )
     if boolean_clause is not None:
         clauses.append(boolean_clause)
 

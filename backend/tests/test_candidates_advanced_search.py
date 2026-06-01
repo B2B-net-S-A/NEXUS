@@ -88,6 +88,61 @@ async def test_q_any_or(app_client: AsyncClient, app_auth_headers: dict):
 
 
 @pytest.mark.asyncio
+async def test_q_any_groups_and_of_ors(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Multiple ANY OR-groups AND together: (python OR java) AND (react OR spring).
+
+    Seed bodies:
+      A "python react developer senior"  → python ✓, react ✓     → MATCH
+      B "python django backend engineer" → python ✓, (react/spring) ✗ → excluded
+      C "java spring senior architect"   → java ✓,   spring ✓    → MATCH
+      D "react native mobile junior"     → (python/java) ✗        → excluded
+    """
+    ids = await _seed_four()
+    try:
+        r = await app_client.get(
+            "/api/candidates?q_any_group=python|java"
+            "&q_any_group=react|spring&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        result_ids = {item["id"] for item in r.json()["items"]}
+        assert ids["A"] in result_ids
+        assert ids["C"] in result_ids
+        assert ids["B"] not in result_ids
+        assert ids["D"] not in result_ids
+    finally:
+        await _cleanup(list(ids.values()))
+
+
+@pytest.mark.asyncio
+async def test_legacy_q_any_ands_with_extra_group(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Legacy flat `q_any` (group 0) AND-s with a `q_any_group`.
+
+    (python OR java) [legacy q_any] AND (react OR spring) [q_any_group]
+    → same result set as test_q_any_groups_and_of_ors (A, C).
+    """
+    ids = await _seed_four()
+    try:
+        r = await app_client.get(
+            "/api/candidates?q_any=python&q_any=java"
+            "&q_any_group=react|spring&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        result_ids = {item["id"] for item in r.json()["items"]}
+        assert ids["A"] in result_ids
+        assert ids["C"] in result_ids
+        assert ids["B"] not in result_ids
+        assert ids["D"] not in result_ids
+    finally:
+        await _cleanup(list(ids.values()))
+
+
+@pytest.mark.asyncio
 async def test_q_none_not(app_client: AsyncClient, app_auth_headers: dict):
     ids = await _seed_four()
     try:

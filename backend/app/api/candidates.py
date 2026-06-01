@@ -760,7 +760,18 @@ async def list_candidates(
         None,
         description=(
             "Advanced search — at least one phrase must appear (OR). "
-            "See `q_all` for matched fields."
+            "See `q_all` for matched fields. This is OR-group 0; add more "
+            "AND-ed OR-groups with `q_any_group`."
+        ),
+    ),
+    q_any_group: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Advanced search — additional OR-groups for the ANY bucket. Each "
+            "value is ONE group with phrases joined by `|`; the groups AND "
+            "together (and with `q_any`). Example: "
+            "`?q_any_group=react|vue&q_any_group=java|kotlin` ⇒ "
+            "(react OR vue) AND (java OR kotlin). See `q_all` for matched fields."
         ),
     ),
     q_none: Optional[list[str]] = Query(
@@ -940,7 +951,10 @@ async def list_candidates(
             query = query.where(phrase_clause)
 
     # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
-    _advanced = build_advanced_filter(q_all, q_any, q_none)
+    # Each `q_any_group` value is one pipe-joined OR-group; split into phrases
+    # (the service cleans/caps each group and drops the empties).
+    q_any_groups = [g.split("|") for g in q_any_group] if q_any_group else None
+    _advanced = build_advanced_filter(q_all, q_any, q_none, q_any_groups)
     if _advanced is not None:
         query = query.where(_advanced)
     # Phase B3: structured filters over JSONB
@@ -1166,6 +1180,9 @@ async def list_candidates(
         for bucket in (q_all, q_any):
             if bucket:
                 relevance_terms.extend(s.strip() for s in bucket if s and s.strip())
+        if q_any_groups:
+            for group in q_any_groups:
+                relevance_terms.extend(s.strip() for s in group if s and s.strip())
 
         if relevance_terms:
             # Concatenate all candidate identity fields into a single haystack
@@ -1393,7 +1410,7 @@ async def list_candidates(
         extract_snippet,
     )
 
-    search_terms = extract_search_terms(q, q_all, q_any)
+    search_terms = extract_search_terms(q, q_all, q_any, q_any_groups)
     notes_by_candidate: dict[int, list[str]] = {}
     if search_terms and items:
         notes_stmt = select(Note.candidate_id, Note.content).where(

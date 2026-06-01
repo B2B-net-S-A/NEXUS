@@ -958,11 +958,21 @@ export function CandidatesListV2() {
  const [qAll, setQAll] = useState<string[]>(
  (searchParams.get("q_all") ??"").split("|").filter(Boolean)
  );
- const [qAny, setQAny] = useState<string[]>(
- (searchParams.get("q_any") ??"").split("|").filter(Boolean)
+ const [qAny, setQAny] = useState<string[][]>(
+ searchParams
+ .getAll("q_any")
+ .map((g) => g.split("|").map((s) => s.trim()).filter(Boolean))
+ .filter((g) => g.length > 0)
  );
  const [qNone, setQNone] = useState<string[]>(
  (searchParams.get("q_none") ??"").split("|").filter(Boolean)
+ );
+ // Cleaned ANY OR-groups: drop empty strings + empty groups. The popover may
+ // hold a transient empty group (an open input row); strip those before they
+ // reach the URL, the API query, or the active-filter count.
+ const qAnyGroups = useMemo(
+ () => qAny.map((g) => g.filter(Boolean)).filter((g) => g.length > 0),
+ [qAny],
  );
  // Boolean-search panel visibility. Opens automatically when the URL arrives
  // with any q_all/q_any/q_none — the user has filters and needs to see them.
@@ -1003,7 +1013,11 @@ export function CandidatesListV2() {
  if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
  if (openToFilter.length) params.set("open_to", openToFilter.join(","));
  if (qAll.length) params.set("q_all", qAll.join("|"));
- if (qAny.length) params.set("q_any", qAny.join("|"));
+ // One repeated `q_any` param per OR-group (each pipe-joined). Legacy single
+ // `?q_any=a|b` URLs decode back into one group, so this stays compatible.
+ for (const group of qAnyGroups) {
+ params.append("q_any", group.join("|"));
+ }
  if (qNone.length) params.set("q_none", qNone.join("|"));
  // Persist Boolean-panel visibility ONLY when the user toggled it open
  // without any active phrases yet — otherwise the q_all/q_any/q_none params
@@ -1011,7 +1025,7 @@ export function CandidatesListV2() {
  if (
  showAdvanced &&
  qAll.length === 0 &&
- qAny.length === 0 &&
+ qAnyGroups.length === 0 &&
  qNone.length === 0
  ) {
  params.set("boolean", "1");
@@ -1041,7 +1055,7 @@ export function CandidatesListV2() {
  recentlyChangedJobs,
  openToFilter,
  qAll,
- qAny,
+ qAnyGroups,
  qNone,
  showAdvanced,
  ]);
@@ -1071,7 +1085,7 @@ export function CandidatesListV2() {
  recentlyChangedJobs,
  openToFilter,
  qAll,
- qAny,
+ qAnyGroups,
  qNone,
  ],
  queryFn: () =>
@@ -1107,7 +1121,9 @@ export function CandidatesListV2() {
  : undefined,
  open_to: openToFilter.length ? openToFilter : undefined,
  q_all: qAll.length ? qAll : undefined,
- q_any: qAny.length ? qAny : undefined,
+ q_any_group: qAnyGroups.length
+ ? qAnyGroups.map((g) => g.join("|"))
+ : undefined,
  q_none: qNone.length ? qNone : undefined,
  },
  paramsSerializer: { indexes: null },
@@ -1128,14 +1144,12 @@ export function CandidatesListV2() {
  const terms: string[] = [];
  const simple = search.trim();
  if (simple) terms.push(simple);
- for (const list of [qAll, qAny]) {
- for (const t of list) {
+ for (const t of [...qAll, ...qAnyGroups.flat()]) {
  const v = t.trim();
  if (v) terms.push(v);
  }
- }
  return terms;
- }, [search, qAll, qAny]);
+ }, [search, qAll, qAnyGroups]);
 
  // Virtualization ---------------------------------------------
  const rowHeight = density === "compact" ? 52 : 72;
@@ -1289,7 +1303,7 @@ export function CandidatesListV2() {
  (stageMovedAfter || stageMovedBefore ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
  (qAll.length > 0 ? 1 : 0) +
- (qAny.length > 0 ? 1 : 0) +
+ (qAnyGroups.length > 0 ? 1 : 0) +
  (qNone.length > 0 ? 1 : 0);
 
  // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
@@ -1318,7 +1332,7 @@ export function CandidatesListV2() {
  view: "list",
  savedSearchId: null,
  qAll,
- qAny,
+ qAny: qAnyGroups,
  qNone,
  }),
  [
@@ -1342,7 +1356,7 @@ export function CandidatesListV2() {
  stageMovedAfter,
  stageMovedBefore,
  qAll,
- qAny,
+ qAnyGroups,
  qNone,
  ]
  );
@@ -1482,9 +1496,9 @@ export function CandidatesListV2() {
  >
  <Filter className="h-4 w-4" />
  Zaawansowane
- {qAll.length + qAny.length + qNone.length > 0 && (
+ {qAll.length + qAnyGroups.flat().length + qNone.length > 0 && (
  <Badge variant="burgundy" size="sm" className="ml-1">
- {qAll.length + qAny.length + qNone.length}
+ {qAll.length + qAnyGroups.flat().length + qNone.length}
  </Badge>
  )}
  </Button>

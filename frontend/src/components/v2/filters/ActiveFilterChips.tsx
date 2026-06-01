@@ -269,15 +269,22 @@ function collectChips(
  }),
  });
  });
- filters.qAny.forEach((phrase) => {
+ filters.qAny.forEach((group, gi) => {
+ group.forEach((phrase) => {
  chips.push({
- key: `q_any:${phrase}`,
- label: `Którakolwiek: „${phrase}"`,
+ key: `q_any:${gi}:${phrase}`,
+ label:
+ filters.qAny.length > 1
+ ? `Grupa ${gi + 1}: „${phrase}"`
+ : `Którakolwiek: „${phrase}"`,
  clear: () =>
  onUpdate({
- qAny: filters.qAny.filter((x) => x !== phrase),
+ qAny: filters.qAny
+ .map((g, i) => (i === gi ? g.filter((x) => x !== phrase) : g))
+ .filter((g) => g.length > 0),
  page: 1,
  }),
+ });
  });
  });
  filters.qNone.forEach((phrase) => {

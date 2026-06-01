@@ -74,14 +74,23 @@ export function FiltersPanel({
   const advanced: AdvancedSearchValue = useMemo(
     () => ({
       all: value.q_all ?? [],
-      any: value.q_any ?? [],
+      // Prefer the grouped form; fall back to the legacy flat `q_any` (treated
+      // as a single OR-group) so older saved searches still render.
+      any:
+        value.q_any_groups && value.q_any_groups.length > 0
+          ? value.q_any_groups
+          : value.q_any && value.q_any.length > 0
+            ? [value.q_any]
+            : [],
       none: value.q_none ?? [],
     }),
-    [value.q_all, value.q_any, value.q_none],
+    [value.q_all, value.q_any, value.q_any_groups, value.q_none],
   );
 
   const setAdvanced = (next: AdvancedSearchValue) => {
-    patch({ q_all: next.all, q_any: next.any, q_none: next.none });
+    // Persist groups under `q_any_groups`; clear the legacy flat field so the
+    // two never disagree on the wire.
+    patch({ q_all: next.all, q_any: [], q_any_groups: next.any, q_none: next.none });
   };
 
   const addToList = (

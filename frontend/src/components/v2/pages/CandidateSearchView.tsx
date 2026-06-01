@@ -24,6 +24,7 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
   q_all: [],
   q_any: [],
+  q_any_groups: [],
   q_none: [],
   competence_category_ids: [],
   skills_must: [],

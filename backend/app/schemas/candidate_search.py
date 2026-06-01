@@ -43,6 +43,11 @@ class CandidateSearchRequest(BaseModel):
     q_all: list[str] = Field(default_factory=list, max_length=20)
     q_any: list[str] = Field(default_factory=list, max_length=20)
     q_none: list[str] = Field(default_factory=list, max_length=20)
+    # Extra OR-groups for the ANY bucket. Each inner list is one OR-group; the
+    # groups AND together, and AND with the legacy flat ``q_any`` (group 0):
+    #   q_any=[react, vue], q_any_groups=[[java, kotlin]]
+    #     ⇒ (react OR vue) AND (java OR kotlin)
+    q_any_groups: list[list[str]] = Field(default_factory=list, max_length=10)
 
     # === Free-text (postgres FTS, ts_rank ordering) ===========================
     q: Optional[str] = Field(default=None, max_length=500)
