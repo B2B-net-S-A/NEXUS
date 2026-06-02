@@ -592,3 +592,131 @@ async def test_stage_current_only_true_overrides_move_filter(
         await _cleanup(
             candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a]
         )
+
+
+# ── active_recruitments enrichment: KTO i KIEDY przeniósł kandydata na ─────────
+# bieżący etap (popover „Rekrutacje" w liście). Sama atrybucja pochodzi z tego
+# samego najnowszego ruchu per (candidate, job) — bez dodatkowego zapytania. ────
+
+
+async def _get_user_name(user_id: int) -> str | None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as db:
+        return (
+            await db.execute(select(User.name).where(User.id == user_id))
+        ).scalar_one_or_none()
+
+
+def _rec_for_job(item: dict, job_id: int) -> dict | None:
+    """Find this candidate's active_recruitments entry for a given job."""
+    for rec in item.get("active_recruitments") or []:
+        if rec.get("job_id") == job_id:
+            return rec
+    return None
+
+
+@pytest.mark.asyncio
+async def test_active_recruitments_includes_current_stage_mover(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`include_active_recruitments=true` annotates each recruitment with KTO
+    (`moved_by_name`) and KIEDY (`moved_at`) the candidate landed on its current
+    stage — the data behind the list „Rekrutacje" popover."""
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    mover_name = await _get_user_name(mover_a)
+    cand = await _seed_candidate(name_suffix="-MOVER")
+    moved_at = datetime(2026, 5, 15, 9, 30, tzinfo=timezone.utc)
+    await _seed_stage(cand, job_id, "verified", moved_at=moved_at, moved_by=mover_a)
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=verified"
+            "&include_active_recruitments=true&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        item = next((it for it in r.json()["items"] if it["id"] == cand), None)
+        assert item is not None, "seeded candidate missing from response"
+        rec = _rec_for_job(item, job_id)
+        assert rec is not None, "active recruitment for seeded job missing"
+        assert rec["stage"] == "verified"
+        assert rec["moved_by_name"] == mover_name
+        assert rec["moved_at"] is not None
+        assert rec["moved_at"].startswith("2026-05-15")
+    finally:
+        await _cleanup(
+            candidate_ids=[cand], job_ids=[job_id], user_ids=[mover_a]
+        )
+
+
+@pytest.mark.asyncio
+async def test_active_recruitments_mover_null_for_system_import(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A move with no `moved_by` (Traffit import / system) yields
+    `moved_by_name=None` but still reports `moved_at` — the UI degrades to
+    „Przeniesiono · <data>" without crashing."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate(name_suffix="-SYS")
+    moved_at = datetime(2026, 4, 1, 8, 0, tzinfo=timezone.utc)
+    await _seed_stage(cand, job_id, "screening", moved_at=moved_at, moved_by=None)
+    try:
+        r = await app_client.get(
+            "/api/candidates?pipeline_stage=screening"
+            "&include_active_recruitments=true&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        item = next((it for it in r.json()["items"] if it["id"] == cand), None)
+        assert item is not None
+        rec = _rec_for_job(item, job_id)
+        assert rec is not None
+        assert rec["moved_by_name"] is None
+        assert rec["moved_at"] is not None
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_active_recruitments_mover_reflects_latest_move(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Attribution tracks the LATEST move per (candidate, job): A verifies, then
+    B advances to interview — the active recruitment must report stage=interview
+    moved by B, not the earlier verify by A."""
+    job_id = await _seed_job()
+    mover_a = await _seed_user()
+    mover_b = await _seed_user()
+    name_b = await _get_user_name(mover_b)
+    cand = await _seed_candidate(name_suffix="-LATEST")
+    base = datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc)
+    await _seed_stage(cand, job_id, "verified", moved_at=base, moved_by=mover_a)
+    await _seed_stage(
+        cand,
+        job_id,
+        "interview",
+        moved_at=base + timedelta(days=3),
+        moved_by=mover_b,
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?include_active_recruitments=true&page_size=200",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        item = next((it for it in r.json()["items"] if it["id"] == cand), None)
+        assert item is not None
+        rec = _rec_for_job(item, job_id)
+        assert rec is not None
+        assert rec["stage"] == "interview"
+        assert rec["moved_by_name"] == name_b
+        assert rec["moved_at"].startswith("2026-05-13")
+    finally:
+        await _cleanup(
+            candidate_ids=[cand],
+            job_ids=[job_id],
+            user_ids=[mover_a, mover_b],
+        )
