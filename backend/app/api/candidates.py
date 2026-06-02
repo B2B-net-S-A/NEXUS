@@ -1262,11 +1262,16 @@ async def list_candidates(
     if include_active_recruitments and items:
         candidate_ids = [c.id for c in items]
         # PostgreSQL DISTINCT ON — bierze pierwszy rekord per grupa zgodnie z ORDER BY.
+        # DISTINCT ON wybiera najnowszy ruch per (candidate, job) — TEN SAM
+        # rekord trzyma `moved_at`/`moved_by` (kto i kiedy przeniósł na bieżący
+        # etap), więc atrybucję dostajemy bez dodatkowego zapytania (no N+1).
         latest_per_pair = (
             select(
                 CandidateStage.candidate_id,
                 CandidateStage.job_id,
                 CandidateStage.stage,
+                CandidateStage.moved_at,
+                CandidateStage.moved_by,
             )
             .where(CandidateStage.candidate_id.in_(candidate_ids))
             .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
@@ -1283,6 +1288,7 @@ async def list_candidates(
             PipelineStage.withdrawn,
             PipelineStage.hired,
         )
+        mover = aliased(User)
         active_stmt = (
             select(
                 latest_per_pair.c.candidate_id,
@@ -1290,21 +1296,32 @@ async def list_candidates(
                 latest_per_pair.c.stage,
                 Job.title,
                 Client.name.label("client_name"),
+                latest_per_pair.c.moved_at,
+                mover.name.label("moved_by_name"),
             )
             .select_from(latest_per_pair)
             .join(Job, Job.id == latest_per_pair.c.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
+            .outerjoin(mover, mover.id == latest_per_pair.c.moved_by)
             .where(latest_per_pair.c.stage.not_in(terminal_stages))
         )
-        for cand_id, job_id, stage, job_title, client_name in (
-            await db.execute(active_stmt)
-        ).all():
+        for (
+            cand_id,
+            job_id,
+            stage,
+            job_title,
+            client_name,
+            moved_at,
+            moved_by_name,
+        ) in (await db.execute(active_stmt)).all():
             active_recruitments_by_candidate.setdefault(cand_id, []).append(
                 ActiveRecruitmentBrief(
                     job_id=job_id,
                     job_title=job_title or "—",
                     client_name=client_name,
                     stage=stage,
+                    moved_at=moved_at,
+                    moved_by_name=moved_by_name,
                 )
             )
 
@@ -2281,15 +2298,19 @@ async def get_candidate_timeline(
             }
         )
 
-    # Stage changes
+    # Stage changes — outerjoin User aby pokazać KTO przeniósł kandydata na etap
+    # (analogicznie do `author_name` przy notatkach). `moved_by` bywa NULL dla
+    # ruchów z importu Traffit, stąd outerjoin + Optional name.
+    mover = aliased(User)
     stages_result = await db.execute(
-        select(CandidateStage, Job.title)
+        select(CandidateStage, Job.title, mover.name.label("moved_by_name"))
         .join(Job, CandidateStage.job_id == Job.id)
+        .outerjoin(mover, mover.id == CandidateStage.moved_by)
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc())
         .limit(limit)
     )
-    for stage, job_title in stages_result.all():
+    for stage, job_title, moved_by_name in stages_result.all():
         timeline.append(
             {
                 "type": "stage_change",
@@ -2299,6 +2320,7 @@ async def get_candidate_timeline(
                 "job_id": stage.job_id,
                 "job_title": job_title,
                 "moved_by": stage.moved_by,
+                "moved_by_name": moved_by_name,
                 "rating": stage.rating,
                 "notes": stage.notes,
             }

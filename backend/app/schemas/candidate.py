@@ -238,12 +238,18 @@ class ActiveRecruitmentBrief(BaseModel):
     """Aktywna (nie-terminalna) rekrutacja kandydata — używana w liście
     kandydatów do pokazania w jakich pipeline'ach kandydat aktualnie się
     znajduje. Wyłącznie najnowszy ruch per (candidate_id, job_id).
+
+    `moved_at` / `moved_by_name` opisują KTO i KIEDY przeniósł kandydata na
+    jego BIEŻĄCY etap w tej rekrutacji (= ten sam najnowszy ruch). Pozwala
+    rekruterowi sprawdzić atrybucję wprost z listy (popover „Rekrutacje").
     """
 
     job_id: int
     job_title: str
     client_name: Optional[str] = None
     stage: PipelineStage
+    moved_at: Optional[datetime] = None
+    moved_by_name: Optional[str] = None
 
 
 class LinkedinSnapshotSummary(BaseModel):

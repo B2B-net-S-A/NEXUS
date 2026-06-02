@@ -43,7 +43,7 @@ import {
  BulkCvDownloadError,
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
-import { cn, formatRelativeTime } from"@/lib/utils";
+import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
 import { AddCandidateModal } from"@/components/AppShell";
 import { ImportCandidatesV2 } from"@/components/v2/modals/ImportCandidatesV2";
 import { AddCandidateFromCVModal } from"@/components/v2/modals/AddCandidateFromCVModal";
@@ -205,6 +205,9 @@ interface Candidate {
  job_title: string;
  client_name?: string | null;
  stage: string;
+ // KTO i KIEDY przeniósł kandydata na bieżący etap tej rekrutacji.
+ moved_at?: string | null;
+ moved_by_name?: string | null;
  }> | null;
  // Quick-glance triage fields — populated when API called with
  // include_last_activity=true. Backend already strips HTML + truncates
@@ -442,6 +445,15 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  <div className="text-xs text-muted-foreground truncate">
  {r.client_name ?? "—"}
  </div>
+ {(r.moved_by_name || r.moved_at) && (
+ <div
+ className="mt-0.5 truncate text-[11px] text-muted-foreground/80"
+ title={`Kto i kiedy przeniósł kandydata na etap „${stageLabel(r.stage)}"`}
+ >
+ {r.moved_by_name ? `Przeniósł: ${r.moved_by_name}` : "Przeniesiono"}
+ {r.moved_at ? ` · ${formatDate(r.moved_at)}` : ""}
+ </div>
+ )}
  </div>
  <Badge size="sm" variant="outline" className="shrink-0">
  {stageLabel(r.stage)}

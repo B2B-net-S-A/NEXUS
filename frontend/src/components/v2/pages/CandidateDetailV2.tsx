@@ -2192,6 +2192,11 @@ function TimelineTab({ items }: { items: any[] }) {
  {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
  </span>
  </div>
+ {item.type === "stage_change" && item.moved_by_name && (
+ <p className="text-xs text-muted-foreground mt-0.5">
+ Przeniósł: {item.moved_by_name}
+ </p>
+ )}
  {item.content && (
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
  {item.content}
