@@ -173,6 +173,29 @@ class CandidateStage(Base, TimestampMixin):
     # konkretną liczbę nawet jeśli budżet się później zmieni.
     budget_max_at_move: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # ── Stawka do klienta — cena wysłania kandydata do klienta (0122) ──────
+    # Cena (sell rate), za jaką kandydat został zaproponowany klientowi na tej
+    # rekrutacji — w odróżnieniu od `expected_rate_*` (oczekiwania kandydata).
+    # Edytowalna z profilu kandydata (zakładka „Rekrutacje"). Trzymana na
+    # najnowszym CandidateStage danej pary (candidate, job); odczyt w historii =
+    # ostatnia niepusta wartość w obrębie rekrutacji. Reuse PG enum `rateunit`.
+    client_rate_value: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    client_rate_unit: Mapped[Optional[str]] = mapped_column(
+        Enum(
+            "hourly",
+            "daily",
+            "monthly",
+            name="rateunit",
+            create_type=False,
+        ),
+        nullable=True,
+    )
+    client_rate_currency: Mapped[Optional[str]] = mapped_column(
+        String(3), nullable=True
+    )
+
     approved_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
