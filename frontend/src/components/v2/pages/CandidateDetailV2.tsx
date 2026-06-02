@@ -42,9 +42,11 @@ import {
  X,
 } from"lucide-react";
 import api, {
+ candidatesApi,
  contractsApi,
  extractErrorMsg,
  type ContractDraftResponse,
+ type RateUnit,
  candidateStageCvApi,
  type CVOriginalSnapshot,
  type CVBrandedState,
@@ -792,6 +794,7 @@ export function CandidateDetailV2({
  <div className="lg:col-span-2">
  <RekrutacjeTab
  history={history}
+ candidateId={Number(id)}
  candidateName={`${candidate.name} ${candidate.lastname}`}
  />
  </div>
@@ -2220,11 +2223,181 @@ function TimelineTab({ items }: { items: any[] }) {
  );
 }
 
+type RecruitmentRate = {
+ value: number;
+ unit: string | null;
+ currency: string | null;
+} | null;
+
+// Edytowalna „Stawka do klienta" (cena wysłania kandydata do klienta) per
+// rekrutacja. Po lewej pokazujemy oczekiwania kandydata (expected_rate) dla
+// kontekstu marży. Zapis przez PATCH; odświeżenie historii przez prefix-invalidate.
+function RecruitmentRateRow({
+ candidateId,
+ jobId,
+ clientRate,
+ expectedRate,
+}: {
+ candidateId: number;
+ jobId: number;
+ clientRate: RecruitmentRate;
+ expectedRate: RecruitmentRate;
+}) {
+ const queryClient = useQueryClient();
+ const { showSuccess, showError } = useToast();
+ const [editing, setEditing] = useState(false);
+ const [value, setValue] = useState(
+ clientRate?.value != null ? String(clientRate.value) :"",
+ );
+ const [unit, setUnit] = useState<RateUnit>(
+ (clientRate?.unit as RateUnit) ??"monthly",
+ );
+
+ const mut = useMutation({
+ mutationFn: (payload: {
+ rate_value: number | null;
+ rate_unit?: RateUnit;
+ rate_currency?: string;
+ }) => candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload),
+ onSuccess: () => {
+ showSuccess("Zapisano stawkę do klienta");
+ // Prefix-invalidate — queryKey to ["candidate-history", id(string)], a tu
+ // mamy id jako number; prefix match odświeży niezależnie od typu drugiego klucza.
+ queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
+ setEditing(false);
+ },
+ onError: (e) =>
+ showError(
+ (e as { response?: { data?: { detail?: string } } })?.response?.data
+ ?.detail ??"Nie udało się zapisać stawki",
+ ),
+ });
+
+ const save = () => {
+ const trimmed = value.trim();
+ const v = trimmed === "" ? null : Number(trimmed.replace(",","."));
+ if (v !== null && (!Number.isFinite(v) || v < 0)) {
+ showError("Podaj poprawną kwotę");
+ return;
+ }
+ mut.mutate({ rate_value: v, rate_unit: unit, rate_currency:"PLN" });
+ };
+
+ const sameUnit =
+ clientRate != null &&
+ expectedRate != null &&
+ clientRate.unit === expectedRate.unit;
+ const margin =
+ sameUnit && clientRate != null && expectedRate != null
+ ? clientRate.value - expectedRate.value
+ : null;
+
+ return (
+ <div className="mt-3 pt-3 border-t border-border">
+ <div className="grid grid-cols-2 gap-3 text-xs">
+ <div>
+ <div className="text-muted-foreground">Stawka kandydata</div>
+ <div className="font-medium text-foreground">
+ {expectedRate
+ ? formatRate(
+ expectedRate.value,
+ expectedRate.currency,
+ expectedRate.unit,
+ )
+ :"—"}
+ </div>
+ </div>
+ <div>
+ <div className="flex items-center justify-between gap-2">
+ <span className="text-muted-foreground">Stawka do klienta</span>
+ {!editing && (
+ <button
+ type="button"
+ onClick={() => setEditing(true)}
+ className="text-primary hover:underline"
+ data-testid="client-rate-edit"
+ >
+ {clientRate ?"Edytuj" :"Uzupełnij"}
+ </button>
+ )}
+ </div>
+ {editing ? (
+ <div className="flex items-center gap-1 mt-1 flex-wrap">
+ <input
+ type="number"
+ inputMode="decimal"
+ step="0.01"
+ min="0"
+ value={value}
+ onChange={(e) => setValue(e.target.value)}
+ placeholder="np. 22000"
+ className="w-24 h-8 px-2 rounded border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+ autoFocus
+ data-testid="client-rate-input"
+ />
+ <select
+ value={unit}
+ onChange={(e) => setUnit(e.target.value as RateUnit)}
+ className="h-8 px-1 rounded border border-border bg-card text-xs"
+ >
+ <option value="monthly">/mies.</option>
+ <option value="daily">/d</option>
+ <option value="hourly">/h</option>
+ </select>
+ <Button
+ size="sm"
+ disabled={mut.isPending}
+ onClick={save}
+ data-testid="client-rate-save"
+ >
+ Zapisz
+ </Button>
+ <Button
+ size="sm"
+ variant="ghost"
+ onClick={() => {
+ setEditing(false);
+ setValue(clientRate?.value != null ? String(clientRate.value) :"");
+ setUnit((clientRate?.unit as RateUnit) ??"monthly");
+ }}
+ >
+ Anuluj
+ </Button>
+ </div>
+ ) : (
+ <div className="font-medium text-foreground">
+ {clientRate
+ ? formatRate(clientRate.value, clientRate.currency, clientRate.unit)
+ :"—"}
+ </div>
+ )}
+ </div>
+ </div>
+ {margin != null && (
+ <div className="mt-2 text-xs text-muted-foreground">
+ Marża:{""}
+ <span
+ className={
+ margin >= 0
+ ?"font-medium text-emerald-600"
+ :"font-medium text-destructive"
+ }
+ >
+ {formatRate(margin, clientRate?.currency, clientRate?.unit)}
+ </span>
+ </div>
+ )}
+ </div>
+ );
+}
+
 function RekrutacjeTab({
  history,
+ candidateId,
  candidateName,
 }: {
  history: any[];
+ candidateId: number;
  candidateName: string;
 }) {
  if (!Array.isArray(history) || history.length === 0) {
@@ -2240,6 +2413,7 @@ function RekrutacjeTab({
  <RekrutacjaCard
  key={job.job_id ?? job.id ?? i}
  job={job}
+ candidateId={candidateId}
  candidateName={candidateName}
  />
  ))}
@@ -2249,9 +2423,11 @@ function RekrutacjeTab({
 
 function RekrutacjaCard({
  job,
+ candidateId,
  candidateName,
 }: {
  job: any;
+ candidateId: number;
  candidateName: string;
 }) {
  const queryClient = useQueryClient();
@@ -2347,6 +2523,13 @@ function RekrutacjaCard({
  </div>
  </div>
  </div>
+
+ <RecruitmentRateRow
+ candidateId={candidateId}
+ jobId={job.job_id ?? job.id}
+ clientRate={job.client_rate ?? null}
+ expectedRate={job.expected_rate ?? null}
+ />
 
  {stageId != null ? (
  <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-border">

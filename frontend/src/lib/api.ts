@@ -277,6 +277,21 @@ export const candidatesApi = {
     api.get(`/api/candidates/${id}/timeline?limit=${limit}`),
   getHistory: (id: number) => api.get(`/api/candidates/${id}/history`),
   search: (body: Record<string, unknown>) => api.post("/api/search/candidates", body),
+  // Stawka do klienta (sell rate) dla konkretnej rekrutacji. rate_value=null
+  // czyści stawkę. Zapis ląduje na najnowszym etapie tej (candidate, job).
+  setRecruitmentClientRate: (
+    candidateId: number,
+    jobId: number,
+    payload: {
+      rate_value: number | null;
+      rate_unit?: RateUnit;
+      rate_currency?: string;
+    },
+  ) =>
+    api.patch(
+      `/api/candidates/${candidateId}/recruitments/${jobId}/client-rate`,
+      payload,
+    ),
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

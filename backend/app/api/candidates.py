@@ -33,7 +33,7 @@ from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import CandidateDocument
 from app.models.candidate_conflict import CandidateConflict, ConflictType
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
@@ -68,6 +68,7 @@ from app.schemas.candidate import (
 )
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
+from app.schemas.pipeline import ClientRateUpdate
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
     WeightProfile,
@@ -2419,6 +2420,13 @@ async def get_candidate_history(
                 "latest_stage_id": None,
                 "first_seen": None,
                 "last_seen": None,
+                # Stawki per rekrutacja — odczyt = ostatnia (najnowsza) niepusta
+                # wartość w obrębie tej rekrutacji. `stages_result` jest
+                # posortowany moved_at DESC, więc pierwszy napotkany non-null
+                # to ten najświeższy. client_rate = cena wysłania do klienta
+                # (sell), expected_rate = oczekiwania kandydata (kontekst marży).
+                "client_rate": None,
+                "expected_rate": None,
             }
         entry = jobs_map[job_id]
         entry["stages"].append(
@@ -2430,6 +2438,18 @@ async def get_candidate_history(
                 "notes": stage.notes,
             }
         )
+        if entry["client_rate"] is None and stage.client_rate_value is not None:
+            entry["client_rate"] = {
+                "value": float(stage.client_rate_value),
+                "unit": stage.client_rate_unit,
+                "currency": stage.client_rate_currency or "PLN",
+            }
+        if entry["expected_rate"] is None and stage.expected_rate_value is not None:
+            entry["expected_rate"] = {
+                "value": float(stage.expected_rate_value),
+                "unit": stage.expected_rate_unit,
+                "currency": stage.expected_rate_currency or "PLN",
+            }
         # Track dates
         moved_at = stage.moved_at.isoformat() if stage.moved_at else None
         if moved_at:
@@ -2493,6 +2513,66 @@ async def get_candidate_history(
         "jobs": list(jobs_map.values()),
         "contracts": contracts_history,
         "risk_summary": risk_summary,
+    }
+
+
+@router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")
+async def set_recruitment_client_rate(
+    candidate_id: int,
+    job_id: int,
+    payload: ClientRateUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ustaw/wyczyść „Stawkę do klienta" (cena wysłania kandydata do klienta)
+    dla danej rekrutacji (candidate, job).
+
+    PATCH /api/candidates/{candidate_id}/recruitments/{job_id}/client-rate
+
+    Wartość zapisujemy na najnowszym `CandidateStage` tej rekrutacji; odczyt w
+    `/history` bierze ostatnią niepustą wartość (analogicznie do expected_rate).
+    `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
+    stawką — wtedy wystarczy uzupełnić ją ponownie.
+    """
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc())
+        .limit(1)
+    )
+    if latest is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+        )
+
+    if payload.rate_value is None:
+        latest.client_rate_value = None
+        latest.client_rate_unit = None
+        latest.client_rate_currency = None
+    else:
+        latest.client_rate_value = payload.rate_value
+        latest.client_rate_unit = (payload.rate_unit or RateUnit.monthly).value
+        latest.client_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    await db.commit()
+    await db.refresh(latest)
+
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "client_rate": (
+            {
+                "value": float(latest.client_rate_value),
+                "unit": latest.client_rate_unit,
+                "currency": latest.client_rate_currency or "PLN",
+            }
+            if latest.client_rate_value is not None
+            else None
+        ),
     }
 
 

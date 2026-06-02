@@ -54,6 +54,19 @@ class StageMove(BaseModel):
     candidate_offer_response: Optional[CandidateOfferResponse] = None
 
 
+class ClientRateUpdate(BaseModel):
+    """Body dla PATCH /candidates/{id}/recruitments/{job_id}/client-rate.
+
+    Ustawia „Stawkę do klienta" (sell rate) dla danej rekrutacji.
+    `rate_value=None` → wyczyść stawkę. Gdy podana wartość bez jednostki,
+    backend domyślnie przyjmuje `monthly`.
+    """
+
+    rate_value: Optional[Decimal] = Field(None, ge=0)
+    rate_unit: Optional[RateUnit] = None
+    rate_currency: Optional[str] = Field(default="PLN", max_length=3)
+
+
 class CandidateStageResponse(BaseModel):
     id: int
     candidate_id: int
