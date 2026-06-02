@@ -317,7 +317,7 @@ export function JobsListV2() {
  setPage(1);
  }}
  >
- <SelectTrigger className="h-9 w-[180px]">
+ <SelectTrigger className="h-9 w-[180px] font-medium">
  <SelectValue placeholder="Termin: dowolny" />
  </SelectTrigger>
  <SelectContent>
