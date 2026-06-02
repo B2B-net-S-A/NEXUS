@@ -152,7 +152,7 @@ async def test_filter_pipeline_stage_single_value(
     await _seed_stage(other, job_id, "new")
     try:
         r = await app_client.get(
-            "/api/candidates?pipeline_stage=screening&page_size=200",
+            "/api/candidates?pipeline_stage=screening&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -178,7 +178,7 @@ async def test_filter_pipeline_stage_multi_value_or(
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=screening"
-            "&pipeline_stage=interview&page_size=200",
+            "&pipeline_stage=interview&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -210,7 +210,7 @@ async def test_filter_stage_current_only_true_default(
         # Default behaviour — latest move is `rejected`, so `screening` query
         # must NOT include this candidate.
         r = await app_client.get(
-            "/api/candidates?pipeline_stage=screening&page_size=200",
+            "/api/candidates?pipeline_stage=screening&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -219,7 +219,7 @@ async def test_filter_stage_current_only_true_default(
 
         # But the same candidate IS at `rejected`, so the rejected query hits.
         r2 = await app_client.get(
-            "/api/candidates?pipeline_stage=rejected&page_size=200",
+            "/api/candidates?pipeline_stage=rejected&page_size=100",
             headers=app_auth_headers,
         )
         ids2 = [item["id"] for item in r2.json()["items"]]
@@ -244,7 +244,7 @@ async def test_filter_stage_current_only_false_matches_history(
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=screening"
-            "&stage_current_only=false&page_size=200",
+            "&stage_current_only=false&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -268,7 +268,7 @@ async def test_filter_stage_category_external_expands_to_stages(
     await _seed_stage(at_screening, job_id, "screening")
     try:
         r = await app_client.get(
-            "/api/candidates?stage_category=external&page_size=200",
+            "/api/candidates?stage_category=external&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -311,7 +311,7 @@ async def test_filter_stage_moved_by(
     await _seed_stage(by_b, job_id, "verified", moved_by=mover_b)
     try:
         r = await app_client.get(
-            f"/api/candidates?stage_moved_by={mover_a}&page_size=200",
+            f"/api/candidates?stage_moved_by={mover_a}&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -346,7 +346,7 @@ async def test_filter_stage_moved_by_correlated_with_stage(
     try:
         r = await app_client.get(
             f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
-            "&page_size=200",
+            "&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -386,7 +386,7 @@ async def test_filter_stage_moved_date_range(
         r = await app_client.get(
             "/api/candidates?pipeline_stage=verified"
             "&stage_moved_after=2026-05-01&stage_moved_before=2026-05-31"
-            "&page_size=200",
+            "&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -416,7 +416,7 @@ async def test_filter_stage_moved_before_is_inclusive_of_whole_day(
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=verified"
-            "&stage_moved_before=2026-05-31&page_size=200",
+            "&stage_moved_before=2026-05-31&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -440,7 +440,7 @@ async def test_filter_stage_moved_by_without_stage_matches_any_move(
     await _seed_stage(untouched, job_id, "screening", moved_by=None)
     try:
         r = await app_client.get(
-            f"/api/candidates?stage_moved_by={mover_a}&page_size=200",
+            f"/api/candidates?stage_moved_by={mover_a}&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -488,7 +488,7 @@ async def test_stage_moved_by_matches_after_candidate_progressed(
     try:
         r = await app_client.get(
             f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
-            "&page_size=200",
+            "&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -524,7 +524,7 @@ async def test_stage_moved_date_matches_after_candidate_progressed(
         r = await app_client.get(
             "/api/candidates?pipeline_stage=verified"
             "&stage_moved_after=2026-05-01&stage_moved_before=2026-05-31"
-            "&page_size=200",
+            "&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -550,7 +550,7 @@ async def test_bare_stage_filter_stays_current_only_after_progression(
     )
     try:
         r = await app_client.get(
-            "/api/candidates?pipeline_stage=verified&page_size=200",
+            "/api/candidates?pipeline_stage=verified&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -582,7 +582,7 @@ async def test_stage_current_only_true_overrides_move_filter(
     try:
         r = await app_client.get(
             f"/api/candidates?pipeline_stage=verified&stage_moved_by={mover_a}"
-            "&stage_current_only=true&page_size=200",
+            "&stage_current_only=true&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -634,7 +634,7 @@ async def test_active_recruitments_includes_current_stage_mover(
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=verified"
-            "&include_active_recruitments=true&page_size=200",
+            "&include_active_recruitments=true&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -666,7 +666,7 @@ async def test_active_recruitments_mover_null_for_system_import(
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=screening"
-            "&include_active_recruitments=true&page_size=200",
+            "&include_active_recruitments=true&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -703,7 +703,7 @@ async def test_active_recruitments_mover_reflects_latest_move(
     )
     try:
         r = await app_client.get(
-            "/api/candidates?include_active_recruitments=true&page_size=200",
+            "/api/candidates?include_active_recruitments=true&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
