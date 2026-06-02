@@ -1624,7 +1624,7 @@ export function CandidatesListV2() {
  <Sparkles className="h-4 w-4" /> Otwarci na extra
  </Button>
  <Select value={sortBy} onValueChange={setSortBy}>
- <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm">
+ <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm font-medium">
  <SelectValue />
  </SelectTrigger>
  <SelectContent>
