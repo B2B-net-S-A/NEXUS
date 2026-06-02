@@ -161,8 +161,8 @@ export function SuggestedJobsWidget({
 
       {!loading && matches.length === 0 && (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak sugerowanych projektów. Upewnij się, że CV zostało wgrane i masz
-          opublikowane oferty.
+          Brak sugerowanych projektów. Upewnij się, że kandydat ma wgrane CV lub
+          uzupełnione umiejętności.
         </p>
       )}
 
@@ -185,6 +185,11 @@ export function SuggestedJobsWidget({
                   {j.title}
                 </Link>
                 <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                  {j.status === "draft" && (
+                    <span className="px-1.5 py-0.5 rounded border text-[10px] font-medium bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/50">
+                      Szkic
+                    </span>
+                  )}
                   {j.location && <span>📍 {j.location}</span>}
                   {j.salary_min && j.salary_max && (
                     <span>
