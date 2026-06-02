@@ -403,6 +403,28 @@ async def candidates_from_similar_jobs(
 # ── Candidate → jobs (reverse direction) ────────────────────────────────────
 
 
+# Statuses eligible for candidate→job recommendations. Mirrors
+# marketplace_service.scan_candidate_for_top_jobs ("otwarte joby"): draft +
+# published, never closed. Including drafts means the widget isn't empty when
+# few jobs are published yet (on prod ~14/3883 are published) — the same reason
+# the "Wrzuć na targ" button finds matches the old published-only filter missed.
+_RECOMMENDABLE_STATUSES = (JobStatus.draft, JobStatus.published)
+
+
+def _recommendation_rank_key(
+    total: float, status: JobStatus | None
+) -> tuple[int, float]:
+    """Ordering key for candidate→job recommendations: published first, by score.
+
+    Published jobs are immediately actionable openings, so they rank ahead of
+    drafts even when a draft scores higher — this keeps ``published`` the
+    higher-priority signal while draft matches still surface below it. Within a
+    single status bucket, higher score wins.
+    """
+    published_rank = 0 if status == JobStatus.published else 1
+    return (published_rank, -total)
+
+
 @router.get("/candidates/{candidate_id}/recommendations")
 @limiter.limit("20/minute")
 async def recommend_jobs_for_candidate(
@@ -410,11 +432,18 @@ async def recommend_jobs_for_candidate(
     candidate_id: int,
     top_k: int = Query(10, ge=1, le=50),
     include_breakdown: bool = Query(True),
-    only_open: bool = Query(True, description="Only jobs with status=published."),
+    only_open: bool = Query(
+        True,
+        description=(
+            "Restrict to open jobs — status draft OR published, never closed "
+            "(mirrors the marketplace 'otwarte joby' filter). Set false to "
+            "include closed jobs too. Published jobs are ranked above drafts."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Reverse recommendations: which open jobs fit this candidate?"""
+    """Reverse recommendations: which open (draft/published) jobs fit this candidate?"""
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -437,10 +466,12 @@ async def recommend_jobs_for_candidate(
     similarity_map = {h["job_id"]: h["score"] for h in hits}
     job_ids = list(similarity_map.keys())
 
-    # Fallback: all open jobs
+    # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
     if not job_ids:
         open_jobs = await db.execute(
-            select(Job.id).where(Job.status == JobStatus.published).limit(100)
+            select(Job.id)
+            .where(Job.status.in_(_RECOMMENDABLE_STATUSES))
+            .limit(100)
         )
         job_ids = [j for (j,) in open_jobs.all()]
 
@@ -453,7 +484,9 @@ async def recommend_jobs_for_candidate(
 
     job_query = select(Job).where(Job.id.in_(job_ids))
     if only_open:
-        job_query = job_query.where(Job.status == JobStatus.published)
+        # "Open" = draft + published (matches scan_candidate_for_top_jobs);
+        # closed jobs are never recommended.
+        job_query = job_query.where(Job.status.in_(_RECOMMENDABLE_STATUSES))
     jobs = (await db.execute(job_query)).scalars().all()
 
     # Skip jobs already in this candidate's pipeline
@@ -470,6 +503,12 @@ async def recommend_jobs_for_candidate(
 
     breakdowns = await rank_jobs_for_candidate(
         candidate, jobs, db, similarity_map=similarity_map
+    )
+    # Published roles outrank drafts (higher-priority signal); re-rank BEFORE the
+    # top_k cap so published matches aren't truncated away by a score-only sort.
+    status_by_job = {j.id: j.status for j in jobs}
+    breakdowns.sort(
+        key=lambda b: _recommendation_rank_key(b.total, status_by_job.get(b.job_id))
     )
     breakdowns = breakdowns[:top_k]
 

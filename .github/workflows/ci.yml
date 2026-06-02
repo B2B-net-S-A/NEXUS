@@ -133,6 +133,7 @@ jobs:
                  tests/test_jobs_deadline_serialization.py \
                  tests/test_dynareporter_profile.py \
                  tests/test_dynareporter_admin.py \
+                 tests/test_recommendation_status_filter.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
