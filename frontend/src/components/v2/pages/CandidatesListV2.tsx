@@ -447,7 +447,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  </div>
  {(r.moved_by_name || r.moved_at) && (
  <div
- className="mt-0.5 truncate text-[11px] text-muted-foreground/80"
+ className="mt-0.5 text-[11px] leading-snug text-muted-foreground/80"
  title={`Kto i kiedy przeniósł kandydata na etap „${stageLabel(r.stage)}"`}
  >
  {r.moved_by_name ? `Przeniósł: ${r.moved_by_name}` : "Przeniesiono"}
