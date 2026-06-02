@@ -469,9 +469,7 @@ async def recommend_jobs_for_candidate(
     # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
     if not job_ids:
         open_jobs = await db.execute(
-            select(Job.id)
-            .where(Job.status.in_(_RECOMMENDABLE_STATUSES))
-            .limit(100)
+            select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES)).limit(100)
         )
         job_ids = [j for (j,) in open_jobs.all()]
 
