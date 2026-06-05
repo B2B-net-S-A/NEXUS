@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Separator } from"@/components/ui/separator";
 import { Button } from"@/components/ui/button";
 import { MyJobsWidget } from"@/components/v2/pages/dashboard/MyJobsWidget";
+import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel";
 import { WidgetState, WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState";
 import { hasRole, useAuthStore } from"@/store/auth";
 import { UserCog } from"lucide-react";
@@ -550,6 +551,9 @@ export function DashboardV2() {
  </Link>
  </div>
  </div>
+
+ {/* Moje KPI — osobisty panel */}
+ <MojeKpiPanel />
 
  {/* KPI hero row */}
  <section>

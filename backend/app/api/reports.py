@@ -136,11 +136,13 @@ async def report_recruitment(
     # (moved_at >= start means the stage move happened in this period)
     stage_filter = [CandidateStage.moved_at >= start]
 
-    # Global funnel counts (across all recruiters)
-    # Weryfikacje    = new + screening           (rekruter sourcuje)
-    # Rekomendacje   = interview                 (internal OK → rekomendacja do klienta)
-    # Interviews     = client_interview          (klient weryfikuje technicznie)
-    # Placements     = hired                     (kontrakt aktywny)
+    # Global funnel counts (across all recruiters). Definicje KPI Artura
+    # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
+    # Weryfikacje    = verified    (kandydat zweryfikowany przez rekrutera)
+    # Rekomendacje   = cv_sent     (CV wysłane do klienta)
+    # Interviews     = interview   (zaproszenie na interview; client_interview
+    #                               jest w praktyce nieużywany)
+    # Placements     = hired       (kontrakt aktywny)
 
     async def count_stage(stages: list) -> int:
         q = (
@@ -150,9 +152,9 @@ async def report_recruitment(
         )
         return (await db.execute(q)).scalar() or 0
 
-    weryfikacje = await count_stage([PipelineStage.new, PipelineStage.screening])
-    rekomendacje = await count_stage([PipelineStage.interview])
-    interviews = await count_stage([PipelineStage.client_interview])
+    weryfikacje = await count_stage([PipelineStage.verified])
+    rekomendacje = await count_stage([PipelineStage.cv_sent])
+    interviews = await count_stage([PipelineStage.interview])
     placements = await count_stage([PipelineStage.hired])
 
     funnel_efficiency = {
@@ -167,24 +169,13 @@ async def report_recruitment(
             User.id,
             User.name,
             func.sum(
-                case(
-                    (
-                        CandidateStage.stage.in_(
-                            [PipelineStage.new, PipelineStage.screening]
-                        ),
-                        1,
-                    ),
-                    else_=0,
-                )
+                case((CandidateStage.stage == PipelineStage.verified, 1), else_=0)
             ).label("weryfikacje"),
             func.sum(
-                case((CandidateStage.stage == PipelineStage.interview, 1), else_=0)
+                case((CandidateStage.stage == PipelineStage.cv_sent, 1), else_=0)
             ).label("rekomendacje"),
             func.sum(
-                case(
-                    (CandidateStage.stage == PipelineStage.client_interview, 1),
-                    else_=0,
-                )
+                case((CandidateStage.stage == PipelineStage.interview, 1), else_=0)
             ).label("interviews"),
             func.sum(
                 case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)
