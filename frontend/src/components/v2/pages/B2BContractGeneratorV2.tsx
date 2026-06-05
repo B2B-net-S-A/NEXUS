@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ChevronsUpDown,
   Download,
-  ExternalLink,
+  Eye,
   FileSignature,
   Loader2,
   Printer,
   Save,
   Search,
+  X,
 } from "lucide-react";
-import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,12 +49,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import api, {
   b2bGeneratorApi,
-  contractsApi,
   extractErrorMsg,
+  type B2BRenderPayload,
   type B2BRole,
 } from "@/lib/api";
 import { hasRole, useAuthStore } from "@/store/auth";
-import { rateInWords as computeRateInWords } from "@/lib/number-to-words";
 import { cn } from "@/lib/utils";
 
 type CandidateOption = {
@@ -70,6 +69,24 @@ type RecruitmentOption = {
   job_id: number;
   job_title: string;
   stage: string;
+};
+
+type CandidateDetail = {
+  full_name?: string;
+  name?: string;
+  lastname?: string;
+  legal_name?: string;
+  nip?: string;
+  regon?: string;
+  business_address?: string;
+  email?: string;
+  phone?: string;
+};
+
+type JobDetail = {
+  description?: string | null;
+  location?: string | null;
+  client_name?: string | null;
 };
 
 type Lang = "pl" | "en";
@@ -127,8 +144,8 @@ export function B2BContractGeneratorV2() {
         <div>
           <h1 className="text-2xl font-semibold">Generator Umów B2B</h1>
           <p className="text-sm text-muted-foreground">
-            Wypełnij jednolitą umowę B2B (PL/EN) danymi kandydata i rekrutacji,
-            wybierz rolę z gotowym zakresem usług → pobierz DOCX / PDF.
+            Wpisz dane ręcznie lub zaciągnij z kandydata/rekrutacji, wybierz rolę
+            z gotowym zakresem usług → pobierz DOCX / PDF.
           </p>
         </div>
       </div>
@@ -157,33 +174,47 @@ export function B2BContractGeneratorV2() {
 
 function GeneratorForm() {
   const toast = useToast();
-  const queryClient = useQueryClient();
 
   const [language, setLanguage] = useState<Lang>("pl");
+
+  // Źródło danych (opcjonalne) — pre-fill z kandydata + rekrutacji.
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [candidateOpen, setCandidateOpen] = useState(false);
   const [candidateQuery, setCandidateQuery] = useState("");
   const [stageId, setStageId] = useState<string>("");
+
+  // Rola + zakres
   const [roleId, setRoleId] = useState<string>("");
   const [scopeText, setScopeText] = useState("");
 
+  // Dane Partnera (firma)
+  const [partnerName, setPartnerName] = useState("");
+  const [partnerLegalName, setPartnerLegalName] = useState("");
+  const [partnerNip, setPartnerNip] = useState("");
+  const [partnerRegon, setPartnerRegon] = useState("");
+  const [partnerBusinessAddress, setPartnerBusinessAddress] = useState("");
+  const [partnerCorrespondenceAddress, setPartnerCorrespondenceAddress] =
+    useState("");
+  const [partnerEmail, setPartnerEmail] = useState("");
+  const [partnerPhone, setPartnerPhone] = useState("");
+
+  // Klient + projekt
+  const [clientName, setClientName] = useState("");
+  const [projectCity, setProjectCity] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+
+  // Warunki
   const [contractNumber, setContractNumber] = useState("");
   const [signingDate, setSigningDate] = useState(todayISO());
   const [startDate, setStartDate] = useState(todayISO());
-  const [projectCity, setProjectCity] = useState("");
-  const [projectDescription, setProjectDescription] = useState("");
-  const [correspondenceAddress, setCorrespondenceAddress] = useState("");
   const [rateCandidate, setRateCandidate] = useState("");
-  const [rateInWords, setRateInWords] = useState("");
   const [currency, setCurrency] = useState("PLN");
-  // Flagi „użytkownik nadpisał ręcznie" — blokują auto-uzupełnianie.
-  const [rateWordsTouched, setRateWordsTouched] = useState(false);
-  const [descTouched, setDescTouched] = useState(false);
-  const [cityTouched, setCityTouched] = useState(false);
 
-  const [generatedContractId, setGeneratedContractId] = useState<number | null>(
-    null,
-  );
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+
+  // Pre-fill „raz na kandydata / ofertę" — nie nadpisuje ręcznych zmian.
+  const prefilledCand = useRef<number | null>(null);
+  const prefilledJob = useRef<number | null>(null);
 
   const candidatesQuery = useQuery({
     queryKey: ["b2b-gen-candidates", candidateQuery],
@@ -215,14 +246,10 @@ function GeneratorForm() {
     staleTime: 60_000,
   });
 
-  const draftQuery = useQuery({
-    queryKey: ["b2b-gen-draft", generatedContractId],
-    queryFn: async () => {
-      if (!generatedContractId) return null;
-      const res = await contractsApi.draft.get(generatedContractId);
-      return res.data;
-    },
-    enabled: !!generatedContractId,
+  const nextNumberQuery = useQuery({
+    queryKey: ["b2b-next-number"],
+    queryFn: () => b2bGeneratorApi.nextNumber(),
+    staleTime: 60_000,
   });
 
   const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
@@ -236,7 +263,62 @@ function GeneratorForm() {
     [recruitmentsQuery.data, stageId],
   );
 
-  // Populate editable scope when role / language changes.
+  // Detal kandydata → pre-fill danych firmowych (raz per kandydat).
+  const candidateDetailQuery = useQuery({
+    queryKey: ["b2b-cand-detail", candidate?.id],
+    queryFn: async () => {
+      if (!candidate) return null;
+      const res = await api.get<CandidateDetail>(`/api/candidates/${candidate.id}`);
+      return res.data;
+    },
+    enabled: !!candidate,
+    staleTime: 300_000,
+  });
+
+  useEffect(() => {
+    const c = candidateDetailQuery.data;
+    if (!c || !candidate || prefilledCand.current === candidate.id) return;
+    prefilledCand.current = candidate.id;
+    setPartnerName(
+      c.full_name || `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || candidate.full_name,
+    );
+    setPartnerLegalName(c.legal_name || "");
+    setPartnerNip(c.nip || "");
+    setPartnerRegon(c.regon || "");
+    setPartnerBusinessAddress(c.business_address || "");
+    setPartnerEmail(c.email || "");
+    setPartnerPhone(c.phone || "");
+  }, [candidateDetailQuery.data, candidate]);
+
+  // Detal oferty → pre-fill klienta / opisu / miasta (raz per oferta).
+  const jobQuery = useQuery({
+    queryKey: ["b2b-gen-job", selectedRecruitment?.job_id],
+    queryFn: async () => {
+      if (!selectedRecruitment) return null;
+      const res = await api.get<JobDetail>(
+        `/api/jobs/${selectedRecruitment.job_id}`,
+      );
+      return res.data;
+    },
+    enabled: !!selectedRecruitment,
+    staleTime: 300_000,
+  });
+
+  useEffect(() => {
+    const j = jobQuery.data;
+    if (
+      !j ||
+      !selectedRecruitment ||
+      prefilledJob.current === selectedRecruitment.job_id
+    )
+      return;
+    prefilledJob.current = selectedRecruitment.job_id;
+    if (j.description) setProjectDescription(j.description);
+    if (j.location) setProjectCity(j.location);
+    if (j.client_name) setClientName(j.client_name);
+  }, [jobQuery.data, selectedRecruitment]);
+
+  // Zakres z roli/języka.
   useEffect(() => {
     if (!selectedRole) {
       setScopeText("");
@@ -247,31 +329,12 @@ function GeneratorForm() {
     setScopeText(bullets.join("\n"));
   }, [selectedRole, language]);
 
-  // Oferta wybranej rekrutacji — źródło pre-fillu opisu projektu + miasta.
-  const jobQuery = useQuery({
-    queryKey: ["b2b-gen-job", selectedRecruitment?.job_id],
-    queryFn: async () => {
-      if (!selectedRecruitment) return null;
-      const res = await api.get(`/api/jobs/${selectedRecruitment.job_id}`);
-      return res.data as { description?: string | null; location?: string | null };
-    },
-    enabled: !!selectedRecruitment,
-  });
-
-  // Pre-fill opisu projektu + miasta z oferty (dopóki użytkownik nie nadpisze).
+  // Auto numer umowy (pierwsze załadowanie, jeśli puste).
   useEffect(() => {
-    const job = jobQuery.data;
-    if (!job) return;
-    if (!descTouched && job.description) setProjectDescription(job.description);
-    if (!cityTouched && job.location) setProjectCity(job.location);
-  }, [jobQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto „stawka słownie" z kwoty + języka (dopóki użytkownik nie nadpisze).
-  useEffect(() => {
-    if (rateWordsTouched) return;
-    const n = rateCandidate ? Number(rateCandidate) : null;
-    setRateInWords(n ? computeRateInWords(n, language) : "");
-  }, [rateCandidate, language, rateWordsTouched]);
+    if (nextNumberQuery.data && !contractNumber) {
+      setContractNumber(nextNumberQuery.data.contract_number);
+    }
+  }, [nextNumberQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groupedRoles = useMemo(() => {
     const map = new Map<string, { label: string; items: B2BRole[] }>();
@@ -296,146 +359,183 @@ function GeneratorForm() {
     [scopeText],
   );
 
-  const generateMut = useMutation({
-    mutationFn: () =>
-      b2bGeneratorApi.generate({
-        candidate_id: candidate!.id,
-        job_id: selectedRecruitment!.job_id,
-        role_id: selectedRole!.id,
-        language,
-        contract_number: contractNumber.trim() || null,
-        signing_date: signingDate || null,
-        start_date: startDate,
-        project_city: projectCity.trim() || null,
-        project_description: projectDescription.trim() || null,
-        correspondence_address: correspondenceAddress.trim() || null,
-        rate_candidate: rateCandidate ? Number(rateCandidate) : null,
-        currency: currency.trim() || "PLN",
-        rate_in_words: rateInWords.trim() || null,
-        scope_items_override: scopeItems.length ? scopeItems : null,
-      }),
-    onSuccess: (res) => {
-      setGeneratedContractId(res.contract_id);
-      queryClient.invalidateQueries({
-        queryKey: ["b2b-gen-draft", res.contract_id],
-      });
-      toast.showSuccess("Umowa wygenerowana — podgląd poniżej.");
-    },
-    onError: (e) => toast.showError(extractErrorMsg(e)),
+  const buildPayload = (lang: Lang): B2BRenderPayload => ({
+    role_id: selectedRole ? selectedRole.id : null,
+    language: lang,
+    partner_name: partnerName.trim() || null,
+    partner_legal_name: partnerLegalName.trim() || null,
+    partner_business_address: partnerBusinessAddress.trim() || null,
+    partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
+    partner_nip: partnerNip.trim() || null,
+    partner_regon: partnerRegon.trim() || null,
+    partner_email: partnerEmail.trim() || null,
+    partner_phone: partnerPhone.trim() || null,
+    client_name: clientName.trim() || null,
+    project_city: projectCity.trim() || null,
+    project_description: projectDescription.trim() || null,
+    contract_number: contractNumber.trim() || null,
+    signing_date: signingDate || null,
+    start_date: startDate || null,
+    rate_candidate: rateCandidate ? Number(rateCandidate) : null,
+    currency: currency.trim() || "PLN",
+    scope_items_override: scopeItems.length ? scopeItems : null,
   });
 
-  const handleGenerate = () => {
-    const missing: string[] = [];
-    if (!candidate) missing.push("kandydat");
-    if (!selectedRecruitment) missing.push("rekrutacja");
-    if (!selectedRole) missing.push("rola");
-    if (!startDate) missing.push("data rozpoczęcia usług");
-    if (missing.length) {
-      toast.showError("Uzupełnij: " + missing.join(", "));
-      return;
+  const validate = (): boolean => {
+    if (!selectedRole) {
+      toast.showError("Wybierz rolę / stanowisko.");
+      return false;
     }
-    generateMut.mutate();
+    if (!partnerName.trim() && !partnerLegalName.trim()) {
+      toast.showError(
+        "Uzupełnij dane Partnera (imię i nazwisko lub nazwę firmy).",
+      );
+      return false;
+    }
+    return true;
   };
 
   const docxMut = useMutation({
     mutationFn: async (lang: Lang) => {
-      if (!generatedContractId) throw new Error("Brak umowy");
-      const res = await b2bGeneratorApi.docxBlob(generatedContractId, lang);
+      const res = await b2bGeneratorApi.renderDocx(buildPayload(lang));
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
         `Umowa_B2B_${lang}.docx`,
       );
       downloadBlob(res.data as Blob, filename);
     },
+    onSuccess: () => {
+      toast.showSuccess("Umowa pobrana (DOCX).");
+      nextNumberQuery.refetch().then((r) => {
+        if (r.data) setContractNumber(r.data.contract_number);
+      });
+    },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
-  const draftHtml = draftQuery.data?.content_html ?? "";
+  const previewMut = useMutation({
+    mutationFn: () => b2bGeneratorApi.renderHtml(buildPayload(language)),
+    onSuccess: (d) => setPreviewHtml(d.html),
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const onDocx = (lang: Lang) => {
+    if (validate()) docxMut.mutate(lang);
+  };
+  const onPreview = () => {
+    if (validate()) previewMut.mutate();
+  };
 
   return (
     <div className="space-y-4">
-      {/* Krok 1 — kandydat + rekrutacja + język */}
+      {/* Źródło danych (opcjonalne) */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">1. Kandydat i rekrutacja</CardTitle>
+          <CardTitle className="text-base">Źródło danych (opcjonalne)</CardTitle>
           <CardDescription>
-            Dane firmowe (NIP, REGON, adres) zaciągane są z profilu kandydata —
-            uzupełnij profil, jeśli puste.
+            Wybierz kandydata i rekrutację, by zaciągnąć dane — albo wpisz
+            wszystko ręcznie w polach poniżej (tryb standalone).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label className="mb-1.5 block">Kandydat</Label>
-              <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between font-normal"
+              <Label className="mb-1.5 block">Kandydat (opcjonalnie)</Label>
+              <div className="flex gap-2">
+                <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between font-normal"
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <Search className="h-4 w-4 shrink-0 opacity-60" />
+                        {candidate ? candidate.full_name : "Wybierz kandydata…"}
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-[--radix-popover-trigger-width] p-0"
                   >
-                    <span className="flex items-center gap-2 truncate">
-                      <Search className="h-4 w-4 shrink-0 opacity-60" />
-                      {candidate ? candidate.full_name : "Wybierz kandydata…"}
-                    </span>
-                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        placeholder="Szukaj kandydata…"
+                        value={candidateQuery}
+                        onValueChange={setCandidateQuery}
+                      />
+                      <CommandList>
+                        {candidatesQuery.isLoading ? (
+                          <div className="p-3 text-sm text-muted-foreground">
+                            Szukam…
+                          </div>
+                        ) : (
+                          <CommandEmpty>Brak wyników.</CommandEmpty>
+                        )}
+                        <CommandGroup>
+                          {(candidatesQuery.data ?? []).map((c) => (
+                            <CommandItem
+                              key={c.id}
+                              value={String(c.id)}
+                              onSelect={() => {
+                                setCandidate(c);
+                                setStageId("");
+                                setCandidateOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  candidate?.id === c.id
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              <span className="truncate">
+                                {c.full_name}
+                                {c.email ? (
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    {c.email}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                {candidate ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Wyczyść kandydata"
+                    onClick={() => {
+                      setCandidate(null);
+                      setStageId("");
+                      prefilledCand.current = null;
+                      prefilledJob.current = null;
+                    }}
+                  >
+                    <X className="h-4 w-4" />
                   </Button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-0">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      placeholder="Szukaj kandydata…"
-                      value={candidateQuery}
-                      onValueChange={setCandidateQuery}
-                    />
-                    <CommandList>
-                      {candidatesQuery.isLoading ? (
-                        <div className="p-3 text-sm text-muted-foreground">
-                          Szukam…
-                        </div>
-                      ) : (
-                        <CommandEmpty>Brak wyników.</CommandEmpty>
-                      )}
-                      <CommandGroup>
-                        {(candidatesQuery.data ?? []).map((c) => (
-                          <CommandItem
-                            key={c.id}
-                            value={String(c.id)}
-                            onSelect={() => {
-                              setCandidate(c);
-                              setStageId("");
-                              setCandidateOpen(false);
-                            }}
-                          >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                candidate?.id === c.id ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            <span className="truncate">
-                              {c.full_name}
-                              {c.email ? (
-                                <span className="ml-1 text-xs text-muted-foreground">
-                                  {c.email}
-                                </span>
-                              ) : null}
-                            </span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                ) : null}
+              </div>
             </div>
 
             <div>
               <Label className="mb-1.5 block">Rekrutacja (klient z oferty)</Label>
-              <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
+              <Select
+                value={stageId}
+                onValueChange={setStageId}
+                disabled={!candidate}
+              >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      candidate ? "Wybierz rekrutację…" : "Najpierw kandydat"
+                      candidate ? "Wybierz rekrutację…" : "Opcjonalne — najpierw kandydat"
                     }
                   />
                 </SelectTrigger>
@@ -469,18 +569,108 @@ function GeneratorForm() {
         </CardContent>
       </Card>
 
-      {/* Krok 2 — rola + zakres usług */}
+      {/* Dane Partnera (firma) */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">2. Rola i zakres usług</CardTitle>
+          <CardTitle className="text-base">Dane Partnera (firma)</CardTitle>
           <CardDescription>
-            Zakres trafia do Załącznika nr 3. Możesz go edytować dla tej umowy
-            (1 punkt na linię).
+            Edytowalne — pre-fill z profilu kandydata, jeśli wybrany.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field label="Imię i nazwisko">
+            <Input
+              value={partnerName}
+              onChange={(e) => setPartnerName(e.target.value)}
+              placeholder="np. Jan Kowalski"
+            />
+          </Field>
+          <Field label="Nazwa Firmy">
+            <Input
+              value={partnerLegalName}
+              onChange={(e) => setPartnerLegalName(e.target.value)}
+              placeholder="np. JK Software Jan Kowalski"
+            />
+          </Field>
+          <Field label="NIP">
+            <Input value={partnerNip} onChange={(e) => setPartnerNip(e.target.value)} />
+          </Field>
+          <Field label="REGON">
+            <Input
+              value={partnerRegon}
+              onChange={(e) => setPartnerRegon(e.target.value)}
+            />
+          </Field>
+          <Field label="Adres siedziby firmy" full>
+            <Input
+              value={partnerBusinessAddress}
+              onChange={(e) => setPartnerBusinessAddress(e.target.value)}
+              placeholder="ul., kod, miasto"
+            />
+          </Field>
+          <Field label="Adres do korespondencji (opcjonalnie)" full>
+            <Input
+              value={partnerCorrespondenceAddress}
+              onChange={(e) => setPartnerCorrespondenceAddress(e.target.value)}
+            />
+          </Field>
+          <Field label="E-mail">
+            <Input
+              value={partnerEmail}
+              onChange={(e) => setPartnerEmail(e.target.value)}
+            />
+          </Field>
+          <Field label="Telefon">
+            <Input
+              value={partnerPhone}
+              onChange={(e) => setPartnerPhone(e.target.value)}
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* Klient i projekt */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Klient i projekt</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field label="Pełna nazwa Klienta">
+            <Input
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="np. ACME Bank S.A."
+            />
+          </Field>
+          <Field label="Miasto Klienta">
+            <Input
+              value={projectCity}
+              onChange={(e) => setProjectCity(e.target.value)}
+              placeholder="np. Warszawa"
+            />
+          </Field>
+          <Field label="Opis projektu i zakres usług" full>
+            <Textarea
+              value={projectDescription}
+              onChange={(e) => setProjectDescription(e.target.value)}
+              rows={3}
+              placeholder="3–4 zdania o projekcie (auto z oferty, jeśli wybrana)…"
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      {/* Rola i zakres usług */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Rola i zakres usług</CardTitle>
+          <CardDescription>
+            Zakres trafia do Załącznika nr 3. Możesz go edytować (1 punkt na linię).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="mb-1.5 block">Rola / Stanowisko</Label>
+            <Label className="mb-1.5 block">Rola / Stanowisko *</Label>
             <Select value={roleId} onValueChange={setRoleId}>
               <SelectTrigger>
                 <SelectValue placeholder="Wybierz rolę…" />
@@ -511,25 +701,24 @@ function GeneratorForm() {
                 className="font-mono text-xs"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                {scopeItems.length} punktów · brzmienione punkty zapisują się
-                tylko dla tej umowy.
+                {scopeItems.length} punktów.
               </p>
             </div>
           ) : null}
         </CardContent>
       </Card>
 
-      {/* Krok 3 — dane umowy */}
+      {/* Warunki */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">3. Dane umowy</CardTitle>
+          <CardTitle className="text-base">Warunki umowy</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Numer umowy">
+          <Field label="Numer umowy (auto)">
             <Input
               value={contractNumber}
               onChange={(e) => setContractNumber(e.target.value)}
-              placeholder="np. 42/2026"
+              placeholder="np. 1/2026"
             />
           </Field>
           <Field label="Data podpisania">
@@ -539,151 +728,83 @@ function GeneratorForm() {
               onChange={(e) => setSigningDate(e.target.value)}
             />
           </Field>
-          <Field label="Data rozpoczęcia usług *">
+          <Field label="Data rozpoczęcia usług">
             <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
             />
           </Field>
-          <Field label="Miasto Klienta">
-            <Input
-              value={projectCity}
-              onChange={(e) => {
-                setCityTouched(true);
-                setProjectCity(e.target.value);
-              }}
-              placeholder="np. Warszawa"
-            />
-          </Field>
-          <Field label="Stawka godzinowa (netto)">
-            <Input
-              type="number"
-              value={rateCandidate}
-              onChange={(e) => setRateCandidate(e.target.value)}
-              placeholder="np. 150"
-            />
-          </Field>
-          <Field label="Waluta">
-            <Input
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-            />
-          </Field>
-          <Field label="Stawka słownie" full>
-            <Input
-              value={rateInWords}
-              onChange={(e) => {
-                setRateWordsTouched(true);
-                setRateInWords(e.target.value);
-              }}
-              placeholder="auto z kwoty — lub wpisz ręcznie"
-            />
-          </Field>
-          <Field label="Opis projektu i zakres usług" full>
-            <Textarea
-              value={projectDescription}
-              onChange={(e) => {
-                setDescTouched(true);
-                setProjectDescription(e.target.value);
-              }}
-              rows={3}
-              placeholder="Auto z oferty — lub wpisz 3–4 zdania o projekcie…"
-            />
-          </Field>
-          <Field label="Adres do korespondencji (opcjonalnie)" full>
-            <Input
-              value={correspondenceAddress}
-              onChange={(e) => setCorrespondenceAddress(e.target.value)}
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Stawka godz. (netto)">
+              <Input
+                type="number"
+                value={rateCandidate}
+                onChange={(e) => setRateCandidate(e.target.value)}
+                placeholder="np. 150"
+              />
+            </Field>
+            <Field label="Waluta">
+              <Input value={currency} onChange={(e) => setCurrency(e.target.value)} />
+            </Field>
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            „Stawka słownie" liczy się automatycznie z kwoty.
+          </p>
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">* pola wymagane</p>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
-          size="lg"
-          disabled={generateMut.isPending}
-          onClick={handleGenerate}
+          variant="outline"
+          disabled={previewMut.isPending}
+          onClick={onPreview}
         >
-          {generateMut.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generuję…
-            </>
+          {previewMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            <>
-              <FileSignature className="mr-2 h-4 w-4" />
-              Generuj umowę
-            </>
+            <Eye className="mr-2 h-4 w-4" />
           )}
+          Podgląd
+        </Button>
+        <Button disabled={docxMut.isPending} onClick={() => onDocx("pl")}>
+          {docxMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          Pobierz DOCX (PL)
+        </Button>
+        <Button
+          variant="outline"
+          disabled={docxMut.isPending}
+          onClick={() => onDocx("en")}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          DOCX (EN)
         </Button>
       </div>
 
-      {/* Wynik */}
-      {generatedContractId ? (
+      {/* Podgląd */}
+      {previewHtml ? (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Wygenerowano umowę #{generatedContractId}
-            </CardTitle>
-            <CardDescription>
-              Pobierz DOCX (formatowanie prawne) lub PDF, albo dopracuj w profilu
-              kandydata (edytor + e-podpis Autenti).
-            </CardDescription>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Podgląd umowy</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => printHtml(previewHtml, "Umowa B2B")}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Drukuj / PDF
+            </Button>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={docxMut.isPending}
-                onClick={() => docxMut.mutate("pl")}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                DOCX (PL)
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={docxMut.isPending}
-                onClick={() => docxMut.mutate("en")}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                DOCX (EN)
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!draftHtml}
-                onClick={() =>
-                  printHtml(draftHtml, `Umowa B2B #${generatedContractId}`)
-                }
-              >
-                <Printer className="mr-2 h-4 w-4" />
-                Drukuj / PDF
-              </Button>
-              {candidate ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/candidates/${candidate.id}`}>
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Otwórz w profilu kandydata
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-            {draftHtml ? (
-              <iframe
-                title="Podgląd umowy"
-                className="h-[520px] w-full rounded-lg border bg-white"
-                srcDoc={`<style>${PREVIEW_STYLE}</style>${draftHtml}`}
-              />
-            ) : (
-              <div className="p-6 text-sm text-muted-foreground">
-                Ładowanie podglądu…
-              </div>
-            )}
+          <CardContent>
+            <iframe
+              title="Podgląd umowy"
+              className="h-[520px] w-full rounded-lg border bg-white"
+              srcDoc={`<style>${PREVIEW_STYLE}</style>${previewHtml}`}
+            />
           </CardContent>
         </Card>
       ) : null}

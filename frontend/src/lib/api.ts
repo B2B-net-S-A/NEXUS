@@ -1594,6 +1594,28 @@ export interface B2BGenerateResult {
   language: string;
 }
 
+export interface B2BRenderPayload {
+  role_id?: number | null;
+  language: string;
+  partner_name?: string | null;
+  partner_legal_name?: string | null;
+  partner_business_address?: string | null;
+  partner_correspondence_address?: string | null;
+  partner_nip?: string | null;
+  partner_regon?: string | null;
+  partner_email?: string | null;
+  partner_phone?: string | null;
+  client_name?: string | null;
+  project_city?: string | null;
+  project_description?: string | null;
+  contract_number?: string | null;
+  signing_date?: string | null;
+  start_date?: string | null;
+  rate_candidate?: number | null;
+  currency: string;
+  scope_items_override?: string[] | null;
+}
+
 export const b2bGeneratorApi = {
   roles: (includeInactive = false) =>
     api
@@ -1612,6 +1634,25 @@ export const b2bGeneratorApi = {
       params: { language },
       responseType: "blob",
     }),
+  nextNumber: () =>
+    api
+      .get<{ contract_number: string; year: number; seq: number }>(
+        "/api/b2b-generator/next-number",
+      )
+      .then((r) => r.data),
+  renderDocx: (body: B2BRenderPayload) =>
+    api.post("/api/b2b-generator/render", body, {
+      params: { format: "docx" },
+      responseType: "blob",
+    }),
+  renderHtml: (body: B2BRenderPayload) =>
+    api
+      .post<{ html: string; contract_number: string | null }>(
+        "/api/b2b-generator/render",
+        body,
+        { params: { format: "html" } },
+      )
+      .then((r) => r.data),
 };
 
 export const candidatePinsApi = {

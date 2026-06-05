@@ -98,3 +98,42 @@ class B2BContractDetailResponse(BaseModel):
     currency: Optional[str] = None
     rate_in_words: Optional[str] = None
     scope_items_override: Optional[list[str]] = None
+
+
+class B2BRenderRequest(BaseModel):
+    """Standalone render — wszystkie pola wprost z formularza (bez `Contract`)."""
+
+    role_id: Optional[int] = None
+    language: str = "pl"
+    # Dane Partnera (firma) — edytowalne; pre-fill z kandydata opcjonalny.
+    partner_name: Optional[str] = None
+    partner_legal_name: Optional[str] = None
+    partner_business_address: Optional[str] = None
+    partner_correspondence_address: Optional[str] = None
+    partner_nip: Optional[str] = None
+    partner_regon: Optional[str] = None
+    partner_email: Optional[str] = None
+    partner_phone: Optional[str] = None
+    # Klient + projekt
+    client_name: Optional[str] = None
+    project_city: Optional[str] = None
+    project_description: Optional[str] = None
+    # Warunki
+    contract_number: Optional[str] = None
+    signing_date: Optional[date] = None
+    start_date: Optional[date] = None
+    rate_candidate: Optional[int] = None
+    currency: str = "PLN"
+    rate_in_words: Optional[str] = None
+    scope_items_override: Optional[list[str]] = None
+
+
+class B2BRenderHtmlResponse(BaseModel):
+    html: str
+    contract_number: Optional[str] = None
+
+
+class B2BNextNumberResponse(BaseModel):
+    contract_number: str
+    year: int
+    seq: int

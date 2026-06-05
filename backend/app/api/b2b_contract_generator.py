@@ -12,15 +12,18 @@ import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from jinja2 import TemplateError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
 from app.api.deps import AdminUser, CurrentUser, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_role import B2BContractRole
+from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -33,6 +36,9 @@ from app.schemas.b2b_contract_generator import (
     B2BContractDetailResponse,
     B2BGenerateRequest,
     B2BGenerateResponse,
+    B2BNextNumberResponse,
+    B2BRenderHtmlResponse,
+    B2BRenderRequest,
     B2BRoleCreate,
     B2BRoleResponse,
     B2BRoleUpdate,
@@ -40,7 +46,9 @@ from app.schemas.b2b_contract_generator import (
 from app.services.b2b_contract_generator.docx_renderer import (
     normalize_language,
     render_contract_docx,
+    render_from_context,
 )
+from app.services.b2b_contract_generator.render_context import build_render_context
 
 router = APIRouter()
 
@@ -321,4 +329,91 @@ async def download_docx(
         content=data,
         media_type=_DOCX_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Numeracja umów (auto, uwzględnia wcześniej wygenerowane) ──────────────────
+
+
+async def _next_seq(db: AsyncSession, year: int) -> int:
+    res = await db.scalar(
+        select(func.max(B2BGeneratedContract.seq)).where(
+            B2BGeneratedContract.year == year
+        )
+    )
+    return int(res or 0) + 1
+
+
+@router.get("/next-number", response_model=B2BNextNumberResponse)
+async def next_number(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sugerowany kolejny numer umowy `<seq>/<rok>` (edytowalny w UI)."""
+    year = datetime.now(timezone.utc).year
+    seq = await _next_seq(db, year)
+    return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
+
+
+# ── Standalone render (DOCX / HTML) — bez rekordu Contract ───────────────────
+
+
+@router.post("/render")
+async def render_standalone(
+    payload: B2BRenderRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+    fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
+):
+    """Generuje umowę wprost z pól formularza (tryb ręczny / standalone).
+
+    `format=html` → podgląd (nie loguje numeru). `format=docx` → przypisuje
+    numer, loguje wygenerowanie i zwraca plik DOCX.
+    """
+    lang = normalize_language(payload.language)
+    role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    context = build_render_context(payload, role)
+
+    if fmt == "html":
+        tpl = await _b2b_template_for(db, lang)
+        try:
+            html = _jinja_env.from_string(tpl.content_jinja).render(**context)
+        except TemplateError as exc:
+            raise HTTPException(status_code=422, detail=f"Render error: {exc}")
+        return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
+
+    # format == docx → numer + log + plik
+    year = (
+        payload.signing_date.year
+        if payload.signing_date
+        else datetime.now(timezone.utc).year
+    )
+    seq = await _next_seq(db, year)
+    number = (payload.contract_number or "").strip() or f"{seq}/{year}"
+    db.add(
+        B2BGeneratedContract(
+            year=year,
+            seq=seq,
+            contract_number=number,
+            partner_name=payload.partner_name,
+            client_name=payload.client_name,
+            language=lang,
+            signing_date=payload.signing_date,
+            created_by=current_user.id,
+        )
+    )
+    await db.commit()
+    context["b2b"]["contract_number"] = number
+
+    data = render_from_context(context, language=lang)
+    label = _ascii_filename(payload.partner_name or number)
+    filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
+    return Response(
+        content=data,
+        media_type=_DOCX_MEDIA,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Contract-Number": number,
+            "Access-Control-Expose-Headers": "X-Contract-Number",
+        },
     )
