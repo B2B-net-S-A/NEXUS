@@ -119,7 +119,7 @@ import {
 import { LinkedinSyncPanel } from"@/components/v2/LinkedinSyncPanel";
 import { ActiveViewers } from"@/components/v2/presence/ActiveViewers";
 import { usePresence, type PresenceViewer } from"@/hooks/usePresence";
-import { useAuthStore } from"@/store/auth";
+import { useAuthStore, hasRole } from"@/store/auth";
 import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
 import { CandidateNav } from"@/components/v2/CandidateNav";
 import {
@@ -426,6 +426,36 @@ export function CandidateDetailV2({
  showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
  } finally {
  setNoteSaving(false);
+ }
+ };
+
+ // Edycja istniejącej notatki. PATCH re-parsuje @mentions na backendzie i
+ // dożywia tylko *nowo* dodanych. Zwraca bool — NotatkiTab wychodzi z trybu
+ // edycji dopiero po sukcesie. Bez trailing slash (jak handleAddNote).
+ const handleEditNote = async (
+ noteId: number,
+ content: string,
+ ): Promise<boolean> => {
+ try {
+ await api.patch(`/api/notes/${noteId}`, { content });
+ queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ return true;
+ } catch (e) {
+ showError(extractErrorMsg(e) || "Nie udało się zapisać notatki");
+ return false;
+ }
+ };
+
+ // Usuwanie notatki. Backend kaskaduje NoteMention; zwraca 403 gdy user nie
+ // jest autorem ani adminem (spójne z gating w NotatkiTab).
+ const handleDeleteNote = async (noteId: number): Promise<boolean> => {
+ try {
+ await api.delete(`/api/notes/${noteId}`);
+ queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ return true;
+ } catch (e) {
+ showError(extractErrorMsg(e) || "Nie udało się usunąć notatki");
+ return false;
  }
  };
 
@@ -869,9 +899,12 @@ export function CandidateDetailV2({
  noteText={noteText}
  setNoteText={setNoteText}
  onAdd={handleAddNote}
+ onEdit={handleEditNote}
+ onDelete={handleDeleteNote}
  saving={noteSaving}
  viewers={presenceViewers}
  currentUserId={currentUser?.id}
+ canModerate={hasRole(currentUser, "admin")}
  setEditing={setPresenceEditing}
  />
  </TabsContent>
@@ -3044,9 +3077,12 @@ function NotatkiTab({
  noteText,
  setNoteText,
  onAdd,
+ onEdit,
+ onDelete,
  saving,
  viewers = [],
  currentUserId,
+ canModerate = false,
  setEditing,
 }: {
  timeline: any[];
@@ -3054,9 +3090,12 @@ function NotatkiTab({
  noteText: string;
  setNoteText: (v: string) => void;
  onAdd: (jobId?: number | null) => void;
+ onEdit: (noteId: number, content: string) => Promise<boolean>;
+ onDelete: (noteId: number) => Promise<boolean>;
  saving: boolean;
  viewers?: PresenceViewer[];
  currentUserId?: number;
+ canModerate?: boolean;
  setEditing?: (field: string, active: boolean) => void;
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
@@ -3078,6 +3117,21 @@ function NotatkiTab({
  // Wybrana rekrutacja (null = notatka ogólna, bez przypięcia). Gdy ustawiona,
  // @mention scope zawęża się do członków joba — spójnie z backendem.
  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+
+ // Edycja/usuwanie istniejących notatek (inline). editingId = notatka w
+ // trybie edycji, busyId = trwa zapis/usuwanie, confirmDeleteId = modal.
+ const [editingId, setEditingId] = useState<number | null>(null);
+ const [editText, setEditText] = useState("");
+ const [busyId, setBusyId] = useState<number | null>(null);
+ const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+ // Notatkę może zmienić jej autor albo admin (moderacja) — zgodne z
+ // _can_modify_note na backendzie. author_id bywa null dla importów Traffit:
+ // wtedy tylko admin (canModerate) widzi akcje, autor-match jest niemożliwy.
+ const canModifyNote = (n: any): boolean =>
+ currentUserId != null &&
+ (canModerate ||
+ (n.author_id != null && Number(n.author_id) === Number(currentUserId)));
 
  const othersEditingNotes = viewers.filter(
  (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
@@ -3170,7 +3224,11 @@ function NotatkiTab({
  </div>
  ) : (
  <div className="space-y-2">
- {notes.map((n: any, i: number) => (
+ {notes.map((n: any, i: number) => {
+ const editable = canModifyNote(n);
+ const isEditing = editingId != null && editingId === n.id;
+ const isBusy = busyId != null && busyId === n.id;
+ return (
  <div
  key={n.id ?? i}
  className="rounded-lg bg-background/40 border border-border p-3"
@@ -3195,13 +3253,107 @@ function NotatkiTab({
  )}
  <span>·</span>
  <span>{n.timestamp ? formatRelativeTime(n.timestamp) : ""}</span>
+ {editable && !isEditing && (
+ <span className="ml-auto inline-flex items-center gap-1">
+ <button
+ type="button"
+ onClick={() => {
+ setEditingId(n.id);
+ setEditText(unwrapNoteContent(n.content));
+ }}
+ className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+ title="Edytuj notatkę"
+ aria-label="Edytuj notatkę"
+ >
+ <PencilLine className="h-3.5 w-3.5" />
+ </button>
+ <button
+ type="button"
+ onClick={() => setConfirmDeleteId(n.id)}
+ className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+ title="Usuń notatkę"
+ aria-label="Usuń notatkę"
+ >
+ <Trash2 className="h-3.5 w-3.5" />
+ </button>
+ </span>
+ )}
  </div>
+ {isEditing ? (
+ <div className="mt-2 space-y-2">
+ <MentionTextarea
+ value={editText}
+ onChange={setEditText}
+ scope={
+ n.job_id != null
+ ? { kind: "job", jobId: Number(n.job_id) }
+ : { kind: "global" }
+ }
+ placeholder="Treść notatki… (@email aby oznaczyć osobę)"
+ rows={3}
+ ariaLabel="Edytuj treść notatki"
+ />
+ <div className="flex items-center justify-end gap-2">
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={isBusy}
+ onClick={() => {
+ setEditingId(null);
+ setEditText("");
+ }}
+ >
+ <X className="h-3.5 w-3.5" />
+ Anuluj
+ </Button>
+ <Button
+ size="sm"
+ variant="primary"
+ loading={isBusy}
+ disabled={!editText.trim() || isBusy}
+ onClick={async () => {
+ setBusyId(n.id);
+ const ok = await onEdit(n.id, editText.trim());
+ setBusyId(null);
+ if (ok) {
+ setEditingId(null);
+ setEditText("");
+ }
+ }}
+ >
+ Zapisz
+ </Button>
+ </div>
+ </div>
+ ) : (
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
  {renderWithMentions(unwrapNoteContent(n.content), usersByEmail)}
  </p>
+ )}
  </div>
- ))}
+ );
+ })}
  </div>
+ )}
+
+ {confirmDeleteId != null && (
+ <ConfirmModal
+ title="Usunąć notatkę?"
+ message="Tej operacji nie można cofnąć. Notatka zostanie trwale usunięta."
+ confirmLabel="Usuń"
+ onCancel={() => setConfirmDeleteId(null)}
+ onConfirm={async () => {
+ const noteId = confirmDeleteId;
+ setConfirmDeleteId(null);
+ setBusyId(noteId);
+ const ok = await onDelete(noteId);
+ setBusyId(null);
+ if (ok && editingId === noteId) {
+ setEditingId(null);
+ setEditText("");
+ }
+ }}
+ />
  )}
  </div>
  );

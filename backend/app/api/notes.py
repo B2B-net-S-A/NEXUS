@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.models.note import Note
 from app.models.candidate import Candidate
 from app.models.note_mention import NoteMention
+from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity, UserActionType
 from app.schemas.note import NoteCreate, NoteList, NoteResponse, NoteUpdate
 from app.api.deps import CurrentUser, DeliveryLeadPlus
@@ -34,6 +35,16 @@ async def _resolve_mentions(db: AsyncSession, content: str, note: Note) -> list[
     if note.job_id:
         return await parse_mentions(db, content, note.job_id)
     return await parse_mentions_global(db, content)
+
+
+def _can_modify_note(user: User, note: Note) -> bool:
+    """Kto może edytować/usuwać notatkę: jej autor albo admin (moderacja).
+
+    Świadomie wąsko — notatki to ślad odpowiedzialności w ATS, więc cudzych
+    domyślnie nie ruszamy. Admin ma override do porządkowania (np. usunięcie
+    notatek testowych). Zgodne z UI w CandidateDetailV2 (canModifyNote).
+    """
+    return note.author_id == user.id or user.has_any_role(UserRole.admin)
 
 
 @router.get("", response_model=NoteList)
@@ -156,6 +167,10 @@ async def update_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+    if not _can_modify_note(current_user, note):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do edycji tej notatki"
+        )
 
     # Załaduj stare mentions (do diffu).
     old_rows = await db.execute(
@@ -226,6 +241,10 @@ async def delete_note(
     note = result.scalar_one_or_none()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+    if not _can_modify_note(current_user, note):
+        raise HTTPException(
+            status_code=403, detail="Brak uprawnień do usunięcia tej notatki"
+        )
     await db.delete(note)
 
 
