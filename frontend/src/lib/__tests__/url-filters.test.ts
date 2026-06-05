@@ -37,6 +37,8 @@ describe("url-filters", () => {
       pastCompany: ["Allegro"],
       currentTitle: ["Senior Engineer"],
       workedAtClientIds: [10, 11],
+      experienceMin: 2,
+      experienceMax: 30,
       stageMovedByIds: [4, 0],
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",
@@ -145,6 +147,24 @@ describe("url-filters", () => {
   it("legacy single status string decodes as 1-element array", () => {
     const decoded = decodeFilters(sp("status=active"));
     expect(decoded.status).toEqual(["active"]);
+  });
+
+  it("experience bounds: null stays out of URL, values round-trip", () => {
+    expect(encodeFilters(DEFAULT_FILTERS).has("exp_min")).toBe(false);
+    expect(encodeFilters(DEFAULT_FILTERS).has("exp_max")).toBe(false);
+    const decoded = decodeFilters(sp("exp_min=2&exp_max=30"));
+    expect(decoded.experienceMin).toBe(2);
+    expect(decoded.experienceMax).toBe(30);
+    // A lone bound is valid (open-ended band).
+    expect(decodeFilters(sp("exp_min=5")).experienceMax).toBeNull();
+    expect(decodeFilters(sp("exp_max=10")).experienceMin).toBeNull();
+  });
+
+  it("experience bounds clamp to [0,60] and reject garbage", () => {
+    expect(decodeFilters(sp("exp_min=999")).experienceMin).toBe(60);
+    expect(decodeFilters(sp("exp_min=-4")).experienceMin).toBeNull();
+    expect(decodeFilters(sp("exp_max=abc")).experienceMax).toBeNull();
+    expect(decodeFilters(sp("exp_min=0")).experienceMin).toBe(0);
   });
 
   it("pipe-separator survives commas in company names", () => {

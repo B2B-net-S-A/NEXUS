@@ -22,7 +22,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, delete, false, func, not_, or_, select, text
+from sqlalchemy import and_, case, delete, false, func, literal, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -623,6 +623,25 @@ async def list_candidates(
         ge=0,
         description="Maximum salary expectation (PLN) — exclusive of nulls.",
     ),
+    min_experience: Optional[int] = Query(
+        None,
+        ge=0,
+        le=60,
+        description=(
+            "Minimum years of IT experience. Matches against a per-candidate "
+            "experience interval: the exact `years_it_experience` when present, "
+            "else the Traffit bucket (`Poniżej 2`→0-1, `2-5`→2-5, `5+`→5-60). "
+            "Range-overlap semantics — a candidate matches when their interval "
+            "overlaps [min, max]. Candidates with no experience signal are "
+            "excluded (exclusive of nulls, like salary)."
+        ),
+    ),
+    max_experience: Optional[int] = Query(
+        None,
+        ge=0,
+        le=60,
+        description="Maximum years of IT experience — see `min_experience`.",
+    ),
     include_match_stats: bool = Query(
         False,
         description=(
@@ -1020,6 +1039,36 @@ async def list_candidates(
         query = query.where(Candidate.salary_expectation >= min_salary)
     if max_salary is not None:
         query = query.where(Candidate.salary_expectation <= max_salary)
+
+    # Lata doświadczenia — range filter over a derived experience interval.
+    # Exact `years_it_experience` covers ~430 rows; the bulk of the base only
+    # has the coarse Traffit bucket in `cv_extracted_data.traffit_experience`
+    # ("Poniżej 2" / "2-5" / "5+"). Filtering on the exact column alone would
+    # return a near-empty list, so we coalesce: prefer the exact value, fall
+    # back to the bucket mapped to a [lo, hi] interval. A candidate matches the
+    # requested [min, max] band when the two intervals OVERLAP (hi >= min AND
+    # lo <= max). Candidates with no experience signal at all (both null) yield
+    # NULL bounds and are excluded — same "exclusive of nulls" rule as salary.
+    if min_experience is not None or max_experience is not None:
+        _traffit_exp = Candidate.cv_extracted_data.op("->>")("traffit_experience")
+        exp_lo = case(
+            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
+            (_traffit_exp == "Poniżej 2", literal(0)),
+            (_traffit_exp == "2-5", literal(2)),
+            (_traffit_exp == "5+", literal(5)),
+            else_=None,
+        )
+        exp_hi = case(
+            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
+            (_traffit_exp == "Poniżej 2", literal(1)),
+            (_traffit_exp == "2-5", literal(5)),
+            (_traffit_exp == "5+", literal(60)),
+            else_=None,
+        )
+        if min_experience is not None:
+            query = query.where(exp_hi >= min_experience)
+        if max_experience is not None:
+            query = query.where(exp_lo <= max_experience)
 
     if added_by_user_id:
         # Sentinel 0 = "no created_by on record" (pre-backfill / system import).

@@ -279,6 +279,22 @@ function collectChips(
  }),
  });
  });
+ if (filters.experienceMin !== null || filters.experienceMax !== null) {
+ const lo = filters.experienceMin;
+ const hi = filters.experienceMax;
+ const label =
+ lo !== null && hi !== null
+ ? `Doświadczenie: ${lo}–${hi} lat`
+ : lo !== null
+ ? `Doświadczenie: od ${lo} lat`
+ : `Doświadczenie: do ${hi} lat`;
+ chips.push({
+ key: "experience",
+ label,
+ clear: () =>
+ onUpdate({ experienceMin: null, experienceMax: null, page: 1 }),
+ });
+ }
  filters.qAll.forEach((phrase) => {
  chips.push({
  key: `q_all:${phrase}`,
@@ -400,6 +416,8 @@ export function ActiveFilterChips({
  pastCompany: [],
  currentTitle: [],
  workedAtClientIds: [],
+ experienceMin: null,
+ experienceMax: null,
  stageMovedByIds: [],
  stageMovedAfter: "",
  stageMovedBefore: "",
