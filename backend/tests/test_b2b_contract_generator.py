@@ -23,6 +23,7 @@ from jinja2 import Environment
 from app.api.contract_templates import _jinja_env
 from app.data.b2b_roles import B2B_ROLES, CATEGORY_LABELS
 from app.services.b2b_contract_generator.formatting import pl_date
+from app.services.b2b_contract_generator.gender import gender_forms
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "app" / "templates" / "contract"
 
@@ -40,7 +41,7 @@ _EMPLOYMENT_DENYLIST = [
 ]
 
 
-def _sample_context(lang: str = "pl") -> dict:
+def _sample_context(lang: str = "pl", gender: str = "m") -> dict:
     # rola Backend (indeks 5) — 6 bulletów (4 merytoryczne + 2 niezależność).
     scope = B2B_ROLES[5]["scope_pl"] if lang == "pl" else B2B_ROLES[5]["scope_en"]
     return {
@@ -88,6 +89,7 @@ def _sample_context(lang: str = "pl") -> dict:
             "role_name": "Backend Software Development",
             "language": lang,
             "scope_items": scope,
+            **gender_forms(gender),
         },
         "job": {"id": None, "title": None},
     }
@@ -143,8 +145,10 @@ class TestDocxRender:
         tpl.save(str(out))
 
         d = _docx.Document(str(out))
-        full = "\n".join(p.text for p in d.paragraphs) + "\n" + "\n".join(
-            c.text for t in d.tables for r in t.rows for c in r.cells
+        full = (
+            "\n".join(p.text for p in d.paragraphs)
+            + "\n"
+            + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
         )
         # wszystkie tagi skonsumowane
         assert "{{" not in full and "{%" not in full
@@ -164,12 +168,42 @@ def test_html_template_renders(lang):
     html_path = TEMPLATE_DIR / f"umowa_b2b_{lang}.html"
     assert html_path.is_file()
     ctx = _sample_context(lang)
-    rendered = _jinja_env.from_string(
-        html_path.read_text(encoding="utf-8")
-    ).render(**ctx)
+    rendered = _jinja_env.from_string(html_path.read_text(encoding="utf-8")).render(
+        **ctx
+    )
     assert "{{" not in rendered and "{%" not in rendered
     assert "42/2026" in rendered
     assert "05.06.2026" in rendered
     assert "Backend Software Development" in rendered
     # zakres jako lista <li> (tyle ile bulletów roli)
     assert rendered.count("<li>") == len(ctx["b2b"]["scope_items"])
+
+
+def test_pl_template_gender_forms():
+    """Formy zależne od płci podstawiają się; B2BNET (spółka) zostaje żeńskie."""
+    html = (TEMPLATE_DIR / "umowa_b2b_pl.html").read_text(encoding="utf-8")
+    tpl = _jinja_env.from_string(html)
+
+    male = tpl.render(**_sample_context("pl", gender="m"))
+    assert "Panem Jan Kowalski" in male
+    assert "prowadzącym działalność" in male
+    assert "zapoznałem się" in male
+    assert "zwany w dalszej części umowy" in male
+
+    female = tpl.render(**_sample_context("pl", gender="k"))
+    assert "Panią Jan Kowalski" in female
+    assert "prowadzącą działalność" in female
+    assert "zapoznałam się" in female
+    assert "zwana w dalszej części umowy" in female
+
+    # B2BNET S.A. = spółka → „zwaną dalej Administratorem" zawsze żeńskie,
+    # niezależnie od płci Partnera.
+    assert "zwaną dalej „Administratorem" in male
+    assert "zwaną dalej „Administratorem" in female
+
+
+def test_en_template_gender_forms():
+    html = (TEMPLATE_DIR / "umowa_b2b_en.html").read_text(encoding="utf-8")
+    tpl = _jinja_env.from_string(html)
+    assert "Mr Jan Kowalski" in tpl.render(**_sample_context("en", gender="m"))
+    assert "Ms Jan Kowalski" in tpl.render(**_sample_context("en", gender="k"))

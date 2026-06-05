@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     # Fireflies integration
     FIREFLIES_API_KEY: str = ""
 
+    # CEIDG API v3 (dane.biznes.gov.pl) — token JWT do auto-uzupełniania nazwy
+    # firmy JDG w Generatorze Umów B2B. Pusty = używamy tylko Białej Listy MF
+    # (zwraca imię+nazwisko właściciela zamiast pełnej nazwy firmy JDG).
+    # Token: dane.biznes.gov.pl → rejestracja → wygeneruj klucz API.
+    CEIDG_API_TOKEN: str = ""
+
     # Sentry (error tracking)
     SENTRY_DSN: str = ""
     SENTRY_ENVIRONMENT: str = "development"

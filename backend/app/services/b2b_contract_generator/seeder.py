@@ -60,26 +60,32 @@ async def _seed_roles(db: AsyncSession) -> None:
 
 
 async def _seed_templates(db: AsyncSession) -> None:
+    # Treść umowy to artefakt systemowy (budowany skryptem, nie edytowany w UI),
+    # więc UPSERT: gdy szablon istnieje, odśwież `content_jinja` z pliku, by
+    # zmiany (np. formy zależne od płci) propagowały się przy każdym deployu.
     for lang, name, fname in _TEMPLATES:
-        exists = await db.scalar(
-            select(ContractTemplate.id).where(
-                ContractTemplate.contract_type == "b2b",
-                ContractTemplate.language == lang,
-            )
-        )
-        if exists:
-            continue
         path = _TEMPLATE_DIR / fname
         if not path.is_file():
             logger.warning("B2B template html missing, skip seed: %s", path)
             continue
-        db.add(
-            ContractTemplate(
-                name=name,
-                contract_type="b2b",
-                language=lang,
-                content_jinja=path.read_text(encoding="utf-8"),
-                is_default=False,
+        content = path.read_text(encoding="utf-8")
+        existing = await db.scalar(
+            select(ContractTemplate).where(
+                ContractTemplate.contract_type == "b2b",
+                ContractTemplate.language == lang,
             )
         )
-        logger.info("B2B contract template seeded: %s", name)
+        if existing is None:
+            db.add(
+                ContractTemplate(
+                    name=name,
+                    contract_type="b2b",
+                    language=lang,
+                    content_jinja=content,
+                    is_default=False,
+                )
+            )
+            logger.info("B2B contract template seeded: %s", name)
+        elif existing.content_jinja != content:
+            existing.content_jinja = content
+            logger.info("B2B contract template refreshed: %s", name)

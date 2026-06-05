@@ -4,10 +4,10 @@
 <p>B2B.NET S.A. z siedzibą w Warszawie, Aleje Jerozolimskie 180, 02-486 Warszawa, wpisaną do Rejestru Przedsiębiorców prowadzonego przez Sąd Rejonowy dla m.st. Warszawy w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego, KRS pod nr 0000387063, NIP: 5711707392, o kapitale akcyjnym 1.360.000,00 zł (opłaconym), reprezentowaną przez Pana Artura Twardowskiego – Prezesa Zarządu,</p>
 <p>dalej jako „Spółka” lub „B2BNET”</p>
 <p>a</p>
-<p>Panem/ią {{ candidate.full_name or '………' }} prowadzącym/cą działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+<p>{{ b2b.g_pan }} {{ candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
 <p>Dane kontaktowe:</p>
 <p>Tel. {{ candidate.phone or '…' }} Adres e-mail: {{ candidate.email or '…' }}</p>
-<p>zwany/ą w dalszej części umowy „Partnerem”</p>
+<p>{{ b2b.g_zwany }} w dalszej części umowy „Partnerem”</p>
 <p>B2BNET i Partner zwani są w dalszej części "Stronami", a każdy z osobna jako „Stroną”</p>
 <p>Preambuła:</p>
 <p>Zważywszy, że:</p>
@@ -147,7 +147,7 @@ Definicje</h2>
 <p>Zobowiązanie do nieujawniania nie dotyczy informacji, które: a) Były publicznie znane lub stały się publicznie znane w sposób niezawiniony przez Partnera; b) Partner musi ujawnić na żądanie sądu lub uprawnionych organów państwowych, a obowiązek ich ujawnienia wynika z bezwzględnie obowiązujących przepisów prawa.</p>
 <p>Partner zobowiązuje się przechowywać wszelkie Informacje Poufne (w tym materialne nośniki, pliki elektroniczne) w sposób uniemożliwiający dostęp do nich osobom nieupoważnionym.</p>
 <p>Partner zobowiązany jest do niezwłocznego poinformowania B2BNET o każdym przypadku nieuprawnionego ujawnienia Informacji Poufnych oraz do podjęcia pełnej współpracy w celu ograniczenia i usunięcia skutków tego faktu.</p>
-<p>Oświadczam, iż zapoznałem się z niniejszą deklaracją, rozumiem jej treść i zobowiązuję się do jej stosowania. Jestem świadomy odpowiedzialności za nieprzestrzeganie zapisów zawartych w niniejszej deklaracji.</p>
+<p>Oświadczam, iż {{ b2b.g_zapoznal }} się z niniejszą deklaracją, rozumiem jej treść i zobowiązuję się do jej stosowania. Jestem świadomy odpowiedzialności za nieprzestrzeganie zapisów zawartych w niniejszej deklaracji.</p>
 <p>_________________________			_________________</p>
 <p>Czytelny podpis Partnera				data</p>
 <p>Deklaracja podpisana w obecności:</p>
@@ -162,8 +162,8 @@ Definicje</h2>
 
 a
 
-Panem/ią {{ candidate.full_name or '………' }} prowadzącym/cą działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
-<p>zwanym dalej „Podmiotem Przetwarzającym”</p>
+{{ b2b.g_pan }} {{ candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+<p>{{ b2b.g_zwanym }} dalej „Podmiotem Przetwarzającym”</p>
 <h2>§ 1. 
 Przedmiot Umowy Powierzenia</h2>
 <p>Administrator, na podstawie art. 28 ust. 3 Rozporządzenia Parlamentu Europejskiego i Rady (UE) 2016/679 (RODO), powierza Podmiotowi Przetwarzającemu przetwarzanie danych osobowych, a Podmiot Przetwarzający zobowiązuje się do ich przetwarzania na zasadach określonych w niniejszej Umowie.</p>

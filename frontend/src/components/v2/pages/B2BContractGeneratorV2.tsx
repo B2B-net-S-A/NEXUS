@@ -112,6 +112,27 @@ function parseDispositionFilename(disposition: string, fallback: string): string
   return match ? match[1] : fallback;
 }
 
+/** Smart-prefill „Opis projektu" z roli (gdy brak oferty z rekrutacji). */
+function smartDescription(role: B2BRole, lang: Lang, clientName: string): string {
+  const area = lang === "pl" ? role.area_label_pl : role.area_label_en;
+  const scope = (lang === "pl" ? role.scope_pl : role.scope_en).slice(0, 3);
+  const client = clientName.trim();
+  if (lang === "en") {
+    const lead = `Provision of services in the area of ${area}${
+      client ? ` for the Client ${client}` : ""
+    }.`;
+    return scope.length
+      ? `${lead} The scope includes, among others: ${scope.join("; ")}.`
+      : lead;
+  }
+  const lead = `Świadczenie usług w obszarze: ${area}${
+    client ? ` na rzecz Klienta ${client}` : ""
+  }.`;
+  return scope.length
+    ? `${lead} Zakres obejmuje m.in.: ${scope.join("; ")}.`
+    : lead;
+}
+
 function printHtml(bodyHtml: string, title: string) {
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
@@ -211,15 +232,18 @@ function GeneratorForm() {
   const [rateCandidate, setRateCandidate] = useState("");
   const [currency, setCurrency] = useState("PLN");
 
-  const [clientNip, setClientNip] = useState("");
+  // Płeć Partnera — steruje formami gramatycznymi w umowie (Panem/ią,
+  // prowadzącym/cą, zwany/a, zapoznałem/am).
+  const [gender, setGender] = useState<"m" | "k">("m");
   const [partnerLookup, setPartnerLookup] = useState<LookupStatus>("idle");
-  const [clientLookup, setClientLookup] = useState<LookupStatus>("idle");
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
 
   // Pre-fill „raz na kandydata / ofertę" — nie nadpisuje ręcznych zmian.
   const prefilledCand = useRef<number | null>(null);
   const prefilledJob = useRef<number | null>(null);
+  // Użytkownik ręcznie zmienił opis → nie nadpisuj smart-prefillem.
+  const descTouched = useRef(false);
 
   const candidatesQuery = useQuery({
     queryKey: ["b2b-gen-candidates", candidateQuery],
@@ -318,7 +342,10 @@ function GeneratorForm() {
     )
       return;
     prefilledJob.current = selectedRecruitment.job_id;
-    if (j.description) setProjectDescription(j.description);
+    if (j.description) {
+      setProjectDescription(j.description);
+      descTouched.current = true; // opis z oferty ma priorytet nad smart-prefillem
+    }
     if (j.location) setProjectCity(j.location);
     if (j.client_name) setClientName(j.client_name);
   }, [jobQuery.data, selectedRecruitment]);
@@ -333,6 +360,13 @@ function GeneratorForm() {
       language === "pl" ? selectedRole.scope_pl : selectedRole.scope_en;
     setScopeText(bullets.join("\n"));
   }, [selectedRole, language]);
+
+  // Smart-prefill opisu projektu z roli (gdy brak oferty z rekrutacji i user
+  // nie edytował ręcznie) — sensowny start także w trybie standalone.
+  useEffect(() => {
+    if (!selectedRole || selectedRecruitment || descTouched.current) return;
+    setProjectDescription(smartDescription(selectedRole, language, clientName));
+  }, [selectedRole, language, clientName, selectedRecruitment]);
 
   // Auto numer umowy (pierwsze załadowanie, jeśli puste).
   useEffect(() => {
@@ -354,6 +388,9 @@ function GeneratorForm() {
       try {
         const d = await b2bGeneratorApi.companyLookup({ nip });
         if (cancelled) return;
+        // JDG → `person` = imię i nazwisko właściciela (osobne pole);
+        // `name` = nazwa firmy (pełna z CEIDG, lub nazwisko z Białej Listy).
+        if (d.person) setPartnerName(d.person);
         if (d.name) setPartnerLegalName(d.name);
         if (d.regon) setPartnerRegon(d.regon);
         if (d.address) setPartnerBusinessAddress(d.address);
@@ -367,31 +404,6 @@ function GeneratorForm() {
       clearTimeout(timer);
     };
   }, [partnerNip]);
-
-  // Auto-uzupełnianie nazwy Klienta z rejestru po NIP (debounced).
-  useEffect(() => {
-    const nip = clientNip.replace(/\D/g, "");
-    if (nip.length !== 10) {
-      setClientLookup("idle");
-      return;
-    }
-    let cancelled = false;
-    setClientLookup("loading");
-    const timer = setTimeout(async () => {
-      try {
-        const d = await b2bGeneratorApi.companyLookup({ nip });
-        if (cancelled) return;
-        if (d.name) setClientName(d.name);
-        setClientLookup("ok");
-      } catch {
-        if (!cancelled) setClientLookup("none");
-      }
-    }, 600);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [clientNip]);
 
   const groupedRoles = useMemo(() => {
     const map = new Map<string, { label: string; items: B2BRole[] }>();
@@ -419,6 +431,7 @@ function GeneratorForm() {
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
     role_id: selectedRole ? selectedRole.id : null,
     language: lang,
+    gender,
     partner_name: partnerName.trim() || null,
     partner_legal_name: partnerLegalName.trim() || null,
     partner_business_address: partnerBusinessAddress.trim() || null,
@@ -439,14 +452,25 @@ function GeneratorForm() {
   });
 
   const validate = (): boolean => {
-    if (!selectedRole) {
-      toast.showError("Wybierz rolę / stanowisko.");
-      return false;
-    }
-    if (!partnerName.trim() && !partnerLegalName.trim()) {
-      toast.showError(
-        "Uzupełnij dane Partnera (imię i nazwisko lub nazwę firmy).",
-      );
+    const missing: string[] = [];
+    if (!selectedRole) missing.push("Rola / stanowisko");
+    if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
+    if (!partnerLegalName.trim()) missing.push("Nazwa Firmy");
+    if (!partnerNip.trim()) missing.push("NIP");
+    if (!partnerRegon.trim()) missing.push("REGON");
+    if (!partnerBusinessAddress.trim()) missing.push("Adres siedziby firmy");
+    if (!partnerEmail.trim()) missing.push("E-mail");
+    if (!partnerPhone.trim()) missing.push("Telefon");
+    if (!clientName.trim()) missing.push("Pełna nazwa Klienta");
+    if (!projectCity.trim()) missing.push("Miasto Klienta");
+    if (!projectDescription.trim()) missing.push("Opis projektu");
+    if (!contractNumber.trim()) missing.push("Numer umowy");
+    if (!signingDate) missing.push("Data podpisania");
+    if (!startDate) missing.push("Data rozpoczęcia");
+    if (!rateCandidate.trim() || Number(rateCandidate) <= 0)
+      missing.push("Stawka godzinowa");
+    if (missing.length) {
+      toast.showError(`Uzupełnij wymagane pola: ${missing.join(", ")}.`);
       return false;
     }
     return true;
@@ -631,26 +655,54 @@ function GeneratorForm() {
         <CardHeader>
           <CardTitle className="text-base">Dane Partnera (firma)</CardTitle>
           <CardDescription>
-            Wpisz NIP → dane firmy zaciągną się z rejestru (Biała Lista MF).
-            Pre-fill też z profilu kandydata. Wszystko edytowalne.
+            Wpisz NIP → Imię i nazwisko, nazwa firmy, REGON i adres zaciągną się
+            z rejestru (Biała Lista MF / CEIDG). Pre-fill też z profilu
+            kandydata. Wszystkie pola wymagane, edytowalne.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Imię i nazwisko">
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block">
+              Płeć Partnera<span className="text-destructive"> *</span>
+            </Label>
+            <div className="flex gap-2">
+              {(
+                [
+                  ["m", "Mężczyzna"],
+                  ["k", "Kobieta"],
+                ] as const
+              ).map(([v, lbl]) => (
+                <Button
+                  key={v}
+                  type="button"
+                  size="sm"
+                  variant={gender === v ? "primary" : "outline"}
+                  onClick={() => setGender(v)}
+                >
+                  {lbl}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dobiera formy w umowie (Panem/ią, prowadzącym/cą, zwany/a,
+              zapoznałem/am).
+            </p>
+          </div>
+          <Field label="Imię i nazwisko" required>
             <Input
               value={partnerName}
               onChange={(e) => setPartnerName(e.target.value)}
               placeholder="np. Jan Kowalski"
             />
           </Field>
-          <Field label="Nazwa Firmy">
+          <Field label="Nazwa Firmy" required>
             <Input
               value={partnerLegalName}
               onChange={(e) => setPartnerLegalName(e.target.value)}
               placeholder="np. JK Software Jan Kowalski"
             />
           </Field>
-          <Field label="NIP (auto z rejestru)">
+          <Field label="NIP (auto z rejestru)" required>
             <Input
               value={partnerNip}
               onChange={(e) => setPartnerNip(e.target.value)}
@@ -658,13 +710,13 @@ function GeneratorForm() {
             />
             <div className="mt-1 h-4">{lookupHint(partnerLookup)}</div>
           </Field>
-          <Field label="REGON">
+          <Field label="REGON" required>
             <Input
               value={partnerRegon}
               onChange={(e) => setPartnerRegon(e.target.value)}
             />
           </Field>
-          <Field label="Adres siedziby firmy" full>
+          <Field label="Adres siedziby firmy" full required>
             <Input
               value={partnerBusinessAddress}
               onChange={(e) => setPartnerBusinessAddress(e.target.value)}
@@ -677,13 +729,13 @@ function GeneratorForm() {
               onChange={(e) => setPartnerCorrespondenceAddress(e.target.value)}
             />
           </Field>
-          <Field label="E-mail">
+          <Field label="E-mail" required>
             <Input
               value={partnerEmail}
               onChange={(e) => setPartnerEmail(e.target.value)}
             />
           </Field>
-          <Field label="Telefon">
+          <Field label="Telefon" required>
             <Input
               value={partnerPhone}
               onChange={(e) => setPartnerPhone(e.target.value)}
@@ -698,34 +750,29 @@ function GeneratorForm() {
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="NIP Klienta (auto z rejestru)">
-            <Input
-              value={clientNip}
-              onChange={(e) => setClientNip(e.target.value)}
-              placeholder="10 cyfr → pobierze nazwę"
-            />
-            <div className="mt-1 h-4">{lookupHint(clientLookup)}</div>
-          </Field>
-          <Field label="Pełna nazwa Klienta">
+          <Field label="Pełna nazwa Klienta" required>
             <Input
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               placeholder="np. ACME Bank S.A."
             />
           </Field>
-          <Field label="Miasto Klienta">
+          <Field label="Miasto Klienta" required>
             <Input
               value={projectCity}
               onChange={(e) => setProjectCity(e.target.value)}
               placeholder="np. Warszawa"
             />
           </Field>
-          <Field label="Opis projektu i zakres usług" full>
+          <Field label="Opis projektu i zakres usług" full required>
             <Textarea
               value={projectDescription}
-              onChange={(e) => setProjectDescription(e.target.value)}
+              onChange={(e) => {
+                descTouched.current = true;
+                setProjectDescription(e.target.value);
+              }}
               rows={3}
-              placeholder="3–4 zdania o projekcie (auto z oferty, jeśli wybrana)…"
+              placeholder="Auto z roli/oferty — możesz nadpisać…"
             />
           </Field>
         </CardContent>
@@ -785,21 +832,21 @@ function GeneratorForm() {
           <CardTitle className="text-base">Warunki umowy</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Numer umowy (auto)">
+          <Field label="Numer umowy (auto)" required>
             <Input
               value={contractNumber}
               onChange={(e) => setContractNumber(e.target.value)}
               placeholder="np. 1/2026"
             />
           </Field>
-          <Field label="Data podpisania">
+          <Field label="Data podpisania" required>
             <Input
               type="date"
               value={signingDate}
               onChange={(e) => setSigningDate(e.target.value)}
             />
           </Field>
-          <Field label="Data rozpoczęcia usług">
+          <Field label="Data rozpoczęcia usług" required>
             <Input
               type="date"
               value={startDate}
@@ -807,7 +854,7 @@ function GeneratorForm() {
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Stawka godz. (netto)">
+            <Field label="Stawka godz. (netto)" required>
               <Input
                 type="number"
                 value={rateCandidate}
@@ -902,15 +949,20 @@ function lookupHint(status: LookupStatus) {
 function Field({
   label,
   full,
+  required,
   children,
 }: {
   label: string;
   full?: boolean;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className={full ? "sm:col-span-2" : undefined}>
-      <Label className="mb-1.5 block">{label}</Label>
+      <Label className="mb-1.5 block">
+        {label}
+        {required ? <span className="text-destructive"> *</span> : null}
+      </Label>
       {children}
     </div>
   );
