@@ -1542,6 +1542,69 @@ export interface CandidatePinToggleResponse {
   pin: CandidatePinRow | null;
 }
 
+// ── Generator Umów B2B ────────────────────────────────────────────────────────
+
+export interface B2BRole {
+  id: number;
+  category_key: string;
+  category_label_pl: string;
+  category_label_en: string;
+  slug: string;
+  name_pl: string;
+  name_en: string;
+  area_label_pl: string;
+  area_label_en: string;
+  scope_pl: string[];
+  scope_en: string[];
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface B2BGeneratePayload {
+  candidate_id?: number;
+  client_id?: number;
+  job_id?: number;
+  contract_id?: number;
+  role_id: number;
+  language: string;
+  contract_number?: string | null;
+  signing_date?: string | null;
+  start_date: string;
+  project_city?: string | null;
+  project_description?: string | null;
+  correspondence_address?: string | null;
+  rate_candidate?: number | null;
+  currency: string;
+  rate_in_words?: string | null;
+  scope_items_override?: string[] | null;
+}
+
+export interface B2BGenerateResult {
+  contract_id: number;
+  draft_template_id: number | null;
+  language: string;
+}
+
+export const b2bGeneratorApi = {
+  roles: (includeInactive = false) =>
+    api
+      .get<B2BRole[]>("/api/b2b-generator/roles", {
+        params: includeInactive ? { include_inactive: true } : undefined,
+      })
+      .then((r) => r.data),
+  updateRole: (id: number, body: Partial<B2BRole>) =>
+    api.patch<B2BRole>(`/api/b2b-generator/roles/${id}`, body).then((r) => r.data),
+  generate: (body: B2BGeneratePayload) =>
+    api
+      .post<B2BGenerateResult>("/api/b2b-generator/generate", body)
+      .then((r) => r.data),
+  docxBlob: (contractId: number, language: string) =>
+    api.get(`/api/b2b-generator/contracts/${contractId}/docx`, {
+      params: { language },
+      responseType: "blob",
+    }),
+};
+
 export const candidatePinsApi = {
   list: () => api.get<CandidatePinRow[]>("/api/candidates/pins"),
   getState: (candidateId: number) =>

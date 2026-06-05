@@ -17,6 +17,11 @@ class ContractTemplate(Base, TimestampMixin):
     contract_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     content_jinja: Mapped[str] = mapped_column(Text, nullable=False)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Język szablonu ('pl' | 'en') — Generator Umów B2B wybiera wersję po
+    # (contract_type='b2b' + language). NULL dla istniejących szablonów.
+    language: Mapped[Optional[str]] = mapped_column(
+        String(2), nullable=True, index=True
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )

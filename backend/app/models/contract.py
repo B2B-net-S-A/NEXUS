@@ -219,6 +219,14 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ClientOrder.start_date.desc().nullslast()",
     )
+    # Generator Umów B2B — dane per-umowa (1:1).
+    b2b_detail = relationship(
+        "B2BContractDetail",
+        back_populates="contract",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def calculate_margin(self) -> Optional[int]:
         """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""

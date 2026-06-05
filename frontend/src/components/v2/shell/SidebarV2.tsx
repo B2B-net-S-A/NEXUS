@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   FileText,
+  FileSignature,
   Star,
   Calendar,
   UserCog,
@@ -101,6 +102,12 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
       },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
+      {
+        href: "/contracts/b2b-generator",
+        label: "Generator Umów B2B",
+        icon: FileSignature,
+        roles: ["admin", "delivery_lead", "tac"],
+      },
       {
         href: "/contractors",
         label: "Kontraktorzy",
