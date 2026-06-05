@@ -952,9 +952,9 @@ async def list_candidates(
     # before this unification simple search was limited to name/lastname/email
     # + raw_cv_text (+ trigram on identity), causing a confusing UX where the
     # same phrase produced different result counts depending on which mode the
-    # user happened to use. We additionally OR-in the trigram similarity test
-    # on `name+lastname+email` so typos/case mismatches still match identity
-    # via the GIN index.
+    # user happened to use. For `?q=`, a trigram similarity branch on
+    # `name+lastname+email` is folded into the search UNION so typos/case
+    # mismatches still match identity via the GIN index (see below).
     from app.services.advanced_candidate_search import (
         build_advanced_filter,
         single_phrase_filter,
@@ -962,30 +962,27 @@ async def list_candidates(
 
     if q:
         q_stripped = q.strip()
-        phrase_clause = single_phrase_filter(q_stripped)
-        if len(q_stripped) >= 3:
-            identity_expr = (
-                func.coalesce(Candidate.name, "")
-                + " "
-                + func.coalesce(Candidate.lastname, "")
-                + " "
-                + func.coalesce(Candidate.email, "")
-            )
-            # Adaptive trigram threshold: 0.2 (loose) fires for every "Piotr X"
-            # candidate when the query is "Piotr Banulski" because shared "Piotr"
-            # trigrams alone clear the bar. For multi-word queries (likely a
-            # full name), require 0.5 — keeps mild typo tolerance ("Banulsky"
-            # → "Banulski") while filtering shared-first-name noise. Single
-            # tokens stay at 0.2 for aggressive typo matching ("Banulsk" → "Banulski").
+        # Fuzzy (typo-tolerant) identity matching kicks in at ≥3 chars, mirroring
+        # the previous trigram-similarity branch. Adaptive threshold: 0.2 (loose)
+        # fires for every "Piotr X" candidate when the query is "Piotr Banulski"
+        # because shared "Piotr" trigrams alone clear the bar — so multi-word
+        # queries (likely a full name) require 0.5 (keeps mild typo tolerance
+        # "Banulsky"→"Banulski" while filtering shared-first-name noise); single
+        # tokens stay at 0.2 for aggressive typo matching ("Banulsk"→"Banulski").
+        # The threshold goes through pg_trgm.similarity_threshold via SET LOCAL
+        # (transaction-scoped → auto-reset at request commit, no pooled-connection
+        # leak) so the fuzzy branch uses the `%` operator + ix_candidates_identity_trgm
+        # GIN index. Folding it INTO the search UNION (instead of OR-ing a
+        # non-indexable similarity() filter) is what keeps the whole query an
+        # index scan rather than the old ~12s full seq scan.
+        use_fuzzy = len(q_stripped) >= 3
+        if use_fuzzy:
             trigram_threshold = 0.5 if " " in q_stripped else 0.2
-            trigram_clause = (
-                func.similarity(identity_expr, q_stripped) > trigram_threshold
+            await db.execute(
+                text(f"SET LOCAL pg_trgm.similarity_threshold = {trigram_threshold}")
             )
-            if phrase_clause is not None:
-                query = query.where(or_(phrase_clause, trigram_clause))
-            else:
-                query = query.where(trigram_clause)
-        elif phrase_clause is not None:
+        phrase_clause = single_phrase_filter(q_stripped, fuzzy=use_fuzzy)
+        if phrase_clause is not None:
             query = query.where(phrase_clause)
 
     # Traffit-style advanced search — ALL / ANY / NONE buckets combine with `q`.
