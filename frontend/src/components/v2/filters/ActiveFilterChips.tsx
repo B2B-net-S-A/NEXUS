@@ -364,22 +364,21 @@ export function ActiveFilterChips({
  }, [usersById, usersData]);
 
  // Resolve client names for the "Klient" / "Etap u klienta" chips. Shares the
- // `clients-lite` react-query key with <ClientMultiSelect> (staleTime 60s), so
+ // `clients-lookup` react-query key with <ClientMultiSelect> (staleTime 60s), so
  // this is a cache-hit once that picker was opened. Without it the chips fall
  // back to "Klient #N" after a URL share / saved-search restore.
  const needsClients =
  filters.workedAtClientIds.length > 0 || filters.stageClientIds.length > 0;
- const { data: clientsData } = useQuery<{ items: NamedLookup[] }>({
- queryKey: ["clients-lite"],
- queryFn: () =>
- api.get("/api/clients", { params: { page_size: 100 } }).then((r) => r.data),
+ const { data: clientsData } = useQuery<NamedLookup[]>({
+ queryKey: ["clients-lookup"],
+ queryFn: () => api.get("/api/clients-lookup").then((r) => r.data),
  staleTime: 60_000,
  enabled: needsClients && !clientsById,
  });
  const resolvedClients = useMemo(() => {
  if (clientsById) return clientsById;
  if (!clientsData) return undefined;
- return new Map(clientsData.items.map((c) => [c.id, c.name] as const));
+ return new Map(clientsData.map((c) => [c.id, c.name] as const));
  }, [clientsById, clientsData]);
 
  const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, resolvedClients);
