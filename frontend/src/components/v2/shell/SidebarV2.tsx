@@ -326,6 +326,12 @@ export function SidebarV2({
 
   const { data: stats } = useQuery({
     queryKey: ["sidebar-badges-v2", isApproverForBadge],
+    // Wait until auth is resolved before firing. `isApproverForBadge` derives
+    // from `user.role`, which flips from `false` (user null) to its real value
+    // once the auth store hydrates — without this gate the query key changes
+    // mid-load and the badge counts (/candidates, /jobs) are fetched twice on
+    // every page load.
+    enabled: !!user,
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);

@@ -58,6 +58,7 @@ import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
 import { PinButton } from"@/components/v2/PinButton";
+import { DeferUntilVisible } from"@/components/v2/DeferUntilVisible";
 import { ExpandableText } from"@/components/v2/ExpandableText";
 import {
  getCandidateSummaryLine,
@@ -936,8 +937,12 @@ export function CandidateDetailV2({
 
  {/* Side widgets (below tabs) — full width under the grid */}
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+ <DeferUntilVisible minHeight={140}>
  <RateHistoryWidget candidateId={Number(id)} />
+ </DeferUntilVisible>
+ <DeferUntilVisible minHeight={140}>
  <ConflictsWidget candidateId={Number(id)} />
+ </DeferUntilVisible>
  </div>
 
  {/* ── Modals ── */}
