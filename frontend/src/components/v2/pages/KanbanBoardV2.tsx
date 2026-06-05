@@ -175,7 +175,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
- density === "compact" ?"p-2" :"p-3",
+ density === "compact" ?"p-2" :"p-4",
  isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
  )}
  title={
@@ -207,7 +207,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density === "compact" ?"h-6 w-6 text-[10px]" :"h-8 w-8 text-xs"
+ density === "compact" ?"h-6 w-6 text-[10px]" :"h-10 w-10 text-sm"
  )}
  >
  {initials}
@@ -215,18 +215,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className="min-w-0 flex-1">
  <div
  className={cn("font-medium text-foreground truncate",
- density === "compact" ?"text-xs" :"text-sm"
+ density === "compact" ?"text-xs" :"text-base"
  )}
  >
  {fullName}
  </div>
  <div
- className={cn("flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground"
+ className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
+ density === "compact" ?"text-[10px]" :"text-xs"
  )}
  >
  {item.rating != null && item.rating > 0 && (
  <span className="inline-flex items-center gap-0.5">
- <Star className="h-2.5 w-2.5 fill-amber-500 text-amber-500" />
+ <Star className={cn("fill-amber-500 text-amber-500", density === "compact" ?"h-2.5 w-2.5" :"h-3 w-3")} />
  {item.rating.toFixed(1)}
  </span>
  )}
@@ -240,7 +241,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  :""
  )}
  >
- <Clock className="h-2.5 w-2.5" />
+ <Clock className={density === "compact" ?"h-2.5 w-2.5" :"h-3 w-3"} />
  {item.days_in_stage}d
  </span>
  )}
@@ -325,7 +326,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <div
  className={cn("flex-shrink-0 rounded-lg bg-background/60 border border-border",
- density === "compact" ?"w-52" :"w-60"
+ density === "compact" ?"w-52" :"w-72"
  )}
  >
  <div className="px-3 py-2 border-b border-border flex items-center gap-2">
@@ -342,7 +343,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
  )}
- <span className="text-xs font-medium text-foreground flex-1 truncate">
+ <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-xs font-medium" :"text-sm font-semibold")}>
  {columnLabel(col)}
  </span>
  <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"}>
