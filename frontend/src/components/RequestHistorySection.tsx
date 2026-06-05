@@ -150,7 +150,6 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
   const closed = query.data?.closed ?? [];
   const inProgress = query.data?.in_progress ?? [];
   const total = closed.length + inProgress.length;
-  const meta = query.data?.meta;
 
   const visible = useMemo(
     () => (activeBucket === "closed" ? closed : inProgress),
@@ -166,16 +165,9 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             Historia requestu
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Bliźniacze requesty tego klienta — outcome, champion, TTH, fee,
-            owner.
-            {meta && meta.voyage_count > 0 ? (
-              <>
-                {" "}
-                <span className="text-amber-600">
-                  +{meta.voyage_count} z innych ról
-                </span>
-              </>
-            ) : null}
+            {crossClient
+              ? "Najbardziej podobne requesty ze wszystkich klientów — wg podobieństwa roli."
+              : "Bliźniacze requesty tego klienta — najbardziej podobne rolą. Outcome, champion, TTH, fee, owner."}
           </p>
         </div>
         <label className="text-xs text-muted-foreground dark:text-muted-foreground inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
