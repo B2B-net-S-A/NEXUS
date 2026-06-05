@@ -294,6 +294,15 @@ export function SidebarV2({
   const togglePinned = () => {
     const next = !pinned;
     setPinned(next);
+    // Gdy zwijamy (unpin), kursor wciąż jest nad sidebarem → `hovered` byłby
+    // true i `expanded = hovered || pinned` trzymałby pasek rozwinięty, więc
+    // wizualnie nic by się nie działo ("klikam strzałkę, a się nie chowa").
+    // Zerujemy hover, żeby pasek od razu zwęził się do szyny 60px. Sidebar
+    // skurczy się spod kursora (chevron jest przy prawej krawędzi szerokiego
+    // paska, poza szyną 60px), więc mouseenter nie odpali się natychmiast.
+    if (!next) {
+      setHovered(false);
+    }
     if (typeof window !== "undefined") {
       localStorage.setItem(SIDEBAR_PINNED_KEY, String(next));
     }
