@@ -297,6 +297,31 @@ export function decodeNavContext(
 }
 
 /**
+ * Encode a "came from this recruitment" back-reference so a candidate profile
+ * opened from a job's pipeline (`/candidates/[id]?from=job&jobId=N`) can offer a
+ * "back to recruitment" link instead of the default "back to candidates".
+ *
+ * Orthogonal to `encodeNavContext` (prev/next over a filtered list) — a profile
+ * opened from a job has no list to page through, only an origin to return to.
+ */
+export function encodeJobBackRef(jobId: number): URLSearchParams {
+  const p = new URLSearchParams();
+  p.set("from", "job");
+  p.set("jobId", String(jobId));
+  return p;
+}
+
+/**
+ * Decode the job back-reference. Returns the origin job id when `from=job` with
+ * a valid positive `jobId`, else `null`.
+ */
+export function decodeJobBackRef(sp: URLSearchParams): number | null {
+  if (sp.get("from") !== "job") return null;
+  const jid = Number.parseInt(sp.get("jobId") ?? "", 10);
+  return Number.isFinite(jid) && jid > 0 ? jid : null;
+}
+
+/**
  * Map `CandidateFilters` to the `params` object accepted by axios `.get` for
  * `GET /api/candidates`. Mirrors the exact param mapping in `CandidatesListV2`
  * so navigation queries hit the same react-query cache key as the list view.

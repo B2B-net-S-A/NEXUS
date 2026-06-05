@@ -130,6 +130,7 @@ import {
  DEFAULT_FILTERS,
  type CandidateFilters,
  decodeNavContext,
+ decodeJobBackRef,
  encodeNavContext,
 } from"@/lib/url-filters";
 
@@ -210,6 +211,23 @@ export function CandidateDetailV2({
  const sp = new URLSearchParams(searchParamsForNav.toString());
  return decodeNavContext(sp);
  }, [embedded, searchParamsForNav]);
+
+ // ── "Came from a recruitment" back-reference ───────────────────────────
+ // When the profile was opened from a job's pipeline (`?from=job&jobId=N`),
+ // the back link returns to that recruitment instead of the candidate list.
+ // The job title is resolved from the open-tabs store (the job page registers
+ // it via `openTab`), falling back to a generic label when it isn't cached.
+ const backJobId = React.useMemo(() => {
+ if (embedded) return null; // embedded drawers carry their own nav
+ if (!searchParamsForNav) return null;
+ return decodeJobBackRef(new URLSearchParams(searchParamsForNav.toString()));
+ }, [embedded, searchParamsForNav]);
+ const openTabsList = useTabsStore((s) => s.tabs);
+ const backJobTitle =
+ backJobId != null
+ ? (openTabsList.find((t) => t.type === "job" && t.entityId === backJobId)
+ ?.title ?? null)
+ : null;
 
  const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const navMode: "embedded" |"url" |"off" = navContext
@@ -460,12 +478,25 @@ export function CandidateDetailV2({
  ) : null
  ) : (
  <div className="flex items-center justify-between gap-3 flex-wrap">
+ {backJobId != null ? (
+ <Link
+ href={`/jobs/${backJobId}`}
+ className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary min-w-0 max-w-[22rem]"
+ title={backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
+ >
+ <ArrowLeft className="h-4 w-4 shrink-0" />
+ <span className="truncate">
+ {backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
+ </span>
+ </Link>
+ ) : (
  <Link
  href="/candidates"
  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
  >
  <ArrowLeft className="h-4 w-4" /> Wróć do kandydatów
  </Link>
+ )}
  {showNav && (
  <CandidateNav
  position={candidateNav.position}
