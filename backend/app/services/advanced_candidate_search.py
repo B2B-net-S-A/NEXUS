@@ -1,5 +1,4 @@
-"""
-Traffit-style boolean advanced search for candidates.
+"""Traffit-style boolean advanced search for candidates.
 
 Builds a SQLAlchemy WHERE clause from three buckets of free-text phrases:
 - `q_all`  — every phrase must appear in at least one searchable field (AND).
@@ -17,20 +16,34 @@ Search scope (Traffit parity, follow-up 2026-05-19):
   linkedin_current_title, linkedin_current_company.
 - Free-text fields: raw_cv_text, ai_summary, competence_category, engagement_notes.
 - JSONB blobs (cast to text): experience, skills, tags, education, languages.
-- Notes content via EXISTS subquery to the `notes` table (notes are per-candidate
-  rows, not columns, so they need a separate predicate that the bucket-match
-  helper OR's with the column predicates).
+- Notes content (notes are per-candidate rows, not columns, so they need a
+  separate predicate).
 
 This brings simple `?q=Python` and advanced `?q_all=Python` to the SAME scope
 — the simple search delegates to `single_phrase_filter` so users see consistent
 result counts whether or not they open the Boolean panel.
+
+Performance (2026-06-05): each phrase is matched as
+``candidates.id IN (UNION of id-subqueries)`` rather than a single
+OR-of-``COALESCE(col) ILIKE`` across 18 columns. The old shape forced a full
+seq scan over 47.6K rows (~12s) because the ``COALESCE`` wrappers defeated index
+matching and the OR mixed in a non-indexable ``similarity()`` filter and a
+cross-table notes EXISTS — so the planner could use none of the trigram indexes.
+The UNION lets every branch drive its own GIN ``pg_trgm`` index (an Append of
+bitmap index scans, ~100-200ms):
+  • ``search_doc``    → ``ix_candidates_search_doc_trgm`` (all non-CV columns;
+    STORED generated column, migration 0126),
+  • ``raw_cv_text``   → ``ix_candidates_cv_trgm`` (migration 0013),
+  • ``notes.content`` → ``ix_notes_content_trgm`` (migration 0126).
+Substring scope/semantics are unchanged (a candidate matches iff the phrase is a
+substring of any searchable field or a note).
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, and_, cast, exists, func, not_, or_
+from sqlalchemy import Text, and_, column, func, not_, or_, select, union
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
@@ -42,44 +55,14 @@ _MIN_PHRASE_LEN = 2
 # crafted URL can't fan out into an unbounded AND-of-ORs query plan.
 _MAX_ANY_GROUPS = 10
 
-
-def _safe(col: ColumnElement) -> ColumnElement:
-    """Coalesce NULL to empty string so ILIKE never yields NULL.
-
-    Critical for the NOT bucket: ``NOT(ilike(NULL, ...))`` evaluates to NULL,
-    which ``WHERE`` treats as excluded. ``COALESCE(col, '')`` keeps the
-    boolean three-valued logic sane.
-    """
-    return func.coalesce(col, "")
-
-
-# Columns that participate in every phrase match. Order matters only for
-# debugging — the OR is commutative. JSONB fields are cast to text so the
-# whole JSON payload becomes a haystack — good enough for "find candidates
-# whose CV mentions Python anywhere".
-_SEARCHABLE_COLUMNS: list[ColumnElement] = [
-    _safe(Candidate.name),
-    _safe(Candidate.lastname),
-    # Concatenated "name lastname" so a multi-word query like "Piotr Banulski"
-    # matches via ILIKE — searching each column independently misses the
-    # (name="Piotr", lastname="Banulski") case.
-    func.concat_ws(" ", Candidate.name, Candidate.lastname),
-    _safe(Candidate.email),
-    _safe(Candidate.phone),
-    _safe(Candidate.location),
-    _safe(Candidate.city),
-    _safe(Candidate.linkedin_current_title),
-    _safe(Candidate.linkedin_current_company),
-    _safe(Candidate.raw_cv_text),
-    _safe(Candidate.ai_summary),
-    _safe(Candidate.competence_category),
-    _safe(Candidate.engagement_notes),
-    _safe(cast(Candidate.experience, String)),
-    _safe(cast(Candidate.skills, String)),
-    _safe(cast(Candidate.tags, String)),
-    _safe(cast(Candidate.education, String)),
-    _safe(cast(Candidate.languages, String)),
-]
+# candidates.search_doc — PG STORED generated column (migration 0126) holding the
+# space-joined concatenation of every searchable candidate text field EXCEPT
+# raw_cv_text (which keeps its own ix_candidates_cv_trgm) and notes (separate
+# table). Backed by ix_candidates_search_doc_trgm (GIN pg_trgm) so a leading-
+# wildcard ILIKE is an index scan, not a 47.6K-row seq scan. Referenced as a bare
+# column — deliberately NOT mapped on the ORM entity so `select(Candidate)` never
+# loads this duplicated text into every row of every candidate list response.
+_SEARCH_DOC = column("search_doc", Text)
 
 
 def _escape_like(value: str) -> str:
@@ -87,32 +70,59 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", r"\\").replace("%", r"\%").replace("_", r"\_")
 
 
-def _note_match(phrase: str) -> ColumnElement:
-    """EXISTS clause that fires when ANY note attached to the candidate
-    contains the phrase (case-insensitive ILIKE).
+def _identity_expr() -> ColumnElement:
+    """``name || ' ' || lastname || ' ' || email`` — the exact expression the
+    GIN trigram index ``ix_candidates_identity_trgm`` (migration 0013) is built
+    on. Used by the fuzzy (typo-tolerant) identity branch via the ``%`` operator,
+    which consults ``pg_trgm.similarity_threshold`` (set per-request by the
+    caller) and therefore uses that index instead of a seq-scan ``similarity()``
+    filter.
+    """
+    return (
+        func.coalesce(Candidate.name, "")
+        + " "
+        + func.coalesce(Candidate.lastname, "")
+        + " "
+        + func.coalesce(Candidate.email, "")
+    )
 
-    Notes live in their own table — joining for every search row would
-    explode the result set with duplicates. EXISTS is an anti-join: it
-    short-circuits on the first matching note per candidate, which is
-    exactly what we want for "does the candidate have a note mentioning
-    Python somewhere?". The Note model uses `candidate_id` as the FK.
+
+def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
+    """Indexable predicate: candidate matches ``phrase`` (case-insensitive
+    substring) in ANY searchable field.
+
+    Built as ``candidates.id IN (UNION of id-subqueries)`` so each branch drives
+    its own GIN trigram index (Append of bitmap index scans) instead of a single
+    OR-of-ILIKEs the planner can only satisfy with a full seq scan:
+      • ``search_doc ILIKE``    → ix_candidates_search_doc_trgm (all non-CV cols),
+      • ``raw_cv_text ILIKE``   → ix_candidates_cv_trgm,
+      • ``notes.content ILIKE`` → ix_notes_content_trgm (candidate_id NOT NULL so
+        the ``NOT IN`` form used by the NONE bucket can't hit the NULL trap).
+
+    When ``fuzzy`` is set (simple ``?q=`` search, phrase ≥3 chars) a trigram-
+    similarity branch on identity is unioned in via the ``%`` operator —
+    preserving the old typo-tolerant identity match. The caller MUST set
+    ``pg_trgm.similarity_threshold`` for the transaction first (see
+    ``list_candidates``); the substring branches are unaffected by that GUC.
     """
     pattern = f"%{_escape_like(phrase)}%"
-    return exists().where(
-        and_(
-            Note.candidate_id == Candidate.id,
+    branches = [
+        select(Candidate.id).where(_SEARCH_DOC.ilike(pattern, escape="\\")),
+        select(Candidate.id).where(Candidate.raw_cv_text.ilike(pattern, escape="\\")),
+        select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None),
             Note.content.ilike(pattern, escape="\\"),
+        ),
+    ]
+    if fuzzy:
+        # self_group() forces parentheses around the `||` concatenation: in
+        # PostgreSQL `%` binds tighter than `||`, so `a || b % c` would parse as
+        # `a || (b % c)` (string || boolean → type error). `(a || b) % c` both
+        # parses correctly AND matches ix_candidates_identity_trgm's expression.
+        branches.append(
+            select(Candidate.id).where(_identity_expr().self_group().op("%")(phrase))
         )
-    )
-
-
-def _phrase_match(phrase: str) -> ColumnElement:
-    """OR across all searchable columns + notes EXISTS for a single phrase."""
-    pattern = f"%{_escape_like(phrase)}%"
-    return or_(
-        *(col.ilike(pattern, escape="\\") for col in _SEARCHABLE_COLUMNS),
-        _note_match(phrase),
-    )
+    return Candidate.id.in_(union(*branches))
 
 
 def _clean(phrases: Optional[list[str]]) -> list[str]:
@@ -134,18 +144,21 @@ def _clean(phrases: Optional[list[str]]) -> list[str]:
     return cleaned
 
 
-def single_phrase_filter(phrase: str) -> Optional[ColumnElement]:
+def single_phrase_filter(
+    phrase: str, *, fuzzy: bool = False
+) -> Optional[ColumnElement]:
     """Build a WHERE clause for a single simple-search phrase.
 
     Used by the legacy `?q=...` parameter on GET /api/candidates to share
     the exact same field scope as the boolean `?q_all=...` path. Returns
     None when the phrase is too short to be useful — caller should skip
-    the .where() in that case.
+    the .where() in that case. ``fuzzy`` adds the typo-tolerant identity
+    branch (see ``_phrase_match``).
     """
     cleaned = _clean([phrase])
     if not cleaned:
         return None
-    return _phrase_match(cleaned[0])
+    return _phrase_match(cleaned[0], fuzzy=fuzzy)
 
 
 def build_advanced_filter(
