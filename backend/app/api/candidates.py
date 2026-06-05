@@ -2423,9 +2423,19 @@ async def get_candidate_timeline(
         )
 
     # Activities (system events)
+    #
+    # Pomijamy `traffit:Zmiana etapu` — te legacy rekordy z importu Traffita
+    # duplikują realne wpisy `stage_change` powyżej (to samo zdarzenie, bez
+    # własnej czytelnej etykiety — w UI renderowały się jako goły "traffit:
+    # Zmiana etapu"), więc tylko zaśmiecały feed. Filtr na poziomie zapytania
+    # dodatkowo nie pozwala im wypychać użytecznych aktywności spod `limit`.
     activities_result = await db.execute(
         select(Activity)
-        .where(Activity.entity_type == "candidate", Activity.entity_id == candidate_id)
+        .where(
+            Activity.entity_type == "candidate",
+            Activity.entity_id == candidate_id,
+            Activity.action != "traffit:Zmiana etapu",
+        )
         .order_by(Activity.created_at.desc())
         .limit(limit)
     )
