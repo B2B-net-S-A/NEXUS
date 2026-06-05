@@ -215,14 +215,14 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className="min-w-0 flex-1">
  <div
  className={cn("font-medium text-foreground truncate",
- density === "compact" ?"text-xs" :"text-base"
+ density === "compact" ?"text-xs" :"text-lg"
  )}
  >
  {fullName}
  </div>
  <div
  className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
- density === "compact" ?"text-[10px]" :"text-xs"
+ density === "compact" ?"text-[10px]" :"text-sm"
  )}
  >
  {item.rating != null && item.rating > 0 && (
@@ -343,7 +343,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
  )}
- <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-xs font-medium" :"text-sm font-semibold")}>
+ <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-xs font-medium" :"text-base font-semibold")}>
  {columnLabel(col)}
  </span>
  <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"}>

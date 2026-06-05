@@ -964,7 +964,7 @@ export default function JobDetailPage() {
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold">{job.title}</h1>
+              <h1 className="text-xl font-bold">{job.title}</h1>
               {job.reference_number && (
                 <span
                   className="font-mono text-xs px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border"
