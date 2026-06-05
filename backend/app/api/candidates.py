@@ -105,6 +105,11 @@ _MATCH_STATS_DEFAULT_THRESHOLD = 50.0
 
 
 _NOTE_PREVIEW_MAX_CHARS = 120
+# Powód odrzucenia pokazujemy w pełniejszej formie niż zwykłą notatkę — rekruter
+# chce widzieć CAŁĄ treść powodu od razu w kolumnie (nie tylko 120 znaków). Realne
+# wartości to krótkie kategorie ("Po CV", "Rezygnacja przez Kandydata", max ~37 zn.),
+# ten cap jest tylko bezpiecznikiem na patologiczny free-text z natywnego flow.
+_REJECTION_REASON_MAX_CHARS = 400
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 # Frontend stores @-mentions inside Tiptap notes as `$$user_NN$$` markers
@@ -148,11 +153,12 @@ def _extract_tiptap_text(node) -> str:
     return ""
 
 
-def _format_note_preview(raw: str) -> str:
+def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> str:
     """Strip HTML / Tiptap JSON + collapse whitespace + truncate. Notatki w
     NEXUS są zapisywane przez Tiptap editor — czasem jako HTML (legacy z
     Word/Outlook paste), czasem jako serializowany JSON document. Podgląd w
-    liście kandydatów ma być czystym tekstem.
+    liście kandydatów ma być czystym tekstem. `max_chars` pozwala podnieść cap
+    dla powodu odrzucenia (chcemy pełną treść, nie 120-znakowy podgląd).
     """
     if not raw:
         return ""
@@ -172,9 +178,9 @@ def _format_note_preview(raw: str) -> str:
     for entity, replacement in _HTML_ENTITIES.items():
         text_only = text_only.replace(entity, replacement)
     text_only = _WHITESPACE_RE.sub(" ", text_only).strip()
-    if len(text_only) <= _NOTE_PREVIEW_MAX_CHARS:
+    if len(text_only) <= max_chars:
         return text_only
-    return text_only[: _NOTE_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
+    return text_only[: max_chars - 1].rstrip() + "…"
 
 
 def _format_rejection_reason(
@@ -182,14 +188,17 @@ def _format_rejection_reason(
     reason_name: Optional[str],
     stage_notes: Optional[str],
     rejection_note: Optional[str],
-    job_title: Optional[str],
-    client_name: Optional[str],
 ) -> Optional[str]:
-    """Compose triage label dla najnowszego odrzucenia. Priority:
+    """Zwróć SAMĄ treść powodu odrzucenia (notatki) — pełną, bez nazwy projektu.
+    Priorytet źródła:
     1. Structured rejection_reason.name (FK z pipeline_template). Cleanest signal.
     2. CandidateStage.rejection_note (free-text rejection blob from `verified` flow).
     3. CandidateStage.notes (general transition note).
-    Doklejamy " · job · (client)" gdy są — dzięki temu rekruter widzi gdzie kandydat odpadł.
+
+    Świadomie NIE doklejamy " · job (client)" (decyzja produktowa 2026-06-05):
+    nazwa projektu zaśmiecała wąską kolumnę i przykrywała sam powód ("Po CV" ginęło
+    za długim tytułem oferty). Rekruter chce widzieć powód od razu; kontekst projektu
+    i tak jest w kolumnie "Rekrutacje".
     """
     primary = (reason_name or "").strip()
     if not primary:
@@ -197,19 +206,11 @@ def _format_rejection_reason(
     if not primary:
         primary = (stage_notes or "").strip()
     if not primary:
-        primary = "Odrzucony"
-    primary = _format_note_preview(primary) or "Odrzucony"
-
-    context_parts: list[str] = []
-    job = (job_title or "").strip()
-    client = (client_name or "").strip()
-    if job:
-        context_parts.append(job)
-    if client:
-        context_parts.append(f"({client})")
-    if context_parts:
-        return f"{primary} · {' '.join(context_parts)}"
-    return primary
+        return "Odrzucony"
+    return (
+        _format_note_preview(primary, max_chars=_REJECTION_REASON_MAX_CHARS)
+        or "Odrzucony"
+    )
 
 
 def _format_rate(value, unit: Optional[str], currency: Optional[str]) -> str:
@@ -1441,16 +1442,12 @@ async def list_candidates(
                 CandidateStage.notes,
                 CandidateStage.rejection_note,
                 RejectionReason.name.label("reason_name"),
-                Job.title.label("job_title"),
-                Client.name.label("client_name"),
             )
             .select_from(CandidateStage)
             .outerjoin(
                 RejectionReason,
                 RejectionReason.id == CandidateStage.rejection_reason_id,
             )
-            .outerjoin(Job, Job.id == CandidateStage.job_id)
-            .outerjoin(Client, Client.id == Job.client_id)
             .where(
                 CandidateStage.candidate_id.in_(candidate_ids),
                 CandidateStage.stage == PipelineStage.rejected,
@@ -1467,8 +1464,6 @@ async def list_candidates(
             stage_notes,
             rejection_note,
             reason_name,
-            job_title,
-            client_name,
         ) in (await db.execute(last_rejection_stmt)).all():
             if cand_id is None:
                 continue
@@ -1476,8 +1471,6 @@ async def list_candidates(
                 reason_name=reason_name,
                 stage_notes=stage_notes,
                 rejection_note=rejection_note,
-                job_title=job_title,
-                client_name=client_name,
             )
             if formatted:
                 last_rejection_by_candidate[cand_id] = formatted

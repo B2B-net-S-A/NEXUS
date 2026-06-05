@@ -263,15 +263,24 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
     # Non-integer Decimal-like value
     assert "150.50" in _format_rate(150.5, "hourly", "PLN").replace(" ", "")
 
+    # Sam powód — BEZ " · job (client)". Nazwa projektu zaśmiecała kolumnę i
+    # przykrywała powód, więc świadomie jej nie doklejamy (decyzja 2026-06-05).
     assert (
         _format_rejection_reason(
             reason_name="Cena za wysoka",
             stage_notes=None,
             rejection_note=None,
-            job_title="Senior Python",
-            client_name="Allegro",
         )
-        == "Cena za wysoka · Senior Python (Allegro)"
+        == "Cena za wysoka"
+    )
+    # rejection_note (np. zbackfillowane z Traffit "Po CV") gdy brak reason_name.
+    assert (
+        _format_rejection_reason(
+            reason_name=None,
+            stage_notes=None,
+            rejection_note="Po CV",
+        )
+        == "Po CV"
     )
     # Fallback chain — no reason_name + no rejection_note → stage_notes used
     assert (
@@ -279,19 +288,25 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
             reason_name=None,
             stage_notes="<p>Brak match na seniority</p>",
             rejection_note=None,
-            job_title=None,
-            client_name=None,
         )
         == "Brak match na seniority"
     )
+    # Pełna treść — powód dłuższy niż 120 zn. (cap notatki) NIE jest ucinany do 120;
+    # rekruter chce widzieć całość. Cap bezpiecznika to _REJECTION_REASON_MAX_CHARS.
+    long_reason = "Odrzucony bo " + ("za mało doświadczenia, " * 12)
+    assert len(long_reason) > 120
+    long_formatted = _format_rejection_reason(
+        reason_name=long_reason,
+        stage_notes=None,
+        rejection_note=None,
+    )
+    assert long_formatted is not None and len(long_formatted) > 120
     # All-empty case → "Odrzucony" placeholder
     assert (
         _format_rejection_reason(
             reason_name=None,
             stage_notes=None,
             rejection_note=None,
-            job_title=None,
-            client_name=None,
         )
         == "Odrzucony"
     )
