@@ -276,7 +276,9 @@ async def compute_my_panel(
     verifications_target = await _resolve_target(
         db, user=user, kpi_id="verifications_daily"
     )
-    placements_target = await _resolve_target(db, user=user, kpi_id="placements_monthly")
+    placements_target = await _resolve_target(
+        db, user=user, kpi_id="placements_monthly"
+    )
 
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
