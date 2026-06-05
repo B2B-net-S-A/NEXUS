@@ -19,6 +19,7 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
+from app.models.b2b_contract_detail import B2BContractDetail
 
 router = APIRouter()
 
@@ -60,11 +61,32 @@ _jinja_env = Environment(
     lstrip_blocks=True,
 )
 
+# Generator Umów B2B — filtr formatujący daty (PL/EN), współdzielony z renderem
+# DOCX. Import modułu-liścia (bez zależności od `app`) → brak cyklu importów.
+from app.services.b2b_contract_generator.formatting import (  # noqa: E402
+    pl_date as _pl_date,
+)
+
+_jinja_env.filters["pl_date"] = _pl_date
+
 
 def _contract_vars(contract: Contract) -> dict:
     """Shape exposed to templates (keep stable — it's part of the contract)."""
     cand = contract.candidate
     cli = contract.client
+    # Generator Umów B2B — dane per-umowa (1:1) + wybrana rola (zakres usług).
+    # `b2b_detail` musi być eager-loaded przy każdym wywołaniu (async).
+    detail = getattr(contract, "b2b_detail", None)
+    role = detail.role if detail else None
+    lang = (detail.language if detail else "pl") or "pl"
+    if role is not None:
+        _area_label = role.area_label_pl if lang == "pl" else role.area_label_en
+        _role_name = role.name_pl if lang == "pl" else role.name_en
+        _role_scope = role.scope_pl if lang == "pl" else role.scope_en
+    else:
+        _area_label = _role_name = None
+        _role_scope = []
+    _scope_items = (detail.role_scope_override if detail else None) or _role_scope or []
     return {
         "contract": {
             "id": contract.id,
@@ -118,6 +140,20 @@ def _contract_vars(contract: Contract) -> dict:
         "job": {
             "id": contract.job.id if contract.job else None,
             "title": contract.job.title if contract.job else None,
+        },
+        "b2b": {
+            "contract_number": detail.contract_number if detail else None,
+            "signing_date": detail.signing_date if detail else None,
+            "project_city": detail.project_city if detail else None,
+            "project_description": detail.project_description if detail else None,
+            "correspondence_address": (
+                detail.correspondence_address if detail else None
+            ),
+            "rate_in_words": detail.rate_in_words if detail else None,
+            "language": lang,
+            "area_label": _area_label,
+            "role_name": _role_name,
+            "scope_items": _scope_items,
         },
     }
 
@@ -230,6 +266,7 @@ async def render_template_for_contract(
             selectinload(Contract.candidate),
             selectinload(Contract.client),
             selectinload(Contract.job),
+            selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
     if not contract:

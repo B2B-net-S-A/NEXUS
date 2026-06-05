@@ -35,6 +35,7 @@ from app.models.contract_equipment import ContractEquipment, EquipmentReturnStat
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_template import ContractTemplate
+from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.job import Job
 from app.models.note import Note
 from app.models.rate_benchmark import RateBenchmark
@@ -605,6 +606,7 @@ async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> C
             selectinload(Contract.candidate),
             selectinload(Contract.client),
             selectinload(Contract.job),
+            selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
     if not contract:

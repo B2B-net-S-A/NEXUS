@@ -66,6 +66,7 @@ from app.api import talent_pools
 from app.api import public_engagement
 from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
+from app.api import b2b_contract_generator
 from app.api import dynareporter_profile
 from app.api import dynareporter_kpi_body_leasing
 from app.api import dynareporter_kpi_sales
@@ -255,6 +256,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Skill alias map preload skipped: %s", e)
 
+    # Generator Umów B2B — idempotentny seed ról + szablonów (insert-if-missing,
+    # nie nadpisuje edycji z UI). Bezpieczny przy każdym starcie.
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.services.b2b_contract_generator.seeder import (
+            ensure_b2b_seed_data,
+        )
+
+        async with AsyncSessionLocal() as _seed_db:
+            await ensure_b2b_seed_data(_seed_db)
+    except Exception as e:
+        logger.warning("B2B generator seed skipped: %s", e)
+
     # Start calendar reminder background task
     from app.api.calendar import calendar_reminder_loop
     from app.tasks.match_history_ttl import match_history_ttl_loop
@@ -426,6 +440,11 @@ app.include_router(
     contract_templates.router,
     prefix="/api/contract-templates",
     tags=["contract-templates"],
+)
+app.include_router(
+    b2b_contract_generator.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
 )
 app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
