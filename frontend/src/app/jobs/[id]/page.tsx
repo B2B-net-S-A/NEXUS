@@ -690,6 +690,7 @@ function EmailTemplateModal({
 
 function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -700,10 +701,14 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   const addToPipelineMutation = useMutation({
     mutationFn: ({ candidateId, jobId }: { candidateId: number; jobId: number }) =>
-      api.post("/api/pipeline/move", { candidate_id: candidateId, job_id: jobId, stage: "sourced" }),
+      // `new` = pierwszy etap (legacy enum resolved przez default template).
+      // Wcześniej wysyłaliśmy nieistniejący `sourced` → 422 i cichy fail.
+      api.post("/api/pipeline/move", { candidate_id: candidateId, job_id: jobId, stage: "new" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      showSuccess("Kandydat dodany do pipeline");
     },
+    onError: () => showError("Nie udało się dodać kandydata do pipeline"),
   });
 
   if (isLoading) {
