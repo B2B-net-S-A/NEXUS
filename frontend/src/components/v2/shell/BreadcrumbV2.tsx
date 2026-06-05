@@ -52,16 +52,27 @@ function isNumeric(s: string) {
 }
 
 function DynamicLabel({ entityType, id }: { entityType: string; id: string }) {
+  // The candidate detail page already fetches the full candidate under
+  // ["candidate", <number id>]. Reuse that exact query key here so the
+  // breadcrumb name is served from the page's fetch (React Query dedupes by
+  // key) instead of issuing a second, heavy request for the same candidate.
+  // Other entity types keep their lightweight name-only fetchers.
+  const isCandidate = entityType === "candidates";
   const fetcher = ENTITY_NAME_FETCHERS[entityType];
-  const { data: label, isLoading } = useQuery({
-    queryKey: ["breadcrumb-v2", entityType, id],
-    queryFn: () => fetcher(id),
-    enabled: !!fetcher,
+  const { data, isLoading } = useQuery<any>({
+    queryKey: isCandidate ? ["candidate", Number(id)] : ["breadcrumb-v2", entityType, id],
+    queryFn: isCandidate
+      ? () => api.get(`/api/candidates/${id}`).then((r) => r.data)
+      : () => fetcher(id),
+    enabled: isCandidate || !!fetcher,
     staleTime: 60_000,
   });
-  if (!fetcher) return <span>{id}</span>;
+  if (!isCandidate && !fetcher) return <span>{id}</span>;
   if (isLoading) return <span className="opacity-50">…</span>;
-  return <span>{label ?? id}</span>;
+  const label = isCandidate
+    ? `${data?.name ?? ""} ${data?.lastname ?? ""}`.trim() || id
+    : (data ?? id);
+  return <span>{label}</span>;
 }
 
 export function BreadcrumbV2({ className }: { className?: string }) {
