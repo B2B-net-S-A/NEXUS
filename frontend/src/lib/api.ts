@@ -427,10 +427,19 @@ export const aiWriterApi = {
 // ── AI Matching ───────────────────────────────────────────────────────────────
 export const matchingApi = {
   // Returns ALL candidates that match the job (score >= backend threshold),
-  // ranked best-first. Optional overrides: `minScore` (0-1) and `limit`.
-  getMatches: (jobId: number, opts?: { minScore?: number; limit?: number }) =>
+  // ranked best-first. Optional overrides: `minScore` (0-1), `limit`, and
+  // `location` (restrict to candidates whose location matches this place —
+  // falls back to the job's own location server-side when omitted).
+  getMatches: (
+    jobId: number,
+    opts?: { minScore?: number; limit?: number; location?: string },
+  ) =>
     api.get(`/api/jobs/${jobId}/ai-matches`, {
-      params: { min_score: opts?.minScore, limit: opts?.limit },
+      params: {
+        min_score: opts?.minScore,
+        limit: opts?.limit,
+        location: opts?.location?.trim() || undefined,
+      },
     }),
 };
 

@@ -28,6 +28,8 @@ import { formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
+import { LocationInput } from "@/components/v2/filters/LocationInput";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -691,10 +693,19 @@ function EmailTemplateModal({
 function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   const queryClient = useQueryClient();
   const [emailTarget, setEmailTarget] = useState<any>(null);
+  // Location filter — restricts matches to candidates whose location matches.
+  // Pre-fill from the job's own location when it has one (rare for imported
+  // jobs), otherwise the recruiter types a city (e.g. "Warszawa").
+  const [locationFilter, setLocationFilter] = useState<string>(
+    () => formatCandidateLocation(job?.location) ?? "",
+  );
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["ai-matches", jobId],
-    queryFn: () => matchingApi.getMatches(jobId).then((r) => r.data),
+    queryKey: ["ai-matches", jobId, locationFilter.trim()],
+    queryFn: () =>
+      matchingApi
+        .getMatches(jobId, { location: locationFilter.trim() || undefined })
+        .then((r) => r.data),
     staleTime: 60_000,
   });
 
@@ -706,39 +717,29 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
     },
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-        <AlertCircle className="w-10 h-10 text-red-400" />
-        <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
-        <button onClick={() => refetch()} className="text-sm text-primary hover:underline mt-1">Spróbuj ponownie</button>
-      </div>
-    );
-  }
-
   const matches = data?.matches ?? [];
   const searchType = data?.search_type;
   const requiredSkills = data?.required_skills ?? [];
+  // Server echoes the effective location filter it applied (param, or the
+  // job's own location). Non-empty → results are location-restricted.
+  const locationActive = Boolean(data?.location_filter);
 
   return (
     <div className="space-y-4">
       {/* Phase 4: AI criteria + scoring actions */}
       <JobAIActions jobId={jobId} onDone={() => refetch()} />
 
-      {/* Header info */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">
-            Znaleziono <strong>{matches.length}</strong> pasujących kandydatów
+      {/* Header info + location filter */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
+            {isLoading ? (
+              "Wyszukiwanie..."
+            ) : (
+              <>
+                Znaleziono <strong>{matches.length}</strong> pasujących kandydatów
+              </>
+            )}
           </span>
           {searchType === "semantic" && (
             <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
@@ -746,10 +747,24 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
           {searchType === "tag_fallback" && (
             <span className="text-[10px] px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">Tag-based</span>
           )}
+          {locationActive && (
+            <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium inline-flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> {data?.location_filter}
+            </span>
+          )}
         </div>
-        <button onClick={() => refetch()} className="text-xs text-primary hover:underline">
-          Odśwież
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="w-52">
+            <LocationInput
+              value={locationFilter}
+              onChange={setLocationFilter}
+              placeholder="Lokalizacja (np. Warszawa)"
+            />
+          </div>
+          <button onClick={() => refetch()} className="text-xs text-primary hover:underline whitespace-nowrap">
+            Odśwież
+          </button>
+        </div>
       </div>
 
       {requiredSkills.length > 0 && (
@@ -761,11 +776,30 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
         </div>
       )}
 
-      {matches.length === 0 ? (
+      {isLoading ? (
+        <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
+          <AlertCircle className="w-10 h-10 text-red-400" />
+          <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
+          <button onClick={() => refetch()} className="text-sm text-primary hover:underline mt-1">Spróbuj ponownie</button>
+        </div>
+      ) : matches.length === 0 ? (
         <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
           <UserCheck className="w-12 h-12 opacity-30" />
-          <p className="text-sm">Brak pasujących kandydatów w bazie</p>
-          <p className="text-xs text-muted-foreground">Dodaj kandydatów do systemu i uruchom indeksowanie</p>
+          <p className="text-sm">
+            {locationActive
+              ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
+              : "Brak pasujących kandydatów w bazie"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {locationActive
+              ? "Zmień lub wyczyść filtr lokalizacji powyżej"
+              : "Dodaj kandydatów do systemu i uruchom indeksowanie"}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -797,6 +831,12 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                       </Link>
                       {c.competence_category && (
                         <p className="text-xs text-muted-foreground mt-0.5">{c.competence_category}</p>
+                      )}
+                      {formatCandidateLocation(c.location) && (
+                        <p className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-1">
+                          <MapPin className="w-3 h-3 flex-shrink-0" />
+                          {formatCandidateLocation(c.location)}
+                        </p>
                       )}
                     </div>
                     <div className="w-32 flex-shrink-0">

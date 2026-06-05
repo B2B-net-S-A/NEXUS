@@ -7,7 +7,9 @@ GET /api/jobs/{id}/ai-matches
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -50,6 +52,76 @@ def _extract_tags(raw) -> list[str]:
     if isinstance(raw, str):
         return [t.strip().lower() for t in raw.split(",") if t.strip()]
     return []
+
+
+def _location_tokens(raw) -> set[str]:
+    """Normalized lowercase place tokens from a candidate/job ``location`` value.
+
+    Handles both shapes seen in the wild:
+      • plain text — ``"Warszawa"``, ``"Kraków / remote"``
+      • the structured JSON blob Traffit/TalentRadar imports store verbatim:
+        ``{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska",...}``
+        (≈8 200 of 8 300 located candidates are this shape — the structured
+        ``city``/``region`` columns were never backfilled, so ``location`` is
+        the only usable source).
+
+    Returns the set of meaningful tokens (locality, regions, country) used for
+    matching; empty set when nothing usable is present.
+    """
+    if not raw:
+        return set()
+    s = str(raw).strip()
+    if not s:
+        return set()
+    tokens: set[str] = set()
+    if s.startswith("{"):
+        # Structured blob — extract place fields. A blob that fails to parse
+        # yields no tokens (we can't guess a location), rather than leaking the
+        # raw JSON string in as a junk plaintext token.
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict):
+                for key in (
+                    "locality",
+                    "city",
+                    "region1",
+                    "region2",
+                    "region3",
+                    "country",
+                ):
+                    v = data.get(key)
+                    if isinstance(v, str) and v.strip():
+                        tokens.add(v.strip().lower())
+        except (ValueError, TypeError):
+            pass
+        return tokens
+    # Plain text — split on common separators (comma, slash, pipe, ';').
+    for part in re.split(r"[,/;|]+", s.lower()):
+        part = part.strip()
+        if part:
+            tokens.add(part)
+    return tokens
+
+
+def _location_matches(requested_tokens: set[str], candidate_location) -> bool:
+    """True if a candidate's location is compatible with the requested tokens.
+
+    No request tokens → no filter (everyone passes). A candidate with no
+    parseable location is excluded under an active filter (standard search
+    semantics, mirroring the manual-search ``location_cities`` behaviour).
+    Token comparison is substring-tolerant either direction so ``"warszawa"``
+    matches ``"warszawa, mazowieckie"`` and vice-versa.
+    """
+    if not requested_tokens:
+        return True
+    cand_tokens = _location_tokens(candidate_location)
+    if not cand_tokens:
+        return False
+    for rt in requested_tokens:
+        for ct in cand_tokens:
+            if rt == ct or rt in ct or ct in rt:
+                return True
+    return False
 
 
 def _build_match_info(
@@ -152,6 +224,7 @@ async def get_ai_matches(
     current_user: CurrentUser,
     min_score: float | None = None,
     limit: int | None = None,
+    location: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -165,9 +238,13 @@ async def get_ai_matches(
     by the match threshold and a safety cap (``MATCH_MAX_RESULTS``), so a job
     with 60 genuine fits shows all 60 instead of an arbitrary first 10.
 
-    Query params (both optional; default to runtime-tunable settings):
+    Query params (all optional; default to runtime-tunable settings):
         min_score: minimum match score (0-1) a candidate must reach to be shown.
         limit:     hard cap on the number of results (payload safety bound).
+        location:  restrict results to candidates whose location matches this
+                   place (city/region, substring-tolerant). Falls back to the
+                   job's own ``location`` when omitted. Empty when neither is
+                   set → no location filter (legacy behaviour preserved).
     """
     threshold = min_score if min_score is not None else settings.AI_MATCH_MIN_SCORE
     max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
@@ -185,6 +262,18 @@ async def get_ai_matches(
     query_text = _build_job_query(job)
     required_skills = _parse_required_skills(job)
 
+    # ── Location filter ──────────────────────────────────────────────────────
+    # Explicit query param wins; otherwise fall back to the job's own location
+    # (which is empty for ~99% of Traffit-imported jobs, hence the param).
+    requested_location = (location or "").strip() or (job.location or "").strip()
+    requested_tokens = _location_tokens(requested_location)
+    location_active = bool(requested_tokens)
+    # When filtering by location, widen the retrieval pool so the located subset
+    # isn't starved by the default top-100 semantic cut (only ~17% of candidates
+    # have any location at all). Plain (no-location) requests keep the cheaper
+    # default pool.
+    effective_pool = max(pool_size, max_results) if location_active else pool_size
+
     # ── Attempt Qdrant semantic search (+ optional Voyage rerank) ────────────
     try:
         from app.services.embedding_service import (
@@ -197,7 +286,7 @@ async def get_ai_matches(
         # who is shown. Rerank cost scales ~linearly with pool size, hence the
         # tunable AI_MATCH_POOL_SIZE.
         rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
-        hits = await search_candidates_semantic(query_text, top_k=pool_size)
+        hits = await search_candidates_semantic(query_text, top_k=effective_pool)
 
         if hits:
             candidate_ids = [h["candidate_id"] for h in hits]
@@ -241,6 +330,14 @@ async def get_ai_matches(
                 _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
                 for i, c in enumerate(ordered)
             ]
+            # Location filter (when active): keep only candidates whose location
+            # matches the request, preserving the semantic ranking order.
+            if location_active:
+                matches = [
+                    m
+                    for m in matches
+                    if _location_matches(requested_tokens, m["candidate"]["location"])
+                ]
             # Threshold filter: show everyone who fits, capped for payload safety.
             matches = [m for m in matches if m["match_score"] >= threshold][
                 :max_results
@@ -252,6 +349,7 @@ async def get_ai_matches(
                 "required_skills": required_skills,
                 "search_type": search_type,
                 "min_score": round(threshold, 3),
+                "location_filter": requested_location if location_active else None,
                 "matches": matches,
             }
     except Exception as e:
@@ -264,12 +362,15 @@ async def get_ai_matches(
 
     # Grab all active candidates (bounded by the retrieval pool for performance)
     all_result = await db.execute(
-        select(Candidate).where(Candidate.status != "blacklisted").limit(pool_size)
+        select(Candidate).where(Candidate.status != "blacklisted").limit(effective_pool)
     )
     all_candidates = all_result.scalars().all()
 
     matches = []
     for c in all_candidates:
+        # Location filter (when active): skip non-matching candidates up front.
+        if location_active and not _location_matches(requested_tokens, c.location):
+            continue
         match = _build_match_info(c, required_skills, score=None)
         # No required_skills → score is a profile-completeness proxy; keep the
         # threshold floor so junk profiles don't surface as "matches".
@@ -286,5 +387,6 @@ async def get_ai_matches(
         "required_skills": required_skills,
         "search_type": "tag_fallback",
         "min_score": round(threshold, 3),
+        "location_filter": requested_location if location_active else None,
         "matches": matches,
     }
