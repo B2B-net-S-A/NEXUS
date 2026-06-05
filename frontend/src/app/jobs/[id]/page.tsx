@@ -25,6 +25,7 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
+import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 
@@ -791,7 +792,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <Link href={`/candidates/${c.id}`} className="font-semibold text-foreground dark:text-foreground hover:text-primary text-sm">
+                      <Link href={`/candidates/${c.id}?${encodeJobBackRef(jobId).toString()}`} className="font-semibold text-foreground dark:text-foreground hover:text-primary text-sm">
                         {fullName}
                       </Link>
                       {c.competence_category && (

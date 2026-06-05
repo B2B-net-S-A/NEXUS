@@ -42,6 +42,7 @@ import {
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
+import { encodeJobBackRef } from"@/lib/url-filters";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -124,6 +125,7 @@ const columnLabel = (col: KanbanColumn) => col.name ?? col.stage;
 
 interface CardProps {
  item: KanbanItem;
+ jobId: number;
  selected: boolean;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
@@ -136,6 +138,7 @@ interface CardProps {
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item,
+ jobId,
  selected,
  onToggleSelect,
  onOpenScreening,
@@ -200,7 +203,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
 
  <Link
- href={`/candidates/${item.candidate_id}`}
+ href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
  className="block"
  onClick={(e) => e.stopPropagation()}
  >
@@ -303,6 +306,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
 
 interface ColProps {
  col: KanbanColumn;
+ jobId: number;
  selectedIds: Set<number>;
  onToggleSelect: (id: number) => void;
  onOpenScreening: (stageId: number, name: string) => void;
@@ -314,6 +318,7 @@ interface ColProps {
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
+ jobId,
  selectedIds,
  onToggleSelect,
  onOpenScreening,
@@ -377,6 +382,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  >
  <CandidateKanbanCard
  item={item}
+ jobId={jobId}
  selected={selectedIds.has(item.id)}
  onToggleSelect={onToggleSelect}
  onOpenScreening={onOpenScreening}
@@ -920,6 +926,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  <KanbanColumnV2
  key={colId(col)}
  col={col}
+ jobId={jobId}
  selectedIds={selected}
  onToggleSelect={toggleSelect}
  onOpenScreening={(stageId, name) =>
