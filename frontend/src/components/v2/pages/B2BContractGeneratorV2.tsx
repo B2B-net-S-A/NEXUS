@@ -54,6 +54,7 @@ import api, {
   type B2BRole,
 } from "@/lib/api";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { rateInWords as computeRateInWords } from "@/lib/number-to-words";
 import { cn } from "@/lib/utils";
 
 type CandidateOption = {
@@ -168,13 +169,17 @@ function GeneratorForm() {
 
   const [contractNumber, setContractNumber] = useState("");
   const [signingDate, setSigningDate] = useState(todayISO());
-  const [startDate, setStartDate] = useState("");
+  const [startDate, setStartDate] = useState(todayISO());
   const [projectCity, setProjectCity] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [correspondenceAddress, setCorrespondenceAddress] = useState("");
   const [rateCandidate, setRateCandidate] = useState("");
   const [rateInWords, setRateInWords] = useState("");
   const [currency, setCurrency] = useState("PLN");
+  // Flagi „użytkownik nadpisał ręcznie" — blokują auto-uzupełnianie.
+  const [rateWordsTouched, setRateWordsTouched] = useState(false);
+  const [descTouched, setDescTouched] = useState(false);
+  const [cityTouched, setCityTouched] = useState(false);
 
   const [generatedContractId, setGeneratedContractId] = useState<number | null>(
     null,
@@ -242,6 +247,32 @@ function GeneratorForm() {
     setScopeText(bullets.join("\n"));
   }, [selectedRole, language]);
 
+  // Oferta wybranej rekrutacji — źródło pre-fillu opisu projektu + miasta.
+  const jobQuery = useQuery({
+    queryKey: ["b2b-gen-job", selectedRecruitment?.job_id],
+    queryFn: async () => {
+      if (!selectedRecruitment) return null;
+      const res = await api.get(`/api/jobs/${selectedRecruitment.job_id}`);
+      return res.data as { description?: string | null; location?: string | null };
+    },
+    enabled: !!selectedRecruitment,
+  });
+
+  // Pre-fill opisu projektu + miasta z oferty (dopóki użytkownik nie nadpisze).
+  useEffect(() => {
+    const job = jobQuery.data;
+    if (!job) return;
+    if (!descTouched && job.description) setProjectDescription(job.description);
+    if (!cityTouched && job.location) setProjectCity(job.location);
+  }, [jobQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto „stawka słownie" z kwoty + języka (dopóki użytkownik nie nadpisze).
+  useEffect(() => {
+    if (rateWordsTouched) return;
+    const n = rateCandidate ? Number(rateCandidate) : null;
+    setRateInWords(n ? computeRateInWords(n, language) : "");
+  }, [rateCandidate, language, rateWordsTouched]);
+
   const groupedRoles = useMemo(() => {
     const map = new Map<string, { label: string; items: B2BRole[] }>();
     for (const r of roles) {
@@ -264,9 +295,6 @@ function GeneratorForm() {
         .filter(Boolean),
     [scopeText],
   );
-
-  const canSubmit =
-    !!candidate && !!selectedRecruitment && !!selectedRole && !!startDate;
 
   const generateMut = useMutation({
     mutationFn: () =>
@@ -295,6 +323,19 @@ function GeneratorForm() {
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
+
+  const handleGenerate = () => {
+    const missing: string[] = [];
+    if (!candidate) missing.push("kandydat");
+    if (!selectedRecruitment) missing.push("rekrutacja");
+    if (!selectedRole) missing.push("rola");
+    if (!startDate) missing.push("data rozpoczęcia usług");
+    if (missing.length) {
+      toast.showError("Uzupełnij: " + missing.join(", "));
+      return;
+    }
+    generateMut.mutate();
+  };
 
   const docxMut = useMutation({
     mutationFn: async (lang: Lang) => {
@@ -508,7 +549,10 @@ function GeneratorForm() {
           <Field label="Miasto Klienta">
             <Input
               value={projectCity}
-              onChange={(e) => setProjectCity(e.target.value)}
+              onChange={(e) => {
+                setCityTouched(true);
+                setProjectCity(e.target.value);
+              }}
               placeholder="np. Warszawa"
             />
           </Field>
@@ -529,16 +573,22 @@ function GeneratorForm() {
           <Field label="Stawka słownie" full>
             <Input
               value={rateInWords}
-              onChange={(e) => setRateInWords(e.target.value)}
-              placeholder="np. sto pięćdziesiąt"
+              onChange={(e) => {
+                setRateWordsTouched(true);
+                setRateInWords(e.target.value);
+              }}
+              placeholder="auto z kwoty — lub wpisz ręcznie"
             />
           </Field>
           <Field label="Opis projektu i zakres usług" full>
             <Textarea
               value={projectDescription}
-              onChange={(e) => setProjectDescription(e.target.value)}
+              onChange={(e) => {
+                setDescTouched(true);
+                setProjectDescription(e.target.value);
+              }}
               rows={3}
-              placeholder="3–4 zdania o projekcie (z procesu rekrutacyjnego)…"
+              placeholder="Auto z oferty — lub wpisz 3–4 zdania o projekcie…"
             />
           </Field>
           <Field label="Adres do korespondencji (opcjonalnie)" full>
@@ -554,8 +604,8 @@ function GeneratorForm() {
         <p className="text-xs text-muted-foreground">* pola wymagane</p>
         <Button
           size="lg"
-          disabled={!canSubmit || generateMut.isPending}
-          onClick={() => generateMut.mutate()}
+          disabled={generateMut.isPending}
+          onClick={handleGenerate}
         >
           {generateMut.isPending ? (
             <>
