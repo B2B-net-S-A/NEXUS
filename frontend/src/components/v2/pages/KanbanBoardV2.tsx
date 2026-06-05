@@ -439,20 +439,26 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
 
  useEffect(() => {
  (async () => {
+ const mapReasons = (rrs: any[]) =>
+ rrs.map((r: any) => ({
+ id: r.id,
+ label: r.name,
+ applies_to: [r.category as"rejected" |"withdrawn"],
+ }));
  try {
  const jobRes = await api.get(`/api/jobs/${jobId}`);
  const sMax = jobRes.data?.salary_max;
  setJobBudgetMax(typeof sMax === "number" ? sMax : null);
  const tid = jobRes.data?.pipeline_template_id;
- if (!tid) return;
+
+ let reasons: {
+ id: string;
+ label: string;
+ applies_to: ("rejected" |"withdrawn")[];
+ }[] = [];
+ if (tid) {
  const detail = await pipelineTemplatesApi.get(tid);
- setRejectionReasons(
- detail.data.rejection_reasons.map((r: any) => ({
- id: r.id,
- label: r.name,
- applies_to: [r.category as"rejected" |"withdrawn"],
- }))
- );
+ reasons = mapReasons(detail.data.rejection_reasons ?? []);
  const withScorecard = new Set<number>();
  for (const s of detail.data.stages ?? []) {
  const sch = (s as any).scorecard_schema;
@@ -461,6 +467,26 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  }
  }
  setStagesWithScorecard(withScorecard);
+ }
+
+ // Legacy joby (np. import z Traffit) nie mają pipeline_template_id, więc
+ // ich szablon nie dostarcza powodów odrzucenia. Bez fallbacku dialog
+ // "Odrzuć kandydata" miałby pustą listę powodów, a przycisk "Potwierdź"
+ // byłby trwale zablokowany. Dociągamy powody z szablonu domyślnego, aby
+ // zachować kontrolowany słownik (raporty lejka) zamiast wolnego tekstu.
+ if (reasons.length === 0) {
+ try {
+ const templates = await pipelineTemplatesApi.list();
+ const def = templates.data.find((t) => t.is_default);
+ if (def) {
+ const defDetail = await pipelineTemplatesApi.get(def.id);
+ reasons = mapReasons(defDetail.data.rejection_reasons ?? []);
+ }
+ } catch (e) {
+ console.error("Default rejection-reasons fallback failed", e);
+ }
+ }
+ setRejectionReasons(reasons);
  } catch (e) {
  console.error("Pipeline template load failed", e);
  }
@@ -503,6 +529,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  notes: string;
  sendRejectionEmail?: boolean | null;
  candidateOfferResponse?:"pending" |"accepted" |"declined" | null;
+ // Wolny tekst powodu — tylko gdy szablon nie miał zdefiniowanych powodów.
+ freeReason?: string;
  }
  ) => {
  try {
@@ -513,7 +541,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  job_id: jobId,
  stage: dst.stage,
  stage_def_id: dst.stage_def_id ?? undefined,
- rejection_reason_id: reason?.id,
+ rejection_reason_id: reason?.id || undefined,
+ rejection_reason: reason?.freeReason || undefined,
  notes: reason?.notes,
  send_rejection_email: reason?.sendRejectionEmail ?? undefined,
  candidate_offer_response:
@@ -916,7 +945,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  reasonId,
  notes,
  sendRejectionEmail,
- candidateOfferResponse
+ candidateOfferResponse,
+ freeReason
  ) => {
  if (!pendingRejection) return;
  sendMove(pendingRejection.item, pendingRejection.destCol, {
@@ -924,6 +954,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  notes,
  sendRejectionEmail,
  candidateOfferResponse: candidateOfferResponse ?? null,
+ freeReason,
  });
  setPendingRejection(null);
  }}
