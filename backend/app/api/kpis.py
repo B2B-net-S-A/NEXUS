@@ -24,6 +24,7 @@ from app.services.kpi_catalog import get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
 from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
 from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
+from app.services.kpi_panel import PanelResult, compute_my_panel
 
 router = APIRouter()
 
@@ -81,6 +82,82 @@ async def get_my_kpis_today(
 
     results = await evaluate_user_kpis(db, user=current_user)
     return [_to_schema(r) for r in results if r.target > 0]
+
+
+# ── „Moje KPI" panel (verifier-anchored funnel) ────────────────────────────
+
+
+class FunnelCountsSchema(BaseModel):
+    day: int
+    week: int
+    month: int
+
+
+class PrecisionSchema(BaseModel):
+    value_pct: float | None  # null gdy < 5 weryfikacji w oknie (za mała próbka)
+    verified: int
+    sent: int
+    target_pct: int
+    window_days: int
+
+
+class MyPanelSchema(BaseModel):
+    """DTO dla widgetu „Moje KPI" na panelu głównym."""
+
+    role: str
+    applies: bool  # czy panel ma się w ogóle pokazać tej roli
+    weryfikacje: FunnelCountsSchema
+    rekomendacje: FunnelCountsSchema
+    interview_month: int
+    akceptacje_month: int
+    placementy_month: int
+    cv_to_base: FunnelCountsSchema | None  # tylko recruiter/TAC
+    precision: PrecisionSchema
+    target_verifications_daily: int
+    target_placements_monthly: int
+    target_cv_added_daily: int | None
+    target_precision_pct: int
+
+
+def _panel_to_schema(p: PanelResult) -> MyPanelSchema:
+    def _fc(fc) -> FunnelCountsSchema:
+        return FunnelCountsSchema(day=fc.day, week=fc.week, month=fc.month)
+
+    return MyPanelSchema(
+        role=p.role,
+        applies=p.applies,
+        weryfikacje=_fc(p.weryfikacje),
+        rekomendacje=_fc(p.rekomendacje),
+        interview_month=p.interview_month,
+        akceptacje_month=p.akceptacje_month,
+        placementy_month=p.placementy_month,
+        cv_to_base=_fc(p.cv_to_base) if p.cv_to_base is not None else None,
+        precision=PrecisionSchema(
+            value_pct=p.precision.value_pct,
+            verified=p.precision.verified,
+            sent=p.precision.sent,
+            target_pct=p.precision.target_pct,
+            window_days=p.precision.window_days,
+        ),
+        target_verifications_daily=p.target_verifications_daily,
+        target_placements_monthly=p.target_placements_monthly,
+        target_cv_added_daily=p.target_cv_added_daily,
+        target_precision_pct=p.target_precision_pct,
+    )
+
+
+@router.get("/me/panel", response_model=MyPanelSchema)
+async def get_my_panel(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> MyPanelSchema:
+    """„Moje KPI" dla zalogowanego usera: weryfikacje/rekomendacje (dzień/
+    tydzień/miesiąc) + interview/akceptacje/placementy (miesiąc) + precision
+    (30 dni) + CV do bazy (recruiter/TAC). Atrybucja verifier-anchored —
+    zasługa idzie na osobę, która przeniosła kandydata na „Zweryfikowany".
+    """
+    result = await compute_my_panel(db, user=current_user)
+    return _panel_to_schema(result)
 
 
 @router.get("/users/{user_id}/today", response_model=List[KpiResultSchema])

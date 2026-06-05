@@ -13,6 +13,7 @@ import { PowerCallingSection } from"@/components/v2/gamification/PowerCallingSec
 import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
 import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
+import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel"
 import { ROLE_LABELS, useAuthStore } from"@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -337,6 +338,9 @@ export default function RecruiterDashboard() {
  Odśwież
  </Button>
  </div>
+
+ {/* Moje KPI — osobisty panel (verifier-anchored, niezależny od raportu zespołu) */}
+ <MojeKpiPanel className="mb-1" />
 
  {/* Report-driven sections (KPI + lejka). Without explicit error handling
  these would silently render zeros when the report endpoint errors — making
