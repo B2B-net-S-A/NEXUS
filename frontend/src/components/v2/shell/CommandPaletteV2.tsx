@@ -42,6 +42,20 @@ type QuickResult =
   | { type: "job"; id: number; title: string; subtitle: string | null }
   | { type: "client"; id: number; title: string; subtitle: string | null };
 
+// Loose shape of the rows returned by the list endpoints — only the fields the
+// palette reads. The three endpoints share a `{ items, total }` envelope but
+// each item carries a different subset of these keys.
+interface RawSearchItem {
+  id: number;
+  name?: string | null;
+  lastname?: string | null;
+  position?: string | null;
+  current_role?: string | null;
+  title?: string | null;
+  client_name?: string | null;
+  industry?: string | null;
+}
+
 export function CommandPaletteV2({
   open,
   onOpenChange,
@@ -52,63 +66,106 @@ export function CommandPaletteV2({
   const user = useAuthStore((s) => s.user);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
+  const [searching, setSearching] = useState(false);
 
-  // Debounced search
+  // Debounced multi-entity search.
+  //
+  // Each entity type (candidates / jobs / clients) is fetched in parallel but
+  // rendered INDEPENDENTLY — we deliberately do NOT await all three together.
+  // The candidate search scans large CV / JSONB columns and can take >10s on
+  // long queries, while jobs and clients return in ~100ms. Awaiting all three
+  // (the previous `Promise.allSettled` + single `setResults`) hid the fast
+  // results behind the slow scan, so the palette showed "Brak wyników" for
+  // seconds even when an exact recruitment-title match was already available.
+  // Streaming each bucket as it resolves keeps recruitment/client lookups
+  // instant; the slow candidate rows fill in when (if) they arrive.
   useEffect(() => {
     if (!open) return;
-    if (query.trim().length < 2) {
+    const term = query.trim();
+    if (term.length < 2) {
       setResults([]);
+      setSearching(false);
       return;
     }
+
     const ctrl = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        const [candidates, jobs, clients] = await Promise.allSettled([
-          api.get("/api/candidates", {
-            params: { q: query, page_size: 5 },
+    let cancelled = false;
+    const buckets: Record<QuickResult["type"], QuickResult[]> = {
+      candidate: [],
+      job: [],
+      client: [],
+    };
+    const flush = () => {
+      if (cancelled) return;
+      setResults([...buckets.candidate, ...buckets.job, ...buckets.client]);
+    };
+
+    setResults([]);
+    setSearching(true);
+
+    const timer = setTimeout(() => {
+      const requests = [
+        api
+          .get("/api/candidates", {
+            params: { q: term, page_size: 5 },
             signal: ctrl.signal,
+          })
+          .then((res) => {
+            buckets.candidate = ((res.data?.items ?? []) as RawSearchItem[]).map(
+              (c) => ({
+                type: "candidate" as const,
+                id: c.id,
+                title:
+                  `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
+                  `Kandydat #${c.id}`,
+                subtitle: c.position ?? c.current_role ?? null,
+              }),
+            );
+            flush();
           }),
-          api.get("/api/jobs", {
-            params: { q: query, page_size: 5 },
+        api
+          .get("/api/jobs", {
+            params: { q: term, page_size: 5 },
             signal: ctrl.signal,
+          })
+          .then((res) => {
+            buckets.job = ((res.data?.items ?? []) as RawSearchItem[]).map(
+              (j) => ({
+                type: "job" as const,
+                id: j.id,
+                title: j.title ?? `Oferta #${j.id}`,
+                subtitle: j.client_name ?? null,
+              }),
+            );
+            flush();
           }),
-          api.get("/api/clients", {
-            params: { q: query, page_size: 5 },
+        api
+          .get("/api/clients", {
+            params: { q: term, page_size: 5 },
             signal: ctrl.signal,
+          })
+          .then((res) => {
+            buckets.client = ((res.data?.items ?? []) as RawSearchItem[]).map(
+              (cl) => ({
+                type: "client" as const,
+                id: cl.id,
+                title: cl.name ?? `Klient #${cl.id}`,
+                subtitle: cl.industry ?? null,
+              }),
+            );
+            flush();
           }),
-        ]);
-        const r: QuickResult[] = [];
-        if (candidates.status === "fulfilled") {
-          for (const c of candidates.value.data?.items ?? []) {
-            r.push({
-              type: "candidate",
-              id: c.id,
-              title: `${c.name ?? ""} ${c.lastname ?? ""}`.trim() || `Kandydat #${c.id}`,
-              subtitle: c.position ?? c.current_role ?? null,
-            });
-          }
-        }
-        if (jobs.status === "fulfilled") {
-          for (const j of jobs.value.data?.items ?? []) {
-            r.push({ type: "job", id: j.id, title: j.title, subtitle: j.client_name ?? null });
-          }
-        }
-        if (clients.status === "fulfilled") {
-          for (const cl of clients.value.data?.items ?? []) {
-            r.push({
-              type: "client",
-              id: cl.id,
-              title: cl.name,
-              subtitle: cl.industry ?? null,
-            });
-          }
-        }
-        setResults(r);
-      } catch {
-        // Ignore aborts / errors — empty state handles it
-      }
+      ];
+      // Clear the "searching…" hint only once every request has settled
+      // (resolved, rejected, or aborted). A slow or failing endpoint just
+      // contributes no rows — the others still render as they arrive.
+      void Promise.allSettled(requests).then(() => {
+        if (!cancelled) setSearching(false);
+      });
     }, 250);
+
     return () => {
+      cancelled = true;
       ctrl.abort();
       clearTimeout(timer);
     };
@@ -146,7 +203,11 @@ export function CommandPaletteV2({
       />
       <CommandList>
         <CommandEmpty>
-          {query.length < 2 ? "Zacznij pisać, aby wyszukać." : "Brak wyników."}
+          {query.trim().length < 2
+            ? "Zacznij pisać, aby wyszukać."
+            : searching
+              ? "Szukam…"
+              : "Brak wyników."}
         </CommandEmpty>
 
         {results.length > 0 && (
