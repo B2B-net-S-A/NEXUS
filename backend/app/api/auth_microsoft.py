@@ -169,13 +169,19 @@ def _login_redirect_uri() -> str:
     (2026-06-05). The frontend serves a thin proxy at the same path that forwards
     to this backend handler, so the browser never lands on the api subdomain.
 
+    The path is ``/auth/microsoft/callback`` (NOT ``/api/auth/...``) on purpose:
+    the shared Cloudflare zone Managed-Challenges any ``/api/auth/`` path, which
+    would interject a "Just a moment" interstitial mid-OAuth. The frontend serves
+    a thin proxy at ``/auth/microsoft/callback`` that forwards to this backend
+    handler (still at ``/api/auth/microsoft/callback`` internally).
+
     NB: the legacy ``MICROSOFT_LOGIN_REDIRECT_URI`` env var still gates
     :func:`_require_sso_configured` (proof SSO is set up) but its *value* is no
     longer used to build the URL — the redirect target now follows the app
-    domain. Both the old api-host URI and the new app-domain URI are registered
+    domain. The old api-host URI and the new app-domain URI are both registered
     in Azure AD during the transition.
     """
-    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/auth/microsoft/callback"
+    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/auth/microsoft/callback"
 
 
 def _build_authorize_url(state: str, pkce_verifier: str) -> str:

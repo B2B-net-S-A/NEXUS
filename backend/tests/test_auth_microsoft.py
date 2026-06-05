@@ -129,7 +129,7 @@ async def test_authorize_returns_url_with_login_redirect(
     # MICROSOFT_LOGIN_REDIRECT_URI value — the OAuth hop must land on the app
     # host (api.nexus.* was Safe-Browsing-flagged); the frontend proxies it.
     assert qs["redirect_uri"] == [
-        "https://app.test.example/api/auth/microsoft/callback"
+        "https://app.test.example/auth/microsoft/callback"
     ]
     assert "openid" in qs["scope"][0]
     assert "User.Read" in qs["scope"][0]
