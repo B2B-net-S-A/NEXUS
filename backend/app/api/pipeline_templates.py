@@ -382,36 +382,11 @@ async def add_stage(
     return stage
 
 
-@router.patch("/{template_id}/stages/{stage_id}", response_model=StageDefResponse)
-async def update_stage(
-    template_id: int,
-    stage_id: int,
-    data: StageDefUpdate,
-    current_user: ManagerOrAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(PipelineStageDef).where(
-            PipelineStageDef.id == stage_id,
-            PipelineStageDef.template_id == template_id,
-        )
-    )
-    stage = result.scalar_one_or_none()
-    if not stage:
-        raise HTTPException(status_code=404, detail="Stage not found")
-
-    for key, value in data.model_dump(exclude_unset=True).items():
-        setattr(stage, key, value)
-
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    await db.refresh(stage)
-    return stage
-
-
+# NOTE: the static `/stages/reorder` route MUST be declared before the
+# parameterized `/stages/{stage_id}` route. FastAPI matches routes in
+# declaration order, so if `{stage_id}` came first, `PATCH .../stages/reorder`
+# would bind to it with stage_id="reorder" → 422 int_parsing and never reach
+# reorder_stages. Keep reorder_stages above update_stage.
 @router.patch("/{template_id}/stages/reorder", status_code=status.HTTP_204_NO_CONTENT)
 async def reorder_stages(
     template_id: int,
@@ -444,6 +419,36 @@ async def reorder_stages(
         stages[item.stage_id].order = item.order
 
     await db.commit()
+
+
+@router.patch("/{template_id}/stages/{stage_id}", response_model=StageDefResponse)
+async def update_stage(
+    template_id: int,
+    stage_id: int,
+    data: StageDefUpdate,
+    current_user: ManagerOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(PipelineStageDef).where(
+            PipelineStageDef.id == stage_id,
+            PipelineStageDef.template_id == template_id,
+        )
+    )
+    stage = result.scalar_one_or_none()
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(stage, key, value)
+
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    await db.refresh(stage)
+    return stage
 
 
 @router.delete(
