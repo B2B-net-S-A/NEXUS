@@ -29,16 +29,23 @@ interface CommandDialogProps extends React.ComponentProps<typeof Dialog> {
  title?: string;
  description?: string;
  children: React.ReactNode;
+ /**
+  * Forwarded to the underlying cmdk <Command>. Set `false` for palettes that
+  * search server-side — otherwise cmdk re-filters the async results client-side
+  * and can drop valid rows that arrived after the input value was set.
+  * Left `undefined` → cmdk keeps its default (true).
+  */
+ shouldFilter?: boolean;
 }
 
-const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kandydatów, ofert i akcji.", children, ...props }: CommandDialogProps) => (
+const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kandydatów, ofert i akcji.", children, shouldFilter, ...props }: CommandDialogProps) => (
  <Dialog {...props}>
  <DialogContent size="lg" className="p-0 overflow-hidden" hideClose>
  <div className="sr-only">
  <DialogTitle>{title}</DialogTitle>
  <DialogDescription>{description}</DialogDescription>
  </div>
- <Command className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.12em] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1 [&_[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
+ <Command shouldFilter={shouldFilter} className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.12em] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-1 [&_[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
  {children}
  </Command>
  </DialogContent>
