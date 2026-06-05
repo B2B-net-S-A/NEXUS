@@ -98,6 +98,7 @@ import {
 import {
  decodeFilters,
  encodeFilters,
+ parseYearBound,
  type AvailabilityFilter,
  type CandidateFilters,
  type CandidateStatusFilter,
@@ -985,6 +986,14 @@ export function CandidatesListV2() {
  const [currentTitleFilter, setCurrentTitleFilter] = useState<string[]>(
  (searchParams.get("title") ??"").split("|").filter(Boolean)
  );
+ // Lata doświadczenia (min–max). null bound = open. Parsed with the same
+ // clamp as decodeFilters so URL → state and saved searches agree.
+ const [experienceMin, setExperienceMin] = useState<number | null>(
+ parseYearBound(searchParams.get("exp_min"))
+ );
+ const [experienceMax, setExperienceMax] = useState<number | null>(
+ parseYearBound(searchParams.get("exp_max"))
+ );
  const [workedAtClientIds, setWorkedAtClientIds] = useState<number[]>(
  (searchParams.get("client_hist") ??"")
  .split(",")
@@ -1085,6 +1094,8 @@ export function CandidatesListV2() {
  if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
  if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
  if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
+ if (experienceMin !== null) params.set("exp_min", String(experienceMin));
+ if (experienceMax !== null) params.set("exp_max", String(experienceMax));
  if (stageMovedByIds.length) params.set("stage_by", stageMovedByIds.join(","));
  if (stageMovedAfter) params.set("stage_from", stageMovedAfter);
  if (stageMovedBefore) params.set("stage_to", stageMovedBefore);
@@ -1129,6 +1140,8 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ experienceMin,
+ experienceMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1161,6 +1174,8 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ experienceMin,
+ experienceMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1197,6 +1212,8 @@ export function CandidatesListV2() {
  past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
  current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
  worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
+ min_experience: experienceMin ?? undefined,
+ max_experience: experienceMax ?? undefined,
  stage_moved_by: stageMovedByIds.length ? stageMovedByIds : undefined,
  stage_moved_after: stageMovedAfter || undefined,
  stage_moved_before: stageMovedBefore || undefined,
@@ -1375,6 +1392,15 @@ export function CandidatesListV2() {
  const removeSkill = (s: string) =>
  setSkillsFilter(skillsFilter.filter((x) => x !== s));
 
+ // Compact summary for the „Lata doświadczenia" chip trigger.
+ const experienceRangeLabel =
+ experienceMin === null && experienceMax === null
+ ? null
+ : experienceMin !== null && experienceMax !== null
+ ? `${experienceMin}–${experienceMax} lat`
+ : experienceMin !== null
+ ? `od ${experienceMin} lat`
+ : `do ${experienceMax} lat`;
  const activeFilterCount =
  (remoteFilter.length > 0 ? 1 : 0) +
  (skillsFilter.length > 0 ? 1 : 0) +
@@ -1385,6 +1411,7 @@ export function CandidatesListV2() {
  (pastCompanyFilter.length > 0 ? 1 : 0) +
  (currentTitleFilter.length > 0 ? 1 : 0) +
  (workedAtClientIds.length > 0 ? 1 : 0) +
+ (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
  (qAll.length > 0 ? 1 : 0) +
  (qAnyGroups.length > 0 ? 1 : 0) +
@@ -1410,6 +1437,8 @@ export function CandidatesListV2() {
  pastCompany: pastCompanyFilter,
  currentTitle: currentTitleFilter,
  workedAtClientIds,
+ experienceMin,
+ experienceMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1438,6 +1467,8 @@ export function CandidatesListV2() {
  pastCompanyFilter,
  currentTitleFilter,
  workedAtClientIds,
+ experienceMin,
+ experienceMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1466,6 +1497,8 @@ export function CandidatesListV2() {
  if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
  if (patch.workedAtClientIds !== undefined)
  setWorkedAtClientIds(patch.workedAtClientIds);
+ if (patch.experienceMin !== undefined) setExperienceMin(patch.experienceMin);
+ if (patch.experienceMax !== undefined) setExperienceMax(patch.experienceMax);
  if (patch.stageMovedByIds !== undefined) setStageMovedByIds(patch.stageMovedByIds);
  if (patch.stageMovedAfter !== undefined) setStageMovedAfter(patch.stageMovedAfter);
  if (patch.stageMovedBefore !== undefined)
@@ -1822,6 +1855,50 @@ export function CandidatesListV2() {
  }}
  />
  </FilterChipPopover>
+ <FilterChipPopover
+ label="Lata doświadczenia"
+ activeLabel={experienceRangeLabel}
+ onClear={() => {
+ setExperienceMin(null);
+ setExperienceMax(null);
+ setPage(1);
+ }}
+ contentWidthClass="w-72"
+ >
+ <div className="space-y-2">
+ <p className="text-xs text-muted-foreground">
+ Zakres lat doświadczenia w IT (np. od 2 do 30).
+ </p>
+ <div className="flex items-center gap-2">
+ <Input
+ type="number"
+ min={0}
+ max={60}
+ placeholder="od"
+ value={experienceMin ?? ""}
+ onChange={(e) => {
+ setExperienceMin(parseYearBound(e.target.value));
+ setPage(1);
+ }}
+ className="w-20"
+ />
+ <span className="text-muted-foreground">–</span>
+ <Input
+ type="number"
+ min={0}
+ max={60}
+ placeholder="do"
+ value={experienceMax ?? ""}
+ onChange={(e) => {
+ setExperienceMax(parseYearBound(e.target.value));
+ setPage(1);
+ }}
+ className="w-20"
+ />
+ <span className="text-xs text-muted-foreground">lat</span>
+ </div>
+ </div>
+ </FilterChipPopover>
  <Popover>
  <PopoverTrigger asChild>
  <Button size="md" variant="outline" className="bg-card shadow-sm">
@@ -1981,6 +2058,8 @@ export function CandidatesListV2() {
  setPastCompanyFilter([]);
  setCurrentTitleFilter([]);
  setWorkedAtClientIds([]);
+ setExperienceMin(null);
+ setExperienceMax(null);
  setQAll([]);
  setQAny([]);
  setQNone([]);
@@ -2043,6 +2122,8 @@ export function CandidatesListV2() {
  pastCompany: decoded.pastCompany,
  currentTitle: decoded.currentTitle,
  workedAtClientIds: decoded.workedAtClientIds,
+ experienceMin: decoded.experienceMin,
+ experienceMax: decoded.experienceMax,
  stageMovedByIds: decoded.stageMovedByIds,
  stageMovedAfter: decoded.stageMovedAfter,
  stageMovedBefore: decoded.stageMovedBefore,

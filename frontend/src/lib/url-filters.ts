@@ -80,6 +80,13 @@ export interface CandidateFilters {
   pastCompany: string[];
   currentTitle: string[];
   workedAtClientIds: number[];
+  // Lata doświadczenia — inclusive numeric band (years of IT experience).
+  // `null` on either side means that bound is open. The backend matches against
+  // a derived per-candidate interval (exact `years_it_experience` or the coarse
+  // Traffit bucket) using range-overlap, so a candidate counts when their
+  // experience could fall inside [min, max].
+  experienceMin: number | null;
+  experienceMax: number | null;
   // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
   // `pipelineStage` on the backend (the matched stage move's mover + date).
   // `stageMovedByIds` mirrors `added_by`'s sentinel: `0` = system/Traffit import
@@ -129,6 +136,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   pastCompany: [],
   currentTitle: [],
   workedAtClientIds: [],
+  experienceMin: null,
+  experienceMax: null,
   stageMovedByIds: [],
   stageMovedAfter: "",
   stageMovedBefore: "",
@@ -148,6 +157,16 @@ const parseCsvInt = (raw: string | null): number[] =>
   parseCsv(raw)
     .map((x) => Number.parseInt(x, 10))
     .filter((n) => Number.isFinite(n));
+
+// Single non-negative integer bound (years of experience), clamped to [0, 60].
+// Returns null for missing/garbage so a malformed URL param can't leak a bogus
+// value into the API call — mirrors `parseIsoDate`'s defensive stance.
+export const parseYearBound = (raw: string | null): number | null => {
+  if (raw == null || raw === "") return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.min(n, 60);
+};
 
 // Pipe-separated list — used for company/title values that may contain commas
 // (e.g. "Intel, Inc."). Safer than comma for free-text inputs.
@@ -181,6 +200,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
+  if (f.experienceMin !== null) p.set("exp_min", String(f.experienceMin));
+  if (f.experienceMax !== null) p.set("exp_max", String(f.experienceMax));
   if (f.stageMovedByIds.length) p.set("stage_by", CSV(f.stageMovedByIds));
   if (f.stageMovedAfter) p.set("stage_from", f.stageMovedAfter);
   if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
@@ -246,6 +267,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     pastCompany: parsePipe(sp.get("past_co")),
     currentTitle: parsePipe(sp.get("title")),
     workedAtClientIds: parseCsvInt(sp.get("client_hist")),
+    experienceMin: parseYearBound(sp.get("exp_min")),
+    experienceMax: parseYearBound(sp.get("exp_max")),
     stageMovedByIds: parseCsvInt(sp.get("stage_by")),
     stageMovedAfter: parseIsoDate(sp.get("stage_from")),
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
@@ -355,6 +378,8 @@ export function filtersToApiParams(
     worked_at_client_id: filters.workedAtClientIds.length
       ? filters.workedAtClientIds
       : undefined,
+    min_experience: filters.experienceMin ?? undefined,
+    max_experience: filters.experienceMax ?? undefined,
     stage_moved_by: filters.stageMovedByIds.length
       ? filters.stageMovedByIds
       : undefined,
