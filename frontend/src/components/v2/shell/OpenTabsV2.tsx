@@ -1,7 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { X, AlertCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { X } from "lucide-react";
 import { useTabsStore, Tab, TabType } from "@/store/tabs";
 import { cn } from "@/lib/utils";
 
@@ -69,10 +70,23 @@ function TabPill({
 
 export function OpenTabsV2() {
   const router = useRouter();
-  const { tabs, activeTabId, maxTabsWarning, closeTab, activateTab, dismissWarning } =
-    useTabsStore();
+  const pathname = usePathname();
+  const tabs = useTabsStore((s) => s.tabs);
+  const activeTabId = useTabsStore((s) => s.activeTabId);
+  const closeTab = useTabsStore((s) => s.closeTab);
+  const activateTab = useTabsStore((s) => s.activateTab);
 
-  if (tabs.length === 0 && !maxTabsWarning) return null;
+  // Mount gate: the store rehydrates from localStorage on the client, so the
+  // first server render is empty. Render nothing until mounted to avoid a
+  // hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // On recruitment detail pages the left JobTabsRail replaces this bar, so we
+  // hide it there to avoid showing the same open recruitments twice.
+  const onJobDetail = /^\/jobs\/\d+/.test(pathname ?? "");
+
+  if (!mounted || onJobDetail || tabs.length === 0) return null;
 
   const handleActivate = (tab: Tab) => {
     activateTab(tab.id);
@@ -86,28 +100,17 @@ export function OpenTabsV2() {
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-4">
-      {maxTabsWarning && (
-        <div className="flex items-center gap-2 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 px-2 -mx-4 mb-1">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>Osiągnięto limit 10 otwartych zakładek. Zamknij jedną, aby otworzyć nową.</span>
-          <button onClick={dismissWarning} aria-label="Zamknij" className="ml-auto">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-      {tabs.length > 0 && (
-        <div className="flex items-end gap-0.5 overflow-x-auto scrollbar-none py-1">
-          {tabs.map((tab) => (
-            <TabPill
-              key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeTabId}
-              onActivate={() => handleActivate(tab)}
-              onClose={(e) => handleClose(e, tab.id)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex items-end gap-0.5 overflow-x-auto scrollbar-none py-1">
+        {tabs.map((tab) => (
+          <TabPill
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeTabId}
+            onActivate={() => handleActivate(tab)}
+            onClose={(e) => handleClose(e, tab.id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
