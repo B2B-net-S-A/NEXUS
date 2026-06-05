@@ -100,11 +100,18 @@ def _stage_response(
     *,
     candidate_name: Optional[str] = None,
     candidate_lastname: Optional[str] = None,
+    added_to_job_by_name: Optional[str] = None,
+    added_to_job_at: Optional[datetime] = None,
 ) -> dict:
     """Convert a CandidateStage to response dict with days_in_stage.
 
     Candidate name/lastname are optional — populated by the Kanban endpoint
     so the frontend can render card titles without an extra round-trip.
+
+    ``added_to_job_by_name`` / ``added_to_job_at`` describe WHO assigned the
+    candidate to the recruitment and WHEN — i.e. the mover on the *earliest*
+    stage of this candidate/job pair, not the current-stage mover. Also
+    populated by the Kanban endpoint (NULL elsewhere).
     """
     return {
         "id": stage.id,
@@ -132,6 +139,8 @@ def _stage_response(
         "rejection_note": stage.rejection_note,
         "name": candidate_name,
         "lastname": candidate_lastname,
+        "added_to_job_by_name": added_to_job_by_name,
+        "added_to_job_at": added_to_job_at,
     }
 
 
@@ -655,17 +664,27 @@ async def get_kanban(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Latest CandidateStage row per candidate for this job
+    # All CandidateStage rows for this job, newest→oldest per candidate.
+    # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
+    # (earliest) rows deterministic when two moves share a `moved_at`.
     result = await db.execute(
         select(CandidateStage)
         .where(CandidateStage.job_id == job_id)
-        .order_by(CandidateStage.candidate_id, CandidateStage.moved_at.desc())
+        .order_by(
+            CandidateStage.candidate_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
     )
     all_stages = result.scalars().all()
+    # First row per candidate = current (latest) stage → the card.
+    # Last row per candidate = earliest stage → who assigned them to the job.
     seen: dict[int, CandidateStage] = {}
+    earliest: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
+        earliest[s.candidate_id] = s  # overwritten; last write wins (oldest row)
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
@@ -679,9 +698,35 @@ async def get_kanban(
         for cid, cname, clastname in rows.all():
             name_by_id[cid] = (cname, clastname)
 
+    # Bulk-load names of the recruiters who first assigned each candidate to the
+    # job (mover on the earliest stage). One query, no per-card N+1.
+    added_by_user_ids = {
+        e.moved_by for e in earliest.values() if e.moved_by is not None
+    }
+    user_name_by_id: dict[int, Optional[str]] = {}
+    if added_by_user_ids:
+        urows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(added_by_user_ids))
+        )
+        for uid, uname in urows.all():
+            user_name_by_id[uid] = uname
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
-        return _stage_response(e, candidate_name=n, candidate_lastname=ln)
+        first = earliest.get(e.candidate_id)
+        added_by_name = (
+            user_name_by_id.get(first.moved_by)
+            if first is not None and first.moved_by is not None
+            else None
+        )
+        added_at = first.moved_at if first is not None else None
+        return _stage_response(
+            e,
+            candidate_name=n,
+            candidate_lastname=ln,
+            added_to_job_by_name=added_by_name,
+            added_to_job_at=added_at,
+        )
 
     # Resolve target template
     template_id = job.pipeline_template_id or await _default_template_id(db)

@@ -83,6 +83,12 @@ class CandidateStageResponse(BaseModel):
     # Candidate name/lastname — populated by Kanban endpoint to render card titles.
     name: Optional[str] = None
     lastname: Optional[str] = None
+    # Who assigned this candidate to the recruitment (= mover on the EARLIEST
+    # CandidateStage of this candidate/job pair) and when. Populated by the
+    # Kanban endpoint so cards can show "kto przypisał kandydata do rekrutacji"
+    # on hover. Distinct from `moved_by` which is the current-stage mover.
+    added_to_job_by_name: Optional[str] = None
+    added_to_job_at: Optional[datetime] = None
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None

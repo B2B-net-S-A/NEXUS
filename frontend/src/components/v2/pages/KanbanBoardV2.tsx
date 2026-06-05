@@ -41,7 +41,7 @@ import {
  BulkCvDownloadError,
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
-import { cn } from"@/lib/utils";
+import { cn, formatDate } from"@/lib/utils";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -71,6 +71,10 @@ interface KanbanItem {
  days_in_stage?: number;
  name?: string;
  lastname?: string;
+ // Kto przypisał kandydata do tej rekrutacji (rekruter z najwcześniejszego
+ // etapu pary kandydat/oferta) i kiedy — pokazywane w tooltipie karty.
+ added_to_job_by_name?: string | null;
+ added_to_job_at?: string | null;
  // Pending verification (migracja 0056)
  verification_status?:"active" |"pending" |"rejected";
  expected_rate_value?: string | number | null;
@@ -158,6 +162,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ?"warning"
  :"neutral";
 
+ // Kto przypisał kandydata do tej rekrutacji (+ kiedy) — tooltip na hover karty.
+ const addedAttribution = item.added_to_job_by_name
+ ? `Dodany do rekrutacji przez: ${item.added_to_job_by_name}${
+ item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` :""
+ }`
+ : item.added_to_job_at
+ ? `Dodany do rekrutacji: ${formatDate(item.added_to_job_at)}`
+ : undefined;
+
  return (
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
@@ -168,7 +181,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  title={
  isPending
  ? `Oczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
- : undefined
+ : addedAttribution
  }
  >
  {isPending && (
