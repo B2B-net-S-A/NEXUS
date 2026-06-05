@@ -36,6 +36,7 @@ import {
  Sparkles,
  Star,
  Target,
+ Trash2,
  User,
  UserPlus,
  Wallet,
@@ -103,7 +104,10 @@ import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
 import EmailThreadList from"@/components/emails/EmailThreadList";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
-import { CandidatePipelinesWidget } from"@/components/CandidatePipelinesWidget";
+import {
+ CandidatePipelinesWidget,
+ candidatePipelinesQueryKey,
+} from"@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from"@/components/RateHistoryWidget";
 import { ConflictsWidget } from"@/components/ConflictsWidget";
 import { FirefliesTranscriptsWidget } from"@/components/FirefliesTranscriptsWidget";
@@ -2532,10 +2536,12 @@ function RekrutacjaCard({
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const stageId: number | null = job.latest_stage_id ?? null;
+ const jobId: number = job.job_id ?? job.id;
  const [openOriginal, setOpenOriginal] = useState(false);
  const [openBranded, setOpenBranded] = useState(false);
  const [openShare, setOpenShare] = useState(false);
  const [confirmRefresh, setConfirmRefresh] = useState(false);
+ const [confirmRemove, setConfirmRemove] = useState(false);
 
  const { data: original } = useQuery<CVOriginalSnapshot>({
  queryKey: ["cv-original", stageId],
@@ -2563,6 +2569,29 @@ function RekrutacjaCard({
  showError(
  (e as { response?: { data?: { detail?: string } } })?.response?.data
  ?.detail ??"Błąd podczas odświeżania snapshotu",
+ ),
+ });
+
+ const removeMut = useMutation({
+ mutationFn: () => candidatesApi.removeFromRecruitment(candidateId, jobId),
+ onSuccess: () => {
+ showSuccess(
+ job.job_title
+ ? `Kandydat usunięty z rekrutacji „${job.job_title}"`
+ :"Kandydat usunięty z rekrutacji",
+ );
+ // Lista po lewej (zakładka Rekrutacje + badge) oraz panel po prawej
+ // („W jakich pipeline'ach…") — oba muszą się odświeżyć.
+ queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
+ queryClient.invalidateQueries({
+ queryKey: candidatePipelinesQueryKey(candidateId),
+ });
+ setConfirmRemove(false);
+ },
+ onError: (e) =>
+ showError(
+ (e as { response?: { data?: { detail?: string } } })?.response?.data
+ ?.detail ??"Błąd podczas usuwania z rekrutacji",
  ),
  });
 
@@ -2630,8 +2659,9 @@ function RekrutacjaCard({
  expectedRate={job.expected_rate ?? null}
  />
 
- {stageId != null ? (
  <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-border">
+ {stageId != null ? (
+ <>
  <Button
  size="sm"
  variant="outline"
@@ -2669,8 +2699,19 @@ function RekrutacjaCard({
  >
  <RefreshCcw className="h-3.5 w-3.5" />
  </Button>
- </div>
+ </>
  ) : null}
+ <Button
+ size="sm"
+ variant="ghost"
+ onClick={() => setConfirmRemove(true)}
+ className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+ title="Usuń kandydata z tej rekrutacji"
+ >
+ <Trash2 className="h-3.5 w-3.5 mr-1" />
+ Usuń z rekrutacji
+ </Button>
+ </div>
 
  {openOriginal && stageId != null ? (
  <CVOriginalPreviewModal
@@ -2722,6 +2763,53 @@ function RekrutacjaCard({
  disabled={refreshMut.isPending}
  >
  Aktualizuj
+ </Button>
+ </div>
+ </div>
+ </DialogContent>
+ </Dialog>
+ ) : null}
+
+ {confirmRemove ? (
+ <Dialog open onOpenChange={() => setConfirmRemove(false)}>
+ <DialogContent size="md">
+ <div className="p-5 space-y-3">
+ <h3 className="font-medium">
+ Usunąć kandydata z tej rekrutacji?
+ </h3>
+ <p className="text-sm text-muted-foreground">
+ Kandydat zostanie zdjęty z pipeline'u oferty{" "}
+ <span className="font-medium text-foreground">
+ {job.job_title ?? `#${jobId}`}
+ </span>
+ . Usunięta zostanie cała historia jego etapów na tej
+ rekrutacji wraz z powiązanymi snapshotami CV
+ (oryginalne/brandowane) i linkami do udostępnień. Tej operacji
+ nie można cofnąć — kandydata można jednak dodać do rekrutacji
+ ponownie. Sam profil kandydata oraz jego umowy pozostają bez
+ zmian.
+ </p>
+ <p className="text-xs text-muted-foreground">
+ To nie to samo co odrzucenie — jeśli kandydat brał udział w
+ procesie, użyj „Odrzuć" na kanbanie, by zachować historię.
+ </p>
+ <div className="flex justify-end gap-2 pt-2">
+ <Button
+ variant="ghost"
+ size="sm"
+ onClick={() => setConfirmRemove(false)}
+ disabled={removeMut.isPending}
+ >
+ Anuluj
+ </Button>
+ <Button
+ variant="destructive"
+ size="sm"
+ onClick={() => removeMut.mutate()}
+ disabled={removeMut.isPending}
+ loading={removeMut.isPending}
+ >
+ Usuń z rekrutacji
  </Button>
  </div>
  </div>

@@ -292,6 +292,11 @@ export const candidatesApi = {
       `/api/candidates/${candidateId}/recruitments/${jobId}/client-rate`,
       payload,
     ),
+  // Usuń kandydata z rekrutacji — kasuje całą obecność w pipeline tej oferty
+  // (wszystkie etapy + kaskadowo snapshoty CV / share-tokeny / maile odrzucenia).
+  // Operacja korekcyjna, odrębna od reject/withdrawn.
+  removeFromRecruitment: (candidateId: number, jobId: number) =>
+    api.delete(`/api/candidates/${candidateId}/recruitments/${jobId}`),
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
