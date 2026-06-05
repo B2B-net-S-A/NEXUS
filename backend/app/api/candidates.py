@@ -2277,14 +2277,22 @@ async def get_candidate_timeline(
     # Notes — JOIN User for author_name (Faza A: po imporcie 131 Traffit
     # userów chcemy wyświetlać "kto" dodał notatkę. NotatkiTab w UI używa
     # `author_name` z tego pola).
+    # outerjoin Job aby pokazać do której rekrutacji notatka jest przypięta
+    # (job_id bywa NULL dla notatek "ogólnych" — stąd outerjoin + Optional title).
     notes_result = await db.execute(
-        select(Note, User.name.label("author_name"), User.email.label("author_email"))
+        select(
+            Note,
+            User.name.label("author_name"),
+            User.email.label("author_email"),
+            Job.title.label("job_title"),
+        )
         .outerjoin(User, Note.author_id == User.id)
+        .outerjoin(Job, Note.job_id == Job.id)
         .where(Note.candidate_id == candidate_id)
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
-    for note, author_name, author_email in notes_result.all():
+    for note, author_name, author_email, job_title in notes_result.all():
         timeline.append(
             {
                 "type": "note",
@@ -2295,6 +2303,8 @@ async def get_candidate_timeline(
                 "author_id": note.author_id,
                 "author_name": author_name,
                 "author_email": author_email,
+                "job_id": note.job_id,
+                "job_title": job_title,
             }
         )
 
