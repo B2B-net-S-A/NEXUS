@@ -50,7 +50,10 @@ interface Props {
  reasonId: string,
  notes: string,
  sendRejectionEmail: boolean | null,
- candidateOfferResponse?: CandidateOfferResponse | null
+ candidateOfferResponse?: CandidateOfferResponse | null,
+ // Wolny tekst powodu — przekazywany tylko w trybie fallback (brak
+ // zdefiniowanych powodów). Backend przyjmuje go jako `rejection_reason`.
+ freeReason?: string
  ) => void;
 }
 
@@ -86,6 +89,12 @@ export function RejectionV2({
  const [offerResponse, setOfferResponse] =
  useState<CandidateOfferResponse |"">("");
 
+ // Wolny tekst powodu — używany TYLKO gdy dla danego typu terminala nie ma
+ // żadnych zdefiniowanych powodów (np. job bez pipeline_template_id i bez
+ // szablonu domyślnego). Bez tego radio byłoby puste, reasonId zostawałby
+ // pusty, a przycisk "Potwierdź" byłby trwale zablokowany.
+ const [freeReason, setFreeReason] = useState("");
+
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
  if (open) {
@@ -93,10 +102,12 @@ export function RejectionV2({
  setNotes("");
  setSendEmail(emailAvailable);
  setOfferResponse("");
+ setFreeReason("");
  }
  }, [open, emailAvailable]);
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
+ const hasReasons = filtered.length > 0;
 
  const handleConfirm = () => {
  // Pass explicit boolean only when the checkbox is user-controlled; else
@@ -104,11 +115,24 @@ export function RejectionV2({
  const emailFlag: boolean | null = emailAvailable ? sendEmail : null;
  const offerResponseValue: CandidateOfferResponse | null =
  offerResponseRequired && offerResponse ? offerResponse : null;
+ if (hasReasons) {
  onConfirm(reasonId, notes, emailFlag, offerResponseValue);
+ return;
+ }
+ // Fallback wolnego tekstu — brak zdefiniowanych powodów. Powód trafia do
+ // `notes` (zapisywane + widoczne w timeline), a dodatkowo przekazujemy go
+ // jako `freeReason` -> backend przyjmuje to jako `rejection_reason`, co
+ // spełnia walidację ruchu na etap terminalny. reasonId zostaje pusty.
+ const reasonText = freeReason.trim();
+ const combinedNotes = notes.trim()
+ ? `${reasonText}\n\n${notes.trim()}`
+ : reasonText;
+ onConfirm("", combinedNotes, emailFlag, offerResponseValue, reasonText);
  };
 
  const submitDisabled =
- !reasonId || (offerResponseRequired && !offerResponse);
+ (hasReasons ? !reasonId : !freeReason.trim()) ||
+ (offerResponseRequired && !offerResponse);
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,7 +149,16 @@ export function RejectionV2({
 
  <DialogBody>
  <div className="space-y-3">
- <FormField label="Powód" required>
+ <FormField
+ label="Powód"
+ required
+ description={
+ hasReasons
+ ? undefined
+ : "Brak zdefiniowanych powodów w szablonie — wpisz powód ręcznie."
+ }
+ >
+ {hasReasons ? (
  <RadioGroup value={reasonId} onValueChange={setReasonId}>
  {filtered.map((r) => (
  <label
@@ -137,6 +170,14 @@ export function RejectionV2({
  </label>
  ))}
  </RadioGroup>
+ ) : (
+ <Textarea
+ value={freeReason}
+ onChange={(e) => setFreeReason(e.target.value)}
+ rows={2}
+ placeholder="Np. brak wymaganych kompetencji technicznych."
+ />
+ )}
  </FormField>
  {offerResponseRequired && (
  <FormField
