@@ -20,6 +20,7 @@ import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plu
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
@@ -700,13 +701,27 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   });
 
   const addToPipelineMutation = useMutation({
-    mutationFn: ({ candidateId, jobId }: { candidateId: number; jobId: number }) =>
-      // `new` = pierwszy etap (legacy enum resolved przez default template).
-      // Wcześniej wysyłaliśmy nieistniejący `sourced` → 422 i cichy fail.
-      api.post("/api/pipeline/move", { candidate_id: candidateId, job_id: jobId, stage: "new" }),
-    onSuccess: () => {
+    // Ten sam solidny tor co przy kandydatach historycznych (PR #418): bulk-add
+    // wrzuca kandydata w pierwszy nie-terminalny etap, deduplikuje (already_in_job)
+    // i pomija czarną listę. `/api/pipeline/move` ze `stage:"sourced"` było zepsute
+    // (422), a wariant ze `stage:"new"` tworzył duplikaty etapów bez dedup/blacklist.
+    mutationFn: ({ candidateId }: { candidateId: number; jobId: number }) =>
+      proposalsBulkApi.add(jobId, { candidate_ids: [candidateId] }),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      showSuccess("Kandydat dodany do pipeline");
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      if (res.total_added > 0) {
+        showSuccess("Kandydat dodany do pipeline");
+      } else if (res.skipped.some((s) => s.reason === "already_in_job")) {
+        showSuccess("Kandydat jest już w pipeline tej rekrutacji");
+      } else {
+        const reason = res.skipped[0]?.reason;
+        showError(
+          reason === "blacklisted"
+            ? "Kandydat jest na czarnej liście"
+            : "Nie udało się dodać kandydata do pipeline",
+        );
+      }
     },
     onError: () => showError("Nie udało się dodać kandydata do pipeline"),
   });
