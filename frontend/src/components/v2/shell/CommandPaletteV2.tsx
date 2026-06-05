@@ -138,7 +138,7 @@ export function CommandPaletteV2({
   const visibleNav = navItems.filter((i) => !i.roles || hasRole(user, ...i.roles));
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
       <CommandInput
         placeholder="Szukaj kandydatów, ofert, klientów, akcji…"
         value={query}
@@ -150,93 +150,97 @@ export function CommandPaletteV2({
         </CommandEmpty>
 
         {results.length > 0 && (
-          <>
-            <CommandGroup heading="Wyniki">
-              {results.map((r) => (
-                <CommandItem
-                  key={`${r.type}-${r.id}`}
-                  value={`${r.type} ${r.title} ${r.subtitle ?? ""}`}
-                  onSelect={() => go(resultHref(r))}
-                >
-                  {r.type === "candidate" ? (
-                    <Users className="h-4 w-4" />
-                  ) : r.type === "job" ? (
-                    <Briefcase className="h-4 w-4" />
-                  ) : (
-                    <Building2 className="h-4 w-4" />
-                  )}
-                  <span className="truncate">{r.title}</span>
-                  {r.subtitle && (
-                    <span className="ml-2 text-xs text-muted-foreground truncate">
-                      · {r.subtitle}
-                    </span>
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-            <CommandSeparator />
-          </>
+          <CommandGroup heading="Wyniki">
+            {results.map((r) => (
+              <CommandItem
+                key={`${r.type}-${r.id}`}
+                value={`${r.type} ${r.title} ${r.subtitle ?? ""}`}
+                onSelect={() => go(resultHref(r))}
+              >
+                {r.type === "candidate" ? (
+                  <Users className="h-4 w-4" />
+                ) : r.type === "job" ? (
+                  <Briefcase className="h-4 w-4" />
+                ) : (
+                  <Building2 className="h-4 w-4" />
+                )}
+                <span className="truncate">{r.title}</span>
+                {r.subtitle && (
+                  <span className="ml-2 text-xs text-muted-foreground truncate">
+                    · {r.subtitle}
+                  </span>
+                )}
+              </CommandItem>
+            ))}
+          </CommandGroup>
         )}
 
-        <CommandGroup heading="Akcje">
-          {onNewCandidate && (
-            <CommandItem
-              onSelect={() => {
-                onOpenChange(false);
-                onNewCandidate();
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              Nowy kandydat
-              <CommandShortcut>N</CommandShortcut>
-            </CommandItem>
-          )}
-          {onNewJob && (
-            <CommandItem
-              onSelect={() => {
-                onOpenChange(false);
-                onNewJob();
-              }}
-            >
-              <Briefcase className="h-4 w-4" />
-              Nowa oferta
-              <CommandShortcut>J</CommandShortcut>
-            </CommandItem>
-          )}
-          <CommandItem onSelect={() => go("/settings")}>
-            <Mail className="h-4 w-4" />
-            Szablony email
-          </CommandItem>
-        </CommandGroup>
-
-        <CommandSeparator />
-
-        <CommandGroup heading="Nawigacja">
-          {visibleNav.map((item) => {
-            const Icon = item.icon;
-            return (
-              <CommandItem
-                key={item.href}
-                value={`go ${item.label}`}
-                onSelect={() => go(item.href)}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
+        {/* Static groups only in browse mode (empty query). When searching,
+            shouldFilter={false} makes cmdk render exactly the server results
+            above — no client-side re-filtering that could drop async rows. */}
+        {query.trim().length < 2 && (
+          <>
+            <CommandGroup heading="Akcje">
+              {onNewCandidate && (
+                <CommandItem
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onNewCandidate();
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Nowy kandydat
+                  <CommandShortcut>N</CommandShortcut>
+                </CommandItem>
+              )}
+              {onNewJob && (
+                <CommandItem
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onNewJob();
+                  }}
+                >
+                  <Briefcase className="h-4 w-4" />
+                  Nowa oferta
+                  <CommandShortcut>J</CommandShortcut>
+                </CommandItem>
+              )}
+              <CommandItem onSelect={() => go("/settings")}>
+                <Mail className="h-4 w-4" />
+                Szablony email
               </CommandItem>
-            );
-          })}
-        </CommandGroup>
+            </CommandGroup>
 
-        <CommandSeparator />
+            <CommandSeparator />
 
-        <CommandGroup heading="Wskazówka">
-          <CommandItem disabled>
-            <Search className="h-4 w-4" />
-            <span className="text-xs text-muted-foreground">
-              Minimum 2 znaki, aby zobaczyć wyniki wyszukiwania
-            </span>
-          </CommandItem>
-        </CommandGroup>
+            <CommandGroup heading="Nawigacja">
+              {visibleNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <CommandItem
+                    key={item.href}
+                    value={`go ${item.label}`}
+                    onSelect={() => go(item.href)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+
+            <CommandSeparator />
+
+            <CommandGroup heading="Wskazówka">
+              <CommandItem disabled>
+                <Search className="h-4 w-4" />
+                <span className="text-xs text-muted-foreground">
+                  Minimum 2 znaki, aby zobaczyć wyniki wyszukiwania
+                </span>
+              </CommandItem>
+            </CommandGroup>
+          </>
+        )}
       </CommandList>
     </CommandDialog>
   );
