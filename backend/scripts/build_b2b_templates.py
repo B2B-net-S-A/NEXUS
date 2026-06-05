@@ -58,9 +58,9 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
             r"\s*_+,\s*zarejestrowaną[^_]*?pod adresem:\s*_+,\s*00-000\s*_+,"
             r"\s*NIP:\s*_+,\s*REGON:\s*_+,"
         ),
-        "Panem/ią {{ candidate.full_name or '"
+        "{{ b2b.g_pan }} {{ candidate.full_name or '"
         + _DOTS
-        + "' }} prowadzącym/cą działalność gospodarczą pod firmą: "
+        + "' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: "
         "{{ candidate.legal_name or '" + _DOTS + "' }}, zarejestrowaną w Centralnej "
         "Ewidencji i Informacji o Działalności Gospodarczej pod adresem: "
         "{{ candidate.business_address or '" + _DOTS + "' }}, NIP: "
@@ -102,6 +102,21 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
         "Zawarta w Warszawie, dnia {{ b2b.signing_date | pl_date }} jako Załącznik "
         "nr 2 do Umowy o współpracę B2B nr {{ b2b.contract_number or '…' }}",
     ),
+    # Formy zależne od płci Partnera (komparycja gł. „zwany/ą", DPA „zwanym",
+    # deklaracja „zapoznałem"). „zwaną dalej Administratorem" (B2BNET = spółka,
+    # stała forma żeńska) celowo NIE jest ruszane.
+    (
+        re.compile(r"zwany/ą(\s+w dalszej części umowy)"),
+        r"{{ b2b.g_zwany }}\1",
+    ),
+    (
+        re.compile(r"zwanym(?:/ą)?(\s+dalej\s+„?Podmiotem)"),
+        r"{{ b2b.g_zwanym }}\1",
+    ),
+    (
+        re.compile(r"\bzapoznałem(\s+się)"),
+        r"{{ b2b.g_zapoznal }}\1",
+    ),
     (re.compile(r"\[NUMER\]"), "{{ b2b.contract_number or '…' }}"),
 ]
 
@@ -117,7 +132,7 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
             r"\s*registered[^_]*?at the address:\s*_+,\s*00-000\s*_+,"
             r"\s*NIP:\s*_+,\s*REGON:\s*_+,"
         ),
-        "Mr/Ms {{ candidate.full_name or '" + _DOTS + "' }} conducting business "
+        "{{ b2b.g_mr }} {{ candidate.full_name or '" + _DOTS + "' }} conducting business "
         "activity under the name: {{ candidate.legal_name or '" + _DOTS + "' }}, "
         "registered in the Central Register and Information on Economic Activity at "
         "the address: {{ candidate.business_address or '" + _DOTS + "' }}, NIP: "

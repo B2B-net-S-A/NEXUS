@@ -105,6 +105,9 @@ class B2BRenderRequest(BaseModel):
 
     role_id: Optional[int] = None
     language: str = "pl"
+    # Płeć Partnera — steruje formami gramatycznymi w komparycji/deklaracji
+    # (Panem/ią, prowadzącym/cą, zwany/a, zapoznałem/am). "m" | "k".
+    gender: str = "m"
     # Dane Partnera (firma) — edytowalne; pre-fill z kandydata opcjonalny.
     partner_name: Optional[str] = None
     partner_legal_name: Optional[str] = None
@@ -143,6 +146,8 @@ class B2BCompanyLookupResponse(BaseModel):
     """Dane firmy z rejestru państwowego (Biała Lista MF / KRS)."""
 
     name: Optional[str] = None
+    # Osoba fizyczna (JDG) — imię i nazwisko; dla spółek None.
+    person: Optional[str] = None
     nip: Optional[str] = None
     regon: Optional[str] = None
     krs: Optional[str] = None

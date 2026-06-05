@@ -1597,6 +1597,7 @@ export interface B2BGenerateResult {
 export interface B2BRenderPayload {
   role_id?: number | null;
   language: string;
+  gender?: string;
   partner_name?: string | null;
   partner_legal_name?: string | null;
   partner_business_address?: string | null;
@@ -1657,6 +1658,7 @@ export const b2bGeneratorApi = {
     api
       .get<{
         name: string | null;
+        person: string | null;
         nip: string | null;
         regon: string | null;
         krs: string | null;

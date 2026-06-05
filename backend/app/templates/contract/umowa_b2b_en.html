@@ -4,7 +4,7 @@
 <p>B2B.NET S.A. with its registered office in Warsaw, Aleje Jerozolimskie 180, 02-486 Warsaw, entered in the Register of Entrepreneurs kept by the District Court for the Capital City of Warsaw in Warsaw, 14th Commercial Division of the National Court Register, KRS No. 0000387063, NIP: 5711707392, with share capital of PLN 1,360,000.00 (paid up), represented by Mr. Artur Twardowski – President of the Management Board,</p>
 <p>hereinafter referred to as the "Company" or "B2BNET"</p>
 <p>and</p>
-<p>Mr/Ms {{ candidate.full_name or '………' }} conducting business activity under the name: {{ candidate.legal_name or '………' }}, registered in the Central Register and Information on Economic Activity at the address: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+<p>{{ b2b.g_mr }} {{ candidate.full_name or '………' }} conducting business activity under the name: {{ candidate.legal_name or '………' }}, registered in the Central Register and Information on Economic Activity at the address: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
 <p>Contact details:</p>
 <p>Tel. {{ candidate.phone or '…' }} E-mail address: {{ candidate.email or '…' }}</p>
 <p>hereinafter referred to as the "Partner"</p>
@@ -161,7 +161,7 @@ Definitions:</h2>
 <p>hereinafter referred to as the "Controller"
 
 and</p>
-<p>Mr/Ms {{ candidate.full_name or '………' }} conducting business activity under the name: {{ candidate.legal_name or '………' }}, registered in the Central Register and Information on Economic Activity at the address: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+<p>{{ b2b.g_mr }} {{ candidate.full_name or '………' }} conducting business activity under the name: {{ candidate.legal_name or '………' }}, registered in the Central Register and Information on Economic Activity at the address: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
 <p>hereinafter referred to as the "Processor"</p>
 <h2>§ 1. 
 Data Processing Agreement</h2>
