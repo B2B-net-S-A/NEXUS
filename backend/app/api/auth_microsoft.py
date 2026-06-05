@@ -159,13 +159,32 @@ def _require_sso_configured() -> None:
         )
 
 
+def _login_redirect_uri() -> str:
+    """OAuth ``redirect_uri`` for the SSO **login** flow.
+
+    Derived from :data:`PUBLIC_BASE_URL` (the app domain) so Microsoft redirects
+    the browser back to ``nexus.dynaminds.pl`` — NOT ``api.nexus.dynaminds.pl``.
+    Google Safe Browsing false-flagged the api-host ``/microsoft/callback`` as a
+    deceptive (Microsoft-impersonation) page and Chrome blocked every SSO login
+    (2026-06-05). The frontend serves a thin proxy at the same path that forwards
+    to this backend handler, so the browser never lands on the api subdomain.
+
+    NB: the legacy ``MICROSOFT_LOGIN_REDIRECT_URI`` env var still gates
+    :func:`_require_sso_configured` (proof SSO is set up) but its *value* is no
+    longer used to build the URL — the redirect target now follows the app
+    domain. Both the old api-host URI and the new app-domain URI are registered
+    in Azure AD during the transition.
+    """
+    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/auth/microsoft/callback"
+
+
 def _build_authorize_url(state: str, pkce_verifier: str) -> str:
     challenge = m365_oauth._derive_challenge(pkce_verifier)
     tenant = settings.M365_TENANT_ID or "common"
     params = {
         "client_id": settings.M365_CLIENT_ID,
         "response_type": "code",
-        "redirect_uri": settings.MICROSOFT_LOGIN_REDIRECT_URI,
+        "redirect_uri": _login_redirect_uri(),
         "response_mode": "query",
         "scope": " ".join(_login_scopes()),
         "state": state,
@@ -197,7 +216,7 @@ async def _exchange_code_for_id_token(code: str, pkce_verifier: str) -> dict:
         "client_secret": settings.M365_CLIENT_SECRET,
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": settings.MICROSOFT_LOGIN_REDIRECT_URI,
+        "redirect_uri": _login_redirect_uri(),
         "code_verifier": pkce_verifier,
         "scope": " ".join(_login_scopes()),
     }
