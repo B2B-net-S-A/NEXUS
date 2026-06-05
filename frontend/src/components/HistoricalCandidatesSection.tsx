@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
@@ -11,6 +11,9 @@ import {
   Clock,
   Sparkles,
   UserCheck,
+  Plus,
+  Check,
+  Loader2,
 } from "lucide-react";
 import {
   historicalCandidatesApi,
@@ -18,6 +21,8 @@ import {
   type HistoricalCandidate,
   type HistoricalSource,
 } from "@/lib/api";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { useToast } from "@/components/Toast";
 
 interface Props {
   jobId: number;
@@ -121,70 +126,146 @@ function SourcesList({ sources }: { sources: HistoricalSource[] }) {
   );
 }
 
-function CandidateRow({ candidate }: { candidate: HistoricalCandidate }) {
+function CandidateRow({
+  candidate,
+  jobId,
+}: {
+  candidate: HistoricalCandidate;
+  jobId: number;
+}) {
   const [open, setOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
   const Icon = open ? ChevronDown : ChevronRight;
   const initials = `${candidate.name.charAt(0)}${candidate.lastname.charAt(0)}`.toUpperCase();
+  const fullName = `${candidate.name} ${candidate.lastname}`.trim();
+
+  const addMutation = useMutation({
+    mutationFn: () =>
+      proposalsBulkApi.add(jobId, { candidate_ids: [candidate.candidate_id] }),
+    onSuccess: (res) => {
+      // Refresh the kanban so a newly-added candidate appears immediately.
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      if (res.total_added > 0) {
+        showSuccess(`${fullName} — dodano do pipeline`);
+      } else if (res.skipped.some((s) => s.reason === "already_in_job")) {
+        showSuccess(`${fullName} jest już w pipeline tej rekrutacji`);
+      } else {
+        const reason = res.skipped[0]?.reason;
+        showError(
+          reason === "blacklisted"
+            ? `${fullName} jest na czarnej liście`
+            : "Nie udało się dodać kandydata do pipeline",
+        );
+      }
+    },
+    onError: () => showError("Nie udało się dodać kandydata do pipeline"),
+  });
+
+  // "In pipeline" = we just added them, or they were already on this job.
+  const inPipeline =
+    addMutation.isSuccess &&
+    ((addMutation.data?.total_added ?? 0) > 0 ||
+      (addMutation.data?.skipped?.some((s) => s.reason === "already_in_job") ??
+        false));
 
   return (
     <li className="border border-slate-200 rounded-lg bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-50 rounded-lg"
-      >
-        <Icon className="h-4 w-4 text-slate-400 flex-shrink-0" />
-        <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center flex-shrink-0">
-          {candidate.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={candidate.avatar_url}
-              alt=""
-              className="h-8 w-8 rounded-full object-cover"
-            />
-          ) : (
-            initials
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link
-              href={`/candidates/${candidate.candidate_id}`}
-              className="text-sm font-medium text-slate-900 hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {candidate.name} {candidate.lastname}
-            </Link>
-            <TierBadge tier={candidate.tier} />
-            <AvailabilityBadge value={candidate.current_availability} />
-            {candidate.recommended_count > 1 ? (
-              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">
-                {candidate.recommended_count}× rekomendowany
-              </span>
-            ) : null}
-            {candidate.negative_signal ? (
-              <span
-                className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive"
-                title="Kandydat został wcześniej odrzucony lub się wycofał w podobnym projekcie"
+      <div className="flex items-center gap-2 p-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex flex-1 items-center gap-3 text-left min-w-0 rounded-md hover:opacity-80"
+        >
+          <Icon className="h-4 w-4 text-slate-400 flex-shrink-0" />
+          <div className="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center justify-center flex-shrink-0">
+            {candidate.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={candidate.avatar_url}
+                alt=""
+                className="h-8 w-8 rounded-full object-cover"
+              />
+            ) : (
+              initials
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                href={`/candidates/${candidate.candidate_id}`}
+                className="text-sm font-medium text-slate-900 hover:underline"
+                onClick={(e) => e.stopPropagation()}
               >
-                <AlertTriangle className="h-3 w-3" />
-                uwaga
-              </span>
+                {candidate.name} {candidate.lastname}
+              </Link>
+              <TierBadge tier={candidate.tier} />
+              <AvailabilityBadge value={candidate.current_availability} />
+              {candidate.recommended_count > 1 ? (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">
+                  {candidate.recommended_count}× rekomendowany
+                </span>
+              ) : null}
+              {candidate.negative_signal ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive"
+                  title="Kandydat został wcześniej odrzucony lub się wycofał w podobnym projekcie"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  uwaga
+                </span>
+              ) : null}
+            </div>
+            {candidate.competence_category ? (
+              <p className="text-xs text-slate-500 truncate">
+                {candidate.competence_category}
+              </p>
             ) : null}
           </div>
-          {candidate.competence_category ? (
-            <p className="text-xs text-slate-500 truncate">
-              {candidate.competence_category}
-            </p>
-          ) : null}
-        </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-xs text-slate-500">Historical score</div>
-          <div className="text-sm font-semibold text-slate-900">
-            {candidate.historical_score.toFixed(2)}
+          <div className="text-right flex-shrink-0">
+            <div className="text-xs text-slate-500">Historical score</div>
+            <div className="text-sm font-semibold text-slate-900">
+              {candidate.historical_score.toFixed(2)}
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+
+        {/* Add this historical candidate straight into the job's pipeline. */}
+        <button
+          type="button"
+          onClick={() => addMutation.mutate()}
+          disabled={addMutation.isPending || inPipeline}
+          title={
+            inPipeline
+              ? "Kandydat jest w pipeline tej rekrutacji"
+              : "Dodaj kandydata do pipeline tej rekrutacji"
+          }
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg flex-shrink-0 whitespace-nowrap transition-colors disabled:cursor-default ${
+            inPipeline
+              ? "bg-green-100 text-green-700 border border-green-200"
+              : "bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+          }`}
+        >
+          {addMutation.isPending ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Dodaję…
+            </>
+          ) : inPipeline ? (
+            <>
+              <Check className="h-3.5 w-3.5" />
+              W pipeline
+            </>
+          ) : (
+            <>
+              <Plus className="h-3.5 w-3.5" />
+              Dodaj do pipeline
+            </>
+          )}
+        </button>
+      </div>
       {open ? (
         <div className="px-3 pb-3">
           <p className="text-xs text-slate-500 pl-6">
@@ -261,7 +342,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
           </div>
           <ul className="space-y-2">
             {candidates.map((c) => (
-              <CandidateRow key={c.candidate_id} candidate={c} />
+              <CandidateRow key={c.candidate_id} candidate={c} jobId={jobId} />
             ))}
           </ul>
         </>
