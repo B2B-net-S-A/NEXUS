@@ -280,6 +280,7 @@ const ALL_COLUMNS = [
  { id: "email", label: "Email", required: false, width: "minmax(180px, 1.2fr)" },
  { id: "cv", label: "CV", required: false, width: "minmax(80px, 0.5fr)" },
  { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(120px, 0.8fr)" },
+ { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(150px, 1fr)" },
  { id: "title", label: "Stanowisko", required: false, width: "minmax(160px, 1.1fr)" },
  { id: "company", label: "Firma", required: false, width: "minmax(140px, 1fr)" },
  { id: "location", label: "Lokalizacja", required: false, width: "minmax(120px, 0.7fr)" },
@@ -309,6 +310,7 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "email",
  "cv",
  "recruitments",
+ "stage_moved",
  "rate",
  "last_note",
  "rejection_reason",
@@ -467,6 +469,55 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  );
 }
 
+/** Always-visible attribution for the "Przeniósł na etap" column. Surfaces KTO
+ *  i KIEDY przeniósł kandydata na etap — the same data the "Rekrutacje" popover
+ *  carries, but inline so it shows without opening the popover (the recurring
+ *  „nie da się sprawdzić kto/kiedy" complaint was just discoverability).
+ *  Stage-aware: when a `?stage=` filter is active it attributes the recruitment
+ *  whose stage matches it (freshest move if several); otherwise the
+ *  most-recently-moved active recruitment. */
+function StageMovedCell({ candidate }: { candidate: Candidate }) {
+ const searchParams = useSearchParams();
+ const recs = candidate.active_recruitments ?? [];
+ if (recs.length === 0) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ // Active stage filter from the URL (?stage=verified — comma-separated when
+ // multiple stages are selected).
+ const activeStages = (searchParams.get("stage") ?? "")
+ .split(",")
+ .map((s) => s.trim())
+ .filter(Boolean);
+ // Freshest move first → both "most recent" and "most recent at the filtered
+ // stage" reduce to a single find on the sorted copy.
+ const sorted = [...recs].sort((a, b) => {
+ const ta = a.moved_at ? Date.parse(a.moved_at) : 0;
+ const tb = b.moved_at ? Date.parse(b.moved_at) : 0;
+ return tb - ta;
+ });
+ const chosen =
+ (activeStages.length
+ ? sorted.find((r) => activeStages.includes(r.stage))
+ : undefined) ?? sorted[0];
+ if (!chosen || (!chosen.moved_by_name && !chosen.moved_at)) {
+ return <span className="text-xs text-muted-foreground">—</span>;
+ }
+ return (
+ <div
+ className="min-w-0"
+ title={`Kto i kiedy przeniósł kandydata na etap „${stageLabel(chosen.stage)}"`}
+ >
+ <div className="text-sm text-foreground truncate">
+ {chosen.moved_by_name ?? "Przeniesiono"}
+ </div>
+ <div className="text-[11px] leading-snug text-muted-foreground">
+ {stageLabel(chosen.stage)}
+ {chosen.moved_at ? ` · ${formatDate(chosen.moved_at)}` : ""}
+ </div>
+ </div>
+ );
+}
+
 interface CandidateCellProps {
  columnId: ColumnId;
  candidate: Candidate;
@@ -595,6 +646,9 @@ function CandidateCell({
  }
  case "recruitments": {
  return <CandidateRecruitmentsCell candidate={candidate} />;
+ }
+ case "stage_moved": {
+ return <StageMovedCell candidate={candidate} />;
  }
  case "title": {
  const title = getCurrentTitle(candidate);
