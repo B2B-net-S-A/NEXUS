@@ -21,13 +21,6 @@ interface Client {
   name: string;
 }
 
-interface ClientListResponse {
-  items: Client[];
-  total: number;
-  page: number;
-  page_size: number;
-}
-
 interface ClientMultiSelectProps {
   value: number[];
   onChange: (ids: number[]) => void;
@@ -35,15 +28,15 @@ interface ClientMultiSelectProps {
 
 export function ClientMultiSelect({ value, onChange }: ClientMultiSelectProps) {
   const [open, setOpen] = useState(false);
-  const { data } = useQuery<ClientListResponse>({
-    queryKey: ["clients-lite"],
-    queryFn: () =>
-      api
-        .get("/api/clients", { params: { page_size: 100 } })
-        .then((r) => r.data),
+  // `/api/clients-lookup` returns ALL clients (id, name) — the paginated
+  // `/api/clients?page_size=100` silently dropped clients past the first 100
+  // (159 total), so a recruiter couldn't pick many of them.
+  const { data } = useQuery<Client[]>({
+    queryKey: ["clients-lookup"],
+    queryFn: () => api.get("/api/clients-lookup").then((r) => r.data),
     staleTime: 60_000,
   });
-  const clients = data?.items ?? [];
+  const clients = data ?? [];
   const selected = new Set(value);
 
   const toggle = (id: number) => {
