@@ -82,7 +82,7 @@ import { Separator } from"@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
 import { Textarea } from"@/components/ui/textarea";
 import { MentionTextarea } from"@/components/v2/forms/MentionTextarea";
-import { useMentionableUsers } from"@/hooks/useMentionableUsers";
+import { useMentionableUsers, type MentionScope } from"@/hooks/useMentionableUsers";
 import {
  buildUsersByEmail,
  renderWithMentions,
@@ -327,7 +327,9 @@ export function CandidateDetailV2({
  const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
  queryKey: ["candidate-history", id],
  queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
- enabled: !!id && activeTab === "rekrutacje",
+ // Także na zakładce "notatki" — potrzebujemy listy rekrutacji do selektora
+ // "przypisz notatkę do rekrutacji".
+ enabled: !!id && (activeTab === "rekrutacje" || activeTab === "notatki"),
  });
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
@@ -381,17 +383,20 @@ export function CandidateDetailV2({
  ? candidateContractsRaw
  : (candidateContractsRaw?.items ?? []);
 
- const handleAddNote = async () => {
+ const handleAddNote = async (jobId?: number | null) => {
  if (!noteText.trim()) return;
  setNoteSaving(true);
  try {
  // Bez trailing slash — backend rejestruje POST /api/notes (router prefix
  // + path ""). Wariant "/api/notes/" zwracał 404, a brak catcha połykał
  // błąd po cichu → przycisk "nie działał" (nic się nie dodawało).
+ // job_id opcjonalny — gdy ustawiony, notatka jest przypięta do konkretnej
+ // rekrutacji (a @mention scope na backendzie zawęża się do członków joba).
  await api.post("/api/notes", {
  candidate_id: Number(id),
  content: noteText.trim(),
  note_type: "general",
+ ...(jobId ? { job_id: jobId } : {}),
  });
  setNoteText("");
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
@@ -825,6 +830,7 @@ export function CandidateDetailV2({
  <TabsContent value="notatki" className="mt-0">
  <NotatkiTab
  timeline={timeline ?? []}
+ recruitments={history}
  noteText={noteText}
  setNoteText={setNoteText}
  onAdd={handleAddNote}
@@ -2233,7 +2239,8 @@ const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
 };
 
 function timelineItemLabel(item: any): string {
- if (item.type === "note") return `Notatka${item.note_type ? ` — ${item.note_type}` :""}`;
+ if (item.type === "note")
+ return `Notatka${item.note_type ? ` — ${item.note_type}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
  if (item.type === "stage_change")
  return `Etap: ${item.stage}${item.job_title ? ` (${item.job_title})` :""}`;
  if (item.type === "activity") {
@@ -2914,6 +2921,7 @@ function unwrapNoteContent(raw: unknown): string {
 
 function NotatkiTab({
  timeline,
+ recruitments = [],
  noteText,
  setNoteText,
  onAdd,
@@ -2923,9 +2931,10 @@ function NotatkiTab({
  setEditing,
 }: {
  timeline: any[];
+ recruitments?: any[];
  noteText: string;
  setNoteText: (v: string) => void;
- onAdd: () => void;
+ onAdd: (jobId?: number | null) => void;
  saving: boolean;
  viewers?: PresenceViewer[];
  currentUserId?: number;
@@ -2934,22 +2943,73 @@ function NotatkiTab({
  const items = Array.isArray(timeline) ? timeline : [];
  const notes = items.filter((t: any) => t.type === "note");
 
+ // Lista rekrutacji kandydata (z /history) — do selektora "przypisz notatkę
+ // do rekrutacji". `recruitments` jest już posortowane most-recent-first.
+ const recList = Array.isArray(recruitments)
+ ? recruitments.filter((r: any) => r && r.job_id != null)
+ : [];
+ const jobTitleById = useMemo(() => {
+ const m = new Map<number, string>();
+ for (const r of recList) {
+ if (r.job_id != null) m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
+ }
+ return m;
+ }, [recList]);
+
+ // Wybrana rekrutacja (null = notatka ogólna, bez przypięcia). Gdy ustawiona,
+ // @mention scope zawęża się do członków joba — spójnie z backendem.
+ const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+
  const othersEditingNotes = viewers.filter(
  (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
  );
 
- // Mentionable users dla autocomplete + render badge'y w liście notatek.
- // Reużywamy jednego query — staleTime 60s w hooku.
+ // Mentionable users dla render badge'y w liście notatek (zawsze global —
+ // lista notatek miesza notatki z różnych rekrutacji). Autocomplete w
+ // textarea używa osobnego, kontekstowego scope (job gdy wybrany).
  const { data: users = [] } = useMentionableUsers({ kind: "global" });
  const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
+
+ const mentionScope: MentionScope =
+ selectedJobId != null
+ ? { kind: "job", jobId: selectedJobId }
+ : { kind: "global" };
 
  return (
  <div className="space-y-4">
  <div className="space-y-2">
+ {recList.length > 0 && (
+ <div className="flex items-center gap-2 flex-wrap">
+ <label
+ htmlFor="note-recruitment-select"
+ className="text-xs text-muted-foreground flex items-center gap-1.5"
+ >
+ <Target className="h-3.5 w-3.5" />
+ Przypisz do rekrutacji:
+ </label>
+ <select
+ id="note-recruitment-select"
+ className="rounded-lg border border-border bg-card px-2 py-1 text-xs max-w-[22rem] truncate"
+ value={selectedJobId ?? ""}
+ onChange={(e) => {
+ const v = e.target.value;
+ setSelectedJobId(v ? Number(v) : null);
+ }}
+ aria-label="Przypisz notatkę do rekrutacji"
+ >
+ <option value="">Notatka ogólna (bez rekrutacji)</option>
+ {recList.map((r: any) => (
+ <option key={r.job_id} value={r.job_id}>
+ {r.job_title ?? `Oferta #${r.job_id}`}
+ </option>
+ ))}
+ </select>
+ </div>
+ )}
  <MentionTextarea
  value={noteText}
  onChange={setNoteText}
- scope={{ kind: "global" }}
+ scope={mentionScope}
  onFocus={() => setEditing?.("notes", true)}
  onBlur={() => setEditing?.("notes", false)}
  placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
@@ -2964,11 +3024,16 @@ function NotatkiTab({
  : `${othersEditingNotes.map((v) => v.name).join(",")} edytują notatki`}
  </div>
  ) : null}
- <div className="flex justify-end">
+ <div className="flex items-center justify-end gap-2">
+ {selectedJobId != null && (
+ <span className="text-xs text-muted-foreground mr-auto truncate max-w-[60%]">
+ Notatka trafi do: {jobTitleById.get(selectedJobId) ?? "rekrutacji"}
+ </span>
+ )}
  <Button
  size="sm"
  variant="primary"
- onClick={onAdd}
+ onClick={() => onAdd(selectedJobId)}
  loading={saving}
  disabled={!noteText.trim()}
  >
@@ -2995,6 +3060,12 @@ function NotatkiTab({
  <span className="font-medium text-foreground">
  {n.note_type ? `Notatka — ${n.note_type}` :"Notatka"}
  </span>
+ {(n.job_title ?? jobTitleById.get(Number(n.job_id))) && (
+ <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium">
+ <Target className="h-3 w-3" />
+ {n.job_title ?? jobTitleById.get(Number(n.job_id))}
+ </span>
+ )}
  {n.author_name && (
  <>
  <span>·</span>
