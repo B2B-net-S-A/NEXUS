@@ -157,6 +157,27 @@ function collectChips(
  onUpdate({ stageMovedAfter: "", stageMovedBefore: "", page: 1 }),
  });
  }
+ // Stage-move "client" — the client owning the job where the move happened.
+ filters.stageClientIds.forEach((id) => {
+ const name = clientsById?.get(id) ?? `Klient #${id}`;
+ chips.push({
+ key: `stage_client:${id}`,
+ label: `Etap u klienta: ${name}`,
+ clear: () =>
+ onUpdate({
+ stageClientIds: filters.stageClientIds.filter((x) => x !== id),
+ page: 1,
+ }),
+ });
+ });
+ // "Aktualny etap" toggle.
+ if (filters.stageCurrentOnly) {
+ chips.push({
+ key: "stage_current",
+ label: "Tylko aktualny etap",
+ clear: () => onUpdate({ stageCurrentOnly: false, page: 1 }),
+ });
+ }
  if (filters.location) {
  chips.push({
  key: "loc",
@@ -342,7 +363,26 @@ export function ActiveFilterChips({
  return new Map(usersData.map((u) => [u.id, u.name] as const));
  }, [usersById, usersData]);
 
- const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, clientsById);
+ // Resolve client names for the "Klient" / "Etap u klienta" chips. Shares the
+ // `clients-lite` react-query key with <ClientMultiSelect> (staleTime 60s), so
+ // this is a cache-hit once that picker was opened. Without it the chips fall
+ // back to "Klient #N" after a URL share / saved-search restore.
+ const needsClients =
+ filters.workedAtClientIds.length > 0 || filters.stageClientIds.length > 0;
+ const { data: clientsData } = useQuery<{ items: NamedLookup[] }>({
+ queryKey: ["clients-lite"],
+ queryFn: () =>
+ api.get("/api/clients", { params: { page_size: 100 } }).then((r) => r.data),
+ staleTime: 60_000,
+ enabled: needsClients && !clientsById,
+ });
+ const resolvedClients = useMemo(() => {
+ if (clientsById) return clientsById;
+ if (!clientsData) return undefined;
+ return new Map(clientsData.items.map((c) => [c.id, c.name] as const));
+ }, [clientsById, clientsData]);
+
+ const chips = collectChips(filters, onUpdate, resolvedPools, resolvedUsers, resolvedClients);
  if (chips.length === 0) return null;
 
  const clearAll = () =>
@@ -364,6 +404,8 @@ export function ActiveFilterChips({
  stageMovedByIds: [],
  stageMovedAfter: "",
  stageMovedBefore: "",
+ stageClientIds: [],
+ stageCurrentOnly: false,
  qAll: [],
  qAny: [],
  qNone: [],

@@ -58,6 +58,32 @@ async def _seed_job() -> int:
         return j.id
 
 
+async def _seed_client_and_job() -> tuple[int, int]:
+    """Seed a client + a job belonging to it; return `(client_id, job_id)`.
+
+    For `stage_client_id` correlation tests that need the move's job to belong
+    to a KNOWN client.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"StageClient-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        j = Job(
+            title=f"Stage-Job-{uuid.uuid4().hex[:6]}",
+            status=JobStatus.published,
+            client_id=cli.id,
+        )
+        db.add(j)
+        await db.commit()
+        await db.refresh(j)
+        return cli.id, j.id
+
+
 async def _seed_user() -> int:
     """Insert an active recruiter and return its id (for `moved_by` tests)."""
     from app.core.database import AsyncSessionLocal
@@ -359,6 +385,81 @@ async def test_filter_stage_moved_by_correlated_with_stage(
             job_ids=[job_id],
             user_ids=[mover_a],
         )
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_client_correlated_with_stage(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`pipeline_stage` + `stage_client_id` correlate on the SAME move's job.
+
+    A candidate verified on client A's job matches `verified`+client A. A
+    candidate verified on client B's job does NOT — the client must own the job
+    on which the matched stage move happened.
+    """
+    client_a, job_a = await _seed_client_and_job()
+    client_b, job_b = await _seed_client_and_job()
+    on_a = await _seed_candidate(name_suffix="-A")
+    on_b = await _seed_candidate(name_suffix="-B")
+    await _seed_stage(on_a, job_a, "verified")
+    await _seed_stage(on_b, job_b, "verified")
+    try:
+        r = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_client_id={client_a}"
+            "&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert on_a in ids
+        assert on_b not in ids
+    finally:
+        await _cleanup(candidate_ids=[on_a, on_b], job_ids=[job_a, job_b])
+
+
+@pytest.mark.asyncio
+async def test_filter_stage_client_matches_after_candidate_progressed(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`stage_client_id` switches matching to HISTORICAL like the other
+    move-filters: a candidate verified on client A's job who has since moved on
+    to interview still matches `verified`+client A.
+    """
+    client_a, job_a = await _seed_client_and_job()
+    progressed = await _seed_candidate(name_suffix="-PROG")
+    # Verified in May, then advanced to interview in June (same job-pair).
+    await _seed_stage(
+        progressed,
+        job_a,
+        "verified",
+        moved_at=datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        progressed,
+        job_a,
+        "interview",
+        moved_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    try:
+        # Historical (default): still found despite current stage = interview.
+        r = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_client_id={client_a}"
+            "&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert progressed in [item["id"] for item in r.json()["items"]]
+
+        # stage_current_only=true → current stage is interview, so no match.
+        r2 = await app_client.get(
+            f"/api/candidates?pipeline_stage=verified&stage_client_id={client_a}"
+            "&stage_current_only=true&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r2.status_code == 200, r2.text
+        assert progressed not in [item["id"] for item in r2.json()["items"]]
+    finally:
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_a])
 
 
 @pytest.mark.asyncio
