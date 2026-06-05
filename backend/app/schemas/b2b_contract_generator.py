@@ -137,3 +137,14 @@ class B2BNextNumberResponse(BaseModel):
     contract_number: str
     year: int
     seq: int
+
+
+class B2BCompanyLookupResponse(BaseModel):
+    """Dane firmy z rejestru państwowego (Biała Lista MF / KRS)."""
+
+    name: Optional[str] = None
+    nip: Optional[str] = None
+    regon: Optional[str] = None
+    krs: Optional[str] = None
+    address: Optional[str] = None
+    source: Optional[str] = None

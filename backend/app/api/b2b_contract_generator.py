@@ -33,6 +33,7 @@ from app.models.contract import (
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
 from app.schemas.b2b_contract_generator import (
+    B2BCompanyLookupResponse,
     B2BContractDetailResponse,
     B2BGenerateRequest,
     B2BGenerateResponse,
@@ -48,6 +49,7 @@ from app.services.b2b_contract_generator.docx_renderer import (
     render_contract_docx,
     render_from_context,
 )
+from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.render_context import build_render_context
 
 router = APIRouter()
@@ -353,6 +355,25 @@ async def next_number(
     year = datetime.now(timezone.utc).year
     seq = await _next_seq(db, year)
     return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
+
+
+# ── Auto-uzupełnianie danych firmy z rejestru (NIP / KRS) ────────────────────
+
+
+@router.get("/company-lookup", response_model=B2BCompanyLookupResponse)
+async def company_lookup(
+    current_user: CurrentUser,
+    nip: str | None = Query(None),
+    krs: str | None = Query(None),
+):
+    """Dane firmy z rejestru: Biała Lista MF po NIP (JDG + spółki) lub KRS."""
+    data = await lookup_company(nip=nip, krs=krs)
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
+        )
+    return data
 
 
 # ── Standalone render (DOCX / HTML) — bez rekordu Contract ───────────────────

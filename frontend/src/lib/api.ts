@@ -1653,6 +1653,17 @@ export const b2bGeneratorApi = {
         { params: { format: "html" } },
       )
       .then((r) => r.data),
+  companyLookup: (params: { nip?: string; krs?: string }) =>
+    api
+      .get<{
+        name: string | null;
+        nip: string | null;
+        regon: string | null;
+        krs: string | null;
+        address: string | null;
+        source: string | null;
+      }>("/api/b2b-generator/company-lookup", { params })
+      .then((r) => r.data),
 };
 
 export const candidatePinsApi = {
