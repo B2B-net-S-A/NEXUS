@@ -1670,6 +1670,88 @@ function verifiedTechList(candidate: any): string[] {
  return out;
 }
 
+// „Stawka do klienta" (cena, za jaką kandydat został/zostanie wysłany do
+// klienta) — wyniesiona na zakładkę Profil (domyślny widok kandydata).
+// Wcześniej kontrolka żyła wyłącznie w podzakładce Rekrutacje jako mały link
+// „Uzupełnij", więc użytkownicy jej nie znajdowali. Pokazujemy ją jako wyraźną
+// sekcję per rekrutacja. Współdzieli cache historii z zakładką Rekrutacje
+// (ten sam queryKey ["candidate-history", String(id)]) — bez podwójnego fetcha.
+function SellRatePanel({
+ candidateId,
+ onOpenTab,
+}: {
+ candidateId: number;
+ onOpenTab?: (tab: string) => void;
+}) {
+ const { data: historyRaw } = useQuery<{ jobs?: any[] } | any[]>({
+ queryKey: ["candidate-history", String(candidateId)],
+ queryFn: () =>
+ api.get(`/api/candidates/${candidateId}/history`).then((r) => r.data),
+ enabled: !!candidateId,
+ staleTime: 30_000,
+ });
+ const jobs: any[] = Array.isArray(historyRaw)
+ ? historyRaw
+ : (historyRaw?.jobs ?? []);
+ // Brak rekrutacji = nie ma do kogo wysyłać, więc panel się nie pokazuje
+ // (kandydat luzem w bazie sourcingowej nie zaśmieca profilu pustą kartą).
+ if (jobs.length === 0) return null;
+
+ // Aktywne rekrutacje (otwarta oferta) na górze; w grupie najświeższe pierwsze.
+ const sorted = [...jobs].sort((a, b) => {
+ const aOpen = a.job_status === "open" ? 0 : 1;
+ const bOpen = b.job_status === "open" ? 0 : 1;
+ if (aOpen !== bOpen) return aOpen - bOpen;
+ return String(b.last_seen ?? "").localeCompare(String(a.last_seen ?? ""));
+ });
+
+ return (
+ <Card variant="default" size="md">
+ <div>
+ <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+ <Wallet className="h-4 w-4 text-primary" />
+ Stawka do klienta
+ </h3>
+ <p className="text-xs text-muted-foreground mt-0.5">
+ Cena, za jaką proponujesz kandydata klientowi — osobno dla każdej
+ rekrutacji. Uzupełnij ją przy wysyłce CV do klienta.
+ </p>
+ </div>
+ <div className="mt-2 divide-y divide-border">
+ {sorted.map((job) => (
+ <div key={job.job_id} className="pt-2 first:pt-0">
+ <div className="flex items-center gap-2 flex-wrap">
+ <span className="text-sm font-medium text-foreground">
+ {job.job_title ?? "Rekrutacja"}
+ </span>
+ {job.latest_stage && (
+ <Badge size="sm" variant="soft">
+ {job.latest_stage}
+ </Badge>
+ )}
+ </div>
+ <RecruitmentRateRow
+ candidateId={candidateId}
+ jobId={job.job_id}
+ clientRate={job.client_rate ?? null}
+ expectedRate={job.expected_rate ?? null}
+ />
+ </div>
+ ))}
+ </div>
+ {onOpenTab && (
+ <button
+ type="button"
+ onClick={() => onOpenTab("rekrutacje")}
+ className="mt-3 text-xs text-primary hover:underline"
+ >
+ Otwórz zakładkę Rekrutacje →
+ </button>
+ )}
+ </Card>
+ );
+}
+
 function ProfilTab({
  candidate,
  onOpenTab,
@@ -1786,6 +1868,11 @@ function ProfilTab({
  ))}
  </div>
  )}
+
+ {/* 1.5 Stawka do klienta — cena wysłania kandydata do klienta (per
+ rekrutacja). Wyniesione z zakładki Rekrutacje, bo użytkownik nie
+ zaglądał do podzakładki i nie znajdował kontrolki „Uzupełnij". */}
+ <SellRatePanel candidateId={candidate.id} onOpenTab={onOpenTab} />
 
  {/* 2. Ostatnia aktywność — mini feed (last 5) */}
  {feed.length > 0 && (
