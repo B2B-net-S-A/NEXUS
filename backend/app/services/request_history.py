@@ -7,9 +7,11 @@ but with three deliberate differences from that contract:
    `include_open`).
 2. Does NOT require `champion_profile` to be populated — most operational rows
    never had one filled.
-3. SQL fast-path for same-client lookups: zero embedding cost when the client
-   is set and `cross_client=False`. Voyage fallback only when SQL gives <top_k
-   hits or cross-client is requested.
+3. Semantic ranking by default: Voyage + Qdrant cosine similarity drives the
+   order so the tab surfaces requests similar in ROLE, not merely the most
+   recent ones from the same client. The same-client SQL recency pool is a
+   degraded fallback, used only when semantic retrieval is unavailable (Qdrant
+   down, missing embedding, or empty query text).
 
 Returns rich aggregated metadata (champion, TTH, fee, owners, candidates count)
 in a single batched aggregator to avoid N+1.
@@ -114,11 +116,13 @@ async def find_similar_requests(
 ) -> list[RequestHistoryEntry]:
     """Find sibling requests (closed + optionally in-progress) for the 'Historia' tab.
 
-    Progressive enhancement:
-        1. SQL fast path same-client (zero embedding cost) when applicable.
-        2. Voyage + Qdrant fallback when same-client SQL gives <top_k results
-           OR cross-client requested.
-        3. Single SQL round-trip merges both pools and post-filters status.
+    Retrieval order:
+        1. Voyage + Qdrant semantic search (scoped to `client_id` unless
+           `cross_client`) is the primary ranker — results are ordered by role
+           similarity.
+        2. SQL same-client recency pool only as a degraded fallback when the
+           semantic step returns nothing (Qdrant down / unembedded / no query).
+        3. Single SQL round-trip loads the chosen pool and post-filters status.
         4. Single aggregator query batch enriches with champion / TTH / fee /
            owners.
 
@@ -141,9 +145,27 @@ async def find_similar_requests(
     """
     target_train = (train_name or "").strip().lower() or None
 
-    # ── 1. SQL fast path (same-client, no embedding cost) ───────────────────
-    sql_hits: dict[int, float] = {}  # job_id -> 1.0
-    if not cross_client and client_id is not None:
+    # ── 1. Semantic search — PRIMARY ranker ─────────────────────────────────
+    # Scoped to the client unless cross_client. Job embedding coverage is
+    # effectively complete, so this returns real cosine similarity for ~all
+    # same-client requests and orders them by ROLE similarity rather than
+    # recency. (Previously the same-client SQL fast-path returned every recent
+    # request at a flat 1.0, surfacing unrelated roles — the bug this fixes.)
+    voyage_hits: dict[int, float] = await _voyage_candidates(
+        client_id=None if cross_client else client_id,
+        title=title,
+        raw_description=raw_description,
+        top_k=top_k,
+        exclude_job_id=exclude_job_id,
+    )
+
+    # ── 2. SQL same-client fallback (degraded mode) ─────────────────────────
+    # Only when semantic retrieval yields nothing (Qdrant down / unembedded /
+    # empty query) AND we have a concrete same-client scope. Recency-ordered,
+    # flat similarity — never competes with semantic hits because it runs only
+    # when there are none.
+    sql_hits: dict[int, float] = {}
+    if not voyage_hits and not cross_client and client_id is not None:
         sql_hits = await _sql_same_client_candidates(
             db,
             client_id=client_id,
@@ -151,18 +173,6 @@ async def find_similar_requests(
             include_open=include_open,
             exclude_job_id=exclude_job_id,
             limit=SQL_FAST_PATH_LIMIT,
-        )
-
-    # ── 2. Voyage / Qdrant fallback ─────────────────────────────────────────
-    voyage_hits: dict[int, float] = {}
-    use_voyage = cross_client or len(sql_hits) < top_k
-    if use_voyage:
-        voyage_hits = await _voyage_candidates(
-            client_id=None if cross_client else client_id,
-            title=title,
-            raw_description=raw_description,
-            top_k=top_k,
-            exclude_job_id=exclude_job_id,
         )
 
     # ── 3. Union ────────────────────────────────────────────────────────────
@@ -183,20 +193,16 @@ async def find_similar_requests(
     meta_by_id = await _aggregate_request_metadata(db, job_ids)
     owner_names = await _load_owner_names(db, job_rows)
 
-    sql_count = 0
-    voyage_count = 0
     entries: list[RequestHistoryEntry] = []
     for job, client_name in job_rows:
-        sim_sql = sql_hits.get(job.id)
         sim_voyage = voyage_hits.get(job.id)
-        if sim_sql is not None:
-            similarity = sim_sql
-            similarity_source: Literal["sql_same_client", "voyage"] = "sql_same_client"
-            sql_count += 1
-        elif sim_voyage is not None:
+        sim_sql = sql_hits.get(job.id)
+        if sim_voyage is not None:
             similarity = sim_voyage
-            similarity_source = "voyage"
-            voyage_count += 1
+            similarity_source: Literal["sql_same_client", "voyage"] = "voyage"
+        elif sim_sql is not None:
+            similarity = sim_sql
+            similarity_source = "sql_same_client"
         else:
             continue  # Should not happen — id list came from these dicts.
 

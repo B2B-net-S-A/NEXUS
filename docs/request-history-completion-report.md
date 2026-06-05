@@ -101,3 +101,18 @@ Phase 15 (Champion historical_jobs) miał własny side-panel ograniczony do job�
 - Plan implementacji: `~/.claude/plans/zaplanuj-wszystko-zgodnie-z-cozy-steele.md`
 - Phase 15 (Champion historical_jobs): commit `~3 weeks ago`, service `historical_jobs_retrieval.py`
 - Memory: `project_champion_historical.md`
+
+---
+
+## Fix 2026-06-05 — ranking semantyczny zamiast "najnowsze tego klienta"
+
+**Problem (zgłoszony):** Na `/jobs/16709` (Nordea, request PM-a) zakładka Historia pokazywała requesty kompletnie niepodobne rolą (Big Data Developer, Test Automation, Scrum Master…) — wszystkie z badge **100%**.
+
+**Root cause:** `find_similar_requests` używał SQL fast-path same-client jako PRIMARY: zwracał wszystkie joby klienta z płaskim `similarity=1.0`, posortowane tylko po recency. Voyage (semantyka) odpalał się **tylko** gdy `len(sql_hits) < top_k`. Nordea ma 1786 zamkniętych jobów → `sql_hits ≥ top_k` → Voyage nigdy się nie uruchamiał. Efekt: top-N najnowszych requestów klienta, nie najbardziej podobnych. Badge 100% = literalnie `1.0` z SQL-a, nie realne podobieństwo.
+
+**Fix:**
+- **Voyage + Qdrant (scoped do `client_id`) jest teraz PRIMARY rankerem** — wyniki sortowane po realnym cosine podobieństwa roli. Pokrycie embeddingami jobów ~kompletne (Nordea: 1784/1786), więc semantyka pokrywa praktycznie wszystkie same-client requesty.
+- **SQL same-client recency = degraded fallback**, odpala się tylko gdy semantyka nic nie zwróci (Qdrant down / brak embeddingu / pusty query). Nigdy nie konkuruje z trafieniami semantycznymi.
+- Frontend: usunięto mylący podtytuł "+N z innych ról" (po fixie wszystkie same-client wyniki są źródła `voyage`); podtytuł świadomy trybu cross-client.
+
+**Pliki:** `backend/app/services/request_history.py`, `frontend/src/components/RequestHistorySection.tsx`. Bez migracji. Testy `test_request_history.py` zielone (8/8).
