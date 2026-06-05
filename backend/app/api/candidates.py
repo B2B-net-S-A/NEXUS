@@ -2340,6 +2340,17 @@ async def get_candidate(
     )
 
 
+# Legacy `activities` actions z importu Traffita, które DUPLIKUJĄ realne wpisy
+# timeline (a same nie niosą czytelnej etykiety ani dodatkowego contentu), więc
+# w feedzie kandydata są tylko szumem. Filtrujemy je na poziomie zapytania —
+# dodatkowo nie pozwala im wypychać użytecznych aktywności spod `limit`.
+#   - `traffit:Zmiana etapu` (170k) duplikuje wpisy `stage_change` (PR #416)
+#   - `traffit:Notatka`      (40k)  duplikuje realne wpisy `Note` ("Notatka — …")
+# Pozostałe `traffit:*` (Tag-dodany, Plik-dodany, Email, …) niosą content —
+# ich NIE ukrywamy. `activities.action` jest NOT NULL → notin_ bezpieczne.
+_HIDDEN_TIMELINE_ACTIONS = ("traffit:Zmiana etapu", "traffit:Notatka")
+
+
 @router.get("/{candidate_id}/timeline")
 async def get_candidate_timeline(
     candidate_id: int,
@@ -2424,17 +2435,16 @@ async def get_candidate_timeline(
 
     # Activities (system events)
     #
-    # Pomijamy `traffit:Zmiana etapu` — te legacy rekordy z importu Traffita
-    # duplikują realne wpisy `stage_change` powyżej (to samo zdarzenie, bez
-    # własnej czytelnej etykiety — w UI renderowały się jako goły "traffit:
-    # Zmiana etapu"), więc tylko zaśmiecały feed. Filtr na poziomie zapytania
-    # dodatkowo nie pozwala im wypychać użytecznych aktywności spod `limit`.
+    # Pomijamy legacy szum z importu Traffita (patrz `_HIDDEN_TIMELINE_ACTIONS`):
+    # `traffit:Zmiana etapu` duplikuje wpisy `stage_change`, a `traffit:Notatka`
+    # duplikuje realne wpisy `Note` powyżej — w UI renderowały się jako gołe
+    # etykiety "traffit:…" bez własnego contentu, więc tylko zaśmiecały feed.
     activities_result = await db.execute(
         select(Activity)
         .where(
             Activity.entity_type == "candidate",
             Activity.entity_id == candidate_id,
-            Activity.action != "traffit:Zmiana etapu",
+            Activity.action.notin_(_HIDDEN_TIMELINE_ACTIONS),
         )
         .order_by(Activity.created_at.desc())
         .limit(limit)
