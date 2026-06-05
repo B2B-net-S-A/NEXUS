@@ -125,8 +125,11 @@ async def test_authorize_returns_url_with_login_redirect(
     qs = parse_qs(parsed.query)
     assert "login.microsoftonline.com" in parsed.netloc
     assert qs["client_id"] == ["test-client-id"]
+    # redirect_uri now follows the app domain (PUBLIC_BASE_URL), not the legacy
+    # MICROSOFT_LOGIN_REDIRECT_URI value — the OAuth hop must land on the app
+    # host (api.nexus.* was Safe-Browsing-flagged); the frontend proxies it.
     assert qs["redirect_uri"] == [
-        "https://api.test.example/api/auth/microsoft/callback"
+        "https://app.test.example/api/auth/microsoft/callback"
     ]
     assert "openid" in qs["scope"][0]
     assert "User.Read" in qs["scope"][0]
