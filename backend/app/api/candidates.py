@@ -22,7 +22,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, false, func, not_, or_, select, text
+from sqlalchemy import and_, delete, false, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -2595,6 +2595,85 @@ async def set_recruitment_client_rate(
             if latest.client_rate_value is not None
             else None
         ),
+    }
+
+
+@router.delete("/{candidate_id}/recruitments/{job_id}")
+async def remove_candidate_from_recruitment(
+    candidate_id: int,
+    job_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń kandydata z rekrutacji (oferty) — kasuje całą jego obecność w
+    pipeline tej oferty.
+
+    DELETE /api/candidates/{candidate_id}/recruitments/{job_id}
+
+    Kasuje WSZYSTKIE `CandidateStage` pary (candidate, job) — czyli audit trail
+    przejść między etapami — a kaskadowo (DB ON DELETE CASCADE) także powiązane
+    artefakty per-rekrutacja: snapshoty CV oryginalnego i brandowanego
+    (`candidate_stage_cvs` → `cv_share_tokens`), share-tokeny karty Championa
+    (`champion_card_share_tokens`) oraz zaplanowane maile odrzucenia
+    (`scheduled_rejection_emails`).
+
+    To operacja KOREKCYJNA („dodano nie tego kandydata / nie na tę ofertę"),
+    odrębna od odrzucenia (`reject`) i wycofania (`withdrawn`), które zostawiają
+    kandydata w pipeline na etapie końcowym dla audytu. Kandydata można później
+    dodać do tej rekrutacji ponownie. Sam rekord kandydata oraz jego umowy
+    (`Contract`) i screeningi (`screening_notes`, kluczowane po candidate+job)
+    pozostają nietknięte.
+    """
+    stage_rows = (
+        (
+            await db.execute(
+                select(CandidateStage).where(
+                    CandidateStage.candidate_id == candidate_id,
+                    CandidateStage.job_id == job_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if not stage_rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+        )
+
+    job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
+    removed_stages = [s.stage.value for s in stage_rows]
+
+    await db.execute(
+        delete(CandidateStage).where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+    )
+
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            action="removed_from_recruitment",
+            user_id=current_user.id,
+            details={
+                "job_id": job_id,
+                "job_title": job_title,
+                "removed_stage_count": len(stage_rows),
+                "removed_stages": removed_stages,
+            },
+        )
+    )
+
+    await db.commit()
+
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "removed_stage_count": len(stage_rows),
     }
 
 

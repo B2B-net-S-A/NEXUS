@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Briefcase, Clock, Loader2, Star } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { phase3Api, CandidatePipelineRow } from "@/lib/api";
 import { ChampionCard } from "./ChampionCard";
 import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
@@ -12,6 +12,11 @@ interface Props {
   employment?: EmploymentInfo;
 }
 
+// Współdzielony klucz cache — invalidowany m.in. po „Usuń z rekrutacji"
+// (zakładka Rekrutacje), żeby panel po prawej był spójny z listą po lewej.
+export const candidatePipelinesQueryKey = (candidateId: number) =>
+  ["candidate-pipelines", candidateId] as const;
+
 const CATEGORY_COLORS: Record<string, string> = {
   internal: "bg-primary/15 text-primary border-primary/30",
   external: "bg-amber-100 text-amber-700 border-amber-300",
@@ -19,21 +24,12 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
-  const [rows, setRows] = useState<CandidatePipelineRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await phase3Api.candidatePipelines(candidateId);
-        setRows(res.data.pipelines);
-      } catch (e) {
-        console.error("pipelines load failed: ", e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [candidateId]);
+  const { data: rows = [], isLoading: loading } = useQuery<CandidatePipelineRow[]>({
+    queryKey: candidatePipelinesQueryKey(candidateId),
+    queryFn: () =>
+      phase3Api.candidatePipelines(candidateId).then((r) => r.data.pipelines),
+    enabled: Number.isFinite(candidateId),
+  });
 
   if (loading) {
     return (
