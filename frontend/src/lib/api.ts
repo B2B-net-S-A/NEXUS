@@ -1797,11 +1797,17 @@ export const requestHistoryApi = {
 };
 
 export const recommendationsApi = {
-  forJob: (jobId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
-    api.get<{ job_id: number; job_title: string; search_type: string; matches: CandidateMatch[] }>(
-      `/api/jobs/${jobId}/recommendations`,
-      { params: opts },
-    ),
+  forJob: (
+    jobId: number,
+    opts?: { top_k?: number; include_breakdown?: boolean; location?: string },
+  ) =>
+    api.get<{
+      job_id: number;
+      job_title: string;
+      search_type: string;
+      location_filter?: string | null;
+      matches: CandidateMatch[];
+    }>(`/api/jobs/${jobId}/recommendations`, { params: opts }),
   forCandidate: (candidateId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
     api.get<{ candidate_id: number; candidate_name: string; matches: JobMatch[] }>(
       `/api/candidates/${candidateId}/recommendations`,

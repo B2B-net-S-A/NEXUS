@@ -46,6 +46,7 @@ from app.services.scoring_service import (
     rank_jobs_for_candidate,
     resolve_active_profile,
 )
+from app.services.location_utils import location_matches, location_tokens
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -94,6 +95,15 @@ async def recommend_candidates_for_job(
             "to user → client → global → built-in default."
         ),
     ),
+    location: str | None = Query(
+        None,
+        description=(
+            "Restrict results to candidates whose location matches this place "
+            "(city/region, substring-tolerant, blob-aware). Falls back to the "
+            "job's own location when omitted; empty when neither is set → no "
+            "filter (legacy behaviour preserved)."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -104,6 +114,17 @@ async def recommend_candidates_for_job(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
+    # Explicit query param wins; otherwise fall back to the job's own location
+    # (empty for ~99.6% of imported jobs, hence the param). The `isinstance`
+    # guard keeps the in-process direct call from `recompute_scores` — where
+    # FastAPI passes the `Query(...)` sentinel rather than a str — from tripping
+    # `.strip()`.
+    location_param = location if isinstance(location, str) else ""
+    requested_location = location_param.strip() or (job.location or "").strip()
+    requested_tokens = location_tokens(requested_location)
+    location_active = bool(requested_tokens)
 
     # Phase D1: resolve active weight profile for this request.
     profile: WeightProfile = DEFAULT_PROFILE
@@ -122,8 +143,14 @@ async def recommend_candidates_for_job(
 
     query_text = _build_job_text(job)
 
-    # Pull a wider candidate pool from Qdrant, then re-rank with rules
+    # Pull a wider candidate pool from Qdrant, then re-rank with rules. When a
+    # location filter is active, widen retrieval so the sparse located subset
+    # (~17% of candidates have any location) isn't starved by the top-200
+    # semantic cut — only the matched subset is actually scored (pre-filter
+    # below), so the extra retrieval doesn't multiply scoring cost.
     pool_size = min(top_k * 4, 200)
+    if location_active:
+        pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
     hits = await search_candidates_semantic(query_text, top_k=pool_size)
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
@@ -154,13 +181,31 @@ async def recommend_candidates_for_job(
             "job_id": job_id,
             "job_title": job.title,
             "search_type": "hybrid",
+            "location_filter": requested_location if location_active else None,
             "matches": [],
         }
 
     cand_res = await db.execute(
         select(Candidate).where(Candidate.id.in_(candidate_ids))
     )
-    candidates = cand_res.scalars().all()
+    candidates = list(cand_res.scalars().all())
+
+    # Location filter: drop candidates whose location doesn't match BEFORE
+    # scoring, so only the matched subset bears the (cache-first) scoring cost.
+    # A candidate with no parseable location is excluded under an active filter
+    # (standard search semantics, mirroring manual-search `location_cities`).
+    if location_active:
+        candidates = [
+            c for c in candidates if location_matches(requested_tokens, c.location)
+        ]
+        if not candidates:
+            return {
+                "job_id": job_id,
+                "job_title": job.title,
+                "search_type": "hybrid",
+                "location_filter": requested_location,
+                "matches": [],
+            }
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
@@ -231,6 +276,7 @@ async def recommend_candidates_for_job(
         "search_type": "hybrid",
         "min_score": round(threshold, 1),
         "profile": {"id": profile.id, "name": profile.name},
+        "location_filter": requested_location if location_active else None,
         "matches": matches,
     }
 

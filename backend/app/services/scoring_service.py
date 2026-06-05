@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
+from app.services.location_utils import location_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -529,12 +530,25 @@ def _score_salary(
 def _score_location(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
-    """Remote/location fit. Scales split between remote compatibility and city match."""
+    """Remote/location fit. Budget split 50/50 between remote compat + city match.
+
+    The city half parses BOTH sides through ``location_tokens`` so the
+    structured JSON blob ~99% of imported candidates store in ``location``
+    (``{"locality":"Warszawa",...}``) is compared on place tokens, not by
+    raw-string substring (which practically never matched a blob).
+
+    No-op where there is nothing to match: ``job.location`` is empty for
+    ≈99.6% of imported jobs (15/3894 populated), so ``job_tokens`` is empty and
+    the city half contributes 0 for those rows — identical to the prior
+    behaviour. The fix only changes scores on the ~15 jobs that *do* carry a
+    location, where a same-city candidate now earns the city half it was
+    silently denied before.
+    """
     max_pts = profile.location
     points = 0.0
     reason_bits: List[str] = []
 
-    # Split budget 50/50 between remote policy and location string match
+    # Split budget 50/50 between remote policy and city match.
     half = max_pts / 2.0
 
     prefs = getattr(candidate, "preferences", None) or {}
@@ -544,15 +558,11 @@ def _score_location(
         points += half
         reason_bits.append(f"remote {job_remote} OK")
 
-    cand_loc = (candidate.location or "").lower()
-    job_loc = (job.location or "").lower()
-    if cand_loc and job_loc:
-        if cand_loc in job_loc or job_loc in cand_loc:
-            points += half
-            reason_bits.append("lokalizacja OK")
-        elif cand_loc.split(",")[0].strip() == job_loc.split(",")[0].strip():
-            points += half * 0.6
-            reason_bits.append("to samo miasto")
+    job_tokens = location_tokens(job.location)
+    cand_tokens = location_tokens(candidate.location)
+    if job_tokens and tokens_overlap(cand_tokens, job_tokens):
+        points += half
+        reason_bits.append("lokalizacja OK")
 
     return LayerResult(
         points=min(points, max_pts),

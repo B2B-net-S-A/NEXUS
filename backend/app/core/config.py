@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     RECOMMENDATION_MIN_SCORE: float = 25.0
     # twardy bezpiecznik rozmiaru wyniku (oba silniki)
     MATCH_MAX_RESULTS: int = 200
+    # Gdy filtr lokalizacji jest aktywny na /recommendations, poszerzamy pulę
+    # retrieve z Qdrant do tej wartości — tylko ~17% kandydatów ma jakąkolwiek
+    # lokalizację, więc domyślny semantic cut (top-200) głodzi zlokalizowany
+    # podzbiór. Po retrieve pre-filtrujemy po lokalizacji i scorujemy DOPIERO
+    # dopasowany podzbiór, więc koszt scoringu pozostaje ograniczony.
+    RECOMMENDATION_LOCATION_POOL_SIZE: int = 500
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"

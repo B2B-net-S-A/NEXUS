@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Sparkles, RefreshCw, UserPlus, Star } from "lucide-react";
+import { Loader2, Sparkles, RefreshCw, UserPlus, Star, MapPin } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 import {
@@ -12,10 +12,15 @@ import {
   type CandidateMatch,
   type ProposalSnapshot,
 } from "@/lib/api";
+import { LocationInput } from "@/components/v2/filters/LocationInput";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
   jobId: number;
+  /** Pre-fill the location filter (e.g. the job's own location). Optional —
+   *  imported jobs rarely carry one, so this is usually empty. */
+  defaultLocation?: string | null;
 }
 
 const PENDING_POLL_MS = 2000;
@@ -53,9 +58,37 @@ function snapshotToMatches(snap: ProposalSnapshot): CandidateMatch[] {
   }));
 }
 
-export function SuggestedCandidatesWidget({ jobId }: Props) {
+export function SuggestedCandidatesWidget({ jobId, defaultLocation }: Props) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("snapshot");
+  // Show ALL candidates that fit — the backend applies the match-quality
+  // threshold; this is only a payload safety cap (was a user-facing "Top N").
+  const topK = 200;
+
+  // ── Location filter ───────────────────────────────────────────────────────
+  // When the recruiter types a city we bypass the precomputed snapshot and hit
+  // the live /recommendations endpoint with `location`: the backend widens the
+  // Qdrant pool (located candidates are sparse — ~17% have any location) and
+  // filters post-scoring, so we surface located candidates the score-ranked
+  // snapshot would otherwise miss. LocationInput already debounces (300 ms).
+  const [locationFilter, setLocationFilter] = useState<string>(
+    () => defaultLocation?.trim() ?? "",
+  );
+  const locationActive = locationFilter.trim().length > 0;
+
+  const locationQuery = useQuery({
+    queryKey: ["recommendations-location", jobId, locationFilter.trim()],
+    queryFn: async () => {
+      const r = await recommendationsApi.forJob(jobId, {
+        top_k: topK,
+        include_breakdown: true,
+        location: locationFilter.trim(),
+      });
+      return r.data;
+    },
+    enabled: locationActive,
+    staleTime: 60_000,
+  });
 
   // ── Snapshot path (Phase 13) ──────────────────────────────────────────────
   const snapshotQuery = useQuery<ProposalSnapshot | null>({
@@ -97,10 +130,6 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveLoaded, setLiveLoaded] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
-  // Show ALL candidates that fit — the backend applies the match-quality
-  // threshold; this is only a payload safety cap (was a user-facing "Top N"
-  // selector, removed when the product shifted to "show everyone who matches").
-  const topK = 200;
   const [regenerating, setRegenerating] = useState(false);
 
   const [assigning, setAssigning] = useState<number | null>(null);
@@ -198,15 +227,42 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
     return "bg-muted text-muted-foreground border-border dark:bg-card/30 dark:text-muted-foreground";
   };
 
-  const matches = mode === "snapshot" ? snapshotMatches : liveMatches;
+  // Active display source: location filter > snapshot > fallback-live.
+  const matches = locationActive
+    ? (locationQuery.data?.matches ?? [])
+    : mode === "snapshot"
+      ? snapshotMatches
+      : liveMatches;
   const showLiveEmptyState =
-    mode === "fallback-live" && !liveLoaded && !liveLoading;
+    !locationActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
   const showLiveNoResults =
-    mode === "fallback-live" && liveLoaded && liveMatches.length === 0 && !liveLoading;
-  const displayError =
-    (mode === "snapshot" && isSnapFailed
-      ? snapshot?.error_message || "AI nie wygenerowało propozycji"
-      : null) ?? liveError;
+    !locationActive &&
+    mode === "fallback-live" &&
+    liveLoaded &&
+    liveMatches.length === 0 &&
+    !liveLoading;
+  // Snapshot/live error banner is suppressed while a location filter is active —
+  // location mode renders its own loading/empty/error states below.
+  const displayError = locationActive
+    ? null
+    : ((mode === "snapshot" && isSnapFailed
+        ? snapshot?.error_message || "AI nie wygenerowało propozycji"
+        : null) ?? liveError);
+  const locationLabel = locationQuery.data?.location_filter ?? locationFilter.trim();
+  // The badge must reflect what the SERVER actually filtered on, not the raw
+  // input. The backend tokenizes the value and applies NO filter (location_filter
+  // null) for input that yields no place tokens (e.g. separator-only "/" or ",").
+  // Gate the "📍 …" badge on the server's echo so junk input can't paint a
+  // location badge over an unfiltered list.
+  const serverLocationApplied =
+    locationActive && (locationQuery.data?.location_filter ?? null) !== null;
+  const showLocationLoading = locationActive && locationQuery.isLoading;
+  const showLocationError = locationActive && locationQuery.isError;
+  const showLocationNoResults =
+    locationActive &&
+    !locationQuery.isLoading &&
+    !locationQuery.isError &&
+    matches.length === 0;
 
   return (
     <div
@@ -214,19 +270,34 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
       className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4"
     >
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-        <h3 className="font-medium flex items-center gap-2 text-foreground dark:text-foreground">
+        <h3 className="font-medium flex items-center gap-2 flex-wrap text-foreground dark:text-foreground">
           <Sparkles className="w-4 h-4 text-violet-500" />
           Rekomendowani kandydaci
-          {isSnapReady && (
+          {!locationActive && isSnapReady && (
             <span className="text-xs text-muted-foreground">
               ({snapshotMatches.length})
             </span>
           )}
-          {mode === "fallback-live" && liveLoaded && (
+          {!locationActive && mode === "fallback-live" && liveLoaded && (
             <span className="text-xs text-muted-foreground">({liveMatches.length})</span>
           )}
+          {locationActive && !locationQuery.isLoading && (
+            <span className="text-xs text-muted-foreground">({matches.length})</span>
+          )}
+          {serverLocationApplied && (
+            <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 rounded-full font-medium inline-flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> {locationQuery.data?.location_filter}
+            </span>
+          )}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="w-48">
+            <LocationInput
+              value={locationFilter}
+              onChange={setLocationFilter}
+              placeholder="Lokalizacja (np. Warszawa)"
+            />
+          </div>
           {mode === "snapshot" ? (
             <button
               onClick={regenerate}
@@ -269,7 +340,7 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
         </div>
       </div>
 
-      {mode === "snapshot" && snapshot && (
+      {!locationActive && mode === "snapshot" && snapshot && (
         <div className="text-xs text-muted-foreground dark:text-muted-foreground mb-3">
           {isSnapReady && (
             <>
@@ -284,6 +355,26 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
             </span>
           )}
         </div>
+      )}
+
+      {showLocationLoading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+          <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
+          Szukam kandydatów w lokalizacji „{locationFilter.trim()}”…
+        </div>
+      )}
+
+      {showLocationError && (
+        <p className="text-sm text-destructive py-2">
+          Błąd wyszukiwania kandydatów po lokalizacji. Zmień filtr i spróbuj ponownie.
+        </p>
+      )}
+
+      {showLocationNoResults && (
+        <p className="text-sm text-muted-foreground py-2">
+          Brak rekomendowanych kandydatów w lokalizacji „{locationLabel}”. Zmień lub
+          wyczyść filtr powyżej.
+        </p>
       )}
 
       {displayError && (
@@ -311,13 +402,13 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
         <p className="text-sm text-muted-foreground">Nie znaleziono pasujących kandydatów.</p>
       )}
 
-      {isSnapReady && snapshotMatches.length === 0 && (
+      {!locationActive && isSnapReady && snapshotMatches.length === 0 && (
         <p className="text-sm text-muted-foreground">
           AI nie znalazło pasujących kandydatów w bazie.
         </p>
       )}
 
-      {isSnapPending && (
+      {!locationActive && isSnapPending && (
         <div className="h-1 w-full bg-violet-100 dark:bg-violet-900/30 rounded-full overflow-hidden mb-2">
           <div className="h-full bg-violet-500 animate-pulse w-1/2" />
         </div>
@@ -349,7 +440,9 @@ export function SuggestedCandidatesWidget({ jobId }: Props) {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                    {cand.location && <span>📍 {cand.location}</span>}
+                    {formatCandidateLocation(cand.location) && (
+                      <span>📍 {formatCandidateLocation(cand.location)}</span>
+                    )}
                     {cand.years_it_experience != null && (
                       <span>{cand.years_it_experience}y IT</span>
                     )}

@@ -1336,7 +1336,10 @@ export default function JobDetailPage() {
                 "ring-2 ring-violet-400 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 shadow-lg",
             )}
           >
-            <SuggestedCandidatesWidget jobId={Number(id)} />
+            <SuggestedCandidatesWidget
+              jobId={Number(id)}
+              defaultLocation={formatCandidateLocation(job?.location)}
+            />
           </div>
           <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
             <div className="flex items-center gap-2 mb-6">
