@@ -79,23 +79,21 @@ import { useAuthStore } from"@/store/auth";
 import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
-import { UserMultiSelect } from"@/components/v2/filters/UserMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
 import { FilterChipPopover } from"@/components/v2/filters/FilterChipPopover";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
 import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
 import { MultiSelectFilter } from"@/components/v2/filters/MultiSelectFilter";
+import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
 import {
  AVAILABILITY_OPTIONS,
  CANDIDATE_STATUS_OPTIONS,
  EMPLOYMENT_OPTIONS,
  OPEN_TO_OPTIONS,
- PIPELINE_STAGE_OPTIONS,
  type AvailabilityValue,
  type CandidateStatusValue,
  type EmploymentValue,
  type OpenToValue,
- type PipelineStageValue,
 } from"@/lib/filter-options";
 import {
  decodeFilters,
@@ -1007,6 +1005,20 @@ export function CandidatesListV2() {
  const [stageMovedBefore, setStageMovedBefore] = useState<string>(
  searchParams.get("stage_to") ??""
  );
+ // Etap — client owning the job on which the matched stage move happened
+ // (correlated with `pipelineStageFilter` + who/when). Distinct from
+ // `workedAtClientIds` (hired/contract history).
+ const [stageClientIds, setStageClientIds] = useState<number[]>(
+ (searchParams.get("stage_client") ??"")
+ .split(",")
+ .map((x) => Number.parseInt(x, 10))
+ .filter((n) => Number.isFinite(n))
+ );
+ // "Aktualny etap" toggle — force current-stage matching even with a
+ // who/when/client move-filter. Off (default) lets the backend auto-resolve.
+ const [stageCurrentOnly, setStageCurrentOnly] = useState<boolean>(
+ searchParams.get("stage_current") === "1"
+ );
  // LinkedIn-detected job change window —"1","2", or"3" months. Empty = off.
  const [recentlyChangedJobs, setRecentlyChangedJobs] = useState<string>(
  searchParams.get("rcj") ??""
@@ -1076,6 +1088,8 @@ export function CandidatesListV2() {
  if (stageMovedByIds.length) params.set("stage_by", stageMovedByIds.join(","));
  if (stageMovedAfter) params.set("stage_from", stageMovedAfter);
  if (stageMovedBefore) params.set("stage_to", stageMovedBefore);
+ if (stageClientIds.length) params.set("stage_client", stageClientIds.join(","));
+ if (stageCurrentOnly) params.set("stage_current", "1");
  if (recentlyChangedJobs) params.set("rcj", recentlyChangedJobs);
  if (openToFilter.length) params.set("open_to", openToFilter.join(","));
  if (qAll.length) params.set("q_all", qAll.join("|"));
@@ -1118,6 +1132,8 @@ export function CandidatesListV2() {
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
  recentlyChangedJobs,
  openToFilter,
  qAll,
@@ -1148,6 +1164,8 @@ export function CandidatesListV2() {
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
  recentlyChangedJobs,
  openToFilter,
  qAll,
@@ -1182,6 +1200,8 @@ export function CandidatesListV2() {
  stage_moved_by: stageMovedByIds.length ? stageMovedByIds : undefined,
  stage_moved_after: stageMovedAfter || undefined,
  stage_moved_before: stageMovedBefore || undefined,
+ stage_client_id: stageClientIds.length ? stageClientIds : undefined,
+ stage_current_only: stageCurrentOnly ? true : undefined,
  recently_changed_jobs: recentlyChangedJobs
  ? Number(recentlyChangedJobs)
  : undefined,
@@ -1365,8 +1385,6 @@ export function CandidatesListV2() {
  (pastCompanyFilter.length > 0 ? 1 : 0) +
  (currentTitleFilter.length > 0 ? 1 : 0) +
  (workedAtClientIds.length > 0 ? 1 : 0) +
- (stageMovedByIds.length > 0 ? 1 : 0) +
- (stageMovedAfter || stageMovedBefore ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
  (qAll.length > 0 ? 1 : 0) +
  (qAnyGroups.length > 0 ? 1 : 0) +
@@ -1395,6 +1413,8 @@ export function CandidatesListV2() {
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
  view: "list",
  savedSearchId: null,
  qAll,
@@ -1421,6 +1441,8 @@ export function CandidatesListV2() {
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
+ stageClientIds,
+ stageCurrentOnly,
  qAll,
  qAnyGroups,
  qNone,
@@ -1448,6 +1470,9 @@ export function CandidatesListV2() {
  if (patch.stageMovedAfter !== undefined) setStageMovedAfter(patch.stageMovedAfter);
  if (patch.stageMovedBefore !== undefined)
  setStageMovedBefore(patch.stageMovedBefore);
+ if (patch.stageClientIds !== undefined) setStageClientIds(patch.stageClientIds);
+ if (patch.stageCurrentOnly !== undefined)
+ setStageCurrentOnly(patch.stageCurrentOnly);
  if (patch.qAll !== undefined) setQAll(patch.qAll);
  if (patch.qAny !== undefined) setQAny(patch.qAny);
  if (patch.qNone !== undefined) setQNone(patch.qNone);
@@ -1621,23 +1646,24 @@ export function CandidatesListV2() {
  : `Dyspozycyjność: ${n}`
  }
  />
- <MultiSelectFilter<PipelineStageValue>
- value={pipelineStageFilter}
- onChange={(v) => {
- setPipelineStageFilter(v);
+ <StageFilterPanel
+ value={{
+ stages: pipelineStageFilter,
+ currentOnly: stageCurrentOnly,
+ clientIds: stageClientIds,
+ movedByIds: stageMovedByIds,
+ movedAfter: stageMovedAfter,
+ movedBefore: stageMovedBefore,
+ }}
+ onChange={(patch) => {
+ if (patch.stages !== undefined) setPipelineStageFilter(patch.stages);
+ if (patch.currentOnly !== undefined) setStageCurrentOnly(patch.currentOnly);
+ if (patch.clientIds !== undefined) setStageClientIds(patch.clientIds);
+ if (patch.movedByIds !== undefined) setStageMovedByIds(patch.movedByIds);
+ if (patch.movedAfter !== undefined) setStageMovedAfter(patch.movedAfter);
+ if (patch.movedBefore !== undefined) setStageMovedBefore(patch.movedBefore);
  setPage(1);
  }}
- options={PIPELINE_STAGE_OPTIONS}
- placeholder="Etap"
- searchPlaceholder="Szukaj etapu…"
- triggerWidthClass="w-[170px]"
- title="Filtruj po etapie w pipeline'ie rekrutacyjnym (aktualny etap kandydata)"
- triggerLabel={(n) =>
- n === 1
- ? (PIPELINE_STAGE_OPTIONS.find((o) => o.value === pipelineStageFilter[0])
- ?.label ??"Etap")
- : `Etap: ${n}`
- }
  />
  <MultiSelectFilter<OpenToValue>
  value={openToFilter}
@@ -1882,60 +1908,8 @@ export function CandidatesListV2() {
  }}
  />
  </div>
- {/* Stage-move filters — "kto dodał na etap i kiedy". Backend correlates
- these with the „Etap" filter above (the matched stage move's mover +
- date), so łącząc je dostajesz „kogo Jan przeniósł na Zweryfikowany w maju". */}
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Etap — kto dodał
- </h3>
- <UserMultiSelect
- value={stageMovedByIds}
- onChange={(ids) => {
- setStageMovedByIds(ids);
- setPage(1);
- }}
- placeholder="Dowolny rekruter"
- searchPlaceholder="Szukaj rekrutera…"
- triggerWidthClass="w-full"
- />
- <p className="text-[10px] text-muted-foreground mt-1">
- Kto przeniósł kandydata na wybrany etap. Łącz z filtrem „Etap" powyżej.
- </p>
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Etap — data dodania
- </h3>
- <div className="flex items-center gap-2">
- <Input
- type="date"
- aria-label="Data dodania na etap — od"
- value={stageMovedAfter}
- max={stageMovedBefore ||undefined}
- onChange={(e) => {
- setStageMovedAfter(e.target.value);
- setPage(1);
- }}
- className="text-sm"
- />
- <span className="text-xs text-muted-foreground">—</span>
- <Input
- type="date"
- aria-label="Data dodania na etap — do"
- value={stageMovedBefore}
- min={stageMovedAfter ||undefined}
- onChange={(e) => {
- setStageMovedBefore(e.target.value);
- setPage(1);
- }}
- className="text-sm"
- />
- </div>
- <p className="text-[10px] text-muted-foreground mt-1">
- Kiedy kandydat trafił na wybrany etap (zakres dat, włącznie).
- </p>
- </div>
+ {/* Stage-move filters (etap — kto/kiedy/klient) moved into the unified
+ „Etap" panel on the main toolbar (StageFilterPanel). */}
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  Tryb pracy
@@ -2007,9 +1981,6 @@ export function CandidatesListV2() {
  setPastCompanyFilter([]);
  setCurrentTitleFilter([]);
  setWorkedAtClientIds([]);
- setStageMovedByIds([]);
- setStageMovedAfter("");
- setStageMovedBefore("");
  setQAll([]);
  setQAny([]);
  setQNone([]);
@@ -2075,6 +2046,8 @@ export function CandidatesListV2() {
  stageMovedByIds: decoded.stageMovedByIds,
  stageMovedAfter: decoded.stageMovedAfter,
  stageMovedBefore: decoded.stageMovedBefore,
+ stageClientIds: decoded.stageClientIds,
+ stageCurrentOnly: decoded.stageCurrentOnly,
  qAll: decoded.qAll,
  qAny: decoded.qAny,
  qNone: decoded.qNone,

@@ -87,6 +87,17 @@ export interface CandidateFilters {
   stageMovedByIds: number[];
   stageMovedAfter: string;
   stageMovedBefore: string;
+  // Client that owns the job on which the matched stage move happened
+  // (`Job.client_id` via `CandidateStage.job_id`). Correlated with the same
+  // move as `stageMovedByIds`/dates — distinct from `workedAtClientIds`
+  // (hired/contract history). Joins the move-filter family → triggers
+  // historical matching unless `stageCurrentOnly` is on.
+  stageClientIds: number[];
+  // "Aktualny etap" toggle. When true → force CURRENT-stage matching even with
+  // who/when/client move-filters (sends `stage_current_only=true`). When false
+  // (default) → omit the param so the backend auto-resolves: current for a bare
+  // stage chip, historical as soon as a move-filter is present.
+  stageCurrentOnly: boolean;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -121,6 +132,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageMovedByIds: [],
   stageMovedAfter: "",
   stageMovedBefore: "",
+  stageClientIds: [],
+  stageCurrentOnly: false,
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -171,6 +184,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.stageMovedByIds.length) p.set("stage_by", CSV(f.stageMovedByIds));
   if (f.stageMovedAfter) p.set("stage_from", f.stageMovedAfter);
   if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
+  if (f.stageClientIds.length) p.set("stage_client", CSV(f.stageClientIds));
+  if (f.stageCurrentOnly) p.set("stage_current", "1");
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
   // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
@@ -234,6 +249,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageMovedByIds: parseCsvInt(sp.get("stage_by")),
     stageMovedAfter: parseIsoDate(sp.get("stage_from")),
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
+    stageClientIds: parseCsvInt(sp.get("stage_client")),
+    stageCurrentOnly: sp.get("stage_current") === "1",
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -318,6 +335,12 @@ export function filtersToApiParams(
       : undefined,
     stage_moved_after: filters.stageMovedAfter || undefined,
     stage_moved_before: filters.stageMovedBefore || undefined,
+    stage_client_id: filters.stageClientIds.length
+      ? filters.stageClientIds
+      : undefined,
+    // Only send when forcing current-stage matching; omitting lets the backend
+    // auto-resolve (current for a bare stage, historical with a move-filter).
+    stage_current_only: filters.stageCurrentOnly ? true : undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
     q_any_group: filters.qAny.some((g) => g.length)

@@ -40,6 +40,8 @@ describe("url-filters", () => {
       stageMovedByIds: [4, 0],
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",
+      stageClientIds: [21, 33],
+      stageCurrentOnly: true,
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],
@@ -188,6 +190,26 @@ describe("url-filters", () => {
     expect(encoded.get("stage_from")).toBe("2026-05-01");
     expect(encoded.get("stage_to")).toBe("2026-05-29");
     expect(decodeFilters(encoded).stageMovedByIds).toEqual([4, 0]);
+  });
+
+  it("encodes stage-client + current-only on distinct params", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      stageClientIds: [21, 33],
+      stageCurrentOnly: true,
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.get("stage_client")).toBe("21,33");
+    expect(encoded.get("stage_current")).toBe("1");
+    const decoded = decodeFilters(encoded);
+    expect(decoded.stageClientIds).toEqual([21, 33]);
+    expect(decoded.stageCurrentOnly).toBe(true);
+  });
+
+  it("empty stage-client + off current-only stay out of the URL", () => {
+    const encoded = encodeFilters({ ...DEFAULT_FILTERS });
+    expect(encoded.has("stage_client")).toBe(false);
+    expect(encoded.has("stage_current")).toBe(false);
   });
 
   it("rejects malformed stage dates so they never reach the API", () => {

@@ -814,8 +814,9 @@ async def list_candidates(
             "useful for 'show everyone who was ever rejected' style queries. "
             "When omitted (default), the mode is resolved automatically: a "
             "bare stage filter matches the CURRENT stage, but as soon as a "
-            "who/when move-filter (`stage_moved_by` / `stage_moved_after` / "
-            "`stage_moved_before`) is present the query becomes HISTORICAL — "
+            "who/when/client move-filter (`stage_moved_by` / `stage_moved_after` "
+            "/ `stage_moved_before` / `stage_client_id`) is present the query "
+            "becomes HISTORICAL — "
             "because 'everyone Jan moved onto Verified in May' must include "
             "candidates who have since progressed past Verified. Pass "
             "`stage_current_only=true` explicitly to override and keep the "
@@ -853,6 +854,22 @@ async def list_candidates(
             "upper bound (inclusive), `YYYY-MM-DD`. Matches "
             "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the "
             "whole `before` day is included."
+        ),
+    ),
+    stage_client_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by the CLIENT that owns the job on which the matched stage "
+            "move happened (`Job.client_id` via `CandidateStage.job_id`) — one "
+            "or more client ids, OR-combined. Correlated with "
+            "`pipeline_stage`/`stage_moved_by`/`stage_moved_after`/"
+            "`stage_moved_before` on the SAME move: e.g. "
+            "`pipeline_stage=verified&stage_client_id=12` matches candidates "
+            "moved onto Verified on one of client 12's jobs. Like the other "
+            "who/when move-filters, its presence switches matching to HISTORICAL "
+            "by default (any qualifying move counts even if the candidate has "
+            "since progressed); pass `stage_current_only=true` to restrict to "
+            "the candidate's CURRENT move per job-pair instead."
         ),
     ),
     sort: str = Query(
@@ -1075,8 +1092,8 @@ async def list_candidates(
             _excl.year, _excl.month, _excl.day, tzinfo=timezone.utc
         )
 
-    def _move_predicates(moved_by_col, moved_at_col) -> list:
-        """Correlated who/when predicates on the matched stage move."""
+    def _move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
+        """Correlated who/when/client predicates on the matched stage move."""
         preds: list = []
         if stage_moved_by:
             # Sentinel 0 = "no mover on record" (system / Traffit import).
@@ -1092,12 +1109,23 @@ async def list_candidates(
             preds.append(moved_at_col >= moved_after_dt)
         if moved_before_dt is not None:
             preds.append(moved_at_col < moved_before_dt)
+        if stage_client_id:
+            # The matched move's job must belong to one of these clients.
+            # Correlated EXISTS on Job (id PK + client_id indexed) keeps the
+            # filter on the SAME move as the who/when predicates above.
+            preds.append(
+                select(1)
+                .select_from(Job)
+                .where(Job.id == job_id_col, Job.client_id.in_(stage_client_id))
+                .exists()
+            )
         return preds
 
     has_move_filter = (
         bool(stage_moved_by)
         or moved_after_dt is not None
         or moved_before_dt is not None
+        or bool(stage_client_id)
     )
 
     # Resolve current-vs-historical matching. An explicit `stage_current_only`
@@ -1123,6 +1151,7 @@ async def list_candidates(
             latest_per_pair = (
                 select(
                     CandidateStage.candidate_id,
+                    CandidateStage.job_id,
                     CandidateStage.stage,
                     CandidateStage.moved_by,
                     CandidateStage.moved_at,
@@ -1141,7 +1170,11 @@ async def list_candidates(
                 latest_per_pair.c.stage.in_(stage_values),
             ]
             conds.extend(
-                _move_predicates(latest_per_pair.c.moved_by, latest_per_pair.c.moved_at)
+                _move_predicates(
+                    latest_per_pair.c.moved_by,
+                    latest_per_pair.c.moved_at,
+                    latest_per_pair.c.job_id,
+                )
             )
             stage_exists = select(1).select_from(latest_per_pair).where(*conds).exists()
         else:
@@ -1152,7 +1185,11 @@ async def list_candidates(
             if stage_values:
                 conds.append(CandidateStage.stage.in_(stage_values))
             conds.extend(
-                _move_predicates(CandidateStage.moved_by, CandidateStage.moved_at)
+                _move_predicates(
+                    CandidateStage.moved_by,
+                    CandidateStage.moved_at,
+                    CandidateStage.job_id,
+                )
             )
             stage_exists = select(1).where(*conds).exists()
         query = query.where(stage_exists)
