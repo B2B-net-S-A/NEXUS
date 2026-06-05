@@ -90,6 +90,7 @@ type JobDetail = {
 };
 
 type Lang = "pl" | "en";
+type LookupStatus = "idle" | "loading" | "ok" | "none";
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -209,6 +210,10 @@ function GeneratorForm() {
   const [startDate, setStartDate] = useState(todayISO());
   const [rateCandidate, setRateCandidate] = useState("");
   const [currency, setCurrency] = useState("PLN");
+
+  const [clientNip, setClientNip] = useState("");
+  const [partnerLookup, setPartnerLookup] = useState<LookupStatus>("idle");
+  const [clientLookup, setClientLookup] = useState<LookupStatus>("idle");
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
 
@@ -335,6 +340,58 @@ function GeneratorForm() {
       setContractNumber(nextNumberQuery.data.contract_number);
     }
   }, [nextNumberQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-uzupełnianie danych Partnera z rejestru po NIP (Biała Lista, debounced).
+  useEffect(() => {
+    const nip = partnerNip.replace(/\D/g, "");
+    if (nip.length !== 10) {
+      setPartnerLookup("idle");
+      return;
+    }
+    let cancelled = false;
+    setPartnerLookup("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const d = await b2bGeneratorApi.companyLookup({ nip });
+        if (cancelled) return;
+        if (d.name) setPartnerLegalName(d.name);
+        if (d.regon) setPartnerRegon(d.regon);
+        if (d.address) setPartnerBusinessAddress(d.address);
+        setPartnerLookup("ok");
+      } catch {
+        if (!cancelled) setPartnerLookup("none");
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [partnerNip]);
+
+  // Auto-uzupełnianie nazwy Klienta z rejestru po NIP (debounced).
+  useEffect(() => {
+    const nip = clientNip.replace(/\D/g, "");
+    if (nip.length !== 10) {
+      setClientLookup("idle");
+      return;
+    }
+    let cancelled = false;
+    setClientLookup("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const d = await b2bGeneratorApi.companyLookup({ nip });
+        if (cancelled) return;
+        if (d.name) setClientName(d.name);
+        setClientLookup("ok");
+      } catch {
+        if (!cancelled) setClientLookup("none");
+      }
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [clientNip]);
 
   const groupedRoles = useMemo(() => {
     const map = new Map<string, { label: string; items: B2BRole[] }>();
@@ -574,7 +631,8 @@ function GeneratorForm() {
         <CardHeader>
           <CardTitle className="text-base">Dane Partnera (firma)</CardTitle>
           <CardDescription>
-            Edytowalne — pre-fill z profilu kandydata, jeśli wybrany.
+            Wpisz NIP → dane firmy zaciągną się z rejestru (Biała Lista MF).
+            Pre-fill też z profilu kandydata. Wszystko edytowalne.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -592,8 +650,13 @@ function GeneratorForm() {
               placeholder="np. JK Software Jan Kowalski"
             />
           </Field>
-          <Field label="NIP">
-            <Input value={partnerNip} onChange={(e) => setPartnerNip(e.target.value)} />
+          <Field label="NIP (auto z rejestru)">
+            <Input
+              value={partnerNip}
+              onChange={(e) => setPartnerNip(e.target.value)}
+              placeholder="10 cyfr → auto-pobranie"
+            />
+            <div className="mt-1 h-4">{lookupHint(partnerLookup)}</div>
           </Field>
           <Field label="REGON">
             <Input
@@ -635,6 +698,14 @@ function GeneratorForm() {
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Field label="NIP Klienta (auto z rejestru)">
+            <Input
+              value={clientNip}
+              onChange={(e) => setClientNip(e.target.value)}
+              placeholder="10 cyfr → pobierze nazwę"
+            />
+            <div className="mt-1 h-4">{lookupHint(clientLookup)}</div>
+          </Field>
           <Field label="Pełna nazwa Klienta">
             <Input
               value={clientName}
@@ -810,6 +881,22 @@ function GeneratorForm() {
       ) : null}
     </div>
   );
+}
+
+function lookupHint(status: LookupStatus) {
+  if (status === "loading")
+    return (
+      <span className="text-xs text-muted-foreground">Pobieram z rejestru…</span>
+    );
+  if (status === "ok")
+    return <span className="text-xs text-emerald-600">✓ pobrano z rejestru</span>;
+  if (status === "none")
+    return (
+      <span className="text-xs text-amber-600">
+        Nie znaleziono — wpisz ręcznie
+      </span>
+    );
+  return null;
 }
 
 function Field({
