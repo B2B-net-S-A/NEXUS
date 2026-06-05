@@ -65,15 +65,15 @@ export function CommandPaletteV2({
       try {
         const [candidates, jobs, clients] = await Promise.allSettled([
           api.get("/api/candidates", {
-            params: { search: query, page_size: 5 },
+            params: { q: query, page_size: 5 },
             signal: ctrl.signal,
           }),
           api.get("/api/jobs", {
-            params: { search: query, page_size: 5 },
+            params: { q: query, page_size: 5 },
             signal: ctrl.signal,
           }),
           api.get("/api/clients", {
-            params: { search: query, page_size: 5 },
+            params: { q: query, page_size: 5 },
             signal: ctrl.signal,
           }),
         ]);
