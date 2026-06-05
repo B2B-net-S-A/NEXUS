@@ -217,10 +217,71 @@ def test_location_same_city_prefix_partial():
     )
     cand = make_candidate(location="Warszawa, Mokotów", preferences={})
     r = ss._score_location(cand, job)
-    # One of the two branches fires (either full substring or prefix partial);
-    # partial/prefix branch scales with LOCATION_MAX (~30% of budget).
+    # Token overlap ("warszawa" on both sides) → the city half fires.
     assert r.points >= ss.LOCATION_MAX * 0.25
     assert r.points <= ss.LOCATION_MAX
+
+
+# Blob-awareness + the no-op-when-job-empty invariant. ~99.6% of imported jobs
+# (15/3894) have no location, so the city half must contribute 0 for them —
+# making the fix a strict no-op there and protecting the eval metrics. The fix
+# only adds signal on the ~15 jobs that DO carry a location, where a candidate
+# storing the Traffit/TalentRadar JSON blob (~99% of located rows) finally earns
+# the city half the old raw-string substring compare silently denied.
+
+
+def test_location_no_job_location_is_noop_even_with_located_candidate():
+    # Candidate has a real (blob) location, but the job has none → no city
+    # credit, no remote credit → identical to pre-fix behaviour.
+    job = make_job(location=None, remote_policy=SimpleNamespace(value="on_site"))
+    cand = make_candidate(
+        location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
+        preferences={},
+    )
+    r = ss._score_location(cand, job)
+    assert r.points == 0.0
+    assert r.reason == "brak dopasowania"
+
+
+def test_location_no_job_location_keeps_remote_half_only():
+    # With no job location, only the remote-policy half can be earned.
+    job = make_job(location="", remote_policy=SimpleNamespace(value="hybrid"))
+    cand = make_candidate(
+        location='{"locality":"Gdańsk","country":"Polska"}',
+        preferences={"remote_modes": ["hybrid"]},
+    )
+    r = ss._score_location(cand, job)
+    assert r.points == pytest.approx(ss.LOCATION_MAX / 2.0)
+
+
+def test_location_blob_candidate_matches_job_city():
+    # Structured JSON blob is parsed so a same-city candidate earns the city
+    # half (the old raw-string substring compare never matched a blob).
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    cand = make_candidate(
+        location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
+        preferences={},  # no remote half → isolates the city half
+    )
+    r = ss._score_location(cand, job)
+    assert r.points == pytest.approx(ss.LOCATION_MAX / 2.0)
+    assert "lokalizacja OK" in r.reason
+
+
+def test_location_blob_candidate_other_city_no_credit():
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    cand = make_candidate(
+        location='{"locality":"Gdańsk","region1":"Pomorskie","country":"Polska"}',
+        preferences={},
+    )
+    r = ss._score_location(cand, job)
+    assert r.points == 0.0
+
+
+def test_location_candidate_without_location_no_credit_and_no_crash():
+    job = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
+    cand = make_candidate(location=None, preferences={})
+    r = ss._score_location(cand, job)
+    assert r.points == 0.0
 
 
 # ── _score_availability ──────────────────────────────────────────────────────

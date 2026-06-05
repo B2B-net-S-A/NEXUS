@@ -7,9 +7,7 @@ GET /api/jobs/{id}/ai-matches
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -19,6 +17,10 @@ from app.api.deps import get_db, CurrentUser
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.location_utils import (
+    location_matches as _location_matches,
+    location_tokens as _location_tokens,
+)
 from app.services.reranker_service import rerank_or_passthrough
 
 logger = logging.getLogger(__name__)
@@ -52,76 +54,6 @@ def _extract_tags(raw) -> list[str]:
     if isinstance(raw, str):
         return [t.strip().lower() for t in raw.split(",") if t.strip()]
     return []
-
-
-def _location_tokens(raw) -> set[str]:
-    """Normalized lowercase place tokens from a candidate/job ``location`` value.
-
-    Handles both shapes seen in the wild:
-      • plain text — ``"Warszawa"``, ``"Kraków / remote"``
-      • the structured JSON blob Traffit/TalentRadar imports store verbatim:
-        ``{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska",...}``
-        (≈8 200 of 8 300 located candidates are this shape — the structured
-        ``city``/``region`` columns were never backfilled, so ``location`` is
-        the only usable source).
-
-    Returns the set of meaningful tokens (locality, regions, country) used for
-    matching; empty set when nothing usable is present.
-    """
-    if not raw:
-        return set()
-    s = str(raw).strip()
-    if not s:
-        return set()
-    tokens: set[str] = set()
-    if s.startswith("{"):
-        # Structured blob — extract place fields. A blob that fails to parse
-        # yields no tokens (we can't guess a location), rather than leaking the
-        # raw JSON string in as a junk plaintext token.
-        try:
-            data = json.loads(s)
-            if isinstance(data, dict):
-                for key in (
-                    "locality",
-                    "city",
-                    "region1",
-                    "region2",
-                    "region3",
-                    "country",
-                ):
-                    v = data.get(key)
-                    if isinstance(v, str) and v.strip():
-                        tokens.add(v.strip().lower())
-        except (ValueError, TypeError):
-            pass
-        return tokens
-    # Plain text — split on common separators (comma, slash, pipe, ';').
-    for part in re.split(r"[,/;|]+", s.lower()):
-        part = part.strip()
-        if part:
-            tokens.add(part)
-    return tokens
-
-
-def _location_matches(requested_tokens: set[str], candidate_location) -> bool:
-    """True if a candidate's location is compatible with the requested tokens.
-
-    No request tokens → no filter (everyone passes). A candidate with no
-    parseable location is excluded under an active filter (standard search
-    semantics, mirroring the manual-search ``location_cities`` behaviour).
-    Token comparison is substring-tolerant either direction so ``"warszawa"``
-    matches ``"warszawa, mazowieckie"`` and vice-versa.
-    """
-    if not requested_tokens:
-        return True
-    cand_tokens = _location_tokens(candidate_location)
-    if not cand_tokens:
-        return False
-    for rt in requested_tokens:
-        for ct in cand_tokens:
-            if rt == ct or rt in ct or ct in rt:
-                return True
-    return False
 
 
 def _build_match_info(

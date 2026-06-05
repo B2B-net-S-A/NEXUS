@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from app.api.matching import _location_matches, _location_tokens
+from app.services import location_utils
 
 WARSAW_BLOB = (
     '{"latitude":"52.235840","longitude":"21.011959","locality":"Warszawa",'
@@ -84,3 +85,24 @@ class TestLocationMatches:
     def test_plain_text_candidate_match(self) -> None:
         assert _location_matches({"warszawa"}, "Warszawa") is True
         assert _location_matches({"gdańsk"}, "Warszawa") is False
+
+
+@pytest.mark.unit
+class TestSharedSourceOfTruth:
+    """matching.py, scoring_service.py and recommendations.py all consume the
+    same helpers from app.services.location_utils (PR #424 follow-up)."""
+
+    def test_matching_aliases_point_at_location_utils(self) -> None:
+        assert _location_tokens is location_utils.location_tokens
+        assert _location_matches is location_utils.location_matches
+
+    def test_tokens_overlap_substring_tolerant(self) -> None:
+        overlap = location_utils.tokens_overlap
+        assert overlap({"warszawa"}, {"warszawa", "mazowieckie"}) is True
+        assert overlap({"warszawa", "mazowieckie"}, {"warszawa"}) is True
+        assert overlap({"gdańsk"}, {"warszawa"}) is False
+
+    def test_tokens_overlap_empty_side_is_false(self) -> None:
+        overlap = location_utils.tokens_overlap
+        assert overlap(set(), {"warszawa"}) is False
+        assert overlap({"warszawa"}, set()) is False
