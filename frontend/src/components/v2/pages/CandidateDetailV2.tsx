@@ -1981,7 +1981,7 @@ function ProfilTab({
  </div>
  {item.content && (
  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
- {item.content}
+ {unwrapNoteContent(item.content)}
  </p>
  )}
  </div>
@@ -2361,7 +2361,7 @@ function TimelineTab({ items }: { items: any[] }) {
  )}
  {item.content && (
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
- {item.content}
+ {unwrapNoteContent(item.content)}
  </p>
  )}
  {item.notes && (
