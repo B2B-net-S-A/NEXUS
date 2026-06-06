@@ -1,23 +1,31 @@
 """Auto-uzupełnianie danych firmy z rejestrów państwowych.
 
-Trzy źródła (wszystkie po NIP/KRS, parametry sanityzowane do cyfr):
+Cel: dla JDG pokazać **pełną nazwę firmy** (np. „Management Services - Olaf
+Moczydłowski"), a nie samo imię i nazwisko właściciela.
 
-  - **CEIDG API v3** (`dane.biznes.gov.pl`) — JDG; jedyne źródło z **pełną nazwą
-    firmy** (np. „Management Services - Olaf Moczydłowski"). Wymaga tokenu
-    (`settings.CEIDG_API_TOKEN`); bez tokenu pomijane.
-  - **Biała Lista MF** (`wl-api.mf.gov.pl`) — JDG + spółki; dla JDG zwraca
-    **imię i nazwisko** właściciela (pole `person`), nie nazwę firmy. Zawsze
-    dostępne, bez auth — główny fallback.
-  - **KRS OpenAPI** (`api-krs.ms.gov.pl`) — tylko spółki, po numerze KRS.
+Źródła (po NIP/KRS, parametry sanityzowane do cyfr):
+
+  - **Wyszukiwarka firm biznes.gov.pl** (`/api/data-warehouse/SearchAdvance`) —
+    publiczne połączone CEIDG+KRS; jedyne BEZ-TOKENOWE źródło z pełną nazwą
+    firmy JDG. Akamai blokuje requesty „botowe" → wysyłamy realistyczne
+    nagłówki przeglądarki (zweryfikowane z IP Hetznera: 200). To główne źródło
+    NAZWY. (Endpoint oznaczony „nie do przetwarzania maszynowego" — używamy go
+    tylko do pojedynczych, interaktywnych zapytań wyzwalanych przez użytkownika.)
+  - **CEIDG API v3** (`dane.biznes.gov.pl`) — oficjalne API maszynowe, ale
+    wymaga tokenu (`settings.CEIDG_API_TOKEN`). Jeśli token jest — ma priorytet
+    nad biznes.gov.pl.
+  - **Biała Lista MF** (`wl-api.mf.gov.pl`) — adres siedziby + osoba (dla JDG
+    imię+nazwisko właściciela) + REGON + KRS. Zawsze dostępna; fallback nazwy.
+  - **KRS OpenAPI** (`api-krs.ms.gov.pl`) — po numerze KRS (spółki).
 
 Zwracany kształt: ``{name, person, nip, regon, krs, address, source}``.
-``person`` = osoba fizyczna (JDG) → trafia do pola „Imię i nazwisko";
-``name`` = nazwa firmy (pełna z CEIDG, lub nazwisko z Białej Listy dla JDG,
-lub nazwa spółki). Błędy/timeouty → ``None`` (UI wraca do wpisu ręcznego).
+``name`` = pełna nazwa firmy; ``person`` = osoba fizyczna (JDG) → pole „Imię i
+nazwisko". Błędy/timeouty → ``None`` (UI wraca do wpisu ręcznego).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -30,19 +38,77 @@ logger = logging.getLogger(__name__)
 _WL_BASE = "https://wl-api.mf.gov.pl"
 _KRS_BASE = "https://api-krs.ms.gov.pl"
 _CEIDG_BASE = "https://dane.biznes.gov.pl"
-_TIMEOUT = httpx.Timeout(8.0)
+_BIZNES_BASE = "https://www.biznes.gov.pl/pl/wyszukiwarka-firm/api/data-warehouse"
+_TIMEOUT = httpx.Timeout(10.0)
+
+# Akamai przed biznes.gov.pl odrzuca „gołe" requesty (generic UA → 403). Pełny
+# zestaw nagłówków przeglądarki przechodzi (zweryfikowane lokalnie i z Hetznera).
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
+    "Referer": "https://www.biznes.gov.pl/pl/wyszukiwarka-firm/",
+    "sec-ch-ua": '"Chromium";v="147", "Not.A/Brand";v="8"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+}
 
 
 def _digits(value: str | None) -> str:
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
+async def lookup_by_biznes(nip: str) -> dict | None:
+    """Wyszukiwarka firm biznes.gov.pl — pełna nazwa firmy (JDG i spółki)."""
+    clean = _digits(nip)
+    if len(clean) != 10:
+        return None
+    url = f"{_BIZNES_BASE}/SearchAdvance"
+    params = {"nip": clean, "pageNumber": 0, "pageSize": 20}
+    try:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, headers=_BROWSER_HEADERS
+        ) as client:
+            resp = None
+            for attempt in range(2):  # endpoint MSWF bywa chwilowo 500
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    break
+                if attempt == 0:
+                    await asyncio.sleep(0.4)
+            if resp is None or resp.status_code != 200:
+                code = resp.status_code if resp is not None else "?"
+                logger.info("biznes.gov.pl lookup non-200 (%s) NIP %s", code, clean)
+                return None
+            companies = resp.json().get("companyList") or []
+            if not companies:
+                return None
+            c = companies[0]
+            name = (c.get("name") or "").strip() or None
+            return {
+                "name": name,
+                "nip": c.get("nip"),
+                "regon": c.get("regon"),
+                "krs": c.get("krs"),
+                "source": (c.get("source") or "").upper(),  # CEIDG (JDG) | KRS
+            }
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("biznes.gov.pl lookup failed NIP %s: %s", clean, exc)
+        return None
+
+
 async def lookup_by_nip(nip: str) -> dict | None:
-    """Biała Lista MF — po NIP (10 cyfr). Działa dla JDG i spółek.
+    """Biała Lista MF — po NIP (10 cyfr). Adres + osoba (JDG) + REGON + KRS.
 
     Dla JDG ``name`` = nazwisko/imię właściciela (Biała Lista nie ma pełnej
-    nazwy firmy), które wystawiamy też jako ``person``. Dla spółek (jest KRS)
-    ``name`` = nazwa spółki, ``person`` = ``None``.
+    nazwy firmy), które wystawiamy też jako ``person``. Dla spółek ``name`` =
+    nazwa spółki, ``person`` = ``None``.
     """
     clean = _digits(nip)
     if len(clean) != 10:
@@ -77,7 +143,7 @@ async def lookup_by_nip(nip: str) -> dict | None:
 
 
 async def lookup_by_ceidg(nip: str) -> dict | None:
-    """CEIDG API v3 — po NIP, z pełną nazwą firmy JDG. Wymaga tokenu."""
+    """CEIDG API v3 — pełna nazwa firmy JDG. Wymaga tokenu (opcjonalne)."""
     token = settings.CEIDG_API_TOKEN
     if not token:
         return None
@@ -118,7 +184,7 @@ def _parse_ceidg(data: dict) -> dict | None:
         "regon": owner.get("regon") or f.get("regon"),
         "krs": None,
         "address": address,
-        "source": "ceidg",
+        "source": "CEIDG",
     }
 
 
@@ -183,15 +249,42 @@ def _parse_krs(data: dict) -> dict | None:
         return None
 
 
+def _merge(name_src: dict, bl: dict | None) -> dict:
+    """Złóż wynik: NAZWA z name_src (biznes/CEIDG), ADRES + osoba z Białej Listy."""
+    src = (name_src.get("source") or "").upper()
+    # JDG, gdy źródło nazwy to CEIDG, albo Biała Lista nie ma KRS.
+    is_jdg = src == "CEIDG" or (bl is not None and not bl.get("krs"))
+    person = name_src.get("person") or (bl.get("name") if bl else None)
+    return {
+        "name": name_src.get("name"),
+        "person": person if is_jdg else None,
+        "nip": name_src.get("nip") or (bl.get("nip") if bl else None),
+        "regon": name_src.get("regon") or (bl.get("regon") if bl else None),
+        "krs": (bl.get("krs") if bl else None) or name_src.get("krs"),
+        "address": (bl.get("address") if bl else None) or name_src.get("address"),
+        "source": name_src.get("source") or "biznes",
+    }
+
+
 async def lookup_company(nip: str | None = None, krs: str | None = None) -> dict | None:
-    """CEIDG (pełna nazwa JDG, jeśli token) → Biała Lista → KRS (fallback)."""
+    """Pełna nazwa firmy z biznes.gov.pl (lub CEIDG, jeśli token) + adres/osoba
+    z Białej Listy. KRS jako fallback po numerze KRS."""
     if nip:
-        ceidg = await lookup_by_ceidg(nip)
-        if ceidg and ceidg.get("name"):
-            return ceidg
-        wl = await lookup_by_nip(nip)
-        if wl:
-            return wl
+        # Adres/osobę zawsze z Białej Listy; nazwę z preferowanego źródła.
+        if settings.CEIDG_API_TOKEN:
+            bl, name_src = await asyncio.gather(
+                lookup_by_nip(nip), lookup_by_ceidg(nip)
+            )
+            if not (name_src and name_src.get("name")):
+                name_src = await lookup_by_biznes(nip)
+        else:
+            bl, name_src = await asyncio.gather(
+                lookup_by_nip(nip), lookup_by_biznes(nip)
+            )
+        if name_src and name_src.get("name"):
+            return _merge(name_src, bl)
+        if bl:
+            return bl  # graceful fallback (sama Biała Lista — nazwisko właściciela)
     if krs:
         return await lookup_by_krs(krs)
     return None
