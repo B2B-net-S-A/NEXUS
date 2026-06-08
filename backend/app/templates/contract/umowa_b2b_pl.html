@@ -197,6 +197,6 @@ Postanowienia Końcowe</h2>
 <h2>Załącznik nr 3 – wzór określający Klienta B2BNET</h2>
 <h2>ZAŁĄCZNIK NR 3 DO UMOWY B2B NR {{ b2b.contract_number or '…' }}</h2>
 <h2>KLIENT PROJEKTU</h2>
-<table><tr><td>Element</td><td>Wartość</td></tr><tr><td>Nazwa Klienta Projektu:</td><td>{{ client.legal_name or client.name or '………' }}</td></tr><tr><td>Miasto:</td><td>{{ b2b.project_city or '………' }}</td></tr><tr><td>Opis projektu i zakres usług:</td><td>{{ b2b.project_description or '………' }}</td></tr><tr><td>Data rozpoczęcia świadczenia usług:</td><td>{{ contract.start_date | pl_date }}</td></tr><tr><td>Szczegółowy zakres Usług:</td><td><ul>{% for it in b2b.scope_items %}<li>{{ it }}</li>{% endfor %}</ul></td></tr></table>
+<table><tr><td>Element</td><td>Wartość</td></tr><tr><td>Nazwa Klienta Projektu:</td><td>{{ client.legal_name or client.name or '………' }}</td></tr><tr><td>Miasto:</td><td>{{ b2b.project_city or '………' }}</td></tr><tr><td>Opis projektu i zakres usług:</td><td>{{ b2b.project_description or '………' }}</td></tr><tr><td>Data rozpoczęcia świadczenia usług:</td><td>{{ contract.start_date | pl_date }}</td></tr></table>
 <p>________________________						_____________________</p>
 <p>B2B.NET S.A.								Partner</p>

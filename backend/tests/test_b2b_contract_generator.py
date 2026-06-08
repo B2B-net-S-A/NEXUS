@@ -158,9 +158,9 @@ class TestDocxRender:
         assert "42/2026" in full  # nr umowy
         assert "05.06.2026" in full  # filtr pl_date
         assert "Backend Software Development" in full  # obszar §1
-        # zakres roli w ostatnim wierszu tabeli Załącznika nr 3
-        scope_cell = d.tables[0].rows[-1].cells[1].text
-        assert scope_cell.count("•") == len(ctx["b2b"]["scope_items"])
+        # „Szczegółowy zakres Usług" usunięty — opis trafia w pole „Opis projektu"
+        assert "Szczegółowy zakres" not in full and "Detailed scope" not in full
+        assert "Rozwój platformy bankowej." in full  # project_description w Zał.3
 
 
 @pytest.mark.parametrize("lang", ["pl", "en"])
@@ -175,8 +175,9 @@ def test_html_template_renders(lang):
     assert "42/2026" in rendered
     assert "05.06.2026" in rendered
     assert "Backend Software Development" in rendered
-    # zakres jako lista <li> (tyle ile bulletów roli)
-    assert rendered.count("<li>") == len(ctx["b2b"]["scope_items"])
+    # „Szczegółowy zakres Usług" usunięty — brak osobnego wiersza zakresu
+    assert "Szczegółowy zakres" not in rendered and "Detailed scope" not in rendered
+    assert "Rozwój platformy bankowej." in rendered  # opis projektu w Zał.3
 
 
 def test_pl_template_gender_forms():
