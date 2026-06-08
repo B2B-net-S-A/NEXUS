@@ -1515,7 +1515,13 @@ export function CandidatesListV2() {
  };
 
  return (
- <div className="max-w-[1400px] mx-auto space-y-4">
+ /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty).
+    Tabela kandydatów ma do 10 domyślnych kolumn (min ~1592px + padding ≈ 1788px),
+    więc przy 1400px na szerokich monitorach ucinała "Powód odrzucenia"/"Dodano"
+    bez widocznego scrolla (overlay scrollbar macOS jest ukryty). 2400px pozwala
+    wykorzystać szeroki ekran (pełne maile, wszystkie kolumny), a zarazem
+    ogranicza rozciąganie wierszy na ultrawide/4K. */
+ <div className="max-w-[2400px] mx-auto space-y-4">
  {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
  więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
  przycisk „Zaawansowane" w toolbarze poniżej. */}
