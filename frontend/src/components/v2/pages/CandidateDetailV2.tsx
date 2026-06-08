@@ -1944,7 +1944,7 @@ function ProfilTab({
  </div>
  {item.content && (
  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
- {unwrapNoteContent(item.content)}
+ {unwrapNoteContent(item.content_rendered ?? item.content)}
  </p>
  )}
  </div>
@@ -2349,7 +2349,7 @@ function TimelineTab({ items }: { items: any[] }) {
  )}
  {item.content && (
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
- {unwrapNoteContent(item.content)}
+ {unwrapNoteContent(item.content_rendered ?? item.content)}
  </p>
  )}
  {item.notes && (
@@ -3193,7 +3193,7 @@ function NotatkiTab({
  </div>
  ) : (
  <p className="text-sm text-foreground mt-1 whitespace-pre-line">
- {renderWithMentions(unwrapNoteContent(n.content), usersByEmail)}
+ {renderWithMentions(unwrapNoteContent(n.content_rendered ?? n.content), usersByEmail)}
  </p>
  )}
  </div>

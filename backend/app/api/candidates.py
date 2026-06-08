@@ -77,6 +77,11 @@ from app.services.scoring_service import (
     summarize_match_stats,
 )
 from app.services.dedup_service import find_candidate_duplicates
+from app.services.note_mention_render import (
+    build_traffit_user_label_map,
+    collect_traffit_user_ids,
+    render_traffit_mentions,
+)
 from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
 from app.api import ws as ws_manager
 
@@ -2379,7 +2384,15 @@ async def get_candidate_timeline(
         .order_by(Note.created_at.desc())
         .limit(limit)
     )
-    for note, author_name, author_email, job_title in notes_result.all():
+    notes_rows = notes_result.all()
+    # Legacy Traffit notes embed @mentions as `$$user_NN$$` markers (NN = Traffit
+    # user id). Resolve them to "@Imię Nazwisko" for display via users.external_id,
+    # in a separate `content_rendered` field — raw `content` stays intact so
+    # editing preserves the original token/HTML wrapper.
+    mention_label_map = await build_traffit_user_label_map(
+        db, collect_traffit_user_ids(note.content for note, *_ in notes_rows)
+    )
+    for note, author_name, author_email, job_title in notes_rows:
         timeline.append(
             {
                 "type": "note",
@@ -2387,6 +2400,9 @@ async def get_candidate_timeline(
                 "timestamp": note.created_at.isoformat() if note.created_at else None,
                 "note_type": note.note_type.value if note.note_type else None,
                 "content": note.content,
+                "content_rendered": render_traffit_mentions(
+                    note.content, mention_label_map
+                ),
                 "author_id": note.author_id,
                 "author_name": author_name,
                 "author_email": author_email,
