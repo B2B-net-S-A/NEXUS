@@ -207,7 +207,6 @@ function GeneratorForm() {
 
   // Rola + zakres
   const [roleId, setRoleId] = useState<string>("");
-  const [scopeText, setScopeText] = useState("");
 
   // Dane Partnera (firma)
   const [partnerName, setPartnerName] = useState("");
@@ -350,17 +349,6 @@ function GeneratorForm() {
     if (j.client_name) setClientName(j.client_name);
   }, [jobQuery.data, selectedRecruitment]);
 
-  // Zakres z roli/języka.
-  useEffect(() => {
-    if (!selectedRole) {
-      setScopeText("");
-      return;
-    }
-    const bullets =
-      language === "pl" ? selectedRole.scope_pl : selectedRole.scope_en;
-    setScopeText(bullets.join("\n"));
-  }, [selectedRole, language]);
-
   // Smart-prefill opisu projektu z roli (gdy brak oferty z rekrutacji i user
   // nie edytował ręcznie) — sensowny start także w trybie standalone.
   useEffect(() => {
@@ -419,15 +407,6 @@ function GeneratorForm() {
     return Array.from(map.values());
   }, [roles, language]);
 
-  const scopeItems = useMemo(
-    () =>
-      scopeText
-        .split("\n")
-        .map((l) => l.replace(/^[•\-*]\s*/, "").trim())
-        .filter(Boolean),
-    [scopeText],
-  );
-
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
     role_id: selectedRole ? selectedRole.id : null,
     language: lang,
@@ -448,7 +427,6 @@ function GeneratorForm() {
     start_date: startDate || null,
     rate_candidate: rateCandidate ? Number(rateCandidate) : null,
     currency: currency.trim() || "PLN",
-    scope_items_override: scopeItems.length ? scopeItems : null,
   });
 
   const validate = (): boolean => {
@@ -778,51 +756,34 @@ function GeneratorForm() {
         </CardContent>
       </Card>
 
-      {/* Rola i zakres usług */}
+      {/* Rola / Stanowisko */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Rola i zakres usług</CardTitle>
+          <CardTitle className="text-base">Rola / Stanowisko</CardTitle>
           <CardDescription>
-            Zakres trafia do Załącznika nr 3. Możesz go edytować (1 punkt na linię).
+            Wybór roli wstępnie wypełnia „Opis projektu i zakres usług" (możesz
+            go nadpisać powyżej).
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label className="mb-1.5 block">Rola / Stanowisko *</Label>
-            <Select value={roleId} onValueChange={setRoleId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Wybierz rolę…" />
-              </SelectTrigger>
-              <SelectContent>
-                {groupedRoles.map((g) => (
-                  <SelectGroup key={g.label}>
-                    <SelectLabel>{g.label}</SelectLabel>
-                    {g.items.map((r) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
-                        {language === "pl" ? r.name_pl : r.name_en}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {selectedRole ? (
-            <div>
-              <Label className="mb-1.5 block">
-                Zakres usług ({language.toUpperCase()})
-              </Label>
-              <Textarea
-                value={scopeText}
-                onChange={(e) => setScopeText(e.target.value)}
-                rows={8}
-                className="font-mono text-xs"
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                {scopeItems.length} punktów.
-              </p>
-            </div>
-          ) : null}
+        <CardContent>
+          <Label className="mb-1.5 block">Rola / Stanowisko *</Label>
+          <Select value={roleId} onValueChange={setRoleId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Wybierz rolę…" />
+            </SelectTrigger>
+            <SelectContent>
+              {groupedRoles.map((g) => (
+                <SelectGroup key={g.label}>
+                  <SelectLabel>{g.label}</SelectLabel>
+                  {g.items.map((r) => (
+                    <SelectItem key={r.id} value={String(r.id)}>
+                      {language === "pl" ? r.name_pl : r.name_en}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 

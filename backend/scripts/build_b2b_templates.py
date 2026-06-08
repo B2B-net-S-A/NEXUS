@@ -191,9 +191,6 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\[NUMBER\]"), "{{ b2b.contract_number or '…' }}"),
 ]
 
-# Etykieta nowego wiersza „zakres usług" w tabeli Załącznika nr 3.
-SCOPE_LABEL = {"pl": "Szczegółowy zakres Usług:", "en": "Detailed scope of Services:"}
-
 # Wartości komórek tabeli Zał.3 (po indeksie wiersza) → placeholder.
 TABLE_CELL_VALUE = {
     1: "{{ client.legal_name or client.name or '" + _DOTS + "' }}",
@@ -241,14 +238,8 @@ def patch_appendix_table(doc: _DocType, lang: str) -> None:
     for ri, value in TABLE_CELL_VALUE.items():
         if ri < len(tbl.rows):
             set_cell_text(tbl.rows[ri].cells[1], value)
-    # Nowy wiersz: zakres usług — docxtpl paragraph-loop ({%p for %}) renderuje
-    # każdy bullet jako osobny akapit w komórce (autoescape-safe, bez RichText).
-    row = tbl.add_row()
-    set_cell_text(row.cells[0], SCOPE_LABEL[lang])
-    scope_cell = row.cells[1]
-    set_cell_text(scope_cell, "{%p for it in b2b.scope_items %}")
-    scope_cell.add_paragraph().add_run("•  {{ it }}")
-    scope_cell.add_paragraph().add_run("{%p endfor %}")
+    # Wiersz „Szczegółowy zakres Usług" usunięty (decyzja Artura 2026-06-06):
+    # opis i zakres trafiają w całości do pola „Opis projektu i zakres usług".
 
 
 # ── HTML generation (lustro z przekształconego docx) ─────────────────────────
@@ -336,7 +327,7 @@ def build(lang: str, src: Path, rules) -> None:
         r"(?:firmą|adresem|NIP|REGON|name|address|obszarze|area of):\s*_{3,}",
         full_text,
     ) + re.findall(r"\[NUMER\]|\[NUMBER\]", full_text)
-    required = ["{{ candidate.full_name", "{{ b2b.contract_number", SCOPE_MARKER]
+    required = ["{{ candidate.full_name", "{{ b2b.contract_number"]
     missing = [r for r in required if r not in full_text]
     print(f"[{lang}] rules applied to {hits} paragraphs")
     print(f"[{lang}] docx → {docx_path}")
