@@ -9,7 +9,9 @@ Endpoints:
 
 Auth:
 - Read (GET)        → CurrentUser (dowolna rola)
-- Write (POST/DELETE) → TacPlus (admin / delivery_lead / tac)
+- Write (POST/DELETE) → RecruiterPlus (admin / delivery_lead / tac / recruiter /
+  sourcer). Wrzut na targ to akcja sourcingowa — rekruter/sourcer, który ma
+  wolnego kandydata, musi móc go wystawić (read-only `user`/klient/QC nie).
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus, get_db
+from app.api.deps import CurrentUser, RecruiterPlus, get_db
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
     ensure_marketplace_pool,
@@ -212,7 +214,7 @@ async def list_candidates(
 async def add_to_marketplace(
     candidate_id: int,
     data: AddToMarketplaceRequest,
-    current_user: TacPlus,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczny wrzut kandydata na targ."""
@@ -240,7 +242,7 @@ async def add_to_marketplace(
 )
 async def remove_from_marketplace(
     candidate_id: int,
-    current_user: TacPlus,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Zdjęcie kandydata z targu."""

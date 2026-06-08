@@ -8,15 +8,55 @@ from datetime import date, timedelta
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.marketplace_alert_log import MarketplaceAlertLog
-from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.models.talent_pool import TalentPoolMembership
+from app.models.user import User, UserRole
 
 
 pytestmark = pytest.mark.asyncio
+
+
+async def _seed_user_headers(
+    app_client: AsyncClient, role: UserRole
+) -> tuple[dict[str, str], int]:
+    """Seed an active user with ``role``, log in, return (headers, user_id).
+
+    Lets tests assert the write-endpoint role boundary directly instead of
+    only through the admin ``app_auth_headers`` fixture.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    email = f"mp_{role.value}_{suffix}@example.com"
+    password = f"T3st_{suffix}!PassX"
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"MP {role.value}",
+            role=role,
+            is_active=True,
+        )
+        db.add(u)
+        await db.commit()
+        await db.refresh(u)
+        uid = u.id
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}, uid
+
+
+async def _delete_user(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        u = await db.get(User, user_id)
+        if u is not None:
+            await db.delete(u)
+            await db.commit()
 
 
 @pytest_asyncio.fixture
@@ -144,3 +184,49 @@ async def test_remove_from_marketplace(
         headers=app_auth_headers,
     )
     assert resp2.status_code == 404
+
+
+# ── Write-endpoint role boundary (RecruiterPlus) ─────────────────────────────
+#
+# „Wrzuć na targ" to akcja sourcingowa: rekruter / sourcer, który ma wolnego
+# kandydata, MUSI móc go wystawić na targ. Wcześniej write był gated do TacPlus,
+# więc rekruter/sourcer dostawał 403 mimo że UI pokazuje im przycisk.
+
+
+@pytest.mark.parametrize("role", [UserRole.recruiter, UserRole.sourcer])
+async def test_recruiter_and_sourcer_can_add_to_marketplace(
+    app_client: AsyncClient, seeded_candidate: int, role: UserRole
+):
+    headers, uid = await _seed_user_headers(app_client, role)
+    try:
+        resp = await app_client.post(
+            f"/api/marketplace/candidates/{seeded_candidate}/add",
+            json={},
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["candidate_id"] == seeded_candidate
+        # Symetria: kto może dodać, ten może też zdjąć.
+        resp_del = await app_client.delete(
+            f"/api/marketplace/candidates/{seeded_candidate}",
+            headers=headers,
+        )
+        assert resp_del.status_code == 200, resp_del.text
+    finally:
+        await _delete_user(uid)
+
+
+async def test_plain_user_cannot_add_to_marketplace(
+    app_client: AsyncClient, seeded_candidate: int
+):
+    """Read-only viewer (`user` — QC / klient) zostaje poza RecruiterPlus → 403."""
+    headers, uid = await _seed_user_headers(app_client, UserRole.user)
+    try:
+        resp = await app_client.post(
+            f"/api/marketplace/candidates/{seeded_candidate}/add",
+            json={},
+            headers=headers,
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        await _delete_user(uid)
