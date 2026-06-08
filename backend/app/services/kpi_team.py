@@ -115,7 +115,9 @@ class TeamPanelResult:
 
 
 def _role_value(role) -> str:
-    return role.value if getattr(role, "value", None) else (str(role) if role else "user")
+    return (
+        role.value if getattr(role, "value", None) else (str(role) if role else "user")
+    )
 
 
 async def compute_team_panel(
@@ -130,15 +132,19 @@ async def compute_team_panel(
     lookback = now - timedelta(days=_ANCHOR_LOOKBACK_DAYS)
 
     funnel_rows = (
-        await db.execute(
-            _TEAM_FUNNEL_SQL,
-            {
-                "lookback": lookback,
-                "period_start": period_start,
-                "rolling30": rolling30,
-            },
+        (
+            await db.execute(
+                _TEAM_FUNNEL_SQL,
+                {
+                    "lookback": lookback,
+                    "period_start": period_start,
+                    "rolling30": rolling30,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     # agg[uid][stage] = {"p": period_cnt, "r30": r30_cnt}
     agg: dict[int, dict[str, dict[str, int]]] = {}
@@ -149,8 +155,10 @@ async def compute_team_panel(
         }
 
     cv_rows = (
-        await db.execute(_TEAM_CV_SQL, {"period_start": period_start})
-    ).mappings().all()
+        (await db.execute(_TEAM_CV_SQL, {"period_start": period_start}))
+        .mappings()
+        .all()
+    )
     cv_by_uid: dict[int, int] = {int(r["uid"]): int(r["cnt"]) for r in cv_rows}
 
     # Pula bazowa: aktywni userzy z ról operacyjnych — pokazujemy zawsze (też 0).
