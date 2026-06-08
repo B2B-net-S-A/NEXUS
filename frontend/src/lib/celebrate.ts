@@ -79,6 +79,33 @@ function fireConfetti(confetti: Confetti, variant: CelebrateVariant, small: bool
   fire(0.1, { spread: 120, startVelocity: 45 });
 }
 
+/**
+ * Sustained confetti storm for the Konami "party mode". No-op unless Kids mode
+ * is on; skipped under reduced motion. Runs ~5s of side-cannon + center bursts.
+ */
+export function celebrateParty(): void {
+  if (typeof window === "undefined") return;
+  if (!useThemeStore.getState().kidsMode) return;
+  if (prefersReducedMotion()) return;
+
+  void import("canvas-confetti")
+    .then(({ default: confetti }) => {
+      let elapsed = 0;
+      const stepMs = 220;
+      const durationMs = 5000;
+      const id = window.setInterval(() => {
+        confetti({ particleCount: 7, angle: 60, spread: 75, startVelocity: 55, origin: { x: 0, y: 0.95 }, colors: PALETTE, disableForReducedMotion: true });
+        confetti({ particleCount: 7, angle: 120, spread: 75, startVelocity: 55, origin: { x: 1, y: 0.95 }, colors: PALETTE, disableForReducedMotion: true });
+        confetti({ particleCount: 10, spread: 110, startVelocity: 45, origin: { x: Math.random(), y: 0.55 }, colors: PALETTE, shapes: ["star", "circle"], disableForReducedMotion: true });
+        elapsed += stepMs;
+        if (elapsed >= durationMs) window.clearInterval(id);
+      }, stepMs);
+    })
+    .catch(() => {
+      /* decorative — ignore */
+    });
+}
+
 export function celebrate(options: CelebrateOptions = {}): void {
   if (typeof window === "undefined") return;
   const { kidsMode, kidsSound } = useThemeStore.getState();

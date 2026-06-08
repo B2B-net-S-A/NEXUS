@@ -54,6 +54,8 @@ interface ThemeState {
   kidsMode: boolean;
   /** Opt-in celebratory sound effects (Web Audio) while in Kids mode. */
   kidsSound: boolean;
+  /** Opt-in: the mascot periodically speaks a slogan aloud on its own. */
+  kidsAutoTalk: boolean;
   /** Which mascot character is shown in Kids mode. */
   kidsBuddy: KidsBuddy;
   toggleTheme: () => void;
@@ -62,6 +64,7 @@ interface ThemeState {
   toggleKidsMode: () => void;
   setKidsMode: (enabled: boolean) => void;
   toggleKidsSound: () => void;
+  toggleKidsAutoTalk: () => void;
   setKidsBuddy: (buddy: KidsBuddy) => void;
   /** Cycle to the next mascot character (used by the in-mascot picker). */
   cycleKidsBuddy: () => void;
@@ -74,6 +77,7 @@ export const useThemeStore = create<ThemeState>()(
       palette: "indigo",
       kidsMode: false,
       kidsSound: false,
+      kidsAutoTalk: false,
       kidsBuddy: "robot",
       toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
       setTheme: (theme) => set({ theme }),
@@ -81,6 +85,7 @@ export const useThemeStore = create<ThemeState>()(
       toggleKidsMode: () => set((s) => ({ kidsMode: !s.kidsMode })),
       setKidsMode: (enabled) => set({ kidsMode: enabled }),
       toggleKidsSound: () => set((s) => ({ kidsSound: !s.kidsSound })),
+      toggleKidsAutoTalk: () => set((s) => ({ kidsAutoTalk: !s.kidsAutoTalk })),
       setKidsBuddy: (buddy) => set({ kidsBuddy: buddy }),
       cycleKidsBuddy: () =>
         set((s) => {
