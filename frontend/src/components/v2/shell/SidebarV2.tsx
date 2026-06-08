@@ -68,6 +68,11 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/candidates", label: "Kandydaci", icon: Users, badgeKey: "candidates" },
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
+      // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
+      // Wcześniej w sekcji Delivery z gate'em tac+; przeniesiony tu 2026-06-08
+      // na prośbę usera. Edycja katalogu 29 ról nadal admin-only (zakładka
+      // "Zakresy ról (admin)" w komponencie, gate `isAdmin`).
+      { href: "/contracts/b2b-generator", label: "Generator Umów B2B", icon: FileSignature },
       { href: "/talents", label: "Talenty", icon: Star },
       {
         href: "/sourcing/marketplace",
@@ -102,12 +107,6 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
       },
       { href: "/contracts", label: "Kontrakty", icon: FileText },
-      {
-        href: "/contracts/b2b-generator",
-        label: "Generator Umów B2B",
-        icon: FileSignature,
-        roles: ["admin", "delivery_lead", "tac"],
-      },
       {
         href: "/contractors",
         label: "Kontraktorzy",
