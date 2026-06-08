@@ -11,6 +11,7 @@ import { TopbarV2 } from "./TopbarV2";
 import { OpenTabsV2 } from "./OpenTabsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { KidsMascot } from "./KidsMascot";
+import { KidsBackdrop } from "./KidsBackdrop";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -144,7 +145,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       {/* Onboarding */}
       {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
 
-      {/* Floating game mascot — only in Kids mode (always mounted, reacts to celebrations) */}
+      {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
+      <KidsBackdrop />
       <KidsMascot />
     </div>
   );

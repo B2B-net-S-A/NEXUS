@@ -2391,7 +2391,8 @@ export function CandidatesListV2() {
  {candidatesView === "tiles" ? (
  items.length === 0 && !isLoading ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+ <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+ <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
  Brak wyników. Zmień filtry lub{""}
  <button
  className="text-primary hover:underline"
@@ -2428,7 +2429,8 @@ export function CandidatesListV2() {
  </div>
  ) : items.length === 0 ? (
  <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+ <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+ <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
  Brak wyników. Zmień filtry lub{""}
  <button
  className="text-primary hover:underline"

@@ -52,6 +52,7 @@ import api, {
  type CVOriginalSnapshot,
  type CVBrandedState,
 } from"@/lib/api";
+import { celebrate } from"@/lib/celebrate";
 import CallButton from"@/components/calls/CallButton";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
@@ -404,6 +405,7 @@ export function CandidateDetailV2({
  });
  setNoteText("");
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ celebrate({ small: true, message: "Notatka dodana! 📝" });
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
  } finally {

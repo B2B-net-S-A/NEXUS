@@ -76,6 +76,7 @@ export function MyKpiWidget({ variant ="compact", className }: Props) {
  {sorted.map((k) => (
  <KpiProgressBar
  key={k.kpi_id}
+ id={k.kpi_id}
  title={k.title_pl}
  label={shortLabel(k)}
  progressPct={k.progress_pct}
@@ -136,6 +137,7 @@ export function MyKpiWidget({ variant ="compact", className }: Props) {
  {sorted.map((k) => (
  <KpiProgressBar
  key={k.kpi_id}
+ id={k.kpi_id}
  title={k.title_pl}
  label={shortLabel(k)}
  progressPct={k.progress_pct}

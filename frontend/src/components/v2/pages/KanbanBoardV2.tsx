@@ -572,9 +572,9 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
 
  // Kids mode: confetti + mascot pop on a win. No-op outside game mode.
  if (dst.stage === "hired") {
- celebrate({ message: "Zatrudniony! 🎉" });
+ celebrate({ variant: "hired", message: "Zatrudniony! 🎉" });
  } else if (reason?.candidateOfferResponse === "accepted") {
- celebrate({ message: "Oferta przyjęta! 🎉" });
+ celebrate({ variant: "offer", message: "Oferta przyjęta! 💖" });
  }
 
  // 0045_rejection_emails — if the backend scheduled an auto-email,
