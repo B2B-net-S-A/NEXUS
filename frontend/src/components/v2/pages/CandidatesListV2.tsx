@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from"react";
 import Link from"next/link";
 import { useRouter, useSearchParams } from"next/navigation";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
@@ -16,7 +16,6 @@ import {
  ExternalLink,
  FileArchive,
  FileText,
- Filter,
  GitCompare,
  Globe,
  LayoutGrid,
@@ -30,6 +29,7 @@ import {
  Plus,
  Rows3,
  Search,
+ SlidersHorizontal,
  Sparkles,
  Table2,
  Target,
@@ -50,7 +50,15 @@ import { AddCandidateFromCVModal } from"@/components/v2/modals/AddCandidateFromC
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from"@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateDetailV2 } from"@/components/v2/pages/CandidateDetailV2";
-import { Sheet, SheetContent } from"@/components/ui/sheet";
+import {
+ Sheet,
+ SheetContent,
+ SheetHeader,
+ SheetBody,
+ SheetFooter,
+ SheetTitle,
+ SheetDescription,
+} from"@/components/ui/sheet";
 import { useUiStore } from"@/store/ui";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
@@ -80,19 +88,14 @@ import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
-import { FilterChipPopover } from"@/components/v2/filters/FilterChipPopover";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
 import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
-import { MultiSelectFilter } from"@/components/v2/filters/MultiSelectFilter";
 import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
 import {
  AVAILABILITY_OPTIONS,
  CANDIDATE_STATUS_OPTIONS,
  EMPLOYMENT_OPTIONS,
  OPEN_TO_OPTIONS,
- type AvailabilityValue,
- type CandidateStatusValue,
- type EmploymentValue,
  type OpenToValue,
 } from"@/lib/filter-options";
 import {
@@ -131,6 +134,138 @@ const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
  passive: "warning",
  blacklisted: "danger",
 };
+
+// ── Drawer filter primitives (panel „Filtry") ───────────────────────────────
+// Małe, czysto prezentacyjne klocki używane tylko przez boczny panel filtrów:
+// sekcja z separatorem, pole z etykietą, grupa „pigułek" (multi-select bez
+// zagnieżdżonego popovera — wszystkie opcje widoczne od razu) oraz preset.
+// Cały stan trzyma rodzic (CandidatesListV2); tu zero logiki biznesowej.
+function toggleInList<T>(list: readonly T[], value: T): T[] {
+  return list.includes(value)
+    ? list.filter((x) => x !== value)
+    : [...list, value];
+}
+
+function FilterSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3 border-t border-border pt-6 first:border-t-0 first:pt-0">
+      <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+        {title}
+      </h3>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function FilterField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </p>
+      {children}
+      {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+function PillGroup<V extends string>({
+  label,
+  options,
+  value,
+  onToggle,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: V; label: string }>;
+  value: readonly string[];
+  onToggle: (value: V) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((opt) => {
+          const active = value.includes(opt.value);
+          return (
+            <button
+              key={String(opt.value)}
+              type="button"
+              onClick={() => onToggle(opt.value)}
+              aria-pressed={active}
+              className={cn(
+                "px-2.5 py-1 text-xs rounded-full border transition-colors",
+                active
+                  ? "bg-primary text-white border-primary"
+                  : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+              )}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PresetChip({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors",
+        active
+          ? "bg-primary text-white border-primary shadow-sm"
+          : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+      )}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+const REMOTE_FILTER_OPTIONS = [
+  { value: "remote", label: "Zdalnie" },
+  { value: "hybrid", label: "Hybryda" },
+  { value: "onsite", label: "Stacjonarnie" },
+] as const;
+
+const RECENTLY_CHANGED_OPTIONS = [
+  { value: "", label: "Wszyscy" },
+  { value: "1", label: "1 mies." },
+  { value: "2", label: "2 mies." },
+  { value: "3", label: "3 mies." },
+] as const;
+
 
 // Deterministyczna kolorystyka awatara wg ID kandydata — 8 wariantów cycle.
 // Daje "kolorową" listę bez randomizacji (ten sam kandydat = ten sam kolor
@@ -1069,13 +1204,8 @@ export function CandidatesListV2() {
  // Otherwise opt-in via the `Boolean` toggle next to the search input. Persists
  // across reloads via `?boolean=1` once opened so the recruiter doesn't lose
  // their workspace.
- const [showAdvanced, setShowAdvanced] = useState<boolean>(
- () =>
- searchParams.get("boolean") === "1" ||
- qAll.length > 0 ||
- qAny.length > 0 ||
- qNone.length > 0
- );
+ // Filter drawer (boczny panel ze wszystkimi filtrami) — tylko open/close.
+ const [filtersOpen, setFiltersOpen] = useState(false);
  const currentUser = useAuthStore((s) => s.user);
 
  // Sync URL -----------------------------------------------------
@@ -1113,17 +1243,6 @@ export function CandidatesListV2() {
  params.append("q_any", group.join("|"));
  }
  if (qNone.length) params.set("q_none", qNone.join("|"));
- // Persist Boolean-panel visibility ONLY when the user toggled it open
- // without any active phrases yet — otherwise the q_all/q_any/q_none params
- // already imply the panel should be shown (no need to clutter the URL).
- if (
- showAdvanced &&
- qAll.length === 0 &&
- qAnyGroups.length === 0 &&
- qNone.length === 0
- ) {
- params.set("boolean", "1");
- }
  const qs = params.toString();
  window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
  }, [
@@ -1155,7 +1274,6 @@ export function CandidatesListV2() {
  qAll,
  qAnyGroups,
  qNone,
- showAdvanced,
  ]);
 
  // Data --------------------------------------------------------
@@ -1395,30 +1513,32 @@ export function CandidatesListV2() {
  const removeSkill = (s: string) =>
  setSkillsFilter(skillsFilter.filter((x) => x !== s));
 
- // Compact summary for the „Lata doświadczenia" chip trigger.
- const experienceRangeLabel =
- experienceMin === null && experienceMax === null
- ? null
- : experienceMin !== null && experienceMax !== null
- ? `${experienceMin}–${experienceMax} lat`
- : experienceMin !== null
- ? `od ${experienceMin} lat`
- : `do ${experienceMax} lat`;
- const activeFilterCount =
- (remoteFilter.length > 0 ? 1 : 0) +
- (skillsFilter.length > 0 ? 1 : 0) +
+ // Łączna liczba aktywnych filtrów (bez prostego „q" i sortowania) —
+ // napędza licznik na przycisku „Filtry" oraz stan „Wyczyść wszystko".
+ const totalActiveFilters =
+ statusFilter.length +
+ employmentFilter.length +
+ availabilityFilter.length +
+ pipelineStageFilter.length +
+ openToFilter.length +
+ remoteFilter.length +
+ skillsFilter.length +
  (locationFilter ? 1 : 0) +
- (poolIds.length > 0 ? 1 : 0) +
- (addedByIds.length > 0 ? 1 : 0) +
- (currentCompanyFilter.length > 0 ? 1 : 0) +
- (pastCompanyFilter.length > 0 ? 1 : 0) +
- (currentTitleFilter.length > 0 ? 1 : 0) +
- (workedAtClientIds.length > 0 ? 1 : 0) +
+ poolIds.length +
+ addedByIds.length +
+ currentCompanyFilter.length +
+ pastCompanyFilter.length +
+ currentTitleFilter.length +
+ workedAtClientIds.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
+ stageMovedByIds.length +
+ (stageMovedAfter || stageMovedBefore ? 1 : 0) +
+ stageClientIds.length +
+ (stageCurrentOnly ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
- (qAll.length > 0 ? 1 : 0) +
- (qAnyGroups.length > 0 ? 1 : 0) +
- (qNone.length > 0 ? 1 : 0);
+ qAll.length +
+ qAnyGroups.flat().length +
+ qNone.length;
 
  // Snapshot of filters used by <ActiveFilterChips> and saved-search plumbing.
  const filtersSnapshot: CandidateFilters = useMemo(
@@ -1514,6 +1634,40 @@ export function CandidatesListV2() {
  if (patch.qNone !== undefined) setQNone(patch.qNone);
  };
 
+ // Reset kompletu filtrów („Wyczyść wszystko" w panelu). Obejmuje też pola
+ // spoza CandidateFilters (open_to, recently_changed_jobs) oraz proste „q".
+ // Sortowanie i ustawienia widoku zostają bez zmian.
+ const resetAllFilters = () => {
+ setSearch("");
+ setStatusFilter([]);
+ setEmploymentFilter([]);
+ setAvailabilityFilter([]);
+ setPipelineStageFilter([]);
+ setOpenToFilter([]);
+ setRemoteFilter([]);
+ setSkillsFilter([]);
+ setSkillInput("");
+ setLocationFilter("");
+ setPoolIds([]);
+ setAddedByIds([]);
+ setCurrentCompanyFilter([]);
+ setPastCompanyFilter([]);
+ setCurrentTitleFilter([]);
+ setWorkedAtClientIds([]);
+ setExperienceMin(null);
+ setExperienceMax(null);
+ setStageMovedByIds([]);
+ setStageMovedAfter("");
+ setStageMovedBefore("");
+ setStageClientIds([]);
+ setStageCurrentOnly(false);
+ setRecentlyChangedJobs("");
+ setQAll([]);
+ setQAny([]);
+ setQNone([]);
+ setPage(1);
+ };
+
  return (
  /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty).
     Tabela kandydatów ma do 10 domyślnych kolumn (min ~1592px + padding ≈ 1788px),
@@ -1597,555 +1751,93 @@ export function CandidatesListV2() {
  </div>
  </div>
 
- {/* Toolbar — wrapped in a soft tinted panel so the filters read as a
- distinct zone and individual controls stand out instead of blending
- into the white page / table. */}
- <div className="rounded-xl border border-border bg-muted/40 p-3 shadow-sm dark:bg-muted/20">
- <div className="flex items-center gap-2 flex-wrap">
- <div className="flex-1 min-w-[240px] max-w-lg">
- <Input
- leadingIcon={<Search className="h-4 w-4" />}
- placeholder="Szukaj po imieniu, emailu, stanowisku…"
- className="h-9 rounded-md"
- value={search}
- onChange={(e) => {
- setSearch(e.target.value);
- setPage(1);
- }}
- />
- </div>
- <Button
- size="md"
- variant={showAdvanced ?"primary" :"outline"}
- onClick={() => setShowAdvanced((v) => !v)}
- title="Boolean search — ALL / ANY / NONE"
- aria-expanded={showAdvanced}
- aria-controls="boolean-search-panel"
- className={cn(
- "font-semibold",
- !showAdvanced &&
- "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 hover:text-primary shadow-sm",
- )}
- >
- <Filter className="h-4 w-4" />
- Zaawansowane
- {qAll.length + qAnyGroups.flat().length + qNone.length > 0 && (
- <Badge variant="burgundy" size="sm" className="ml-1">
- {qAll.length + qAnyGroups.flat().length + qNone.length}
- </Badge>
- )}
- </Button>
- <MultiSelectFilter<CandidateStatusValue>
- value={statusFilter}
- onChange={(v) => {
- setStatusFilter(v);
- setPage(1);
- }}
- options={CANDIDATE_STATUS_OPTIONS}
- placeholder="Wszystkie statusy"
- searchPlaceholder="Szukaj statusu…"
- triggerWidthClass="w-[180px]"
- triggerLabel={(n) =>
- n === 1
- ? (CANDIDATE_STATUS_OPTIONS.find((o) => o.value === statusFilter[0])
- ?.label ??"Status")
- : `Status: ${n}`
- }
- />
- <MultiSelectFilter<EmploymentValue>
- value={employmentFilter}
- onChange={(v) => {
- setEmploymentFilter(v);
- setPage(1);
- }}
- options={EMPLOYMENT_OPTIONS}
- placeholder="Zatrudnienie"
- searchPlaceholder="Szukaj…"
- triggerWidthClass="w-[200px]"
- title="Filtruj po stanie zatrudnienia"
- triggerLabel={(n) =>
- n === 1
- ? (EMPLOYMENT_OPTIONS.find((o) => o.value === employmentFilter[0])
- ?.label ??"Zatrudnienie")
- : `Zatrudnienie: ${n}`
- }
- />
- <MultiSelectFilter<AvailabilityValue>
- value={availabilityFilter}
- onChange={(v) => {
- setAvailabilityFilter(v);
- setPage(1);
- }}
- options={AVAILABILITY_OPTIONS}
- placeholder="Dyspozycyjność"
- searchPlaceholder="Szukaj…"
- triggerWidthClass="w-[190px]"
- title="Filtruj po dyspozycyjności"
- triggerLabel={(n) =>
- n === 1
- ? (AVAILABILITY_OPTIONS.find((o) => o.value === availabilityFilter[0])
- ?.label ??"Dyspozycyjność")
- : `Dyspozycyjność: ${n}`
- }
- />
- <StageFilterPanel
- value={{
- stages: pipelineStageFilter,
- currentOnly: stageCurrentOnly,
- clientIds: stageClientIds,
- movedByIds: stageMovedByIds,
- movedAfter: stageMovedAfter,
- movedBefore: stageMovedBefore,
- }}
- onChange={(patch) => {
- if (patch.stages !== undefined) setPipelineStageFilter(patch.stages);
- if (patch.currentOnly !== undefined) setStageCurrentOnly(patch.currentOnly);
- if (patch.clientIds !== undefined) setStageClientIds(patch.clientIds);
- if (patch.movedByIds !== undefined) setStageMovedByIds(patch.movedByIds);
- if (patch.movedAfter !== undefined) setStageMovedAfter(patch.movedAfter);
- if (patch.movedBefore !== undefined) setStageMovedBefore(patch.movedBefore);
- setPage(1);
- }}
- />
- <MultiSelectFilter<OpenToValue>
- value={openToFilter}
- onChange={(v) => {
- setOpenToFilter(v);
- setPage(1);
- }}
- options={OPEN_TO_OPTIONS}
- placeholder="Otwartość"
- searchPlaceholder="Szukaj…"
- triggerWidthClass="w-[190px]"
- title="Kandydaci otwarci na dodatkowe zaangażowanie"
- triggerLabel={(n) =>
- n === 1
- ? (OPEN_TO_OPTIONS.find((o) => o.value === openToFilter[0])
- ?.label ??"Otwartość")
- : `Otwartość: ${n}`
- }
- />
- <Button
- size="md"
- variant="outline"
- className="bg-card shadow-sm"
- onClick={() => {
- // Shortcut: show everyone who can realistically be sourced right now —
- // not at a client AND explicitly open to offers (or actively looking).
- setEmploymentFilter(["available"]);
- setAvailabilityFilter(["actively_looking"]);
- setPage(1);
- }}
- title="Bez projektu + aktywnie szukający"
- >
- <Sparkles className="h-4 w-4" /> Dostępni do sourcingu
- </Button>
- <Button
- size="md"
- variant={openToFilter.length === OPEN_TO_OPTIONS.length ?"secondary" :"outline"}
- className={openToFilter.length === OPEN_TO_OPTIONS.length ?"shadow-sm" :"bg-card shadow-sm"}
- onClick={() => {
- // Zakładka „Otwarci na extra": toggle ALL three flags at once.
- if (openToFilter.length === OPEN_TO_OPTIONS.length) {
- setOpenToFilter([]);
- } else {
- setOpenToFilter(OPEN_TO_OPTIONS.map((o) => o.value) as OpenToValue[]);
- }
- setPage(1);
- }}
- title="Kandydaci zadeklarowani jako otwarci na dodatkowe projekty / wsparcie / konsultacje"
- >
- <Sparkles className="h-4 w-4" /> Otwarci na extra
- </Button>
- <Select value={sortBy} onValueChange={setSortBy}>
- <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm font-medium">
- <SelectValue />
- </SelectTrigger>
- <SelectContent>
- {SORT_OPTIONS.map((o) => (
- <SelectItem key={o.value} value={o.value}>
- {o.label}
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- {/* Phase 2: 3 najczęściej używane filtry jako zawsze-widoczne chipsy
- (Traffit parity). Każdy chip otwiera mini-popover; gdy ma wartość,
- pokazuje ją inline + × do wyczyszczenia. Rzadsze filtry zostają w
- "Filtry zaawansowane" popup poniżej. */}
- <FilterChipPopover
- label="Lokalizacja"
- activeLabel={locationFilter || null}
- onClear={() => {
- setLocationFilter("");
- setPage(1);
- }}
- contentWidthClass="w-72"
- >
- <LocationInput
- value={locationFilter}
- onChange={(v) => {
- setLocationFilter(v);
- setPage(1);
- }}
- />
- </FilterChipPopover>
- <FilterChipPopover
- label="Obecna firma"
- activeLabel={
- currentCompanyFilter.length === 0
- ? null
- : currentCompanyFilter.length === 1
- ? currentCompanyFilter[0]
- : `${currentCompanyFilter.length} firm`
- }
- activeCount={currentCompanyFilter.length}
- onClear={() => {
- setCurrentCompanyFilter([]);
- setPage(1);
- }}
- >
- <CompanyAutocomplete
- value={currentCompanyFilter}
- onChange={(v) => {
- setCurrentCompanyFilter(v);
- setPage(1);
- }}
- placeholder="np. Google, Allegro"
- suggestEndpoint="/api/candidates/companies/suggest"
- />
- </FilterChipPopover>
- <FilterChipPopover
- label="Obecne stanowisko"
- activeLabel={
- currentTitleFilter.length === 0
- ? null
- : currentTitleFilter.length === 1
- ? currentTitleFilter[0]
- : `${currentTitleFilter.length} stanowisk`
- }
- activeCount={currentTitleFilter.length}
- onClear={() => {
- setCurrentTitleFilter([]);
- setPage(1);
- }}
- >
- <CompanyAutocomplete
- value={currentTitleFilter}
- onChange={(v) => {
- setCurrentTitleFilter(v);
- setPage(1);
- }}
- placeholder="np. Senior Engineer, PM"
- suggestEndpoint="/api/candidates/titles/suggest"
- />
- </FilterChipPopover>
- <FilterChipPopover
- label="Talent pool"
- activeLabel={
- poolIds.length === 0
- ? null
- : poolIds.length === 1
- ? "1 pula"
- : `${poolIds.length} pul`
- }
- activeCount={poolIds.length}
- onClear={() => {
- setPoolIds([]);
- setPage(1);
- }}
- contentWidthClass="w-80"
- >
- <TalentPoolMultiSelect
- value={poolIds}
- onChange={(ids) => {
- setPoolIds(ids);
- setPage(1);
- }}
- />
- </FilterChipPopover>
- <FilterChipPopover
- label="Lata doświadczenia"
- activeLabel={experienceRangeLabel}
- onClear={() => {
- setExperienceMin(null);
- setExperienceMax(null);
- setPage(1);
- }}
- contentWidthClass="w-72"
- >
- <div className="space-y-2">
- <p className="text-xs text-muted-foreground">
- Zakres lat doświadczenia w IT (np. od 2 do 30).
- </p>
- <div className="flex items-center gap-2">
- <Input
- type="number"
- min={0}
- max={60}
- placeholder="od"
- value={experienceMin ?? ""}
- onChange={(e) => {
- setExperienceMin(parseYearBound(e.target.value));
- setPage(1);
- }}
- className="w-20"
- />
- <span className="text-muted-foreground">–</span>
- <Input
- type="number"
- min={0}
- max={60}
- placeholder="do"
- value={experienceMax ?? ""}
- onChange={(e) => {
- setExperienceMax(parseYearBound(e.target.value));
- setPage(1);
- }}
- className="w-20"
- />
- <span className="text-xs text-muted-foreground">lat</span>
- </div>
- </div>
- </FilterChipPopover>
- <Popover>
- <PopoverTrigger asChild>
- <Button size="md" variant="outline" className="bg-card shadow-sm">
- <Filter className="h-4 w-4" /> Filtry zaawansowane
- {activeFilterCount > 0 && (
- <Badge variant="burgundy" size="sm">
- {activeFilterCount}
- </Badge>
- )}
- </Button>
- </PopoverTrigger>
- <PopoverContent align="end" className="w-80 space-y-3 max-h-[80vh] overflow-y-auto">
- {/* Note (Phase 2): Obecna firma, Lokalizacja, Talent pool przeniesione
- jako zawsze-widoczne chipsy na main toolbar. Tu zostają rzadziej
- używane filtry. */}
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Poprzednia firma
- </h3>
- <CompanyAutocomplete
- value={pastCompanyFilter}
- onChange={(v) => {
- setPastCompanyFilter(v);
- setPage(1);
- }}
- placeholder="np. IBM, Accenture"
- suggestEndpoint="/api/candidates/companies/suggest"
- />
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Niedawno zmienił pracę (LinkedIn)
- </h3>
- <div className="flex gap-1.5 flex-wrap">
- {(
- [
- { value: "", label: "Wszyscy" },
- { value: "1", label: "1 mies." },
- { value: "2", label: "2 mies." },
- { value: "3", label: "3 mies." },
- ] as const
- ).map((opt) => {
- const active = recentlyChangedJobs === opt.value;
- return (
- <button
- key={opt.value ||"all"}
- onClick={() => {
- setRecentlyChangedJobs(opt.value);
- setPage(1);
- }}
- className={cn("px-2.5 py-1 text-xs rounded-md border transition-colors",
- active
- ?"bg-primary text-white border-primary"
- :"bg-card text-foreground border-border hover:border-primary"
- )}
- >
- {opt.label}
- </button>
- );
- })}
- </div>
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Pracował u klienta
- </h3>
- <ClientMultiSelect
- value={workedAtClientIds}
- onChange={(ids) => {
- setWorkedAtClientIds(ids);
- setPage(1);
- }}
- />
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Dodany przez
- </h3>
- <AddedByMultiSelect
- value={addedByIds}
- onChange={(ids) => {
- setAddedByIds(ids);
- setPage(1);
- }}
- />
- </div>
- {/* Stage-move filters (etap — kto/kiedy/klient) moved into the unified
- „Etap" panel on the main toolbar (StageFilterPanel). */}
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Tryb pracy
- </h3>
- <div className="flex gap-1.5 flex-wrap">
- {(["remote","hybrid","onsite"] as const).map((v) => {
- const active = remoteFilter.includes(v);
- return (
- <button
- key={v}
- onClick={() =>
- setRemoteFilter((p) =>
- p.includes(v) ? p.filter((x) => x !== v) : [...p, v]
- )
- }
- className={cn("px-2.5 py-1 text-xs rounded-md border transition-colors",
- active
- ?"bg-primary text-white border-primary"
- :"bg-card text-foreground border-border hover:border-primary"
- )}
- >
- {v === "remote" ?"Zdalnie" : v === "hybrid" ?"Hybryda" :"Stacjonarnie"}
- </button>
- );
- })}
- </div>
- </div>
- <div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Umiejętności (AND)
- </h3>
- <div className="flex gap-1.5 flex-wrap mb-2">
- {skillsFilter.map((s) => (
- <span
- key={s}
- className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
- >
- {s}
- <button onClick={() => removeSkill(s)} className="hover:opacity-70">
- <X className="h-3 w-3" />
- </button>
- </span>
- ))}
- </div>
- <Input
- placeholder="np. Python, React, AWS"
- value={skillInput}
- onChange={(e) => setSkillInput(e.target.value)}
- onKeyDown={(e) => {
- if (e.key === "Enter") {
- e.preventDefault();
- addSkill(skillInput);
- }
- }}
- />
- <p className="text-[10px] text-muted-foreground mt-1">
- Enter, aby dodać. {skillsFilter.length > 1 &&"Wszystkie muszą być obecne (AND)."}
- </p>
- </div>
- <div className="flex justify-between pt-1">
- <button
- onClick={() => {
- setRemoteFilter([]);
- setSkillsFilter([]);
- setLocationFilter("");
- setPoolIds([]);
- setAddedByIds([]);
- setCurrentCompanyFilter([]);
- setPastCompanyFilter([]);
- setCurrentTitleFilter([]);
- setWorkedAtClientIds([]);
- setExperienceMin(null);
- setExperienceMax(null);
- setQAll([]);
- setQAny([]);
- setQNone([]);
- setPage(1);
- }}
- className="text-xs text-muted-foreground hover:text-primary"
- >
- Wyczyść filtry
- </button>
- {activeFilterCount > 0 && (
- <Badge variant="soft" size="sm">
- {activeFilterCount} aktywny
- </Badge>
- )}
- </div>
- </PopoverContent>
- </Popover>
- {currentUser && (
- <Button
- size="md"
- variant={
- addedByIds.length === 1 && addedByIds[0] === currentUser.id
- ?"primary"
- :"outline"
- }
- className={
- addedByIds.length === 1 && addedByIds[0] === currentUser.id
- ?"shadow-sm"
- :"bg-card shadow-sm"
- }
- onClick={() => {
- const alreadyMine =
- addedByIds.length === 1 && addedByIds[0] === currentUser.id;
- setAddedByIds(alreadyMine ? [] : [currentUser.id]);
- setPage(1);
- }}
- title="Pokaż tylko kandydatów, których dodałem"
- >
- Moi kandydaci
- </Button>
- )}
- <SavedSearchesMenu
- currentQs={encodeFilters(filtersSnapshot).toString()}
- onApply={(qs) => {
- const decoded = decodeFilters(new URLSearchParams(qs));
- applyFiltersPatch({
- q: decoded.q,
- status: decoded.status,
- employment: decoded.employment,
- availability: decoded.availability,
- pipelineStage: decoded.pipelineStage,
- sort: decoded.sort,
- page: 1,
- remote: decoded.remote,
- skills: decoded.skills,
- location: decoded.location,
- poolIds: decoded.poolIds,
- addedByIds: decoded.addedByIds,
- currentCompany: decoded.currentCompany,
- pastCompany: decoded.pastCompany,
- currentTitle: decoded.currentTitle,
- workedAtClientIds: decoded.workedAtClientIds,
- experienceMin: decoded.experienceMin,
- experienceMax: decoded.experienceMax,
- stageMovedByIds: decoded.stageMovedByIds,
- stageMovedAfter: decoded.stageMovedAfter,
- stageMovedBefore: decoded.stageMovedBefore,
- stageClientIds: decoded.stageClientIds,
- stageCurrentOnly: decoded.stageCurrentOnly,
- qAll: decoded.qAll,
- qAny: decoded.qAny,
- qNone: decoded.qNone,
- });
- }}
- />
+      {/* Toolbar — odchudzony pasek: szukaj + jeden przycisk „Filtry"
+          (cała konfiguracja w bocznym panelu) + zapisane wyszukiwania,
+          a po prawej sterowanie widokiem (sortowanie, kolumny, układ). */}
+      <div className="rounded-xl border border-border bg-muted/40 p-3 shadow-sm dark:bg-muted/20">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-[240px] max-w-lg">
+            <Input
+              leadingIcon={<Search className="h-4 w-4" />}
+              placeholder="Szukaj po imieniu, emailu, stanowisku…"
+              className="h-9 rounded-md"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
 
- <div className="ml-auto flex items-center gap-2">
+          {/* Jedyny punkt wejścia do wszystkich filtrów — otwiera boczny panel. */}
+          <Button
+            size="md"
+            variant={totalActiveFilters > 0 ? "primary" : "outline"}
+            onClick={() => setFiltersOpen(true)}
+            title="Wszystkie filtry w jednym panelu"
+            className={cn(
+              "font-semibold",
+              totalActiveFilters === 0 &&
+                "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10 hover:text-primary shadow-sm",
+            )}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filtry
+            {totalActiveFilters > 0 && (
+              <Badge variant="burgundy" size="sm" className="ml-1">
+                {totalActiveFilters}
+              </Badge>
+            )}
+          </Button>
+
+          <SavedSearchesMenu
+            currentQs={encodeFilters(filtersSnapshot).toString()}
+            onApply={(qs) => {
+              const decoded = decodeFilters(new URLSearchParams(qs));
+              applyFiltersPatch({
+                q: decoded.q,
+                status: decoded.status,
+                employment: decoded.employment,
+                availability: decoded.availability,
+                pipelineStage: decoded.pipelineStage,
+                sort: decoded.sort,
+                page: 1,
+                remote: decoded.remote,
+                skills: decoded.skills,
+                location: decoded.location,
+                poolIds: decoded.poolIds,
+                addedByIds: decoded.addedByIds,
+                currentCompany: decoded.currentCompany,
+                pastCompany: decoded.pastCompany,
+                currentTitle: decoded.currentTitle,
+                workedAtClientIds: decoded.workedAtClientIds,
+                experienceMin: decoded.experienceMin,
+                experienceMax: decoded.experienceMax,
+                stageMovedByIds: decoded.stageMovedByIds,
+                stageMovedAfter: decoded.stageMovedAfter,
+                stageMovedBefore: decoded.stageMovedBefore,
+                stageClientIds: decoded.stageClientIds,
+                stageCurrentOnly: decoded.stageCurrentOnly,
+                qAll: decoded.qAll,
+                qAny: decoded.qAny,
+                qNone: decoded.qNone,
+              });
+            }}
+          />
+
+          <div className="ml-auto flex items-center gap-2">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[160px] h-9 rounded-md shadow-sm font-medium">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
  {/* Column customization popover */}
  <Popover>
  <PopoverTrigger asChild>
@@ -2295,6 +1987,359 @@ export function CandidatesListV2() {
  </div>
  </div>
 
+      {/* Panel filtrów — boczna szuflada z całą konfiguracją (Traffit-style).
+          Pasek wyżej pokazuje tylko szukajkę + „Filtry"; tutaj zaznaczasz, po
+          czym filtrować. Wyniki aktualizują się na bieżąco (każdy setter już
+          synchronizuje URL + zapytanie). „Wyczyść wszystko" resetuje komplet. */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" size="lg">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="h-5 w-5 text-primary" />
+              Filtry
+              {totalActiveFilters > 0 && (
+                <Badge variant="burgundy" size="sm">
+                  {totalActiveFilters}
+                </Badge>
+              )}
+            </SheetTitle>
+            <SheetDescription>
+              Zaznacz, po czym chcesz filtrować — wyniki aktualizują się na
+              bieżąco.
+            </SheetDescription>
+          </SheetHeader>
+
+          <SheetBody className="space-y-6">
+            {/* Szybkie filtry — gotowe presety jednym kliknięciem. */}
+            <FilterSection title="Szybkie filtry">
+              <div className="flex flex-wrap gap-2">
+                <PresetChip
+                  icon={<Sparkles className="h-4 w-4" />}
+                  onClick={() => {
+                    setEmploymentFilter(["available"]);
+                    setAvailabilityFilter(["actively_looking"]);
+                    setPage(1);
+                  }}
+                >
+                  Dostępni do sourcingu
+                </PresetChip>
+                <PresetChip
+                  icon={<Sparkles className="h-4 w-4" />}
+                  active={openToFilter.length === OPEN_TO_OPTIONS.length}
+                  onClick={() => {
+                    if (openToFilter.length === OPEN_TO_OPTIONS.length) {
+                      setOpenToFilter([]);
+                    } else {
+                      setOpenToFilter(
+                        OPEN_TO_OPTIONS.map((o) => o.value) as OpenToValue[],
+                      );
+                    }
+                    setPage(1);
+                  }}
+                >
+                  Otwarci na extra
+                </PresetChip>
+                {currentUser && (
+                  <PresetChip
+                    icon={<Users className="h-4 w-4" />}
+                    active={
+                      addedByIds.length === 1 && addedByIds[0] === currentUser.id
+                    }
+                    onClick={() => {
+                      const mine =
+                        addedByIds.length === 1 &&
+                        addedByIds[0] === currentUser.id;
+                      setAddedByIds(mine ? [] : [currentUser.id]);
+                      setPage(1);
+                    }}
+                  >
+                    Moi kandydaci
+                  </PresetChip>
+                )}
+              </div>
+            </FilterSection>
+
+            {/* Status i dostępność — małe zbiory opcji jako „pigułki". */}
+            <FilterSection title="Status i dostępność">
+              <PillGroup
+                label="Status"
+                options={CANDIDATE_STATUS_OPTIONS}
+                value={statusFilter}
+                onToggle={(v) => {
+                  setStatusFilter(toggleInList(statusFilter, v));
+                  setPage(1);
+                }}
+              />
+              <PillGroup
+                label="Zatrudnienie"
+                options={EMPLOYMENT_OPTIONS}
+                value={employmentFilter}
+                onToggle={(v) => {
+                  setEmploymentFilter(toggleInList(employmentFilter, v));
+                  setPage(1);
+                }}
+              />
+              <PillGroup
+                label="Dyspozycyjność"
+                options={AVAILABILITY_OPTIONS}
+                value={availabilityFilter}
+                onToggle={(v) => {
+                  setAvailabilityFilter(toggleInList(availabilityFilter, v));
+                  setPage(1);
+                }}
+              />
+              <PillGroup
+                label="Otwartość na dodatkowe"
+                options={OPEN_TO_OPTIONS}
+                value={openToFilter}
+                onToggle={(v) => {
+                  setOpenToFilter(toggleInList(openToFilter, v));
+                  setPage(1);
+                }}
+              />
+            </FilterSection>
+
+            {/* Etap rekrutacji — zunifikowany panel etap/klient/kto/kiedy. */}
+            <FilterSection title="Etap rekrutacji">
+              <StageFilterPanel
+                value={{
+                  stages: pipelineStageFilter,
+                  currentOnly: stageCurrentOnly,
+                  clientIds: stageClientIds,
+                  movedByIds: stageMovedByIds,
+                  movedAfter: stageMovedAfter,
+                  movedBefore: stageMovedBefore,
+                }}
+                onChange={(patch) => {
+                  if (patch.stages !== undefined)
+                    setPipelineStageFilter(patch.stages);
+                  if (patch.currentOnly !== undefined)
+                    setStageCurrentOnly(patch.currentOnly);
+                  if (patch.clientIds !== undefined)
+                    setStageClientIds(patch.clientIds);
+                  if (patch.movedByIds !== undefined)
+                    setStageMovedByIds(patch.movedByIds);
+                  if (patch.movedAfter !== undefined)
+                    setStageMovedAfter(patch.movedAfter);
+                  if (patch.movedBefore !== undefined)
+                    setStageMovedBefore(patch.movedBefore);
+                  setPage(1);
+                }}
+              />
+            </FilterSection>
+
+            {/* Dane zawodowe — lokalizacja, firmy, tryb pracy, doświadczenie. */}
+            <FilterSection title="Dane zawodowe">
+              <FilterField label="Lokalizacja">
+                <LocationInput
+                  value={locationFilter}
+                  onChange={(v) => {
+                    setLocationFilter(v);
+                    setPage(1);
+                  }}
+                />
+              </FilterField>
+              <FilterField label="Obecna firma">
+                <CompanyAutocomplete
+                  value={currentCompanyFilter}
+                  onChange={(v) => {
+                    setCurrentCompanyFilter(v);
+                    setPage(1);
+                  }}
+                  placeholder="np. Google, Allegro"
+                  suggestEndpoint="/api/candidates/companies/suggest"
+                />
+              </FilterField>
+              <FilterField label="Obecne stanowisko">
+                <CompanyAutocomplete
+                  value={currentTitleFilter}
+                  onChange={(v) => {
+                    setCurrentTitleFilter(v);
+                    setPage(1);
+                  }}
+                  placeholder="np. Senior Engineer, PM"
+                  suggestEndpoint="/api/candidates/titles/suggest"
+                />
+              </FilterField>
+              <FilterField label="Poprzednia firma">
+                <CompanyAutocomplete
+                  value={pastCompanyFilter}
+                  onChange={(v) => {
+                    setPastCompanyFilter(v);
+                    setPage(1);
+                  }}
+                  placeholder="np. IBM, Accenture"
+                  suggestEndpoint="/api/candidates/companies/suggest"
+                />
+              </FilterField>
+              <PillGroup
+                label="Tryb pracy"
+                options={REMOTE_FILTER_OPTIONS}
+                value={remoteFilter}
+                onToggle={(v) => {
+                  setRemoteFilter(toggleInList(remoteFilter, v));
+                  setPage(1);
+                }}
+              />
+              <FilterField
+                label="Lata doświadczenia"
+                hint="Zakres lat doświadczenia w IT (np. od 2 do 30)."
+              >
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={60}
+                    placeholder="od"
+                    value={experienceMin ?? ""}
+                    onChange={(e) => {
+                      setExperienceMin(parseYearBound(e.target.value));
+                      setPage(1);
+                    }}
+                    className="w-24"
+                  />
+                  <span className="text-muted-foreground">–</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={60}
+                    placeholder="do"
+                    value={experienceMax ?? ""}
+                    onChange={(e) => {
+                      setExperienceMax(parseYearBound(e.target.value));
+                      setPage(1);
+                    }}
+                    className="w-24"
+                  />
+                  <span className="text-xs text-muted-foreground">lat</span>
+                </div>
+              </FilterField>
+              <FilterField
+                label="Umiejętności (AND)"
+                hint="Enter, aby dodać. Wszystkie muszą wystąpić (AND)."
+              >
+                {skillsFilter.length > 0 && (
+                  <div className="flex gap-1.5 flex-wrap mb-2">
+                    {skillsFilter.map((s) => (
+                      <span
+                        key={s}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
+                      >
+                        {s}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(s)}
+                          className="hover:opacity-70"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <Input
+                  placeholder="np. Python, React, AWS"
+                  value={skillInput}
+                  onChange={(e) => setSkillInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addSkill(skillInput);
+                    }
+                  }}
+                />
+              </FilterField>
+              <FilterField label="Niedawno zmienił pracę (LinkedIn)">
+                <div className="flex flex-wrap gap-1.5">
+                  {RECENTLY_CHANGED_OPTIONS.map((opt) => {
+                    const active = recentlyChangedJobs === opt.value;
+                    return (
+                      <button
+                        key={opt.value || "all"}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => {
+                          setRecentlyChangedJobs(opt.value);
+                          setPage(1);
+                        }}
+                        className={cn(
+                          "px-2.5 py-1 text-xs rounded-full border transition-colors",
+                          active
+                            ? "bg-primary text-white border-primary"
+                            : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </FilterField>
+            </FilterSection>
+
+            {/* Pule i przynależność — talent pool, kto dodał, historia klienta. */}
+            <FilterSection title="Pule i przynależność">
+              <FilterField label="Talent pool">
+                <TalentPoolMultiSelect
+                  value={poolIds}
+                  onChange={(ids) => {
+                    setPoolIds(ids);
+                    setPage(1);
+                  }}
+                />
+              </FilterField>
+              <FilterField label="Dodany przez">
+                <AddedByMultiSelect
+                  value={addedByIds}
+                  onChange={(ids) => {
+                    setAddedByIds(ids);
+                    setPage(1);
+                  }}
+                />
+              </FilterField>
+              <FilterField
+                label="Pracował u klienta"
+                hint="Historia kontraktów / współpracy z danym klientem."
+              >
+                <ClientMultiSelect
+                  value={workedAtClientIds}
+                  onChange={(ids) => {
+                    setWorkedAtClientIds(ids);
+                    setPage(1);
+                  }}
+                />
+              </FilterField>
+            </FilterSection>
+
+            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE). */}
+            <section className="border-t border-border pt-6">
+              <AdvancedSearchPopover
+                value={{ all: qAll, any: qAny, none: qNone }}
+                onChange={(next) => {
+                  setQAll(next.all);
+                  setQAny(next.any);
+                  setQNone(next.none);
+                  setPage(1);
+                }}
+              />
+            </section>
+          </SheetBody>
+
+          <SheetFooter className="sm:justify-between">
+            <Button
+              variant="ghost"
+              onClick={resetAllFilters}
+              disabled={totalActiveFilters === 0 && !search}
+            >
+              Wyczyść wszystko
+            </Button>
+            <Button variant="primary" onClick={() => setFiltersOpen(false)}>
+              Pokaż wyniki ({total.toLocaleString("pl-PL")})
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
  {/* Pinned candidates bar — short-list workflow (Phase 4). Hidden when
  user has zero pins so it doesn't waste space for casual browsing. */}
  <PinnedCandidatesBar
@@ -2308,26 +2353,6 @@ export function CandidatesListV2() {
  }
  }}
  />
-
- {/* Boolean-search panel — inline (Phase 3, Traffit parity). Toggled by
- the "Zaawansowane" button above; auto-opens when URL carries q_all/q_any/q_none
- so reloads don't hide active filters. */}
- {showAdvanced && (
- <div
- id="boolean-search-panel"
- className="rounded-lg border border-border bg-card p-4"
- >
- <AdvancedSearchPopover
- value={{ all: qAll, any: qAny, none: qNone }}
- onChange={(next) => {
- setQAll(next.all);
- setQAny(next.any);
- setQNone(next.none);
- setPage(1);
- }}
- />
- </div>
- )}
 
  {/* Active filter chips */}
  <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
