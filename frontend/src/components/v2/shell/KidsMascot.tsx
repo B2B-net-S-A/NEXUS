@@ -3,17 +3,50 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Repeat, Volume2, VolumeX } from "lucide-react";
 import { useThemeStore, type KidsBuddy } from "@/store/theme";
+import { useAuthStore } from "@/store/auth";
 import { CELEBRATE_EVENT, type CelebrateVariant } from "@/lib/celebrate";
-import { playPetSound } from "@/lib/kidsSound";
+import { speak } from "@/lib/kidsSound";
 
-const IDLE_BUBBLES = [
-  "Świetna robota! 🌟",
-  "Działasz super! 🚀",
-  "Lecimy dalej! 🎯",
-  "Jesteś the best! 💪",
-  "Kawka? ☕",
+// Motivational slogans the mascot shows (and, with sound on, speaks aloud).
+// Recruiter / IT-staffing flavored — fun but not cringe.
+const MOTIVATIONAL_SLOGANS = [
+  "Każde CV to czyjaś szansa — działaj! 💪",
+  "Dziś znajdziesz talent dnia! 💎",
+  "Pełny pipeline, pełen sukces! 🚀",
+  "Jeden telefon dzieli Cię od hire'a! 📞",
+  "Nie ma złych kandydatów — są nietrafione role! 🎯",
+  "Follow-up wygrywa mecze! ✉️",
+  "Twój następny placement już czeka — idź po niego! 🏆",
+  "Uśmiech słychać przez telefon — uśmiechnij się! 😊",
+  "Małe kroki, wielkie hire'y! 🥇",
+  "Każde 'nie' przybliża Cię do 'tak'! ✨",
+  "Jesteś łowcą talentów — celuj wysoko! 🦅",
+  "Dobry recruiter słucha 2× więcej niż mówi! 👂",
+  "Zamknij dziś jeden etap więcej! ✅",
+  "Twoja energia napędza cały zespół! ⚡",
+  "Sourcing to skarb — kop głębiej! ⛏️",
+  "Najlepszy moment na działanie to teraz! ⏰",
+  "Relacje ponad transakcje — buduj mosty! 🌉",
+  "Pamiętaj: i Ty jesteś czyimś talentem! 🌟",
+  "Dziś rozbijesz target! 💥",
+  "Spokojnie — masz to pod kontrolą! 🧘",
+  "Wierzę w Ciebie — do dzieła! 🙌",
+  "Świetnie Ci idzie, tak trzymaj! 🌈",
+  "Zrób sobie przerwę, zasłużyłeś! 🍵",
+  "Twój pipeline rośnie w siłę! 📈",
+  "Bądź dziś czyimś dobrym dniem! ☀️",
+  "Talent jest wszędzie — Ty go widzisz! 👀",
+  "Końcówka dnia bliżej niż myślisz — finiszuj! 🏁",
+  "Kawa w dłoni, sukces w głowie! ☕",
 ];
-const PET_BUBBLES = ["Miło! 💛", "Hej! 👋", "Mrr… 😺", "Łaskocze! 😆"];
+
+function greetingFor(firstName?: string): string {
+  const h = new Date().getHours();
+  const who = firstName ? `, ${firstName}` : "";
+  if (h < 12) return `Dzień dobry${who}! Gotowy podbić dziś rynek? ☀️`;
+  if (h < 18) return `Cześć${who}! Druga połowa dnia — dajesz radę! 💪`;
+  return `Hej${who}! Końcówka dnia — finiszuj mocno! 🌆`;
+}
 const VARIANT_BUBBLE: Record<CelebrateVariant, string> = {
   hired: "Zatrudniony! 🎉",
   offer: "Oferta przyjęta! 💖",
@@ -39,12 +72,14 @@ export function KidsMascot() {
   const kidsBuddy = useThemeStore((s) => s.kidsBuddy);
   const toggleKidsSound = useThemeStore((s) => s.toggleKidsSound);
   const cycleKidsBuddy = useThemeStore((s) => s.cycleKidsBuddy);
+  const firstName = useAuthStore((s) => s.user?.name)?.trim().split(/\s+/)[0];
 
   const [mounted, setMounted] = useState(false);
   const [popping, setPopping] = useState(false);
   const [bubble, setBubble] = useState<string | null>(null);
   const timersRef = useRef<number[]>([]);
   const streakRef = useRef(0);
+  const greetedRef = useRef(false);
 
   // Avoid hydration mismatch — kidsMode comes from localStorage on the client.
   useEffect(() => setMounted(true), []);
@@ -78,28 +113,36 @@ export function KidsMascot() {
     return () => window.removeEventListener(CELEBRATE_EVENT, onCelebrate);
   }, [kidsMode, react]);
 
-  // Occasional unprompted encouragement (skipped while the tab is hidden).
+  // A friendly time-of-day greeting the first time the mascot appears.
+  useEffect(() => {
+    if (!kidsMode || greetedRef.current) return;
+    greetedRef.current = true;
+    const show = window.setTimeout(() => setBubble(greetingFor(firstName)), 900);
+    const hide = window.setTimeout(() => setBubble(null), 6500);
+    return () => {
+      window.clearTimeout(show);
+      window.clearTimeout(hide);
+    };
+  }, [kidsMode, firstName]);
+
+  // Occasional unprompted motivational slogan (skipped while the tab is hidden).
   useEffect(() => {
     if (!kidsMode) return;
     const id = window.setInterval(() => {
       if (document.hidden) return;
-      setBubble(pick(IDLE_BUBBLES));
-      timersRef.current.push(window.setTimeout(() => setBubble(null), 4000));
-    }, 210_000); // ~3.5 min
+      setBubble(pick(MOTIVATIONAL_SLOGANS));
+      timersRef.current.push(window.setTimeout(() => setBubble(null), 5000));
+    }, 150_000); // ~2.5 min
     return () => window.clearInterval(id);
   }, [kidsMode]);
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  const onPet = useCallback(() => {
-    react(pick(PET_BUBBLES), 650, 1800);
-    if (kidsSound) {
-      try {
-        playPetSound();
-      } catch {
-        /* audio optional */
-      }
-    }
+  // Click the mascot → a motivational slogan, spoken aloud when sound is on.
+  const onMotivate = useCallback(() => {
+    const slogan = pick(MOTIVATIONAL_SLOGANS);
+    react(slogan, 650, 5000);
+    if (kidsSound) speak(slogan);
   }, [kidsSound, react]);
 
   if (!mounted || !kidsMode) return null;
@@ -136,8 +179,9 @@ export function KidsMascot() {
         )}
         <button
           type="button"
-          onClick={onPet}
-          aria-label="Pogłaszcz maskotkę"
+          onClick={onMotivate}
+          aria-label="Zmotywuj mnie!"
+          title="Kliknij po motywację!"
           className="kids-buddy pointer-events-auto outline-none"
         >
           <span className={popping ? "kids-anim-pop block" : "kids-anim-float block"}>

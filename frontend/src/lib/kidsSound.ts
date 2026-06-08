@@ -59,3 +59,36 @@ export function playPetSound(): void {
   note(audio, 880, 0, 90, "sine", 0.12);
   note(audio, 1318.5, 0.07, 110, "sine", 0.1);
 }
+
+function pickPolishVoice(): SpeechSynthesisVoice | null {
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((v) => v.lang?.toLowerCase() === "pl-pl") ??
+    voices.find((v) => v.lang?.toLowerCase().startsWith("pl")) ??
+    null
+  );
+}
+
+/**
+ * Make the mascot literally speak a slogan (Web Speech API, Polish, cheerful).
+ * Emoji/symbols are stripped so they aren't read aloud. No-op if speech
+ * synthesis is unavailable. Callers gate on the `kidsSound` setting.
+ */
+export function speak(text: string): void {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const clean = text.replace(/[^\p{L}\p{N}\s.,!?–-]/gu, "").trim();
+  if (!clean) return;
+  try {
+    const synth = window.speechSynthesis;
+    synth.cancel(); // never stack overlapping slogans
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = "pl-PL";
+    u.pitch = 1.15;
+    u.rate = 1.02;
+    const voice = pickPolishVoice();
+    if (voice) u.voice = voice;
+    synth.speak(u);
+  } catch {
+    /* TTS is optional */
+  }
+}
