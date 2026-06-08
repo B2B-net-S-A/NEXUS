@@ -33,6 +33,7 @@ import api from "@/lib/api";
 import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DynamindsMark } from "@/components/brand/DynamindsMark";
 
 type BadgeCounts = {
   candidates?: number;
@@ -401,8 +402,8 @@ export function SidebarV2({
           aria-label="Nexus — strona główna"
           className="flex items-center gap-2 flex-1 min-w-0 rounded-md focus:outline-none"
         >
-          <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-primary text-primary-foreground font-semibold text-sm shrink-0">
-            N
+          <span className="inline-flex items-center justify-center h-7 shrink-0 text-sidebar-foreground">
+            <DynamindsMark className="h-[26px] w-auto" />
           </span>
           {(!collapsed || mobileOpen) && (
             <div className="min-w-0">
