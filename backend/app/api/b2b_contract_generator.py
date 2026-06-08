@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser, CurrentUser, TacPlus
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -198,7 +198,7 @@ async def _b2b_template_for(db: AsyncSession, lang: str) -> ContractTemplate:
 @router.post("/generate", response_model=B2BGenerateResponse)
 async def generate(
     payload: B2BGenerateRequest,
-    current_user: TacPlus,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, payload.role_id)
@@ -287,7 +287,7 @@ async def generate(
 @router.get("/contracts/{contract_id}/detail", response_model=B2BContractDetailResponse)
 async def get_detail(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _load_contract_with_relations(db, contract_id)
@@ -315,7 +315,7 @@ async def get_detail(
 @router.get("/contracts/{contract_id}/docx")
 async def download_docx(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
@@ -382,7 +382,7 @@ async def company_lookup(
 @router.post("/render")
 async def render_standalone(
     payload: B2BRenderRequest,
-    current_user: TacPlus,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
 ):
