@@ -7,13 +7,9 @@ import api from "@/lib/api";
 import { ArrowLeft, User2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { AVATAR_COLORS } from "@/lib/colors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const AVATAR_COLORS = [
-  "bg-primary", "bg-violet-600", "bg-emerald-600",
-  "bg-rose-500", "bg-amber-500", "bg-cyan-600",
-];
 
 function getAvatarColor(name: string): string {
   const code = (name?.charCodeAt(0) ?? 0) + (name?.charCodeAt(1) ?? 0);

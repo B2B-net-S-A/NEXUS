@@ -12,6 +12,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
+import { AVATAR_COLORS } from "@/lib/colors";
 
 interface Props {
   open: boolean;
@@ -19,15 +20,6 @@ interface Props {
   jobId: number;
   jobTitle: string;
 }
-
-const AVATAR_COLORS = [
-  "bg-primary",
-  "bg-violet-600",
-  "bg-emerald-600",
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-cyan-600",
-];
 
 function initialsOf(name: string, lastname: string): string {
   const first = (name || "").trim()[0] ?? "";

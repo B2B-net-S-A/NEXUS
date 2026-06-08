@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 export type ThemeMode = "light" | "dark";
 
 /** Color palette (accent + chrome + sidebar). Orthogonal to light/dark mode. */
-export type ThemePalette = "violet" | "blue" | "green" | "orange" | "rose" | "graphite";
+export type ThemePalette = "indigo" | "violet" | "blue" | "green" | "orange" | "rose" | "graphite";
 
 export const THEME_PALETTES: ReadonlyArray<{
   id: ThemePalette;
@@ -12,6 +12,7 @@ export const THEME_PALETTES: ReadonlyArray<{
   /** Representative swatch color (the accent), as a CSS color for the picker UI. */
   swatch: string;
 }> = [
+  { id: "indigo", label: "Indygo", swatch: "hsl(243 75% 56%)" },
   { id: "violet", label: "Fiolet", swatch: "hsl(263 70% 50%)" },
   { id: "blue", label: "Niebieski", swatch: "hsl(221 83% 53%)" },
   { id: "green", label: "Zielony", swatch: "hsl(142 71% 38%)" },
@@ -38,19 +39,21 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       theme: "light",
-      palette: "violet",
+      palette: "indigo",
       toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
       setTheme: (theme) => set({ theme }),
       setPalette: (palette) => set({ palette }),
     }),
     {
       name: "nexus-theme",
-      version: 4,
-      // v3 had no `palette` field — default it to the established violet accent.
+      version: 5,
+      // v3 had no `palette` field; v5 made indigo the default accent. Existing
+      // valid palettes (including "violet") are preserved — only missing or
+      // unknown palettes fall back to indigo.
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<ThemeState>;
         if (version < 4 || !isThemePalette(state.palette)) {
-          return { ...state, palette: "violet" } as ThemeState;
+          return { ...state, palette: "indigo" } as ThemeState;
         }
         return state as ThemeState;
       },

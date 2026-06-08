@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 
 // Applied before first paint to prevent a flash of the wrong theme/palette.
 // Mirrors the zustand-persist shape of `src/store/theme.ts` (key "nexus-theme").
-const themeBootstrap = `(function(){try{var d=document.documentElement;var p="violet",t="light";var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;}catch(e){document.documentElement.dataset.theme="violet";}})();`;
+const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light";var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;}catch(e){document.documentElement.dataset.theme="indigo";}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

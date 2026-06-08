@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
@@ -555,7 +556,7 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
         <button
           onClick={() => setShowPreview(true)}
           disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           data-testid="preview-criteria"
         >
           ✨ Podgląd kryteriów (edytowalne)
@@ -829,8 +830,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
             const isAdded = addedIds.has(c.id);
             const isAdding = addingId === c.id;
             const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
-            const AVATAR_COLORS = ["bg-primary","bg-violet-600","bg-emerald-600","bg-rose-500","bg-amber-500","bg-cyan-600"];
-            const avatarColor = AVATAR_COLORS[(fullName.charCodeAt(0) + (fullName.charCodeAt(1) || 0)) % AVATAR_COLORS.length];
+            const avatarColor = getAvatarColor(fullName);
 
             return (
               <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-sm transition-shadow">
@@ -1333,7 +1333,7 @@ export default function JobDetailPage() {
             className={cn(
               "rounded-lg transition-shadow",
               proposalsHighlight &&
-                "ring-2 ring-violet-400 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 shadow-lg",
+                "ring-2 ring-primary ring-offset-2 ring-offset-background shadow-lg",
             )}
           >
             <SuggestedCandidatesWidget
