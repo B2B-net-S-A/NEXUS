@@ -12,7 +12,9 @@ zespołowym zgadza się z liczbami, które każdy widzi u siebie.
 Filtry osoba/rola robi front (na zwróconej liście) — backend bierze tylko okno
 czasu (`period`), bo to ono zmienia zapytanie SQL. Lista zawiera wszystkich
 aktywnych userów z ról operacyjnych (także z zerami — manager widzi też kto
-nic nie zrobił) plus dowolnego usera spoza tej puli, który ma jakąś aktywność.
+nic nie zrobił) plus dowolnego **aktywnego** usera spoza tej puli, który ma
+jakąś aktywność. Userzy nieaktywni (zdezaktywowani/zarchiwizowani) NIE pojawiają
+się w panelu, nawet jeśli mają historyczną aktywność w 400-dniowym oknie.
 """
 
 from __future__ import annotations
@@ -175,12 +177,19 @@ async def compute_team_panel(
     }
     shown_uids: set[int] = set(user_meta)
 
-    # Dołóż każdego usera spoza puli, który MA aktywność (np. admin ruszający etapy).
+    # Dołóż każdego AKTYWNEGO usera spoza puli, który MA aktywność (np. admin
+    # ruszający etapy). Filtr `is_active` jest kluczowy: bez niego 400-dniowe
+    # okno atrybucji (`_ANCHOR_LOOKBACK_DAYS`) wciągało do panelu wszystkich
+    # zdezaktywowanych/zarchiwizowanych rekruterów, którzy kiedykolwiek ruszyli
+    # kandydata — panel managerski pokazuje tylko BIEŻĄCY zespół.
     extra_uids = (set(agg) | set(cv_by_uid)) - shown_uids
     if extra_uids:
         extra = (
             await db.execute(
-                select(User.id, User.name, User.role).where(User.id.in_(extra_uids))
+                select(User.id, User.name, User.role).where(
+                    User.id.in_(extra_uids),
+                    User.is_active.is_(True),
+                )
             )
         ).all()
         for u in extra:
