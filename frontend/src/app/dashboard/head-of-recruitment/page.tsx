@@ -8,6 +8,7 @@ import { cn } from"@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
 import { Badge } from"@/components/ui/badge"
 import { ChampionsPodium } from"@/components/v2/gamification/ChampionsPodium"
+import { TeamKpiPanel } from"@/components/v2/kpi/TeamKpiPanel"
 import { useAuthStore } from"@/store/auth"
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -375,6 +376,9 @@ export default function HeadOfRecruitmentDashboard() {
  />
  <StatCard title="Klienci" value={t.clients ?? 0} icon={Link2} />
  </section>
+
+ {/* KPI zespołu — lejek per osoba (verifier-anchored), filtry czas/rola/osoba */}
+ <TeamKpiPanel />
 
  {/* Matrix: Sourcerzy × Kategorie */}
  <Card>

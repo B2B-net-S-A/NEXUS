@@ -10,21 +10,23 @@ delivery_leada) dodawane w kolejnych fazach.
 
 from __future__ import annotations
 
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, RecruiterPlus
+from app.api.deps import AdminUser, CurrentUser, RecruiterPlus, require_roles
+from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType
 from app.models.user import User, UserRole
-from app.services.kpi_catalog import get_kpi
+from app.services.kpi_catalog import KpiPeriod, get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
 from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
 from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
 from app.services.kpi_panel import PanelResult, compute_my_panel
+from app.services.kpi_team import TeamPanelResult, compute_team_panel
 
 router = APIRouter()
 
@@ -158,6 +160,126 @@ async def get_my_panel(
     """
     result = await compute_my_panel(db, user=current_user)
     return _panel_to_schema(result)
+
+
+# ── „KPI zespołu" panel (verifier-anchored funnel per osoba) ───────────────
+
+
+class TeamMemberSchema(BaseModel):
+    """Lejek jednej osoby za wybrane okno + precision (30 dni)."""
+
+    user_id: int
+    name: str
+    role: str
+    weryfikacje: int
+    rekomendacje: int
+    interview: int
+    akceptacje: int
+    placementy: int
+    cv_to_base: int
+    precision_pct: float | None
+    precision_verified_30d: int
+    precision_sent_30d: int
+
+
+class TeamTotalsSchema(BaseModel):
+    weryfikacje: int
+    rekomendacje: int
+    interview: int
+    akceptacje: int
+    placementy: int
+    cv_to_base: int
+    precision_pct: float | None
+    people: int
+
+
+class TeamPanelSchema(BaseModel):
+    """DTO dla widgetu „KPI zespołu" — wiersz na osobę + suma zespołu."""
+
+    period: str  # "day" | "week" | "month"
+    precision_target_pct: int
+    rows: List[TeamMemberSchema]
+    totals: TeamTotalsSchema
+
+
+_PERIOD_MAP = {
+    "day": KpiPeriod.day,
+    "week": KpiPeriod.week,
+    "month": KpiPeriod.month,
+}
+
+# Widok managerski — pełny per-person breakdown całego zespołu.
+TeamPanelViewer = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+        )
+    ),
+]
+
+
+def _team_to_schema(result: TeamPanelResult) -> TeamPanelSchema:
+    return TeamPanelSchema(
+        period=result.period,
+        precision_target_pct=result.precision_target_pct,
+        rows=[
+            TeamMemberSchema(
+                user_id=r.user_id,
+                name=r.name,
+                role=r.role,
+                weryfikacje=r.weryfikacje,
+                rekomendacje=r.rekomendacje,
+                interview=r.interview,
+                akceptacje=r.akceptacje,
+                placementy=r.placementy,
+                cv_to_base=r.cv_to_base,
+                precision_pct=r.precision_pct,
+                precision_verified_30d=r.precision_verified_30d,
+                precision_sent_30d=r.precision_sent_30d,
+            )
+            for r in result.rows
+        ],
+        totals=TeamTotalsSchema(
+            weryfikacje=result.totals.weryfikacje,
+            rekomendacje=result.totals.rekomendacje,
+            interview=result.totals.interview,
+            akceptacje=result.totals.akceptacje,
+            placementy=result.totals.placementy,
+            cv_to_base=result.totals.cv_to_base,
+            precision_pct=result.totals.precision_pct,
+            people=result.totals.people,
+        ),
+    )
+
+
+@router.get("/team/panel", response_model=TeamPanelSchema)
+async def get_team_panel(
+    _: TeamPanelViewer,
+    period: str = "week",
+    db: AsyncSession = Depends(get_db),
+) -> TeamPanelSchema:
+    """„KPI zespołu" — lejek per osoba dla całego zespołu w wybranym oknie.
+
+    Atrybucja verifier-anchored (identyczna z „Moje KPI"), więc kolumny sumują
+    się do tych samych liczb, które każdy widzi u siebie. Filtry osoba/rola
+    realizuje front na zwróconej liście; backend bierze tylko okno czasu.
+
+    `period`: day | week | month (default week). Cache 120 s per okno.
+    """
+    kp = _PERIOD_MAP.get(period, KpiPeriod.week)
+    cache_key = f"kpis:team:panel:{kp.value}"
+
+    cached = await cache_get(cache_key)
+    if cached:
+        return TeamPanelSchema(**cached)
+
+    result = await compute_team_panel(db, period=kp)
+    schema = _team_to_schema(result)
+    await cache_set(cache_key, schema.model_dump(), ttl_seconds=120)
+    return schema
 
 
 @router.get("/users/{user_id}/today", response_model=List[KpiResultSchema])

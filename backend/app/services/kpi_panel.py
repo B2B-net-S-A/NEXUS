@@ -75,15 +75,16 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 }
 
 
-# ── SQL: verifier-anchored funnel (per user) ─────────────────────────────────
+# ── SQL: verifier-anchored funnel ────────────────────────────────────────────
 
-# Dla każdej pary (kandydat, job):
-#   1) `mf`     — pierwszy ruch na każdy istotny etap (kto + kiedy).
-#   2) `anchor` — weryfikator = first_mover etapu `verified`.
+# Wspólne CTE atrybucji (reużywane przez panel per-user ORAZ panel zespołowy
+# w `kpi_team.py`, żeby liczby zgadzały się co do jednego). Dla każdej pary
+# (kandydat, job):
+#   1) `mf`       — pierwszy ruch na każdy istotny etap (kto + kiedy).
+#   2) `anchor`   — weryfikator = first_mover etapu `verified`.
 #   3) `credited` — credit_user = COALESCE(weryfikator, mover tego kamienia).
-# Następnie zliczamy kamienie milowe przypisane do :uid w 4 oknach czasu.
-_FUNNEL_SQL = text(
-    """
+# Konsument dokleja własny SELECT … FROM credited (parametr :lookback wspólny).
+VERIFIER_ANCHORED_CTE = """
     WITH cs AS (
         SELECT candidate_id, job_id, stage::text AS stage, moved_at, moved_by, id
         FROM candidate_stages
@@ -108,6 +109,12 @@ _FUNNEL_SQL = text(
         FROM mf
         LEFT JOIN anchor a USING (candidate_id, job_id)
     )
+"""
+
+# Per-user: zliczamy kamienie milowe przypisane do :uid w 4 oknach czasu.
+_FUNNEL_SQL = text(
+    VERIFIER_ANCHORED_CTE
+    + """
     SELECT stage,
            count(*) FILTER (WHERE reached_at >= :day_start)   AS d,
            count(*) FILTER (WHERE reached_at >= :week_start)  AS w,
@@ -313,5 +320,6 @@ __all__ = [
     "PanelResult",
     "PrecisionResult",
     "PANEL_KPI_DEFAULTS",
+    "VERIFIER_ANCHORED_CTE",
     "compute_my_panel",
 ]

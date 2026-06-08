@@ -29,6 +29,7 @@ import { Separator } from"@/components/ui/separator";
 import { Button } from"@/components/ui/button";
 import { MyJobsWidget } from"@/components/v2/pages/dashboard/MyJobsWidget";
 import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel";
+import { TeamKpiPanel } from "@/components/v2/kpi/TeamKpiPanel";
 import { WidgetState, WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState";
 import { hasRole, useAuthStore } from"@/store/auth";
 import { UserCog } from"lucide-react";
@@ -554,6 +555,9 @@ export function DashboardV2() {
 
  {/* Moje KPI — osobisty panel */}
  <MojeKpiPanel />
+
+ {/* KPI zespołu — managerski widok per osoba (admin/HoR/DL) */}
+ <TeamKpiPanel className="mt-4" />
 
  {/* KPI hero row */}
  <section>
