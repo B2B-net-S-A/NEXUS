@@ -131,6 +131,7 @@ jobs:
                  tests/test_candidate_remove_from_recruitment.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
+                 tests/test_note_mention_render.py \
                  tests/test_job_reference.py \
                  tests/test_jobs_deadline_serialization.py \
                  tests/test_dynareporter_profile.py \
