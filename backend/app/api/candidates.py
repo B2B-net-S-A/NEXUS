@@ -2525,15 +2525,24 @@ async def get_candidate_history(
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     stages_result = await db.execute(
-        select(CandidateStage, Job.title, Job.status.label("job_status"))
+        select(
+            CandidateStage,
+            Job.title,
+            Job.status.label("job_status"),
+            RejectionReason.name.label("rejection_reason_name"),
+        )
         .join(Job, CandidateStage.job_id == Job.id)
+        .outerjoin(
+            RejectionReason,
+            RejectionReason.id == CandidateStage.rejection_reason_id,
+        )
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc())
     )
 
     # Group by job
     jobs_map: dict = {}
-    for stage, job_title, job_status in stages_result.all():
+    for stage, job_title, job_status, rejection_reason_name in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
             jobs_map[job_id] = {
@@ -2555,6 +2564,12 @@ async def get_candidate_history(
                 # (sell), expected_rate = oczekiwania kandydata (kontekst marży).
                 "client_rate": None,
                 "expected_rate": None,
+                # Powód odrzucenia tej rekrutacji — wypełniany z NAJNOWSZEGO etapu
+                # `rejected` (iterujemy moved_at DESC, więc pierwszy napotkany
+                # rejected to ten najświeższy). None, gdy kandydat nie był odrzucony
+                # w tej rekrutacji. Priorytet źródła jak w kolumnie „Powód
+                # odrzucenia" na liście kandydatów (_format_rejection_reason).
+                "rejection_reason": None,
             }
         entry = jobs_map[job_id]
         entry["stages"].append(
@@ -2578,6 +2593,13 @@ async def get_candidate_history(
                 "unit": stage.expected_rate_unit,
                 "currency": stage.expected_rate_currency or "PLN",
             }
+        # Powód odrzucenia — z najnowszego etapu `rejected` tej rekrutacji.
+        if entry["rejection_reason"] is None and stage.stage == PipelineStage.rejected:
+            entry["rejection_reason"] = _format_rejection_reason(
+                reason_name=rejection_reason_name,
+                stage_notes=stage.notes,
+                rejection_note=stage.rejection_note,
+            )
         # Track dates
         moved_at = stage.moved_at.isoformat() if stage.moved_at else None
         if moved_at:

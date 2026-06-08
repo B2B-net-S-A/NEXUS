@@ -10,6 +10,7 @@ import StarterKit from"@tiptap/starter-kit";
 import {
  AlertTriangle,
  ArrowLeft,
+ Ban,
  Calendar,
  CheckCircle2,
  ChevronDown,
@@ -2690,6 +2691,18 @@ function RekrutacjaCard({
  {s.stage}
  </Badge>
  ))}
+ </div>
+ )}
+ {/* Powód odrzucenia — tylko gdy rekrutacja ZAKOŃCZYŁA się odrzuceniem
+ (latest_stage === "rejected"). Kandydat dodany ponownie po odrzuceniu
+ (latest_stage inny) świadomie nie pokazuje tego baneru. */}
+ {job.latest_stage === "rejected" && job.rejection_reason && (
+ <div className="mt-2 flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+ <Ban className="h-3.5 w-3.5 mt-px shrink-0" />
+ <span className="min-w-0">
+ <span className="font-medium">Powód odrzucenia:</span>{" "}
+ {job.rejection_reason}
+ </span>
  </div>
  )}
  <div className="flex items-center gap-1.5 flex-wrap mt-2">
