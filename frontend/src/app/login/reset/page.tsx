@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { DynamindsLogo } from "@/components/brand/DynamindsLogo";
 import {
   AlertCircle,
   ArrowLeft,
@@ -188,8 +189,8 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-10 h-10 rounded-md bg-primary text-primary-foreground flex items-center justify-center mb-5">
-            <span className="font-semibold text-base">N</span>
+          <div className="flex items-center justify-center mb-6 text-foreground">
+            <DynamindsLogo className="h-9 w-auto" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
             Ustaw nowe hasło

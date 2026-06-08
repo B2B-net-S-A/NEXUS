@@ -7,6 +7,7 @@ import { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
+import { DynamindsLogo } from "@/components/brand/DynamindsLogo";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -35,8 +36,8 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-10 h-10 rounded-md bg-primary text-primary-foreground flex items-center justify-center mb-5">
-            <span className="font-semibold text-base">N</span>
+          <div className="flex items-center justify-center mb-6 text-foreground">
+            <DynamindsLogo className="h-9 w-auto" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
             Zapomniałeś hasła?
