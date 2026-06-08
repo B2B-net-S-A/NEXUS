@@ -146,6 +146,87 @@
   [data-theme="graphite"]      { --primary: 222 16% 26%; --primary-foreground: 0 0% 100%; --ring: 222 16% 26%; }
   .dark[data-theme="graphite"] { --primary: 220 14% 84%; --primary-foreground: 222 18% 12%; --ring: 220 14% 84%; }
 
+  /* ===================================================================
+     KIDS / GAME WORLD — opt-in third visual mode via [data-kids="true"].
+     Unlike palettes, this DELIBERATELY repaints the whole chrome: colorful
+     base, candy borders, bubbly radius, and a playful rounded font. It is
+     orthogonal to light/dark and to the accent palette, and only applies
+     when the user flips the topbar "Tryb gry" switch — the professional
+     default is untouched otherwise. `html[...]` qualification keeps these
+     above :root / [data-theme] / the Next.js font class in specificity.
+     Decorative backdrop, sticker cards and animations live unlayered at the
+     end of this file (so they win over Tailwind utilities).
+     =================================================================== */
+  html[data-kids="true"] {
+    --background: 199 100% 95%;          /* light sky */
+    --foreground: 245 40% 22%;           /* deep friendly navy — high contrast */
+    --card: 0 0% 100%;                   /* near-white cards = readable; sticker look via border+shadow */
+    --card-foreground: 245 40% 22%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 245 40% 22%;
+    --primary: 330 82% 45%;              /* magenta-pink — white text ≈ 4.8:1 (AA) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 50 100% 92%;            /* butter */
+    --secondary-foreground: 245 40% 22%;
+    --muted: 190 70% 93%;                /* mint-sky */
+    --muted-foreground: 245 28% 38%;
+    --accent: 48 100% 88%;               /* light yellow hover — playful but not blinding */
+    --accent-foreground: 245 40% 22%;
+    --destructive: 0 85% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 262 55% 78%;               /* candy lavender, clearly visible */
+    --input: 262 40% 88%;
+    --ring: 330 82% 45%;
+    --radius: 1.25rem;                   /* 20px → bubbly everywhere (radius is var-driven) */
+
+    --success: 145 70% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 100% 50%;
+    --warning-foreground: 35 80% 12%;
+
+    --sidebar: 265 90% 96%;              /* light lavender panel */
+    --sidebar-foreground: 245 40% 22%;
+    --sidebar-muted: 245 25% 45%;
+    --sidebar-border: 262 50% 82%;
+
+    /* Swap the whole app to the rounded game font (font-sans + font-display
+       both resolve through these vars). html[...] beats the Next font class. */
+    --font-inter: var(--font-kids);
+    --font-poppins: var(--font-kids);
+  }
+
+  html.dark[data-kids="true"] {          /* "neon night" — dark + kids stays coherent, not broken */
+    --background: 258 45% 13%;           /* deep grape */
+    --foreground: 50 100% 92%;           /* warm cream text */
+    --card: 260 40% 18%;
+    --card-foreground: 50 100% 92%;
+    --popover: 260 40% 18%;
+    --popover-foreground: 50 100% 92%;
+    --primary: 320 90% 66%;              /* neon pink — dark text */
+    --primary-foreground: 260 45% 12%;
+    --secondary: 260 35% 22%;
+    --secondary-foreground: 50 100% 92%;
+    --muted: 260 35% 22%;
+    --muted-foreground: 265 25% 74%;
+    --accent: 260 40% 26%;
+    --accent-foreground: 50 100% 92%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 280 45% 38%;
+    --input: 280 40% 30%;
+    --ring: 320 90% 66%;
+
+    --success: 145 65% 50%;
+    --success-foreground: 144 60% 10%;
+    --warning: 42 100% 60%;
+    --warning-foreground: 38 80% 12%;
+
+    --sidebar: 260 42% 15%;
+    --sidebar-foreground: 50 95% 90%;
+    --sidebar-muted: 265 25% 70%;
+    --sidebar-border: 280 40% 32%;
+  }
+
   * {
     @apply border-border;
   }
@@ -191,4 +272,80 @@
   textarea {
     @apply text-sm;
   }
+}
+
+/* ====================================================================
+   KIDS / GAME WORLD — decorative layer (unlayered on purpose, so these
+   beat Tailwind utility classes). Everything here is scoped to
+   [data-kids="true"] and is inert in the normal professional theme.
+   ==================================================================== */
+
+/* Playful animated mascot + accents. Disabled under reduced-motion below. */
+@keyframes kids-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+@keyframes kids-wiggle {
+  0%, 100% { transform: rotate(-3deg); }
+  50%      { transform: rotate(3deg); }
+}
+@keyframes kids-pop {
+  0%   { transform: scale(1) rotate(0); }
+  30%  { transform: scale(1.25) rotate(-6deg); }
+  60%  { transform: scale(0.95) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* Full-screen colorful backdrop with a subtle sticker-dot pattern. Painted on
+   the always-present app-shell root; cards (near-white) sit on top → sticker. */
+[data-kids="true"] .app-shell-root {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='9' cy='9' r='2.5' fill='%23a855f7' opacity='0.28'/%3E%3Ccircle cx='31' cy='24' r='3' fill='%23ec4899' opacity='0.22'/%3E%3Ccircle cx='18' cy='36' r='2' fill='%2338bdf8' opacity='0.28'/%3E%3C/svg%3E"),
+    linear-gradient(135deg, hsl(199 100% 95%) 0%, hsl(280 100% 96%) 45%, hsl(50 100% 95%) 100%) !important;
+  background-attachment: fixed, fixed;
+}
+.dark[data-kids="true"] .app-shell-root {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Ccircle cx='9' cy='9' r='2.5' fill='%23ffffff' opacity='0.12'/%3E%3Ccircle cx='31' cy='24' r='3' fill='%23f0abfc' opacity='0.16'/%3E%3Ccircle cx='18' cy='36' r='2' fill='%2367e8f9' opacity='0.16'/%3E%3C/svg%3E"),
+    linear-gradient(135deg, hsl(258 45% 13%) 0%, hsl(280 50% 16%) 50%, hsl(220 50% 14%) 100%) !important;
+}
+
+/* Sticker cards: chunky candy border + soft "raised" shadow. */
+[data-kids="true"] .bg-card {
+  border-width: 2px;
+  border-color: hsl(var(--border));
+  box-shadow: 0 3px 0 0 hsl(var(--border) / 0.45), 0 10px 22px -12px hsl(var(--primary) / 0.30);
+}
+
+/* Make the common fixed-radius card corners bubbly too (var-radius only drives
+   rounded-lg/md/sm; bump the popular xl/2xl card corners explicitly). */
+[data-kids="true"] .rounded-xl  { border-radius: 1.35rem; }
+[data-kids="true"] .rounded-2xl { border-radius: 1.6rem; }
+
+/* Tactile press feel on buttons (radius already bubbled via --radius). */
+[data-kids="true"] button:active { transform: translateY(1px) scale(0.985); }
+
+/* Game-style progress bars: chunky rounded track + rainbow fill. */
+[data-kids="true"] [role="progressbar"] {
+  border: 2px solid hsl(var(--border));
+}
+[data-kids="true"] [role="progressbar"] > div {
+  background: linear-gradient(90deg, #ec4899, #a855f7, #38bdf8, #34d399, #facc15) !important;
+  box-shadow: 0 0 8px hsl(var(--primary) / 0.45);
+}
+
+/* Bolder, friendlier headings in game mode. */
+[data-kids="true"] h1,
+[data-kids="true"] h2,
+[data-kids="true"] h3 { font-weight: 700; letter-spacing: -0.01em; }
+
+/* Mascot animation utilities (consumed by KidsMascot). */
+[data-kids="true"] .kids-anim-float  { animation: kids-float 3s ease-in-out infinite; }
+[data-kids="true"] .kids-anim-wiggle { animation: kids-wiggle 2.6s ease-in-out infinite; }
+[data-kids="true"] .kids-anim-pop    { animation: kids-pop 0.65s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-kids="true"] .kids-anim-float,
+  [data-kids="true"] .kids-anim-wiggle,
+  [data-kids="true"] .kids-anim-pop { animation: none !important; }
 }

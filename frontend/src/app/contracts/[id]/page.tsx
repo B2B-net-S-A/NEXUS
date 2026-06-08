@@ -17,6 +17,7 @@ import { ContractTerminationDialog } from "@/components/contracts/ContractTermin
 import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import { celebrate } from "@/lib/celebrate";
 import {
   ArrowLeft,
   Pencil,
@@ -367,10 +368,14 @@ export default function ContractDetailPage() {
 
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => contractsApi.update(id, data),
-    onSuccess: () => {
+    onSuccess: (_res, variables) => {
       queryClient.invalidateQueries({ queryKey: ["contract", id] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["contract-activities", id] });
+      // Kids mode: celebrate activating a contract (draft → active). No-op otherwise.
+      if (variables?.status === "active" && contract?.status === "draft") {
+        celebrate({ message: "Kontrakt aktywny! 🎉" });
+      }
       setEditing(false);
       setError("");
     },

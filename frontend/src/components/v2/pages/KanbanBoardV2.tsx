@@ -43,6 +43,7 @@ import {
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
 import { encodeJobBackRef } from"@/lib/url-filters";
+import { celebrate } from "@/lib/celebrate";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -568,6 +569,13 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  candidate_offer_response:
  reason?.candidateOfferResponse ?? undefined,
  });
+
+ // Kids mode: confetti + mascot pop on a win. No-op outside game mode.
+ if (dst.stage === "hired") {
+ celebrate({ message: "Zatrudniony! 🎉" });
+ } else if (reason?.candidateOfferResponse === "accepted") {
+ celebrate({ message: "Oferta przyjęta! 🎉" });
+ }
 
  // 0045_rejection_emails — if the backend scheduled an auto-email,
  // offer a 10-second"Cofnij wysyłkę" toast so the recruiter can

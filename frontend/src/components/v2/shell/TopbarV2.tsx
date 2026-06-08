@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Menu, Moon, Search, Sun } from "lucide-react";
+import { Gamepad2, Menu, Moon, Search, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -34,6 +34,36 @@ function ThemeToggleButton() {
       className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
+  );
+}
+
+function KidsModeToggleButton() {
+  const kidsMode = useThemeStore((s) => s.kidsMode);
+  const toggleKidsMode = useThemeStore((s) => s.toggleKidsMode);
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch — kidsMode is read from localStorage on client only.
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return <div className="h-8 w-8" aria-hidden />;
+  }
+
+  return (
+    <button
+      onClick={toggleKidsMode}
+      aria-label={kidsMode ? "Wyłącz tryb gry" : "Włącz tryb gry (Kids)"}
+      title={kidsMode ? "Wyłącz tryb gry" : "Tryb gry (Kids)"}
+      aria-pressed={kidsMode}
+      className={cn(
+        "h-8 w-8 flex items-center justify-center rounded-md transition-colors",
+        kidsMode
+          ? "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      )}
+    >
+      <Gamepad2 className="h-4 w-4" />
     </button>
   );
 }
@@ -99,6 +129,7 @@ export function TopbarV2({
       <div className="flex items-center gap-2 shrink-0">
         <MyKpiWidget variant="compact" className="hidden md:block" />
         <PaletteSwitcher />
+        <KidsModeToggleButton />
         <ThemeToggleButton />
         <NotificationsDropdown />
         <QuickActionsV2
