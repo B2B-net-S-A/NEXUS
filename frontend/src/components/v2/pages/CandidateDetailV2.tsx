@@ -2269,6 +2269,23 @@ const REJECTION_EMAIL_ACTION_LABELS: Record<string, string> = {
  rejection_email_failed: "Email odrzucenia — błąd wysyłki",
 };
 
+// Traffit-imported "Plik - dodany"/"Plik - usunięty" activities carry the file
+// name inside a double-encoded `details.content` JSON blob
+// ({"file":{"name":...},"type":{"name":...}}). Pull the name so the timeline can
+// render 'Plik "<nazwa>" dodany' instead of the raw 'traffit:Plik - dodany'.
+function traffitFileName(details: unknown): string | null {
+ if (!details || typeof details !== "object") return null;
+ const content = (details as { content?: unknown }).content;
+ if (typeof content !== "string") return null;
+ try {
+ const parsed = JSON.parse(content);
+ const name = parsed?.file?.name;
+ return typeof name === "string" && name.trim() ? name : null;
+ } catch {
+ return null;
+ }
+}
+
 function timelineItemLabel(item: any): string {
  if (item.type === "note")
  return `Notatka${item.note_type ? ` — ${item.note_type}` :""}${item.job_title ? ` (${item.job_title})` :""}`;
@@ -2281,6 +2298,14 @@ function timelineItemLabel(item: any): string {
  return prev
  ? `Przejęto opiekę: ${prev} → ${owner} (apply przez link)`
  : `Aplikacja przez link (${owner})`;
+ }
+ if (
+ item.action === "traffit:Plik - dodany" ||
+ item.action === "traffit:Plik - usunięty"
+ ) {
+ const verb = item.action.endsWith("usunięty") ? "usunięty" : "dodany";
+ const name = traffitFileName(item.details);
+ return name ? `Plik "${name}" ${verb}` : `Plik ${verb}`;
  }
  const rejectionLabel = REJECTION_EMAIL_ACTION_LABELS[item.action];
  if (rejectionLabel) return rejectionLabel;
