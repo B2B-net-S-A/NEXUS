@@ -28,7 +28,6 @@ import {
  MapPin,
  MessageSquare,
  PencilLine,
- PhoneCall,
  Plus,
  Printer,
  RefreshCcw,
@@ -53,7 +52,6 @@ import api, {
  type CVBrandedState,
 } from"@/lib/api";
 import CallButton from"@/components/calls/CallButton";
-import CallsTimeline from"@/components/calls/CallsTimeline";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
@@ -111,7 +109,6 @@ import {
 } from"@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from"@/components/RateHistoryWidget";
 import { ConflictsWidget } from"@/components/ConflictsWidget";
-import { FirefliesTranscriptsWidget } from"@/components/FirefliesTranscriptsWidget";
 import { AddToMarketplaceButton } from"@/components/marketplace/AddToMarketplaceButton";
 import {
  AtOurClientBanner,
@@ -370,23 +367,6 @@ export function CandidateDetailV2({
  const historyContracts: any[] = Array.isArray(historyRaw)
  ? []
  : (historyRaw?.contracts ?? []);
-
- // Screenings & calls may come as array or { items: [...] } — normalize both.
- const { data: screeningsRaw } = useQuery<{ items?: any[] } | any[]>({
- queryKey: ["candidate-screenings", id],
- queryFn: () => api.get(`/api/candidates/${id}/screenings`).then((r) => r.data),
- enabled: !!id && activeTab === "screeningi",
- });
- const screenings: any[] = Array.isArray(screeningsRaw)
- ? screeningsRaw
- : (screeningsRaw?.items ?? []);
-
- const { data: callsRaw } = useQuery<{ items?: any[] } | any[]>({
- queryKey: ["candidate-calls", id],
- queryFn: () => api.get(`/api/candidates/${id}/calls`).then((r) => r.data),
- enabled: !!id && activeTab === "rozmowy",
- });
- const calls: any[] = Array.isArray(callsRaw) ? callsRaw : (callsRaw?.items ?? []);
 
  const { data: aiProfile } = useQuery<any>({
  queryKey: ["candidate-ai-profile", id],
@@ -775,7 +755,6 @@ export function CandidateDetailV2({
  {aiProfile && aiProfile.screening_count > 0 && (
  <ScreeningSummary
  aiProfile={aiProfile}
- onOpenScreenings={() => setActiveTab("screeningi")}
  />
  )}
 
@@ -791,7 +770,7 @@ export function CandidateDetailV2({
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
  <Tabs value={activeTab} onValueChange={setActiveTab}>
- {/* max-w-full + overflow-x-auto so the 10-tab list scrolls instead of
+ {/* max-w-full + overflow-x-auto so the 8-tab list scrolls instead of
  spilling over the right rail in the narrower 2-col main column. */}
  <TabsList className="px-4 pt-2 max-w-full overflow-x-auto justify-start [&>*]:shrink-0">
  <TabsTrigger value="profil">
@@ -810,19 +789,6 @@ export function CandidateDetailV2({
  {history.length}
  </Badge>
  )}
- </TabsTrigger>
- <TabsTrigger value="screeningi">
- <Star className="h-3.5 w-3.5" />
- Screeningi
- {screenings.length > 0 && (
- <Badge size="sm" variant="soft">
- {screenings.length}
- </Badge>
- )}
- </TabsTrigger>
- <TabsTrigger value="rozmowy">
- <PhoneCall className="h-3.5 w-3.5" />
- Rozmowy
  </TabsTrigger>
  <TabsTrigger value="email">
  <Mail className="h-3.5 w-3.5" />
@@ -875,15 +841,6 @@ export function CandidateDetailV2({
  employment={candidate.employment}
  />
  </div>
- </div>
- </TabsContent>
- <TabsContent value="screeningi" className="mt-0">
- <ScreeningsTab screenings={screenings} />
- </TabsContent>
- <TabsContent value="rozmowy" className="mt-0">
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
- <CallsTimeline calls={calls as any} />
- <FirefliesTranscriptsWidget candidateId={Number(id)} />
  </div>
  </TabsContent>
  <TabsContent value="email" className="mt-0">
@@ -2889,140 +2846,6 @@ function RekrutacjaCard({
  );
 }
 
-const SCREENING_TYPE_LABELS: Record<string, string> = {
- first_contact: "Pierwszy kontakt",
- technical: "Techniczny",
- soft_skills: "Soft skills",
- offer_negotiation: "Negocjacja oferty",
- general: "Ogólny",
-};
-
-function ScreeningsTab({ screenings }: { screenings: any[] }) {
- if (!Array.isArray(screenings) || screenings.length === 0) {
- return (
- <div className="py-10 text-center text-sm text-muted-foreground">
- Kandydat nie ma jeszcze żadnych screeningów.
- </div>
- );
- }
- return (
- <div className="space-y-2">
- {screenings.map((s: any) => (
- <div
- key={s.id}
- className="rounded-lg border border-border p-3 hover:border-primary/40 transition-colors"
- >
- <div className="flex items-center justify-between gap-2 flex-wrap">
- <div className="min-w-0 flex-1">
- <div className="flex items-center gap-2 flex-wrap">
- <span className="font-medium text-foreground">
- {SCREENING_TYPE_LABELS[s.screening_type] ?? s.screening_type ??"Screening"}
- </span>
- {s.overall_impression && (
- <div className="flex gap-0.5">
- {[1, 2, 3, 4, 5].map((n) => (
- <Star
- key={n}
- className={cn("h-3 w-3",
- n <= s.overall_impression
- ?"text-amber-500 fill-amber-500"
- :"text-[hsl(var(--border))] fill-[hsl(var(--border))]"
- )}
- />
- ))}
- </div>
- )}
- </div>
- <div className="text-xs text-muted-foreground mt-1">
- {s.created_at ? formatDate(s.created_at) : "brak daty"}
- {s.salary_expectation && (
- <>
- {" ·"}
- {s.salary_expectation.toLocaleString("pl-PL")}{""}
- {s.salary_currency ??"PLN"}
- {s.salary_negotiable ?"(neg.)" :""}
- </>
- )}
- </div>
- </div>
- {s.counteroffer_risk && (
- <Badge
- size="sm"
- variant={
- s.counteroffer_risk === "low"
- ?"success"
- : s.counteroffer_risk === "medium"
- ?"warning"
- :"danger"
- }
- >
- Counteroffer:{""}
- {s.counteroffer_risk === "low"
- ?"Niskie"
- : s.counteroffer_risk === "medium"
- ?"Średnie"
- :"Wysokie"}
- </Badge>
- )}
- </div>
- {s.notes && (
- <p className="text-sm text-foreground mt-2 whitespace-pre-line">
- {s.notes}
- </p>
- )}
- </div>
- ))}
- </div>
- );
-}
-
-function RozmowyTab({ calls }: { calls: any[] }) {
- if (!Array.isArray(calls) || calls.length === 0) {
- return (
- <div className="py-6 text-center text-sm text-muted-foreground">
- Brak zarejestrowanych rozmów.
- </div>
- );
- }
- return (
- <div className="space-y-2">
- {calls.map((c: any) => {
- const dur = c.duration_seconds;
- const mins = dur != null ? Math.floor(dur / 60) : null;
- const secs = dur != null ? dur % 60 : null;
- const durationLabel =
- mins != null ? `${mins}:${String(secs).padStart(2, "0")}` : null;
- return (
- <div
- key={c.id}
- className="rounded-lg border border-border p-3"
- >
- <div className="flex items-center gap-2 flex-wrap">
- <PhoneCall className="h-3.5 w-3.5 text-primary" />
- <span className="text-sm font-medium text-foreground">
- {c.direction === "outbound" ?"↗ Wychodząca" :"↙ Przychodząca"}
- </span>
- {durationLabel && (
- <Badge size="sm" variant="soft">
- {durationLabel}
- </Badge>
- )}
- <span className="ml-auto text-xs text-muted-foreground">
- {c.created_at ? formatRelativeTime(c.created_at) : ""}
- </span>
- </div>
- {c.summary && (
- <p className="text-sm text-foreground mt-2 whitespace-pre-line">
- {c.summary}
- </p>
- )}
- </div>
- );
- })}
- </div>
- );
-}
-
 /**
  * Unwrap Traffit-imported note content. Some notes have nested
  * `{"content":"<html>"}` (Traffit"Notatka" type with HTML body) or
@@ -3631,10 +3454,8 @@ function pluralScreenings(n: number): string {
 
 function ScreeningSummary({
  aiProfile,
- onOpenScreenings,
 }: {
  aiProfile: AiProfile;
- onOpenScreenings: () => void;
 }) {
  const [expanded, setExpanded] = useState(false);
 
@@ -3794,11 +3615,6 @@ function ScreeningSummary({
  </div>
  </div>
  )}
- <div className="flex justify-end pt-1">
- <Button size="sm" variant="ghost" onClick={onOpenScreenings}>
- Zobacz wszystkie screeningi →
- </Button>
- </div>
  </div>
  )}
  </Card>
