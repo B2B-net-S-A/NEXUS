@@ -340,14 +340,23 @@
 [data-kids="true"] h3 { font-weight: 700; letter-spacing: -0.01em; }
 
 /* Mascot animation utilities (consumed by KidsMascot). */
+@keyframes kids-dance {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20%      { transform: translateY(-11px) rotate(-12deg); }
+  40%      { transform: translateY(0) rotate(11deg); }
+  60%      { transform: translateY(-8px) rotate(-9deg); }
+  80%      { transform: translateY(0) rotate(9deg); }
+}
 [data-kids="true"] .kids-anim-float  { animation: kids-float 3s ease-in-out infinite; }
 [data-kids="true"] .kids-anim-wiggle { animation: kids-wiggle 2.6s ease-in-out infinite; }
 [data-kids="true"] .kids-anim-pop    { animation: kids-pop 0.65s ease-out; }
+[data-kids="true"] .kids-anim-dance  { animation: kids-dance 0.5s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
   [data-kids="true"] .kids-anim-float,
   [data-kids="true"] .kids-anim-wiggle,
-  [data-kids="true"] .kids-anim-pop { animation: none !important; }
+  [data-kids="true"] .kids-anim-pop,
+  [data-kids="true"] .kids-anim-dance { animation: none !important; }
 }
 
 /* ---- Floating balloons / stars backdrop (KidsBackdrop) ---- */

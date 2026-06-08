@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Repeat, Volume2, VolumeX } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { MessageCircle, MessageCircleOff, Repeat, Volume2, VolumeX } from "lucide-react";
 import { useThemeStore, type KidsBuddy } from "@/store/theme";
 import { useAuthStore } from "@/store/auth";
-import { CELEBRATE_EVENT, type CelebrateVariant } from "@/lib/celebrate";
+import { CELEBRATE_EVENT, celebrateParty, type CelebrateVariant } from "@/lib/celebrate";
 import { speak } from "@/lib/kidsSound";
 
 // Motivational slogans the mascot shows (and, with sound on, speaks aloud).
@@ -60,6 +61,59 @@ function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(performance.now()) % arr.length];
 }
 
+// "Tip of the day" — practical recruiter pro-tips, distinct in tone from the
+// motivational slogans. Picked deterministically by day so it's stable for 24h.
+const RECRUITER_TIPS = [
+  "Personalizuj pierwszą wiadomość — wzrasta odpowiedzialność 2-3×.",
+  "Dzwoń rano (9-11) lub po 16 — wtedy kandydaci najczęściej odbierają.",
+  "Zawsze ustal następny krok przed końcem rozmowy.",
+  "Notatka po każdym kontakcie = zero zgubionych szczegółów.",
+  "Pytaj o motywację do zmiany, nie tylko o stack technologiczny.",
+  "Krótki feedback po odrzuceniu buduje markę na lata.",
+  "Sourcing booleanowy: łącz synonimy ról przez OR, wymagania przez AND.",
+  "Re-engage 'starych' kandydatów — często są już gotowi na zmianę.",
+  "Mów o zespole i projekcie, nie tylko o widełkach.",
+  "Follow-up po 2-3 dniach ciszy — większość hire'ów żyje w follow-upie.",
+  "Zbieraj referencje od zadowolonych kandydatów — to najlepszy sourcing.",
+  "Ustaw realny timeline z klientem na starcie — unikniesz spalonych ofert.",
+  "Jeden dobrze dopasowany kandydat to więcej niż pięciu 'może pasuje'.",
+  "Pytaj kandydata, kogo poleca — talenty znają talenty.",
+  "Aktualizuj etap od razu po zmianie — pipeline to Twoja mapa.",
+];
+
+function tipOfTheDay(): string {
+  const now = new Date();
+  const dayOfYear = Math.floor(
+    (now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000
+  );
+  return `💡 Porada dnia: ${RECRUITER_TIPS[dayOfYear % RECRUITER_TIPS.length]}`;
+}
+
+// Contextual greetings when the user lands on a section (keyed by first path seg).
+const ROUTE_COMMENTS: Record<string, string> = {
+  candidates: "Czas na sourcing! ⛏️",
+  jobs: "Nowe rekrutacje czekają! 🎯",
+  clients: "Zadbaj o klientów! 🤝",
+  "my-clients": "Twoi klienci Cię potrzebują! 🤝",
+  calendar: "Co dziś w planie? 📅",
+  contracts: "Papierologia, ale ważna! 📄",
+  insights: "Czas na liczby! 📊",
+  talents: "Skarbnica talentów! 💎",
+  dashboard: "Witaj z powrotem! 👋",
+};
+
+function routeCommentFor(pathname: string | null): string | null {
+  if (!pathname) return null;
+  const seg = pathname.split("/").filter(Boolean)[0] ?? "dashboard";
+  return ROUTE_COMMENTS[seg] ?? null;
+}
+
+// Konami code → "party mode".
+const KONAMI = [
+  "ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown",
+  "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight", "b", "a",
+];
+
 /**
  * Floating game-world mascot — shown only in Kids mode. Idles with a gentle
  * float + periodic blink, tosses the occasional encouragement, waves on hover
@@ -69,17 +123,23 @@ function pick<T>(arr: readonly T[]): T {
 export function KidsMascot() {
   const kidsMode = useThemeStore((s) => s.kidsMode);
   const kidsSound = useThemeStore((s) => s.kidsSound);
+  const kidsAutoTalk = useThemeStore((s) => s.kidsAutoTalk);
   const kidsBuddy = useThemeStore((s) => s.kidsBuddy);
   const toggleKidsSound = useThemeStore((s) => s.toggleKidsSound);
+  const toggleKidsAutoTalk = useThemeStore((s) => s.toggleKidsAutoTalk);
   const cycleKidsBuddy = useThemeStore((s) => s.cycleKidsBuddy);
   const firstName = useAuthStore((s) => s.user?.name)?.trim().split(/\s+/)[0];
+  const pathname = usePathname();
 
   const [mounted, setMounted] = useState(false);
   const [popping, setPopping] = useState(false);
+  const [party, setParty] = useState(false);
   const [bubble, setBubble] = useState<string | null>(null);
   const timersRef = useRef<number[]>([]);
   const streakRef = useRef(0);
   const greetedRef = useRef(false);
+  const firstRouteRef = useRef(true);
+  const konamiRef = useRef(0);
 
   // Avoid hydration mismatch — kidsMode comes from localStorage on the client.
   useEffect(() => setMounted(true), []);
@@ -113,28 +173,71 @@ export function KidsMascot() {
     return () => window.removeEventListener(CELEBRATE_EVENT, onCelebrate);
   }, [kidsMode, react]);
 
-  // A friendly time-of-day greeting the first time the mascot appears.
+  // On first appearance: a time-of-day greeting, then the daily recruiter tip.
   useEffect(() => {
     if (!kidsMode || greetedRef.current) return;
     greetedRef.current = true;
-    const show = window.setTimeout(() => setBubble(greetingFor(firstName)), 900);
-    const hide = window.setTimeout(() => setBubble(null), 6500);
-    return () => {
-      window.clearTimeout(show);
-      window.clearTimeout(hide);
-    };
+    const ts = [
+      window.setTimeout(() => setBubble(greetingFor(firstName)), 900),
+      window.setTimeout(() => setBubble(null), 6500),
+      window.setTimeout(() => setBubble(tipOfTheDay()), 8000),
+      window.setTimeout(() => setBubble(null), 15500),
+    ];
+    return () => ts.forEach((t) => window.clearTimeout(t));
   }, [kidsMode, firstName]);
 
-  // Occasional unprompted motivational slogan (skipped while the tab is hidden).
+  // Occasional unprompted slogan (skipped while the tab is hidden). When
+  // auto-talk is on, the mascot also speaks it aloud.
   useEffect(() => {
     if (!kidsMode) return;
     const id = window.setInterval(() => {
       if (document.hidden) return;
-      setBubble(pick(MOTIVATIONAL_SLOGANS));
+      const slogan = pick(MOTIVATIONAL_SLOGANS);
+      setBubble(slogan);
+      if (kidsAutoTalk) speak(slogan);
       timersRef.current.push(window.setTimeout(() => setBubble(null), 5000));
-    }, 150_000); // ~2.5 min
+    }, kidsAutoTalk ? 90_000 : 150_000); // more chatty when auto-talk is on
     return () => window.clearInterval(id);
-  }, [kidsMode]);
+  }, [kidsMode, kidsAutoTalk]);
+
+  // Contextual comment when the user lands on a new section (skips first mount).
+  useEffect(() => {
+    if (!kidsMode) return;
+    if (firstRouteRef.current) {
+      firstRouteRef.current = false;
+      return;
+    }
+    const comment = routeCommentFor(pathname);
+    if (!comment) return;
+    const show = window.setTimeout(() => setBubble(comment), 500);
+    const hide = window.setTimeout(() => setBubble(null), 4000);
+    return () => {
+      window.clearTimeout(show);
+      window.clearTimeout(hide);
+    };
+  }, [kidsMode, pathname]);
+
+  // Konami code → party mode: dance + confetti storm.
+  useEffect(() => {
+    if (!kidsMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      konamiRef.current = key === KONAMI[konamiRef.current] ? konamiRef.current + 1 : key === KONAMI[0] ? 1 : 0;
+      if (konamiRef.current === KONAMI.length) {
+        konamiRef.current = 0;
+        setParty(true);
+        setBubble("🎉 TRYB IMPREZY! 🎉");
+        if (kidsSound) speak("Impreza!");
+        celebrateParty();
+        // Standalone timers (not in timersRef) so a celebrate's react() can't
+        // clear them mid-party and leave the mascot dancing forever.
+        window.setTimeout(() => setParty(false), 5200);
+        window.setTimeout(() => setBubble((b) => (b === "🎉 TRYB IMPREZY! 🎉" ? null : b)), 5200);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [kidsMode, kidsSound]);
 
   useEffect(() => clearTimers, [clearTimers]);
 
@@ -162,6 +265,15 @@ export function KidsMascot() {
         </button>
         <button
           type="button"
+          onClick={toggleKidsAutoTalk}
+          aria-label={kidsAutoTalk ? "Wyłącz auto-mówienie" : "Włącz auto-mówienie"}
+          title={kidsAutoTalk ? "Auto-mówienie: wł." : "Auto-mówienie: wył."}
+          className={`h-7 w-7 flex items-center justify-center rounded-full border-2 bg-card shadow-md hover:scale-110 transition-transform ${kidsAutoTalk ? "border-primary text-primary" : "border-primary/40 text-foreground"}`}
+        >
+          {kidsAutoTalk ? <MessageCircle className="h-3.5 w-3.5" /> : <MessageCircleOff className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
           onClick={cycleKidsBuddy}
           aria-label="Zmień maskotkę"
           title="Zmień maskotkę"
@@ -184,8 +296,8 @@ export function KidsMascot() {
           title="Kliknij po motywację!"
           className="kids-buddy pointer-events-auto outline-none"
         >
-          <span className={popping ? "kids-anim-pop block" : "kids-anim-float block"}>
-            <Buddy id={kidsBuddy} waving={popping} />
+          <span className={party ? "kids-anim-dance block" : popping ? "kids-anim-pop block" : "kids-anim-float block"}>
+            <Buddy id={kidsBuddy} waving={popping || party} />
           </span>
         </button>
       </div>
