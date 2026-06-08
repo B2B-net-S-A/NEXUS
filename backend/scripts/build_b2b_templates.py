@@ -72,6 +72,11 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
         "Tel. {{ candidate.phone or '…' }} Adres e-mail: {{ candidate.email or '…' }}",
     ),
     (
+        # §12 doręczenia — e-mail Partnera = ten z „Dane Partnera (firma)".
+        re.compile(r"Dla Partnera:\s*Adres e-mail Partnera wskazany w komparycji Umowy\.?"),
+        "Dla Partnera: {{ candidate.email or '" + _DOTS + "' }}",
+    ),
+    (
         re.compile(r"specjalizuje się w obszarze\s+_+\s*\([^)]*\)"),
         "specjalizuje się w obszarze {{ b2b.area_label or '" + _DOTS + "' }}",
     ),
@@ -143,6 +148,14 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
         re.compile(r"Tel\.\s*[.…]+\s*E-mail address:\s*[.…]+"),
         "Tel. {{ candidate.phone or '…' }} E-mail address: "
         "{{ candidate.email or '…' }}",
+    ),
+    (
+        # §12 notices — Partner e-mail = the one from "Dane Partnera (firma)".
+        re.compile(
+            r"For the Partner:\s*The Partner.s email address indicated in the "
+            r"preamble to the Agreement\.?"
+        ),
+        "For the Partner: {{ candidate.email or '" + _DOTS + "' }}",
     ),
     (
         re.compile(r"specializes in the area of\s+_+\s*\([^)]*\)"),
