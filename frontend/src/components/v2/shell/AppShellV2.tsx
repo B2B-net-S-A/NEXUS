@@ -10,6 +10,7 @@ import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { OpenTabsV2 } from "./OpenTabsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
+import { KidsMascot } from "./KidsMascot";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -93,7 +94,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (needsOnboarding) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="app-shell-root flex h-screen overflow-hidden bg-background text-foreground">
       {/* Mobile backdrop */}
       {mobileSidebarOpen && (
         <div
@@ -142,6 +143,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
       {/* Onboarding */}
       {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
+
+      {/* Floating game mascot — only in Kids mode (always mounted, reacts to celebrations) */}
+      <KidsMascot />
     </div>
   );
 }

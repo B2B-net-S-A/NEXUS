@@ -30,9 +30,17 @@ export function isThemePalette(value: unknown): value is ThemePalette {
 interface ThemeState {
   theme: ThemeMode;
   palette: ThemePalette;
+  /**
+   * "Kids / game world" visual mode — a third, orthogonal dimension on top of
+   * light/dark + palette. When on, a colorful playful skin takes over the whole
+   * chrome (see `html[data-kids="true"]` in globals.css). Off by default.
+   */
+  kidsMode: boolean;
   toggleTheme: () => void;
   setTheme: (theme: ThemeMode) => void;
   setPalette: (palette: ThemePalette) => void;
+  toggleKidsMode: () => void;
+  setKidsMode: (enabled: boolean) => void;
 }
 
 export const useThemeStore = create<ThemeState>()(
@@ -40,22 +48,30 @@ export const useThemeStore = create<ThemeState>()(
     (set) => ({
       theme: "light",
       palette: "indigo",
+      kidsMode: false,
       toggleTheme: () => set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
       setTheme: (theme) => set({ theme }),
       setPalette: (palette) => set({ palette }),
+      toggleKidsMode: () => set((s) => ({ kidsMode: !s.kidsMode })),
+      setKidsMode: (enabled) => set({ kidsMode: enabled }),
     }),
     {
       name: "nexus-theme",
-      version: 5,
-      // v3 had no `palette` field; v5 made indigo the default accent. Existing
-      // valid palettes (including "violet") are preserved — only missing or
-      // unknown palettes fall back to indigo.
+      version: 6,
+      // v3 had no `palette` field; v5 made indigo the default accent; v6 added
+      // `kidsMode`. Existing valid palettes (including "violet") are preserved —
+      // only missing or unknown palettes fall back to indigo. `kidsMode`
+      // defaults to false when absent.
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<ThemeState>;
+        const next: Partial<ThemeState> = { ...state };
         if (version < 4 || !isThemePalette(state.palette)) {
-          return { ...state, palette: "indigo" } as ThemeState;
+          next.palette = "indigo";
         }
-        return state as ThemeState;
+        if (typeof next.kidsMode !== "boolean") {
+          next.kidsMode = false;
+        }
+        return next as ThemeState;
       },
     }
   )

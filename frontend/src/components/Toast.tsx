@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 import { X, CheckCircle, AlertCircle, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useThemeStore } from "@/store/theme";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ export function useToast(): ToastContextValue {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counterRef = useRef(0);
+  // In game mode, success toasts get a cheerful emoji (wording unchanged).
+  const kidsMode = useThemeStore((s) => s.kidsMode);
 
   const showToast = useCallback((message: string, type: ToastType = "success") => {
     const id = ++counterRef.current;
@@ -120,7 +123,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             {toast.type === "action" && (
               <Undo2 className="w-4 h-4 text-primary flex-shrink-0" />
             )}
-            <span className="flex-1">{toast.message}</span>
+            <span className="flex-1">
+              {kidsMode && toast.type === "success" ? `🎉 ${toast.message}` : toast.message}
+            </span>
             {toast.type === "action" && toast.actionLabel && (
               <button
                 onClick={() => handleAction(toast)}

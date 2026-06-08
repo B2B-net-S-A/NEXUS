@@ -6,6 +6,7 @@ import { useThemeStore } from "@/store/theme";
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = useThemeStore((s) => s.theme);
   const palette = useThemeStore((s) => s.palette);
+  const kidsMode = useThemeStore((s) => s.kidsMode);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -15,6 +16,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = palette;
   }, [palette]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (kidsMode) {
+      root.dataset.kids = "true";
+    } else {
+      delete root.dataset.kids;
+    }
+  }, [kidsMode]);
 
   return <>{children}</>;
 }
