@@ -409,25 +409,25 @@ function matchBadgeVariant(
 // All columns that can be shown/hidden via the"Kolumny" popover.
 // Order in this array = visual order in the table.
 const ALL_COLUMNS = [
- { id: "candidate", label: "Kandydat", required: true, width: "minmax(220px, 1.6fr)" },
- { id: "phone", label: "Telefon", required: false, width: "minmax(140px, 0.9fr)" },
- { id: "email", label: "Email", required: false, width: "minmax(180px, 1.2fr)" },
- { id: "cv", label: "CV", required: false, width: "minmax(80px, 0.5fr)" },
- { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(120px, 0.8fr)" },
- { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(150px, 1fr)" },
- { id: "title", label: "Stanowisko", required: false, width: "minmax(160px, 1.1fr)" },
- { id: "company", label: "Firma", required: false, width: "minmax(140px, 1fr)" },
- { id: "location", label: "Lokalizacja", required: false, width: "minmax(120px, 0.7fr)" },
- { id: "experience", label: "Doświadczenie", required: false, width: "minmax(110px, 0.6fr)" },
- { id: "skills", label: "Skills", required: false, width: "minmax(180px, 1.3fr)" },
- { id: "rate", label: "Stawka", required: false, width: "minmax(110px, 0.7fr)" },
- { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(200px, 1.4fr)" },
- { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(180px, 1.2fr)" },
- { id: "position", label: "Pozycja", required: false, width: "minmax(160px, 1fr)" },
- { id: "status", label: "Status", required: false, width: "minmax(120px, 0.8fr)" },
- { id: "match", label: "Match", required: false, width: "minmax(110px, 0.7fr)" },
- { id: "created", label: "Dodano", required: false, width: "minmax(120px, 0.7fr)" },
- { id: "added_by", label: "Dodał", required: false, width: "minmax(110px, 0.6fr)" },
+ { id: "candidate", label: "Kandydat", required: true, width: "minmax(0, 1.6fr)" },
+ { id: "phone", label: "Telefon", required: false, width: "minmax(0, 0.9fr)" },
+ { id: "email", label: "Email", required: false, width: "minmax(0, 1.2fr)" },
+ { id: "cv", label: "CV", required: false, width: "minmax(0, 0.5fr)" },
+ { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(0, 0.8fr)" },
+ { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(0, 1fr)" },
+ { id: "title", label: "Stanowisko", required: false, width: "minmax(0, 1.1fr)" },
+ { id: "company", label: "Firma", required: false, width: "minmax(0, 1fr)" },
+ { id: "location", label: "Lokalizacja", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "experience", label: "Doświadczenie", required: false, width: "minmax(0, 0.6fr)" },
+ { id: "skills", label: "Skills", required: false, width: "minmax(0, 1.3fr)" },
+ { id: "rate", label: "Stawka", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(0, 1.4fr)" },
+ { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(0, 1.2fr)" },
+ { id: "position", label: "Pozycja", required: false, width: "minmax(0, 1fr)" },
+ { id: "status", label: "Status", required: false, width: "minmax(0, 0.8fr)" },
+ { id: "match", label: "Match", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "created", label: "Dodano", required: false, width: "minmax(0, 0.7fr)" },
+ { id: "added_by", label: "Dodał", required: false, width: "minmax(0, 0.6fr)" },
 ] as const;
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
 
@@ -1669,12 +1669,12 @@ export function CandidatesListV2() {
  };
 
  return (
- /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty).
-    Tabela kandydatów ma do 10 domyślnych kolumn (min ~1592px + padding ≈ 1788px),
-    więc przy 1400px na szerokich monitorach ucinała "Powód odrzucenia"/"Dodano"
-    bez widocznego scrolla (overlay scrollbar macOS jest ukryty). 2400px pozwala
-    wykorzystać szeroki ekran (pełne maile, wszystkie kolumny), a zarazem
-    ogranicza rozciąganie wierszy na ultrawide/4K. */
+ /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty),
+    bo tabela kandydatów ma do 10 kolumn. Tabela jest w pełni responsywna:
+    tracki to minmax(0,fr) + komórki overflow-hidden, więc kolumny kurczą się
+    do dowolnej szerokości i CAŁA tabela zawsze mieści się w ekranie (na wąskim
+    widać mniej szczegółów w komórce, nigdy nie ma poziomego ucięcia/scrolla).
+    Cap 2400px tylko ogranicza nadmierne rozciąganie wierszy na ultrawide/4K. */
  <div className="max-w-[2400px] mx-auto space-y-4">
  {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
  więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
@@ -2497,8 +2497,12 @@ export function CandidatesListV2() {
  <Checkbox checked={isSelected} onCheckedChange={() => toggleId(candidate.id)} />
  </div>
  {visibleColumns.map((col) => (
+ <div key={col.id} className="min-w-0 overflow-hidden">
+ {/* overflow-hidden → grid item ma auto-min-width:0, więc kolumna kurczy
+     się do szerokości tracku (minmax(0,fr)) i przycina treść zamiast
+     rozpychać siatkę. Dzięki temu cała tabela zawsze mieści się w ekranie —
+     na wąskim widać mniej szczegółów w komórce, ale wszystkie kolumny są. */}
  <CandidateCell
- key={col.id}
  columnId={col.id}
  candidate={candidate}
  fullName={fullName}
@@ -2508,6 +2512,7 @@ export function CandidatesListV2() {
  searchTerms={searchTerms}
  onOpenDetail={openDetail}
  />
+ </div>
  ))}
  <div className="flex justify-end">
  <button
