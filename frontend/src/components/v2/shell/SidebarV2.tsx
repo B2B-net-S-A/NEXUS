@@ -219,8 +219,8 @@ function NavLink({
     collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
     active
       ? collapsed
-        ? "bg-primary/10 text-primary font-medium"
-        : "bg-primary/10 text-foreground font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-r before:bg-primary"
+        ? "bg-primary/[0.15] text-primary font-medium"
+        : "bg-primary/[0.15] text-foreground font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-r before:bg-primary"
       : "text-sidebar-muted hover:bg-foreground/[0.04] hover:text-sidebar-foreground"
   );
   const inner = (

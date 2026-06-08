@@ -134,8 +134,8 @@
   [data-theme="green"]         { --primary: 142 72% 30%; --primary-foreground: 0 0% 100%; --ring: 142 72% 30%; }
   .dark[data-theme="green"]    { --primary: 142 69% 48%; --primary-foreground: 144 60% 10%; --ring: 142 69% 48%; }
 
-  /* ---- ORANGE ---- (40%L light so white text clears AA) */
-  [data-theme="orange"]        { --primary: 24 92% 40%;  --primary-foreground: 0 0% 100%; --ring: 24 92% 40%; }
+  /* ---- ORANGE ---- (vivid orange + dark text clears AA ≈ 6.76:1 in both modes) */
+  [data-theme="orange"]        { --primary: 25 95% 55%;  --primary-foreground: 22 60% 10%; --ring: 25 95% 55%; }
   .dark[data-theme="orange"]   { --primary: 25 95% 57%;  --primary-foreground: 22 60% 10%; --ring: 25 95% 57%; }
 
   /* ---- ROSE ---- */
