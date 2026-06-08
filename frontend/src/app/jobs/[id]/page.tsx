@@ -1027,12 +1027,12 @@ export default function JobDetailPage() {
   if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Link href="/jobs" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Wróć do ofert
       </Link>
 
-      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1118,7 +1118,7 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        <div className="mt-4 border-t border-border dark:border-border pt-4">
+        <div className="mt-3 border-t border-border dark:border-border pt-3">
           <JobOwnershipPanel
             jobId={Number(id)}
             jobTitle={job.title}
@@ -1146,7 +1146,7 @@ export default function JobDetailPage() {
         )}
 
         {job.description && (
-          <div className="mt-4 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
+          <div className="mt-3 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
         )}
       </div>
 
@@ -1298,7 +1298,7 @@ export default function JobDetailPage() {
       {/* Tab Content */}
       {activeTab === "pipeline" && (
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-muted-foreground">
               Dodaj kandydatów do tej rekrutacji przeszukując bazę po imieniu i nazwisku.
             </p>

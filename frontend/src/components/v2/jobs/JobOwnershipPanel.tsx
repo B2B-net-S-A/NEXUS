@@ -84,8 +84,8 @@ export function JobOwnershipPanel({
  });
 
  return (
- <div className="flex items-start justify-between gap-3 flex-wrap">
- <div className="min-w-0 flex-1">
+ <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+ <div className="min-w-0">
  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
  Właściciel projektu
  </div>
@@ -113,8 +113,9 @@ export function JobOwnershipPanel({
  </Button>
  ) : null}
  </div>
+ </div>
 
- <div className="mt-3">
+ <div className="min-w-0">
  <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
  Współpracownicy ({collaborators.length})
  </div>
@@ -171,9 +172,8 @@ export function JobOwnershipPanel({
  </div>
 
  {error ? (
- <div className="mt-2 text-xs text-primary">{error}</div>
+ <div className="w-full text-xs text-primary">{error}</div>
  ) : null}
- </div>
 
  <ReassignOwnerV2
  open={reassignOpen}
