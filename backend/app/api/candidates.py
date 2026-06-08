@@ -2742,6 +2742,73 @@ async def set_recruitment_client_rate(
     }
 
 
+@router.patch("/{candidate_id}/recruitments/{job_id}/expected-rate")
+async def set_recruitment_expected_rate(
+    candidate_id: int,
+    job_id: int,
+    payload: ClientRateUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ustaw/wyczyść „Stawkę kandydata" (oczekiwania kandydata, expected_rate)
+    dla danej rekrutacji (candidate, job).
+
+    PATCH /api/candidates/{candidate_id}/recruitments/{job_id}/expected-rate
+
+    Body shape identyczny z `client-rate` (`ClientRateUpdate`:
+    `{rate_value, rate_unit?, rate_currency?}`). Lustrzane do
+    `set_recruitment_client_rate` — pozwala uzupełnić/skorygować stawkę
+    kandydata bezpośrednio z profilu (dotąd ustawiana tylko przy ruchu na etap
+    „Zweryfikowany" przez `VerifiedRateModal`). Zapis na najnowszym
+    `CandidateStage` tej rekrutacji; odczyt w `/history` bierze ostatnią
+    niepustą wartość. `rate_value=None` czyści stawkę.
+
+    Uwaga: edycja NIE re-triggeruje budżetowego gate'u zatwierdzania (pending
+    verification) — ten pozostaje na poziomie ruchu na etap `verified`, gdzie
+    jest jego pierwotny cel.
+    """
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc())
+        .limit(1)
+    )
+    if latest is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Brak rekrutacji dla tego kandydata i tej oferty.",
+        )
+
+    if payload.rate_value is None:
+        latest.expected_rate_value = None
+        latest.expected_rate_unit = None
+        latest.expected_rate_currency = None
+    else:
+        latest.expected_rate_value = payload.rate_value
+        latest.expected_rate_unit = (payload.rate_unit or RateUnit.monthly).value
+        latest.expected_rate_currency = (payload.rate_currency or "PLN")[:3].upper()
+
+    await db.commit()
+    await db.refresh(latest)
+
+    return {
+        "candidate_id": candidate_id,
+        "job_id": job_id,
+        "expected_rate": (
+            {
+                "value": float(latest.expected_rate_value),
+                "unit": latest.expected_rate_unit,
+                "currency": latest.expected_rate_currency or "PLN",
+            }
+            if latest.expected_rate_value is not None
+            else None
+        ),
+    }
+
+
 @router.delete("/{candidate_id}/recruitments/{job_id}")
 async def remove_candidate_from_recruitment(
     candidate_id: int,

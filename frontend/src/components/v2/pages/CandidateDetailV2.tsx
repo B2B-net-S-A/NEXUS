@@ -2384,38 +2384,43 @@ type RecruitmentRate = {
  currency: string | null;
 } | null;
 
-// Edytowalna „Stawka do klienta" (cena wysłania kandydata do klienta) per
-// rekrutacja. Po lewej pokazujemy oczekiwania kandydata (expected_rate) dla
-// kontekstu marży. Zapis przez PATCH; odświeżenie historii przez prefix-invalidate.
-function RecruitmentRateRow({
- candidateId,
- jobId,
- clientRate,
- expectedRate,
+type RatePayload = {
+ rate_value: number | null;
+ rate_unit?: RateUnit;
+ rate_currency?: string;
+};
+
+// Pojedyncza, edytowalna komórka stawki (wartość + jednostka). Współdzielona
+// przez „Stawkę kandydata" (expected_rate) i „Stawkę do klienta" (client_rate).
+// Zarządza własnym stanem edycji + mutacją; po zapisie prefix-invalidate
+// odświeża historię (skąd parent czyta wartości i liczy marżę).
+function EditableRateCell({
+ label,
+ rate,
+ mutationFn,
+ successMessage,
+ testIdPrefix,
 }: {
- candidateId: number;
- jobId: number;
- clientRate: RecruitmentRate;
- expectedRate: RecruitmentRate;
+ label: string;
+ rate: RecruitmentRate;
+ mutationFn: (payload: RatePayload) => Promise<unknown>;
+ successMessage: string;
+ testIdPrefix: string;
 }) {
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const [editing, setEditing] = useState(false);
  const [value, setValue] = useState(
- clientRate?.value != null ? String(clientRate.value) :"",
+ rate?.value != null ? String(rate.value) :"",
  );
  const [unit, setUnit] = useState<RateUnit>(
- (clientRate?.unit as RateUnit) ??"monthly",
+ (rate?.unit as RateUnit) ??"monthly",
  );
 
  const mut = useMutation({
- mutationFn: (payload: {
- rate_value: number | null;
- rate_unit?: RateUnit;
- rate_currency?: string;
- }) => candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload),
+ mutationFn,
  onSuccess: () => {
- showSuccess("Zapisano stawkę do klienta");
+ showSuccess(successMessage);
  // Prefix-invalidate — queryKey to ["candidate-history", id(string)], a tu
  // mamy id jako number; prefix match odświeży niezależnie od typu drugiego klucza.
  queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
@@ -2438,41 +2443,18 @@ function RecruitmentRateRow({
  mut.mutate({ rate_value: v, rate_unit: unit, rate_currency:"PLN" });
  };
 
- const sameUnit =
- clientRate != null &&
- expectedRate != null &&
- clientRate.unit === expectedRate.unit;
- const margin =
- sameUnit && clientRate != null && expectedRate != null
- ? clientRate.value - expectedRate.value
- : null;
-
  return (
- <div className="mt-3 pt-3 border-t border-border">
- <div className="grid grid-cols-2 gap-3 text-xs">
- <div>
- <div className="text-muted-foreground">Stawka kandydata</div>
- <div className="font-medium text-foreground">
- {expectedRate
- ? formatRate(
- expectedRate.value,
- expectedRate.currency,
- expectedRate.unit,
- )
- :"—"}
- </div>
- </div>
  <div>
  <div className="flex items-center justify-between gap-2">
- <span className="text-muted-foreground">Stawka do klienta</span>
+ <span className="text-muted-foreground">{label}</span>
  {!editing && (
  <button
  type="button"
  onClick={() => setEditing(true)}
  className="text-primary hover:underline"
- data-testid="client-rate-edit"
+ data-testid={`${testIdPrefix}-edit`}
  >
- {clientRate ?"Edytuj" :"Uzupełnij"}
+ {rate ?"Edytuj" :"Uzupełnij"}
  </button>
  )}
  </div>
@@ -2488,7 +2470,7 @@ function RecruitmentRateRow({
  placeholder="np. 22000"
  className="w-24 h-8 px-2 rounded border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary"
  autoFocus
- data-testid="client-rate-input"
+ data-testid={`${testIdPrefix}-input`}
  />
  <select
  value={unit}
@@ -2503,7 +2485,7 @@ function RecruitmentRateRow({
  size="sm"
  disabled={mut.isPending}
  onClick={save}
- data-testid="client-rate-save"
+ data-testid={`${testIdPrefix}-save`}
  >
  Zapisz
  </Button>
@@ -2512,8 +2494,8 @@ function RecruitmentRateRow({
  variant="ghost"
  onClick={() => {
  setEditing(false);
- setValue(clientRate?.value != null ? String(clientRate.value) :"");
- setUnit((clientRate?.unit as RateUnit) ??"monthly");
+ setValue(rate?.value != null ? String(rate.value) :"");
+ setUnit((rate?.unit as RateUnit) ??"monthly");
  }}
  >
  Anuluj
@@ -2521,12 +2503,57 @@ function RecruitmentRateRow({
  </div>
  ) : (
  <div className="font-medium text-foreground">
- {clientRate
- ? formatRate(clientRate.value, clientRate.currency, clientRate.unit)
- :"—"}
+ {rate ? formatRate(rate.value, rate.currency, rate.unit) :"—"}
  </div>
  )}
  </div>
+ );
+}
+
+// Edytowalne stawki per rekrutacja: „Stawka kandydata" (expected_rate,
+// oczekiwania kandydata) + „Stawka do klienta" (client_rate, cena wysłania do
+// klienta). Obie przez `EditableRateCell`. Marża liczona z wartości z serwera.
+function RecruitmentRateRow({
+ candidateId,
+ jobId,
+ clientRate,
+ expectedRate,
+}: {
+ candidateId: number;
+ jobId: number;
+ clientRate: RecruitmentRate;
+ expectedRate: RecruitmentRate;
+}) {
+ const sameUnit =
+ clientRate != null &&
+ expectedRate != null &&
+ clientRate.unit === expectedRate.unit;
+ const margin =
+ sameUnit && clientRate != null && expectedRate != null
+ ? clientRate.value - expectedRate.value
+ : null;
+
+ return (
+ <div className="mt-3 pt-3 border-t border-border">
+ <div className="grid grid-cols-2 gap-3 text-xs">
+ <EditableRateCell
+ label="Stawka kandydata"
+ rate={expectedRate}
+ testIdPrefix="expected-rate"
+ successMessage="Zapisano stawkę kandydata"
+ mutationFn={(payload) =>
+ candidatesApi.setRecruitmentExpectedRate(candidateId, jobId, payload)
+ }
+ />
+ <EditableRateCell
+ label="Stawka do klienta"
+ rate={clientRate}
+ testIdPrefix="client-rate"
+ successMessage="Zapisano stawkę do klienta"
+ mutationFn={(payload) =>
+ candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
+ }
+ />
  </div>
  {margin != null && (
  <div className="mt-2 text-xs text-muted-foreground">
