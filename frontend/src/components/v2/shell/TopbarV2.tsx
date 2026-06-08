@@ -12,6 +12,7 @@ import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { useThemeStore } from "@/store/theme";
+import { celebrate } from "@/lib/celebrate";
 
 function ThemeToggleButton() {
   const theme = useThemeStore((s) => s.theme);
@@ -50,9 +51,17 @@ function KidsModeToggleButton() {
     return <div className="h-8 w-8" aria-hidden />;
   }
 
+  const onToggle = () => {
+    const turningOn = !kidsMode;
+    toggleKidsMode();
+    // Welcome burst when entering the game world (celebrate reads the freshly
+    // set state, so it fires only on enable).
+    if (turningOn) celebrate({ variant: "welcome", message: "Witaj w grze! 🎮" });
+  };
+
   return (
     <button
-      onClick={toggleKidsMode}
+      onClick={onToggle}
       aria-label={kidsMode ? "Wyłącz tryb gry" : "Włącz tryb gry (Kids)"}
       title={kidsMode ? "Wyłącz tryb gry" : "Tryb gry (Kids)"}
       aria-pressed={kidsMode}

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import api, { calendarApi, candidatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { celebrate } from "@/lib/celebrate";
 import { ConfirmButton } from "@/components/ConfirmDialog";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -682,6 +683,7 @@ function CreateEventModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       onCreated();
+      celebrate({ small: true, message: "Wydarzenie zaplanowane! 📅" });
     },
     onError: (e: any) => {
       setError(e.response?.data?.detail || "Błąd tworzenia wydarzenia");

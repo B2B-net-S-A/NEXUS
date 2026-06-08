@@ -349,3 +349,93 @@
   [data-kids="true"] .kids-anim-wiggle,
   [data-kids="true"] .kids-anim-pop { animation: none !important; }
 }
+
+/* ---- Floating balloons / stars backdrop (KidsBackdrop) ---- */
+@keyframes kids-drift {
+  0%   { transform: translateY(0) rotate(0deg);    opacity: 0; }
+  12%  { opacity: 0.5; }
+  50%  { transform: translateY(-62vh) rotate(8deg); }
+  88%  { opacity: 0.5; }
+  100% { transform: translateY(-122vh) rotate(-6deg); opacity: 0; }
+}
+.kids-float-item { animation: kids-drift var(--dur, 30s) linear var(--delay, 0s) infinite; }
+
+/* ---- Mascot eye blink ---- */
+@keyframes kids-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  95%           { transform: scaleY(0.12); }
+}
+[data-kids="true"] .kids-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: kids-blink 4.5s ease-in-out infinite;
+}
+
+/* ---- Cards bounce on hover (skip big table-containing cards) ---- */
+[data-kids="true"] .bg-card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+[data-kids="true"] .bg-card:not(:has(table)):not(:has(.bg-card)):hover {
+  transform: translateY(-3px) scale(1.006);
+  box-shadow: 0 8px 0 0 hsl(var(--border) / 0.45), 0 16px 30px -14px hsl(var(--primary) / 0.4);
+}
+
+/* ---- Buttons "squish" on press ---- */
+[data-kids="true"] button { transition: transform 0.12s ease; }
+[data-kids="true"] button:active { transform: translateY(1px) scale(0.95); }
+
+/* ---- Rainbow gradient headings ---- */
+[data-kids="true"] h1,
+[data-kids="true"] h2 {
+  background-image: linear-gradient(90deg, #7c3aed, #db2777, #2563eb);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.dark[data-kids="true"] h1,
+.dark[data-kids="true"] h2 {
+  background-image: linear-gradient(90deg, #c4b5fd, #f9a8d4, #93c5fd);
+}
+
+/* ---- Playful game scrollbar (WebKit) ---- */
+[data-kids="true"] ::-webkit-scrollbar { width: 12px; height: 12px; }
+[data-kids="true"] ::-webkit-scrollbar-track { background: transparent; }
+[data-kids="true"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ec4899, #a855f7, #38bdf8);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ---- Candy shimmer on loading skeletons ---- */
+[data-kids="true"] .animate-pulse {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    hsl(var(--primary) / 0.18) 45%,
+    hsl(var(--ring) / 0.14) 55%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* ---- CSS-gated kids-only / kids-hidden (server components can't read the store) ---- */
+.kids-only { display: none; }
+[data-kids="true"] .kids-only { display: flex; }
+[data-kids="true"] .kids-hidden { display: none; }
+
+/* ---- Level-up flash (KPI hits target) ---- */
+@keyframes kids-levelup {
+  0%   { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.0); }
+  35%  { box-shadow: 0 0 0 6px hsl(var(--primary) / 0.55); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.0); }
+}
+[data-kids="true"] .kids-levelup-flash { animation: kids-levelup 0.9s ease-out; border-radius: 9999px; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-kids="true"] .kids-float-item,
+  [data-kids="true"] .kids-eye,
+  [data-kids="true"] .animate-pulse,
+  [data-kids="true"] .kids-levelup-flash { animation: none !important; }
+  [data-kids="true"] .bg-card:hover { transform: none; }
+}

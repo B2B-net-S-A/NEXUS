@@ -17,6 +17,7 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn } from"@/lib/utils";
+import { celebrate } from"@/lib/celebrate";
 import {
  Dialog,
  DialogBody,
@@ -160,6 +161,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, onAdded }: Props) 
  queryClient.invalidateQueries({ queryKey: ["candidates"] });
  queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
  onAdded?.(data.candidate.id);
+ celebrate({ small: true, message: "Kandydat dodany! ✨" });
  },
  onError: (err: AxiosError<{ detail?: ConflictDetail | string }>) => {
  // 409 → structured duplicate alert; other errors → plain message.
