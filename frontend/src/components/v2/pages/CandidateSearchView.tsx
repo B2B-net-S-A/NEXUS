@@ -280,7 +280,7 @@ export function CandidateSearchView({
               <button
                 type="button"
                 onClick={() => loadSavedSearch(ss)}
-                className="hover:text-violet-700 dark:hover:text-violet-300"
+                className="hover:text-primary"
               >
                 {ss.name}
               </button>
@@ -389,8 +389,8 @@ export function CandidateSearchView({
               onClick={() => setSort(k)}
               className={
                 request.sort === k
-                  ? "rounded-md bg-violet-50 px-2 py-1 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200"
-                  : "rounded-md px-2 py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  ? "rounded-md bg-primary/10 px-2 py-1 text-primary"
+                  : "rounded-md px-2 py-1 text-muted-foreground hover:bg-muted"
               }
             >
               {label}
@@ -457,7 +457,7 @@ export function CandidateSearchView({
           <Button
             type="button"
             size="sm"
-            className="h-7 gap-1 bg-violet-600 text-white hover:bg-violet-500"
+            className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={submitBulk}
             disabled={bulkPending}
           >
@@ -530,7 +530,7 @@ function CandidateSearchRow({
           checked={selected}
           onChange={onToggleSelect}
           aria-label={`Zaznacz ${item.name} ${item.lastname}`}
-          className="mt-1 h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
+          className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-ring"
         />
       )}
       <div className="flex-1 min-w-0">

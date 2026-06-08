@@ -453,7 +453,7 @@ export function JobsListV2() {
  <OwnerBadge user={job.primary_owner ?? null} size="sm" />
  {job.hiring_manager_name && (
  <span
- className="inline-flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded"
+ className="inline-flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded"
  title="Hiring manager po stronie klienta"
  >
  <UserSquare2 className="h-3 w-3" />
