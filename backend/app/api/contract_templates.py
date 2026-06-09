@@ -166,6 +166,8 @@ def _contract_vars(contract: Contract) -> dict:
                 "exact",
                 lang,
             ),
+            # Komparycja: ścieżka /generate nie odmienia (brak pola) → mianownik.
+            "partner_instrumental": cand.full_name if cand else None,
             # Formy gramatyczne płci: ścieżka /generate domyślnie męska
             # (B2BContractDetail nie ma kolumny płci) — standalone /render
             # podstawia właściwą formę z formularza.

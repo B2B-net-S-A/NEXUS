@@ -135,6 +135,46 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
     : lead;
 }
 
+/** Heurystyczna odmiana imienia i nazwiska do narzędnika („z Panem Janem
+ * Kowalskim"). Best-effort — przy nietypowych/obcych nazwiskach pole jest
+ * edytowalne. */
+function titleCase(w: string): string {
+  return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w;
+}
+
+function declineInstrumentalToken(raw: string, gender: "m" | "k"): string {
+  const w = titleCase(raw);
+  const lw = w.toLowerCase();
+  const cut = (n: number, suf: string) => w.slice(0, w.length - n) + suf;
+  if (gender === "k") {
+    if (lw.endsWith("ska") || lw.endsWith("cka") || lw.endsWith("dzka"))
+      return cut(1, "ą");
+    if (lw.endsWith("a")) return cut(1, "ą");
+    return w; // nazwisko żeńskie zakończone spółgłoską — nieodmienne
+  }
+  if (lw.endsWith("ski") || lw.endsWith("cki") || lw.endsWith("dzki"))
+    return cut(1, "im");
+  if (lw.endsWith("y")) return cut(1, "ym");
+  if (lw.endsWith("ek")) return cut(2, "kiem");
+  if (lw.endsWith("eł")) return cut(2, "łem");
+  if (lw.endsWith("k") || lw.endsWith("g")) return w + "iem";
+  if (lw.endsWith("a")) return cut(1, "ą");
+  if (
+    lw.endsWith("o") ||
+    lw.endsWith("i") ||
+    lw.endsWith("e") ||
+    lw.endsWith("u")
+  )
+    return w; // nieoczywiste zakończenie → zostaw (sprawdź ręcznie)
+  return w + "em"; // typowa spółgłoska twarda
+}
+
+function instrumentalPl(fullName: string, gender: "m" | "k"): string {
+  const tokens = (fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  return tokens.map((t) => declineInstrumentalToken(t, gender)).join(" ");
+}
+
 function printHtml(bodyHtml: string, title: string) {
   const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
@@ -308,6 +348,8 @@ function GeneratorForm() {
   // Płeć Partnera — steruje formami gramatycznymi w umowie (Panem/ią,
   // prowadzącym/cą, zwany/a, zapoznałem/am).
   const [gender, setGender] = useState<"m" | "k">("m");
+  // Imię i nazwisko w narzędniku do komparycji (auto-odmiana, edytowalne) (#7).
+  const [partnerInstrumental, setPartnerInstrumental] = useState("");
   const [partnerLookup, setPartnerLookup] = useState<LookupStatus>("idle");
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
@@ -317,6 +359,8 @@ function GeneratorForm() {
   const prefilledJob = useRef<number | null>(null);
   // Użytkownik ręcznie zmienił opis → nie nadpisuj smart-prefillem.
   const descTouched = useRef(false);
+  // Użytkownik ręcznie poprawił narzędnik → nie nadpisuj auto-odmianą.
+  const instrTouched = useRef(false);
 
   const candidatesQuery = useQuery({
     queryKey: ["b2b-gen-candidates", candidateQuery],
@@ -436,6 +480,13 @@ function GeneratorForm() {
     setProjectDescription(smartDescription(selectedRole, language, clientName));
   }, [selectedRole, language, clientName, selectedRecruitment]);
 
+  // Auto-odmiana imienia i nazwiska do narzędnika (komparycja), dopóki user
+  // nie poprawi ręcznie.
+  useEffect(() => {
+    if (instrTouched.current) return;
+    setPartnerInstrumental(instrumentalPl(partnerName, gender));
+  }, [partnerName, gender]);
+
   // Auto numer umowy (pierwsze załadowanie, jeśli puste).
   useEffect(() => {
     if (nextNumberQuery.data && !contractNumber) {
@@ -501,6 +552,7 @@ function GeneratorForm() {
     language: lang,
     gender,
     partner_name: partnerName.trim() || null,
+    partner_instrumental: partnerInstrumental.trim() || null,
     partner_legal_name: partnerLegalName.trim() || null,
     partner_business_address: partnerBusinessAddress.trim() || null,
     partner_correspondence_address: partnerCorrespondenceAddress.trim() || null,
@@ -523,6 +575,7 @@ function GeneratorForm() {
     const missing: string[] = [];
     if (!selectedRole) missing.push("Rola / stanowisko");
     if (!partnerName.trim()) missing.push("Imię i nazwisko Partnera");
+    if (!partnerInstrumental.trim()) missing.push("Imię i nazwisko (narzędnik)");
     if (!partnerLegalName.trim()) missing.push("Nazwa Firmy");
     if (!partnerNip.trim()) missing.push("NIP");
     if (!partnerRegon.trim()) missing.push("REGON");
@@ -770,6 +823,19 @@ function GeneratorForm() {
               onChange={(e) => setPartnerName(e.target.value)}
               placeholder="np. Jan Kowalski"
             />
+          </Field>
+          <Field label="Imię i nazwisko — narzędnik (komparycja)" required>
+            <Input
+              value={partnerInstrumental}
+              onChange={(e) => {
+                instrTouched.current = true;
+                setPartnerInstrumental(e.target.value);
+              }}
+              placeholder="np. Janem Kowalskim"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              „z Panem/ią …" — auto-odmiana; popraw przy nietypowych nazwiskach.
+            </p>
           </Field>
           <Field label="Nazwa Firmy" required>
             <Input

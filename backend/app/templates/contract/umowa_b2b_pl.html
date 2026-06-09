@@ -4,7 +4,7 @@
 <p>B2B.NET S.A. z siedzibą w Warszawie, Aleje Jerozolimskie 180, 02-486 Warszawa, wpisaną do Rejestru Przedsiębiorców prowadzonego przez Sąd Rejonowy dla m.st. Warszawy w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego, KRS pod nr 0000387063, NIP: 5711707392, o kapitale akcyjnym 1.360.000,00 zł (opłaconym), reprezentowaną przez Pana Artura Twardowskiego – Prezesa Zarządu,</p>
 <p>dalej jako „Spółka” lub „B2BNET”</p>
 <p>a</p>
-<p>{{ b2b.g_pan }} {{ candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+<p>{{ b2b.g_pan }} {{ b2b.partner_instrumental or candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
 <p>Dane kontaktowe:</p>
 <p>Tel. {{ candidate.phone or '…' }} Adres e-mail: {{ candidate.email or '…' }}</p>
 <p>{{ b2b.g_zwany }} w dalszej części umowy „Partnerem”</p>
@@ -162,7 +162,7 @@ Definicje</h2>
 
 a
 
-{{ b2b.g_pan }} {{ candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
+{{ b2b.g_pan }} {{ b2b.partner_instrumental or candidate.full_name or '………' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }},</p>
 <p>{{ b2b.g_zwanym }} dalej „Podmiotem Przetwarzającym”</p>
 <h2>§ 1. 
 Przedmiot Umowy Powierzenia</h2>

@@ -88,6 +88,10 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "start_clause": start_clause(
                 req.start_date, getattr(req, "start_date_mode", None), lang
             ),
+            # Forma narzędnika do komparycji (liczona w FE); pusty → mianownik.
+            "partner_instrumental": (
+                getattr(req, "partner_instrumental", None) or req.partner_name
+            ),
             **gender_forms(getattr(req, "gender", None)),
         },
     }
