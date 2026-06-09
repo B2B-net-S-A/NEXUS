@@ -222,7 +222,13 @@ export function B2BContractGeneratorV2() {
             <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
           ) : null}
         </TabsList>
-        <TabsContent value="generator">
+        {/* forceMount: nie odmontowuj formularza przy przejściu na inną
+            zakładkę — inaczej wpisane dane znikają (zgłoszone przez Artura). */}
+        <TabsContent
+          value="generator"
+          forceMount
+          className="data-[state=inactive]:hidden"
+        >
           <GeneratorForm />
         </TabsContent>
         <TabsContent value="generated">
