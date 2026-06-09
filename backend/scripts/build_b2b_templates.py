@@ -47,7 +47,10 @@ _DOTS = "………"
 # Każdy wpis: (regex, replacement). Replacement niesie pełny kanoniczny tekst.
 
 PL_RULES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"nr\s+[.…]+\s*/\s*2026"), f"nr {{{{ b2b.contract_number or '{_DOTS}' }}}}"),
+    (
+        re.compile(r"nr\s+[.…]+\s*/\s*2026"),
+        f"nr {{{{ b2b.contract_number or '{_DOTS}' }}}}",
+    ),
     (
         re.compile(r"zawarta w dniu\s+[.…]+\s+roku w Warszawie"),
         "zawarta w dniu {{ b2b.signing_date | pl_date }} roku w Warszawie",
@@ -73,7 +76,9 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
     ),
     (
         # §12 doręczenia — e-mail Partnera = ten z „Dane Partnera (firma)".
-        re.compile(r"Dla Partnera:\s*Adres e-mail Partnera wskazany w komparycji Umowy\.?"),
+        re.compile(
+            r"Dla Partnera:\s*Adres e-mail Partnera wskazany w komparycji Umowy\.?"
+        ),
         "Dla Partnera: {{ candidate.email or '" + _DOTS + "' }}",
     ),
     (
@@ -126,7 +131,10 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
 ]
 
 EN_RULES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"No\.\s+[.…]+\s*/\s*2026"), f"No. {{{{ b2b.contract_number or '{_DOTS}' }}}}"),
+    (
+        re.compile(r"No\.\s+[.…]+\s*/\s*2026"),
+        f"No. {{{{ b2b.contract_number or '{_DOTS}' }}}}",
+    ),
     (
         re.compile(r"concluded on\s+[.…]+\s+in Warsaw"),
         "concluded on {{ b2b.signing_date | pl_date }} in Warsaw",
@@ -137,7 +145,9 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
             r"\s*registered[^_]*?at the address:\s*_+,\s*00-000\s*_+,"
             r"\s*NIP:\s*_+,\s*REGON:\s*_+,"
         ),
-        "{{ b2b.g_mr }} {{ candidate.full_name or '" + _DOTS + "' }} conducting business "
+        "{{ b2b.g_mr }} {{ candidate.full_name or '"
+        + _DOTS
+        + "' }} conducting business "
         "activity under the name: {{ candidate.legal_name or '" + _DOTS + "' }}, "
         "registered in the Central Register and Information on Economic Activity at "
         "the address: {{ candidate.business_address or '" + _DOTS + "' }}, NIP: "
@@ -242,6 +252,18 @@ def patch_appendix_table(doc: _DocType, lang: str) -> None:
     # opis i zakres trafiają w całości do pola „Opis projektu i zakres usług".
 
 
+def unbold_partner(doc: _DocType) -> None:
+    """Dane Partnera (komparycja, kontakt, §doręczenia) nie mają być pogrubione.
+
+    Oryginał miał te pola „na żółto" pogrubione → po podstawieniu placeholderów
+    run zostawał bold. Zdejmujemy bold z akapitów zawierających dane Partnera
+    (`{{ candidate. }}`)."""
+    for p in doc.paragraphs:
+        if "{{ candidate." in p.text:
+            for r in p.runs:
+                r.bold = False
+
+
 # ── HTML generation (lustro z przekształconego docx) ─────────────────────────
 
 _HEAD_RE = re.compile(
@@ -308,6 +330,7 @@ def build(lang: str, src: Path, rules) -> None:
     doc = docx.Document(str(src))
     hits = apply_rules(doc, rules)
     patch_appendix_table(doc, lang)
+    unbold_partner(doc)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
     html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
@@ -317,9 +340,7 @@ def build(lang: str, src: Path, rules) -> None:
 
     # ── Weryfikacja ──
     # Tekst paragrafów + komórek tabeli (scope_rt siedzi w tabeli).
-    table_text = "\n".join(
-        c.text for t in doc.tables for r in t.rows for c in r.cells
-    )
+    table_text = "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
     full_text = "\n".join(p.text for p in doc.paragraphs) + "\n" + table_text
     # „Data blanks" = pola danych nadal puste (po etykiecie). Linie podpisów
     # (same podkreślenia bez etykiety) są POPRAWNE i pomijane.

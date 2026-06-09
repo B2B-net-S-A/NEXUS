@@ -76,12 +76,15 @@ async def lookup_by_biznes(nip: str) -> dict | None:
             timeout=_TIMEOUT, headers=_BROWSER_HEADERS
         ) as client:
             resp = None
-            for attempt in range(2):  # endpoint MSWF bywa chwilowo 500
+            # Endpoint MSWF (za Akamai) bywa chwilowo 500/403 → kilka prób z
+            # narastającym backoffem, żeby nie spadać do samego nazwiska z
+            # Białej Listy dla JDG z pełną nazwą firmy.
+            for attempt in range(4):
                 resp = await client.get(url, params=params)
                 if resp.status_code == 200:
                     break
-                if attempt == 0:
-                    await asyncio.sleep(0.4)
+                if attempt < 3:
+                    await asyncio.sleep(0.4 * (attempt + 1))
             if resp is None or resp.status_code != 200:
                 code = resp.status_code if resp is not None else "?"
                 logger.info("biznes.gov.pl lookup non-200 (%s) NIP %s", code, clean)

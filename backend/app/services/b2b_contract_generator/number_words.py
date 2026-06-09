@@ -163,8 +163,32 @@ def number_to_words_en(num: int | float | None) -> str:
     return " ".join(parts).strip()
 
 
-def rate_in_words(amount: int | float | None, language: str) -> str:
-    """Stawka słownie w danym języku ('pl' | 'en')."""
+def _pl_zloty(n: int) -> str:
+    """Poprawna forma „złoty" dla liczby: 1→złoty, 2-4→złote, reszta→złotych."""
+    if n == 1:
+        return "złoty"
+    last, last2 = n % 10, n % 100
+    if 2 <= last <= 4 and not (12 <= last2 <= 14):
+        return "złote"
+    return "złotych"
+
+
+def rate_in_words(
+    amount: int | float | None, language: str, currency: str = "PLN"
+) -> str:
+    """Stawka słownie z jednostką waluty ('pl' | 'en').
+
+    PLN → „sto dwadzieścia złotych" / „one hundred twenty zlotys"; inna waluta →
+    słownie + kod waluty (np. „... EUR").
+    """
     if amount is None:
         return ""
-    return number_to_words_en(amount) if language == "en" else liczba_slownie(amount)
+    n = int(abs(amount))
+    cur = (currency or "PLN").upper()
+    if language == "en":
+        words = number_to_words_en(amount)
+        unit = "zlotys" if cur == "PLN" else cur
+        return f"{words} {unit}".strip()
+    words = liczba_slownie(amount)
+    unit = _pl_zloty(n) if cur == "PLN" else cur
+    return f"{words} {unit}".strip()

@@ -27,7 +27,9 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
         default_scope = []
     scope_items = req.scope_items_override or default_scope or []
 
-    words = req.rate_in_words or rate_in_words(req.rate_candidate, lang)
+    words = req.rate_in_words or rate_in_words(
+        req.rate_candidate, lang, req.currency or "PLN"
+    )
 
     return {
         "candidate": {
