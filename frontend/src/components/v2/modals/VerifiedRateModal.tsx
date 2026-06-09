@@ -36,7 +36,7 @@ interface Props {
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
- hourly: "PLN / h",
+ hourly: "PLN / godzinę",
  daily: "PLN / dzień",
  monthly: "PLN / miesiąc",
 };
@@ -49,7 +49,7 @@ export function VerifiedRateModal({
  onConfirm,
 }: Props) {
  const [rate, setRate] = useState<string>("");
- const [unit, setUnit] = useState<RateUnit>("monthly");
+ const [unit, setUnit] = useState<RateUnit>("hourly");
  const [currency] = useState<string>("PLN");
 
  const numericRate = Number.parseFloat(rate.replace(",","."));
@@ -63,7 +63,7 @@ export function VerifiedRateModal({
  if (!isValid) return;
  onConfirm({ rate: numericRate, unit, currency });
  setRate("");
- setUnit("monthly");
+ setUnit("hourly");
  };
 
  return (
