@@ -2,12 +2,15 @@
 
 import { useState, type ReactNode } from"react";
 import Link from"next/link";
+import { useRouter } from"next/navigation";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  Briefcase,
  Building2,
  DollarSign,
+ LayoutGrid,
  Link2,
+ List,
  MapPin,
  Plus,
  Search,
@@ -25,6 +28,14 @@ import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
 import { Input } from"@/components/ui/input";
 import {
+ Table,
+ TableBody,
+ TableCell,
+ TableHead,
+ TableHeader,
+ TableRow,
+} from"@/components/ui/table";
+import {
  Select,
  SelectContent,
  SelectItem,
@@ -40,6 +51,7 @@ import {
  JOB_STATUS_OPTIONS,
  type JobStatusValue,
 } from"@/lib/filter-options";
+import { useUiStore } from"@/store/ui";
 
 type JobType ="all" |"body_leasing" |"sales" |"tenders";
 
@@ -164,6 +176,139 @@ function FilterToggle({
  );
 }
 
+/** Compact table presentation of the jobs list (alternative to the tile grid). */
+function JobsTable({
+ items,
+ onOpen,
+ onInvite,
+}: {
+ items: any[];
+ onOpen: (id: number) => void;
+ onInvite: (id: number) => void;
+}) {
+ return (
+ <Table>
+ <TableHeader>
+ <TableRow className="hover:bg-transparent">
+ <TableHead>Oferta</TableHead>
+ <TableHead>Klient</TableHead>
+ <TableHead>Status</TableHead>
+ <TableHead>Odpowiedzialny</TableHead>
+ <TableHead>Lokalizacja</TableHead>
+ <TableHead className="w-[150px]">Kandydaci</TableHead>
+ <TableHead>Dodano</TableHead>
+ <TableHead className="w-[44px]" />
+ </TableRow>
+ </TableHeader>
+ <TableBody>
+ {items.map((job: any) => {
+ const statusVariant = STATUS_VARIANT[job.status] ??"neutral";
+ const statusLabel = STATUS_LABEL[job.status] ?? job.status;
+ const filledCount = job.candidates_count ?? job.filled_count ?? 0;
+ const targetCount = job.target_positions ?? job.headcount ?? 1;
+ const progress = Math.min(
+ 100,
+ Math.round((filledCount / Math.max(1, targetCount)) * 100)
+ );
+ return (
+ <TableRow key={job.id} interactive onClick={() => onOpen(job.id)}>
+ <TableCell className="max-w-[340px]">
+ <div className="font-medium text-foreground truncate">
+ {job.title}
+ </div>
+ {job.reference_number && (
+ <div
+ className="font-mono text-[10px] text-muted-foreground/80"
+ title="Numer referencyjny"
+ >
+ {job.reference_number}
+ </div>
+ )}
+ </TableCell>
+ <TableCell>
+ {job.client_name ? (
+ <span className="inline-flex items-center gap-1 text-sm text-foreground">
+ <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+ {job.client_name}
+ </span>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ )}
+ </TableCell>
+ <TableCell>
+ <div className="flex items-center gap-1 flex-wrap">
+ <Badge size="sm" variant={statusVariant}>
+ {statusLabel}
+ </Badge>
+ {job.tac_id == null && (
+ <Badge size="sm" variant="warning">
+ Brak TAC
+ </Badge>
+ )}
+ </div>
+ </TableCell>
+ <TableCell>
+ <OwnerBadge user={job.primary_owner ?? null} size="sm" />
+ </TableCell>
+ <TableCell>
+ {job.location || job.seniority ? (
+ <div className="flex items-center gap-2 text-xs text-foreground">
+ {job.location && (
+ <span className="inline-flex items-center gap-1">
+ <MapPin className="h-3 w-3 text-muted-foreground" />
+ {job.location}
+ </span>
+ )}
+ {job.seniority && (
+ <Badge size="sm" variant="plum">
+ {job.seniority}
+ </Badge>
+ )}
+ </div>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ )}
+ </TableCell>
+ <TableCell>
+ <div className="flex items-center gap-2">
+ <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden min-w-[48px]">
+ <div
+ className="h-full bg-primary rounded-full"
+ style={{ width: `${progress}%` }}
+ />
+ </div>
+ <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+ {filledCount}/{targetCount}
+ </span>
+ </div>
+ </TableCell>
+ <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+ {job.created_at ? formatRelativeTime(job.created_at) :"—"}
+ </TableCell>
+ <TableCell>
+ {job.status === "published" && (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ onInvite(job.id);
+ }}
+ className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+ title="Wygeneruj link aplikacyjny"
+ aria-label="Wygeneruj link aplikacyjny"
+ >
+ <Link2 className="h-3.5 w-3.5" />
+ </button>
+ )}
+ </TableCell>
+ </TableRow>
+ );
+ })}
+ </TableBody>
+ </Table>
+ );
+}
+
 export function JobsListV2() {
  const [search, setSearch] = useState("");
  const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>([]);
@@ -181,6 +326,9 @@ export function JobsListV2() {
  const [showAdd, setShowAdd] = useState(false);
  const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
  const queryClient = useQueryClient();
+ const router = useRouter();
+ const jobsView = useUiStore((s) => s.jobsView);
+ const setJobsView = useUiStore((s) => s.setJobsView);
 
  const dl = deadlineParams(deadlinePreset);
 
@@ -241,11 +389,46 @@ export function JobsListV2() {
  {isLoading ?"Ładowanie…" : `${total} ofert`}
  </p>
  </div>
+ <div className="flex items-center gap-2">
+ {/* Przełącznik widoku: kafelki vs lista */}
+ <div
+ className="flex items-center rounded-md border border-border overflow-hidden"
+ role="group"
+ aria-label="Widok ofert"
+ >
+ <button
+ type="button"
+ onClick={() => setJobsView("tiles")}
+ title="Widok kafelków"
+ aria-pressed={jobsView === "tiles"}
+ className={cn("h-9 w-9 flex items-center justify-center transition-colors",
+ jobsView === "tiles"
+ ?"bg-primary text-white"
+ :"text-muted-foreground hover:bg-primary/10"
+ )}
+ >
+ <LayoutGrid className="h-4 w-4" />
+ </button>
+ <button
+ type="button"
+ onClick={() => setJobsView("list")}
+ title="Widok listy"
+ aria-pressed={jobsView === "list"}
+ className={cn("h-9 w-9 flex items-center justify-center transition-colors",
+ jobsView === "list"
+ ?"bg-primary text-white"
+ :"text-muted-foreground hover:bg-primary/10"
+ )}
+ >
+ <List className="h-4 w-4" />
+ </button>
+ </div>
  <RequireRole roles={["admin","delivery_lead","tac"]}>
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" /> Nowa oferta
  </Button>
  </RequireRole>
+ </div>
  </div>
 
  {/* Type tabs */}
@@ -401,8 +584,17 @@ export function JobsListV2() {
  </FilterToggle>
  </div>
 
- {/* Grid of job cards */}
+ {/* Wyniki — kafelki lub lista */}
  {isLoading ? (
+ jobsView === "list" ? (
+ <div className="rounded-lg border border-border bg-card divide-y divide-border/60">
+ {Array.from({ length: 8 }).map((_, i) => (
+ <div key={i} className="h-12 flex items-center px-4 animate-pulse">
+ <div className="h-3 bg-[hsl(var(--border))] rounded w-1/3" />
+ </div>
+ ))}
+ </div>
+ ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
  {Array.from({ length: 6 }).map((_, i) => (
  <Card key={i} className="animate-pulse h-48">
@@ -411,6 +603,7 @@ export function JobsListV2() {
  </Card>
  ))}
  </div>
+ )
  ) : items.length === 0 ? (
  <div className="py-12 text-center">
  <Briefcase className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
@@ -425,6 +618,12 @@ export function JobsListV2() {
  .
  </p>
  </div>
+ ) : jobsView === "list" ? (
+ <JobsTable
+ items={items}
+ onOpen={(id) => router.push(`/jobs/${id}`)}
+ onInvite={(id) => setInviteModalForJob(id)}
+ />
  ) : (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
  {items.map((job: any) => {

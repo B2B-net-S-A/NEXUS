@@ -3,11 +3,14 @@ import { persist } from "zustand/middleware";
 
 export type UiDensity = "cozy" | "compact";
 export type CandidatesView = "list" | "tiles";
+export type JobsView = "tiles" | "list";
 
 interface UiStoreState {
   density: UiDensity;
   sidebarCollapsed: boolean;
   candidatesView: CandidatesView;
+  /** Jobs list presentation — tile grid (default) vs. compact table. */
+  jobsView: JobsView;
   /**
    * Per-entity column preferences.
    *
@@ -21,6 +24,7 @@ interface UiStoreState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
   setCandidatesView: (v: CandidatesView) => void;
+  setJobsView: (v: JobsView) => void;
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
 }
@@ -31,11 +35,13 @@ export const useUiStore = create<UiStoreState>()(
       density: "cozy",
       sidebarCollapsed: false,
       candidatesView: "list",
+      jobsView: "tiles",
       columnPreferences: {},
       setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setCandidatesView: (candidatesView) => set({ candidatesView }),
+      setJobsView: (jobsView) => set({ jobsView }),
       setColumnPreference: (entity, hidden) =>
         set((s) => ({
           columnPreferences: { ...s.columnPreferences, [entity]: hidden },
@@ -49,14 +55,14 @@ export const useUiStore = create<UiStoreState>()(
     }),
     {
       name: "nexus-ui",
-      version: 2,
+      version: 3,
       migrate: (persisted, fromVersion) => {
-        const state = (persisted ?? {}) as Partial<UiStoreState>;
+        let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
-          return {
-            ...state,
-            candidatesView: state.candidatesView ?? "list",
-          };
+          state = { ...state, candidatesView: state.candidatesView ?? "list" };
+        }
+        if (fromVersion < 3) {
+          state = { ...state, jobsView: state.jobsView ?? "tiles" };
         }
         return state;
       },
