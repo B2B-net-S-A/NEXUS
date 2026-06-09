@@ -391,7 +391,15 @@ async def callback(
         user.external_id = azure_oid
         user.azure_oid = azure_oid
         user.microsoft_upn = email
-        if not user.is_active:
+        # When AAD RBAC is enabled, ``is_active`` is the AUTHORITATIVE output of
+        # AAD group membership, re-derived in the RBAC block below (a user in a
+        # valid group gets is_active=True; one in no mapped group gets blocked
+        # with a clearer "no AD role" message). So a stale is_active=False — e.g.
+        # left over from an admin bulk-cleanup that wrongly disabled an SSO
+        # account — must NOT short-circuit here, or that user can never be
+        # reactivated even while still in their AAD group. With RBAC disabled
+        # there is no later gate, so the flag is honoured immediately.
+        if not user.is_active and not settings.AAD_GROUP_RBAC_ENABLED:
             return RedirectResponse(
                 _frontend_login_error_url("Account disabled"), status_code=302
             )
