@@ -97,7 +97,7 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
     ),
     (
         re.compile(r"podjęcia świadczenia Usług z dniem\s+[.…]+"),
-        "podjęcia świadczenia Usług z dniem {{ contract.start_date | pl_date }}",
+        "podjęcia świadczenia Usług {{ b2b.start_clause }}",
     ),
     (
         re.compile(r"do umowy nr\s+[.…]+\s+z dnia\s+[.…]+"),
@@ -183,7 +183,7 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
     ),
     (
         re.compile(r"commence the provision of Services on\s+[.…]+"),
-        "commence the provision of Services on {{ contract.start_date | pl_date }}",
+        "commence the provision of Services {{ b2b.start_clause }}",
     ),
     (
         re.compile(r"to agreement No\.\s+[.…]+\s+dated\s+[.…]+"),

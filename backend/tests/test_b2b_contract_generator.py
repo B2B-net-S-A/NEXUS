@@ -89,6 +89,7 @@ def _sample_context(lang: str = "pl", gender: str = "m") -> dict:
             "role_name": "Backend Software Development",
             "language": lang,
             "scope_items": scope,
+            "start_clause": "z dniem 01.07.2026" if lang == "pl" else "on 01.07.2026",
             **gender_forms(gender),
         },
         "job": {"id": None, "title": None},

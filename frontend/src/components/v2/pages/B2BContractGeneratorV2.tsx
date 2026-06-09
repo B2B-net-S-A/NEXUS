@@ -12,6 +12,7 @@ import {
   Printer,
   Save,
   Search,
+  Sparkles,
   X,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -52,6 +53,7 @@ import api, {
   extractErrorMsg,
   type B2BRenderPayload,
   type B2BRole,
+  type B2BUopCheckResult,
 } from "@/lib/api";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
@@ -172,23 +174,87 @@ export function B2BContractGeneratorV2() {
         </div>
       </div>
 
-      {isAdmin ? (
-        <Tabs defaultValue="generator">
-          <TabsList className="mb-4">
-            <TabsTrigger value="generator">Generator</TabsTrigger>
+      <Tabs defaultValue="generator">
+        <TabsList className="mb-4">
+          <TabsTrigger value="generator">Generator</TabsTrigger>
+          <TabsTrigger value="generated">Wygenerowane umowy</TabsTrigger>
+          {isAdmin ? (
             <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
-          </TabsList>
-          <TabsContent value="generator">
-            <GeneratorForm />
-          </TabsContent>
+          ) : null}
+        </TabsList>
+        <TabsContent value="generator">
+          <GeneratorForm />
+        </TabsContent>
+        <TabsContent value="generated">
+          <GeneratedContractsTab />
+        </TabsContent>
+        {isAdmin ? (
           <TabsContent value="roles">
             <RoleScopeEditor />
           </TabsContent>
-        </Tabs>
-      ) : (
-        <GeneratorForm />
-      )}
+        ) : null}
+      </Tabs>
     </div>
+  );
+}
+
+// ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
+
+function GeneratedContractsTab() {
+  const q = useQuery({
+    queryKey: ["b2b-generated"],
+    queryFn: () => b2bGeneratorApi.generated(100),
+    staleTime: 10_000,
+  });
+  const rows = q.data ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
+        <CardDescription>
+          Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
+          numer nie powtarza istniejącego.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {q.isLoading ? (
+          <p className="text-sm text-muted-foreground">Ładowanie…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Brak wygenerowanych umów.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Numer</th>
+                  <th className="py-2 pr-4 font-medium">Partner</th>
+                  <th className="py-2 pr-4 font-medium">Klient</th>
+                  <th className="py-2 pr-4 font-medium">Język</th>
+                  <th className="py-2 font-medium">Wygenerowano</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={`${r.contract_number}-${i}`} className="border-b">
+                    <td className="py-2 pr-4 font-medium">
+                      {r.contract_number}
+                    </td>
+                    <td className="py-2 pr-4">{r.partner_name || "—"}</td>
+                    <td className="py-2 pr-4">{r.client_name || "—"}</td>
+                    <td className="py-2 pr-4 uppercase">{r.language || "—"}</td>
+                    <td className="py-2 text-muted-foreground">
+                      {r.created_at ? r.created_at.slice(0, 16).replace("T", " ") : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -221,6 +287,8 @@ function GeneratorForm() {
 
   // Klient + projekt
   const [clientName, setClientName] = useState("");
+  const [clientOpen, setClientOpen] = useState(false);
+  const [clientQuery, setClientQuery] = useState("");
   const [projectCity, setProjectCity] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
 
@@ -228,8 +296,14 @@ function GeneratorForm() {
   const [contractNumber, setContractNumber] = useState("");
   const [signingDate, setSigningDate] = useState(todayISO());
   const [startDate, setStartDate] = useState(todayISO());
+  const [startDateMode, setStartDateMode] = useState<
+    "exact" | "not_earlier" | "not_later"
+  >("exact");
   const [rateCandidate, setRateCandidate] = useState("");
   const [currency, setCurrency] = useState("PLN");
+
+  // AI-sprawdzenie opisu pod kątem znamion umowy o pracę (#3).
+  const [uop, setUop] = useState<B2BUopCheckResult | null>(null);
 
   // Płeć Partnera — steruje formami gramatycznymi w umowie (Panem/ią,
   // prowadzącym/cą, zwany/a, zapoznałem/am).
@@ -278,6 +352,12 @@ function GeneratorForm() {
     queryKey: ["b2b-next-number"],
     queryFn: () => b2bGeneratorApi.nextNumber(),
     staleTime: 60_000,
+  });
+
+  const clientsQuery = useQuery({
+    queryKey: ["b2b-clients-lookup"],
+    queryFn: () => b2bGeneratorApi.clientsLookup(),
+    staleTime: 300_000,
   });
 
   const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
@@ -407,6 +487,15 @@ function GeneratorForm() {
     return Array.from(map.values());
   }, [roles, language]);
 
+  const filteredClients = useMemo(() => {
+    const all = clientsQuery.data ?? [];
+    const q = clientQuery.trim().toLowerCase();
+    const list = q
+      ? all.filter((c) => c.name.toLowerCase().includes(q))
+      : all;
+    return list.slice(0, 50);
+  }, [clientsQuery.data, clientQuery]);
+
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
     role_id: selectedRole ? selectedRole.id : null,
     language: lang,
@@ -425,6 +514,7 @@ function GeneratorForm() {
     contract_number: contractNumber.trim() || null,
     signing_date: signingDate || null,
     start_date: startDate || null,
+    start_date_mode: startDateMode,
     rate_candidate: rateCandidate ? Number(rateCandidate) : null,
     currency: currency.trim() || "PLN",
   });
@@ -475,6 +565,13 @@ function GeneratorForm() {
   const previewMut = useMutation({
     mutationFn: () => b2bGeneratorApi.renderHtml(buildPayload(language)),
     onSuccess: (d) => setPreviewHtml(d.html),
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const uopMut = useMutation({
+    mutationFn: () =>
+      b2bGeneratorApi.checkUop({ text: projectDescription, language }),
+    onSuccess: (d) => setUop(d),
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
@@ -730,11 +827,67 @@ function GeneratorForm() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field label="Pełna nazwa Klienta" required>
-            <Input
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              placeholder="np. ACME Bank S.A."
-            />
+            <Popover open={clientOpen} onOpenChange={setClientOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                >
+                  <span className="truncate">
+                    {clientName || "Wybierz lub wpisz klienta…"}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[--radix-popover-trigger-width] p-0"
+              >
+                <Command shouldFilter={false}>
+                  <CommandInput
+                    placeholder="Szukaj klienta…"
+                    value={clientQuery}
+                    onValueChange={setClientQuery}
+                  />
+                  <CommandList>
+                    <CommandEmpty>Brak klientów na liście.</CommandEmpty>
+                    {clientQuery.trim() ? (
+                      <CommandGroup heading="Własna nazwa">
+                        <CommandItem
+                          value={`__custom__${clientQuery}`}
+                          onSelect={() => {
+                            setClientName(clientQuery.trim());
+                            setClientOpen(false);
+                          }}
+                        >
+                          Użyj: „{clientQuery.trim()}"
+                        </CommandItem>
+                      </CommandGroup>
+                    ) : null}
+                    <CommandGroup heading="Klienci">
+                      {filteredClients.map((c) => (
+                        <CommandItem
+                          key={c.id}
+                          value={`${c.id}-${c.name}`}
+                          onSelect={() => {
+                            setClientName(c.name);
+                            setClientOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              clientName === c.name ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          <span className="truncate">{c.name}</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </Field>
           <Field label="Miasto Klienta" required>
             <Input
@@ -749,10 +902,38 @@ function GeneratorForm() {
               onChange={(e) => {
                 descTouched.current = true;
                 setProjectDescription(e.target.value);
+                if (uop) setUop(null);
               }}
-              rows={3}
-              placeholder="Auto z roli/oferty — możesz nadpisać…"
+              rows={4}
+              placeholder="Auto z obszaru/oferty — możesz nadpisać. Po wklejeniu sprawdź AI…"
             />
+            <div className="mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!projectDescription.trim() || uopMut.isPending}
+                onClick={() => uopMut.mutate()}
+              >
+                {uopMut.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                Sprawdź pod kątem umowy o pracę (AI)
+              </Button>
+            </div>
+            {uop ? (
+              <UopPanel
+                uop={uop}
+                onApply={() => {
+                  setProjectDescription(uop.rewritten);
+                  descTouched.current = true;
+                  setUop(null);
+                }}
+                onClose={() => setUop(null)}
+              />
+            ) : null}
           </Field>
         </CardContent>
       </Card>
@@ -809,11 +990,28 @@ function GeneratorForm() {
             />
           </Field>
           <Field label="Data rozpoczęcia usług" required>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
+            <div className="flex gap-2">
+              <Select
+                value={startDateMode}
+                onValueChange={(v) =>
+                  setStartDateMode(v as "exact" | "not_earlier" | "not_later")
+                }
+              >
+                <SelectTrigger className="w-[150px] shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="exact">z dniem</SelectItem>
+                  <SelectItem value="not_earlier">nie wcześniej niż</SelectItem>
+                  <SelectItem value="not_later">nie później niż</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Stawka godz. (netto)" required>
@@ -906,6 +1104,72 @@ function lookupHint(status: LookupStatus) {
       </span>
     );
   return null;
+}
+
+// ── Panel wyniku AI-sprawdzenia opisu (znamiona umowy o pracę) ───────────────
+
+function UopPanel({
+  uop,
+  onApply,
+  onClose,
+}: {
+  uop: B2BUopCheckResult;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  if (uop.ok) {
+    return (
+      <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+        ✓ AI nie wykryło znamion umowy o pracę
+        {uop.summary ? ` — ${uop.summary}` : "."}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+          AI wykryło {uop.issues.length}{" "}
+          {uop.issues.length === 1
+            ? "ryzykowne sformułowanie"
+            : "ryzykowne sformułowania"}{" "}
+          (możliwe znamiona umowy o pracę)
+        </p>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      {uop.summary ? (
+        <p className="text-xs text-muted-foreground">{uop.summary}</p>
+      ) : null}
+      <ul className="space-y-2">
+        {uop.issues.map((i, idx) => (
+          <li key={idx} className="rounded border bg-background p-2 text-xs">
+            <p className="font-medium text-destructive">„{i.phrase}"</p>
+            {i.why ? (
+              <p className="mt-0.5 text-muted-foreground">{i.why}</p>
+            ) : null}
+            {i.suggestion ? (
+              <p className="mt-1">
+                <span className="font-medium">Propozycja:</span> {i.suggestion}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {uop.rewritten ? (
+        <Button type="button" size="sm" onClick={onApply}>
+          <Check className="mr-2 h-4 w-4" />
+          Zastąp bezpieczną wersją
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function Field({

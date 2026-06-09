@@ -21,3 +21,26 @@ def pl_date(value: object) -> str:
     if isinstance(value, (date, datetime)):
         return f"{value.day:02d}.{value.month:02d}.{value.year}"
     return str(value)
+
+
+# §13 — fraza daty rozpoczęcia świadczenia Usług wg trybu wybranego w UI.
+_START_PREFIX = {
+    "pl": {
+        "exact": "z dniem",
+        "not_earlier": "nie wcześniej niż",
+        "not_later": "nie później niż",
+    },
+    "en": {
+        "exact": "on",
+        "not_earlier": "no earlier than",
+        "not_later": "no later than",
+    },
+}
+
+
+def start_clause(value: object, mode: str | None, language: str | None) -> str:
+    """„z dniem 01.04.2026" / „nie wcześniej niż …" / „nie później niż …"."""
+    lang = "en" if (language or "pl").lower().startswith("en") else "pl"
+    prefixes = _START_PREFIX[lang]
+    prefix = prefixes.get((mode or "exact"), prefixes["exact"])
+    return f"{prefix} {pl_date(value)}"
