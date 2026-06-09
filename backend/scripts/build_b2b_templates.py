@@ -72,7 +72,7 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
     ),
     (
         re.compile(r"Tel\.\s*[.…]+\s*Adres e-mail:\s*[.…]+"),
-        "Tel. {{ candidate.phone or '…' }} Adres e-mail: {{ candidate.email or '…' }}",
+        "Tel. {{ candidate.phone or '…' }}; Adres e-mail: {{ candidate.email or '…' }}",
     ),
     (
         # §12 doręczenia — e-mail Partnera = ten z „Dane Partnera (firma)".
@@ -102,7 +102,7 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
     (
         re.compile(r"do umowy nr\s+[.…]+\s+z dnia\s+[.…]+"),
         "do umowy nr {{ b2b.contract_number or '…' }} z dnia "
-        "{{ b2b.signing_date | pl_date }}",
+        "{{ b2b.signing_date | pl_date }} r.",
     ),
     (
         re.compile(
@@ -156,7 +156,7 @@ EN_RULES: list[tuple[re.Pattern, str]] = [
     ),
     (
         re.compile(r"Tel\.\s*[.…]+\s*E-mail address:\s*[.…]+"),
-        "Tel. {{ candidate.phone or '…' }} E-mail address: "
+        "Tel. {{ candidate.phone or '…' }}; E-mail address: "
         "{{ candidate.email or '…' }}",
     ),
     (
@@ -264,6 +264,56 @@ def unbold_partner(doc: _DocType) -> None:
                 r.bold = False
 
 
+# Komparycja: pogrubiamy TYLKO „Pan/Pani + imię i nazwisko". (head, splitter):
+# bold = tekst od `head` do `splitter`; reszta normalna.
+_KOMPARYCJA_SPLITS = [
+    ("{{ b2b.g_pan }}", "{{ b2b.g_prowadzacy }}"),  # PL
+    ("{{ b2b.g_mr }}", "conducting business"),  # EN
+]
+
+
+def format_komparycja(doc: _DocType) -> None:
+    """Pogrub w komparycji wyłącznie „Panem/ią <Imię i nazwisko>" (np. „Panem
+    Pawłem Żurawikiem"); firma, NIP, REGON, adres pozostają bez pogrubienia."""
+    for p in doc.paragraphs:
+        t = p.text
+        for head, splitter in _KOMPARYCJA_SPLITS:
+            hi, si = t.find(head), t.find(splitter)
+            if hi == -1 or si == -1 or si <= hi:
+                continue
+            prefix, bold_part, rest = t[:hi], t[hi:si], t[si:]
+            runs = p.runs
+            font_name = runs[0].font.name if runs else None
+            font_size = runs[0].font.size if runs else None
+            for r in list(runs):
+                r._element.getparent().remove(r._element)
+            for text, is_bold in ((prefix, False), (bold_part, True), (rest, False)):
+                if not text:
+                    continue
+                r = p.add_run(text)
+                r.bold = is_bold
+                if font_name:
+                    r.font.name = font_name
+                if font_size:
+                    r.font.size = font_size
+            break
+
+
+def keep_headings_with_content(doc: _DocType) -> None:
+    """Nie zostawiaj nagłówka §/tytułu sekcji samego na końcu strony — Word
+    przerzuci go z treścią na nową stronę (keep_with_next)."""
+    paras = doc.paragraphs
+    for i, p in enumerate(paras):
+        t = p.text.strip()
+        if not t:
+            continue
+        is_section = t.startswith("§") or bool(_HEAD_RE.match(t))
+        prev = paras[i - 1].text.strip() if i > 0 else ""
+        is_title_after_section = prev.startswith("§") and len(t) < 80
+        if is_section or is_title_after_section:
+            p.paragraph_format.keep_with_next = True
+
+
 # ── HTML generation (lustro z przekształconego docx) ─────────────────────────
 
 _HEAD_RE = re.compile(
@@ -305,6 +355,16 @@ def _table_html(tbl: Table) -> str:
     return "".join(out)
 
 
+def _para_inner_html(p: Paragraph) -> str:
+    """Inner HTML akapitu z zachowaniem pogrubienia run-ów (bold → <strong>)."""
+    runs = p.runs
+    if not runs:
+        return _esc(p.text)
+    return "".join(
+        f"<strong>{_esc(r.text)}</strong>" if r.bold else _esc(r.text) for r in runs
+    )
+
+
 def doc_to_html(doc: _DocType) -> str:
     parts: list[str] = []
     first_done = False
@@ -322,7 +382,7 @@ def doc_to_html(doc: _DocType) -> str:
         elif style.startswith("Title") or _HEAD_RE.match(text):
             parts.append(f"<h2>{_esc(text)}</h2>")
         else:
-            parts.append(f"<p>{_esc(text)}</p>")
+            parts.append(f"<p>{_para_inner_html(block)}</p>")
     return "\n".join(parts)
 
 
@@ -331,6 +391,8 @@ def build(lang: str, src: Path, rules) -> None:
     hits = apply_rules(doc, rules)
     patch_appendix_table(doc, lang)
     unbold_partner(doc)
+    format_komparycja(doc)  # bold tylko „Pan/Pani + imię i nazwisko"
+    keep_headings_with_content(doc)  # nagłówek § nie zostaje sam na końcu strony
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
     html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
