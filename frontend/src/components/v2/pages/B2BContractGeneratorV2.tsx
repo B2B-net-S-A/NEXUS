@@ -182,6 +182,8 @@ function printHtml(bodyHtml: string, title: string) {
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>` +
       "<style>body{font-family:Helvetica,Arial,sans-serif;max-width:780px;margin:24px auto;" +
       "line-height:1.55;color:#222;padding:0 20px}h1,h2,h3{color:#111}" +
+      // §nagłówek nie zostaje sam na końcu strony (#4)
+      "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
       "table{border-collapse:collapse;width:100%;margin:1em 0}" +
       "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}" +
       "@media print{body{margin:0;padding:0}}</style>" +
@@ -194,8 +196,28 @@ function printHtml(bodyHtml: string, title: string) {
 const PREVIEW_STYLE =
   "body{font-family:Helvetica,Arial,sans-serif;margin:18px;line-height:1.5;color:#222;font-size:13px}" +
   "h1{font-size:18px}h2{font-size:15px;margin-top:1.4em}h3{font-size:13px}" +
+  "h1,h2,h3{break-after:avoid;page-break-after:avoid;break-inside:avoid}" +
   "table{border-collapse:collapse;width:100%;margin:1em 0}" +
   "th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}";
+
+// Prefiksy telefoniczne do wyboru przed numerem (#2). +48 domyślnie.
+const PHONE_PREFIXES = [
+  "+48",
+  "+44",
+  "+49",
+  "+380",
+  "+375",
+  "+1",
+  "+33",
+  "+39",
+  "+34",
+  "+31",
+  "+420",
+  "+421",
+  "+370",
+  "+371",
+  "+372",
+];
 
 export function B2BContractGeneratorV2() {
   const { user } = useAuthStore();
@@ -330,6 +352,7 @@ function GeneratorForm() {
     useState("");
   const [partnerEmail, setPartnerEmail] = useState("");
   const [partnerPhone, setPartnerPhone] = useState("");
+  const [phonePrefix, setPhonePrefix] = useState("+48");
 
   // Klient + projekt
   const [clientName, setClientName] = useState("");
@@ -565,7 +588,11 @@ function GeneratorForm() {
     partner_nip: partnerNip.trim() || null,
     partner_regon: partnerRegon.trim() || null,
     partner_email: partnerEmail.trim() || null,
-    partner_phone: partnerPhone.trim() || null,
+    partner_phone: partnerPhone.trim()
+      ? partnerPhone.trim().startsWith("+")
+        ? partnerPhone.trim()
+        : `${phonePrefix} ${partnerPhone.trim()}`
+      : null,
     client_name: clientName.trim() || null,
     project_city: projectCity.trim() || null,
     project_description: projectDescription.trim() || null,
@@ -884,10 +911,25 @@ function GeneratorForm() {
             />
           </Field>
           <Field label="Telefon" required>
-            <Input
-              value={partnerPhone}
-              onChange={(e) => setPartnerPhone(e.target.value)}
-            />
+            <div className="flex gap-2">
+              <Select value={phonePrefix} onValueChange={setPhonePrefix}>
+                <SelectTrigger className="w-[92px] shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PHONE_PREFIXES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={partnerPhone}
+                onChange={(e) => setPartnerPhone(e.target.value)}
+                placeholder="600 100 200"
+              />
+            </div>
           </Field>
         </CardContent>
       </Card>
