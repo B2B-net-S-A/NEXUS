@@ -13,6 +13,7 @@ import {
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { RequireRole } from"@/components/RequireRole";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -148,11 +149,13 @@ export function ContractsListV2() {
  <TrendingUp className="h-4 w-4" /> Analityka
  </Button>
  </Link>
+ <RequireRole roles={["admin", "delivery_lead", "tac"]}>
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">
  <Plus className="h-4 w-4" /> Nowy kontrakt
  </Button>
  </Link>
+ </RequireRole>
  </div>
  </div>
 
