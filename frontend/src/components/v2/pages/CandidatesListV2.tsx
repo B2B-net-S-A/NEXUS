@@ -10,6 +10,7 @@ import {
  Briefcase,
  Building2,
  ChevronRight,
+ CircleDot,
  Columns3,
  Copy,
  Download,
@@ -18,6 +19,7 @@ import {
  FileText,
  GitCompare,
  Globe,
+ Layers,
  LayoutGrid,
  Link as LinkIcon,
  Linkedin,
@@ -32,6 +34,7 @@ import {
  SlidersHorizontal,
  Sparkles,
  Table2,
+ Tags,
  Target,
  Upload,
  Users,
@@ -93,7 +96,9 @@ import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
 import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
 import {
  AVAILABILITY_OPTIONS,
+ type AvailabilityValue,
  CANDIDATE_STATUS_OPTIONS,
+ type CandidateStatusValue,
  EMPLOYMENT_OPTIONS,
  OPEN_TO_OPTIONS,
  type OpenToValue,
@@ -146,16 +151,48 @@ function toggleInList<T>(list: readonly T[], value: T): T[] {
     : [...list, value];
 }
 
+// Akcent nagłówka sekcji — kolorowa „plakietka" z ikoną. Po jednym tonie na
+// sekcję, żeby bloki filtrów dało się rozróżnić na pierwszy rzut oka. Statyczne
+// klasy (Tailwind nie czyta dynamicznie sklejanych nazw).
+type SectionAccent = "primary" | "emerald" | "violet" | "sky" | "amber";
+
+const SECTION_ACCENT_CLASSES: Record<SectionAccent, string> = {
+  primary: "bg-primary/10 text-primary",
+  emerald:
+    "bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
+  violet:
+    "bg-violet-500/12 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
+  sky: "bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400",
+  amber:
+    "bg-amber-500/15 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
+};
+
+// Każda sekcja to teraz osobna „karta" (border + cień) z kolorową ikoną w
+// nagłówku — sekcje przestają się zlewać, a wzrok łapie strukturę panelu.
 function FilterSection({
   title,
+  icon,
+  accent = "primary",
   children,
 }: {
   title: string;
+  icon?: ReactNode;
+  accent?: SectionAccent;
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3 border-t border-border pt-6 first:border-t-0 first:pt-0">
-      <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+    <section className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-sm">
+      <h3 className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-foreground">
+        {icon ? (
+          <span
+            className={cn(
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg [&>svg]:h-4 [&>svg]:w-4",
+              SECTION_ACCENT_CLASSES[accent],
+            )}
+          >
+            {icon}
+          </span>
+        ) : null}
         {title}
       </h3>
       <div className="space-y-4">{children}</div>
@@ -183,16 +220,46 @@ function FilterField({
   );
 }
 
+// Semantyczne tony „pigułek" — subtelny tint, gdy nieaktywne; pełny kolor po
+// zaznaczeniu. Używane tam, gdzie kolor niesie znaczenie (status, dyspozycyjność);
+// reszta grup zostaje neutralna (indygo), żeby nie robić tęczy. Statyczne klasy.
+type PillTone = "neutral" | "emerald" | "amber" | "rose" | "sky";
+
+const PILL_TONE_CLASSES: Record<PillTone, { on: string; off: string }> = {
+  neutral: {
+    on: "bg-primary text-white border-primary",
+    off: "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+  },
+  emerald: {
+    on: "bg-emerald-700 text-white border-emerald-700",
+    off: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/70 dark:hover:bg-emerald-900/50",
+  },
+  amber: {
+    on: "bg-amber-400 text-amber-950 border-amber-400",
+    off: "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/70 dark:hover:bg-amber-900/50",
+  },
+  rose: {
+    on: "bg-rose-700 text-white border-rose-700",
+    off: "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/70 dark:hover:bg-rose-900/50",
+  },
+  sky: {
+    on: "bg-sky-700 text-white border-sky-700",
+    off: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-900/70 dark:hover:bg-sky-900/50",
+  },
+};
+
 function PillGroup<V extends string>({
   label,
   options,
   value,
   onToggle,
+  tones,
 }: {
   label: string;
   options: ReadonlyArray<{ value: V; label: string }>;
   value: readonly string[];
   onToggle: (value: V) => void;
+  tones?: Partial<Record<V, PillTone>>;
 }) {
   return (
     <div className="space-y-1.5">
@@ -202,6 +269,7 @@ function PillGroup<V extends string>({
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => {
           const active = value.includes(opt.value);
+          const tone = PILL_TONE_CLASSES[tones?.[opt.value] ?? "neutral"];
           return (
             <button
               key={String(opt.value)}
@@ -210,9 +278,7 @@ function PillGroup<V extends string>({
               aria-pressed={active}
               className={cn(
                 "px-2.5 py-1 text-xs rounded-full border transition-colors",
-                active
-                  ? "bg-primary text-white border-primary"
-                  : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+                active ? tone.on : tone.off,
               )}
             >
               {opt.label}
@@ -223,6 +289,18 @@ function PillGroup<V extends string>({
     </div>
   );
 }
+
+// Mapy tonów dla grup, gdzie kolor niesie znaczenie. Reszta pigułek = neutral.
+const STATUS_PILL_TONES: Partial<Record<CandidateStatusValue, PillTone>> = {
+  active: "emerald",
+  passive: "amber",
+  blacklisted: "rose",
+};
+
+const AVAILABILITY_PILL_TONES: Partial<Record<AvailabilityValue, PillTone>> = {
+  actively_looking: "emerald",
+  open_to_offers: "sky",
+};
 
 function PresetChip({
   active,
@@ -2009,9 +2087,13 @@ export function CandidatesListV2() {
             </SheetDescription>
           </SheetHeader>
 
-          <SheetBody className="space-y-6">
+          <SheetBody className="space-y-4 bg-muted/30">
             {/* Szybkie filtry — gotowe presety jednym kliknięciem. */}
-            <FilterSection title="Szybkie filtry">
+            <FilterSection
+              title="Szybkie filtry"
+              icon={<Sparkles />}
+              accent="primary"
+            >
               <div className="flex flex-wrap gap-2">
                 <PresetChip
                   icon={<Sparkles className="h-4 w-4" />}
@@ -2060,11 +2142,16 @@ export function CandidatesListV2() {
             </FilterSection>
 
             {/* Status i dostępność — małe zbiory opcji jako „pigułki". */}
-            <FilterSection title="Status i dostępność">
+            <FilterSection
+              title="Status i dostępność"
+              icon={<CircleDot />}
+              accent="emerald"
+            >
               <PillGroup
                 label="Status"
                 options={CANDIDATE_STATUS_OPTIONS}
                 value={statusFilter}
+                tones={STATUS_PILL_TONES}
                 onToggle={(v) => {
                   setStatusFilter(toggleInList(statusFilter, v));
                   setPage(1);
@@ -2083,6 +2170,7 @@ export function CandidatesListV2() {
                 label="Dyspozycyjność"
                 options={AVAILABILITY_OPTIONS}
                 value={availabilityFilter}
+                tones={AVAILABILITY_PILL_TONES}
                 onToggle={(v) => {
                   setAvailabilityFilter(toggleInList(availabilityFilter, v));
                   setPage(1);
@@ -2100,7 +2188,11 @@ export function CandidatesListV2() {
             </FilterSection>
 
             {/* Etap rekrutacji — zunifikowany panel etap/klient/kto/kiedy. */}
-            <FilterSection title="Etap rekrutacji">
+            <FilterSection
+              title="Etap rekrutacji"
+              icon={<Layers />}
+              accent="violet"
+            >
               <StageFilterPanel
                 value={{
                   stages: pipelineStageFilter,
@@ -2129,7 +2221,11 @@ export function CandidatesListV2() {
             </FilterSection>
 
             {/* Dane zawodowe — lokalizacja, firmy, tryb pracy, doświadczenie. */}
-            <FilterSection title="Dane zawodowe">
+            <FilterSection
+              title="Dane zawodowe"
+              icon={<Briefcase />}
+              accent="sky"
+            >
               <FilterField label="Lokalizacja">
                 <LocationInput
                   value={locationFilter}
@@ -2278,7 +2374,11 @@ export function CandidatesListV2() {
             </FilterSection>
 
             {/* Pule i przynależność — talent pool, kto dodał, historia klienta. */}
-            <FilterSection title="Pule i przynależność">
+            <FilterSection
+              title="Pule i przynależność"
+              icon={<Tags />}
+              accent="amber"
+            >
               <FilterField label="Talent pool">
                 <TalentPoolMultiSelect
                   value={poolIds}
@@ -2311,8 +2411,9 @@ export function CandidatesListV2() {
               </FilterField>
             </FilterSection>
 
-            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE). */}
-            <section className="border-t border-border pt-6">
+            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE).
+                Karta bez własnego nagłówka — popover renderuje swój h3. */}
+            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
               <AdvancedSearchPopover
                 value={{ all: qAll, any: qAny, none: qNone }}
                 onChange={(next) => {
