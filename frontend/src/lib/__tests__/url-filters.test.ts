@@ -5,6 +5,7 @@ import {
   decodeFilters,
   encodeFilters,
   filtersEqual,
+  filtersToApiParams,
 } from "@/lib/url-filters";
 
 const sp = (qs: string) => new URLSearchParams(qs);
@@ -28,8 +29,7 @@ describe("url-filters", () => {
       sort: "name",
       page: 3,
       remote: ["remote", "hybrid"],
-      skills: ["python", "aws"],
-      skillCombine: "or",
+      skillsExpr: "python OR aws",
       location: "Warszawa",
       poolIds: [3, 5],
       addedByIds: [12, 0],
@@ -182,13 +182,12 @@ describe("url-filters", () => {
     expect(decoded.status).toEqual([]);
   });
 
-  it("coerces bad sort/view/skillCombine/remote values to safe defaults", () => {
+  it("coerces bad sort/view/remote values to safe defaults", () => {
     const decoded = decodeFilters(
-      sp("sort=xxx&view=pyramid&skill_combine=xor&remote=moon,remote,hybrid&page=-2")
+      sp("sort=xxx&view=pyramid&remote=moon,remote,hybrid&page=-2")
     );
     expect(decoded.sort).toBe("newest");
     expect(decoded.view).toBe("list");
-    expect(decoded.skillCombine).toBe("and");
     expect(decoded.remote).toEqual(["remote", "hybrid"]);
     expect(decoded.page).toBe(1);
   });
@@ -245,13 +244,47 @@ describe("url-filters", () => {
     expect(encoded.has("stage_to")).toBe(false);
   });
 
-  it("omits skill_combine when only one skill selected", () => {
+  it("encodes the skill expression as skills_q and round-trips it", () => {
     const filters: CandidateFilters = {
       ...DEFAULT_FILTERS,
-      skills: ["python"],
-      skillCombine: "or",
+      skillsExpr: "Python AND React OR Vue -PHP",
     };
-    expect(encodeFilters(filters).has("skill_combine")).toBe(false);
+    const encoded = encodeFilters(filters);
+    expect(encoded.get("skills_q")).toBe("Python AND React OR Vue -PHP");
+    expect(decodeFilters(encoded).skillsExpr).toBe("Python AND React OR Vue -PHP");
+  });
+
+  it("reconstructs a skill expression from legacy skills/skill_combine URLs", () => {
+    expect(decodeFilters(sp("skills=python,aws")).skillsExpr).toBe(
+      "python AND aws",
+    );
+    expect(decodeFilters(sp("skills=python,aws&skill_combine=or")).skillsExpr).toBe(
+      "python OR aws",
+    );
+    // skills_q wins over legacy params when both present.
+    expect(
+      decodeFilters(sp("skills_q=react&skills=python&skill_combine=or")).skillsExpr,
+    ).toBe("react");
+  });
+
+  it("maps the skill expression to skill-scoped API params", () => {
+    const params = filtersToApiParams(
+      { ...DEFAULT_FILTERS, skillsExpr: "Python AND React OR Vue -PHP" },
+      1,
+    );
+    expect(params.skills).toEqual(["Python"]);
+    expect(params.skill_combine).toBeUndefined(); // single must term
+    expect(params.skills_any).toEqual(["React|Vue"]);
+    expect(params.skills_none).toEqual(["PHP"]);
+  });
+
+  it("sends lowercase skill_combine for multiple AND skills (no 422)", () => {
+    const params = filtersToApiParams(
+      { ...DEFAULT_FILTERS, skillsExpr: "Python AND React AND AWS" },
+      1,
+    );
+    expect(params.skills).toEqual(["Python", "React", "AWS"]);
+    expect(params.skill_combine).toBe("and");
   });
 
   it("filtersEqual compares independent of field order", () => {

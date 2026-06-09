@@ -5,6 +5,10 @@ import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
 import api from"@/lib/api";
 import type { CandidateFilters } from"@/lib/url-filters";
+import {
+ parseSkillExpression,
+ serializeSkillBuckets,
+} from"@/lib/skill-expression";
 
 interface TalentPoolLite {
  id: number;
@@ -196,14 +200,41 @@ function collectChips(
  }),
  });
  });
- filters.skills.forEach((skill) => {
+ // Skill boolean expression → must / OR-group / NOT chips. Removing a chip
+ // rebuilds the expression without that constraint.
+ const skillBuckets = parseSkillExpression(filters.skillsExpr);
+ const rebuildSkills = (next: typeof skillBuckets) =>
+ onUpdate({ skillsExpr: serializeSkillBuckets(next), page: 1 });
+ skillBuckets.must.forEach((skill, i) => {
  chips.push({
- key: `skill:${skill}`,
+ key: `skill-must:${skill}:${i}`,
  label: skill,
  clear: () =>
- onUpdate({
- skills: filters.skills.filter((s) => s !== skill),
- page: 1,
+ rebuildSkills({
+ ...skillBuckets,
+ must: skillBuckets.must.filter((_, idx) => idx !== i),
+ }),
+ });
+ });
+ skillBuckets.anyGroups.forEach((group, i) => {
+ chips.push({
+ key: `skill-any:${i}`,
+ label: group.join(" lub "),
+ clear: () =>
+ rebuildSkills({
+ ...skillBuckets,
+ anyGroups: skillBuckets.anyGroups.filter((_, idx) => idx !== i),
+ }),
+ });
+ });
+ skillBuckets.none.forEach((skill, i) => {
+ chips.push({
+ key: `skill-none:${skill}:${i}`,
+ label: `bez ${skill}`,
+ clear: () =>
+ rebuildSkills({
+ ...skillBuckets,
+ none: skillBuckets.none.filter((_, idx) => idx !== i),
  }),
  });
  });
@@ -409,7 +440,7 @@ export function ActiveFilterChips({
  pipelineStage: [],
  location: "",
  remote: [],
- skills: [],
+ skillsExpr: "",
  poolIds: [],
  addedByIds: [],
  currentCompany: [],
