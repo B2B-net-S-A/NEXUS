@@ -66,6 +66,9 @@ _jinja_env = Environment(
 from app.services.b2b_contract_generator.formatting import (  # noqa: E402
     pl_date as _pl_date,
 )
+from app.services.b2b_contract_generator.formatting import (  # noqa: E402
+    start_clause as _start_clause,
+)
 from app.services.b2b_contract_generator.gender import (  # noqa: E402
     gender_forms as _gender_forms,
 )
@@ -157,6 +160,12 @@ def _contract_vars(contract: Contract) -> dict:
             "area_label": _area_label,
             "role_name": _role_name,
             "scope_items": _scope_items,
+            # §13 — ścieżka /generate zawsze „z dniem <data>" (brak trybu w detalu).
+            "start_clause": _start_clause(
+                contract.start_date if hasattr(contract, "start_date") else None,
+                "exact",
+                lang,
+            ),
             # Formy gramatyczne płci: ścieżka /generate domyślnie męska
             # (B2BContractDetail nie ma kolumny płci) — standalone /render
             # podstawia właściwą formę z formularza.

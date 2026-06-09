@@ -125,6 +125,9 @@ class B2BRenderRequest(BaseModel):
     contract_number: Optional[str] = None
     signing_date: Optional[date] = None
     start_date: Optional[date] = None
+    # Tryb daty rozpoczęcia w §13: "exact" → „z dniem <data>";
+    # "not_earlier" → „nie wcześniej niż <data>"; "not_later" → „nie później niż".
+    start_date_mode: str = "exact"
     rate_candidate: Optional[int] = None
     currency: str = "PLN"
     rate_in_words: Optional[str] = None
@@ -153,3 +156,34 @@ class B2BCompanyLookupResponse(BaseModel):
     krs: Optional[str] = None
     address: Optional[str] = None
     source: Optional[str] = None
+
+
+class B2BUopCheckRequest(BaseModel):
+    text: str
+    language: str = "pl"
+
+
+class B2BUopIssue(BaseModel):
+    phrase: str
+    why: str
+    suggestion: str
+
+
+class B2BUopCheckResponse(BaseModel):
+    """Wynik AI-sprawdzenia opisu pod kątem znamion umowy o pracę."""
+
+    ok: bool
+    issues: list[B2BUopIssue] = []
+    rewritten: str = ""
+    summary: str = ""
+
+
+class B2BGeneratedContractItem(BaseModel):
+    """Pozycja listy wygenerowanych umów (zakładka „Wygenerowane umowy")."""
+
+    contract_number: str
+    partner_name: Optional[str] = None
+    client_name: Optional[str] = None
+    language: Optional[str] = None
+    signing_date: Optional[date] = None
+    created_at: Optional[str] = None

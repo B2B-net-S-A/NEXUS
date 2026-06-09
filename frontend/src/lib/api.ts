@@ -1628,6 +1628,7 @@ export interface B2BRenderPayload {
   contract_number?: string | null;
   signing_date?: string | null;
   start_date?: string | null;
+  start_date_mode?: string;
   rate_candidate?: number | null;
   currency: string;
   scope_items_override?: string[] | null;
@@ -1682,7 +1683,43 @@ export const b2bGeneratorApi = {
         source: string | null;
       }>("/api/b2b-generator/company-lookup", { params })
       .then((r) => r.data),
+  clientsLookup: () =>
+    api
+      .get<{ id: number; name: string }[]>("/api/clients-lookup")
+      .then((r) => r.data),
+  generated: (limit = 50) =>
+    api
+      .get<B2BGeneratedContractRow[]>("/api/b2b-generator/generated", {
+        params: { limit },
+      })
+      .then((r) => r.data),
+  checkUop: (body: { text: string; language: string }) =>
+    api
+      .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
+      .then((r) => r.data),
 };
+
+export interface B2BGeneratedContractRow {
+  contract_number: string;
+  partner_name: string | null;
+  client_name: string | null;
+  language: string | null;
+  signing_date: string | null;
+  created_at: string | null;
+}
+
+export interface B2BUopIssue {
+  phrase: string;
+  why: string;
+  suggestion: string;
+}
+
+export interface B2BUopCheckResult {
+  ok: boolean;
+  issues: B2BUopIssue[];
+  rewritten: string;
+  summary: string;
+}
 
 export const candidatePinsApi = {
   list: () => api.get<CandidatePinRow[]>("/api/candidates/pins"),

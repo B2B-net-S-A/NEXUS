@@ -12,6 +12,7 @@ import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,12 +38,15 @@ from app.schemas.b2b_contract_generator import (
     B2BContractDetailResponse,
     B2BGenerateRequest,
     B2BGenerateResponse,
+    B2BGeneratedContractItem,
     B2BNextNumberResponse,
     B2BRenderHtmlResponse,
     B2BRenderRequest,
     B2BRoleCreate,
     B2BRoleResponse,
     B2BRoleUpdate,
+    B2BUopCheckRequest,
+    B2BUopCheckResponse,
 )
 from app.services.b2b_contract_generator.docx_renderer import (
     normalize_language,
@@ -51,6 +55,10 @@ from app.services.b2b_contract_generator.docx_renderer import (
 )
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.render_context import build_render_context
+from app.services.b2b_contract_generator.uop_check import (
+    CVGeneratorAIError,
+    check_employment_hallmarks,
+)
 
 router = APIRouter()
 
@@ -438,3 +446,67 @@ async def render_standalone(
             "Access-Control-Expose-Headers": "X-Contract-Number",
         },
     )
+
+
+@router.get("/generated", response_model=list[B2BGeneratedContractItem])
+async def list_generated_contracts(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
+    „Wygenerowane umowy", by potwierdzić poprawność numeru."""
+    rows = (
+        (
+            await db.execute(
+                select(B2BGeneratedContract)
+                .order_by(
+                    B2BGeneratedContract.year.desc(),
+                    B2BGeneratedContract.seq.desc(),
+                )
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        B2BGeneratedContractItem(
+            contract_number=r.contract_number,
+            partner_name=r.partner_name,
+            client_name=r.client_name,
+            language=r.language,
+            signing_date=r.signing_date,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/check-uop", response_model=B2BUopCheckResponse)
+async def check_uop(
+    payload: B2BUopCheckRequest,
+    current_user: CurrentUser,
+):
+    """AI-sprawdzenie opisu/zakresu pod kątem znamion umowy o pracę (art. 22 §1 KP).
+
+    Zwraca wykryte ryzykowne sformułowania + bezpieczniejszą redakcję. Wymaga
+    skonfigurowanego ``ANTHROPIC_API_KEY`` (inaczej 503)."""
+    text = (payload.text or "").strip()
+    if not text:
+        return B2BUopCheckResponse(ok=True, issues=[], rewritten="", summary="")
+    try:
+        result = await run_in_threadpool(
+            check_employment_hallmarks, text, payload.language
+        )
+    except CVGeneratorAIError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Sprawdzanie AI jest niedostępne (brak konfiguracji ANTHROPIC_API_KEY).",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="AI zwróciło nieprawidłową odpowiedź — spróbuj ponownie.",
+        ) from exc
+    return B2BUopCheckResponse(**result)

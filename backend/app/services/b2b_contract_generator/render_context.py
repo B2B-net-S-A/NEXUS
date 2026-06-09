@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.models.b2b_contract_role import B2BContractRole
+from app.services.b2b_contract_generator.formatting import start_clause
 from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.number_words import rate_in_words
 
@@ -84,6 +85,9 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "area_label": area_label,
             "role_name": role_name,
             "scope_items": scope_items,
+            "start_clause": start_clause(
+                req.start_date, getattr(req, "start_date_mode", None), lang
+            ),
             **gender_forms(getattr(req, "gender", None)),
         },
     }
