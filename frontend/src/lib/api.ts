@@ -1615,6 +1615,7 @@ export interface B2BRenderPayload {
   language: string;
   gender?: string;
   partner_name?: string | null;
+  partner_instrumental?: string | null;
   partner_legal_name?: string | null;
   partner_business_address?: string | null;
   partner_correspondence_address?: string | null;

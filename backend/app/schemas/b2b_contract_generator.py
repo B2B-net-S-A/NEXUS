@@ -110,6 +110,9 @@ class B2BRenderRequest(BaseModel):
     gender: str = "m"
     # Dane Partnera (firma) — edytowalne; pre-fill z kandydata opcjonalny.
     partner_name: Optional[str] = None
+    # Imię i nazwisko w narzędniku do komparycji („z Panem Janem Kowalskim").
+    # Liczone heurystycznie po stronie FE i edytowalne; pusty → mianownik.
+    partner_instrumental: Optional[str] = None
     partner_legal_name: Optional[str] = None
     partner_business_address: Optional[str] = None
     partner_correspondence_address: Optional[str] = None

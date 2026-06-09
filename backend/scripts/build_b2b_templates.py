@@ -61,7 +61,7 @@ PL_RULES: list[tuple[re.Pattern, str]] = [
             r"\s*_+,\s*zarejestrowaną[^_]*?pod adresem:\s*_+,\s*00-000\s*_+,"
             r"\s*NIP:\s*_+,\s*REGON:\s*_+,"
         ),
-        "{{ b2b.g_pan }} {{ candidate.full_name or '"
+        "{{ b2b.g_pan }} {{ b2b.partner_instrumental or candidate.full_name or '"
         + _DOTS
         + "' }} {{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: "
         "{{ candidate.legal_name or '" + _DOTS + "' }}, zarejestrowaną w Centralnej "
@@ -348,7 +348,7 @@ def build(lang: str, src: Path, rules) -> None:
         r"(?:firmą|adresem|NIP|REGON|name|address|obszarze|area of):\s*_{3,}",
         full_text,
     ) + re.findall(r"\[NUMER\]|\[NUMBER\]", full_text)
-    required = ["{{ candidate.full_name", "{{ b2b.contract_number"]
+    required = ["candidate.full_name", "{{ b2b.contract_number"]
     missing = [r for r in required if r not in full_text]
     print(f"[{lang}] rules applied to {hits} paragraphs")
     print(f"[{lang}] docx → {docx_path}")
