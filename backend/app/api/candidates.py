@@ -22,7 +22,19 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, case, delete, false, func, literal, not_, or_, select, text
+from sqlalchemy import (
+    Text,
+    and_,
+    case,
+    delete,
+    false,
+    func,
+    literal,
+    not_,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -612,8 +624,27 @@ async def list_candidates(
     ),
     skill_combine: str = Query(
         "and",
-        pattern="^(and|or)$",
-        description="How to combine multiple `skills` filters — 'and' or 'or'.",
+        description=(
+            "How to combine multiple `skills` filters — 'and' or 'or' "
+            "(case-insensitive; anything other than 'or' is treated as 'and')."
+        ),
+    ),
+    skills_any: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Skill OR-groups. Repeat the param; each value is a pipe-joined group "
+            "of skills OR'd together, and the groups AND with each other and with "
+            "`skills`/`skills_none` — e.g. `?skills_any=python|java&skills_any=aws|gcp` "
+            "means `(python OR java) AND (aws OR gcp)`. Skill-scoped (skills / "
+            "verified_tech / tags), same as `skills`."
+        ),
+    ),
+    skills_none: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Skills to EXCLUDE (NOT). Repeat the param — a candidate is dropped if "
+            "ANY listed skill is present. Skill-scoped, same fields as `skills`."
+        ),
     ),
     remote_policy: Optional[str] = Query(
         None,
@@ -997,36 +1028,70 @@ async def list_candidates(
     _advanced = build_advanced_filter(q_all, q_any, q_none, q_any_groups)
     if _advanced is not None:
         query = query.where(_advanced)
-    # Phase B3: structured filters over JSONB
-    if skills:
-        # skills is a list of canonical/alias names; normalize through the
-        # scoring engine so UI can ship whatever the user typed.
+    # Phase B3: structured skill filters over JSONB — Boolean buckets matching
+    # the candidate's skills / verified_tech / tags (NOT free CV text). The
+    # frontend "Umiejętności" box parses a boolean expression into three buckets:
+    #   skills        — every term required (AND, or OR when skill_combine='or'),
+    #   skills_any    — repeated pipe-joined OR-groups that AND together,
+    #   skills_none   — terms a candidate must NOT have (NOT).
+    # All buckets are skill-scoped via the same `_skill_predicate` and AND into
+    # the query.
+    if skills or skills_any or skills_none:
+        # Normalize names through the scoring engine so the UI can ship whatever
+        # the user typed (aliases resolve to canonical skill names).
         from app.services.scoring_service import canonical_skill_names
 
-        wanted = [s for s in (canonical_skill_names(skills) or []) if s]
-        if wanted:
-            # Case-insensitive text LIKE on the JSONB payload — handles both
-            # shapes the seed data ships with:
-            #   [{"name": "Python"}, ...]             → matches "name": "python"
-            #   {"technologies": ["Python", ...]}     → matches "python"
-            # Also checks tags + verified_tech for a generous match.
-            def _skill_predicate(s: str):
-                pat = f"%{s.lower()}%"
-                return or_(
-                    func.lower(
-                        Candidate.skills.cast(__import__("sqlalchemy").Text)
-                    ).like(pat),
-                    func.lower(
-                        Candidate.verified_tech.cast(__import__("sqlalchemy").Text)
-                    ).like(pat),
-                    func.lower(Candidate.tags.cast(__import__("sqlalchemy").Text)).like(
-                        pat
-                    ),
-                )
+        # Case-insensitive text LIKE on the JSONB payload — handles both shapes
+        # the seed data ships with:
+        #   [{"name": "Python"}, ...]          → matches "name": "python"
+        #   {"technologies": ["Python", ...]}  → matches "python"
+        # Also checks tags + verified_tech for a generous match.
+        def _skill_predicate(s: str):
+            pat = f"%{s.lower()}%"
+            # COALESCE each JSONB-cast to '' so a NULL column yields FALSE, not
+            # NULL. Critical for the NONE bucket: `not_(or_(...))` over NULL
+            # columns would be NULL → SQL treats it as false → wrongly excludes
+            # candidates with no skills data from a "NOT PHP" filter. Harmless
+            # for MUST/ANY (NULL already failed the LIKE there).
+            return or_(
+                func.lower(func.coalesce(Candidate.skills.cast(Text), "")).like(pat),
+                func.lower(func.coalesce(Candidate.verified_tech.cast(Text), "")).like(
+                    pat
+                ),
+                func.lower(func.coalesce(Candidate.tags.cast(Text), "")).like(pat),
+            )
 
-            skill_clauses = [_skill_predicate(s) for s in wanted]
-            combiner = __import__("sqlalchemy").and_ if skill_combine == "and" else or_
-            query = query.where(combiner(*skill_clauses))
+        def _group_clause(names: list[str]):
+            """OR of skill predicates for canonicalized `names`; None if empty."""
+            wanted = [s for s in (canonical_skill_names(names) or []) if s]
+            if not wanted:
+                return None
+            return or_(*[_skill_predicate(s) for s in wanted])
+
+        # MUST bucket — `skill_combine` decides AND vs OR over the flat list.
+        if skills:
+            wanted = [s for s in (canonical_skill_names(skills) or []) if s]
+            if wanted:
+                skill_clauses = [_skill_predicate(s) for s in wanted]
+                combiner = (
+                    or_ if (skill_combine or "").strip().lower() == "or" else and_
+                )
+                query = query.where(combiner(*skill_clauses))
+
+        # ANY OR-groups — each (pipe-joined) group is OR'd internally; groups
+        # AND with each other and with the MUST/NONE buckets.
+        if skills_any:
+            for raw_group in skills_any:
+                clause = _group_clause(raw_group.split("|"))
+                if clause is not None:
+                    query = query.where(clause)
+
+        # NONE — exclude candidates carrying any listed skill.
+        if skills_none:
+            for raw in skills_none:
+                clause = _group_clause(raw.split("|"))
+                if clause is not None:
+                    query = query.where(not_(clause))
 
     if remote_policy:
         # Stored inside `preferences.remote_modes` JSON array

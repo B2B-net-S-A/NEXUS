@@ -7,6 +7,11 @@
  * ignores unknown params and fills unknown fields with defaults.
  */
 
+import {
+  parseSkillExpression,
+  serializeSkillBuckets,
+} from "@/lib/skill-expression";
+
 export type SortMode = "newest" | "oldest" | "name";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
@@ -71,8 +76,11 @@ export interface CandidateFilters {
   sort: SortMode;
   page: number;
   remote: RemoteMode[];
-  skills: string[];
-  skillCombine: SkillCombine;
+  // Boolean skill expression typed into the "Umiejętności" box, e.g.
+  // `Python AND React OR Vue -PHP`. Parsed into skill-scoped must/any/none
+  // buckets at API time (see `filtersToApiParams` + `skill-expression.ts`).
+  // Empty string = no skill filter. Round-trips in the URL as `skills_q`.
+  skillsExpr: string;
   location: string;
   poolIds: number[];
   addedByIds: number[];
@@ -127,8 +135,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   sort: "newest",
   page: 1,
   remote: [],
-  skills: [],
-  skillCombine: "and",
+  skillsExpr: "",
   location: "",
   poolIds: [],
   addedByIds: [],
@@ -181,6 +188,20 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const parseIsoDate = (raw: string | null): string =>
   raw && ISO_DATE.test(raw) ? raw : "";
 
+// Skill boolean expression. New URLs carry `skills_q` verbatim. Legacy URLs /
+// saved searches stored a flat `skills` CSV plus a `skill_combine` of `and`/`or`
+// — reconstruct an equivalent expression (`a AND b` / `a OR b`) so old shares
+// keep working. Multi-word legacy skills are quoted so re-parsing is stable.
+export const decodeSkillsExpr = (sp: URLSearchParams): string => {
+  const direct = sp.get("skills_q");
+  if (direct && direct.trim()) return direct.trim();
+  const legacy = parseCsv(sp.get("skills"));
+  if (!legacy.length) return "";
+  return (sp.get("skill_combine") ?? "").trim().toLowerCase() === "or"
+    ? serializeSkillBuckets({ must: [], anyGroups: [legacy], none: [] })
+    : serializeSkillBuckets({ must: legacy, anyGroups: [], none: [] });
+};
+
 export function encodeFilters(f: CandidateFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set("q", f.q);
@@ -191,8 +212,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.sort !== "newest") p.set("sort", f.sort);
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
-  if (f.skills.length) p.set("skills", CSV(f.skills));
-  if (f.skills.length > 1 && f.skillCombine !== "and") p.set("skill_combine", f.skillCombine);
+  if (f.skillsExpr.trim()) p.set("skills_q", f.skillsExpr.trim());
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
   if (f.addedByIds.length) p.set("added_by", CSV(f.addedByIds));
@@ -223,8 +243,6 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const sortRaw = sp.get("sort");
   const sort: SortMode =
     sortRaw === "oldest" || sortRaw === "name" ? sortRaw : "newest";
-  const skillCombineRaw = sp.get("skill_combine");
-  const skillCombine: SkillCombine = skillCombineRaw === "or" ? "or" : "and";
   const viewRaw = sp.get("view");
   const view: CandidatesView = viewRaw === "tiles" ? "tiles" : "list";
   const remote = parseCsv(sp.get("remote")).filter(
@@ -258,8 +276,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     sort,
     page,
     remote,
-    skills: parseCsv(sp.get("skills")),
-    skillCombine,
+    skillsExpr: decodeSkillsExpr(sp),
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
     addedByIds: parseCsvInt(sp.get("added_by")),
@@ -357,14 +374,22 @@ export function filtersToApiParams(
   page: number,
   extras: Record<string, unknown> = {},
 ): Record<string, unknown> {
+  // Parse the boolean skill expression into skill-scoped buckets. `must` →
+  // `skills` (AND), `anyGroups` → repeated pipe-joined `skills_any`, `none` →
+  // `skills_none`. `skill_combine` stays lowercase `"and"` — the backend's
+  // multi-skill MUST default (uppercase would 422).
+  const skillBuckets = parseSkillExpression(filters.skillsExpr);
   return {
     q: filters.q || undefined,
     status: filters.status.length ? filters.status : undefined,
     page,
     sort: filters.sort || undefined,
-    skills: filters.skills.length ? filters.skills : undefined,
-    skill_combine:
-      filters.skills.length > 1 ? filters.skillCombine.toUpperCase() : undefined,
+    skills: skillBuckets.must.length ? skillBuckets.must : undefined,
+    skill_combine: skillBuckets.must.length > 1 ? "and" : undefined,
+    skills_any: skillBuckets.anyGroups.length
+      ? skillBuckets.anyGroups.map((g) => g.join("|"))
+      : undefined,
+    skills_none: skillBuckets.none.length ? skillBuckets.none : undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
     availability: filters.availability.length ? filters.availability : undefined,
