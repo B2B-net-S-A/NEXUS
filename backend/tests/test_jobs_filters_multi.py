@@ -184,6 +184,67 @@ async def test_jobs_status_single_value_back_compat(
 
 
 @pytest.mark.asyncio
+async def test_jobs_open_only_filter(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`open_only=true` ('Otwarte') returns non-closed jobs only (draft +
+    published), excluding closed ones."""
+    pub = await _seed_job(status="published")
+    drf = await _seed_job(status="draft")
+    cls = await _seed_job(status="closed")
+    try:
+        r = await app_client.get(
+            "/api/jobs?open_only=true&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert pub in ids
+        assert drf in ids
+        assert cls not in ids
+    finally:
+        await _cleanup(job_ids=[pub, drf, cls], user_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_jobs_sort_newest_oldest_and_default(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`sort` orders by creation time; default is newest-first. Scoped to a
+    fresh client so the two seeded jobs are the only rows in the result."""
+    c = await _seed_client()
+    j_old = await _seed_job(client_id=c)  # created first → older
+    j_new = await _seed_job(client_id=c)  # created second → newer
+    try:
+        # Explicit newest → newer job appears before older.
+        r = await app_client.get(
+            f"/api/jobs?client_id={c}&sort=newest&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        order = [item["id"] for item in r.json()["items"]]
+        assert order.index(j_new) < order.index(j_old)
+
+        # Oldest → older job appears before newer.
+        r2 = await app_client.get(
+            f"/api/jobs?client_id={c}&sort=oldest&page_size=100",
+            headers=app_auth_headers,
+        )
+        order2 = [item["id"] for item in r2.json()["items"]]
+        assert order2.index(j_old) < order2.index(j_new)
+
+        # No `sort` param → defaults to newest.
+        r3 = await app_client.get(
+            f"/api/jobs?client_id={c}&page_size=100",
+            headers=app_auth_headers,
+        )
+        order3 = [item["id"] for item in r3.json()["items"]]
+        assert order3.index(j_new) < order3.index(j_old)
+    finally:
+        await _cleanup(job_ids=[j_old, j_new], user_ids=[])
+
+
+@pytest.mark.asyncio
 async def test_jobs_owner_id_filter_accepts_multiple(
     app_client: AsyncClient, app_auth_headers: dict
 ):

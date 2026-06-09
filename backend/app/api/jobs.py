@@ -1,9 +1,10 @@
+import enum
 import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select, update as sql_update
+from sqlalchemy import func, nulls_last, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.cache import cache_invalidate
@@ -196,6 +197,14 @@ async def _require_manage_ownership(job: Job, current_user: User) -> None:
     )
 
 
+class JobSort(str, enum.Enum):
+    """Ordering options for GET /api/jobs (``newest`` is the default)."""
+
+    newest = "newest"  # created_at DESC — most recently created first
+    oldest = "oldest"  # created_at ASC — legacy implicit order (oldest first)
+    deadline = "deadline"  # deadline ASC, NULLs last — soonest due first
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -207,6 +216,20 @@ async def list_jobs(
         description=(
             "Filter by `status` — one or more values. Repeat the param for "
             "multi-select (e.g. `?status=published&status=draft`). OR-combined."
+        ),
+    ),
+    open_only: bool = Query(
+        False,
+        description=(
+            "'Otwarte' quick filter — True → only jobs that are NOT closed "
+            "(status in draft/published). AND-combined with `status` if both set."
+        ),
+    ),
+    sort: JobSort = Query(
+        JobSort.newest,
+        description=(
+            "Result ordering. `newest` (default) → created_at DESC; `oldest` → "
+            "created_at ASC; `deadline` → deadline ASC with NULLs last."
         ),
     ),
     recruitment_type: Optional[RecruitmentType] = None,
@@ -301,6 +324,8 @@ async def list_jobs(
     query = query.where(Job.client_id.is_not(None))
     if status:
         query = query.where(Job.status.in_(status))
+    if open_only:
+        query = query.where(Job.status != JobStatus.closed)
     if recruitment_type:
         query = query.where(Job.recruitment_type == recruitment_type)
     if client_id:
@@ -349,6 +374,14 @@ async def list_jobs(
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
+    # Deterministic ordering (newest-first by default). Applied after the count
+    # so it never leaks into the COUNT subquery. `id` is the stable tiebreaker.
+    if sort == JobSort.oldest:
+        query = query.order_by(Job.created_at.asc(), Job.id.asc())
+    elif sort == JobSort.deadline:
+        query = query.order_by(nulls_last(Job.deadline.asc()), Job.id.desc())
+    else:  # JobSort.newest (default)
+        query = query.order_by(Job.created_at.desc(), Job.id.desc())
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     jobs = list(result.scalars().all())
 
