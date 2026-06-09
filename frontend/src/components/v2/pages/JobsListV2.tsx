@@ -94,6 +94,14 @@ const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
  { value: "none", label: "Bez terminu" },
 ];
 
+type JobSortValue = "newest" | "oldest" | "deadline";
+
+const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
+ { value: "newest", label: "Od najnowszej" },
+ { value: "oldest", label: "Od najstarszej" },
+ { value: "deadline", label: "Wg terminu" },
+];
+
 /** Local-date ISO string (YYYY-MM-DD) — avoids UTC off-by-one near midnight. */
 function isoLocal(d: Date): string {
  const y = d.getFullYear();
@@ -167,6 +175,8 @@ export function JobsListV2() {
  const [needsSourcing, setNeedsSourcing] = useState(false);
  const [activeInSearch, setActiveInSearch] = useState(false);
  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>("any");
+ const [openOnly, setOpenOnly] = useState(false);
+ const [sort, setSort] = useState<JobSortValue>("newest");
  const [page, setPage] = useState(1);
  const [showAdd, setShowAdd] = useState(false);
  const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
@@ -186,6 +196,8 @@ export function JobsListV2() {
  needsSourcing ? 1 : 0,
  activeInSearch ? 1 : 0,
  deadlinePreset,
+ openOnly ? 1 : 0,
+ sort,
  page,
  ],
  queryFn: () =>
@@ -201,6 +213,8 @@ export function JobsListV2() {
  competence_category_id: ccIds.length ? ccIds : undefined,
  needs_sourcing: needsSourcing ? true : undefined,
  active_in_search: activeInSearch ? true : undefined,
+ open_only: openOnly ? true : undefined,
+ sort,
  ...dl,
  page,
  },
@@ -328,6 +342,34 @@ export function JobsListV2() {
  ))}
  </SelectContent>
  </Select>
+ <Select
+ value={sort}
+ onValueChange={(v) => {
+ setSort(v as JobSortValue);
+ setPage(1);
+ }}
+ >
+ <SelectTrigger className="h-9 w-[170px] font-medium">
+ <SelectValue placeholder="Od najnowszej" />
+ </SelectTrigger>
+ <SelectContent>
+ {SORT_OPTIONS.map((o) => (
+ <SelectItem key={o.value} value={o.value}>
+ {o.label}
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ <FilterToggle
+ active={openOnly}
+ onClick={() => {
+ setOpenOnly((p) => !p);
+ setPage(1);
+ }}
+ title="Tylko otwarte oferty (nie zamknięte)"
+ >
+ Otwarte
+ </FilterToggle>
  <FilterToggle
  active={needsSourcing}
  onClick={() => {
