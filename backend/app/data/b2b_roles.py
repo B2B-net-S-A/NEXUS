@@ -778,6 +778,40 @@ _ROLE_DEFS: list[dict] = [
             "Analysing delivery metrics and recommending improvements.",
         ],
     },
+    # Ogólny „Software Development" — częsty wybór (dopisany 2026-06-06).
+    {
+        "slug": "software-development",
+        "category": "dev",
+        "name_pl": "Software Development",
+        "name_en": "Software Development",
+        "area": "Software Development",
+        "scope_pl": [
+            "Projektowanie, implementacja i utrzymanie oprogramowania (back-end "
+            "i/lub front-end) zgodnie z uzgodnionymi wymaganiami i architekturą "
+            "Projektu.",
+            "Integracja systemów i usług (np. REST API, komunikacja asynchroniczna) "
+            "oraz dostarczanie komponentów w ramach uzgodnionych rezultatów "
+            "(kamieni milowych) Projektu.",
+            "Dbałość o jakość, wydajność i bezpieczeństwo dostarczanego kodu zgodnie "
+            "z przyjętymi w branży dobrymi praktykami oraz wymaganiami technicznymi "
+            "Projektu.",
+            "Udział w przeglądach kodu, testach oraz uzgodnieniach technicznych w "
+            "zakresie niezbędnym do koordynacji rezultatów z zespołem Projektu.",
+        ],
+        "scope_en": [
+            "Designing, implementing and maintaining software (back-end and/or "
+            "front-end) in line with the agreed requirements and Project "
+            "architecture.",
+            "Integrating systems and services (e.g. REST API, asynchronous "
+            "messaging) and delivering components within the agreed Project "
+            "milestones.",
+            "Safeguarding the quality, performance and security of the delivered "
+            "code in accordance with industry best practices and the Project's "
+            "technical requirements.",
+            "Taking part in code reviews, testing and technical arrangements to the "
+            "extent necessary to coordinate results with the Project team.",
+        ],
+    },
 ]
 
 

@@ -1,7 +1,7 @@
 """Testy Generatora Umów B2B.
 
 Czysto jednostkowe (bez DB / live-server):
-  - katalog 29 ról: liczność, kategorie, unikalność, **brak znamion umowy o
+  - katalog 30 ról: liczność, kategorie, unikalność, **brak znamion umowy o
     pracę** (art. 22 §1 KP) w zakresach,
   - render DOCX (docxtpl) na szablonach PL/EN: pola wypełnione, zakres roli w
     Załączniku nr 3, escapowanie XML, brak osieroconych tagów,
@@ -97,15 +97,16 @@ def _sample_context(lang: str = "pl", gender: str = "m") -> dict:
 
 class TestRoleCatalog:
     def test_count_and_unique_slugs(self):
-        assert len(B2B_ROLES) == 29
+        assert len(B2B_ROLES) == 30
         slugs = [r["slug"] for r in B2B_ROLES]
-        assert len(set(slugs)) == 29
+        assert len(set(slugs)) == 30
+        assert "software-development" in slugs
 
     def test_category_distribution(self):
         dist = Counter(r["category_key"] for r in B2B_ROLES)
         assert dist == {
             "infra": 5,
-            "dev": 6,
+            "dev": 7,
             "data_ai": 5,
             "security_qa": 7,
             "management": 6,
@@ -208,3 +209,16 @@ def test_en_template_gender_forms():
     tpl = _jinja_env.from_string(html)
     assert "Mr Jan Kowalski" in tpl.render(**_sample_context("en", gender="m"))
     assert "Ms Jan Kowalski" in tpl.render(**_sample_context("en", gender="k"))
+
+
+def test_rate_in_words_zloty_plural():
+    from app.services.b2b_contract_generator.number_words import rate_in_words
+
+    assert rate_in_words(120, "pl", "PLN") == "sto dwadzieścia złotych"
+    assert rate_in_words(1, "pl", "PLN") == "jeden złoty"
+    assert rate_in_words(2, "pl", "PLN") == "dwa złote"
+    assert rate_in_words(5, "pl", "PLN") == "pięć złotych"
+    assert rate_in_words(22, "pl", "PLN") == "dwadzieścia dwa złote"
+    assert rate_in_words(12, "pl", "PLN") == "dwanaście złotych"
+    assert rate_in_words(120, "en", "PLN") == "one hundred twenty zlotys"
+    assert rate_in_words(100, "pl", "EUR") == "sto EUR"

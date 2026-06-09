@@ -633,9 +633,10 @@ function GeneratorForm() {
         <CardHeader>
           <CardTitle className="text-base">Dane Partnera (firma)</CardTitle>
           <CardDescription>
-            Wpisz NIP → Imię i nazwisko, nazwa firmy, REGON i adres zaciągną się
-            z rejestru (Biała Lista MF / CEIDG). Pre-fill też z profilu
-            kandydata. Wszystkie pola wymagane, edytowalne.
+            Wpisz NIP → nazwa firmy, REGON i adres zaciągną się z rejestru
+            (biznes.gov.pl + Biała Lista MF). Działa dla JDG i spółek — dla
+            spółki pole „Imię i nazwisko" zostaje puste (umowa jest pod JDG).
+            Pre-fill też z profilu kandydata. Wszystkie pola wymagane, edytowalne.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -756,20 +757,20 @@ function GeneratorForm() {
         </CardContent>
       </Card>
 
-      {/* Rola / Stanowisko */}
+      {/* Obszar (§1 umowy) */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Rola / Stanowisko</CardTitle>
+          <CardTitle className="text-base">Obszar usług (§1 umowy)</CardTitle>
           <CardDescription>
-            Wybór roli wstępnie wypełnia „Opis projektu i zakres usług" (możesz
-            go nadpisać powyżej).
+            Określa obszar specjalizacji w §1 umowy oraz wstępnie wypełnia „Opis
+            projektu i zakres usług" (możesz go nadpisać powyżej).
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Label className="mb-1.5 block">Rola / Stanowisko *</Label>
+          <Label className="mb-1.5 block">Obszar *</Label>
           <Select value={roleId} onValueChange={setRoleId}>
             <SelectTrigger>
-              <SelectValue placeholder="Wybierz rolę…" />
+              <SelectValue placeholder="Wybierz obszar…" />
             </SelectTrigger>
             <SelectContent>
               {groupedRoles.map((g) => (
