@@ -33,19 +33,21 @@ def _norm(name: str) -> str:
     return re.sub(r"\s+", " ", (name or "").strip().lower())
 
 
-# Znormalizowane wzorce nazw → opis Klienta wstawiany w ust. 6 § 10.
-_CLIENT_DESCRIPTORS: tuple[tuple[tuple[str, ...], str], ...] = (
+# Znormalizowane wzorce nazw → opis Klienta wstawiany w ust. 6 § 10 (PL, EN).
+_CLIENT_DESCRIPTORS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (
         ("pfron", "rehabilitacji osób niepełnosprawnych"),
         "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych tzw. PFRON",
+        "the State Fund for the Rehabilitation of Disabled Persons (PFRON)",
     ),
     (
         ("centrum e-zdrowia", "e-zdrowia"),
         "Skarb Państwa – Centrum e-Zdrowia",
+        "the State Treasury – Centrum e-Zdrowia",
     ),
 )
 
-_BULLETS_7 = (
+_BULLETS_7_PL = (
     "opóźnienia w rozpoczęciu świadczenia usług,",
     "nienależytego wykonania usług,",
     "nieusprawiedliwionej nieobecności Partnera,",
@@ -56,9 +58,20 @@ _BULLETS_7 = (
     "innych zawinionych uchybień wpływających negatywnie na realizację usług.",
 )
 
+_BULLETS_7_EN = (
+    "delay in commencing the provision of the services,",
+    "improper performance of the services,",
+    "unjustified absence of the Partner,",
+    "failure to submit required documents or declarations,",
+    "breach of confidentiality rules,",
+    "use of defective, incomplete, or unauthorized source code,",
+    "refusal to cooperate in the handover of duties,",
+    "other culpable failures adversely affecting the provision of the services.",
+)
 
-def _p10_blocks(client_descriptor: str) -> tuple[Block, ...]:
-    """Zbuduj § 10 (Klauzule Antykonkurencyjne i Kary Umowne) dla Klienta.
+
+def _p10_blocks_pl(client_descriptor: str) -> tuple[Block, ...]:
+    """Zbuduj § 10 (Klauzule Antykonkurencyjne i Kary Umowne) PL dla Klienta.
 
     Treść identyczna dla wszystkich Klientów wymagających rozszerzonego § 10,
     poza opisem Klienta w ust. 6 (``client_descriptor``)."""
@@ -125,7 +138,7 @@ def _p10_blocks(client_descriptor: str) -> tuple[Block, ...]:
             "w tym w szczególności z:",
         ),
     ]
-    blocks.extend(("b", f"•  {item}") for item in _BULLETS_7)
+    blocks.extend(("b", f"•  {item}") for item in _BULLETS_7_PL)
     blocks.extend(
         [
             (
@@ -154,18 +167,122 @@ def _p10_blocks(client_descriptor: str) -> tuple[Block, ...]:
     return tuple(blocks)
 
 
+def _p10_blocks_en(client_descriptor: str) -> tuple[Block, ...]:
+    """Zbuduj § 10 (Non-Competition Clauses and Contractual Penalties) EN.
+
+    Terminologia spójna z domyślnym § 10 szablonu EN; treść identyczna dla
+    wszystkich Klientów poza opisem Klienta w ust. 6 (``client_descriptor``)."""
+    blocks: list[Block] = [
+        ("h", "§ 10"),
+        ("sub", "Non-Competition Clauses and Contractual Penalties"),
+        (
+            "p",
+            "1. During the term of the Agreement and for a period of 12 (twelve) "
+            "months after its termination or expiration, the Partner undertakes to "
+            "refrain from:",
+        ),
+        (
+            "i",
+            "a) providing services directly to the B2BNET Customer indicated in "
+            "Appendix 3, bypassing B2BNET, within the scope covered by the Market "
+            "Segment,",
+        ),
+        (
+            "i",
+            "b) taking up employment or other cooperation with the B2BNET Customer "
+            "without the prior written consent of B2BNET.",
+        ),
+        (
+            "p",
+            "2. The non-competition clause specified in section 1 does not apply "
+            "to: a) cooperation with B2BNET customers other than those indicated in "
+            "Appendix 3, b) conducting business activity or providing services to "
+            "third parties who are not Project Customers, even if they operate in "
+            "the same Market Segment, c) services provided outside the Market "
+            "Segment.",
+        ),
+        (
+            "p",
+            "3. In the event of a breach by the Partner of the provisions of § 8 "
+            "(Confidential Information), the Partner shall pay B2BNET a contractual "
+            "penalty in the amount of PLN 50,000.00 (in words: fifty thousand "
+            "zlotys).",
+        ),
+        (
+            "p",
+            "4. In the event of a breach by the Partner of the provisions of "
+            "section 1 of this paragraph (Non-Competition), the Partner shall pay "
+            "B2BNET a contractual penalty in the amount of PLN 100,000.00 (in "
+            "words: one hundred thousand zlotys).",
+        ),
+        (
+            "p",
+            "5. The payment of the contractual penalty shall not exclude B2BNET's "
+            "right to claim damages in excess of the amount of the reserved penalty "
+            "under the general provisions of the Civil Code.",
+        ),
+        (
+            "p",
+            "6. The provisions of sections 7–10 below shall apply where the acts "
+            "or omissions of the Partner during the provision of services to the "
+            f"B2BNET Customer ({client_descriptor}) result in the imposition on "
+            "B2BNET by the Customer of contractual penalties, damages, or other "
+            "financial sanctions.",
+        ),
+        (
+            "p",
+            "7. The Partner shall bear full financial liability towards B2BNET for "
+            "any sanctions imposed on B2BNET by the B2BNET Customer, where they "
+            "result from the Partner's culpable act or omission, including in "
+            "particular:",
+        ),
+    ]
+    blocks.extend(("b", f"•  {item}") for item in _BULLETS_7_EN)
+    blocks.extend(
+        [
+            (
+                "p",
+                "8. Should the situations referred to above occur, the Partner "
+                "undertakes to reimburse B2BNET the full amount of contractual "
+                "penalties, damages, or other sanction-related payments made by "
+                "B2BNET, within 7 (seven) days from the date of delivery of the "
+                "payment demand.",
+            ),
+            (
+                "p",
+                "9. In the event of delay in payment, the Partner shall be obliged "
+                "to pay statutory interest for delay in accordance with Article 481 "
+                "of the Civil Code.",
+            ),
+            (
+                "p",
+                "10. The provisions of sections 6–9 shall not limit B2BNET's right "
+                "to claim from the Partner damages exceeding the amount of the "
+                "penalties paid, where the damage suffered exceeds the value of "
+                "those payments.",
+            ),
+        ]
+    )
+    return tuple(blocks)
+
+
 def override_for_client(
     client_name: str | None, language: str
 ) -> tuple[Block, ...] | None:
     """§ 10 override dla Klienta (lub None — render domyślny).
 
-    Tylko PL (brak treści EN). Dopasowanie po znormalizowanej nazwie Klienta."""
-    if not client_name or (language or "pl").lower().startswith("en"):
+    Dopasowanie po znormalizowanej nazwie Klienta; treść w języku umowy (PL/EN)."""
+    if not client_name:
         return None
+    is_en = (language or "pl").lower().startswith("en")
     n = _norm(client_name)
-    for needles, descriptor in _CLIENT_DESCRIPTORS:
+    for needles, descriptor_pl, descriptor_en in _CLIENT_DESCRIPTORS:
         if any(needle in n for needle in needles):
-            return _p10_blocks(descriptor)
+            return (
+                _p10_blocks_en(descriptor_en)
+                if is_en
+                else _p10_blocks_pl(descriptor_pl)
+            )
     return None
 
 
@@ -176,7 +293,9 @@ def render_p10_html(blocks: tuple[Block, ...]) -> str:
     """Wyrenderuj bloki § 10 do HTML (markup zgodny z resztą szablonu)."""
     out: list[str] = []
     for kind, text in blocks:
-        esc = html.escape(text)
+        # quote=False: tekst trafia do treści elementu (<p>…), nie atrybutu →
+        # apostrofy/cudzysłowy bezpieczne, bez brzydkiego &#x27; (np. „B2BNET's").
+        esc = html.escape(text, quote=False)
         if kind == "h":
             out.append(f"<h2>{esc}</h2>")
         elif kind == "sub":

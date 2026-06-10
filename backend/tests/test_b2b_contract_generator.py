@@ -281,10 +281,33 @@ def test_p10_override_matching():
         "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych", "pl"
     )
     assert override_for_client("PFRON", "pl")
-    # brak override: inny klient, EN, pusty
+    # override działa też dla EN (treść angielska)
+    assert override_for_client("Centrum e-Zdrowia", "en")
+    assert override_for_client("PFRON", "en")
+    # brak override: inny klient, pusty
     assert override_for_client("Nordea Bank Abp", "pl") is None
-    assert override_for_client("Centrum e-Zdrowia", "en") is None
+    assert override_for_client("Nordea Bank Abp", "en") is None
     assert override_for_client("", "pl") is None
+
+
+def test_p10_override_en_uses_english_terminology():
+    from app.services.b2b_contract_generator.clause_overrides import override_for_client
+
+    centrum_en = override_for_client("Centrum e-Zdrowia", "en")
+    pfron_en = override_for_client("PFRON", "en")
+    centrum_txt = " ".join(t for _, t in centrum_en)
+    pfron_txt = " ".join(t for _, t in pfron_en)
+    assert "Non-Competition Clauses and Contractual Penalties" in centrum_txt
+    assert "the State Treasury – Centrum e-Zdrowia" in centrum_txt
+    assert "State Fund for the Rehabilitation of Disabled Persons (PFRON)" in pfron_txt
+    for marker in (
+        "10. The provisions of sections 6–9",
+        "PLN 50,000.00",
+        "Article 481 of the Civil Code",
+    ):
+        assert marker in centrum_txt and marker in pfron_txt
+    # żaden polski marker w wersji EN
+    assert "Skarb Państwa" not in centrum_txt and "Kary Umowne" not in centrum_txt
 
 
 def test_p10_override_client_descriptor_in_clause6():

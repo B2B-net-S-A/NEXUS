@@ -1036,7 +1036,7 @@ function GeneratorForm() {
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
                 Ten klient ma specyficzny § 10 (rozszerzone klauzule
                 antykonkurencyjne i kary umowne) — zostanie automatycznie wstawiony
-                do umowy (PL).
+                do umowy (PL i EN).
               </p>
             ) : null}
           </Field>
