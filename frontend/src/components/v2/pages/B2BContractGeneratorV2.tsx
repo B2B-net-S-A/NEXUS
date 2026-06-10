@@ -573,7 +573,9 @@ function GeneratorForm() {
     const list = q
       ? all.filter((c) => c.name.toLowerCase().includes(q))
       : all;
-    return list.slice(0, 50);
+    // Lista jest już kuratorska (featured=true → ~17 nazw); cap wysoki, żeby
+    // nigdy nie ucinać w pół alfabetu (wcześniej slice(0,50) gubił > litery „D").
+    return list.slice(0, 200);
   }, [clientsQuery.data, clientQuery]);
 
   const buildPayload = (lang: Lang): B2BRenderPayload => ({

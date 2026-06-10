@@ -14,7 +14,7 @@ import logging
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -344,19 +344,32 @@ async def deactivate_conflict(
 async def clients_lookup(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    featured: bool = Query(
+        False,
+        description=(
+            "Gdy true → zwróć tylko klientów z ustawionym display_name "
+            "(wyselekcjonowana lista, np. dropdown generatora umów B2B)."
+        ),
+    ),
 ):
     """Minimal client list for dropdown (id, name) — avoids heavy /clients payload.
 
     Zwraca ``display_name`` (ręczne nadpisanie, odporne na sync Traffita) gdy
-    ustawione, inaczej ``name``; ukryte (`hidden`) warianty pomija."""
+    ustawione, inaczej ``name``; ukryte (`hidden`) warianty pomija.
+
+    ``featured=true`` zawęża do klientów z ustawionym ``display_name`` — to
+    obecnie kuratorska lista (np. 17 nazw w generatorze umów B2B). „Na razie"
+    marker = istnienie ``display_name``; gdyby kiedyś potrzebny był trwały
+    odrębny znacznik, należałoby dodać dedykowaną kolumnę/flagę."""
     from sqlalchemy import func
 
     from app.models.client import Client
 
     name_col = func.coalesce(Client.display_name, Client.name)
-    rows = await db.execute(
-        select(Client.id, name_col).where(Client.hidden.is_(False)).order_by(name_col)
-    )
+    stmt = select(Client.id, name_col).where(Client.hidden.is_(False))
+    if featured:
+        stmt = stmt.where(Client.display_name.isnot(None))
+    rows = await db.execute(stmt.order_by(name_col))
     return [{"id": r[0], "name": r[1]} for r in rows.all()]
 
 

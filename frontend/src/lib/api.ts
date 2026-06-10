@@ -1686,7 +1686,10 @@ export const b2bGeneratorApi = {
       .then((r) => r.data),
   clientsLookup: () =>
     api
-      .get<{ id: number; name: string }[]>("/api/clients-lookup")
+      .get<{ id: number; name: string }[]>("/api/clients-lookup", {
+        // „na razie" tylko wyselekcjonowane nazwy (klienci z display_name)
+        params: { featured: true },
+      })
       .then((r) => r.data),
   generated: (limit = 50) =>
     api
