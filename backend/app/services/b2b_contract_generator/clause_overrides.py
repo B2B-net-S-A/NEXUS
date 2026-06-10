@@ -1,21 +1,23 @@
-"""Per-klient nadpisania treści paragrafów umowy B2B.
+"""Per-klient modyfikacje treści umowy B2B (silnik operacji + matcher).
 
-Niektórzy Klienci wymagają specyficznych zapisów (np. rozszerzony § 10 o
-odpowiedzialności za sankcje Klienta będącego jednostką Skarbu Państwa). Zamiast
-modyfikować szablon, podmieniamy wybrany paragraf w JUŻ wyrenderowanym dokumencie:
+Niektórzy Klienci wymagają specyficznych zapisów. Zamiast modyfikować szablon
+(`umowa_b2b_{pl,en}.docx/html`) i `build_b2b_templates.py`, podmieniamy/dokładamy
+treść w JUŻ wyrenderowanym dokumencie — domyślna umowa dla pozostałych Klientów
+pozostaje nietknięta.
 
-  - DOCX: ``apply_p10_docx`` usuwa akapity § 10 (od nagłówka „§ 10" do akapitu
-    przed „§ 11") i wstawia akapity z override (zachowując styl/wyrównanie/wcięcia
-    oryginału — patrz inspekcja: styl „Default", nagłówki CENTER+bold, klauzule
-    JUSTIFY + wcięcie 0.25").
-  - HTML (podgląd / PDF): ``apply_p10_html`` podmienia blok ``<h2>§ 10</h2>…``
-    (do ``<h2>§ 11</h2>``) na HTML override.
+Silnik wspiera operacje (Op = ``(kind, target, blocks)``):
+  - ``replace_section``    target=int  → podmień cały § N (np. § 4, § 10)
+  - ``append_to_section``  target=int  → dołącz akapity na końcu § N (przed § N+1)
+  - ``append_appendix``    target=None → nowy Załącznik na końcu dokumentu (page-break)
+  - ``after_table``        target=int  → wstaw akapity po tabeli (indeks)
+  - ``after_sentence``     target=str  → wstaw akapity po akapicie zawierającym frazę
 
-Domyślny § 10 (dla pozostałych Klientów) NIE jest ruszany — brak override =
-render bez zmian. Override dotyczy obecnie tylko języka PL (brak treści EN).
+Blok = ``(kind, text)``. kind: ``h`` nagłówek (centrowany bold), ``sub`` podtytuł
+(centrowany bold), ``sh`` nagłówek sekcji wewnątrz załącznika (bold), ``p``
+klauzula numerowana, ``i`` podpunkt a)/b) (wcięcie), ``b`` wypunktowanie,
+``sig`` linia podpisu (plain), ``gap`` pusty akapit.
 
-Rozszerzanie: dopisz Klienta w ``_CLIENT_DESCRIPTORS`` (match po znormalizowanej
-nazwie) — treść § 10 obu Klientów jest identyczna poza opisem Klienta w ust. 6.
+Treść klauzul (PL+EN) trzymana w ``clause_override_content.py``.
 """
 
 from __future__ import annotations
@@ -23,366 +25,268 @@ from __future__ import annotations
 import html
 import re
 
-# Blok = (kind, text). kind: "h" nagłówek §, "sub" podtytuł (bold, wyśrodkowany),
-# "p" klauzula numerowana, "i" podpunkt a)/b) (wcięcie), "b" wypunktowanie.
 Block = tuple[str, str]
+Op = tuple[str, object, tuple[Block, ...]]
 
 
 def _norm(name: str) -> str:
-    """Normalizuj nazwę klienta do dopasowania (lower, zwiń białe znaki)."""
     return re.sub(r"\s+", " ", (name or "").strip().lower())
 
 
-# Znormalizowane wzorce nazw → opis Klienta wstawiany w ust. 6 § 10 (PL, EN).
-_CLIENT_DESCRIPTORS: tuple[tuple[tuple[str, ...], str, str], ...] = (
-    (
-        ("pfron", "rehabilitacji osób niepełnosprawnych"),
-        "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych tzw. PFRON",
-        "the State Fund for the Rehabilitation of Disabled Persons (PFRON)",
-    ),
-    (
-        ("centrum e-zdrowia", "e-zdrowia"),
-        "Skarb Państwa – Centrum e-Zdrowia",
-        "the State Treasury – Centrum e-Zdrowia",
-    ),
-)
-
-_BULLETS_7_PL = (
-    "opóźnienia w rozpoczęciu świadczenia usług,",
-    "nienależytego wykonania usług,",
-    "nieusprawiedliwionej nieobecności Partnera,",
-    "niezłożenia wymaganych dokumentów lub oświadczeń,",
-    "naruszenia zasad poufności,",
-    "użycia wadliwego, niekompletnego lub nieuprawnionego kodu źródłowego,",
-    "odmowy współpracy przy przekazaniu obowiązków,",
-    "innych zawinionych uchybień wpływających negatywnie na realizację usług.",
-)
-
-_BULLETS_7_EN = (
-    "delay in commencing the provision of the services,",
-    "improper performance of the services,",
-    "unjustified absence of the Partner,",
-    "failure to submit required documents or declarations,",
-    "breach of confidentiality rules,",
-    "use of defective, incomplete, or unauthorized source code,",
-    "refusal to cooperate in the handover of duties,",
-    "other culpable failures adversely affecting the provision of the services.",
-)
-
-
-def _p10_blocks_pl(client_descriptor: str) -> tuple[Block, ...]:
-    """Zbuduj § 10 (Klauzule Antykonkurencyjne i Kary Umowne) PL dla Klienta.
-
-    Treść identyczna dla wszystkich Klientów wymagających rozszerzonego § 10,
-    poza opisem Klienta w ust. 6 (``client_descriptor``)."""
-    blocks: list[Block] = [
-        ("h", "§ 10"),
-        ("sub", "Klauzule Antykonkurencyjne i Kary Umowne"),
-        (
-            "p",
-            "1. W okresie obowiązywania Umowy oraz przez okres 12 (dwunastu) "
-            "miesięcy po jej rozwiązaniu lub wygaśnięciu, Partner zobowiązuje się "
-            "powstrzymać od:",
-        ),
-        (
-            "i",
-            "a) świadczenia usług bezpośrednio na rzecz Klienta B2BNET wskazanego "
-            "w Załączniku nr 3, z pominięciem B2BNET., w zakresie objętym "
-            "Segmentem Rynku,",
-        ),
-        (
-            "i",
-            "b) podejmowania zatrudnienia lub innej współpracy z Klientem B2BNET "
-            "bez uprzedniej pisemnej zgody B2BNET.",
-        ),
-        (
-            "p",
-            "2. Zakaz konkurencji określony w ust. 1 nie obejmuje: a) współpracy "
-            "z klientami B2BNET innymi niż Klienci wskazani w Załączniku nr 3, "
-            "b) prowadzenia działalności gospodarczej lub świadczenia usług na "
-            "rzecz podmiotów trzecich, które nie są Klientem Projektu, nawet jeśli "
-            "działają w tym samym Segmencie Rynku, c) usług świadczonych poza "
-            "Segmentem Rynku.",
-        ),
-        (
-            "p",
-            "3. W przypadku naruszenia przez Partnera postanowień § 8 (Informacje "
-            "Poufne), Partner zapłaci B2BNET karę umowną w wysokości 50.000,00 zł "
-            "(słownie: pięćdziesiąt tysięcy złotych).",
-        ),
-        (
-            "p",
-            "4. W przypadku naruszenia przez Partnera postanowień ust. 1 "
-            "niniejszego paragrafu (Zakaz Konkurencji), Partner zapłaci B2BNET karę "
-            "umowną w wysokości 100.000,00 zł (słownie: sto tysięcy złotych).",
-        ),
-        (
-            "p",
-            "5. Zapłata kary umownej nie wyłącza prawa B2BNET do dochodzenia "
-            "odszkodowania przewyższającego wysokość zastrzeżonej kary na zasadach "
-            "ogólnych Kodeksu Cywilnego.",
-        ),
-        (
-            "p",
-            "6. Postanowienia ust. 7–10 poniżej znajdują zastosowanie w przypadku, "
-            "gdy działania lub zaniechania Partnera podczas świadczenia usług na "
-            f"rzecz Klienta B2BNET ({client_descriptor}), skutkują nałożeniem na "
-            "B2BNET przez Klienta kar umownych, odszkodowań lub innych sankcji "
-            "finansowych.",
-        ),
-        (
-            "p",
-            "7. Partner ponosi wobec B2BNET odpowiedzialność finansową w pełnej "
-            "wysokości za wszelkie sankcje nałożone na B2BNET przez Klienta B2BNET, "
-            "jeżeli wynikają one z zawinionego działania lub zaniechania Partnera, "
-            "w tym w szczególności z:",
-        ),
-    ]
-    blocks.extend(("b", f"•  {item}") for item in _BULLETS_7_PL)
-    blocks.extend(
-        [
-            (
-                "p",
-                "8. W razie zaistnienia sytuacji, o których mowa powyżej, Partner "
-                "zobowiązuje się do zwrotu na rzecz B2BNET pełnej kwoty zapłaconych "
-                "przez B2BNET kar umownych, odszkodowań lub innych świadczeń "
-                "sankcyjnych, w terminie 7 (siedmiu) dni od dnia doręczenia "
-                "wezwania do zapłaty.",
-            ),
-            (
-                "p",
-                "9. W przypadku opóźnienia w zapłacie, Partner zobowiązany jest do "
-                "zapłaty odsetek ustawowych za opóźnienie zgodnie z art. 481 "
-                "Kodeksu cywilnego.",
-            ),
-            (
-                "p",
-                "10. Postanowienia ust. 6–9 nie ograniczają prawa B2BNET do "
-                "dochodzenia od Partnera odszkodowania przewyższającego wysokość "
-                "zapłaconych kar, jeżeli poniesiona szkoda przekracza wartość tych "
-                "świadczeń.",
-            ),
-        ]
-    )
-    return tuple(blocks)
-
-
-def _p10_blocks_en(client_descriptor: str) -> tuple[Block, ...]:
-    """Zbuduj § 10 (Non-Competition Clauses and Contractual Penalties) EN.
-
-    Terminologia spójna z domyślnym § 10 szablonu EN; treść identyczna dla
-    wszystkich Klientów poza opisem Klienta w ust. 6 (``client_descriptor``)."""
-    blocks: list[Block] = [
-        ("h", "§ 10"),
-        ("sub", "Non-Competition Clauses and Contractual Penalties"),
-        (
-            "p",
-            "1. During the term of the Agreement and for a period of 12 (twelve) "
-            "months after its termination or expiration, the Partner undertakes to "
-            "refrain from:",
-        ),
-        (
-            "i",
-            "a) providing services directly to the B2BNET Customer indicated in "
-            "Appendix 3, bypassing B2BNET, within the scope covered by the Market "
-            "Segment,",
-        ),
-        (
-            "i",
-            "b) taking up employment or other cooperation with the B2BNET Customer "
-            "without the prior written consent of B2BNET.",
-        ),
-        (
-            "p",
-            "2. The non-competition clause specified in section 1 does not apply "
-            "to: a) cooperation with B2BNET customers other than those indicated in "
-            "Appendix 3, b) conducting business activity or providing services to "
-            "third parties who are not Project Customers, even if they operate in "
-            "the same Market Segment, c) services provided outside the Market "
-            "Segment.",
-        ),
-        (
-            "p",
-            "3. In the event of a breach by the Partner of the provisions of § 8 "
-            "(Confidential Information), the Partner shall pay B2BNET a contractual "
-            "penalty in the amount of PLN 50,000.00 (in words: fifty thousand "
-            "zlotys).",
-        ),
-        (
-            "p",
-            "4. In the event of a breach by the Partner of the provisions of "
-            "section 1 of this paragraph (Non-Competition), the Partner shall pay "
-            "B2BNET a contractual penalty in the amount of PLN 100,000.00 (in "
-            "words: one hundred thousand zlotys).",
-        ),
-        (
-            "p",
-            "5. The payment of the contractual penalty shall not exclude B2BNET's "
-            "right to claim damages in excess of the amount of the reserved penalty "
-            "under the general provisions of the Civil Code.",
-        ),
-        (
-            "p",
-            "6. The provisions of sections 7–10 below shall apply where the acts "
-            "or omissions of the Partner during the provision of services to the "
-            f"B2BNET Customer ({client_descriptor}) result in the imposition on "
-            "B2BNET by the Customer of contractual penalties, damages, or other "
-            "financial sanctions.",
-        ),
-        (
-            "p",
-            "7. The Partner shall bear full financial liability towards B2BNET for "
-            "any sanctions imposed on B2BNET by the B2BNET Customer, where they "
-            "result from the Partner's culpable act or omission, including in "
-            "particular:",
-        ),
-    ]
-    blocks.extend(("b", f"•  {item}") for item in _BULLETS_7_EN)
-    blocks.extend(
-        [
-            (
-                "p",
-                "8. Should the situations referred to above occur, the Partner "
-                "undertakes to reimburse B2BNET the full amount of contractual "
-                "penalties, damages, or other sanction-related payments made by "
-                "B2BNET, within 7 (seven) days from the date of delivery of the "
-                "payment demand.",
-            ),
-            (
-                "p",
-                "9. In the event of delay in payment, the Partner shall be obliged "
-                "to pay statutory interest for delay in accordance with Article 481 "
-                "of the Civil Code.",
-            ),
-            (
-                "p",
-                "10. The provisions of sections 6–9 shall not limit B2BNET's right "
-                "to claim from the Partner damages exceeding the amount of the "
-                "penalties paid, where the damage suffered exceeds the value of "
-                "those payments.",
-            ),
-        ]
-    )
-    return tuple(blocks)
-
-
-def override_for_client(
-    client_name: str | None, language: str
-) -> tuple[Block, ...] | None:
-    """§ 10 override dla Klienta (lub None — render domyślny).
+def overrides_for_client(client_name: str | None, language: str) -> list[Op]:
+    """Lista operacji modyfikujących umowę dla danego Klienta (pusta = brak).
 
     Dopasowanie po znormalizowanej nazwie Klienta; treść w języku umowy (PL/EN)."""
     if not client_name:
-        return None
+        return []
+    from app.services.b2b_contract_generator.clause_override_content import (
+        CLIENT_OVERRIDES,
+    )
+
     is_en = (language or "pl").lower().startswith("en")
     n = _norm(client_name)
-    for needles, descriptor_pl, descriptor_en in _CLIENT_DESCRIPTORS:
+    for needles, ops_builder in CLIENT_OVERRIDES:
         if any(needle in n for needle in needles):
-            return (
-                _p10_blocks_en(descriptor_en)
-                if is_en
-                else _p10_blocks_pl(descriptor_pl)
-            )
-    return None
+            return ops_builder("en" if is_en else "pl")
+    return []
 
 
-# ── Render HTML (podgląd / PDF) ──────────────────────────────────────────────
+def has_override(client_name: str | None) -> bool:
+    """Czy Klient ma jakiekolwiek modyfikacje umowy (dowolny język)."""
+    return bool(overrides_for_client(client_name, "pl"))
 
 
-def render_p10_html(blocks: tuple[Block, ...]) -> str:
-    """Wyrenderuj bloki § 10 do HTML (markup zgodny z resztą szablonu)."""
+# ── Render bloków do HTML ────────────────────────────────────────────────────
+
+
+def _blocks_html(blocks: tuple[Block, ...]) -> str:
     out: list[str] = []
     for kind, text in blocks:
-        # quote=False: tekst trafia do treści elementu (<p>…), nie atrybutu →
-        # apostrofy/cudzysłowy bezpieczne, bez brzydkiego &#x27; (np. „B2BNET's").
+        # quote=False: treść elementu (<p>…), nie atrybut → czyste apostrofy.
         esc = html.escape(text, quote=False)
         if kind == "h":
             out.append(f"<h2>{esc}</h2>")
-        elif kind == "sub":
+        elif kind in ("sub", "sh"):
             out.append(f"<p><strong>{esc}</strong></p>")
         elif kind == "i":
             out.append(f'<p style="margin-left:1.5em">{esc}</p>')
         elif kind == "b":
             out.append(f'<p style="margin-left:2.5em">{esc}</p>')
-        else:  # "p"
+        elif kind == "gap":
+            out.append("<p></p>")
+        else:  # "p", "sig"
             out.append(f"<p>{esc}</p>")
     return "\n".join(out) + "\n"
 
 
-_HTML_P10_RE = re.compile(
-    r"<h2>\s*§\s*10\s*</h2>.*?(?=<h2>\s*§\s*11\s*</h2>)", re.DOTALL
-)
+# ── HTML: aplikacja operacji na wyrenderowanym stringu ───────────────────────
+
+_H2 = re.compile(r"<h2[ >]")
 
 
-def apply_p10_html(rendered_html: str, blocks: tuple[Block, ...]) -> str:
-    """Podmień blok § 10 w wyrenderowanym HTML na override (jeśli wzorzec trafi)."""
-    new_html, n = _HTML_P10_RE.subn(
-        lambda _m: render_p10_html(blocks), rendered_html, count=1
-    )
-    return new_html if n else rendered_html
+def _html_section_span(rendered: str, n: int) -> tuple[int, int] | None:
+    """(start nagłówka § N, start następnego <h2>) lub None."""
+    m = re.search(rf"<h2>\s*§\s*{n}\s*\.?\s*</h2>", rendered)
+    if not m:
+        return None
+    nxt = _H2.search(rendered, m.end())
+    end = nxt.start() if nxt else len(rendered)
+    return (m.start(), end)
 
 
-# ── Render DOCX (post-processing wyrenderowanego dokumentu) ──────────────────
+def apply_ops_html(rendered_html: str, ops: list[Op]) -> str:
+    out = rendered_html
+    for kind, target, blocks in ops:
+        frag = _blocks_html(blocks)
+        if kind == "replace_section":
+            span = _html_section_span(out, int(target))  # type: ignore[arg-type]
+            if span:
+                out = out[: span[0]] + frag + out[span[1] :]
+        elif kind == "append_to_section":
+            span = _html_section_span(out, int(target))  # type: ignore[arg-type]
+            if span:
+                out = out[: span[1]] + frag + out[span[1] :]
+        elif kind == "append_appendix":
+            out = out.rstrip() + "\n" + frag
+        elif kind == "after_table":
+            idx = out.find("</table>")
+            if idx != -1:
+                cut = idx + len("</table>")
+                out = out[:cut] + "\n" + frag + out[cut:]
+        elif kind == "after_sentence":
+            anchor = str(target)
+            pos = out.find(anchor)
+            if pos != -1:
+                close = out.find("</p>", pos)
+                if close != -1:
+                    cut = close + len("</p>")
+                    out = out[:cut] + "\n" + frag + out[cut:]
+    return out
 
 
-def apply_p10_docx(doc, blocks: tuple[Block, ...]) -> bool:
-    """Podmień § 10 w wyrenderowanym dokumencie DOCX (python-docx ``Document``).
-
-    Usuwa akapity od nagłówka „§ 10" do akapitu przed „§ 11" i wstawia akapity
-    override przed „§ 11", zachowując styl/wyrównanie/wcięcia oryginału. Zwraca
-    True, gdy podmieniono (False = nie znaleziono granic → render bez zmian)."""
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches
-
-    paras = doc.paragraphs
-    start = end = None
-    for idx, p in enumerate(paras):
-        t = (p.text or "").strip()
-        if start is None and re.fullmatch(r"§\s*10", t):
-            start = idx
-        elif start is not None and re.fullmatch(r"§\s*11", t):
-            end = idx
-            break
-    if start is None or end is None:
-        return False
-
-    base_style = paras[start].style
-    # Czcionka (rozmiar/nazwa) z reprezentatywnych runów oryginału — by override
-    # wyglądał spójnie z resztą umowy.
-    head_font = _ref_font(paras[start])
-    body_font = _ref_font(paras[start + 2]) if start + 2 < end else head_font
-    anchor = paras[end]  # akapit „§ 11" — kotwica wstawiania
-
-    for p in paras[start:end]:
-        p._element.getparent().remove(p._element)
-
-    for kind, text in blocks:
-        np = anchor.insert_paragraph_before()
-        np.style = base_style
-        pf = np.paragraph_format
-        run = np.add_run(text)
-        if kind in ("h", "sub"):
-            run.bold = True
-            np.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _apply_font(run, head_font)
-        else:
-            np.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            pf.left_indent = Inches(0.5 if kind in ("i", "b") else 0.25)
-            _apply_font(run, body_font)
-    return True
+# ── DOCX: aplikacja operacji na wyrenderowanym python-docx Document ──────────
 
 
 def _ref_font(paragraph) -> tuple[object, object]:
-    """(rozmiar, nazwa) pierwszego runu akapitu — do skopiowania na override."""
-    if paragraph.runs:
+    if paragraph is not None and paragraph.runs:
         f = paragraph.runs[0].font
         return (f.size, f.name)
     return (None, None)
 
 
-def _apply_font(run, font: tuple[object, object]) -> None:
+def _doc_ref_styles(doc):
+    """(base_style, head_font, body_font) z reprezentatywnych akapitów umowy."""
+    base_style = None
+    head_p = body_p = None
+    for p in doc.paragraphs:
+        t = (p.text or "").strip()
+        if head_p is None and re.fullmatch(r"§\s*\d+\s*A?", t):
+            head_p = p
+            base_style = p.style
+        elif body_p is None and len(t) > 80:
+            body_p = p
+        if head_p is not None and body_p is not None:
+            break
+    return (base_style, _ref_font(head_p), _ref_font(body_p))
+
+
+def _apply_font(run, font) -> None:
     size, name = font
     if size is not None:
         run.font.size = size
     if name is not None:
         run.font.name = name
+
+
+def _style_para(para, kind: str, text: str, styles) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches
+
+    base_style, head_font, body_font = styles
+    if base_style is not None:
+        para.style = base_style
+    run = para.add_run(text)
+    pf = para.paragraph_format
+    if kind in ("h", "sub"):
+        run.bold = True
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _apply_font(run, head_font)
+    elif kind == "sh":
+        run.bold = True
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _apply_font(run, body_font)
+    elif kind == "sig":
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _apply_font(run, body_font)
+    elif kind == "gap":
+        pass
+    else:  # p / i / b
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        pf.left_indent = Inches(0.5 if kind in ("i", "b") else 0.25)
+        _apply_font(run, body_font)
+
+
+def _new_p(body_parent):
+    from docx.oxml import OxmlElement
+    from docx.text.paragraph import Paragraph
+
+    el = OxmlElement("w:p")
+    return el, Paragraph(el, body_parent)
+
+
+def _emit_before(ref_el, body_parent, blocks, styles) -> None:
+    """Wstaw akapity (w kolejności) przed elementem ``ref_el``."""
+    for kind, text in blocks:
+        el, para = _new_p(body_parent)
+        ref_el.addprevious(el)
+        _style_para(para, kind, text, styles)
+
+
+def _emit_after(ref_el, body_parent, blocks, styles, *, page_break_first=False):
+    """Wstaw akapity (w kolejności) po elemencie ``ref_el``."""
+    cur = ref_el
+    first = True
+    for kind, text in blocks:
+        el, para = _new_p(body_parent)
+        cur.addnext(el)
+        _style_para(para, kind, text, styles)
+        if first and page_break_first:
+            para.paragraph_format.page_break_before = True
+        first = False
+        cur = el
+
+
+def _find_section_heading_el(doc, n: int):
+    for p in doc.paragraphs:
+        if re.fullmatch(rf"§\s*{n}\s*A?", (p.text or "").strip()):
+            return p._p
+    return None
+
+
+def _next_heading_el(doc, start_el):
+    """Element następnego nagłówka (§ N / § NA / Załącznik) po ``start_el``."""
+    seen = False
+    for p in doc.paragraphs:
+        if p._p is start_el:
+            seen = True
+            continue
+        if not seen:
+            continue
+        t = (p.text or "").strip()
+        if re.fullmatch(r"§\s*\d+\s*A?", t) or re.match(r"(?i)za[łl]ącznik\s*nr", t):
+            return p._p
+    return None
+
+
+def apply_ops_docx(doc, ops: list[Op]) -> int:
+    """Zastosuj operacje na wyrenderowanym DOCX. Zwraca liczbę wykonanych."""
+    styles = _doc_ref_styles(doc)
+    body_parent = doc.paragraphs[0]._parent if doc.paragraphs else None
+    if body_parent is None:
+        return 0
+    applied = 0
+    for kind, target, blocks in ops:
+        if kind == "replace_section":
+            start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
+            if start is None:
+                continue
+            nxt = _next_heading_el(doc, start)
+            if nxt is None:
+                continue
+            # usuń akapity § N (od nagłówka do przed następnym nagłówkiem)
+            el = start
+            while el is not None and el is not nxt:
+                to_remove = el
+                el = el.getnext()
+                to_remove.getparent().remove(to_remove)
+            _emit_before(nxt, body_parent, blocks, styles)
+            applied += 1
+        elif kind == "append_to_section":
+            start = _find_section_heading_el(doc, int(target))  # type: ignore[arg-type]
+            if start is None:
+                continue
+            nxt = _next_heading_el(doc, start)
+            if nxt is None:
+                continue
+            _emit_before(nxt, body_parent, blocks, styles)
+            applied += 1
+        elif kind == "append_appendix":
+            last_el = doc.paragraphs[-1]._p
+            _emit_after(last_el, body_parent, blocks, styles, page_break_first=True)
+            applied += 1
+        elif kind == "after_table":
+            idx = int(target)  # type: ignore[arg-type]
+            if idx < len(doc.tables):
+                _emit_after(doc.tables[idx]._tbl, body_parent, blocks, styles)
+                applied += 1
+        elif kind == "after_sentence":
+            anchor = str(target)
+            ref = None
+            for p in doc.paragraphs:
+                if anchor in (p.text or ""):
+                    ref = p._p
+                    break
+            if ref is not None:
+                _emit_after(ref, body_parent, blocks, styles)
+                applied += 1
+    return applied
