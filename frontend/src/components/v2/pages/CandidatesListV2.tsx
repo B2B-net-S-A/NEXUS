@@ -429,8 +429,9 @@ interface Candidate {
  }> | null;
  // Quick-glance triage fields — populated when API called with
  // include_last_activity=true. Backend already strips HTML + truncates
- // last_note_preview to 120 chars; last_rejection_reason is the bare reason/
- // note text (no project suffix), full content; rate is formatted "150 PLN/h".
+ // last_note_preview to 120 chars; last_rejection_reason = kategoria +
+ // notatka rekrutera ("Po CV — kandydat nie jest zainteresowany"), bez
+ // sufiksu projektu, pełna treść; rate is formatted "150 PLN/h".
  last_note_preview?: string | null;
  last_rejection_reason?: string | null;
  last_rate?: string | null;
@@ -985,9 +986,9 @@ function CandidateCell({
  if (!reason) {
  return <span className="text-xs text-muted-foreground">—</span>;
  }
- // Pełna treść powodu od razu w komórce (bez line-clamp) i bez nazwy projektu
- // — rekruter chce widzieć sam powód. Realne powody są krótkie ("Po CV"),
- // `break-words` zabezpiecza ewentualny dłuższy free-text.
+ // Pełna treść od razu w komórce (bez line-clamp): kategoria + notatka
+ // rekrutera ("Po CV — kandydat nie jest zainteresowany tą ofertą").
+ // `break-words` zabezpiecza dłuższy free-text rekrutera.
  return (
  <div className="flex items-start gap-1.5 min-w-0">
  <XCircle className="h-3 w-3 shrink-0 text-rose-500 mt-0.5" />

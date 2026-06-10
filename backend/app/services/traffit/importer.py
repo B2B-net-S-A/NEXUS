@@ -49,6 +49,7 @@ from app.services.traffit.mappers import (
     traffit_workflow_to_template,
 )
 from app.services.traffit.rejection_backfill import (
+    backfill_rejection_descriptions_from_activities,
     backfill_rejection_notes_from_activities,
 )
 
@@ -1719,6 +1720,22 @@ class TraffitImporter:
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
                 progress.add_error(f"rejection_note backfill: {e!r}")
+
+            # Second self-heal: stitch the recruiter's free-text rejection comment
+            # (content.description) onto candidate_stages.notes so the "Powód
+            # odrzucenia" column shows "Po CV — niezainteresowany", not a bare bucket.
+            try:
+                healed_desc = await backfill_rejection_descriptions_from_activities(
+                    self.db
+                )
+                await self.db.commit()
+                logger.info(
+                    "Activities self-heal: %d rejected stages got a rejection note (description)",
+                    healed_desc,
+                )
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                progress.add_error(f"rejection description backfill: {e!r}")
 
         progress.finished_at = datetime.now(timezone.utc)
         logger.info(

@@ -206,28 +206,38 @@ def _format_rejection_reason(
     stage_notes: Optional[str],
     rejection_note: Optional[str],
 ) -> Optional[str]:
-    """Zwróć SAMĄ treść powodu odrzucenia (notatki) — pełną, bez nazwy projektu.
-    Priorytet źródła:
-    1. Structured rejection_reason.name (FK z pipeline_template). Cleanest signal.
-    2. CandidateStage.rejection_note (free-text rejection blob from `verified` flow).
-    3. CandidateStage.notes (general transition note).
+    """Zwróć powód odrzucenia: kategorię + notatkę rekrutera od razu w kolumnie.
 
-    Świadomie NIE doklejamy " · job (client)" (decyzja produktowa 2026-06-05):
-    nazwa projektu zaśmiecała wąską kolumnę i przykrywała sam powód ("Po CV" ginęło
-    za długim tytułem oferty). Rekruter chce widzieć powód od razu; kontekst projektu
-    i tak jest w kolumnie "Rekrutacje".
+    Dwa rozłączne sygnały na etapie `rejected`:
+    - **Kategoria** (suchy bucket — KIEDY/jak odrzucono): `rejection_reason.name`
+      (FK z pipeline_template przy odrzuceniu w NEXUS, np. "Po CV",
+      "Brak kwalifikacji") albo — dla historycznego importu z Traffita —
+      `CandidateStage.rejection_note` (tam backfill zapisuje samą nazwę kategorii).
+    - **Notatka rekrutera** (DLACZEGO — wolny tekst): `CandidateStage.notes`.
+      W NEXUS to pole "Notatka" z modala odrzucenia; dla importu z Traffita to
+      `content.description` z aktywności "Zmiana etapu" (backfill go tam wpisuje,
+      patrz `traffit/rejection_backfill.py`).
+
+    Decyzja produktowa 2026-06-10: rekruter chce widzieć WŁAŚNIE swoją notatkę
+    (np. "kandydat nie jest zainteresowany tą ofertą"), nie tylko suchy bucket.
+    Gdy są oba → "Kategoria — notatka". Gdy jest tylko jedno → pokazujemy to.
+    Świadomie NIE doklejamy " · job (client)" — kontekst projektu jest w kolumnie
+    "Rekrutacje".
     """
-    primary = (reason_name or "").strip()
-    if not primary:
-        primary = (rejection_note or "").strip()
-    if not primary:
-        primary = (stage_notes or "").strip()
-    if not primary:
-        return "Odrzucony"
-    return (
-        _format_note_preview(primary, max_chars=_REJECTION_REASON_MAX_CHARS)
-        or "Odrzucony"
+    category = (reason_name or "").strip() or (rejection_note or "").strip()
+    note_raw = (stage_notes or "").strip()
+    note = (
+        _format_note_preview(note_raw, max_chars=_REJECTION_REASON_MAX_CHARS)
+        if note_raw
+        else ""
     )
+    # Notatka, która tylko powtarza kategorię (np. recruiter wpisał "Po CV" w
+    # wolny tekst), nie wnosi nic — nie duplikuj.
+    if note and category and note.casefold() == category.casefold():
+        note = ""
+    if category and note:
+        return f"{category} — {note}"
+    return category or note or "Odrzucony"
 
 
 def _format_rate(value, unit: Optional[str], currency: Optional[str]) -> str:

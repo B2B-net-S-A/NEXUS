@@ -263,8 +263,7 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
     # Non-integer Decimal-like value
     assert "150.50" in _format_rate(150.5, "hourly", "PLN").replace(" ", "")
 
-    # Sam powód — BEZ " · job (client)". Nazwa projektu zaśmiecała kolumnę i
-    # przykrywała powód, więc świadomie jej nie doklejamy (decyzja 2026-06-05).
+    # Sama kategoria gdy nie ma notatki rekrutera — BEZ " · job (client)".
     assert (
         _format_rejection_reason(
             reason_name="Cena za wysoka",
@@ -279,6 +278,36 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
             reason_name=None,
             stage_notes=None,
             rejection_note="Po CV",
+        )
+        == "Po CV"
+    )
+    # Decyzja 2026-06-10: kategoria + notatka rekrutera razem ("DLACZEGO" obok
+    # bucketu). To jest CORE tej zmiany — rekruter chce widzieć swoją notatkę.
+    # NEXUS-native: kategoria z FK (reason_name), notatka w notes.
+    assert (
+        _format_rejection_reason(
+            reason_name="Po CV",
+            stage_notes="Kandydat nie jest zainteresowany tą ofertą",
+            rejection_note=None,
+        )
+        == "Po CV — Kandydat nie jest zainteresowany tą ofertą"
+    )
+    # Import z Traffita: kategoria w rejection_note (backfill nazwy), notatka =
+    # content.description zbackfillowany do notes. Też łączymy w jedną linię.
+    assert (
+        _format_rejection_reason(
+            reason_name=None,
+            stage_notes="<p>brak upgrade <b>java/spring boot</b></p>",
+            rejection_note="Po CV",
+        )
+        == "Po CV — brak upgrade java/spring boot"
+    )
+    # Notatka, która tylko powtarza kategorię, nie jest duplikowana.
+    assert (
+        _format_rejection_reason(
+            reason_name="Po CV",
+            stage_notes="po cv",
+            rejection_note=None,
         )
         == "Po CV"
     )
