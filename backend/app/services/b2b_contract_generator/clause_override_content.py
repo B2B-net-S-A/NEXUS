@@ -2245,6 +2245,473 @@ def _ops_credit_agricole(lang: str) -> list[Op]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# BIK (Biuro Informacji Kredytowej) — nowy Załącznik nr 4 (na końcu umowy)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _bik_appendix_pl() -> tuple[Block, ...]:
+    return (
+        (
+            "h",
+            "Załącznik nr 4 - Szczególne wymagania dotyczące realizacji usług "
+            "na rzecz Klienta Projektu – Biuro Informacji Kredytowej S.A.",
+        ),
+        (
+            "sub",
+            "SZCZEGÓLNE WYMAGANIA DOTYCZĄCE REALIZACJI USŁUG NA RZECZ KLIENTA "
+            "PROJEKTU – BIURO INFORMACJI KREDYTOWEJ S.A.",
+        ),
+        (
+            "p",
+            "Niniejszy Załącznik stosuje się, gdy Klientem Projektu wskazanym "
+            "w Załączniku nr 3 jest Biuro Informacji Kredytowej S.A. (dalej: "
+            "„BIK”). W przypadku sprzeczności z Umową Główną, pierwszeństwo mają "
+            "postanowienia niniejszego Załącznika oraz wewnętrzne regulacje "
+            "obowiązujące u BIK.",
+        ),
+        (
+            "sh",
+            "§ 1. Wymagania wobec Partnera przed przystąpieniem do rozpoczęcia Usługi",
+        ),
+        (
+            "p",
+            "1. Warunkiem przystąpienia Partnera do realizacji Usług jest "
+            "uprzednie podpisanie i dostarczenie do B2BNET:",
+        ),
+        (
+            "i",
+            "a) zaświadczenia o odbyciu wszystkich szkoleń wskazanych przez "
+            "BIK jako obowiązkowe przed uzyskaniem dostępu do systemów "
+            "informatycznych lub obiektów BIK;",
+        ),
+        (
+            "i",
+            "b) zaświadczenia o zapoznaniu się z regulacjami wewnętrznymi BIK "
+            "dotyczącymi bezpieczeństwa informacji, ochrony danych osobowych, "
+            "compliance, zasad dostępu do systemów i infrastruktury IT oraz zasad "
+            "korzystania ze sprzętu",
+        ),
+        (
+            "i",
+            "c) oświadczenia dotyczącego braku konfliktu interesów według wzoru BIK;",
+        ),
+        (
+            "p",
+            "2. Niedostarczenie podpisanych dokumentów wymienionych w ust. 1 w "
+            "terminie wyznaczonym przez B2BNET traktowane jest jako nieprzystąpienie "
+            "do realizacji Usług w rozumieniu §4 ust. 8 Umowy Głównej i skutkuje "
+            "naliczeniem przewidzianej tam kary umownej.",
+        ),
+        ("sh", "§ 2. Zakaz konfliktu interesów"),
+        (
+            "p",
+            "1. W całym okresie realizacji Usług na rzecz BIK Partner "
+            "zobowiązuje się nie świadczyć usług na rzecz podmiotów konkurencyjnych "
+            "wobec BIK ani nie podejmować działań mogących stanowić faktyczny lub "
+            "potencjalny konflikt interesów z interesami BIK lub podmiotów z jego "
+            "Grupy Kapitałowej, bez uprzedniej pisemnej zgody BIK przekazanej za "
+            "pośrednictwem B2BNET.",
+        ),
+        (
+            "p",
+            "2. O zaistnieniu lub ryzyku zaistnienia konfliktu interesów "
+            "Partner zobowiązany jest niezwłocznie, nie później niż w terminie 2 "
+            "dni roboczych, poinformować B2BNET na piśmie lub drogą elektroniczną.",
+        ),
+        (
+            "p",
+            "3. Partner zobowiązany jest do odnawiania oświadczenia o braku "
+            "konfliktu interesów raz w roku kalendarzowym oraz na każde żądanie "
+            "B2BNET lub BIK.",
+        ),
+        ("sh", "§ 3. Szkolenia obowiązkowe BIK"),
+        (
+            "p",
+            "1. Partner przed uzyskaniem dostępu do systemów informatycznych "
+            "lub obiektów BIK zobowiązany jest do odbycia wszystkich szkoleń "
+            "wskazanych przez BIK jako obowiązkowe, jak również innych szkoleń, "
+            "które w toku realizacji Usługi zostaną wskazane jako obowiązkowe. "
+            "Dotyczy to w szczególności szkoleń z zakresu bezpieczeństwa "
+            "informacji, ochrony danych osobowych i compliance.",
+        ),
+        (
+            "p",
+            "2. Udział w szkoleniach oraz ich pozytywne ukończenie stanowi "
+            "warunek dopuszczenia Partnera do wykonywania Usług na rzecz BIK oraz "
+            "uzyskania dostępu do systemów i informacji BIK.",
+        ),
+        (
+            "p",
+            "3. Nieodbycie wymaganych szkoleń z przyczyn leżących po stronie "
+            "Partnera skutkuje brakiem możliwości świadczenia Usług, a Partnerowi "
+            "nie przysługuje z tego tytułu wynagrodzenie ani jakiekolwiek inne "
+            "roszczenia wobec B2BNET za okres, w którym nie świadczył Usług.",
+        ),
+        (
+            "p",
+            "4. Odmowa udziału w szkoleniach lub nieuzyskanie wymaganego "
+            "zaliczenia stanowi nienależyte wykonanie Umowy w rozumieniu § 9 Umowy "
+            "Głównej i podstawę do jej rozwiązania ze skutkiem natychmiastowym z "
+            "winy Partnera.",
+        ),
+        (
+            "p",
+            "5. Postanowień ust. 3 i 4 nie stosuje się w przypadku "
+            "niewykonania lub nienależytego wykonania obowiązków szkoleniowych "
+            "spowodowanego działaniem siły wyższej. Partner zobowiązany jest do "
+            "niezwłocznego poinformowania B2BNET o wystąpieniu siły wyższej oraz do "
+            "podjęcia działań zmierzających do odbycia wymaganych szkoleń "
+            "niezwłocznie po ustaniu okoliczności siły wyższej.",
+        ),
+        ("sh", "§ 4. Korzystanie ze sprzętu BIK"),
+        (
+            "p",
+            "1. Partner zobowiązany jest do korzystania ze sprzętu "
+            "udostępnionego przez BIK wyłącznie zgodnie z jego przeznaczeniem i w "
+            "celach związanych z realizacją Usług.",
+        ),
+        (
+            "p",
+            "2. Przystąpienie do korzystania z własnego sprzętu Partnera "
+            "wymaga uprzedniej pisemnej zgody BIK, przekazanej za pośrednictwem "
+            "B2BNET oraz przedstawienia konfiguracji sprzętu do weryfikacji przez "
+            "BIK. BIK jest uprawniony do cyklicznej weryfikacji konfiguracji nie "
+            "rzadziej niż raz w roku.",
+        ),
+        (
+            "p",
+            "3. Partner ponosi pełną odpowiedzialność materialną za powierzony "
+            "mu sprzęt BIK od chwili jego odbioru do chwili zwrotu, zgodnie z § 4 "
+            "ust. 5 i 6 Umowy Głównej.",
+        ),
+        ("sh", "§ 5. Tajemnica bankowa i poufność"),
+        (
+            "p",
+            "1. Partner przyjmuje do wiadomości, że informacje uzyskane w "
+            "związku z realizacją Usług na rzecz BIK mogą być objęte tajemnicą "
+            "bankową w rozumieniu art. 104 ustawy z dnia 29 sierpnia 1997 r. – "
+            "Prawo bankowe (t.j. Dz.U. z 2023 r. poz. 2488 z późn. zm.).",
+        ),
+        (
+            "p",
+            "2. Obowiązek zachowania tajemnicy bankowej wiąże Partnera "
+            "bezterminowo, niezależnie od rozwiązania lub wygaśnięcia Umowy. "
+            "Dwunastomiesięczny termin wskazany w §8 ust. 6 Umowy Głównej nie "
+            "stosuje się do informacji objętych tajemnicą bankową.",
+        ),
+        (
+            "p",
+            "3. Naruszenie przez Partnera obowiązku zachowania tajemnicy "
+            "bankowej lub poufności informacji BIK stanowi rażące naruszenie Umowy "
+            "w rozumieniu §11 ust. 4 lit. a) Umowy Głównej.",
+        ),
+        ("sh", "§ 6. Odpowiedzialność Partnera za kary nałożone przez BIK"),
+        (
+            "p",
+            "1. W przypadku nałożenia na B2BNET przez BIK kary umownej lub "
+            "odszkodowania wynikającego bezpośrednio z działania lub zaniechania "
+            "Partnera, Partner zobowiązany jest do zwrotu B2BNET równowartości "
+            "faktycznie zapłaconej przez B2BNET kary lub odszkodowania w terminie "
+            "14 dni od dnia doręczenia Partnerowi noty obciążeniowej wraz z "
+            "dokumentacją potwierdzającą podstawę i wysokość obciążenia.",
+        ),
+        (
+            "p",
+            "2. Postanowienie niniejszego paragrafu stanowi uszczegółowienie "
+            "§9 ust. 5 Umowy Głównej w zakresie projektów realizowanych na rzecz "
+            "BIK.",
+        ),
+        ("sh", "§ 7. Regulacje wewnętrzne BIK"),
+        (
+            "p",
+            "1. Partner zobowiązuje się do przestrzegania wszelkich regulacji "
+            "wewnętrznych obowiązujących u BIK, w szczególności regulacji "
+            "dotyczących dostępu do budynków, pomieszczeń oraz infrastruktury "
+            "informatycznej BIK, zasad compliance, ochrony informacji, w tym danych "
+            "osobowych, korzystania z powierzonego sprzętu, zasad bezpieczeństwa "
+            "oraz zasad organizacyjnych obowiązujących przy realizacji Usług.",
+        ),
+        (
+            "p",
+            "2. W zakresie nieuregulowanym niniejszym Załącznikiem Partner "
+            "zobowiązany jest stosować się do wymagań i regulacji obowiązujących u "
+            "BIK, przekazywanych przez B2BNET lub bezpośrednio przez BIK.",
+        ),
+        ("sh", "§ 8. Organizacja pracy i komunikacja"),
+        (
+            "p",
+            "1. Partner zobowiązuje się wykonywać Usługi w uzgodnieniu z "
+            "przedstawicielami BIK oraz z zachowaniem zasad organizacji pracy "
+            "obowiązujących u BIK, w zakresie niezbędnym do prawidłowej realizacji "
+            "Usług.",
+        ),
+        (
+            "p",
+            "2. Partner zobowiązuje się do bieżącego monitorowania kanałów "
+            "komunikacji wskazanych przez BIK oraz B2BNET, w szczególności poczty "
+            "elektronicznej, w dniach roboczych i godzinach obowiązujących w "
+            "projekcie.",
+        ),
+        ("sh", "§ 9. Wstrzymanie realizacji Usług"),
+        (
+            "p",
+            "BIK ma prawo z wyprzedzeniem 15 dni roboczych wstrzymać "
+            "realizację jakichkolwiek prac wykonywanych przez Partnera w każdej "
+            "chwili bez konieczności podania przyczyny takiej decyzji. W takim "
+            "przypadku Partnerowi przysługuje wyłącznie wynagrodzenie za Usługi "
+            "faktycznie wykonane do momentu wstrzymania, o ile zostały one "
+            "prawidłowo wykonane i zaakceptowane zgodnie z Umową Główną.",
+        ),
+        ("sh", "§ 10. Zakończenie świadczenia Usług"),
+        (
+            "p",
+            "Partner zobowiązuje się do niezwłocznego poinformowania B2BNET o "
+            "zakończeniu świadczenia Usług na rzecz BIK, w szczególności w celu "
+            "umożliwienia odebrania dostępów, zwrotu sprzętu oraz wykonania innych "
+            "czynności wymaganych przez BIK lub B2BNET przy zakończeniu "
+            "współpracy.",
+        ),
+        *_SIG_PL,
+    )
+
+
+def _bik_appendix_en() -> tuple[Block, ...]:
+    return (
+        (
+            "h",
+            "Appendix No. 4 - Special requirements for the provision of "
+            "services to the Project Customer – Biuro Informacji Kredytowej S.A.",
+        ),
+        (
+            "sub",
+            "SPECIAL REQUIREMENTS FOR THE PROVISION OF SERVICES TO THE "
+            "PROJECT CUSTOMER – BIURO INFORMACJI KREDYTOWEJ S.A.",
+        ),
+        (
+            "p",
+            "This Appendix applies where the Project Customer indicated in "
+            "Appendix No. 3 is Biuro Informacji Kredytowej S.A. (hereinafter: "
+            "„BIK”). In the event of any conflict with the Main Agreement, the "
+            "provisions of this Appendix and the internal regulations applicable at "
+            "BIK shall prevail.",
+        ),
+        ("sh", "§ 1. Requirements for the Partner before commencing the Service"),
+        (
+            "p",
+            "1. A precondition for the Partner commencing the provision of the "
+            "Services is the prior signing and delivery to B2BNET of:",
+        ),
+        (
+            "i",
+            "a) a certificate of having completed all training indicated by "
+            "BIK as mandatory before gaining access to BIK's IT systems or "
+            "facilities;",
+        ),
+        (
+            "i",
+            "b) a certificate of having read BIK's internal regulations "
+            "concerning information security, personal data protection, compliance, "
+            "rules of access to systems and IT infrastructure, and rules for using "
+            "equipment",
+        ),
+        (
+            "i",
+            "c) a declaration regarding the absence of a conflict of interest "
+            "according to the BIK template;",
+        ),
+        (
+            "p",
+            "2. Failure to deliver the signed documents listed in section 1 "
+            "within the deadline set by B2BNET shall be treated as a failure to "
+            "commence the provision of the Services within the meaning of § 4 "
+            "section 8 of the Main Agreement and results in the imposition of the "
+            "contractual penalty provided for therein.",
+        ),
+        ("sh", "§ 2. Prohibition of conflict of interest"),
+        (
+            "p",
+            "1. Throughout the entire period of providing the Services to BIK, "
+            "the Partner undertakes not to provide services to entities competitive "
+            "to BIK, nor to take actions that may constitute an actual or potential "
+            "conflict of interest with the interests of BIK or entities of its "
+            "Capital Group, without the prior written consent of BIK provided "
+            "through B2BNET.",
+        ),
+        (
+            "p",
+            "2. The Partner is obliged to inform B2BNET of the occurrence or "
+            "risk of occurrence of a conflict of interest promptly, no later than "
+            "within 2 business days, in writing or by electronic means.",
+        ),
+        (
+            "p",
+            "3. The Partner is obliged to renew the declaration on the absence "
+            "of a conflict of interest once per calendar year and at each request "
+            "of B2BNET or BIK.",
+        ),
+        ("sh", "§ 3. BIK mandatory training"),
+        (
+            "p",
+            "1. Before gaining access to BIK's IT systems or facilities, the "
+            "Partner is obliged to complete all training indicated by BIK as "
+            "mandatory, as well as other training that, in the course of providing "
+            "the Service, is indicated as mandatory. This applies in particular to "
+            "training in the field of information security, personal data "
+            "protection, and compliance.",
+        ),
+        (
+            "p",
+            "2. Participation in the training and its successful completion is "
+            "a condition for admitting the Partner to perform the Services for BIK "
+            "and for gaining access to BIK's systems and information.",
+        ),
+        (
+            "p",
+            "3. Failure to complete the required training for reasons "
+            "attributable to the Partner results in the inability to provide the "
+            "Services, and the Partner shall not be entitled to any remuneration or "
+            "any other claims against B2BNET for the period during which the "
+            "Partner did not provide the Services.",
+        ),
+        (
+            "p",
+            "4. Refusal to participate in the training or failure to obtain "
+            "the required pass constitutes improper performance of the Agreement "
+            "within the meaning of § 9 of the Main Agreement and grounds for its "
+            "termination with immediate effect through the fault of the Partner.",
+        ),
+        (
+            "p",
+            "5. The provisions of sections 3 and 4 shall not apply in the case "
+            "of non-performance or improper performance of training obligations "
+            "caused by force majeure. The Partner is obliged to promptly inform "
+            "B2BNET of the occurrence of force majeure and to take actions aimed at "
+            "completing the required training promptly after the force majeure "
+            "circumstances cease.",
+        ),
+        ("sh", "§ 4. Use of BIK equipment"),
+        (
+            "p",
+            "1. The Partner is obliged to use the equipment made available by "
+            "BIK solely in accordance with its intended purpose and for purposes "
+            "related to the provision of the Services.",
+        ),
+        (
+            "p",
+            "2. Commencing the use of the Partner's own equipment requires the "
+            "prior written consent of BIK, provided through B2BNET, and the "
+            "presentation of the equipment configuration for verification by BIK. "
+            "BIK is entitled to periodically verify the configuration no less than "
+            "once a year.",
+        ),
+        (
+            "p",
+            "3. The Partner bears full material liability for the BIK "
+            "equipment entrusted to it from the moment of its receipt until the "
+            "moment of its return, in accordance with § 4 sections 5 and 6 of the "
+            "Main Agreement.",
+        ),
+        ("sh", "§ 5. Banking secrecy and confidentiality"),
+        (
+            "p",
+            "1. The Partner acknowledges that information obtained in "
+            "connection with the provision of the Services to BIK may be covered by "
+            "banking secrecy within the meaning of Article 104 of the Act of 29 "
+            "August 1997 – Banking Law (consolidated text: Journal of Laws of 2023, "
+            "item 2488, as amended).",
+        ),
+        (
+            "p",
+            "2. The obligation to maintain banking secrecy binds the Partner "
+            "indefinitely, regardless of the termination or expiration of the "
+            "Agreement. The twelve-month period indicated in § 8 section 6 of the "
+            "Main Agreement does not apply to information covered by banking "
+            "secrecy.",
+        ),
+        (
+            "p",
+            "3. A breach by the Partner of the obligation to maintain banking "
+            "secrecy or the confidentiality of BIK information constitutes a gross "
+            "breach of the Agreement within the meaning of § 11 section 4 letter a) "
+            "of the Main Agreement.",
+        ),
+        ("sh", "§ 6. Partner's liability for penalties imposed by BIK"),
+        (
+            "p",
+            "1. In the event of BIK imposing on B2BNET a contractual penalty "
+            "or damages resulting directly from the Partner's act or omission, the "
+            "Partner is obliged to reimburse B2BNET the equivalent of the penalty "
+            "or damages actually paid by B2BNET within 14 days from the date of "
+            "delivery to the Partner of the debit note together with documentation "
+            "confirming the basis and amount of the charge.",
+        ),
+        (
+            "p",
+            "2. The provision of this paragraph constitutes a detailing of § 9 "
+            "section 5 of the Main Agreement with respect to projects carried out "
+            "for BIK.",
+        ),
+        ("sh", "§ 7. BIK internal regulations"),
+        (
+            "p",
+            "1. The Partner undertakes to comply with all internal regulations "
+            "applicable at BIK, in particular regulations concerning access to "
+            "BIK's buildings, premises, and IT infrastructure, compliance rules, "
+            "information protection, including personal data, the use of entrusted "
+            "equipment, security rules, and organizational rules applicable to the "
+            "provision of the Services.",
+        ),
+        (
+            "p",
+            "2. To the extent not regulated by this Appendix, the Partner is "
+            "obliged to comply with the requirements and regulations applicable at "
+            "BIK, provided by B2BNET or directly by BIK.",
+        ),
+        ("sh", "§ 8. Work organization and communication"),
+        (
+            "p",
+            "1. The Partner undertakes to perform the Services in agreement "
+            "with BIK's representatives and in compliance with the work "
+            "organization rules applicable at BIK, to the extent necessary for the "
+            "proper provision of the Services.",
+        ),
+        (
+            "p",
+            "2. The Partner undertakes to continuously monitor the "
+            "communication channels indicated by BIK and B2BNET, in particular "
+            "e-mail, on business days and during the hours applicable in the "
+            "project.",
+        ),
+        ("sh", "§ 9. Suspension of the provision of the Services"),
+        (
+            "p",
+            "BIK has the right, with 15 business days' notice, to suspend the "
+            "performance of any work carried out by the Partner at any time without "
+            "the need to state the reason for such a decision. In such a case, the "
+            "Partner shall be entitled solely to remuneration for the Services "
+            "actually performed up to the moment of suspension, provided they were "
+            "correctly performed and accepted in accordance with the Main "
+            "Agreement.",
+        ),
+        ("sh", "§ 10. Completion of the provision of the Services"),
+        (
+            "p",
+            "The Partner undertakes to promptly inform B2BNET of the "
+            "completion of the provision of the Services to BIK, in particular in "
+            "order to enable the withdrawal of access, the return of equipment, and "
+            "the performance of other activities required by BIK or B2BNET upon the "
+            "completion of cooperation.",
+        ),
+        *_SIG_EN,
+    )
+
+
+def _ops_bik(lang: str) -> list[Op]:
+    blocks = _bik_appendix_en() if lang == "en" else _bik_appendix_pl()
+    return [("append_appendix", None, blocks)]
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Rejestr: needle(s) → builder operacji. Pierwsze trafienie wygrywa.
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -2254,4 +2721,5 @@ CLIENT_OVERRIDES: list[tuple[tuple[str, ...], object]] = [
     (("bnp paribas",), _ops_bnp),
     (("alior",), _ops_alior),
     (("credit agricole",), _ops_credit_agricole),
+    (("biuro informacji kredytowej", "bik"), _ops_bik),
 ]

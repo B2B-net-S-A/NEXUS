@@ -147,6 +147,7 @@ function hasSpecialClauses(clientName: string): boolean {
     n.includes("bnp paribas") ||
     n.includes("credit agricole") ||
     n.includes("biuro informacji kredytowej") ||
+    n.includes("bik") ||
     n.includes("alior")
   );
 }
