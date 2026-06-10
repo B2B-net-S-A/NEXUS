@@ -139,6 +139,7 @@ jobs:
                  tests/test_recommendation_status_filter.py \
                  tests/test_pipeline_templates_reorder.py \
                  tests/test_marketplace_api.py \
+                 tests/test_b2b_contract_generator.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
