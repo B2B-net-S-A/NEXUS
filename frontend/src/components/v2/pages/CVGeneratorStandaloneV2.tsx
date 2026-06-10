@@ -426,7 +426,7 @@ export function CVGeneratorStandaloneV2() {
         <p className="text-xs text-muted-foreground">
           {activeMut.isPending
             ? "Claude analizuje CV i renderuje DOCX — nie zamykaj karty…"
-            : "Generacja zajmuje 30–60 sekund (Claude + render DOCX)."}
+            : "Generacja zajmuje 60–90 sekund (Claude + render DOCX)."}
         </p>
         <Button
           size="lg"
