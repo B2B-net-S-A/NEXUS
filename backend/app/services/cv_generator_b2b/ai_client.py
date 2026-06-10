@@ -30,7 +30,10 @@ _DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_MAX_TOKENS = 8192
 
 PROMPT_NAME = "cv_b2b_extraction"
-PROMPT_VERSION = 2
+# v3 (2026-06-11): poufność notatek (stawki/red flagi), kwantyfikacja, zwięzłość
+# starszych ról, tytuł pod ofertę, kanoniczna pisownia tech, kontekst projektu,
+# higiena dat edukacji/luk.
+PROMPT_VERSION = 3
 
 
 def _model() -> str:
