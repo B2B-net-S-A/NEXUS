@@ -270,107 +270,106 @@ def test_next_seq_uses_max_numeric_prefix_not_row_count():
     ) == 1
 
 
-# ── Per-klient override § 10 (Centrum e-Zdrowia, PFRON) ──────────────────────
+# ── Per-klient modyfikacje umowy (silnik operacji) ──────────────────────────
 
 
-def test_p10_override_matching():
-    from app.services.b2b_contract_generator.clause_overrides import override_for_client
-
-    assert override_for_client("Centrum e-Zdrowia", "pl")
-    assert override_for_client(
-        "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych", "pl"
-    )
-    assert override_for_client("PFRON", "pl")
-    # override działa też dla EN (treść angielska)
-    assert override_for_client("Centrum e-Zdrowia", "en")
-    assert override_for_client("PFRON", "en")
-    # brak override: inny klient, pusty
-    assert override_for_client("Nordea Bank Abp", "pl") is None
-    assert override_for_client("Nordea Bank Abp", "en") is None
-    assert override_for_client("", "pl") is None
+def _blocks_of(ops, op_kind, target=None):
+    for kind, tgt, blocks in ops:
+        if kind == op_kind and (target is None or tgt == target):
+            return blocks
+    return ()
 
 
-def test_p10_override_en_uses_english_terminology():
-    from app.services.b2b_contract_generator.clause_overrides import override_for_client
-
-    centrum_en = override_for_client("Centrum e-Zdrowia", "en")
-    pfron_en = override_for_client("PFRON", "en")
-    centrum_txt = " ".join(t for _, t in centrum_en)
-    pfron_txt = " ".join(t for _, t in pfron_en)
-    assert "Non-Competition Clauses and Contractual Penalties" in centrum_txt
-    assert "the State Treasury – Centrum e-Zdrowia" in centrum_txt
-    assert "State Fund for the Rehabilitation of Disabled Persons (PFRON)" in pfron_txt
-    for marker in (
-        "10. The provisions of sections 6–9",
-        "PLN 50,000.00",
-        "Article 481 of the Civil Code",
-    ):
-        assert marker in centrum_txt and marker in pfron_txt
-    # żaden polski marker w wersji EN
-    assert "Skarb Państwa" not in centrum_txt and "Kary Umowne" not in centrum_txt
-
-
-def test_p10_override_client_descriptor_in_clause6():
-    from app.services.b2b_contract_generator.clause_overrides import override_for_client
-
-    centrum = override_for_client("Centrum e-Zdrowia", "pl")
-    pfron = override_for_client("PFRON", "pl")
-    centrum_txt = " ".join(t for _, t in centrum)
-    pfron_txt = " ".join(t for _, t in pfron)
-    assert "Skarb Państwa – Centrum e-Zdrowia" in centrum_txt
-    assert "PFRON" in pfron_txt and "Rehabilitacji Osób Niepełnosprawnych" in pfron_txt
-    # wspólna treść (klauzule 1-5, 7-10) — identyczna poza ust. 6
-    for marker in (
-        "Klauzule Antykonkurencyjne i Kary Umowne",
-        "50.000,00 zł",
-        "art. 481",
-    ):
-        assert marker in centrum_txt and marker in pfron_txt
-
-
-def test_p10_override_html_swaps_only_section_10():
+def test_overrides_matching_pl_en():
     from app.services.b2b_contract_generator.clause_overrides import (
-        apply_p10_html,
-        override_for_client,
+        has_override,
+        overrides_for_client,
     )
 
-    blocks = override_for_client("Centrum e-Zdrowia", "pl")
-    sample = (
-        "<h2>§ 9</h2>\n<p>poufne</p>\n"
-        "<h2>§ 10</h2>\n<p><strong>Klauzule Antykonkurencyjne i Kary Umowne</strong></p>\n"
-        "<p>W okresie obowiązywania Umowy ... powstrzymać od:</p>\n"
-        "<h2>§ 11</h2>\n<p><strong>Siła wyższa</strong></p>"
+    for name in ("Centrum e-Zdrowia", "PFRON", "BNP Paribas Bank Polska S.A."):
+        assert overrides_for_client(name, "pl")
+        assert overrides_for_client(name, "en")
+        assert has_override(name)
+    assert overrides_for_client("Nordea Bank Abp", "pl") == []
+    assert overrides_for_client("", "pl") == []
+
+
+def test_p10_replace_section_op_centrum_pfron():
+    from app.services.b2b_contract_generator.clause_overrides import (
+        overrides_for_client,
     )
-    out = apply_p10_html(sample, blocks)
-    assert out.count("<h2>§ 10</h2>") == 1
-    assert "<h2>§ 9</h2>" in out and "<h2>§ 11</h2>" in out and "Siła wyższa" in out
-    assert "Skarb Państwa – Centrum e-Zdrowia" in out
-    assert "10. Postanowienia ust. 6–9" in out
-    # brak wzorca → bez zmian
-    assert apply_p10_html("<p>brak</p>", blocks) == "<p>brak</p>"
+
+    cen = overrides_for_client("Centrum e-Zdrowia", "pl")
+    assert cen[0][0] == "replace_section" and cen[0][1] == 10
+    txt = " ".join(t for _, t in _blocks_of(cen, "replace_section", 10))
+    assert "Skarb Państwa – Centrum e-Zdrowia" in txt
+    assert "10. Postanowienia ust. 6–9" in txt
+    pf = overrides_for_client("PFRON", "en")
+    pftxt = " ".join(t for _, t in _blocks_of(pf, "replace_section", 10))
+    assert "State Fund for the Rehabilitation of Disabled Persons (PFRON)" in pftxt
+    assert "Non-Competition Clauses and Contractual Penalties" in pftxt
 
 
-def test_p10_override_docx_replaces_in_real_template():
+def test_bnp_ops_replace_s4_and_zal1_sentence():
+    from app.services.b2b_contract_generator.clause_overrides import (
+        overrides_for_client,
+    )
+
+    pl = overrides_for_client("BNP Paribas Bank Polska S.A.", "pl")
+    kinds = [k for k, _, _ in pl]
+    assert "replace_section" in kinds and "after_sentence" in kinds
+    s4 = " ".join(t for _, t in _blocks_of(pl, "replace_section", 4))
+    assert "Ogólne zasady współpracy" in s4
+    assert "15. Postanowienia ust. 13" in s4
+    assert "Kodeksie Postępowania Grupy BNP" in s4
+    # after_sentence: anchor + treść
+    for kind, anchor, blocks in pl:
+        if kind == "after_sentence":
+            assert "z niniejszą deklaracją, rozumiem jej treść" == anchor
+            assert "zapoznałem się z Kodeksem Postępowania Grupy BNP" in blocks[0][1]
+    en = overrides_for_client("BNP Paribas Bank Polska S.A.", "en")
+    s4en = " ".join(t for _, t in _blocks_of(en, "replace_section", 4))
+    assert "General Principles of Cooperation" in s4en
+    assert "15. The provisions of section 13" in s4en
+
+
+def test_engine_replace_section_on_real_pl_template():
     import docx as _docxlib
 
     from app.services.b2b_contract_generator.clause_overrides import (
-        apply_p10_docx,
-        override_for_client,
+        apply_ops_docx,
+        overrides_for_client,
     )
 
     doc = _docxlib.Document(str(TEMPLATE_DIR / "umowa_b2b_pl.docx"))
-    blocks = override_for_client("Centrum e-Zdrowia", "pl")
-    assert apply_p10_docx(doc, blocks) is True
+    ops = overrides_for_client("BNP Paribas Bank Polska S.A.", "pl")
+    assert apply_ops_docx(doc, ops) == 2
     texts = [(p.text or "").strip() for p in doc.paragraphs]
     joined = "\n".join(texts)
-    # domyślny § 10 (klauzula 1 bez prefiksu numeru) zniknął, override jest
-    default_c1 = (
-        "W okresie obowiązywania Umowy oraz przez okres 12 (dwunastu) miesięcy "
-        "po jej rozwiązaniu lub wygaśnięciu, Partner zobowiązuje się powstrzymać od:"
+    assert any(t.startswith("15. Postanowienia ust. 13") for t in texts)  # nowy §4
+    assert not any(
+        t.startswith("Postanowienia ust. 8 nie mają") for t in texts
+    )  # stary §4
+    assert sum(1 for t in texts if t == "§ 4") == 1
+    assert any(t == "§ 5" for t in texts)  # granica
+    assert "zapoznałem się z Kodeksem Postępowania Grupy BNP" in joined  # Zał.1
+
+
+def test_engine_html_ops_swaps_only_targets():
+    from app.services.b2b_contract_generator.clause_overrides import (
+        apply_ops_html,
+        overrides_for_client,
     )
-    assert default_c1 not in texts
-    assert any(t.startswith("1. W okresie obowiązywania") for t in texts)
-    assert "Skarb Państwa – Centrum e-Zdrowia" in joined
-    assert any(t.startswith("10. Postanowienia ust. 6–9") for t in texts)
-    assert sum(1 for t in texts if t == "§ 10") == 1
-    assert any(t == "§ 11" for t in texts)  # granica nienaruszona
+
+    sample = (
+        "<h2>§ 3</h2>\n<p>three</p>\n<h2>§ 4</h2>\n<p><strong>Ogólne</strong></p>\n"
+        "<p>old four</p>\n<h2>§ 5</h2>\n<p>five</p>\n"
+        "<p>Oświadczam, iż zapoznałem się z niniejszą deklaracją, rozumiem jej treść"
+        " i zobowiązuję się.</p>\n<p>after</p>"
+    )
+    out = apply_ops_html(sample, overrides_for_client("BNP Paribas", "pl"))
+    assert out.count("<h2>§ 4</h2>") == 1
+    assert "<h2>§ 3</h2>" in out and "<h2>§ 5</h2>" in out
+    assert "15. Postanowienia ust. 13" in out
+    assert "old four" not in out
+    assert "zapoznałem się z Kodeksem Postępowania Grupy BNP" in out

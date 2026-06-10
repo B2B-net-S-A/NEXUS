@@ -135,15 +135,20 @@ function smartDescription(role: B2BRole, lang: Lang, clientName: string): string
     : lead;
 }
 
-/** Klienci z niestandardowym § 10 (rozszerzone klauzule/kary) — zwraca etykietę
- * klienta gdy wybrany klient wymaga override'u, inaczej null. Musi być zgodne z
- * backendem (clause_overrides.override_for_client). Tylko PL. */
-function specialClauseClient(clientName: string): string | null {
+/** Klienci z niestandardowymi zapisami umowy — zwraca true gdy wybrany klient
+ * wymaga modyfikacji. Musi być zgodne z backendem
+ * (clause_override_content.CLIENT_OVERRIDES). PL i EN. */
+function hasSpecialClauses(clientName: string): boolean {
   const n = clientName.trim().toLowerCase();
-  if (n.includes("pfron") || n.includes("rehabilitacji osób niepełnosprawnych"))
-    return "PFRON";
-  if (n.includes("e-zdrowia")) return "Centrum e-Zdrowia";
-  return null;
+  return (
+    n.includes("pfron") ||
+    n.includes("rehabilitacji osób niepełnosprawnych") ||
+    n.includes("e-zdrowia") ||
+    n.includes("bnp paribas") ||
+    n.includes("credit agricole") ||
+    n.includes("biuro informacji kredytowej") ||
+    n.includes("alior")
+  );
 }
 
 /** Heurystyczna odmiana imienia i nazwiska do narzędnika („z Panem Janem
@@ -1032,11 +1037,11 @@ function GeneratorForm() {
                 </Command>
               </PopoverContent>
             </Popover>
-            {specialClauseClient(clientName) ? (
+            {hasSpecialClauses(clientName) ? (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
-                Ten klient ma specyficzny § 10 (rozszerzone klauzule
-                antykonkurencyjne i kary umowne) — zostanie automatycznie wstawiony
-                do umowy (PL i EN).
+                Ten klient ma specyficzne zapisy umowy (np. zmieniony paragraf,
+                dodatkowy załącznik lub klauzule) — zostaną automatycznie
+                wstawione do umowy (PL i EN).
               </p>
             ) : null}
           </Field>
