@@ -49,6 +49,10 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckRequest,
     B2BUopCheckResponse,
 )
+from app.services.b2b_contract_generator.clause_overrides import (
+    apply_p10_html,
+    override_for_client,
+)
 from app.services.b2b_contract_generator.docx_renderer import (
     normalize_language,
     render_contract_docx,
@@ -439,6 +443,10 @@ async def render_standalone(
             html = _jinja_env.from_string(tpl.content_jinja).render(**context)
         except TemplateError as exc:
             raise HTTPException(status_code=422, detail=f"Render error: {exc}")
+        # Per-klient override § 10 (np. Centrum e-Zdrowia, PFRON).
+        p10 = override_for_client(payload.client_name, lang)
+        if p10:
+            html = apply_p10_html(html, p10)
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
     # format == docx → numer + log + plik
