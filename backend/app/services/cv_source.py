@@ -35,9 +35,7 @@ class CurrentCV:
     source: str  # 'document_storage' | 'document_bytea' | 'candidate_storage' | 'candidate_bytea'
 
 
-async def get_current_cv(
-    db: AsyncSession, candidate: Candidate
-) -> CurrentCV | None:
+async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | None:
     """Resolve the candidate's current CV bytes, wherever they live.
 
     Priority: primary/most-recent ``CandidateDocument`` (object storage, then

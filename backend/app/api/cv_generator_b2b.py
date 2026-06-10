@@ -171,7 +171,15 @@ async def search_candidates(
             )
         )
         rank = case(
-            (or_(lastname_l == needle, name_l == needle, full == needle, full_rev == needle), 0),
+            (
+                or_(
+                    lastname_l == needle,
+                    name_l == needle,
+                    full == needle,
+                    full_rev == needle,
+                ),
+                0,
+            ),
             (
                 or_(
                     lastname_l.like(f"{needle}%"),
@@ -362,5 +370,3 @@ async def generate_from_upload(
         warnings=result.warnings,
         processing_time_ms=result.processing_time_ms,
     )
-
-

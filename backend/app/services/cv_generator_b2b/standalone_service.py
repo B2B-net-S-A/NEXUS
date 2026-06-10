@@ -340,9 +340,7 @@ def _term_in_source(term: str, source_norm: str) -> bool:
     if t in source_norm:
         return True
     tokens = [
-        w
-        for w in _GUARD_TOKEN_RE.split(t)
-        if len(w) >= 3 and w not in _GUARD_STOP
+        w for w in _GUARD_TOKEN_RE.split(t) if len(w) >= 3 and w not in _GUARD_STOP
     ]
     if not tokens:
         # Too short/generic to judge reliably — don't cry wolf.

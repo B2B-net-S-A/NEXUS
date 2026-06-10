@@ -37,15 +37,13 @@ def _matches(text: str, keywords: list[str]) -> list[str]:
 
 
 def test_multiword_keyword_matches():
-    assert _matches(
-        "Budowa pipeline'ów GitLab CI/CD od zera", ["GitLab CI/CD"]
-    ) == ["GitLab CI/CD"]
+    assert _matches("Budowa pipeline'ów GitLab CI/CD od zera", ["GitLab CI/CD"]) == [
+        "GitLab CI/CD"
+    ]
 
 
 def test_multiword_keyword_matches_with_spaced_slash():
-    assert _matches("GitLab CI / CD w praktyce", ["GitLab CI/CD"]) == [
-        "GitLab CI / CD"
-    ]
+    assert _matches("GitLab CI / CD w praktyce", ["GitLab CI/CD"]) == ["GitLab CI / CD"]
 
 
 def test_substring_does_not_overbold():
@@ -182,7 +180,9 @@ def test_guard_flags_fabricated_certification():
 
 def test_guard_handles_diacritics():
     data = {
-        "experience": [{"position": "Dev", "technologies": ["zarządzanie łańcuchem CI"]}],
+        "experience": [
+            {"position": "Dev", "technologies": ["zarządzanie łańcuchem CI"]}
+        ],
         "certifications": [],
     }
     source = "Zarzadzanie lancuchem CI w GitLabie"
