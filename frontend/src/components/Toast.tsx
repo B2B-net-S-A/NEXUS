@@ -54,9 +54,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const showToast = useCallback((message: string, type: ToastType = "success") => {
     const id = ++counterRef.current;
     setToasts((prev) => [...prev, { id, message, type }]);
+    // Błędy muszą zdążyć być przeczytane — przy 3 s komunikat znikał zanim
+    // user spojrzał (klik "Generuj CV" wyglądał wtedy jak martwy przycisk).
+    const durationMs = type === "error" ? 8000 : 3000;
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3000);
+    }, durationMs);
   }, []);
 
   const showSuccess = useCallback((message: string) => showToast(message, "success"), [showToast]);

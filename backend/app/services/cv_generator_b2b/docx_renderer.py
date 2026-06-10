@@ -86,23 +86,78 @@ _STOP_WORDS = {
 }
 
 
+# Characters that may be part of a technology name — used as custom word
+# boundaries so "Git" never bolds "digital" and "C++" / "C#" / ".NET" still
+# match as whole terms.
+_WORD_CHARS = "0-9A-Za-z_#+ąćęłńóśźżĄĆĘŁŃÓŚŹŻàâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ"
+
+
+def _keyword_variants(keyword: str) -> list[str]:
+    """Expand a champion keyword into matchable variants.
+
+    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] so both spellings get bolded.
+    """
+    kw = (keyword or "").strip()
+    if not kw:
+        return []
+    m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", kw)
+    if m and m.group(1).strip():
+        return [m.group(1).strip(), m.group(2).strip()]
+    return [kw]
+
+
+def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
+    """Compile whole-phrase, word-boundary regexes for champion keywords.
+
+    Multi-word phrases ("GitLab CI/CD") match across flexible whitespace;
+    matching is case-insensitive; stop-words and 1-char keywords are skipped.
+    """
+    patterns: list[re.Pattern[str]] = []
+    seen: set[str] = set()
+    for kw in keywords or []:
+        for variant in _keyword_variants(kw):
+            v = variant.strip()
+            key = v.lower()
+            if len(v) < 2 or key in _STOP_WORDS or key in seen:
+                continue
+            seen.add(key)
+            escaped = re.sub(r"\\?\s+", r"\\s+", re.escape(v))
+            # "CI/CD" should also match "CI / CD" — slash with optional spaces.
+            escaped = escaped.replace("/", r"\s*/\s*")
+            patterns.append(
+                re.compile(
+                    rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
+                    re.IGNORECASE,
+                )
+            )
+    return patterns
+
+
+def highlight_spans(
+    text: str, patterns: list[re.Pattern[str]]
+) -> list[tuple[int, int]]:
+    """Merged (start, end) spans of all keyword matches inside `text`."""
+    spans: list[tuple[int, int]] = []
+    for pattern in patterns:
+        for m in pattern.finditer(text):
+            spans.append((m.start(), m.end()))
+    if not spans:
+        return []
+    spans.sort()
+    merged: list[list[int]] = [list(spans[0])]
+    for start, end in spans[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(s, e) for s, e in merged]
+
+
 def should_highlight(word: str, keywords: list[str] | None) -> bool:
-    """True iff `word` should be bolded as a MUST-HAVE keyword match."""
-    if not keywords:
+    """True iff `word` (a single term) matches a champion keyword."""
+    if not keywords or not word:
         return False
-
-    word_clean = word.lower().strip(".,;:()[]/\"'")
-    if not word_clean:
-        return False
-
-    if word_clean in _STOP_WORDS:
-        return False
-
-    for kw in keywords:
-        kw_lower = kw.lower().strip()
-        if kw_lower == word_clean or kw_lower in word_clean:
-            return True
-    return False
+    return bool(highlight_spans(word, compile_keyword_patterns(keywords)))
 
 
 def add_text_with_highlights(
@@ -110,27 +165,33 @@ def add_text_with_highlights(
     text: str,
     keywords: list[str] | None,
     base_font_size: Pt = Pt(10),
+    patterns: list[re.Pattern[str]] | None = None,
 ) -> None:
-    """Add `text` to `para`, bolding tokens that match `keywords`."""
-    if not keywords or not text:
-        run = para.add_run(text)
+    """Add `text` to `para`, bolding phrases that match champion `keywords`."""
+
+    def _add_run(fragment: str, bold: bool) -> None:
+        if not fragment:
+            return
+        run = para.add_run(fragment)
         run.font.name = "Montserrat"
         run.font.color.rgb = COLOR_TEXT
         run.font.size = base_font_size
+        if bold:
+            run.font.bold = True
+
+    if patterns is None:
+        patterns = compile_keyword_patterns(keywords)
+    if not patterns or not text:
+        _add_run(text, bold=False)
         return
 
-    tokens = re.split(r"(\s+|[,;:/])", text)
-
-    for token in tokens:
-        if not token:
-            continue
-        run = para.add_run(token)
-        run.font.name = "Montserrat"
-        run.font.color.rgb = COLOR_TEXT
-        run.font.size = base_font_size
-
-        if should_highlight(token, keywords):
-            run.font.bold = True
+    spans = highlight_spans(text, patterns)
+    cursor = 0
+    for start, end in spans:
+        _add_run(text[cursor:start], bold=False)
+        _add_run(text[start:end], bold=True)
+        cursor = end
+    _add_run(text[cursor:], bold=False)
 
 
 TRANSLATIONS = {
@@ -243,6 +304,7 @@ def add_bullet_point(
     text: str,
     punctuation: str = "",
     highlight_keywords: list[str] | None = None,
+    patterns: list[re.Pattern[str]] | None = None,
 ) -> Any:
     """Add a Word numbered bullet point with optional keyword bolding."""
     text = text.rstrip(".,;")
@@ -250,7 +312,7 @@ def add_bullet_point(
 
     para = doc.add_paragraph()
 
-    add_text_with_highlights(para, text, highlight_keywords, Pt(10))
+    add_text_with_highlights(para, text, highlight_keywords, Pt(10), patterns=patterns)
 
     pPr = para._element.get_or_add_pPr()
     numPr = etree.Element(f"{{{NS_W}}}numPr")
@@ -273,12 +335,13 @@ def add_bullet_list(
     doc: Any,
     items: list[str],
     highlight_keywords: list[str] | None = None,
+    patterns: list[re.Pattern[str]] | None = None,
 ) -> None:
     """Add a bullet list with commas between items and a period at the end."""
     for i, item in enumerate(items):
         is_last = i == len(items) - 1
         punctuation = "." if is_last else ","
-        add_bullet_point(doc, item, punctuation, highlight_keywords)
+        add_bullet_point(doc, item, punctuation, highlight_keywords, patterns=patterns)
 
 
 def render_cv_to_bytes(
@@ -361,8 +424,12 @@ def render_cv_to_bytes(
     para.paragraph_format.space_after = Pt(3)
 
     highlight_keywords = candidate_data.get("highlight_keywords", [])
+    # Compile once per render — every bullet/skill/technology reuses the set.
+    patterns = compile_keyword_patterns(highlight_keywords)
 
-    add_bullet_list(doc, candidate_data.get("why_points", []), highlight_keywords)
+    add_bullet_list(
+        doc, candidate_data.get("why_points", []), highlight_keywords, patterns=patterns
+    )
 
     # === EDUKACJA / EDUCATION ===
     if candidate_data.get("education"):
@@ -468,7 +535,8 @@ def render_cv_to_bytes(
         doc.add_paragraph()
 
     # === UMIEJĘTNOŚCI / SKILLS ===
-    add_section_header(doc, t["skills"])
+    if candidate_data.get("skills"):
+        add_section_header(doc, t["skills"])
 
     for skill_category in candidate_data.get("skills", []):
         para = doc.add_paragraph()
@@ -489,7 +557,9 @@ def render_cv_to_bytes(
 
         content = skill_category["content"].rstrip(" ,.")
         content = content + "."
-        add_text_with_highlights(para, content, highlight_keywords, Pt(10))
+        add_text_with_highlights(
+            para, content, highlight_keywords, Pt(10), patterns=patterns
+        )
 
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(1)
@@ -499,16 +569,25 @@ def render_cv_to_bytes(
     if candidate_data.get("certifications"):
         add_section_header(doc, t["certifications"])
         add_bullet_list(
-            doc, candidate_data.get("certifications", []), highlight_keywords
+            doc,
+            candidate_data.get("certifications", []),
+            highlight_keywords,
+            patterns=patterns,
         )
 
     # === JĘZYKI / LANGUAGES ===
-    add_section_header(doc, t["languages"])
-
-    add_bullet_list(doc, candidate_data.get("languages", []), highlight_keywords)
+    if candidate_data.get("languages"):
+        add_section_header(doc, t["languages"])
+        add_bullet_list(
+            doc,
+            candidate_data.get("languages", []),
+            highlight_keywords,
+            patterns=patterns,
+        )
 
     # === DOŚWIADCZENIE / EXPERIENCE ===
-    add_section_header(doc, t["experience"])
+    if candidate_data.get("experience"):
+        add_section_header(doc, t["experience"])
 
     for i, job in enumerate(candidate_data.get("experience", [])):
         if i > 0:
@@ -559,7 +638,9 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
 
-        add_bullet_list(doc, job.get("responsibilities", []), highlight_keywords)
+        add_bullet_list(
+            doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
+        )
 
         if job.get("technologies"):
             para = doc.add_paragraph()
@@ -569,7 +650,11 @@ def render_cv_to_bytes(
             run1.font.size = Pt(10)
             run1.font.bold = True
             add_text_with_highlights(
-                para, ", ".join(job["technologies"]), highlight_keywords, Pt(10)
+                para,
+                ", ".join(job["technologies"]),
+                highlight_keywords,
+                Pt(10),
+                patterns=patterns,
             )
             para.paragraph_format.space_before = Pt(4)
             para.paragraph_format.space_after = Pt(2)

@@ -24,6 +24,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.cv_source import get_current_cv
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +64,29 @@ async def create_original_cv_snapshot(
             f"Candidate {stage.candidate_id} missing for stage {stage.id}"
         )
 
-    has_cv = candidate.cv_file_content is not None
+    # Po migracji CV do Object Storage legacy `cv_file_content` jest NULL u
+    # wszystkich kandydatów — bieżące CV rozwiązujemy przez cv_source
+    # (CandidateDocument/storage → Candidate.cv_storage_key → legacy BYTEA).
+    # Fail-soft: błąd pobrania nie może zablokować utworzenia stage'a.
+    try:
+        current = await get_current_cv(db, candidate)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Snapshot CV: get_current_cv failed (candidate=%s, stage=%s) — "
+            "tworzę pusty snapshot",
+            candidate.id,
+            stage.id,
+        )
+        current = None
+
+    has_cv = current is not None
     csv_row = CandidateStageCV(
         candidate_stage_id=stage.id,
         candidate_id=stage.candidate_id,
         job_id=stage.job_id,
-        original_cv_filename=candidate.cv_filename if has_cv else None,
-        original_cv_content=candidate.cv_file_content if has_cv else None,
-        original_cv_language=candidate.cv_language if has_cv else None,
+        original_cv_filename=current.filename if current else None,
+        original_cv_content=current.content if current else None,
+        original_cv_language=current.language if current else None,
         original_snapshot_at=datetime.now(tz=timezone.utc) if has_cv else None,
         original_snapshot_source=source if has_cv else None,
     )
@@ -100,7 +116,8 @@ async def create_original_cv_snapshot(
                 "candidate_id": stage.candidate_id,
                 "job_id": stage.job_id,
                 "has_snapshot": has_cv,
-                "filename": candidate.cv_filename if has_cv else None,
+                "filename": current.filename if current else None,
+                "cv_source": current.source if current else None,
                 "source": source,
             },
             user_id=stage.moved_by,
@@ -144,7 +161,8 @@ async def refresh_original_cv_snapshot(
     candidate = await db.scalar(
         select(Candidate).where(Candidate.id == csv_row.candidate_id)
     )
-    if candidate is None or candidate.cv_file_content is None:
+    current = await get_current_cv(db, candidate) if candidate is not None else None
+    if current is None:
         raise ValueError(
             f"Candidate {csv_row.candidate_id} has no current CV to copy — "
             "upload CV first."
@@ -153,9 +171,9 @@ async def refresh_original_cv_snapshot(
     old_filename = csv_row.original_cv_filename
     old_at = csv_row.original_snapshot_at
 
-    csv_row.original_cv_filename = candidate.cv_filename
-    csv_row.original_cv_content = candidate.cv_file_content
-    csv_row.original_cv_language = candidate.cv_language
+    csv_row.original_cv_filename = current.filename
+    csv_row.original_cv_content = current.content
+    csv_row.original_cv_language = current.language
     csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
     csv_row.original_snapshot_source = "manual_refresh"
     await db.flush()
@@ -168,7 +186,8 @@ async def refresh_original_cv_snapshot(
             details={
                 "candidate_stage_id": stage_id,
                 "old_filename": old_filename,
-                "new_filename": candidate.cv_filename,
+                "new_filename": current.filename,
+                "cv_source": current.source,
                 "old_at": old_at.isoformat() if old_at else None,
             },
             user_id=user_id,
@@ -176,9 +195,10 @@ async def refresh_original_cv_snapshot(
     )
     await db.flush()
     logger.info(
-        "Snapshot CV odświeżony stage=%s old=%s new=%s",
+        "Snapshot CV odświeżony stage=%s old=%s new=%s (source=%s)",
         stage_id,
         old_filename,
-        candidate.cv_filename,
+        current.filename,
+        current.source,
     )
     return csv_row

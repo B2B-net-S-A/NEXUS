@@ -55,6 +55,7 @@ import api, {
   type B2BRole,
   type B2BUopCheckResult,
 } from "@/lib/api";
+import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -98,21 +99,6 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function parseDispositionFilename(disposition: string, fallback: string): string {
-  const match = disposition.match(/filename="?([^";]+)"?/);
-  return match ? match[1] : fallback;
-}
 
 /** Smart-prefill „Opis projektu" z roli (gdy brak oferty z rekrutacji). */
 function smartDescription(role: B2BRole, lang: Lang, clientName: string): string {
