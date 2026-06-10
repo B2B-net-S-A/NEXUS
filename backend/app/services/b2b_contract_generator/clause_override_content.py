@@ -567,6 +567,325 @@ def _ops_bnp(lang: str) -> list[Op]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Alior Bank — § 4A (po § 4) + § 9 ust. 5 + zapis pod tabelą Załącznika nr 3
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _alior_s4a_pl() -> tuple[Block, ...]:
+    return (
+        ("h", "§ 4A"),
+        ("sub", "Zasoby i Warunki Korzystania"),
+        (
+            "p",
+            "1. Strony przyjmują do wiadomości, że w związku z realizacją "
+            "Usług na rzecz Klienta B2BNET Partner może uzyskać dostęp do systemów, "
+            "środowisk, kont, narzędzi, oprogramowania, usług chmurowych oraz "
+            "sprzętu udostępnionych przez B2BNET lub Klienta B2BNET lub przez "
+            "podmioty, którym przysługują prawa do tych zasobów (dalej łącznie: "
+            "„Zasoby”).",
+        ),
+        (
+            "p",
+            "2. Partner zobowiązuje się korzystać z Zasobów wyłącznie w "
+            "zakresie niezbędnym do realizacji Usług oraz zgodnie z warunkami "
+            "licencji, regulaminami, politykami bezpieczeństwa, instrukcjami i "
+            "innymi dokumentami dotyczącymi Zasobów, udostępnionymi Partnerowi w "
+            "formie elektronicznej, papierowej lub poprzez wskazanie adresu "
+            "internetowego (dalej: „Warunki Korzystania”).",
+        ),
+        ("p", "3. Partner zobowiązuje się w szczególności:"),
+        (
+            "i",
+            "a) przed rozpoczęciem korzystania z Zasobów zapoznać się z "
+            "Warunkami Korzystania oraz potwierdzić ich przyjęcie, jeżeli jest to "
+            "wymagane przez B2BNET lub Klienta B2BNET;",
+        ),
+        (
+            "i",
+            "b) nie instalować, nie kopiować, nie udostępniać, nie udzielać "
+            "dalszych dostępów ani nie używać oprogramowania w sposób wykraczający "
+            "poza Warunki Korzystania;",
+        ),
+        (
+            "i",
+            "c) nie podejmować działań zmierzających do obejścia zabezpieczeń, "
+            "limitów licencyjnych, mechanizmów kontroli dostępu lub zasad "
+            "bezpieczeństwa;",
+        ),
+        (
+            "i",
+            "d) korzystać z Zasobów wyłącznie na potrzeby realizacji Usług dla "
+            "Klienta B2BNET i nie wykorzystywać ich w żadnym innym celu ani na rzecz "
+            "osób trzecich.",
+        ),
+        (
+            "p",
+            "4. W razie powzięcia podejrzenia naruszenia Warunków Korzystania, "
+            "incydentu bezpieczeństwa lub nieuprawnionego dostępu do Zasobów, "
+            "Partner zobowiązuje się niezwłocznie (nie później niż w ciągu 24 "
+            "godzin) powiadomić B2BNET oraz współpracować przy wyjaśnianiu zdarzenia "
+            "i ograniczaniu jego skutków, w tym przekazać wszelkie informacje i "
+            "materiały niezbędne do analizy zdarzenia oraz – na żądanie B2BNET – "
+            "uczestniczyć w komunikacji z Klientem B2BNET.",
+        ),
+        (
+            "p",
+            "5. Na żądanie B2BNET lub Klienta B2BNET, umotywowane "
+            "zobowiązaniem podmiotu trzeciego uprawnionego do Zasobów, Partner "
+            "zobowiązany jest do niezwłocznego złożenia na rzecz tego podmiotu "
+            "oświadczeń i zobowiązań odpowiadających treści niniejszego paragrafu w "
+            "zakresie dotyczącym korzystania z Zasobów.",
+        ),
+        (
+            "p",
+            "6. Partner przyjmuje do wiadomości, że podmioty trzecie "
+            "uprawnione do Zasobów nie ponoszą wobec Partnera bezpośredniej "
+            "odpowiedzialności za szkody związane z korzystaniem z Zasobów w ramach "
+            "projektu, i zobowiązuje się powstrzymać od kierowania wobec nich "
+            "roszczeń z tego tytułu, z zastrzeżeniem roszczeń, których wyłączenie "
+            "jest niedopuszczalne na podstawie bezwzględnie obowiązujących "
+            "przepisów prawa.",
+        ),
+    )
+
+
+def _alior_s4a_en() -> tuple[Block, ...]:
+    return (
+        ("h", "§ 4A"),
+        ("sub", "Resources and Terms of Use"),
+        (
+            "p",
+            "1. The Parties acknowledge that, in connection with the "
+            "performance of the Services for the B2BNET Customer, the Partner may "
+            "gain access to systems, environments, accounts, tools, software, cloud "
+            "services, and equipment made available by B2BNET or the B2BNET "
+            "Customer, or by entities holding rights to these resources (hereinafter "
+            "jointly: the „Resources”).",
+        ),
+        (
+            "p",
+            "2. The Partner undertakes to use the Resources solely to the "
+            "extent necessary to perform the Services and in accordance with the "
+            "license terms, regulations, security policies, instructions, and other "
+            "documents concerning the Resources, made available to the Partner in "
+            "electronic or paper form or by indicating an internet address "
+            "(hereinafter: the „Terms of Use”).",
+        ),
+        ("p", "3. The Partner undertakes in particular:"),
+        (
+            "i",
+            "a) before commencing use of the Resources, to read the Terms of "
+            "Use and confirm their acceptance, if required by B2BNET or the B2BNET "
+            "Customer;",
+        ),
+        (
+            "i",
+            "b) not to install, copy, share, grant further access to, or use "
+            "software in a manner exceeding the Terms of Use;",
+        ),
+        (
+            "i",
+            "c) not to take actions aimed at circumventing security measures, "
+            "license limits, access control mechanisms, or security rules;",
+        ),
+        (
+            "i",
+            "d) to use the Resources solely for the purpose of performing the "
+            "Services for the B2BNET Customer and not to use them for any other "
+            "purpose or for the benefit of third parties.",
+        ),
+        (
+            "p",
+            "4. In the event of a suspected breach of the Terms of Use, a "
+            "security incident, or unauthorized access to the Resources, the Partner "
+            "undertakes to notify B2BNET immediately (no later than within 24 hours) "
+            "and to cooperate in investigating the event and mitigating its effects, "
+            "including providing all information and materials necessary to analyze "
+            "the event and – at B2BNET's request – participating in communication "
+            "with the B2BNET Customer.",
+        ),
+        (
+            "p",
+            "5. At the request of B2BNET or the B2BNET Customer, justified by "
+            "an obligation of a third party entitled to the Resources, the Partner "
+            "is obliged to promptly submit to that entity declarations and "
+            "undertakings corresponding to the content of this paragraph with "
+            "respect to the use of the Resources.",
+        ),
+        (
+            "p",
+            "6. The Partner acknowledges that third parties entitled to the "
+            "Resources bear no direct liability towards the Partner for damages "
+            "related to the use of the Resources within the project, and undertakes "
+            "to refrain from directing claims against them on this account, subject "
+            "to claims whose exclusion is impermissible under mandatory provisions "
+            "of law.",
+        ),
+    )
+
+
+def _alior_s9_5_pl() -> tuple[Block, ...]:
+    return (
+        (
+            "p",
+            "5. Ograniczenie odpowiedzialności, o którym mowa w ust. 4 "
+            "powyżej, nie znajduje zastosowania do odpowiedzialności Partnera za "
+            "szkody, koszty i roszczenia wynikające z: (i) naruszenia §4A (Zasoby i "
+            "Warunki Korzystania), (ii) naruszenia §8 (Poufność), (iii) naruszenia "
+            "§7A oraz Załącznika nr 2 (DPA/RODO), (iv) naruszenia §5 (Własność "
+            "intelektualna), (v) kar umownych i roszczeń Klienta B2BNET nałożonych "
+            "na B2BNET wskutek działań lub zaniechań Partnera.",
+        ),
+    )
+
+
+def _alior_s9_5_en() -> tuple[Block, ...]:
+    return (
+        (
+            "p",
+            "5. The limitation of liability referred to in section 4 above "
+            "shall not apply to the Partner's liability for damages, costs, and "
+            "claims arising from: (i) a breach of § 4A (Resources and Terms of "
+            "Use), (ii) a breach of § 8 (Confidentiality), (iii) a breach of § 7A "
+            "and Appendix No. 2 (DPA/GDPR), (iv) a breach of § 5 (Intellectual "
+            "Property), (v) contractual penalties and claims of the B2BNET Customer "
+            "imposed on B2BNET as a result of the Partner's acts or omissions.",
+        ),
+    )
+
+
+_ALIOR_SIG_PL = (
+    ("gap", ""),
+    ("sig", "________________________                    _____________________"),
+    (
+        "sig",
+        "     B2B.NET S.A.                                                "
+        "                Partner",
+    ),
+)
+
+
+def _alior_table_pl() -> tuple[Block, ...]:
+    return (
+        ("gap", ""),
+        ("sub", "SZCZEGÓŁOWE POSTANOWIENIA UMOWY:"),
+        (
+            "p",
+            "1. Partner zobowiązuje się, że w okresie świadczenia Usług na "
+            "rzecz Klienta Alior Bank S.A. nie będzie podejmował zleceń, które "
+            "obiektywnie uniemożliwiałyby realizację Usług zgodnie z uzgodnioną "
+            "dostępnością i terminami projektu lub powodowały konflikt interesów "
+            "wobec Klienta Alior Bank S.A.. Powyższe nie wyłącza możliwości "
+            "świadczenia usług na rzecz innych podmiotów, o ile nie narusza to "
+            "zobowiązań wobec B2BNET i Klienta B2BNET, w szczególności zasad "
+            "poufności i bezpieczeństwa.",
+        ),
+        (
+            "p",
+            "2. Partner zobowiązuje się do świadczenia swoich usług na rzecz "
+            "Klienta B2BNET jakim jest Alior Bank S.A. zgodnie z ustalonymi "
+            "warunkami i harmonogramem projektu. Partner będzie dyspozycyjny przez "
+            "cały czas trwania projektu i podejmie wszelkie niezbędne działania w "
+            "celu zapewnienia ciągłości i efektywności pracy.",
+        ),
+        (
+            "p",
+            "3. Partner zobowiązany jest do poinformowania zarówno Klienta "
+            "B2BNET jak i samego B2BNET o planowanej nieobecności z wyprzedzeniem co "
+            "najmniej 5 dni przed planowanym terminem nieobecności, chyba że "
+            "wystąpią nadzwyczajne okoliczności, które uniemożliwią wcześniejsze "
+            "zgłoszenie. W przypadku wystąpienia takich nadzwyczajnych okoliczności, "
+            "Partner zobowiązany jest do jak najszybszego zgłoszenia nieobecności po "
+            "ich wystąpieniu.",
+        ),
+        (
+            "p",
+            "4. Nieusprawiedliwione i niezgłoszone nieobecności Partnera będą "
+            "podlegać karze w wysokości 5% wynagrodzenia należnego Partnerowi za "
+            "okres, w którym miała miejsce nieobecność. B2BNET zastrzega sobie prawo "
+            "do potrącenia tej kary z wynagrodzenia Partnera lub żądania jej "
+            "zwrotu.",
+        ),
+        (
+            "p",
+            "5. Partner zobowiązuje się do dostarczenia „Raportu z "
+            "wykonywanych usług” do 3 dni po skończonym okresie rozliczeniowym na "
+            "adres mailowy: rozliczenia@b2bnetwork.pl. B2BNET ma prawo odrzucić "
+            "„Raport z wykonywanych usług” w momencie opóźnienia w dostarczeniu "
+            "„Raportu” do B2BNET.",
+        ),
+        *_ALIOR_SIG_PL,
+    )
+
+
+def _alior_table_en() -> tuple[Block, ...]:
+    return (
+        ("gap", ""),
+        ("sub", "DETAILED PROVISIONS OF THE AGREEMENT:"),
+        (
+            "p",
+            "1. The Partner undertakes that, during the period of providing "
+            "the Services for the Customer Alior Bank S.A., it will not accept "
+            "orders that would objectively prevent the performance of the Services "
+            "in accordance with the agreed availability and project deadlines, or "
+            "that would cause a conflict of interest towards the Customer Alior Bank "
+            "S.A. The above does not exclude the possibility of providing services "
+            "to other entities, provided that this does not breach the obligations "
+            "towards B2BNET and the B2BNET Customer, in particular the rules of "
+            "confidentiality and security.",
+        ),
+        (
+            "p",
+            "2. The Partner undertakes to provide its services to the B2BNET "
+            "Customer, which is Alior Bank S.A., in accordance with the agreed terms "
+            "and project schedule. The Partner shall be available throughout the "
+            "entire duration of the project and shall take all necessary actions to "
+            "ensure the continuity and effectiveness of the work.",
+        ),
+        (
+            "p",
+            "3. The Partner is obliged to inform both the B2BNET Customer and "
+            "B2BNET itself of a planned absence at least 5 days before the planned "
+            "date of absence, unless extraordinary circumstances arise that prevent "
+            "earlier notification. Should such extraordinary circumstances occur, "
+            "the Partner is obliged to report the absence as soon as possible after "
+            "their occurrence.",
+        ),
+        (
+            "p",
+            "4. Unexcused and unreported absences of the Partner shall be "
+            "subject to a penalty of 5% of the remuneration due to the Partner for "
+            "the period in which the absence occurred. B2BNET reserves the right to "
+            "deduct this penalty from the Partner's remuneration or to demand its "
+            "return.",
+        ),
+        (
+            "p",
+            "5. The Partner undertakes to deliver the „Report on Services "
+            "Performed” within 3 days after the end of the settlement period to the "
+            "e-mail address: rozliczenia@b2bnetwork.pl. B2BNET has the right to "
+            "reject the „Report on Services Performed” in the event of a delay in "
+            "delivering the „Report” to B2BNET.",
+        ),
+        *_ALIOR_SIG_PL,
+    )
+
+
+def _ops_alior(lang: str) -> list[Op]:
+    if lang == "en":
+        return [
+            ("append_to_section", 4, _alior_s4a_en()),
+            ("append_to_section", 9, _alior_s9_5_en()),
+            ("after_table", 0, _alior_table_en()),
+        ]
+    return [
+        ("append_to_section", 4, _alior_s4a_pl()),
+        ("append_to_section", 9, _alior_s9_5_pl()),
+        ("after_table", 0, _alior_table_pl()),
+    ]
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Rejestr: needle(s) → builder operacji. Pierwsze trafienie wygrywa.
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -574,4 +893,5 @@ CLIENT_OVERRIDES: list[tuple[tuple[str, ...], object]] = [
     (("pfron", "rehabilitacji osób niepełnosprawnych"), _ops_pfron),
     (("centrum e-zdrowia", "e-zdrowia"), _ops_centrum),
     (("bnp paribas",), _ops_bnp),
+    (("alior",), _ops_alior),
 ]
