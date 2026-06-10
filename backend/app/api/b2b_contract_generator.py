@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.contract_templates import _jinja_env
@@ -368,6 +369,21 @@ def _parse_seq(contract_number: str | None, year: int | None = None) -> int | No
     return int(m.group(1))
 
 
+def _validate_contract_number(number: str, suggested: str) -> tuple[int, int, str]:
+    """Zwaliduj format „liczba/rok” i zwróć `(seq, rok, postać kanoniczna)`.
+
+    Postać kanoniczna (`"1434/2026"`, bez spacji) jest jedyną zapisywaną do DB —
+    inaczej „1434 / 2026” ominąłby string-owy check unikalności."""
+    m = _NUMBER_RE.match(number)
+    if not m:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Numer umowy musi być w formacie „liczba/rok”, np. {suggested}.",
+        )
+    seq, year = int(m.group(1)), int(m.group(2))
+    return seq, year, f"{seq}/{year}"
+
+
 async def _next_seq(db: AsyncSession, year: int) -> int:
     """Następny numer porządkowy = max(liczbowy prefiks `contract_number`) + 1.
 
@@ -457,16 +473,10 @@ async def render_standalone(
     )
     suggested_seq = await _next_seq(db, default_year)
     suggested = f"{suggested_seq}/{default_year}"
-    number = (payload.contract_number or "").strip() or suggested
+    raw_number = (payload.contract_number or "").strip() or suggested
 
-    # Format „liczba/rok" (np. 1435/2026) — wymagany.
-    m = _NUMBER_RE.match(number)
-    if not m:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Numer umowy musi być w formacie „liczba/rok”, np. {suggested}.",
-        )
-    row_seq, row_year = int(m.group(1)), int(m.group(2))
+    # Format „liczba/rok" (np. 1435/2026) — wymagany; zapis tylko kanoniczny.
+    row_seq, row_year, number = _validate_contract_number(raw_number, suggested)
 
     # Unikalność: ten sam numer umowy nie może być użyty dwa razy.
     clash = await db.scalar(
@@ -495,7 +505,20 @@ async def render_standalone(
             created_by=current_user.id,
         )
     )
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race: dwa równoległe rendery z tym samym numerem przeszły SELECT-check;
+        # constraint UNIQUE(year, seq) ubija drugi INSERT (migracja 0128).
+        await db.rollback()
+        fresh = await _next_seq(db, row_year)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
+                f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
+            ),
+        )
     context["b2b"]["contract_number"] = number
 
     data = render_from_context(context, language=lang)
