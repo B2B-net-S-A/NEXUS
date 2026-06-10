@@ -2124,6 +2124,21 @@ export function CandidatesListV2() {
           </SheetHeader>
 
           <SheetBody className="space-y-4 bg-muted/30">
+            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE) — na górze,
+                bo to najczęściej używany sposób zawężania wyników.
+                Karta bez własnego nagłówka — popover renderuje swój h3. */}
+            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <AdvancedSearchPopover
+                value={{ all: qAll, any: qAny, none: qNone }}
+                onChange={(next) => {
+                  setQAll(next.all);
+                  setQAny(next.any);
+                  setQNone(next.none);
+                  setPage(1);
+                }}
+              />
+            </section>
+
             {/* Szybkie filtry — gotowe presety jednym kliknięciem. */}
             <FilterSection
               title="Szybkie filtry"
@@ -2492,20 +2507,6 @@ export function CandidatesListV2() {
                 />
               </FilterField>
             </FilterSection>
-
-            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE).
-                Karta bez własnego nagłówka — popover renderuje swój h3. */}
-            <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
-              <AdvancedSearchPopover
-                value={{ all: qAll, any: qAny, none: qNone }}
-                onChange={(next) => {
-                  setQAll(next.all);
-                  setQAny(next.any);
-                  setQNone(next.none);
-                  setPage(1);
-                }}
-              />
-            </section>
           </SheetBody>
 
           <SheetFooter className="sm:justify-between">
