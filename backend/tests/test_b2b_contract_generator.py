@@ -270,6 +270,67 @@ def test_next_seq_uses_max_numeric_prefix_not_row_count():
     ) == 1
 
 
+def test_validate_contract_number_canonicalizes():
+    """Numer zapisywany jest TYLKO w postaci kanonicznej — „1434 / 2026"
+    musi stać się „1434/2026", inaczej ominąłby string-owy check duplikatów."""
+    from fastapi import HTTPException
+
+    from app.api.b2b_contract_generator import _validate_contract_number
+
+    assert _validate_contract_number("1434/2026", "1/2026") == (
+        1434,
+        2026,
+        "1434/2026",
+    )
+    # spacje wokół „/" → kanonikalizacja
+    assert _validate_contract_number("1434 / 2026", "1/2026") == (
+        1434,
+        2026,
+        "1434/2026",
+    )
+    # wiodące zero → kanonikalizacja liczbowa
+    assert _validate_contract_number("007/2026", "1/2026") == (7, 2026, "7/2026")
+
+    # złe formaty → 422 z sugestią w komunikacie
+    for bad in ("1434", "1434-2026", "abc/2026", "1434/26"):
+        with pytest.raises(HTTPException) as exc:
+            _validate_contract_number(bad, "1435/2026")
+        assert exc.value.status_code == 422
+        assert "1435/2026" in exc.value.detail
+
+
+def test_generated_contract_unique_year_seq_constraint():
+    """DB odrzuca drugi wiersz z tą samą parą (year, seq) — ochrona przed
+    duplikatem numeru także przy race'ie równoległych renderów (SELECT-check
+    w API tego nie łapie). Prod-incydent: id=6 i id=7 oba „1434/2026"."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session
+
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    engine = create_engine("sqlite://")
+    B2BGeneratedContract.__table__.create(engine)
+    with Session(engine) as session:
+        session.add(
+            B2BGeneratedContract(year=2026, seq=1434, contract_number="1434/2026")
+        )
+        session.commit()
+
+        # inna para (year, seq) → OK
+        session.add(
+            B2BGeneratedContract(year=2026, seq=1435, contract_number="1435/2026")
+        )
+        session.commit()
+
+        # duplikat (year, seq) → IntegrityError z constraintu UNIQUE
+        session.add(
+            B2BGeneratedContract(year=2026, seq=1434, contract_number="1434/2026")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
 # ── Per-klient modyfikacje umowy (silnik operacji) ──────────────────────────
 
 
