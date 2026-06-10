@@ -268,3 +268,86 @@ def test_next_seq_uses_max_numeric_prefix_not_row_count():
     assert (
         max([s for n in [] if (s := _parse_seq(n, year)) is not None], default=0) + 1
     ) == 1
+
+
+# ── Per-klient override § 10 (Centrum e-Zdrowia, PFRON) ──────────────────────
+
+
+def test_p10_override_matching():
+    from app.services.b2b_contract_generator.clause_overrides import override_for_client
+
+    assert override_for_client("Centrum e-Zdrowia", "pl")
+    assert override_for_client(
+        "Państwowy Fundusz Rehabilitacji Osób Niepełnosprawnych", "pl"
+    )
+    assert override_for_client("PFRON", "pl")
+    # brak override: inny klient, EN, pusty
+    assert override_for_client("Nordea Bank Abp", "pl") is None
+    assert override_for_client("Centrum e-Zdrowia", "en") is None
+    assert override_for_client("", "pl") is None
+
+
+def test_p10_override_client_descriptor_in_clause6():
+    from app.services.b2b_contract_generator.clause_overrides import override_for_client
+
+    centrum = override_for_client("Centrum e-Zdrowia", "pl")
+    pfron = override_for_client("PFRON", "pl")
+    centrum_txt = " ".join(t for _, t in centrum)
+    pfron_txt = " ".join(t for _, t in pfron)
+    assert "Skarb Państwa – Centrum e-Zdrowia" in centrum_txt
+    assert "PFRON" in pfron_txt and "Rehabilitacji Osób Niepełnosprawnych" in pfron_txt
+    # wspólna treść (klauzule 1-5, 7-10) — identyczna poza ust. 6
+    for marker in (
+        "Klauzule Antykonkurencyjne i Kary Umowne",
+        "50.000,00 zł",
+        "art. 481",
+    ):
+        assert marker in centrum_txt and marker in pfron_txt
+
+
+def test_p10_override_html_swaps_only_section_10():
+    from app.services.b2b_contract_generator.clause_overrides import (
+        apply_p10_html,
+        override_for_client,
+    )
+
+    blocks = override_for_client("Centrum e-Zdrowia", "pl")
+    sample = (
+        "<h2>§ 9</h2>\n<p>poufne</p>\n"
+        "<h2>§ 10</h2>\n<p><strong>Klauzule Antykonkurencyjne i Kary Umowne</strong></p>\n"
+        "<p>W okresie obowiązywania Umowy ... powstrzymać od:</p>\n"
+        "<h2>§ 11</h2>\n<p><strong>Siła wyższa</strong></p>"
+    )
+    out = apply_p10_html(sample, blocks)
+    assert out.count("<h2>§ 10</h2>") == 1
+    assert "<h2>§ 9</h2>" in out and "<h2>§ 11</h2>" in out and "Siła wyższa" in out
+    assert "Skarb Państwa – Centrum e-Zdrowia" in out
+    assert "10. Postanowienia ust. 6–9" in out
+    # brak wzorca → bez zmian
+    assert apply_p10_html("<p>brak</p>", blocks) == "<p>brak</p>"
+
+
+def test_p10_override_docx_replaces_in_real_template():
+    import docx as _docxlib
+
+    from app.services.b2b_contract_generator.clause_overrides import (
+        apply_p10_docx,
+        override_for_client,
+    )
+
+    doc = _docxlib.Document(str(TEMPLATE_DIR / "umowa_b2b_pl.docx"))
+    blocks = override_for_client("Centrum e-Zdrowia", "pl")
+    assert apply_p10_docx(doc, blocks) is True
+    texts = [(p.text or "").strip() for p in doc.paragraphs]
+    joined = "\n".join(texts)
+    # domyślny § 10 (klauzula 1 bez prefiksu numeru) zniknął, override jest
+    default_c1 = (
+        "W okresie obowiązywania Umowy oraz przez okres 12 (dwunastu) miesięcy "
+        "po jej rozwiązaniu lub wygaśnięciu, Partner zobowiązuje się powstrzymać od:"
+    )
+    assert default_c1 not in texts
+    assert any(t.startswith("1. W okresie obowiązywania") for t in texts)
+    assert "Skarb Państwa – Centrum e-Zdrowia" in joined
+    assert any(t.startswith("10. Postanowienia ust. 6–9") for t in texts)
+    assert sum(1 for t in texts if t == "§ 10") == 1
+    assert any(t == "§ 11" for t in texts)  # granica nienaruszona

@@ -15,6 +15,10 @@ from docxtpl import DocxTemplate
 from jinja2 import Environment
 
 from app.models.contract import Contract
+from app.services.b2b_contract_generator.clause_overrides import (
+    apply_p10_docx,
+    override_for_client,
+)
 from app.services.b2b_contract_generator.field_mapping import build_docx_context
 from app.services.b2b_contract_generator.formatting import pl_date
 
@@ -42,6 +46,15 @@ def render_from_context(context: dict, *, language: str | None = "pl") -> bytes:
         raise FileNotFoundError(f"Brak szablonu DOCX: {path}")
     tpl = DocxTemplate(str(path))
     tpl.render(context, jinja_env=_jinja_env())
+    # Per-klient override § 10 (np. Centrum e-Zdrowia, PFRON) — podmiana w już
+    # wyrenderowanym dokumencie; brak override = render bez zmian.
+    client = context.get("client") or {}
+    blocks = override_for_client(
+        client.get("name") or client.get("legal_name"),
+        normalize_language(language),
+    )
+    if blocks:
+        apply_p10_docx(tpl.docx, blocks)
     buf = io.BytesIO()
     tpl.save(buf)
     return buf.getvalue()
