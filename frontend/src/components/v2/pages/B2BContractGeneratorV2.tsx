@@ -629,6 +629,14 @@ function GeneratorForm() {
       toast.showError(`Uzupełnij wymagane pola: ${missing.join(", ")}.`);
       return false;
     }
+    if (!/^\d+\/\d{4}$/.test(contractNumber.trim())) {
+      toast.showError(
+        `Numer umowy musi być w formacie liczba/rok, np. ${
+          nextNumberQuery.data?.contract_number ?? "1435/2026"
+        }.`,
+      );
+      return false;
+    }
     return true;
   };
 
@@ -647,7 +655,16 @@ function GeneratorForm() {
         if (r.data) setContractNumber(r.data.contract_number);
       });
     },
-    onError: (e) => toast.showError(extractErrorMsg(e)),
+    onError: (e) => {
+      toast.showError(extractErrorMsg(e));
+      // Numer zajęty (409) → podstaw kolejny wolny, by można było od razu ponowić.
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 409) {
+        nextNumberQuery.refetch().then((r) => {
+          if (r.data) setContractNumber(r.data.contract_number);
+        });
+      }
+    },
   });
 
   const previewMut = useMutation({
@@ -1095,8 +1112,15 @@ function GeneratorForm() {
             <Input
               value={contractNumber}
               onChange={(e) => setContractNumber(e.target.value)}
-              placeholder="np. 1/2026"
+              placeholder="np. 1435/2026"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Format: liczba/rok. System podpowiada kolejny wolny numer
+              {nextNumberQuery.data?.contract_number
+                ? ` (${nextNumberQuery.data.contract_number})`
+                : ""}
+              ; ten sam numer nie może być użyty dwa razy.
+            </p>
           </Field>
           <Field label="Data podpisania" required>
             <Input

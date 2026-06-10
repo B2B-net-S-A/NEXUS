@@ -8,13 +8,14 @@ jedynym genuinnie nowym wyjściem (eksport na oryginalnym szablonie prawnym).
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.contract_templates import _jinja_env
@@ -344,14 +345,43 @@ async def download_docx(
 
 # ── Numeracja umów (auto, uwzględnia wcześniej wygenerowane) ──────────────────
 
+# Numer umowy w formacie „<liczba>/<rok>" (np. „1434/2026"). Prefiks liczbowy
+# jest faktycznym numerem porządkowym — kolumna `seq` to tylko licznik wierszy.
+_NUMBER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
+
+
+def _parse_seq(contract_number: str | None, year: int | None = None) -> int | None:
+    """Wyłuskaj numer porządkowy z `contract_number` („1434/2026" → 1434).
+
+    Gdy podano `year`, dopasuj tylko numery z tego roku (inaczej zwróć None)."""
+    if not contract_number:
+        return None
+    m = _NUMBER_RE.match(contract_number)
+    if not m:
+        return None
+    if year is not None and int(m.group(2)) != year:
+        return None
+    return int(m.group(1))
+
 
 async def _next_seq(db: AsyncSession, year: int) -> int:
-    res = await db.scalar(
-        select(func.max(B2BGeneratedContract.seq)).where(
+    """Następny numer porządkowy = max(liczbowy prefiks `contract_number`) + 1.
+
+    Liczone z REALNYCH numerów (string „1434/2026"), NIE z kolumny `seq` (zwykły
+    licznik wierszy) — dzięki temu sugestia respektuje ręcznie wpisane numery
+    (kontynuacja zewnętrznej numeracji, np. 1433→1434→1435) zamiast cofać się do
+    „8/2026". Duplikaty nie zawyżają wyniku (max po wartości, nie po liczbie wierszy)."""
+    rows = await db.execute(
+        select(B2BGeneratedContract.contract_number).where(
             B2BGeneratedContract.year == year
         )
     )
-    return int(res or 0) + 1
+    max_seq = 0
+    for (number,) in rows.all():
+        parsed = _parse_seq(number, year)
+        if parsed is not None and parsed > max_seq:
+            max_seq = parsed
+    return max_seq + 1
 
 
 @router.get("/next-number", response_model=B2BNextNumberResponse)
@@ -359,7 +389,7 @@ async def next_number(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Sugerowany kolejny numer umowy `<seq>/<rok>` (edytowalny w UI)."""
+    """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
     year = datetime.now(timezone.utc).year
     seq = await _next_seq(db, year)
     return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
@@ -412,17 +442,43 @@ async def render_standalone(
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
     # format == docx → numer + log + plik
-    year = (
+    default_year = (
         payload.signing_date.year
         if payload.signing_date
         else datetime.now(timezone.utc).year
     )
-    seq = await _next_seq(db, year)
-    number = (payload.contract_number or "").strip() or f"{seq}/{year}"
+    suggested_seq = await _next_seq(db, default_year)
+    suggested = f"{suggested_seq}/{default_year}"
+    number = (payload.contract_number or "").strip() or suggested
+
+    # Format „liczba/rok" (np. 1435/2026) — wymagany.
+    m = _NUMBER_RE.match(number)
+    if not m:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Numer umowy musi być w formacie „liczba/rok”, np. {suggested}.",
+        )
+    row_seq, row_year = int(m.group(1)), int(m.group(2))
+
+    # Unikalność: ten sam numer umowy nie może być użyty dwa razy.
+    clash = await db.scalar(
+        select(B2BGeneratedContract.id).where(
+            B2BGeneratedContract.contract_number == number
+        )
+    )
+    if clash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Numer umowy „{number}” jest już użyty — wybierz inny. "
+                f"Następny wolny: {suggested}."
+            ),
+        )
+
     db.add(
         B2BGeneratedContract(
-            year=year,
-            seq=seq,
+            year=row_year,
+            seq=row_seq,
             contract_number=number,
             partner_name=payload.partner_name,
             client_name=payload.client_name,
@@ -460,10 +516,7 @@ async def list_generated_contracts(
         (
             await db.execute(
                 select(B2BGeneratedContract)
-                .order_by(
-                    B2BGeneratedContract.year.desc(),
-                    B2BGeneratedContract.seq.desc(),
-                )
+                .order_by(B2BGeneratedContract.created_at.desc())
                 .limit(limit)
             )
         )

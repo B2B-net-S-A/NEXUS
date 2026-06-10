@@ -224,3 +224,47 @@ def test_rate_in_words_zloty_plural():
     assert rate_in_words(12, "pl", "PLN") == "dwanaście złotych"
     assert rate_in_words(120, "en", "PLN") == "one hundred twenty zlotys"
     assert rate_in_words(100, "pl", "EUR") == "sto EUR"
+
+
+# ── Numeracja umów: parser numeru + sugestia kolejnego wolnego ───────────────
+
+
+def test_parse_seq_extracts_numeric_prefix():
+    from app.api.b2b_contract_generator import _parse_seq
+
+    assert _parse_seq("1434/2026") == 1434
+    assert _parse_seq("  8 / 2026 ") == 8  # tolerancja na spacje
+    assert _parse_seq("1/2026", 2026) == 1
+    # year-guard: numer z innego roku nie pasuje do podanego roku
+    assert _parse_seq("1434/2025", 2026) is None
+    # nie-pasujące formaty → None (a NIE wyjątek)
+    assert _parse_seq("1434") is None
+    assert _parse_seq("1434-2026") is None
+    assert _parse_seq("abc/2026") is None
+    assert _parse_seq("") is None
+    assert _parse_seq(None) is None
+
+
+def test_next_seq_uses_max_numeric_prefix_not_row_count():
+    """Sugestia = max(realny numer) + 1, odporna na duplikaty i śmieciowe seq.
+
+    Replikuje logikę `_next_seq` na pythonie (bez DB): zbiór numerów taki jak na
+    prodzie (1,2,3,4,1433,1434,1434-duplikat) → kolejny WOLNY = 1435, NIE 8."""
+    from app.api.b2b_contract_generator import _parse_seq
+
+    numbers = [
+        "1/2026",
+        "2/2026",
+        "3/2026",
+        "4/2026",
+        "1433/2026",
+        "1434/2026",
+        "1434/2026",
+    ]
+    year = 2026
+    parsed = [s for n in numbers if (s := _parse_seq(n, year)) is not None]
+    assert max(parsed) + 1 == 1435
+    # pusty rok → start od 1
+    assert (
+        max([s for n in [] if (s := _parse_seq(n, year)) is not None], default=0) + 1
+    ) == 1
