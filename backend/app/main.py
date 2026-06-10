@@ -881,6 +881,12 @@ async def api_health_check():
     else:
         checks["autenti"] = "healthy"
 
+    # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
+    # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
+    # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
+    anthropic_key = settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
+    checks["anthropic"] = "configured" if anthropic_key else "unconfigured"
+
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
 

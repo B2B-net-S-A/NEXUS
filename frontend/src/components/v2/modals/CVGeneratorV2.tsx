@@ -7,12 +7,19 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
-  FileText,
   Loader2,
   Sparkles,
 } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  type RecruitmentOption,
+  downloadBlob,
+  extractErrorDetail,
+  parseDispositionFilename,
+  parseWarningsHeader,
+  stageLabel,
+} from "@/lib/cv-generator";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,63 +34,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/Toast";
 
-type RecruitmentOption = {
-  stage_id: number;
-  job_id: number;
-  job_title: string;
-  stage: string;
-  has_champion: boolean;
-  has_notes: boolean;
-  ready: boolean;
-};
-
-const STAGE_LABELS: Record<string, string> = {
-  new: "Nowy",
-  contacted: "Kontakt",
-  screening: "Screening",
-  verified: "Zweryfikowany",
-  interview: "Interview",
-  client_review: "U klienta",
-  acceptance: "Akceptacja",
-  negotiation: "Negocjacje",
-  onboarding: "Onboarding",
-  active: "Aktywny",
-  rejected: "Odrzucony",
-  withdrawn: "Rezygnacja",
-  on_hold: "Wstrzymany",
-};
-
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidateId: number;
   candidateName: string;
-}
-
-function parseDispositionFilename(disposition: string, fallback: string): string {
-  const match = disposition.match(/filename="?([^";]+)"?/);
-  return match ? match[1] : fallback;
-}
-
-function parseWarningsHeader(header: unknown): string[] {
-  if (typeof header !== "string") return [];
-  try {
-    const parsed = JSON.parse(header);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 export function CVGeneratorV2({
@@ -218,7 +173,7 @@ export function CVGeneratorV2({
                         <span className="flex items-center gap-2">
                           <span className="truncate">{r.job_title}</span>
                           <span className="text-xs text-muted-foreground">
-                            · {STAGE_LABELS[r.stage] ?? r.stage}
+                            · {stageLabel(r.stage)}
                           </span>
                           {r.ready ? (
                             <CheckCircle2 className="ml-1 h-3.5 w-3.5 text-emerald-600" />
@@ -232,6 +187,10 @@ export function CVGeneratorV2({
                 </Select>
                 {selectedRecruitment && (
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    <ReadyBadge
+                      label="CV w systemie"
+                      ok={selectedRecruitment.has_cv}
+                    />
                     <ReadyBadge
                       label="Profil Championa"
                       ok={selectedRecruitment.has_champion}
@@ -249,6 +208,12 @@ export function CVGeneratorV2({
                   >
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <div className="space-y-1">
+                      {!selectedRecruitment.has_cv && (
+                        <div>
+                          Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
+                          dodaj plik w zakładce Dokumenty na profilu.
+                        </div>
+                      )}
                       {!selectedRecruitment.has_champion && (
                         <div>
                           Brakuje Profilu Championa na ofercie — uzupełnij go na
@@ -329,7 +294,7 @@ export function CVGeneratorV2({
           <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
             <p className="text-xs text-muted-foreground">
               {generateMut.isPending
-                ? "Claude Sonnet 4 analizuje CV i renderuje DOCX…"
+                ? "Claude analizuje CV i renderuje DOCX…"
                 : "Generacja zajmuje 30–60 sekund. Output: DOCX szablon B2B Network."}
             </p>
             <Button
@@ -376,28 +341,3 @@ function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
-async function extractErrorDetail(err: unknown): Promise<string> {
-  if (typeof err !== "object" || err === null) return "";
-  const anyErr = err as { response?: { data?: unknown } };
-  const data = anyErr.response?.data;
-  if (data instanceof Blob) {
-    try {
-      const txt = await data.text();
-      const parsed = JSON.parse(txt);
-      if (typeof parsed?.detail === "string") return parsed.detail;
-      return txt;
-    } catch {
-      return "";
-    }
-  }
-  if (typeof data === "string") return data;
-  if (data && typeof data === "object" && "detail" in data) {
-    const detail = (data as { detail: unknown }).detail;
-    if (typeof detail === "string") return detail;
-  }
-  return "";
-}
-
-// Silence unused-import warnings for icons kept for future tweaks.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _FileText = FileText;

@@ -14,6 +14,7 @@ the stage CV editor still uses it.
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
@@ -121,6 +122,16 @@ def _anonymize_text(text: str) -> str:
     return text
 
 
+def _esc(value: object) -> str:
+    """HTML-escape candidate-controlled values before f-string interpolation.
+
+    Skills/experience/education come from imports and AI extraction of the
+    candidate's own CV — without escaping, a crafted skill name is stored XSS
+    served from the public share endpoint.
+    """
+    return html.escape(str(value or ""), quote=True)
+
+
 def _generate_cv_html(
     candidate: "Candidate",
     template: str,
@@ -132,15 +143,15 @@ def _generate_cv_html(
     blind = template == "blind"
 
     name = (
-        f"{candidate.name} {candidate.lastname}"
+        _esc(f"{candidate.name} {candidate.lastname}")
         if not blind
         else "Kandydat / Candidate"
     )
-    email = candidate.email if not blind else None
-    phone = candidate.phone if not blind else None
-    location = candidate.location if not blind else None
-    linkedin = candidate.linkedin if not blind else None
-    ai_summary = candidate.ai_summary or ""
+    email = _esc(candidate.email) if not blind and candidate.email else None
+    phone = _esc(candidate.phone) if not blind and candidate.phone else None
+    location = _esc(candidate.location) if not blind and candidate.location else None
+    linkedin = _esc(candidate.linkedin) if not blind and candidate.linkedin else None
+    ai_summary = _esc(candidate.ai_summary or "")
 
     skills = candidate.skills or []
     experience = candidate.experience or []
@@ -184,9 +195,9 @@ def _generate_cv_html(
     if skills:
         items = []
         for s in skills:
-            sname = s.get("name", "")
-            slevel = s.get("level", "")
-            syears = s.get("years", "")
+            sname = _esc(s.get("name", ""))
+            slevel = _esc(s.get("level", ""))
+            syears = _esc(s.get("years", ""))
             badge = ""
             if slevel:
                 badge += f' <span class="skill-badge">{slevel}</span>'
@@ -198,11 +209,11 @@ def _generate_cv_html(
     exp_html = ""
     if experience:
         for exp in experience:
-            role = exp.get("role") or ""
-            company = exp.get("company") or ""
-            start = exp.get("start") or ""
-            end = exp.get("end") or L["present"]
-            desc = exp.get("desc") or ""
+            role = _esc(exp.get("role") or "")
+            company = _esc(exp.get("company") or "")
+            start = _esc(exp.get("start") or "")
+            end = _esc(exp.get("end") or L["present"])
+            desc = _esc(exp.get("desc") or "")
             exp_html += f"""
 <div class="exp-item">
   <div class="exp-header">
@@ -216,10 +227,10 @@ def _generate_cv_html(
     edu_html = ""
     if education:
         for edu in education:
-            school = edu.get("school") or ""
-            degree = edu.get("degree") or ""
-            field = edu.get("field") or ""
-            year = edu.get("year") or ""
+            school = _esc(edu.get("school") or "")
+            degree = _esc(edu.get("degree") or "")
+            field = _esc(edu.get("field") or "")
+            year = _esc(edu.get("year") or "")
             edu_html += f"""
 <div class="edu-item">
   <strong>{school}</strong>
@@ -231,8 +242,8 @@ def _generate_cv_html(
     if languages_list:
         items = []
         for lang in languages_list:
-            lname = lang.get("lang") or lang.get("name") or ""
-            llevel = lang.get("level") or ""
+            lname = _esc(lang.get("lang") or lang.get("name") or "")
+            llevel = _esc(lang.get("level") or "")
             items.append(f"<li>{lname}{' — ' + llevel if llevel else ''}</li>")
         lang_html = f'<ul class="lang-list">{"".join(items)}</ul>'
 
@@ -246,10 +257,10 @@ def _generate_cv_html(
 
     tailored_section = ""
     if job and job_skills_highlight:
-        items = "".join(f"<li>{s}</li>" for s in job_skills_highlight)
+        items = "".join(f"<li>{_esc(s)}</li>" for s in job_skills_highlight)
         tailored_section = f"""
 <section class="highlight-section">
-  <h2>{L["key_skills_for_role"]} — {job.title}</h2>
+  <h2>{L["key_skills_for_role"]} — {_esc(job.title)}</h2>
   <ul class="skills-list highlight-list">{items}</ul>
 </section>"""
 

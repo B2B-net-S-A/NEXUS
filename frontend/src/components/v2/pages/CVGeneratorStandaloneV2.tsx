@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -48,6 +48,15 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import api from "@/lib/api";
+import {
+  type RecruitmentOption,
+  downloadBlob,
+  extractErrorDetail,
+  parseDispositionFilename,
+  parseWarningsHeader,
+  stageLabel,
+} from "@/lib/cv-generator";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 
 type CandidateOption = {
@@ -59,66 +68,25 @@ type CandidateOption = {
   email?: string | null;
 };
 
-type RecruitmentOption = {
-  stage_id: number;
-  job_id: number;
-  job_title: string;
-  stage: string;
-  has_champion: boolean;
-  has_notes: boolean;
-  ready: boolean;
-};
-
 type Mode = "new" | "old";
 
-const STAGE_LABELS: Record<string, string> = {
-  new: "Nowy",
-  contacted: "Kontakt",
-  screening: "Screening",
-  verified: "Zweryfikowany",
-  interview: "Interview",
-  client_review: "U klienta",
-  acceptance: "Akceptacja",
-  negotiation: "Negocjacje",
-  onboarding: "Onboarding",
-  active: "Aktywny",
-  rejected: "Odrzucony",
-  withdrawn: "Rezygnacja",
-  on_hold: "Wstrzymany",
-};
-
-const CV_ACCEPT = ".pdf,.docx,.doc";
-const CHAMPION_ACCEPT = ".docx,.doc";
+const CV_ACCEPT = ".pdf,.docx";
+const CHAMPION_ACCEPT = ".docx";
 const MAX_UPLOAD_MB = 50;
 
-function stageLabel(stage: string): string {
-  return STAGE_LABELS[stage] ?? stage;
-}
-
-function parseDispositionFilename(disposition: string, fallback: string): string {
-  const match = disposition.match(/filename="?([^";]+)"?/);
-  return match ? match[1] : fallback;
-}
-
-function parseWarningsHeader(header: unknown): string[] {
-  if (typeof header !== "string") return [];
-  try {
-    const parsed = JSON.parse(header);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
+function fileValidationError(file: File, accept: string): string | null {
+  const ext = `.${(file.name.split(".").pop() ?? "").toLowerCase()}`;
+  const allowed = accept.split(",").map((s) => s.trim().toLowerCase());
+  if (ext === ".doc") {
+    return "Format .doc (Word 97-2003) nie jest obsługiwany — zapisz plik jako .docx lub PDF.";
   }
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  if (!allowed.includes(ext)) {
+    return `Nieobsługiwany format '${ext}'. Dozwolone: ${allowed.join(", ")}.`;
+  }
+  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+    return `Plik za duży (${Math.round(file.size / 1024 / 1024)} MB). Maksymalny rozmiar to ${MAX_UPLOAD_MB} MB.`;
+  }
+  return null;
 }
 
 export function CVGeneratorStandaloneV2() {
@@ -144,11 +112,13 @@ export function CVGeneratorStandaloneV2() {
   const [warnings, setWarnings] = useState<string[]>([]);
 
   // ── New mode queries ────────────────────────────────────────────────────
+  // Debounce — bez tego każdy keystroke strzela requestem do API.
+  const debouncedCandidateQuery = useDebouncedValue(candidateQuery, 300);
   const candidatesQuery = useQuery({
-    queryKey: ["cv-gen-candidates", candidateQuery],
+    queryKey: ["cv-gen-candidates", debouncedCandidateQuery],
     queryFn: async () => {
       const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
-        params: { q: candidateQuery, limit: 20 },
+        params: { q: debouncedCandidateQuery, limit: 20 },
       });
       return res.data;
     },
@@ -265,6 +235,18 @@ export function CVGeneratorStandaloneV2() {
 
   const activeMut = mode === "new" ? generateMut : uploadMut;
 
+  // Generacja trwa 30-60 s — przypadkowe odświeżenie/zamknięcie karty gubi
+  // wynik bez śladu. Ostrzeż zanim user wyrzuci pracę do kosza.
+  useEffect(() => {
+    if (!activeMut.isPending) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [activeMut.isPending]);
+
   function handleSubmit() {
     setWarnings([]);
     activeMut.mutate();
@@ -274,6 +256,28 @@ export function CVGeneratorStandaloneV2() {
     const nextMode = next === "old" ? "old" : "new";
     setMode(nextMode);
     setWarnings([]);
+  }
+
+  function handleCvFile(f: File | null) {
+    if (f) {
+      const err = fileValidationError(f, CV_ACCEPT);
+      if (err) {
+        toast.showError(`CV: ${err}`);
+        return;
+      }
+    }
+    setCvFile(f);
+  }
+
+  function handleChampionFile(f: File | null) {
+    if (f) {
+      const err = fileValidationError(f, CHAMPION_ACCEPT);
+      if (err) {
+        toast.showError(`Profil Championa: ${err}`);
+        return;
+      }
+    }
+    setChampionFile(f);
   }
 
   return (
@@ -360,8 +364,8 @@ export function CVGeneratorStandaloneV2() {
           cvFile={cvFile}
           championFile={championFile}
           screeningNotes={screeningNotes}
-          setCvFile={setCvFile}
-          setChampionFile={setChampionFile}
+          setCvFile={handleCvFile}
+          setChampionFile={handleChampionFile}
           setScreeningNotes={setScreeningNotes}
         />
       )}
@@ -420,7 +424,9 @@ export function CVGeneratorStandaloneV2() {
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Generacja zajmuje 30–60 sekund (Claude Sonnet 4 + DOCX render).
+          {activeMut.isPending
+            ? "Claude analizuje CV i renderuje DOCX — nie zamykaj karty…"
+            : "Generacja zajmuje 30–60 sekund (Claude + render DOCX)."}
         </p>
         <Button
           size="lg"
@@ -606,6 +612,10 @@ function NewModeForm({
             {selectedRecruitment && (
               <div className="flex flex-wrap gap-2 text-xs">
                 <ReadyBadge
+                  label="CV w systemie"
+                  ok={selectedRecruitment.has_cv}
+                />
+                <ReadyBadge
                   label="Profil Championa"
                   ok={selectedRecruitment.has_champion}
                 />
@@ -622,6 +632,12 @@ function NewModeForm({
                 title="Nie można wygenerować CV"
                 description={
                   <div className="space-y-1">
+                    {!selectedRecruitment.has_cv && (
+                      <div>
+                        Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
+                        dodaj plik w zakładce Dokumenty na profilu kandydata.
+                      </div>
+                    )}
                     {!selectedRecruitment.has_champion && (
                       <div>
                         Brakuje Profilu Championa (must-have, nice-to-have,
@@ -682,7 +698,7 @@ function OldModeForm({
             onFile={setCvFile}
             accept={CV_ACCEPT}
             label="Upuść CV tutaj lub kliknij, by wybrać plik"
-            description="PDF / DOCX / DOC"
+            description="PDF / DOCX"
           />
         </CardContent>
       </Card>
@@ -702,7 +718,7 @@ function OldModeForm({
             onFile={setChampionFile}
             accept={CHAMPION_ACCEPT}
             label="Upuść DOCX championa tutaj lub kliknij, by wybrać"
-            description="DOCX / DOC"
+            description="DOCX"
           />
         </CardContent>
       </Card>
@@ -849,26 +865,3 @@ function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
-async function extractErrorDetail(err: unknown): Promise<string> {
-  if (typeof err !== "object" || err === null) return "";
-  const anyErr = err as { response?: { data?: unknown } };
-  const data = anyErr.response?.data;
-  // With responseType: "blob" axios delivers error bodies as a Blob too, so the
-  // backend's JSON {detail} must be read out of the Blob before it can surface.
-  if (data instanceof Blob) {
-    try {
-      const txt = await data.text();
-      const parsed = JSON.parse(txt);
-      if (typeof parsed?.detail === "string") return parsed.detail;
-      return txt;
-    } catch {
-      return "";
-    }
-  }
-  if (typeof data === "string") return data;
-  if (data && typeof data === "object" && "detail" in data) {
-    const detail = (data as { detail: unknown }).detail;
-    if (typeof detail === "string") return detail;
-  }
-  return "";
-}

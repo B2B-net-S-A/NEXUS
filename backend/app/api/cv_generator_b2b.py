@@ -22,11 +22,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
@@ -64,6 +65,7 @@ class RecruitmentOption(BaseModel):
     stage: str
     has_champion: bool
     has_notes: bool
+    has_cv: bool
     ready: bool
 
 
@@ -142,22 +144,56 @@ async def search_candidates(
     ),
     limit: int = Query(20, ge=1, le=50),
 ) -> list[CandidateOption]:
-    """Lightweight typeahead. Empty ``q`` returns the most recently updated rows."""
+    """Lightweight typeahead. Empty ``q`` returns the most recently updated rows.
+
+    Matches "Imię Nazwisko" / "Nazwisko Imię" as a whole (concatenated
+    columns) and ranks exact / prefix lastname+name matches above substring
+    hits — "Bogdan" must surface Michał *Bogdan* before *Bogdan*owicz.
+    """
 
     del current_user  # auth only
 
     stmt = select(Candidate)
-    needle = (q or "").strip()
+    needle = (q or "").strip().lower()
     if needle:
-        like = f"%{needle.lower()}%"
+        like = f"%{needle}%"
+        name_l = func.lower(func.coalesce(Candidate.name, ""))
+        lastname_l = func.lower(func.coalesce(Candidate.lastname, ""))
+        full = name_l + " " + lastname_l
+        full_rev = lastname_l + " " + name_l
         stmt = stmt.where(
             or_(
-                func.lower(Candidate.name).like(like),
-                func.lower(Candidate.lastname).like(like),
+                name_l.like(like),
+                lastname_l.like(like),
+                full.like(like),
+                full_rev.like(like),
                 func.lower(func.coalesce(Candidate.email, "")).like(like),
             )
         )
-    stmt = stmt.order_by(Candidate.updated_at.desc()).limit(limit)
+        rank = case(
+            (
+                or_(
+                    lastname_l == needle,
+                    name_l == needle,
+                    full == needle,
+                    full_rev == needle,
+                ),
+                0,
+            ),
+            (
+                or_(
+                    lastname_l.like(f"{needle}%"),
+                    name_l.like(f"{needle}%"),
+                    full.like(f"{needle}%"),
+                    full_rev.like(f"{needle}%"),
+                ),
+                1,
+            ),
+            else_=2,
+        )
+        stmt = stmt.order_by(rank, Candidate.updated_at.desc()).limit(limit)
+    else:
+        stmt = stmt.order_by(Candidate.updated_at.desc()).limit(limit)
 
     rows = (await db.scalars(stmt)).all()
 
@@ -203,6 +239,7 @@ async def list_candidate_recruitments(
             stage=r.stage,
             has_champion=r.has_champion,
             has_notes=r.has_notes,
+            has_cv=r.has_cv,
             ready=r.ready,
         )
         for r in readiness
@@ -223,8 +260,6 @@ async def generate(
     ``X-Generator-Warnings`` header as a JSON-encoded array.
     """
 
-    del current_user
-
     try:
         result = await generate_cv_for_candidate(
             db,
@@ -238,6 +273,26 @@ async def generate(
             status_code=_error_status(err.code), detail=err.message
         ) from err
 
+    # Audit trail — CV generation is a Claude-billed operation on personal
+    # data; without this there is zero trace of who generated what.
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=payload.candidate_id,
+            action="b2b_cv_generated",
+            details={
+                "stage_id": payload.stage_id,
+                "language": payload.language,
+                "blind_cv": payload.blind_cv,
+                "filename": result.filename,
+                "warnings_count": len(result.warnings),
+                "processing_time_ms": result.processing_time_ms,
+            },
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+
     return _build_docx_response(
         docx_bytes=result.docx_bytes,
         filename=result.filename,
@@ -250,22 +305,21 @@ async def generate(
 @router.post("/generate-upload")
 async def generate_from_upload(
     current_user: CurrentUser,
-    cv_file: UploadFile = File(..., description="Plik CV (PDF / DOCX / DOC)"),
+    cv_file: UploadFile = File(..., description="Plik CV (PDF / DOCX)"),
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
     screening_notes: str = Form(""),
     champion_file: Optional[UploadFile] = File(
         None, description="Opcjonalny plik DOCX z Profilem Championa"
     ),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     """1:1 odpowiednik external ``POST /api/v1/generate`` (multipart wariant).
 
     Old-mode: user wgrywa CV ręcznie, opcjonalnie DOCX championa i notatki
-    ze screeningu. Nic nie trafia do NEXUS DB — pełen flow przebiega na
-    danych z requestu i Claude API.
+    ze screeningu. Poza wpisem audytowym nic nie trafia do NEXUS DB — pełen
+    flow przebiega na danych z requestu i Claude API.
     """
-    del current_user  # auth only
-
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
@@ -290,6 +344,25 @@ async def generate_from_upload(
             status_code=_error_status(err.code), detail=err.message
         ) from err
 
+    # Upload mode has no candidate context — anchor the audit entry on the user.
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=current_user.id,
+            action="b2b_cv_generated_upload",
+            details={
+                "cv_filename": cv_file.filename,
+                "language": language,
+                "blind_cv": blind_cv,
+                "filename": result.filename,
+                "warnings_count": len(result.warnings),
+                "processing_time_ms": result.processing_time_ms,
+            },
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+
     return _build_docx_response(
         docx_bytes=result.docx_bytes,
         filename=result.filename,
@@ -297,7 +370,3 @@ async def generate_from_upload(
         warnings=result.warnings,
         processing_time_ms=result.processing_time_ms,
     )
-
-
-# Silence the unused-import warning for `and_` if linter complains.
-_ = and_
