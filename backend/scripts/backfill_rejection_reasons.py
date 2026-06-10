@@ -1,14 +1,16 @@
-"""One-off backfill: fill `candidate_stages.rejection_note` for rejected
-Traffit-imported stages from the matching "Zmiana etapu" activity's
-`rejection.name` (matched by candidate_id + exact moved_at).
+"""One-off backfill for rejected Traffit-imported stages, from the matching
+"Zmiana etapu" activity (matched by candidate_id + exact moved_at). Two passes:
 
-The candidates list ("Powód odrzucenia" column) already renders
-`rejection_note`; before this backfill every Traffit rejection only showed a
-bare "Odrzucony · job (client)" because the reason lived in `activities`, not
-on the stage row. See ``app.services.traffit.rejection_backfill`` for the why.
+1. `rejection.name` → `candidate_stages.rejection_note` (the bucket, e.g. "Po CV").
+2. `content.description` → `candidate_stages.notes` (the recruiter's free-text
+   comment, e.g. "niezainteresowany") — so the "Powód odrzucenia" column shows
+   "Po CV — niezainteresowany", not a bare bucket.
 
-Idempotent + additive — only fills rows where `rejection_note` is currently
-empty, so it is safe to re-run and never overwrites a recruiter-entered reason.
+The candidates list ("Powód odrzucenia" column) renders both (kategoria +
+notatka). See ``app.services.traffit.rejection_backfill`` for the why.
+
+Idempotent + additive — only fills rows where the target column is currently
+empty, so it is safe to re-run and never overwrites recruiter-entered values.
 
 Usage:
     python -m scripts.backfill_rejection_reasons --dry-run
@@ -29,6 +31,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.services.traffit.rejection_backfill import (  # noqa: E402
+    backfill_rejection_descriptions_from_activities,
     backfill_rejection_notes_from_activities,
 )
 
@@ -37,14 +40,23 @@ logger = logging.getLogger("backfill_rejection_reasons")
 
 async def _run(commit: bool) -> int:
     async with AsyncSessionLocal() as db:
-        updated = await backfill_rejection_notes_from_activities(db)
+        reasons = await backfill_rejection_notes_from_activities(db)
+        descriptions = await backfill_rejection_descriptions_from_activities(db)
         if commit:
             await db.commit()
-            logger.info("Committed: %s rejected stages got a rejection_note", updated)
+            logger.info(
+                "Committed: %s rejection_note + %s rejection notes (description)",
+                reasons,
+                descriptions,
+            )
         else:
             await db.rollback()
-            logger.info("Dry-run: %s rejected stages would get a rejection_note", updated)
-    return updated
+            logger.info(
+                "Dry-run: %s rejection_note + %s rejection notes (description) would be set",
+                reasons,
+                descriptions,
+            )
+    return reasons + descriptions
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,12 +1,17 @@
-"""Tests for backfill_rejection_notes_from_activities.
+"""Tests for the Traffit rejection backfills.
 
-Covers:
+Covers backfill_rejection_notes_from_activities (reason → rejection_note):
   - Reason is copied onto the rejected stage when (candidate_id, moved_at)
     matches the Traffit "Zmiana etapu" activity exactly.
   - Idempotent / additive: a stage that already has a rejection_note is never
     overwritten (recruiter-entered reasons are preserved).
   - Dry-run (rollback) writes nothing.
   - A rejected stage with no matching activity timestamp stays NULL.
+
+And backfill_rejection_descriptions_from_activities (content.description → notes):
+  - Recruiter's free-text comment lands in notes on an exact match.
+  - Never overwrites an existing recruiter note.
+  - Punctuation-only descriptions (e.g. ".") are skipped.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.traffit.rejection_backfill import (
+    backfill_rejection_descriptions_from_activities,
     backfill_rejection_notes_from_activities,
 )
 
@@ -85,15 +91,18 @@ async def _seed_rejected_stage(
         return cs.id
 
 
-async def _seed_rejection_activity(candidate_id: int, reason: str) -> int:
+async def _seed_rejection_activity(
+    candidate_id: int, reason: str, *, description: str | None = None
+) -> int:
     """Mirror the real Traffit shape: details.content is a JSON-encoded string."""
-    content = json.dumps(
-        {
-            "from_state": {"id": 23, "name": "Screening"},
-            "to_state": {"id": 21, "name": "Odrzucony"},
-            "rejection": {"id": 34, "name": reason},
-        }
-    )
+    content_obj = {
+        "from_state": {"id": 23, "name": "Screening"},
+        "to_state": {"id": 21, "name": "Odrzucony"},
+        "rejection": {"id": 34, "name": reason},
+    }
+    if description is not None:
+        content_obj["description"] = description
+    content = json.dumps(content_obj)
     async with AsyncSessionLocal() as db:
         act = Activity(
             entity_type="candidate",
@@ -113,6 +122,12 @@ async def _get_rejection_note(stage_id: int) -> str | None:
     async with AsyncSessionLocal() as db:
         cs = await db.get(CandidateStage, stage_id)
         return cs.rejection_note if cs else None
+
+
+async def _get_stage_notes(stage_id: int) -> str | None:
+    async with AsyncSessionLocal() as db:
+        cs = await db.get(CandidateStage, stage_id)
+        return cs.notes if cs else None
 
 
 async def _cleanup(candidate_id: int, job_id: int, client_id: int) -> None:
@@ -194,5 +209,67 @@ async def test_backfill_skips_stage_without_matching_activity() -> None:
             await backfill_rejection_notes_from_activities(db)
             await db.commit()
         assert await _get_rejection_note(stage_id) is None
+    finally:
+        await _cleanup(candidate_id, job_id, client_id)
+
+
+async def test_description_backfill_populates_notes_on_exact_match() -> None:
+    """The recruiter's free-text comment (content.description) lands in
+    candidate_stages.notes on an exact (candidate_id, moved_at) match."""
+    candidate_id = await _seed_candidate()
+    job_id, client_id = await _seed_job()
+    stage_id = await _seed_rejected_stage(candidate_id, job_id, moved_at=_REJECTED_AT)
+    await _seed_rejection_activity(
+        candidate_id, "Po CV", description="niezainteresowany"
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            updated = await backfill_rejection_descriptions_from_activities(db)
+            await db.commit()
+        assert updated >= 1
+        assert await _get_stage_notes(stage_id) == "niezainteresowany"
+    finally:
+        await _cleanup(candidate_id, job_id, client_id)
+
+
+async def test_description_backfill_does_not_overwrite_existing_notes() -> None:
+    candidate_id = await _seed_candidate()
+    job_id, client_id = await _seed_job()
+    async with AsyncSessionLocal() as db:
+        cs = CandidateStage(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            stage=PipelineStage.rejected,
+            moved_at=_REJECTED_AT,
+            notes="Notatka rekrutera w NEXUS",
+        )
+        db.add(cs)
+        await db.commit()
+        await db.refresh(cs)
+        stage_id = cs.id
+    await _seed_rejection_activity(
+        candidate_id, "Po CV", description="niezainteresowany"
+    )
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_rejection_descriptions_from_activities(db)
+            await db.commit()
+        # Existing recruiter note preserved — backfill only fills empty notes.
+        assert await _get_stage_notes(stage_id) == "Notatka rekrutera w NEXUS"
+    finally:
+        await _cleanup(candidate_id, job_id, client_id)
+
+
+async def test_description_backfill_skips_punctuation_only() -> None:
+    """A description of just "." carries no signal — it must NOT be copied."""
+    candidate_id = await _seed_candidate()
+    job_id, client_id = await _seed_job()
+    stage_id = await _seed_rejected_stage(candidate_id, job_id, moved_at=_REJECTED_AT)
+    await _seed_rejection_activity(candidate_id, "Po CV", description=".")
+    try:
+        async with AsyncSessionLocal() as db:
+            await backfill_rejection_descriptions_from_activities(db)
+            await db.commit()
+        assert await _get_stage_notes(stage_id) is None
     finally:
         await _cleanup(candidate_id, job_id, client_id)

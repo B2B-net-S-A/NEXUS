@@ -1,4 +1,10 @@
-"""Backfill `candidate_stages.rejection_note` from imported Traffit activities.
+"""Backfill rejection signal onto `candidate_stages` from Traffit activities.
+
+Two passes (both keyed on the same (candidate_id, exact moved_at) pair):
+1. `rejection.name` → `rejection_note` — the bucket category ("Po CV", …).
+2. `content.description` → `notes` — the recruiter's free-text comment
+   ("niezainteresowany", "nie chce full time B2B", …). The candidates-list
+   "Powód odrzucenia" column renders both as "Po CV — niezainteresowany".
 
 Background
 ----------
@@ -80,4 +86,58 @@ async def backfill_rejection_notes_from_activities(db: AsyncSession) -> int:
     The caller is responsible for committing (or rolling back, for a dry-run).
     """
     result = await db.execute(_BACKFILL_SQL)
+    return result.rowcount or 0
+
+
+# Second self-heal: the *reason* (`rejection.name`) is only the bucket — the
+# recruiter's actual free-text comment ("niezainteresowany", "nie chce full
+# time B2B", "brak upgrade java/spring boot") rides the SAME "Zmiana etapu"
+# activity as ``content.description``. The reason backfill above ignored it, so
+# the candidates-list "Powód odrzucenia" column showed only "Po CV". This stitches
+# that comment onto ``candidate_stages.notes`` — the same field a NEXUS-native
+# rejection writes the recruiter note to — so the formatter renders
+# "Po CV — niezainteresowany". Same (candidate_id, exact moved_at) join key.
+_DESCRIPTION_BACKFILL_SQL = text(
+    """
+    UPDATE candidate_stages AS cs
+    SET notes = rej.descr,
+        updated_at = NOW()
+    FROM (
+        SELECT DISTINCT ON (a.entity_id, (a.details ->> 'activity_date')::timestamp)
+            a.entity_id AS candidate_id,
+            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'UTC') AS ts,
+            btrim((((a.details ->> 'content')::jsonb) ->> 'description')) AS descr
+        FROM activities AS a
+        WHERE a.entity_type = 'candidate'
+          AND a.action = 'traffit:Zmiana etapu'
+          AND left(a.details ->> 'content', 1) = '{'
+          -- scope to rejection stage-changes only — other transitions also
+          -- carry a `description`, but we only want the rejection comment.
+          AND jsonb_exists((a.details ->> 'content')::jsonb, 'rejection')
+          AND btrim(coalesce((((a.details ->> 'content')::jsonb) ->> 'description'), '')) <> ''
+          -- skip punctuation-only junk (e.g. "." / "-"): require ≥1 alphanumeric.
+          AND (((a.details ->> 'content')::jsonb) ->> 'description') ~ '[[:alnum:]]'
+          AND a.details ->> 'activity_date' IS NOT NULL
+        ORDER BY
+            a.entity_id,
+            (a.details ->> 'activity_date')::timestamp,
+            a.id DESC
+    ) AS rej
+    WHERE cs.candidate_id = rej.candidate_id
+      AND cs.moved_at = rej.ts
+      AND cs.stage = 'rejected'
+      AND (cs.notes IS NULL OR btrim(cs.notes) = '')
+    """
+)
+
+
+async def backfill_rejection_descriptions_from_activities(db: AsyncSession) -> int:
+    """Populate empty ``notes`` on rejected stages with the recruiter's
+    free-text rejection comment (``content.description``) from Traffit
+    activities. Returns the number of rows updated.
+
+    Idempotent (only fills empty ``notes``) and additive — never overwrites a
+    recruiter-entered note. The caller owns the transaction.
+    """
+    result = await db.execute(_DESCRIPTION_BACKFILL_SQL)
     return result.rowcount or 0
