@@ -34,6 +34,14 @@ class Client(Base, TimestampMixin):
     nip: Mapped[Optional[str]] = mapped_column(String(32))
     regon: Mapped[Optional[str]] = mapped_column(String(32))
 
+    # Nadpisanie nazwy wyświetlanej w dropdownach (np. „Nordea Bank Abp").
+    # ODPORNE na sync Traffita — importer NIE rusza tych pól (migracja 0127).
+    # Pusty `display_name` → używamy `name`; `hidden` chowa zdublowane warianty.
+    display_name: Mapped[Optional[str]] = mapped_column(String(255))
+    hidden: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # Status i umowy
     status: Mapped[ClientStatus] = mapped_column(
         Enum(ClientStatus), default=ClientStatus.prospect, nullable=False, index=True

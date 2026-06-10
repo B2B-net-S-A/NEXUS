@@ -345,10 +345,18 @@ async def clients_lookup(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Minimal client list for dropdown (id, name) — avoids heavy /clients payload."""
+    """Minimal client list for dropdown (id, name) — avoids heavy /clients payload.
+
+    Zwraca ``display_name`` (ręczne nadpisanie, odporne na sync Traffita) gdy
+    ustawione, inaczej ``name``; ukryte (`hidden`) warianty pomija."""
+    from sqlalchemy import func
+
     from app.models.client import Client
 
-    rows = await db.execute(select(Client.id, Client.name).order_by(Client.name))
+    name_col = func.coalesce(Client.display_name, Client.name)
+    rows = await db.execute(
+        select(Client.id, name_col).where(Client.hidden.is_(False)).order_by(name_col)
+    )
     return [{"id": r[0], "name": r[1]} for r in rows.all()]
 
 
