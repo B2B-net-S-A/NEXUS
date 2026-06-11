@@ -429,10 +429,11 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
 
+ // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
+ // dla wszystkich zaznaczonych kandydatów).
  const [pendingRejection, setPendingRejection] = useState<{
- item: KanbanItem;
+ entries: { item: KanbanItem; srcColId: string }[];
  destCol: KanbanColumn;
- srcColId: string;
  terminalType: "rejected" |"withdrawn";
  } | null>(null);
  // Pending verification flow (migracja 0056)
@@ -441,6 +442,12 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  destCol: KanbanColumn;
  srcColId: string;
  } | null>(null);
+ // Bulk → "Zweryfikowany": stawka jest per kandydat, więc kolejka modali
+ // (jeden po drugim) zamiast jednego wspólnego formularza.
+ const [verifiedQueue, setVerifiedQueue] = useState<
+ { item: KanbanItem; srcColId: string }[]
+ >([]);
+ const [verifiedBulkTotal, setVerifiedBulkTotal] = useState(0);
  const [pendingRejectVerification, setPendingRejectVerification] = useState<{
  item: KanbanItem;
  note: string;
@@ -552,8 +559,9 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  candidateOfferResponse?:"pending" |"accepted" |"declined" | null;
  // Wolny tekst powodu — tylko gdy szablon nie miał zdefiniowanych powodów.
  freeReason?: string;
- }
- ) => {
+ },
+ opts?: { silent?: boolean }
+ ): Promise<boolean> => {
  try {
  const response = await api.post<{
  scheduled_rejection_email_id?: number | null;
@@ -615,10 +623,20 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  stageName: dst.name ?? dst.stage,
  });
  }
+ return true;
  } catch (e) {
  console.error("Move failed", e);
- showError("Nie udało się zmienić etapu.");
+ if (!opts?.silent) {
+ // Pokaż konkretny powód z backendu (np. wymóg stawki/powodu
+ // odrzucenia) zamiast generycznego komunikatu.
+ const detail = (e as { response?: { data?: { detail?: unknown } } })
+ ?.response?.data?.detail;
+ showError(
+ typeof detail === "string" ? detail :"Nie udało się zmienić etapu."
+ );
+ }
  // TODO: revert optimistic on error
+ return false;
  }
  },
  [jobId, stagesWithScorecard, showActionToast, showSuccess, showError]
@@ -637,6 +655,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
  if (dst.stage === "verified") {
+ setVerifiedQueue([]);
+ setVerifiedBulkTotal(1);
  setVerifiedRatePrompt({
  item,
  destCol: dst,
@@ -645,18 +665,19 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  return;
  }
 
- applyOptimistic(item, colId(src), dst);
-
+ // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
+ // żeby anulowanie nie zostawiało karty w złej kolumnie.
  if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
  setPendingRejection({
- item,
+ entries: [{ item, srcColId: colId(src) }],
  destCol: dst,
- srcColId: colId(src),
  terminalType: dst.stage as"rejected" |"withdrawn",
  });
- } else {
- sendMove(item, dst);
+ return;
  }
+
+ applyOptimistic(item, colId(src), dst);
+ sendMove(item, dst);
  },
  [cols, applyOptimistic, sendMove]
  );
@@ -712,10 +733,15 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  console.error("Move to verified failed", e);
  showError("Nie udało się przesunąć kandydata.");
  } finally {
- setVerifiedRatePrompt(null);
+ // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki.
+ const [next, ...rest] = verifiedQueue;
+ setVerifiedQueue(rest);
+ setVerifiedRatePrompt(
+ next ? { item: next.item, destCol, srcColId: next.srcColId } : null
+ );
  }
  },
- [verifiedRatePrompt, jobId, jobBudgetMax, showSuccess, showError]
+ [verifiedRatePrompt, verifiedQueue, jobId, jobBudgetMax, showSuccess, showError]
  );
 
  const handleAcceptVerification = useCallback(
@@ -769,17 +795,78 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  });
  };
 
+ // Po częściowym niepowodzeniu bulk-ruchu stan optymistyczny kłamie —
+ // dociągnij świeży kanban z serwera.
+ const refreshBoard = useCallback(async () => {
+ try {
+ const fresh = await pipelineApi.kanban(jobId);
+ if (Array.isArray(fresh.data?.columns)) {
+ setCols(fresh.data.columns as KanbanColumn[]);
+ }
+ } catch (e) {
+ console.error("Kanban refresh failed", e);
+ }
+ }, [jobId]);
+
  const bulkMove = async (destColId: string) => {
  const dst = cols.find((c) => colId(c) === destColId);
  if (!dst || selected.size === 0) return;
- setBulkBusy(true);
- try {
+ // Zaznaczone karty wraz z kolumną źródłową; karty już w celu pomijamy.
+ const entries: { item: KanbanItem; srcColId: string }[] = [];
  for (const sid of Array.from(selected)) {
  const src = cols.find((c) => c.items.some((i) => i.id === sid));
- if (!src) continue;
- const item = src.items.find((i) => i.id === sid)!;
- applyOptimistic(item, colId(src), dst);
- await sendMove(item, dst);
+ if (!src || colId(src) === colId(dst)) continue;
+ entries.push({
+ item: src.items.find((i) => i.id === sid)!,
+ srcColId: colId(src),
+ });
+ }
+ if (entries.length === 0) {
+ setSelected(new Set());
+ return;
+ }
+
+ // "Zweryfikowany" wymaga stawki per kandydat (backend: 422 bez stawki) —
+ // zamiast bezpośrednich POST-ów otwórz modal stawki dla każdego po kolei.
+ if (dst.stage === "verified") {
+ setVerifiedBulkTotal(entries.length);
+ setVerifiedQueue(entries.slice(1));
+ setVerifiedRatePrompt({
+ item: entries[0].item,
+ destCol: dst,
+ srcColId: entries[0].srcColId,
+ });
+ setSelected(new Set());
+ return;
+ }
+
+ // Etapy terminalne wymagają powodu — jeden modal, wspólny powód dla
+ // całego zaznaczenia.
+ if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
+ setPendingRejection({
+ entries,
+ destCol: dst,
+ terminalType: dst.stage as"rejected" |"withdrawn",
+ });
+ setSelected(new Set());
+ return;
+ }
+
+ setBulkBusy(true);
+ try {
+ let failures = 0;
+ for (const { item, srcColId } of entries) {
+ applyOptimistic(item, srcColId, dst);
+ const ok = await sendMove(item, dst, undefined, { silent: true });
+ if (!ok) failures += 1;
+ }
+ if (failures > 0) {
+ showError(
+ `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
+ );
+ await refreshBoard();
+ } else if (entries.length > 1) {
+ showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
  }
  setSelected(new Set());
  } finally {
@@ -959,15 +1046,16 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  terminalType={pendingRejection?.terminalType ??"rejected"}
  reasons={rejectionReasons}
  previousStageCategory={(() => {
- if (!pendingRejection) return null;
- const cat = cols.find((c) => colId(c) === pendingRejection.srcColId)
- ?.category;
+ const firstSrc = pendingRejection?.entries[0]?.srcColId;
+ if (!firstSrc) return null;
+ const cat = cols.find((c) => colId(c) === firstSrc)?.category;
  return cat === "external" ?"external" : cat === "internal" ?"internal" : null;
  })()}
  previousStage={
  pendingRejection
- ? cols.find((c) => colId(c) === pendingRejection.srcColId)?.stage ??
- null
+ ? cols.find(
+ (c) => colId(c) === pendingRejection.entries[0]?.srcColId
+ )?.stage ?? null
  : null
  }
  onConfirm={(
@@ -978,14 +1066,37 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  freeReason
  ) => {
  if (!pendingRejection) return;
- sendMove(pendingRejection.item, pendingRejection.destCol, {
+ const { entries, destCol } = pendingRejection;
+ setPendingRejection(null);
+ void (async () => {
+ let failures = 0;
+ for (const { item, srcColId } of entries) {
+ applyOptimistic(item, srcColId, destCol);
+ const ok = await sendMove(
+ item,
+ destCol,
+ {
  id: reasonId,
  notes,
  sendRejectionEmail,
  candidateOfferResponse: candidateOfferResponse ?? null,
  freeReason,
- });
- setPendingRejection(null);
+ },
+ { silent: entries.length > 1 }
+ );
+ if (!ok) failures += 1;
+ }
+ if (failures > 0) {
+ if (entries.length > 1) {
+ showError(
+ `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
+ );
+ }
+ await refreshBoard();
+ } else if (entries.length > 1) {
+ showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
+ }
+ })();
  }}
  />
 
@@ -1014,10 +1125,21 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  {/* Pending verification modal — recruiter wpisuje rate */}
  {verifiedRatePrompt && (
  <VerifiedRateModal
+ key={verifiedRatePrompt.item.id}
  open={true}
- onOpenChange={(v) => !v && setVerifiedRatePrompt(null)}
+ onOpenChange={(v) => {
+ if (!v) {
+ // Anulowanie przerywa też resztę bulk-kolejki.
+ setVerifiedRatePrompt(null);
+ setVerifiedQueue([]);
+ setVerifiedBulkTotal(0);
+ }
+ }}
  candidateName={
- `${verifiedRatePrompt.item.name ??""} ${verifiedRatePrompt.item.lastname ??""}`.trim() ||"Kandydat"
+ (`${verifiedRatePrompt.item.name ??""} ${verifiedRatePrompt.item.lastname ??""}`.trim() ||"Kandydat") +
+ (verifiedBulkTotal > 1
+ ? ` (${verifiedBulkTotal - verifiedQueue.length}/${verifiedBulkTotal})`
+ : "")
  }
  jobBudgetMax={jobBudgetMax}
  onConfirm={submitVerifiedMove}
