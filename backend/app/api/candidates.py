@@ -960,10 +960,21 @@ async def list_candidates(
             "filter (incl. free-text) runs."
         ),
     ),
+    updated_after: Optional[datetime] = Query(
+        None,
+        description=(
+            "Only candidates whose `updated_at` is strictly greater than this "
+            "ISO-8601 timestamp. Used by the saved-search alert scanner to find "
+            "EXISTING candidates that newly match after an edit (CV / skill / "
+            "status), not just brand-new rows. Backed by ix_candidates_updated_at."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
     if id_after:
         query = query.where(Candidate.id > id_after)
+    if updated_after:
+        query = query.where(Candidate.updated_at > updated_after)
     if status:
         query = query.where(Candidate.status.in_(status))
     if employment:

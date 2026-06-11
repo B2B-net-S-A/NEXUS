@@ -4,22 +4,23 @@ no DB / no ASGI client needed)."""
 import pytest
 
 from app.tasks.saved_search_alerts import (
+    build_base_params,
     build_link,
-    build_scan_params,
     polish_candidates,
 )
 
 
-class TestBuildScanParams:
-    def test_forces_paging_sort_and_watermark(self):
-        params = build_scan_params({"q": "python"}, last_seen_id=123)
-        assert params["page"] == 1
+class TestBuildBaseParams:
+    def test_forces_paging_and_sort(self):
+        params = build_base_params({"q": "python"})
         assert params["page_size"] == 100
         assert params["sort"] == "newest"
-        assert params["id_after"] == 123
         assert params["q"] == "python"
+        # Page number / updated_after are added by the pager, not here.
+        assert "page" not in params
+        assert "updated_after" not in params
 
-    def test_drops_ui_extras_and_nulls(self):
+    def test_drops_ui_extras_watermarks_and_nulls(self):
         stored = {
             "q": "java",
             "include_match_stats": True,
@@ -31,27 +32,28 @@ class TestBuildScanParams:
             "page_size": 20,
             "sort": "name",
             "id_after": 5,
+            "updated_after": "2026-01-01T00:00:00Z",
             "location": None,
         }
-        params = build_scan_params(stored, last_seen_id=10)
+        params = build_base_params(stored)
         for key in (
             "include_match_stats",
             "include_active_recruitments",
             "include_last_activity",
             "match_threshold",
             "profile_id",
+            "id_after",
+            "updated_after",
             "location",
         ):
             assert key not in params
         # Scanner-owned keys win over stored values.
-        assert params["page"] == 1
         assert params["sort"] == "newest"
-        assert params["id_after"] == 10
+        assert params["page_size"] == 100
 
     def test_keeps_list_params_for_repeated_query_encoding(self):
-        params = build_scan_params(
-            {"status": ["active", "passive"], "skills_any": ["python|java"]},
-            last_seen_id=1,
+        params = build_base_params(
+            {"status": ["active", "passive"], "skills_any": ["python|java"]}
         )
         assert params["status"] == ["active", "passive"]
         assert params["skills_any"] == ["python|java"]

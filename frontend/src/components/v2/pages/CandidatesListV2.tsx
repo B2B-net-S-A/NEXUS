@@ -409,6 +409,7 @@ interface Candidate {
  linkedin_current_company?: string | null;
  linkedin_current_title?: string | null;
  created_at?: string;
+ updated_at?: string;
  created_by_user?: { id: number; name: string } | null;
  match_stats?: { open_count: number; total_open: number; top_score: number };
  match_snippet?: string | null;
@@ -2701,10 +2702,14 @@ export function CandidatesListV2() {
  .toUpperCase();
  const isSelected = selectedIds.has(candidate.id);
  const stats = candidate.match_stats;
+ // Highlight rows that newly matched since the last time this saved search
+ // was opened. V2 alerts on EXISTING candidates that changed into the match
+ // set (old created_at, fresh updated_at), so we mark a row when EITHER its
+ // created_at (brand-new) OR updated_at (newly-relevant) crossed the marker.
  const isNewMatch =
  newSinceTs !== null &&
- !!candidate.created_at &&
- Date.parse(candidate.created_at) > newSinceTs;
+ ((!!candidate.created_at && Date.parse(candidate.created_at) > newSinceTs) ||
+ (!!candidate.updated_at && Date.parse(candidate.updated_at) > newSinceTs));
  const openDetail = () => {
  setDetailId(candidate.id);
  const idx = items.findIndex((c) => c.id === candidate.id);

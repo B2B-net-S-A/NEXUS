@@ -81,17 +81,6 @@ def _ss_to_dict(s: SavedSearch) -> dict:
     }
 
 
-async def _current_candidate_watermark(db: AsyncSession) -> int:
-    """Max ``candidates.id`` — starting watermark for a fresh alert
-    subscription, so the scanner never floods the owner with the whole
-    existing base on the first run."""
-    from sqlalchemy import func
-
-    from app.models.candidate import Candidate
-
-    return (await db.scalar(select(func.max(Candidate.id)))) or 0
-
-
 def _has_api_params(filters: Optional[dict]) -> bool:
     return isinstance((filters or {}).get("api"), dict)
 
@@ -207,13 +196,13 @@ async def create_saved_search(
                     " wyszukiwanie ponownie z aktualnej wersji aplikacji."
                 ),
             )
-        ss.last_seen_candidate_id = await _current_candidate_watermark(db)
-        # Anchor the "Nowy" highlight too: enabling the bell means "I've seen
-        # everything up to now", so the FIRST notification click can highlight
-        # exactly the candidates the alert was about (previous_viewed_at would
-        # otherwise be NULL → no highlight on first open).
+        # V2: leave ``last_scanned_at`` NULL → the scanner's first pass seeds the
+        # dedup log with current matchers (no alert) so only genuine transitions
+        # into the match set fire later. Anchor the "Nowy" highlight to now so
+        # the first notification click highlights exactly the alerted rows.
         from datetime import datetime, timezone
 
+        ss.last_scanned_at = None
         ss.last_viewed_at = datetime.now(timezone.utc)
     db.add(ss)
     await db.commit()
@@ -250,13 +239,10 @@ async def update_saved_search(
                     " ponownie z aktualnej wersji aplikacji."
                 ),
             )
-        # Fresh subscription → start counting from "now" (current max id),
-        # never from the beginning of the candidate base.
-        if ss.last_seen_candidate_id is None:
-            ss.last_seen_candidate_id = await _current_candidate_watermark(db)
-        # Same anchor for the "Nowy" highlight — without it the first open
-        # after the first alert has previous_viewed_at=NULL and nothing gets
-        # highlighted (found during E2E verification on prod).
+        # V2: re-baseline on every enable — clear the watermark so the scanner
+        # re-seeds the dedup log with current matchers (idempotent: ON CONFLICT
+        # DO NOTHING) and never floods about candidates that already match.
+        ss.last_scanned_at = None
         if ss.last_viewed_at is None:
             from datetime import datetime, timezone
 
