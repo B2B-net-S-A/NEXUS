@@ -173,7 +173,9 @@ async def _scan_one(client, db, ss, owner) -> bool:
             },
         )
     except Exception as e:  # noqa: BLE001 — WS push is best-effort
-        logger.debug("saved_search_alerts: ws push failed for user %s: %s", ss.user_id, e)
+        logger.debug(
+            "saved_search_alerts: ws push failed for user %s: %s", ss.user_id, e
+        )
     return True
 
 
@@ -185,6 +187,7 @@ async def scan_once() -> int:
     from httpx import ASGITransport, AsyncClient
 
     from app.core.database import AsyncSessionLocal
+
     # Deferred import — main.py imports this module inside lifespan, so a
     # top-level `from app.main import app` would be circular.
     from app.main import app
@@ -218,7 +221,9 @@ async def scan_once() -> int:
                         # "now" instead of notifying about the whole base.
                         from app.api.phase4 import _current_candidate_watermark
 
-                        ss.last_seen_candidate_id = await _current_candidate_watermark(db)
+                        ss.last_seen_candidate_id = await _current_candidate_watermark(
+                            db
+                        )
                         await db.commit()
                         continue
                     if await _scan_one(client, db, ss, owner):
@@ -237,9 +242,7 @@ async def saved_search_alerts_loop(
     *, interval_seconds: int = _DEFAULT_INTERVAL_SECONDS
 ) -> None:
     """Long-running task: scan alert-enabled saved searches every N seconds."""
-    logger.info(
-        "saved_search_alerts: started (interval=%ss)", interval_seconds
-    )
+    logger.info("saved_search_alerts: started (interval=%ss)", interval_seconds)
     await asyncio.sleep(90)  # let the app warm up first
     while True:
         try:
