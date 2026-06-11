@@ -38,7 +38,7 @@ export const metadata: Metadata = {
 
 // Applied before first paint to prevent a flash of the wrong theme/palette.
 // Mirrors the zustand-persist shape of `src/store/theme.ts` (key "nexus-theme").
-const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light",k=false;var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;if(s.kidsMode===true)k=true;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;if(k)d.dataset.kids="true";}catch(e){document.documentElement.dataset.theme="indigo";}})();`;
+const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light",k=false,so=true;var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;if(s.kidsMode===true)k=true;if(s.softUi===false)so=false;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;if(k)d.dataset.kids="true";if(so)d.dataset.soft="true";}catch(e){var r=document.documentElement;r.dataset.theme="indigo";r.dataset.soft="true";}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

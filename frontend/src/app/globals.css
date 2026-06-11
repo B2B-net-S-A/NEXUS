@@ -147,6 +147,33 @@
   .dark[data-theme="graphite"] { --primary: 220 14% 84%; --primary-foreground: 222 18% 12%; --ring: 220 14% 84%; }
 
   /* ===================================================================
+     SOFT UI ("Wyraźny") — depth mode via [data-soft="true"] on <html>.
+     The same mechanism as Kids mode, but professional: it works WITH every
+     accent palette above (it never touches --primary/--ring). Light mode
+     tints the page canvas a soft slate so white cards visibly "sit" on it;
+     dark mode lifts cards further off the background. Corners get rounder
+     via --radius (rounded-sm/md/lg are var-driven) and the decorative layer
+     at the end of this file adds card borders + soft shadows. Default ON;
+     "Klasyczny" in the palette picker removes the attribute → flat look.
+     These blocks MUST stay above the KIDS blocks so that, when both modes
+     are active, Kids wins by source order (equal specificity).
+     =================================================================== */
+  html[data-soft="true"] {
+    --background: 220 25% 96%;         /* soft slate canvas — cards stand out */
+    --border: 220 15% 86%;             /* slightly stronger separation lines */
+    --input: 220 15% 86%;
+    --radius: 0.75rem;                 /* 12px → gently rounder controls/cards */
+  }
+
+  html.dark[data-soft="true"] {
+    --card: 222 20% 11%;               /* stronger elevation step vs bg 6% */
+    --popover: 222 20% 11%;
+    --border: 222 15% 21%;
+    --input: 222 15% 21%;
+    --radius: 0.75rem;
+  }
+
+  /* ===================================================================
      KIDS / GAME WORLD — opt-in third visual mode via [data-kids="true"].
      Unlike palettes, this DELIBERATELY repaints the whole chrome: colorful
      base, candy borders, bubbly radius, and a playful rounded font. It is
@@ -273,6 +300,38 @@
     @apply text-sm;
   }
 }
+
+/* ====================================================================
+   SOFT UI ("Wyraźny") — decorative depth layer (unlayered on purpose, so
+   these beat Tailwind utilities like shadow-sm). Scoped to
+   [data-soft="true"], inert in the classic flat theme. Inputs/selects/
+   textareas are excluded — they already pop as white-on-tinted canvas and
+   must keep their own border states (e.g. invalid → border-primary).
+   Kept ABOVE the Kids decorative layer so Kids wins when both are on.
+   ==================================================================== */
+
+/* Raised section cards: visible hairline border + layered soft shadow.
+   :not([data-kids]) makes this layer fully inert under Kids mode (which has
+   its own candy borders/shadows), regardless of specificity or order. */
+[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+  border-width: 1px;
+  box-shadow:
+    0 1px 2px 0 hsl(222 30% 12% / 0.05),
+    0 8px 24px -16px hsl(222 30% 12% / 0.16);
+}
+.dark[data-soft="true"]:not([data-kids="true"]) .bg-card:where(:not(input):not(textarea):not(select)) {
+  box-shadow:
+    0 1px 2px 0 hsl(0 0% 0% / 0.35),
+    0 10px 28px -18px hsl(0 0% 0% / 0.6);
+}
+
+/* The fixed-radius corner classes don't follow --radius — bump the common
+   card corners so sections feel consistently rounder (subtler than Kids). */
+[data-soft="true"]:not([data-kids="true"]) .rounded-xl  { border-radius: 1rem; }
+[data-soft="true"]:not([data-kids="true"]) .rounded-2xl { border-radius: 1.25rem; }
+
+/* Gentle tactile press on buttons — far subtler than the Kids squish. */
+[data-soft="true"]:not([data-kids="true"]) button:active { transform: translateY(0.5px); }
 
 /* ====================================================================
    KIDS / GAME WORLD — decorative layer (unlayered on purpose, so these
