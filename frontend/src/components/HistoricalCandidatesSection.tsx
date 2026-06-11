@@ -1,19 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
-  History,
   AlertTriangle,
   Clock,
   Sparkles,
   UserCheck,
+  Building2,
   Plus,
   Check,
+  CheckSquare,
+  Square,
   Loader2,
+  Ban,
 } from "lucide-react";
 import {
   historicalCandidatesApi,
@@ -27,6 +31,11 @@ import { useToast } from "@/components/Toast";
 interface Props {
   jobId: number;
 }
+
+// Notatka job-scoped doklejana przy hurtowym przepinaniu (widoczna w
+// timeline kandydata przy tej rekrutacji).
+const BULK_REPIN_NOTE =
+  "Przepięty hurtowo z sekcji „Kandydaci z podobnych projektów” (szybkie przepinanie).";
 
 const STAGE_LABEL_PL: Record<string, string> = {
   new: "Nowy",
@@ -129,9 +138,17 @@ function SourcesList({ sources }: { sources: HistoricalSource[] }) {
 function CandidateRow({
   candidate,
   jobId,
+  isAdded,
+  isSelected,
+  onToggleSelect,
+  onAdded,
 }: {
   candidate: HistoricalCandidate;
   jobId: number;
+  isAdded: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: number) => void;
+  onAdded: (id: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -147,6 +164,9 @@ function CandidateRow({
       // Refresh the kanban so a newly-added candidate appears immediately.
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      const ok =
+        res.total_added > 0 ||
+        res.skipped.some((s) => s.reason === "already_in_job");
       if (res.total_added > 0) {
         showSuccess(`${fullName} — dodano do pipeline`);
       } else if (res.skipped.some((s) => s.reason === "already_in_job")) {
@@ -159,20 +179,25 @@ function CandidateRow({
             : "Nie udało się dodać kandydata do pipeline",
         );
       }
+      if (ok) onAdded(candidate.candidate_id);
     },
     onError: () => showError("Nie udało się dodać kandydata do pipeline"),
   });
 
-  // "In pipeline" = we just added them, or they were already on this job.
-  const inPipeline =
-    addMutation.isSuccess &&
-    ((addMutation.data?.total_added ?? 0) > 0 ||
-      (addMutation.data?.skipped?.some((s) => s.reason === "already_in_job") ??
-        false));
+  const inPipeline = isAdded;
 
   return (
     <li className="border border-slate-200 rounded-lg bg-card">
       <div className="flex items-center gap-2 p-3">
+        {/* Multi-select do hurtowego przepinania. */}
+        <input
+          type="checkbox"
+          checked={isSelected}
+          disabled={inPipeline}
+          onChange={() => onToggleSelect(candidate.candidate_id)}
+          aria-label={`Zaznacz ${fullName}`}
+          className="h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
+        />
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -203,12 +228,29 @@ function CandidateRow({
               </Link>
               <TierBadge tier={candidate.tier} />
               <AvailabilityBadge value={candidate.current_availability} />
+              {candidate.same_client && !candidate.rejected_by_same_client ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700"
+                  title="Kandydat był już rozważany u tego klienta — najszybsza ścieżka"
+                >
+                  <Building2 className="h-3 w-3" />
+                  znany klientowi
+                </span>
+              ) : null}
               {candidate.recommended_count > 1 ? (
                 <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">
                   {candidate.recommended_count}× rekomendowany
                 </span>
               ) : null}
-              {candidate.negative_signal ? (
+              {candidate.rejected_by_same_client ? (
+                <span
+                  className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-destructive/15 text-destructive"
+                  title="Ten klient odrzucił już tego kandydata (lub kandydat się wycofał) na podobnym projekcie — ponowne wysłanie wymaga świadomej decyzji"
+                >
+                  <Ban className="h-3 w-3" />
+                  klient odrzucił wcześniej
+                </span>
+              ) : candidate.negative_signal ? (
                 <span
                   className="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded bg-destructive/15 text-destructive"
                   title="Kandydat został wcześniej odrzucony lub się wycofał w podobnym projekcie"
@@ -280,6 +322,13 @@ function CandidateRow({
 
 export function HistoricalCandidatesSection({ jobId }: Props) {
   const [expanded, setExpanded] = useState(true);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [added, setAdded] = useState<Set<number>>(new Set());
+  const [deepLinkGlow, setDeepLinkGlow] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
 
   const query = useQuery<CandidatesFromSimilarResponse>({
     queryKey: ["historical-candidates", jobId],
@@ -295,6 +344,54 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
     staleTime: 60_000,
   });
 
+  // Deep link z notyfikacji „Podobny request — gotowi kandydaci”
+  // (/jobs/{id}?tab=similar): rozwiń, doscrolluj i podświetl sekcję.
+  useEffect(() => {
+    if (searchParams?.get("tab") !== "similar") return;
+    setExpanded(true);
+    setDeepLinkGlow(true);
+    const scrollTimer = window.setTimeout(() => {
+      sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 200);
+    const glowTimer = window.setTimeout(() => setDeepLinkGlow(false), 3000);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(glowTimer);
+    };
+  }, [searchParams]);
+
+  const bulkMutation = useMutation({
+    mutationFn: (ids: number[]) =>
+      proposalsBulkApi.add(jobId, {
+        candidate_ids: ids,
+        note: BULK_REPIN_NOTE,
+      }),
+    onSuccess: (res) => {
+      const okIds = [
+        ...res.added,
+        ...res.skipped
+          .filter((s) => s.reason === "already_in_job")
+          .map((s) => s.candidate_id),
+      ];
+      setAdded((prev) => new Set([...prev, ...okIds]));
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      if (res.total_added > 0) {
+        showSuccess(
+          `Dodano ${res.total_added} kandydatów do pipeline${
+            res.total_skipped > 0 ? `, pominięto ${res.total_skipped}` : ""
+          }`,
+        );
+      } else {
+        showError(
+          "Nie dodano nikogo — kandydaci są już w pipeline lub zablokowani",
+        );
+      }
+    },
+    onError: () => showError("Nie udało się dodać kandydatów do pipeline"),
+  });
+
   // Quietly hide the section when nothing useful is available — we never want
   // to scream "no data" when the real answer is "we haven't run this before".
   const hasCandidates = (query.data?.candidates.length ?? 0) > 0;
@@ -305,8 +402,66 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
   const similarJobs = query.data?.similar_jobs ?? [];
   const tierUsed = query.data?.tier_used ?? "primary";
 
+  // Faza 3: kandydaci znani temu klientowi na górze — to najszybsza ścieżka.
+  const sameClient = candidates.filter((c) => c.same_client);
+  const others = candidates.filter((c) => !c.same_client);
+  const grouped = sameClient.length > 0;
+
+  // Select-all pomija osoby już w pipeline oraz odrzucone przez tego klienta
+  // (te wymagają świadomej pojedynczej decyzji, nie hurtu).
+  const selectable = candidates.filter(
+    (c) => !added.has(c.candidate_id) && !c.rejected_by_same_client,
+  );
+  const allSelected =
+    selectable.length > 0 &&
+    selectable.every((c) => selected.has(c.candidate_id));
+
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectable.map((c) => c.candidate_id)));
+    }
+  };
+
+  const renderRows = (items: HistoricalCandidate[]) => (
+    <ul className="space-y-2">
+      {items.map((c) => (
+        <CandidateRow
+          key={c.candidate_id}
+          candidate={c}
+          jobId={jobId}
+          isAdded={added.has(c.candidate_id)}
+          isSelected={selected.has(c.candidate_id)}
+          onToggleSelect={toggleSelect}
+          onAdded={(id) => setAdded((prev) => new Set([...prev, id]))}
+        />
+      ))}
+    </ul>
+  );
+
   return (
-    <section className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4">
+    <section
+      ref={sectionRef}
+      id="historical-candidates"
+      className={`bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 transition-shadow ${
+        deepLinkGlow
+          ? "ring-2 ring-indigo-500 ring-offset-2 ring-offset-background shadow-lg"
+          : ""
+      }`}
+    >
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -340,11 +495,68 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
             <UserCheck className="h-3.5 w-3.5" />
             AI podpowiada osoby, które już przeszły dalej w podobnych rekrutacjach — zacznij od nich, zanim zaczniesz szukać świeżej krwi.
           </div>
-          <ul className="space-y-2">
-            {candidates.map((c) => (
-              <CandidateRow key={c.candidate_id} candidate={c} jobId={jobId} />
-            ))}
-          </ul>
+
+          {/* Pasek hurtowego przepinania (Faza 2). */}
+          <div className="mb-3 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              disabled={selectable.length === 0}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            >
+              {allSelected ? (
+                <CheckSquare className="h-3.5 w-3.5" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
+              {allSelected ? "Odznacz wszystkich" : "Zaznacz wszystkich"}
+            </button>
+            <button
+              type="button"
+              onClick={() => bulkMutation.mutate([...selected])}
+              disabled={selected.size === 0 || bulkMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {bulkMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Dodaję…
+                </>
+              ) : (
+                <>
+                  <Plus className="h-3.5 w-3.5" />
+                  Dodaj zaznaczonych ({selected.size}) do pipeline
+                </>
+              )}
+            </button>
+            {selectable.length < candidates.length ? (
+              <span className="text-[11px] text-slate-400">
+                Odrzuceni przez tego klienta i osoby już w pipeline nie wchodzą do „zaznacz wszystkich”.
+              </span>
+            ) : null}
+          </div>
+
+          {grouped ? (
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Znani temu klientowi ({sameClient.length})
+                </div>
+                {renderRows(sameClient)}
+              </div>
+              {others.length > 0 ? (
+                <div>
+                  <div className="mb-2 text-xs font-semibold text-slate-600">
+                    Z podobnych projektów u innych klientów ({others.length})
+                  </div>
+                  {renderRows(others)}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            renderRows(candidates)
+          )}
         </>
       )}
     </section>

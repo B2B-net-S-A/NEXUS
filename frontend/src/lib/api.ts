@@ -1791,6 +1791,7 @@ export interface HistoricalSource {
   moved_at: string;
   stage_weight: number;
   contribution: number;
+  client_id: number | null;
 }
 
 export interface HistoricalCandidate {
@@ -1806,6 +1807,10 @@ export interface HistoricalCandidate {
   sources: HistoricalSource[];
   current_availability: HistoricalAvailability;
   current_status: string | null;
+  /** Kandydat był już rozważany u klienta tego joba (szybkie przepinanie). */
+  same_client: boolean;
+  /** Ten sam klient go wcześniej odrzucił — mocne ostrzeżenie, poza select-all. */
+  rejected_by_same_client: boolean;
 }
 
 export interface HistoricalSimilarJob {

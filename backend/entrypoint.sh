@@ -245,6 +245,11 @@ _ENUM_STATEMENTS = [
     # Notification(notification_type='marketplace_match') crashuje z
     # InvalidTextRepresentationError podczas scan_job_for_marketplace_matches.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'marketplace_match'",
+    # Szybkie przepinanie: notyfikacja "podobny request — gotowi kandydaci"
+    # emitowana po POST /jobs (services/similar_job_notify.py). Bez tej
+    # wartości insert Notification(notification_type='similar_job_candidates')
+    # crashuje z InvalidTextRepresentationError w background tasku.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'similar_job_candidates'",
     # Job Chat (migracja 0063_job_chat): per-rekrutacja team chat. Prod
     # alembic upgrade pada na 0029 duplicate revision id (pre-existing
     # multi-head bug), wpada w fallback create_all — tabele powstają, ALE

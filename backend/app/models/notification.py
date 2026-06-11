@@ -104,6 +104,11 @@ class NotificationType(str, enum.Enum):
     # z related_entity=(saved_search, id) + dedupe_resurface (ten sam dzień
     # aktualizuje treść/licznik zamiast dokładać kolejne wpisy).
     saved_search_match = "saved_search_match"
+    # Szybkie przepinanie — nowy job przypomina historyczne requesty (Tier A)
+    # z kandydatami po etapach klienckich. Emitowane przez
+    # `services/similar_job_notify.py` po POST /jobs (background task).
+    # DB enum value: safety-net ALTER w entrypoint.sh (wzorzec kpi_coach).
+    similar_job_candidates = "similar_job_candidates"
 
 
 class Notification(Base, TimestampMixin):

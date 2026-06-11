@@ -34,6 +34,7 @@ class HistoricalSourceOut(BaseModel):
     moved_at: datetime
     stage_weight: float
     contribution: float
+    client_id: Optional[int] = None
 
 
 class HistoricalCandidateOut(BaseModel):
@@ -51,6 +52,12 @@ class HistoricalCandidateOut(BaseModel):
     sources: list[HistoricalSourceOut]
     current_availability: Literal["available", "busy", "unknown"]
     current_status: Optional[str] = None
+    # Szybkie przepinanie (Faza 3): kandydat był rozważany u klienta tego
+    # joba — UI grupuje takich na górze ("Znani temu klientowi").
+    same_client: bool = False
+    # Ten sam klient go odrzucił / kandydat się wycofał — UI pokazuje mocne
+    # ostrzeżenie i wyklucza z "zaznacz wszystkich".
+    rejected_by_same_client: bool = False
 
 
 class HistoricalCandidatesMeta(BaseModel):

@@ -962,9 +962,14 @@ export default function JobDetailPage() {
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
+  // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
+  // zakładka AI Matching; scroll + glow robi sama HistoricalCandidatesSection.
   useEffect(() => {
-    if (searchParams?.get("tab") === "chat") {
+    const tab = searchParams?.get("tab");
+    if (tab === "chat") {
       setActiveTab("chat");
+    } else if (tab === "similar") {
+      setActiveTab("ai-matching");
     }
   }, [searchParams]);
 
