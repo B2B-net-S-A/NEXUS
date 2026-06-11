@@ -98,6 +98,12 @@ class NotificationType(str, enum.Enum):
     # 14/7 dni dla dokładniejszego escalation.
     client_order_ending_14d = "client_order_ending_14d"
     client_order_ending_7d = "client_order_ending_7d"
+    # Saved-search alerts (migracja 0129). Zbiorcza notyfikacja "N nowych
+    # kandydatów pasuje do zapisanego wyszukiwania X" emitowana przez
+    # app/tasks/saved_search_alerts.py. Dedup dzienny przez ix_notif_dedup_daily
+    # z related_entity=(saved_search, id) + dedupe_resurface (ten sam dzień
+    # aktualizuje treść/licznik zamiast dokładać kolejne wpisy).
+    saved_search_match = "saved_search_match"
 
 
 class Notification(Base, TimestampMixin):

@@ -32,6 +32,10 @@ class SavedSearchCreate(BaseModel):
     shared: bool = False
     description: Optional[str] = Field(None, max_length=255)
     pinned_to_job_id: Optional[int] = None
+    # Alert subscription — wymaga ``filters["api"]`` (parametry GET
+    # /api/candidates wyliczone przez FE), bo skaner w tle odtwarza search
+    # przez realny endpoint. Patrz app/tasks/saved_search_alerts.py.
+    notify_new_matches: bool = False
 
 
 class SavedSearchUpdate(BaseModel):
@@ -41,6 +45,7 @@ class SavedSearchUpdate(BaseModel):
     description: Optional[str] = None
     # ``None`` means "no change"; pass ``0`` to clear (special-cased below).
     pinned_to_job_id: Optional[int] = None
+    notify_new_matches: Optional[bool] = None
 
 
 class SavedSearchOut(BaseModel):
@@ -68,9 +73,27 @@ def _ss_to_dict(s: SavedSearch) -> dict:
         "shared": s.shared,
         "description": s.description,
         "pinned_to_job_id": s.pinned_to_job_id,
+        "notify_new_matches": s.notify_new_matches,
+        "unseen_count": s.unseen_count or 0,
+        "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+
+
+async def _current_candidate_watermark(db: AsyncSession) -> int:
+    """Max ``candidates.id`` — starting watermark for a fresh alert
+    subscription, so the scanner never floods the owner with the whole
+    existing base on the first run."""
+    from sqlalchemy import func
+
+    from app.models.candidate import Candidate
+
+    return (await db.scalar(select(func.max(Candidate.id)))) or 0
+
+
+def _has_api_params(filters: Optional[dict]) -> bool:
+    return isinstance((filters or {}).get("api"), dict)
 
 
 @router.get("/saved-searches")
@@ -164,7 +187,18 @@ async def create_saved_search(
         shared=data.shared,
         description=data.description,
         pinned_to_job_id=data.pinned_to_job_id,
+        notify_new_matches=data.notify_new_matches,
     )
+    if data.notify_new_matches:
+        if not _has_api_params(data.filters):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Alert wymaga parametrów API w filters.api — zapisz"
+                    " wyszukiwanie ponownie z aktualnej wersji aplikacji."
+                ),
+            )
+        ss.last_seen_candidate_id = await _current_candidate_watermark(db)
     db.add(ss)
     await db.commit()
     await db.refresh(ss)
@@ -185,11 +219,54 @@ async def update_saved_search(
     )
     if not ss:
         raise HTTPException(status_code=404, detail="Search not found")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
         setattr(ss, k, v)
+    # Validate only when THIS request turns alerts on — a rename of an old
+    # search (filters without `api`) must not 400. A stale enabled search
+    # without api params is simply skipped by the scanner.
+    if payload.get("notify_new_matches") is True:
+        if not _has_api_params(ss.filters):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Alert wymaga parametrów API w filters.api — włącz dzwonek"
+                    " ponownie z aktualnej wersji aplikacji."
+                ),
+            )
+        # Fresh subscription → start counting from "now" (current max id),
+        # never from the beginning of the candidate base.
+        if ss.last_seen_candidate_id is None:
+            ss.last_seen_candidate_id = await _current_candidate_watermark(db)
     await db.commit()
     await db.refresh(ss)
     return _ss_to_dict(ss)
+
+
+@router.post("/saved-searches/{search_id}/viewed")
+async def mark_saved_search_viewed(
+    search_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Owner opened the saved search — reset the unseen badge and roll
+    ``last_viewed_at`` forward. Returns the PREVIOUS ``last_viewed_at`` so the
+    FE can highlight candidates created after it as "Nowy" (comparing against
+    the new value would instantly un-highlight everything)."""
+    from datetime import datetime, timezone
+
+    ss = await db.scalar(
+        select(SavedSearch).where(
+            SavedSearch.id == search_id, SavedSearch.user_id == current_user.id
+        )
+    )
+    if not ss:
+        raise HTTPException(status_code=404, detail="Search not found")
+    previous = ss.last_viewed_at.isoformat() if ss.last_viewed_at else None
+    ss.last_viewed_at = datetime.now(timezone.utc)
+    ss.unseen_count = 0
+    await db.commit()
+    return {"previous_viewed_at": previous}
 
 
 @router.delete("/saved-searches/{search_id}", status_code=status.HTTP_204_NO_CONTENT)

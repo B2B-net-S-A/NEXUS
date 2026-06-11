@@ -142,6 +142,7 @@ jobs:
                  tests/test_b2b_contract_generator.py \
                  tests/test_cv_generator_b2b_headers.py \
                  tests/test_cv_generator_b2b_pipeline.py \
+                 tests/test_saved_search_alerts.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

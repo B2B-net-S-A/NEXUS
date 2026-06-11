@@ -950,8 +950,20 @@ async def list_candidates(
             "requests (required for next/prev candidate navigation in the UI)."
         ),
     ),
+    id_after: Optional[int] = Query(
+        None,
+        ge=1,
+        description=(
+            "Only candidates with `id` greater than this value. PK watermark "
+            "used by the saved-search alert scanner ('new since last check') — "
+            "cuts the scanned set down to the few newest rows before any other "
+            "filter (incl. free-text) runs."
+        ),
+    ),
 ):
     query = select(Candidate).options(*_candidate_list_options())
+    if id_after:
+        query = query.where(Candidate.id > id_after)
     if status:
         query = query.where(Candidate.status.in_(status))
     if employment:
