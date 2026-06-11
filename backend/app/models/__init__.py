@@ -68,6 +68,7 @@ from app.models.pipeline_template import (
     TerminalType,
 )
 from app.models.saved_search import SavedSearch, MatchHistory
+from app.models.saved_search_alert_log import SavedSearchAlertLog  # noqa: F401
 from app.models.procedure import Procedure
 from app.models.proposal_snapshot import ProposalSnapshot
 from app.models.champion_suggestion import (
@@ -235,6 +236,7 @@ __all__ = [
     "TerminalType",
     "SavedSearch",
     "MatchHistory",
+    "SavedSearchAlertLog",
     "Procedure",
     "ProposalSnapshot",
     "ChampionProfileSuggestion",

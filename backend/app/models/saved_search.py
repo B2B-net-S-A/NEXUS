@@ -54,6 +54,15 @@ class SavedSearch(Base, TimestampMixin):
     last_seen_candidate_id: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True
     )
+    # Watermark for the V2 scanner (migration 0131): only candidates whose
+    # ``updated_at`` advanced past this are re-checked, so we catch EXISTING
+    # candidates that newly match (updated CV / skill / status), not just
+    # brand-new rows. NULL = alert never ran its baseline yet → first scan
+    # seeds the dedup log and sets this without alerting. Dedup is enforced by
+    # ``saved_search_alert_log`` (alert-once per candidate per search).
+    last_scanned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     unseen_count: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, server_default="0"
     )

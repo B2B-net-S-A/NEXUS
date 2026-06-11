@@ -427,6 +427,21 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ",
+    # saved_searches V2 (migration 0131_saved_search_match_log) — watermark
+    # po updated_at + tabela dedup + indeks. ORM SavedSearch selectuje
+    # last_scanned_at; scanner SELECT-uje saved_search_alert_log.
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_scanned_at TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS saved_search_alert_log (
+        id SERIAL PRIMARY KEY,
+        saved_search_id INTEGER NOT NULL REFERENCES saved_searches(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        notified_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_saved_search_alert_pair UNIQUE (saved_search_id, candidate_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_saved_search_id ON saved_search_alert_log (saved_search_id)",
+    "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_candidate_id ON saved_search_alert_log (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidates_updated_at ON candidates (updated_at)",
     # users (migration 0035_onboarding_and_job_sourcing)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ",
