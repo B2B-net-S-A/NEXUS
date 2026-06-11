@@ -81,6 +81,20 @@ NEGATIVE_STAGES: frozenset[PipelineStage] = frozenset(
     {PipelineStage.rejected, PipelineStage.withdrawn}
 )
 
+# Stages meaning "ten kandydat realnie poszedł do klienta" — used by the
+# similar-job notification (Faza 1 szybkiego przepinania) to decide whether a
+# new request deserves a proactive ping.
+CLIENT_FACING_STAGES: frozenset[PipelineStage] = frozenset(
+    {
+        PipelineStage.cv_sent,
+        PipelineStage.client_interview,
+        PipelineStage.negotiation,
+        PipelineStage.acceptance,
+        PipelineStage.onboarding,
+        PipelineStage.hired,
+    }
+)
+
 Tier = Literal["primary", "extended", "all"]
 
 
@@ -99,6 +113,7 @@ class HistoricalSource:
     moved_at: datetime
     stage_weight: float
     contribution: float  # similarity * stage_weight * exp(-months_ago / half_life)
+    client_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +125,12 @@ class HistoricalCandidate:
     tier: Literal["A", "B"]
     negative_signal: bool
     sources: tuple[HistoricalSource, ...]
+    # Faza 3 szybkiego przepinania: kandydat był już rozważany u klienta
+    # targetowego joba (najszybsza ścieżka — klient go zna)…
+    same_client: bool = False
+    # …chyba że ten sam klient go wcześniej odrzucił / kandydat się wycofał —
+    # wtedy ponowne wysłanie wymaga świadomej decyzji, nie bulk-selecta.
+    rejected_by_same_client: bool = False
 
 
 @dataclass(frozen=True)
@@ -179,6 +200,7 @@ async def fetch_historical_candidates(
     limit: int = 20,
     include_negative: bool = True,
     top_k_similar: int = SIMILAR_JOBS_TOP_K,
+    target_client_id: Optional[int] = None,
 ) -> tuple[
     list[HistoricalCandidate],
     list[SimilarJobRef],
@@ -190,6 +212,10 @@ async def fetch_historical_candidates(
     ``TIER_A_MIN_CANDIDATES_FOR_EXTEND`` candidates, and the caller asked for
     the "primary" tier, we automatically promote to "extended" so the user
     does not see an empty section when Tier B could help.
+
+    ``target_client_id`` (the client of the job we recommend FOR) powers the
+    ``same_client`` / ``rejected_by_same_client`` flags; pass it when the
+    caller already holds the Job row so we skip an extra query.
     """
     similar_refs, tier_used = await fetch_similar_jobs(
         job_id, tier=tier, top_k=top_k_similar
@@ -201,6 +227,7 @@ async def fetch_historical_candidates(
             db,
             similar_refs=similar_refs,
             include_negative=include_negative,
+            target_client_id=target_client_id,
         )
 
     # Tier-fallback: primary → extended when Tier A either returned no similar
@@ -219,6 +246,7 @@ async def fetch_historical_candidates(
                 db,
                 similar_refs=similar_refs,
                 include_negative=include_negative,
+                target_client_id=target_client_id,
             )
 
     if not similar_refs:
@@ -283,6 +311,7 @@ async def _rank_candidates_from_similar(
     *,
     similar_refs: list[SimilarJobRef],
     include_negative: bool,
+    target_client_id: Optional[int] = None,
 ) -> list[HistoricalCandidate]:
     """Pull stages for similar jobs, aggregate per candidate, sort desc."""
     if not similar_refs:
@@ -306,7 +335,7 @@ async def _rank_candidates_from_similar(
     )
 
     stmt = (
-        select(CandidateStage, Job.title)
+        select(CandidateStage, Job.title, Job.client_id)
         .join(
             latest_subq,
             and_(
@@ -332,7 +361,7 @@ async def _rank_candidates_from_similar(
     now = datetime.now(timezone.utc)
     buckets: dict[int, list[HistoricalSource]] = {}
 
-    for stage_row, job_title in rows:
+    for stage_row, job_title, job_client_id in rows:
         if stage_row.candidate_id in blacklisted:
             continue
         weight = STAGE_WEIGHT.get(stage_row.stage)
@@ -360,6 +389,7 @@ async def _rank_candidates_from_similar(
                 moved_at=stage_row.moved_at,
                 stage_weight=weight,
                 contribution=round(contribution, 4),
+                client_id=job_client_id,
             )
         )
 
@@ -374,6 +404,13 @@ async def _rank_candidates_from_similar(
         tier: Literal["A", "B"] = (
             "A" if any(ref_by_id[s.job_id].tier == "A" for s in sources_sorted) else "B"
         )
+        same_client = target_client_id is not None and any(
+            s.client_id == target_client_id for s in sources_sorted
+        )
+        rejected_by_same_client = target_client_id is not None and any(
+            s.client_id == target_client_id and s.stage in NEGATIVE_STAGES
+            for s in sources_sorted
+        )
         results.append(
             HistoricalCandidate(
                 candidate_id=cid,
@@ -381,6 +418,8 @@ async def _rank_candidates_from_similar(
                 tier=tier,
                 negative_signal=negative_signal,
                 sources=tuple(sources_sorted[:MAX_SOURCES_SHOWN]),
+                same_client=same_client,
+                rejected_by_same_client=rejected_by_same_client,
             )
         )
 

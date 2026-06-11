@@ -158,6 +158,7 @@ async def test_rank_candidates_sums_contributions_not_max() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Historical Job 100",
+            None,
         ),
         (
             _stage_row(
@@ -167,6 +168,7 @@ async def test_rank_candidates_sums_contributions_not_max() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Historical Job 101",
+            None,
         ),
         (
             _stage_row(
@@ -176,6 +178,7 @@ async def test_rank_candidates_sums_contributions_not_max() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Historical Job 100",
+            None,
         ),
     ]
     refs = _refs_tier_a([100, 101])
@@ -211,6 +214,7 @@ async def test_rank_flags_negative_signal_when_rejected() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Job 100",
+            None,
         ),
         (
             _stage_row(
@@ -220,6 +224,7 @@ async def test_rank_flags_negative_signal_when_rejected() -> None:
                 moved_at=now - timedelta(days=60),
             ),
             "Job 101",
+            None,
         ),
     ]
     refs = _refs_tier_a([100, 101])
@@ -249,6 +254,7 @@ async def test_include_negative_false_drops_rejection_only_candidate() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Job 100",
+            None,
         ),
     ]
     refs = _refs_tier_a([100])
@@ -276,6 +282,7 @@ async def test_blacklisted_candidates_filtered_out() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Job 100",
+            None,
         ),
         (
             _stage_row(
@@ -285,6 +292,7 @@ async def test_blacklisted_candidates_filtered_out() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "Job 100",
+            None,
         ),
     ]
     refs = _refs_tier_a([100])
@@ -312,6 +320,7 @@ async def test_new_stage_has_no_signal() -> None:
                 moved_at=now - timedelta(days=15),
             ),
             "Job 100",
+            None,
         ),
     ]
     refs = _refs_tier_a([100])
@@ -413,6 +422,7 @@ async def test_fetch_historical_candidates_tier_fallback_to_extended() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "J1",
+            None,
         ),
     ]
     extended_stage_rows = [
@@ -424,6 +434,7 @@ async def test_fetch_historical_candidates_tier_fallback_to_extended() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "J1",
+            None,
         ),
         (
             _stage_row(
@@ -433,6 +444,7 @@ async def test_fetch_historical_candidates_tier_fallback_to_extended() -> None:
                 moved_at=now - timedelta(days=40),
             ),
             "J2",
+            None,
         ),
         (
             _stage_row(
@@ -442,6 +454,7 @@ async def test_fetch_historical_candidates_tier_fallback_to_extended() -> None:
                 moved_at=now - timedelta(days=50),
             ),
             "J3",
+            None,
         ),
     ]
 
@@ -511,6 +524,7 @@ async def test_primary_tier_falls_back_when_no_tier_a_jobs_at_all() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "J1",
+            None,
         ),
         (
             _stage_row(
@@ -520,6 +534,7 @@ async def test_primary_tier_falls_back_when_no_tier_a_jobs_at_all() -> None:
                 moved_at=now - timedelta(days=45),
             ),
             "J2",
+            None,
         ),
     ]
 
@@ -572,6 +587,7 @@ async def test_fetch_historical_boost_map_returns_source_counts() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "J100",
+            None,
         ),
         (
             _stage_row(
@@ -581,6 +597,7 @@ async def test_fetch_historical_boost_map_returns_source_counts() -> None:
                 moved_at=now - timedelta(days=60),
             ),
             "J101",
+            None,
         ),
         (
             _stage_row(
@@ -590,6 +607,7 @@ async def test_fetch_historical_boost_map_returns_source_counts() -> None:
                 moved_at=now - timedelta(days=30),
             ),
             "J100",
+            None,
         ),
     ]
     db = _FakeDb(stage_rows=stage_rows)
@@ -681,3 +699,118 @@ async def test_endpoint_shape_when_no_similar_jobs(
             if obj is not None:
                 await db.delete(obj)
                 await db.commit()
+
+
+# ── Same-client flags (szybkie przepinanie, Faza 3) ─────────────────────────
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_same_client_flag_set_when_source_matches_target_client() -> None:
+    now = datetime.now(timezone.utc)
+    stage_rows = [
+        (
+            _stage_row(
+                candidate_id=1,
+                job_id=100,
+                stage=PipelineStage.cv_sent,
+                moved_at=now - timedelta(days=30),
+            ),
+            "Job 100",
+            55,  # client_id of the historical job
+        ),
+        (
+            _stage_row(
+                candidate_id=2,
+                job_id=101,
+                stage=PipelineStage.cv_sent,
+                moved_at=now - timedelta(days=30),
+            ),
+            "Job 101",
+            77,  # different client
+        ),
+    ]
+    refs = _refs_tier_a([100, 101])
+    db = _FakeDb(stage_rows=stage_rows)
+
+    results = await sjc._rank_candidates_from_similar(
+        db,  # type: ignore[arg-type]
+        similar_refs=refs,
+        include_negative=True,
+        target_client_id=55,
+    )
+    by_id = {r.candidate_id: r for r in results}
+    assert by_id[1].same_client is True
+    assert by_id[1].rejected_by_same_client is False
+    assert by_id[2].same_client is False
+    assert by_id[2].rejected_by_same_client is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rejected_by_same_client_flag() -> None:
+    now = datetime.now(timezone.utc)
+    stage_rows = [
+        (
+            _stage_row(
+                candidate_id=1,
+                job_id=100,
+                stage=PipelineStage.rejected,
+                moved_at=now - timedelta(days=30),
+            ),
+            "Job 100",
+            55,
+        ),
+        (
+            _stage_row(
+                candidate_id=1,
+                job_id=101,
+                stage=PipelineStage.hired,
+                moved_at=now - timedelta(days=60),
+            ),
+            "Job 101",
+            77,
+        ),
+    ]
+    refs = _refs_tier_a([100, 101])
+    db = _FakeDb(stage_rows=stage_rows)
+
+    results = await sjc._rank_candidates_from_similar(
+        db,  # type: ignore[arg-type]
+        similar_refs=refs,
+        include_negative=True,
+        target_client_id=55,
+    )
+    assert len(results) == 1
+    cand = results[0]
+    assert cand.same_client is True
+    assert cand.rejected_by_same_client is True
+    assert cand.negative_signal is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_flags_default_false_without_target_client() -> None:
+    now = datetime.now(timezone.utc)
+    stage_rows = [
+        (
+            _stage_row(
+                candidate_id=1,
+                job_id=100,
+                stage=PipelineStage.cv_sent,
+                moved_at=now - timedelta(days=30),
+            ),
+            "Job 100",
+            55,
+        ),
+    ]
+    refs = _refs_tier_a([100])
+    db = _FakeDb(stage_rows=stage_rows)
+
+    results = await sjc._rank_candidates_from_similar(
+        db,  # type: ignore[arg-type]
+        similar_refs=refs,
+        include_negative=True,
+    )
+    assert results[0].same_client is False
+    assert results[0].rejected_by_same_client is False

@@ -143,6 +143,13 @@ class Settings(BaseSettings):
     # agregat "N nowych matchy ≥70" (Phase 2 feature; w MVP wyłączone przez 0).
     MARKETPLACE_MAX_ALERTS_PER_CANDIDATE_PER_DAY: int = 0
 
+    # ── Szybkie przepinanie (similar-job notify) ─────────────────────────────
+    # Po utworzeniu joba: jeśli istnieją Tier A podobne historyczne requesty
+    # z kandydatami po etapach klienckich — notyfikacja in-app do
+    # recruiter/TAC/twórcy joba. Kill-switch bez redeploya.
+    SIMILAR_JOB_NOTIFY_ENABLED: bool = True
+    SIMILAR_JOB_NOTIFY_MIN_CANDIDATES: int = 1
+
     # ── Phase 14: post-interview feedback reminders ──────────────────────────
     # 3-stopniowy ping rekruterowi/DL po zakończonym interview.
     POST_INTERVIEW_T15_MINUTES: int = 15

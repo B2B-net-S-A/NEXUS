@@ -82,6 +82,21 @@ async def _resolve_initial_stage(
                 status_code=422,
                 detail="initial_stage_def_id does not belong to this job's template",
             )
+        if stage_def.is_terminal:
+            raise HTTPException(
+                status_code=422,
+                detail="initial_stage_def_id must be a non-terminal stage",
+            )
+        # Stage 'verified' wymaga stawki per rekrutacja + gate'u DL (migracja
+        # 0056) — bulk-add nie zbiera stawek, więc nie może tam celować.
+        if stage_def.legacy_enum_value == PipelineStage.verified.value:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Etap 'verified' wymaga stawki i weryfikacji DL — użyj"
+                    " POST /api/pipeline/move dla pojedynczego kandydata."
+                ),
+            )
         return stage_def
 
     if not job.pipeline_template_id:

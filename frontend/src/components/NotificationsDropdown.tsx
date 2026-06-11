@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   ChevronRight,
   Store,
+  Sparkles,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,13 @@ const TYPE_CONFIG: Record<
     icon: <Store className="w-3.5 h-3.5" />,
     color: "text-teal-600",
     bgColor: "bg-teal-100",
+  },
+  // Szybkie przepinanie — nowy request podobny do historycznych z gotowymi
+  // kandydatami (link prowadzi do /jobs/{id}?tab=similar).
+  similar_job_candidates: {
+    icon: <Sparkles className="w-3.5 h-3.5" />,
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-100",
   },
 };
 

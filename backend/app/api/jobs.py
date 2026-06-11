@@ -46,6 +46,7 @@ from app.services.marketplace_service import (
     is_significant_job_update,
     run_marketplace_scan_safe,
 )
+from app.services.similar_job_notify import run_similar_job_notify_safe
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
@@ -762,6 +763,13 @@ async def create_job(
     # drugiej notyfikacji dla tej samej pary (candidate_id, job_id).
     if settings.MARKETPLACE_ENABLED:
         background_tasks.add_task(run_marketplace_scan_safe, job.id)
+
+    # Szybkie przepinanie (Faza 1): jeśli nowy request przypomina historyczne
+    # (Tier A) z kandydatami po etapach klienckich — powiadom recruiter/TAC/
+    # twórcę z deep-linkiem do sekcji „Kandydaci z podobnych projektów".
+    # Embedding joba już istnieje (await _maybe_embed_job wyżej).
+    if settings.SIMILAR_JOB_NOTIFY_ENABLED:
+        background_tasks.add_task(run_similar_job_notify_safe, job.id)
     # Final refresh — upstream sesje (snapshot, auto_cc_collaborators,
     # classify_job_to_cc) mogly commitnac w miedzyczasie, co expire-uje
     # nasz `job` obiekt. FastAPI robi response_model walidacje przez

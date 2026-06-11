@@ -348,6 +348,7 @@ async def candidates_from_similar_jobs(
         limit=limit,
         include_negative=include_negative,
         top_k_similar=top_k_similar,
+        target_client_id=job.client_id,
     )
 
     total_sources = sum(len(c.sources) for c in ranked)
@@ -414,11 +415,14 @@ async def candidates_from_similar_jobs(
                         moved_at=s.moved_at,
                         stage_weight=s.stage_weight,
                         contribution=s.contribution,
+                        client_id=s.client_id,
                     )
                     for s in hc.sources
                 ],
                 current_availability=_derive_availability(c),  # type: ignore[arg-type]
                 current_status=c.status.value if c.status else None,
+                same_client=hc.same_client,
+                rejected_by_same_client=hc.rejected_by_same_client,
             )
         )
 
