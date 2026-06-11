@@ -1,16 +1,28 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.note import Note
 from app.models.candidate import Candidate
+from app.models.job import Job
 from app.models.note_mention import NoteMention
 from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity, UserActionType
-from app.schemas.note import NoteCreate, NoteList, NoteResponse, NoteUpdate
+from app.schemas.note import (
+    EnrichedNoteList,
+    EnrichedNoteResponse,
+    NoteCreate,
+    NoteResponse,
+    NoteUpdate,
+)
+from app.services.note_mention_render import (
+    build_traffit_user_label_map,
+    collect_traffit_user_ids,
+    render_traffit_mentions,
+)
 from app.api.deps import CurrentUser, DeliveryLeadPlus
 from app.services.mention_dispatch import (
     build_note_context_label,
@@ -47,24 +59,59 @@ def _can_modify_note(user: User, note: Note) -> bool:
     return note.author_id == user.id or user.has_any_role(UserRole.admin)
 
 
-@router.get("", response_model=NoteList)
+@router.get("", response_model=EnrichedNoteList)
 async def list_notes(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     candidate_id: Optional[int] = None,
     job_id: Optional[int] = None,
 ):
-    query = select(Note)
+    """Wszystkie notatki kandydata/oferty — bez obcinania.
+
+    Świadomie dedykowane źródło dla zakładki Notatki: feed `/timeline` miesza
+    notatki z etapami/aktywnościami i ucina do `limit`, przez co przy bogatej
+    historii (np. import Traffit) starsze notatki wypadały z widoku. Tu zwracamy
+    komplet, wzbogacony o `author_name` (User outerjoin) i `content_rendered`
+    (rozwinięte `$$user_NN$$` Traffit mention tokeny — jak w `/timeline`).
+    """
+    query = (
+        select(
+            Note,
+            User.name.label("author_name"),
+            User.email.label("author_email"),
+            Job.title.label("job_title"),
+        )
+        .outerjoin(User, Note.author_id == User.id)
+        .outerjoin(Job, Note.job_id == Job.id)
+    )
     if candidate_id:
         query = query.where(Note.candidate_id == candidate_id)
     if job_id:
         query = query.where(Note.job_id == job_id)
     query = query.order_by(Note.created_at.desc())
-    total = (
-        await db.execute(select(func.count()).select_from(query.subquery()))
-    ).scalar()
-    result = await db.execute(query)
-    return NoteList(items=list(result.scalars().all()), total=total)
+    rows = (await db.execute(query)).all()
+
+    mention_label_map = await build_traffit_user_label_map(
+        db, collect_traffit_user_ids(note.content for note, *_ in rows)
+    )
+    items = [
+        EnrichedNoteResponse(
+            id=note.id,
+            content=note.content,
+            note_type=note.note_type,
+            candidate_id=note.candidate_id,
+            job_id=note.job_id,
+            author_id=note.author_id,
+            created_at=note.created_at,
+            updated_at=note.updated_at,
+            author_name=author_name,
+            author_email=author_email,
+            content_rendered=render_traffit_mentions(note.content, mention_label_map),
+            job_title=job_title,
+        )
+        for note, author_name, author_email, job_title in rows
+    ]
+    return EnrichedNoteList(items=items, total=len(items))
 
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)

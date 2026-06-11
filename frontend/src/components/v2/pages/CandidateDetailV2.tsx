@@ -345,6 +345,22 @@ export function CandidateDetailV2({
  ? timelineRaw
  : (timelineRaw?.timeline ?? []);
 
+ // Notatki tab — dedykowane, NIEUCINANE źródło notatek. Feed `/timeline`
+ // miesza notatki z etapami/aktywnościami i ucina do limitu (50), więc przy
+ // bogatej historii (np. import Traffit) starsze notatki znikały z zakładki.
+ // `/api/notes` zwraca komplet, wzbogacony o author_name + content_rendered.
+ const { data: notesRaw } = useQuery<{ items?: any[] }>({
+ queryKey: ["candidate-notes", id],
+ queryFn: () =>
+ api.get(`/api/notes?candidate_id=${id}`).then((r) => r.data),
+ enabled: !!id && activeTab === "notatki",
+ });
+ const noteItems: any[] = (notesRaw?.items ?? []).map((n: any) => ({
+ ...n,
+ type: "note",
+ timestamp: n.created_at,
+ }));
+
  // History API returns `{ jobs: [...], contracts: [...] }` — flatten jobs.
  const { data: historyRaw } = useQuery<{ jobs?: any[]; contracts?: any[] } | any[]>({
  queryKey: ["candidate-history", id],
@@ -405,6 +421,7 @@ export function CandidateDetailV2({
  });
  setNoteText("");
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
  celebrate({ small: true, message: "Notatka dodana! 📝" });
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się dodać notatki");
@@ -423,6 +440,7 @@ export function CandidateDetailV2({
  try {
  await api.patch(`/api/notes/${noteId}`, { content });
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
  return true;
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się zapisać notatki");
@@ -436,6 +454,7 @@ export function CandidateDetailV2({
  try {
  await api.delete(`/api/notes/${noteId}`);
  queryClient.invalidateQueries({ queryKey: ["candidate-timeline", id] });
+ queryClient.invalidateQueries({ queryKey: ["candidate-notes", id] });
  return true;
  } catch (e) {
  showError(extractErrorMsg(e) || "Nie udało się usunąć notatki");
@@ -855,7 +874,7 @@ export function CandidateDetailV2({
  </TabsContent>
  <TabsContent value="notatki" className="mt-0">
  <NotatkiTab
- timeline={timeline ?? []}
+ timeline={noteItems}
  recruitments={history}
  noteText={noteText}
  setNoteText={setNoteText}
