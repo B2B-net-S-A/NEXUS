@@ -690,11 +690,13 @@ async def create_job(
     # has both keyword + embedding signal). Any failure is non-fatal.
     try:
         if job.competence_category_id is None and auto_suggest:
-            from app.services.cc_classifier import classify_job_to_cc
+            # Title-first (deterministic, handles PL/EN role names), hybrid
+            # keyword+embedding classifier as confident-only fallback.
+            from app.services.job_cc import resolve_job_cc_id
 
-            result = await classify_job_to_cc(job, db)
-            if result.top and not result.tie:
-                job.competence_category_id = result.top.cc_id
+            cc_id = await resolve_job_cc_id(job, db)
+            if cc_id is not None:
+                job.competence_category_id = cc_id
                 await db.commit()
                 await db.refresh(job)
         if job.competence_category_id is not None:
