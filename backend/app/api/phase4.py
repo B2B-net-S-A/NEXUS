@@ -199,6 +199,13 @@ async def create_saved_search(
                 ),
             )
         ss.last_seen_candidate_id = await _current_candidate_watermark(db)
+        # Anchor the "Nowy" highlight too: enabling the bell means "I've seen
+        # everything up to now", so the FIRST notification click can highlight
+        # exactly the candidates the alert was about (previous_viewed_at would
+        # otherwise be NULL → no highlight on first open).
+        from datetime import datetime, timezone
+
+        ss.last_viewed_at = datetime.now(timezone.utc)
     db.add(ss)
     await db.commit()
     await db.refresh(ss)
@@ -238,6 +245,13 @@ async def update_saved_search(
         # never from the beginning of the candidate base.
         if ss.last_seen_candidate_id is None:
             ss.last_seen_candidate_id = await _current_candidate_watermark(db)
+        # Same anchor for the "Nowy" highlight — without it the first open
+        # after the first alert has previous_viewed_at=NULL and nothing gets
+        # highlighted (found during E2E verification on prod).
+        if ss.last_viewed_at is None:
+            from datetime import datetime, timezone
+
+            ss.last_viewed_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(ss)
     return _ss_to_dict(ss)
