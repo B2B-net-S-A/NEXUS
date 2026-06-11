@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -176,14 +177,27 @@ def _build_job_query(job: Job) -> str:
 
 
 def _parse_required_skills(job: Job) -> list[str]:
-    """Extract required skills from job requirements text."""
+    """Extract required skills from job requirements text.
+
+    Requirements are often a single comma-separated line
+    (``"java, spring boot, hibernate, postgresql, oracle, kafka"``). Splitting
+    only on newlines turned that whole line into one giant "skill" that no
+    candidate could ever match — so every requirement rendered as one red ✗
+    gap chip. Split on commas/semicolons too so each skill is matched
+    individually. (``/`` is intentionally NOT a separator — it would break
+    skills like ``CI/CD`` or ``TCP/IP``.)
+    """
     skills: list[str] = []
     if not job.requirements:
         return skills
+    seen: set[str] = set()
     for line in job.requirements.splitlines():
         line = line.strip().lstrip("•-–*·").strip()
-        if line and 2 <= len(line) <= 60:
-            skills.append(line.lower())
+        for raw in re.split(r"[,;]", line):
+            skill = raw.strip().lower()
+            if skill and 2 <= len(skill) <= 60 and skill not in seen:
+                seen.add(skill)
+                skills.append(skill)
     return skills[:20]
 
 

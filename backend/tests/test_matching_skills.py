@@ -13,7 +13,43 @@ import pytest
 from app.api.matching import (
     _candidate_has_skill,
     _extract_skills,
+    _parse_required_skills,
 )
+
+
+class _FakeJob:
+    def __init__(self, requirements: str | None) -> None:
+        self.requirements = requirements
+
+
+@pytest.mark.unit
+class TestParseRequiredSkills:
+    def test_single_comma_separated_line_splits_into_skills(self) -> None:
+        job = _FakeJob("java, spring boot, hibernate, postgresql, oracle, kafka")
+        assert _parse_required_skills(job) == [
+            "java",
+            "spring boot",
+            "hibernate",
+            "postgresql",
+            "oracle",
+            "kafka",
+        ]
+
+    def test_multiline_bullets_still_work(self) -> None:
+        job = _FakeJob("• Java\n• Kafka, Spring Boot")
+        assert _parse_required_skills(job) == ["java", "kafka", "spring boot"]
+
+    def test_slash_is_not_a_separator(self) -> None:
+        # CI/CD and TCP/IP must stay intact.
+        job = _FakeJob("CI/CD, TCP/IP")
+        assert _parse_required_skills(job) == ["ci/cd", "tcp/ip"]
+
+    def test_dedupes(self) -> None:
+        job = _FakeJob("Java, java, JAVA")
+        assert _parse_required_skills(job) == ["java"]
+
+    def test_empty(self) -> None:
+        assert _parse_required_skills(_FakeJob(None)) == []
 
 
 @pytest.mark.unit
