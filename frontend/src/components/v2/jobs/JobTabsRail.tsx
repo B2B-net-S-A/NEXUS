@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { FileText, X } from "lucide-react";
+import { FileText, X, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
+
+const COLLAPSE_KEY = "nexus.jobTabsRail.collapsed";
 
 /**
  * JobTabsRail — left-side vertical list of open recruitment "tabs", recreating
@@ -22,7 +24,27 @@ export function JobTabsRail({ className }: { className?: string }) {
   const pathname = usePathname();
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+    } catch {
+      /* localStorage unavailable — keep expanded */
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore persistence errors */
+      }
+      return next;
+    });
+  };
 
   const tabs = useTabsStore((s) => s.tabs);
   const closeTab = useTabsStore((s) => s.closeTab);
@@ -43,6 +65,32 @@ export function JobTabsRail({ className }: { className?: string }) {
     router.push(url);
   };
 
+  // Collapsed: thin strip with a reopen button + count badge.
+  if (collapsed) {
+    return (
+      <aside
+        className={cn(
+          "w-10 shrink-0 flex flex-col items-center rounded-xl border border-border bg-card/60 py-2",
+          className
+        )}
+        aria-label="Otwarte rekrutacje (zwinięte)"
+      >
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label="Pokaż pasek rekrutacji"
+          title="Pokaż rekrutacje"
+          className="relative rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <PanelLeftOpen className="h-5 w-5" />
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
+            {jobTabs.length}
+          </span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={cn(
@@ -52,7 +100,18 @@ export function JobTabsRail({ className }: { className?: string }) {
       aria-label="Otwarte rekrutacje"
     >
       <div className="px-3 pt-3 pb-2 border-b border-border">
-        <h2 className="text-base font-bold leading-tight">Rekrutacje</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-base font-bold leading-tight">Rekrutacje</h2>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="Ukryj pasek rekrutacji"
+            title="Ukryj"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-muted-foreground">
             Otwarte karty: {jobTabs.length}
