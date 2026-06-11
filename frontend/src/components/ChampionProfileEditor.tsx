@@ -40,6 +40,7 @@ import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
+import { ChampionVerificationChecklist } from "./ChampionVerificationChecklist";
 
 const SOURCES: Array<{
   value: ChampionProfile["sourcing"]["sources"][number];
@@ -242,6 +243,18 @@ export function ChampionProfileEditor({
           {remoteChange.by} zaktualizował profil — odświeżono
         </div>
       )}
+
+      {/* Two-sided verification: client + our consultant at the client.
+          Reads server state (not the local draft) — updates go through a
+          dedicated endpoint with server-side stamps. */}
+      <ChampionVerificationChecklist
+        jobId={jobId}
+        verification={
+          (data?.champion_profile as Partial<ChampionProfile> | undefined)
+            ?.verification
+        }
+        canEdit={canEdit}
+      />
 
       {/* AI Intake (Phase 14): paste JD → draft Championa */}
       {canEdit && (
