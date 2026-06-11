@@ -452,6 +452,21 @@ async def list_jobs(
         )
         hm_names = {row.id: row.name for row in hm_rows.all()}
 
+    # Client names batch lookup — denormalized na response (kolumna "Klient"
+    # na liście ofert). coalesce(display_name, name) = kanoniczna nazwa
+    # (spójne z /api/clients-lookup).
+    from app.models.client import Client  # noqa: PLC0415
+
+    client_ids_set = {j.client_id for j in jobs if j.client_id is not None}
+    client_names: dict[int, str] = {}
+    if client_ids_set:
+        client_rows = await db.execute(
+            select(Client.id, func.coalesce(Client.display_name, Client.name)).where(
+                Client.id.in_(client_ids_set)
+            )
+        )
+        client_names = {row[0]: row[1] for row in client_rows.all()}
+
     items = []
     for j in jobs:
         d = JobResponse.model_validate(j).model_dump()
@@ -471,6 +486,9 @@ async def list_jobs(
             hm_names.get(j.hiring_manager_contact_id)
             if j.hiring_manager_contact_id
             else None
+        )
+        d["client_name"] = (
+            client_names.get(j.client_id) if j.client_id is not None else None
         )
         if include_stage_counts:
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
@@ -829,6 +847,16 @@ async def get_job(
         payload["hiring_manager_name"] = hm
     else:
         payload["hiring_manager_name"] = None
+
+    # Client name (denormalized, spójne z list_jobs)
+    if job.client_id is not None:
+        from app.models.client import Client  # noqa: PLC0415
+
+        payload["client_name"] = await db.scalar(
+            select(func.coalesce(Client.display_name, Client.name)).where(
+                Client.id == job.client_id
+            )
+        )
     return payload
 
 
