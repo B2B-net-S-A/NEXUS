@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Palette } from "lucide-react";
+import { Check, Layers, Palette, Square } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -14,11 +15,14 @@ import { THEME_PALETTES, useThemeStore } from "@/store/theme";
 
 /**
  * Quick color-theme picker in the topbar. Lets each user choose a palette
- * (accent + chrome + sidebar). Persisted per-browser via the theme store.
+ * (accent + chrome + sidebar) and the interface style (soft depth vs flat).
+ * Persisted per-browser via the theme store.
  */
 export function PaletteSwitcher() {
   const palette = useThemeStore((s) => s.palette);
   const setPalette = useThemeStore((s) => s.setPalette);
+  const softUi = useThemeStore((s) => s.softUi);
+  const setSoftUi = useThemeStore((s) => s.setSoftUi);
   const [mounted, setMounted] = useState(false);
 
   // Palette is read from localStorage on the client only — avoid hydration mismatch.
@@ -64,6 +68,18 @@ export function PaletteSwitcher() {
             </DropdownMenuItem>
           );
         })}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Styl interfejsu</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setSoftUi(true)} className="cursor-pointer gap-2.5">
+          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="flex-1">Wyraźny (cienie)</span>
+          {softUi && <Check className="h-4 w-4 shrink-0 text-foreground" />}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setSoftUi(false)} className="cursor-pointer gap-2.5">
+          <Square className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="flex-1">Klasyczny (płaski)</span>
+          {!softUi && <Check className="h-4 w-4 shrink-0 text-foreground" />}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

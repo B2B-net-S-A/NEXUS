@@ -6,6 +6,7 @@ import { useThemeStore } from "@/store/theme";
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = useThemeStore((s) => s.theme);
   const palette = useThemeStore((s) => s.palette);
+  const softUi = useThemeStore((s) => s.softUi);
   const kidsMode = useThemeStore((s) => s.kidsMode);
 
   useEffect(() => {
@@ -16,6 +17,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.dataset.theme = palette;
   }, [palette]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (softUi) {
+      root.dataset.soft = "true";
+    } else {
+      delete root.dataset.soft;
+    }
+  }, [softUi]);
 
   useEffect(() => {
     const root = document.documentElement;
