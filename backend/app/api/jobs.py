@@ -1246,9 +1246,7 @@ async def update_champion_verification(
         ConsultantVerification,
     )
 
-    job_res = await db.execute(
-        select(Job).where(Job.id == job_id).with_for_update()
-    )
+    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = job_res.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1394,22 +1392,20 @@ async def champion_consultant_suggestions(
         raise HTTPException(status_code=404, detail="Job not found")
 
     later_stage = aliased(CandidateStage)
-    no_later_move = (
-        ~(
-            select(1)
-            .where(
-                later_stage.candidate_id == CandidateStage.candidate_id,
-                later_stage.job_id == CandidateStage.job_id,
-                or_(
-                    later_stage.moved_at > CandidateStage.moved_at,
-                    and_(
-                        later_stage.moved_at == CandidateStage.moved_at,
-                        later_stage.id > CandidateStage.id,
-                    ),
+    no_later_move = ~(
+        select(1)
+        .where(
+            later_stage.candidate_id == CandidateStage.candidate_id,
+            later_stage.job_id == CandidateStage.job_id,
+            or_(
+                later_stage.moved_at > CandidateStage.moved_at,
+                and_(
+                    later_stage.moved_at == CandidateStage.moved_at,
+                    later_stage.id > CandidateStage.id,
                 ),
-            )
-            .exists()
+            ),
         )
+        .exists()
     )
     hired_rows = (
         await db.execute(
