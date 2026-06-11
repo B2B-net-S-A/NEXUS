@@ -754,17 +754,6 @@ def _alior_s9_5_en() -> tuple[Block, ...]:
     )
 
 
-_ALIOR_SIG_PL = (
-    ("gap", ""),
-    ("sig", "________________________                    _____________________"),
-    (
-        "sig",
-        "     B2B.NET S.A.                                                "
-        "                Partner",
-    ),
-)
-
-
 def _alior_table_pl() -> tuple[Block, ...]:
     return (
         ("gap", ""),
@@ -814,7 +803,6 @@ def _alior_table_pl() -> tuple[Block, ...]:
             "„Raport z wykonywanych usług” w momencie opóźnienia w dostarczeniu "
             "„Raportu” do B2BNET.",
         ),
-        *_ALIOR_SIG_PL,
     )
 
 
@@ -867,7 +855,6 @@ def _alior_table_en() -> tuple[Block, ...]:
             "reject the „Report on Services Performed” in the event of a delay in "
             "delivering the „Report” to B2BNET.",
         ),
-        *_ALIOR_SIG_PL,
     )
 
 

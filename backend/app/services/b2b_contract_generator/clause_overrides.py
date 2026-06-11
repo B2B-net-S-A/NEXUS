@@ -182,7 +182,11 @@ def _style_para(para, kind: str, text: str, styles) -> None:
         pass
     else:  # p / i / b
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        pf.left_indent = Inches(0.5 if kind in ("i", "b") else 0.25)
+        # Klauzule numerowane (`p`) bez wcięcia akapitu — flush jak natywne
+        # paragrafy umowy (left_indent=None), żeby § 4A / § 4 BNP nie wyróżniały
+        # się innym wcięciem. Wcięcie zostaje tylko dla podpunktów a)/b) i bullet.
+        if kind in ("i", "b"):
+            pf.left_indent = Inches(0.5)
         _apply_font(run, body_font)
 
 

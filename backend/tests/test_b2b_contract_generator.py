@@ -434,3 +434,62 @@ def test_engine_html_ops_swaps_only_targets():
     assert "15. Postanowienia ust. 13" in out
     assert "old four" not in out
     assert "zapoznałem się z Kodeksem Postępowania Grupy BNP" in out
+
+
+def _render_docx_with_overrides(client_name: str, lang: str = "pl"):
+    """Render szablonu DOCX + per-klient operacje (bez DB) → Document."""
+    from app.services.b2b_contract_generator.clause_overrides import (
+        apply_ops_docx,
+        overrides_for_client,
+    )
+
+    doc = _docx.Document(str(TEMPLATE_DIR / f"umowa_b2b_{lang}.docx"))
+    apply_ops_docx(doc, overrides_for_client(client_name, lang))
+    return doc
+
+
+def test_alior_zalacznik3_single_signature_after_table():
+    """Załącznik nr 3: pod oświadczeniem (po tabeli) tylko JEDEN podpis.
+
+    Szablon ma już blok podpisu po tabeli; nie wolno dokładać drugiego.
+    """
+    from docx.oxml.ns import qn
+    from docx.text.paragraph import Paragraph
+
+    doc = _render_docx_with_overrides("Alior Bank S.A.", "pl")
+    seen_tbl = False
+    pairs = 0
+    for child in doc.element.body.iterchildren():
+        if child.tag == qn("w:tbl"):
+            seen_tbl = True
+            continue
+        if seen_tbl and child.tag == qn("w:p"):
+            t = (Paragraph(child, doc).text or "").strip()
+            if "B2B.NET S.A." in t and "Partner" in t:
+                pairs += 1
+    assert pairs == 1, f"oczekiwano 1 podpisu po tabeli, jest {pairs}"
+
+
+@pytest.mark.parametrize(
+    ("client_name", "section"),
+    [("Alior Bank S.A.", r"§\s*4\s*A"), ("BNP Paribas Bank Polska S.A.", r"§\s*4")],
+)
+def test_injected_clause_paragraphs_have_no_left_indent(client_name, section):
+    """Klauzule numerowane (`p`) wstrzykiwane do § 4A/§ 4 nie mają wcięcia
+    akapitu — flush jak natywne paragrafy umowy (left_indent=None)."""
+    doc = _render_docx_with_overrides(client_name, "pl")
+    in_sec = False
+    checked = 0
+    for p in doc.paragraphs:
+        t = (p.text or "").strip()
+        if re.fullmatch(section, t):
+            in_sec = True
+            continue
+        if in_sec and re.fullmatch(r"§\s*\d+\s*A?", t):
+            break
+        # tylko klauzule numerowane („1.", „2.") = kind `p`; podpunkty a)/b)
+        # (kind `i`) zachowują wcięcie 0.5" celowo.
+        if in_sec and re.match(r"\d+\.", t) and len(t) > 80:
+            assert p.paragraph_format.left_indent is None
+            checked += 1
+    assert checked > 0, "nie znaleziono akapitów klauzul do weryfikacji wcięcia"
