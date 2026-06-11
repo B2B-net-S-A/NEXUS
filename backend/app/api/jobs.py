@@ -455,9 +455,9 @@ async def list_jobs(
     client_names: dict[int, str] = {}
     if client_ids_set:
         client_rows = await db.execute(
-            select(
-                Client.id, func.coalesce(Client.display_name, Client.name)
-            ).where(Client.id.in_(client_ids_set))
+            select(Client.id, func.coalesce(Client.display_name, Client.name)).where(
+                Client.id.in_(client_ids_set)
+            )
         )
         client_names = {row[0]: row[1] for row in client_rows.all()}
 
