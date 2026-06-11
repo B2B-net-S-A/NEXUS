@@ -955,6 +955,9 @@ export default function JobDetailPage() {
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
+  // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty, żeby nagłówek
+  // nie spychał pipeline'u poza ekran.
+  const [showFullDescription, setShowFullDescription] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
 
@@ -1027,13 +1030,13 @@ export default function JobDetailPage() {
   if (!job) return <div className="p-6 text-destructive">Nie znaleziono oferty</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2">
       <Link href="/jobs" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="w-4 h-4" /> Wróć do ofert
       </Link>
 
-      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-4">
-        <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-4 py-2.5">
+        <div className="flex items-start justify-between flex-wrap gap-2">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold">{job.title}</h1>
@@ -1046,7 +1049,7 @@ export default function JobDetailPage() {
                 </span>
               )}
             </div>
-            <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+            <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
               {job.location && (
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" /> {job.location}
@@ -1118,35 +1121,45 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        <div className="mt-3 border-t border-border dark:border-border pt-3">
+        <div className="mt-2 border-t border-border dark:border-border pt-2 flex items-center justify-between flex-wrap gap-x-6 gap-y-1.5">
           <JobOwnershipPanel
             jobId={Number(id)}
             jobTitle={job.title}
             primaryOwner={job.primary_owner ?? null}
             collaborators={job.collaborators ?? []}
           />
+          {job.hiring_manager_name && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                Hiring manager (klient):
+              </span>
+              {job.hiring_manager_contact_id && job.client_id ? (
+                <Link
+                  href={`/clients/${job.client_id}?tab=zespol`}
+                  className="font-medium text-violet-600 hover:underline"
+                >
+                  {job.hiring_manager_name}
+                </Link>
+              ) : (
+                <span className="font-medium">{job.hiring_manager_name}</span>
+              )}
+            </div>
+          )}
         </div>
 
-        {job.hiring_manager_name && (
-          <div className="mt-3 flex items-center gap-2 text-sm">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground">
-              Hiring manager (klient):
-            </span>
-            {job.hiring_manager_contact_id && job.client_id ? (
-              <Link
-                href={`/clients/${job.client_id}?tab=zespol`}
-                className="font-medium text-violet-600 hover:underline"
-              >
-                {job.hiring_manager_name}
-              </Link>
-            ) : (
-              <span className="font-medium">{job.hiring_manager_name}</span>
+        {job.description && (
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setShowFullDescription((v) => !v)}
+              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
+            </button>
+            {showFullDescription && (
+              <div className="mt-1.5 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
             )}
           </div>
-        )}
-
-        {job.description && (
-          <div className="mt-3 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
         )}
       </div>
 
@@ -1192,7 +1205,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("pipeline")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "pipeline"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1203,7 +1216,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("history")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "history"
                 ? "border-amber-600 text-amber-600"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1216,7 +1229,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("ai-matching")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "ai-matching"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1228,7 +1241,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("manual-search")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "manual-search"
                 ? "border-violet-600 text-violet-600"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1241,7 +1254,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("portals")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "portals"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1252,7 +1265,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("champion")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "champion"
                 ? "border-purple-600 text-purple-600"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1265,7 +1278,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("questions")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
               activeTab === "questions"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1277,7 +1290,7 @@ export default function JobDetailPage() {
           <button
             onClick={() => setActiveTab("chat")}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors relative",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors relative",
               activeTab === "chat"
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1298,19 +1311,6 @@ export default function JobDetailPage() {
       {/* Tab Content */}
       {activeTab === "pipeline" && (
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-muted-foreground">
-              Dodaj kandydatów do tej rekrutacji przeszukując bazę po imieniu i nazwisku.
-            </p>
-            <button
-              onClick={() => setShowAddCandidates(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
-              data-testid="open-add-candidates-pipeline"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Dodaj kandydata
-            </button>
-          </div>
           {kanbanLoading ? (
             <div className="text-muted-foreground">Ładowanie pipeline...</div>
           ) : (

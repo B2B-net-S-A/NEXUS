@@ -84,12 +84,11 @@ export function JobOwnershipPanel({
  });
 
  return (
- <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
- <div className="min-w-0">
- <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
- Właściciel projektu
- </div>
- <div className="flex items-center gap-2 flex-wrap">
+ <div className="flex flex-wrap items-center gap-x-8 gap-y-1.5">
+ <div className="min-w-0 flex items-center gap-2 flex-wrap">
+ <span className="text-xs uppercase tracking-wider text-muted-foreground">
+ Właściciel projektu:
+ </span>
  <OwnerBadge user={primaryOwner} size="md" showRole />
  {canReassign ? (
  <Button
@@ -113,13 +112,11 @@ export function JobOwnershipPanel({
  </Button>
  ) : null}
  </div>
- </div>
 
- <div className="min-w-0">
- <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
- Współpracownicy ({collaborators.length})
- </div>
- <div className="flex items-center gap-1.5 flex-wrap">
+ <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+ <span className="text-xs uppercase tracking-wider text-muted-foreground">
+ Współpracownicy ({collaborators.length}):
+ </span>
  {collaborators.length === 0 ? (
  <span className="text-xs text-muted-foreground">Brak.</span>
  ) : (
@@ -168,7 +165,6 @@ export function JobOwnershipPanel({
  </PopoverContent>
  </Popover>
  ) : null}
- </div>
  </div>
 
  {error ? (
