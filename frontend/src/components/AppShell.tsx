@@ -1074,11 +1074,11 @@ function JobFormFields({
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Widełki min (PLN)">
-          <Input type="number" value={form.salary_min} onChange={e => onChange("salary_min", e.target.value)} placeholder="15000" />
+        <FieldGroup label="Stawka godzinowa min (PLN/h)">
+          <Input type="number" value={form.salary_min} onChange={e => onChange("salary_min", e.target.value)} placeholder="90" />
         </FieldGroup>
-        <FieldGroup label="Widełki max (PLN)">
-          <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="25000" />
+        <FieldGroup label="Stawka godzinowa max (PLN/h)">
+          <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="150" />
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
