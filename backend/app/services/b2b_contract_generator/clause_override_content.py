@@ -803,7 +803,6 @@ def _alior_table_pl() -> tuple[Block, ...]:
             "„Raport z wykonywanych usług” w momencie opóźnienia w dostarczeniu "
             "„Raportu” do B2BNET.",
         ),
-
     )
 
 
@@ -856,7 +855,6 @@ def _alior_table_en() -> tuple[Block, ...]:
             "reject the „Report on Services Performed” in the event of a delay in "
             "delivering the „Report” to B2BNET.",
         ),
-
     )
 
 
