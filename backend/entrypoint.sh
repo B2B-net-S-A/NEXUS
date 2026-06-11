@@ -407,9 +407,21 @@ _ENUM_STATEMENTS = [
             END IF;
         END LOOP;
     END $$""",
+    # Saved-search alerts (migration 0129_saved_search_alerts). Scanner task
+    # inserts Notification(notification_type='saved_search_match') — bez tej
+    # wartości w DB enum insert crashuje (InvalidTextRepresentationError),
+    # ten sam failure mode co kpi_coach incident.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_match'",
 ]
 
 _COLUMN_STATEMENTS = [
+    # saved_searches (migration 0129_saved_search_alerts) — ORM SavedSearch
+    # selectuje te kolumny przy każdym GET /api/saved-searches; bez nich
+    # UndefinedColumnError gdyby app wystartował przed alembic upgrade.
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS notify_new_matches BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_seen_candidate_id INTEGER",
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS unseen_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ",
     # users (migration 0035_onboarding_and_job_sourcing)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ",

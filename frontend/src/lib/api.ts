@@ -1521,6 +1521,12 @@ export interface SavedSearchRow {
   filters: Record<string, unknown>;
   shared: boolean;
   description: string | null;
+  // Saved-search alerts (V1): bell subscription + unseen badge. The scanner
+  // needs `filters.api` (output of filtersToApiParams) stored next to the
+  // classic `filters.qs` — the menu writes both on create/toggle.
+  notify_new_matches: boolean;
+  unseen_count: number;
+  last_viewed_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -1536,12 +1542,25 @@ export const savedSearchesApi = {
     filters: Record<string, unknown>;
     shared?: boolean;
     description?: string;
+    notify_new_matches?: boolean;
   }) => api.post<SavedSearchRow>("/api/saved-searches", data),
   update: (
     id: number,
-    data: Partial<{ name: string; filters: Record<string, unknown>; shared: boolean; description: string }>,
+    data: Partial<{
+      name: string;
+      filters: Record<string, unknown>;
+      shared: boolean;
+      description: string;
+      notify_new_matches: boolean;
+    }>,
   ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
+  // Resets the unseen badge + rolls last_viewed_at forward; returns the
+  // PREVIOUS last_viewed_at — the list highlights rows created after it.
+  markViewed: (id: number) =>
+    api.post<{ previous_viewed_at: string | null }>(
+      `/api/saved-searches/${id}/viewed`,
+    ),
 };
 
 // ── Candidate Pins (Phase 4 — short-list workflow) ─────────────────────────

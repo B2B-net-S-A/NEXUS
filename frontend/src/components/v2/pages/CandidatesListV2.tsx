@@ -41,7 +41,7 @@ import {
  XCircle,
  X,
 } from"lucide-react";
-import api from"@/lib/api";
+import api, { savedSearchesApi } from"@/lib/api";
 import {
  BulkCvDownloadError,
  downloadBulkCvs,
@@ -746,6 +746,9 @@ interface CandidateCellProps {
  stats: Candidate["match_stats"];
  searchTerms: string[];
  onOpenDetail: () => void;
+ /** Kandydat nowszy niż last_viewed_at aktywnego zapisanego wyszukiwania
+  *  — renderuje badge „Nowy” przy nazwisku. */
+ isNew?: boolean;
 }
 
 /** Single-cell renderer for the candidates table. Renders one cell per visible
@@ -760,6 +763,7 @@ function CandidateCell({
  stats,
  searchTerms,
  onOpenDetail,
+ isNew = false,
 }: CandidateCellProps) {
  switch (columnId) {
  case "candidate": {
@@ -774,8 +778,15 @@ function CandidateCell({
  <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
  </Avatar>
  <div className="min-w-0">
- <div className="font-medium text-foreground truncate hover:text-primary">
+ <div className="flex items-center gap-1.5 min-w-0">
+ <span className="font-medium text-foreground truncate hover:text-primary">
  {fullName}
+ </span>
+ {isNew && (
+ <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold leading-none">
+ Nowy
+ </span>
+ )}
  </div>
  <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
  {sourceIcon(candidate.source)}
@@ -1301,6 +1312,47 @@ export function CandidatesListV2() {
  const [filtersOpen, setFiltersOpen] = useState(false);
  const currentUser = useAuthStore((s) => s.user);
 
+ // Saved-search alerty — aktywny zapisany search (z menu „Zapisane” lub z
+ // linku powiadomienia `?ss=`) + znacznik czasu sprzed bieżącego otwarcia
+ // (previous last_viewed_at z POST /saved-searches/{id}/viewed). Kandydaci
+ // utworzeni po znaczniku dostają badge „Nowy” + podświetlenie wiersza.
+ const [activeSavedSearchId, setActiveSavedSearchId] = useState<number | null>(
+ () => {
+ const raw = searchParams.get("ss");
+ const n = raw ? Number.parseInt(raw, 10) : NaN;
+ return Number.isFinite(n) && n > 0 ? n : null;
+ }
+ );
+ const [newSince, setNewSince] = useState<string | null>(null);
+ const ssInitRef = useRef(false);
+ useEffect(() => {
+ // Wejście z linku powiadomienia (?ss=ID bez przejścia przez menu) —
+ // dociągnij własny saved search, zresetuj badge i ustaw znacznik „Nowy”.
+ if (ssInitRef.current || activeSavedSearchId === null || !currentUser) return;
+ ssInitRef.current = true;
+ (async () => {
+ try {
+ const rows = (await savedSearchesApi.list("candidates")).data;
+ const row = rows.find((r) => r.id === activeSavedSearchId);
+ if (!row || row.user_id !== currentUser.id) return;
+ const r = await savedSearchesApi.markViewed(row.id);
+ setNewSince(r.data.previous_viewed_at);
+ queryClient.invalidateQueries({
+ queryKey: ["saved-searches","candidates"],
+ });
+ } catch {
+ // best-effort — brak wyróżnienia nie może blokować listy
+ }
+ })();
+ }, [activeSavedSearchId, currentUser, queryClient]);
+ const newSinceTs = useMemo(() => {
+ if (!newSince) return null;
+ // Defensive: dołóż 'Z' gdyby backend zwrócił naive ISO (bez strefy).
+ const iso = /[zZ]|[+-]\d{2}:\d{2}$/.test(newSince) ? newSince : `${newSince}Z`;
+ const ts = Date.parse(iso);
+ return Number.isFinite(ts) ? ts : null;
+ }, [newSince]);
+
  // Sync URL -----------------------------------------------------
  useEffect(() => {
  const params = new URLSearchParams();
@@ -1336,6 +1388,7 @@ export function CandidatesListV2() {
  params.append("q_any", group.join("|"));
  }
  if (qNone.length) params.set("q_none", qNone.join("|"));
+ if (activeSavedSearchId) params.set("ss", String(activeSavedSearchId));
  const qs = params.toString();
  window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
  }, [
@@ -1367,6 +1420,7 @@ export function CandidatesListV2() {
  qAll,
  qAnyGroups,
  qNone,
+ activeSavedSearchId,
  ]);
 
  // Data --------------------------------------------------------
@@ -1907,7 +1961,9 @@ export function CandidatesListV2() {
 
           <SavedSearchesMenu
             currentQs={encodeFilters(filtersSnapshot).toString()}
-            onApply={(qs) => {
+            onApply={(qs, ssId, previousViewedAt) => {
+              setActiveSavedSearchId(ssId);
+              setNewSince(previousViewedAt);
               const decoded = decodeFilters(new URLSearchParams(qs));
               applyFiltersPatch({
                 q: decoded.q,
@@ -2645,6 +2701,10 @@ export function CandidatesListV2() {
  .toUpperCase();
  const isSelected = selectedIds.has(candidate.id);
  const stats = candidate.match_stats;
+ const isNewMatch =
+ newSinceTs !== null &&
+ !!candidate.created_at &&
+ Date.parse(candidate.created_at) > newSinceTs;
  const openDetail = () => {
  setDetailId(candidate.id);
  const idx = items.findIndex((c) => c.id === candidate.id);
@@ -2670,6 +2730,7 @@ export function CandidatesListV2() {
  "border-l-4 border-l-transparent",
  // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
+ isNewMatch && "bg-emerald-50/70 dark:bg-emerald-950/20 border-l-emerald-400",
  "hover:bg-muted/60 hover:border-l-primary/50",
  isSelected && "!bg-primary/10 !border-l-primary"
  )}
@@ -2698,6 +2759,7 @@ export function CandidatesListV2() {
  stats={stats}
  searchTerms={searchTerms}
  onOpenDetail={openDetail}
+ isNew={isNewMatch}
  />
  </div>
  ))}

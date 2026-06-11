@@ -1,8 +1,9 @@
 """Saved searches — per-user named filter presets (Phase 4)."""
 
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +37,28 @@ class SavedSearch(Base, TimestampMixin):
         ForeignKey("jobs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+    # Saved-search alerts (migration 0129). When ``notify_new_matches`` is on,
+    # the background scanner (app/tasks/saved_search_alerts.py) re-executes the
+    # search and notifies the OWNER about candidates with
+    # ``id > last_seen_candidate_id`` (PK watermark — cheap and race-safe).
+    # The replay needs ``filters["api"]`` (GET /api/candidates params computed
+    # by the FE via filtersToApiParams at save/toggle time) next to the classic
+    # ``filters["qs"]`` querystring. ``unseen_count`` is a badge counter bumped
+    # by the scanner; POST /saved-searches/{id}/viewed resets it and rolls
+    # ``last_viewed_at`` forward — the FE highlights rows created after the
+    # PREVIOUS ``last_viewed_at`` as "Nowy".
+    notify_new_matches: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    last_seen_candidate_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    unseen_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
+    last_viewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     user = relationship("User")
