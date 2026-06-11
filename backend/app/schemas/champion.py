@@ -136,6 +136,31 @@ class ChampionVerificationRequest(BaseModel):
     consultant: Optional[ConsultantVerificationIn] = None
 
 
+# ── DL briefing (breakout session) ───────────────────────────────────────────
+#
+# After the profile is verified, the DL records a short breakout session
+# (Fireflies) explaining the role in their own words. The meeting Note is
+# attached here so recruiters entering the job can listen to the audio and
+# read the transcript instead of decoding a dry written profile. Server-
+# stamped like `verification` — a profile PUT preserves the stored block.
+
+
+class ChampionBriefing(BaseModel):
+    status: Literal["pending", "attached"] = "pending"
+    note_id: Optional[int] = None
+    title: Optional[str] = None
+    audio_storage_key: Optional[str] = None
+    attached_by_id: Optional[int] = None
+    attached_by_name: Optional[str] = None
+    attached_at: Optional[datetime] = None
+
+
+class ChampionBriefingRequest(BaseModel):
+    note_id: int
+    # Run LLM enrichment (cross-check briefing vs. profile) after attaching.
+    enrich: bool = True
+
+
 # ── Full profile ─────────────────────────────────────────────────────────────
 
 
@@ -147,6 +172,7 @@ class ChampionProfile(BaseModel):
     internal_consultant_insight: str = ""
     sourcing: SourcingStrategy = SourcingStrategy()
     verification: ChampionVerification = ChampionVerification()
+    briefing: ChampionBriefing = ChampionBriefing()
 
     def is_screening_ready(self) -> bool:
         """True if there is at least one question — i.e. recruiter can be asked to screen."""

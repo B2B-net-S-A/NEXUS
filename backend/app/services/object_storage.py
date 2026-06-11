@@ -85,6 +85,27 @@ def upload_cv(
     return key
 
 
+def upload_briefing_audio(
+    content: bytes,
+    filename: str,
+    content_type: str = "audio/mpeg",
+) -> str:
+    """Upload nagrania briefingu DL (breakout session z Fireflies).
+
+    Returns storage_key (np. 'briefings/2026/06/abc-123.mp3') zapisywany w
+    champion_profile.briefing.audio_storage_key. Kopiujemy audio do naszego
+    bucketa, bo linki Fireflies CDN potrafią wygasać.
+    """
+    today = datetime.now(timezone.utc)
+    safe = _safe_filename(filename)
+    key = f"briefings/{today.year}/{today.month:02d}/{uuid4().hex}-{safe}"
+    _client().put_object(
+        Bucket=_bucket_name(), Key=key, Body=content, ContentType=content_type
+    )
+    logger.info("uploaded %d bytes to s3://%s/%s", len(content), _bucket_name(), key)
+    return key
+
+
 def get_presigned_download_url(
     storage_key: str,
     expires_in: int = 300,

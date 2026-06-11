@@ -2299,6 +2299,18 @@ export const EMPTY_CHAMPION_VERIFICATION: ChampionVerification = {
   consultant: { status: "pending", insights: "", skip_reason: "" },
 };
 
+export interface ChampionBriefing {
+  status: "pending" | "attached";
+  note_id?: number | null;
+  title?: string | null;
+  audio_storage_key?: string | null;
+  attached_by_id?: number | null;
+  attached_by_name?: string | null;
+  attached_at?: string | null;
+}
+
+export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
+
 export interface ChampionProfile {
   basics: ChampionBasics;
   project_context: ChampionProjectContext;
@@ -2307,6 +2319,7 @@ export interface ChampionProfile {
   internal_consultant_insight: string;
   sourcing: SourcingStrategy;
   verification?: ChampionVerification;
+  briefing?: ChampionBriefing;
 }
 
 export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
@@ -2317,6 +2330,7 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
   internal_consultant_insight: "",
   sourcing: { sources: [], keywords: "", target_companies: "", notes: "" },
   verification: EMPTY_CHAMPION_VERIFICATION,
+  briefing: EMPTY_CHAMPION_BRIEFING,
 };
 
 export interface ChampionProfileResponse {
@@ -2362,6 +2376,19 @@ export const championApi = {
   consultantSuggestions: (jobId: number) =>
     api.get<ChampionConsultantSuggestion[]>(
       `/api/jobs/${jobId}/champion-profile/consultant-suggestions`
+    ),
+  setBriefing: (jobId: number, noteId: number, enrich = true) =>
+    api.post<ChampionProfileResponse & { suggestion_id?: number | null }>(
+      `/api/jobs/${jobId}/champion-profile/briefing`,
+      { note_id: noteId, enrich }
+    ),
+  clearBriefing: (jobId: number) =>
+    api.delete<ChampionProfileResponse>(
+      `/api/jobs/${jobId}/champion-profile/briefing`
+    ),
+  briefingAudioUrl: (jobId: number) =>
+    api.get<{ url: string }>(
+      `/api/jobs/${jobId}/champion-profile/briefing/audio-url`
     ),
 };
 
