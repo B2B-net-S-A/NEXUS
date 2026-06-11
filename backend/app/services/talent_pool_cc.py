@@ -181,6 +181,10 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
 )
 
+# Public alias — `services.job_cc` extends these shared rules with
+# job-title-specific patterns (Polish role names etc.) in the same order.
+BASE_CC_RULES = _RULES
+
 _COMPILED: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = tuple(
     (slug, tuple(re.compile(p, re.IGNORECASE) for p in pats)) for slug, pats in _RULES
 )
