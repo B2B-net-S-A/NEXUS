@@ -373,6 +373,8 @@ export function JobsListV2() {
 
  const items = data?.items ?? [];
  const total = data?.total ?? 0;
+ const pageSize = data?.page_size ?? 20;
+ const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4">
@@ -765,6 +767,32 @@ export function JobsListV2() {
  </Link>
  );
  })}
+ </div>
+ )}
+
+ {!isLoading && total > pageSize && (
+ <div className="flex items-center justify-between text-sm">
+ <span className="text-muted-foreground">
+ Strona <strong className="text-foreground">{page}</strong> z {totalPages}
+ </span>
+ <div className="flex gap-2">
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={page <= 1}
+ onClick={() => setPage((p) => p - 1)}
+ >
+ Poprzednia
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={page >= totalPages}
+ onClick={() => setPage((p) => p + 1)}
+ >
+ Następna
+ </Button>
+ </div>
  </div>
  )}
 
