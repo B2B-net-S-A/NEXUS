@@ -345,6 +345,63 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
 )
 
 
+CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
+    name="champion_recommended_searches",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior sourcerem IT w polskiej agencji staffing. "
+        "Na podstawie Profilu Championa i opisu rekrutacji projektujesz "
+        "konkretne wyszukiwania w wewnętrznej bazie kandydatów (ATS). "
+        "REGUŁY: "
+        "(1) Używaj WYŁĄCZNIE pól z podanego schematu — żadnych innych filtrów. "
+        "(2) Skille pisz kanonicznie (np. 'Java', 'Spring Boot', 'AWS', "
+        "'PostgreSQL') — pojedyncze technologie, nie zdania. "
+        "(3) q_all/q_any_groups/q_none to frazy full-text po CV (mogą być "
+        "wielowyrazowe, np. 'system bankowy'). "
+        "(4) Strategie mają się RÓŻNIĆ zakresem: pierwsza precyzyjna "
+        "(must-have), druga szersza (synonimy/alternatywy technologii), "
+        "opcjonalna trzecia eksperymentalna (np. ludzie z firm docelowych). "
+        "(5) Nie wymyślaj wymagań, których nie ma w profilu/opisie. "
+        "(6) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+    ),
+    template=(
+        "Rekrutacja:\n"
+        "  Tytuł: {job_title}\n"
+        "  Klient: {client_name}\n"
+        "  Wymagania (z oferty): {requirements}\n"
+        "  Must-have skills (z oferty): {must_skills}\n"
+        "  Nice-to-have skills (z oferty): {nice_skills}\n\n"
+        "Profil Championa (zweryfikowany przez Delivery Leada):\n"
+        "---\n"
+        "{champion_profile_json}\n"
+        "---\n\n"
+        "Zaprojektuj 2-3 wyszukiwania. Zwróć JSON:\n"
+        "{{\n"
+        '  "searches": [\n'
+        "    {{\n"
+        '      "name": "krótka nazwa strategii (po polsku, max 80 znaków)",\n'
+        '      "rationale": "1-2 zdania: czemu ten zestaw filtrów (po polsku)",\n'
+        '      "params": {{\n'
+        '        "q_all": ["fraza wymagana w CV", ...],\n'
+        '        "q_any_groups": [["wariant A", "wariant B"], ...],\n'
+        '        "q_none": ["fraza wykluczająca", ...],\n'
+        '        "skills_must": ["Skill1", ...],\n'
+        '        "skills_any": ["SkillAlt1", ...],\n'
+        '        "skills_none": [],\n'
+        '        "experience_years_min": int|null,\n'
+        '        "experience_years_max": int|null,\n'
+        '        "location_cities": ["Miasto", ...]\n'
+        "      }}\n"
+        "    }}\n"
+        "  ]\n"
+        "}}\n\n"
+        "Każde pole params jest opcjonalne (pusta lista/null gdy nieużywane), "
+        "ale każdy search musi mieć przynajmniej jeden niepusty filtr."
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -357,5 +414,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CHAMPION_PROFILE_ENRICH_FROM_MEETING,
         CHAMPION_PROFILE_ENRICH_FROM_CALL,
         CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
+        CHAMPION_RECOMMENDED_SEARCHES,
     )
 }

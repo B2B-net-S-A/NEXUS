@@ -2320,6 +2320,7 @@ export interface ChampionProfile {
   sourcing: SourcingStrategy;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
+  recommended_searches?: RecommendedSearch[];
 }
 
 export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
@@ -2390,7 +2391,47 @@ export const championApi = {
     api.get<{ url: string }>(
       `/api/jobs/${jobId}/champion-profile/briefing/audio-url`
     ),
+  generateRecommendedSearches: (jobId: number) =>
+    api.post<ChampionProfileResponse>(
+      `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`
+    ),
+  decideRecommendedSearch: (
+    jobId: number,
+    searchId: string,
+    action: "approve" | "reject" | "reset"
+  ) =>
+    api.post<ChampionProfileResponse>(
+      `/api/jobs/${jobId}/champion-profile/recommended-searches/decision`,
+      { search_id: searchId, action }
+    ),
 };
+
+// ── Champion recommended searches (AI-proposed, DL-approved) ────────────────
+
+export interface RecommendedSearchParams {
+  q_all?: string[];
+  q_any_groups?: string[][];
+  q_none?: string[];
+  skills_must?: string[];
+  skills_any?: string[];
+  skills_none?: string[];
+  experience_years_min?: number | null;
+  experience_years_max?: number | null;
+  location_cities?: string[];
+}
+
+export interface RecommendedSearch {
+  id: string;
+  name: string;
+  rationale: string;
+  params: RecommendedSearchParams;
+  status: "proposed" | "approved" | "rejected";
+  saved_search_id?: number | null;
+  generated_at?: string | null;
+  decided_by_id?: number | null;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
+}
 
 // ── Champion Profile AI Intake (Phase 14) ──────────────────────────────────
 

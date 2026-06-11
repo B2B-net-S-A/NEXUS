@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionVerificationChecklist } from "./ChampionVerificationChecklist";
+import { ChampionRecommendedSearches } from "./ChampionRecommendedSearches";
 
 const SOURCES: Array<{
   value: ChampionProfile["sourcing"]["sources"][number];
@@ -256,6 +257,17 @@ export function ChampionProfileEditor({
         briefing={
           (data?.champion_profile as Partial<ChampionProfile> | undefined)
             ?.briefing
+        }
+        canEdit={canEdit}
+      />
+
+      {/* AI-proposed sourcing strategies — DL approves, recruiters activate
+          them one-click from the "Wyszukaj manualnie" tab. */}
+      <ChampionRecommendedSearches
+        jobId={jobId}
+        searches={
+          (data?.champion_profile as Partial<ChampionProfile> | undefined)
+            ?.recommended_searches
         }
         canEdit={canEdit}
       />

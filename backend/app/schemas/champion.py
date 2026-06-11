@@ -161,6 +161,64 @@ class ChampionBriefingRequest(BaseModel):
     enrich: bool = True
 
 
+# ── Recommended searches (AI-proposed, DL-approved) ──────────────────────────
+#
+# The LLM turns the Champion Profile into 1-3 concrete candidate searches in
+# the exact shape of `CandidateSearchRequest` (the job's "Wyszukaj manualnie"
+# tab). The DL reviews each proposal (live result count, preview), approves or
+# rejects; approval materialises a `SavedSearch` pinned to the job and shared
+# with the team, so any recruiter entering the job activates it in one click.
+# Strict whitelisted params — the LLM cannot invent filters we don't have.
+
+
+class RecommendedSearchParams(BaseModel):
+    """Whitelisted subset of CandidateSearchRequest the LLM may emit."""
+
+    q_all: List[str] = Field(default_factory=list)
+    # OR-groups that AND together: [["React","TS"],["Java"]] = (React OR TS) AND Java
+    q_any_groups: List[List[str]] = Field(default_factory=list)
+    q_none: List[str] = Field(default_factory=list)
+    skills_must: List[str] = Field(default_factory=list)
+    skills_any: List[str] = Field(default_factory=list)
+    skills_none: List[str] = Field(default_factory=list)
+    experience_years_min: Optional[int] = Field(default=None, ge=0, le=60)
+    experience_years_max: Optional[int] = Field(default=None, ge=0, le=60)
+    location_cities: List[str] = Field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not any(
+            [
+                self.q_all,
+                self.q_any_groups,
+                self.q_none,
+                self.skills_must,
+                self.skills_any,
+                self.skills_none,
+                self.experience_years_min is not None,
+                self.experience_years_max is not None,
+                self.location_cities,
+            ]
+        )
+
+
+class RecommendedSearch(BaseModel):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=100)
+    rationale: str = ""
+    params: RecommendedSearchParams = RecommendedSearchParams()
+    status: Literal["proposed", "approved", "rejected"] = "proposed"
+    saved_search_id: Optional[int] = None
+    generated_at: Optional[datetime] = None
+    decided_by_id: Optional[int] = None
+    decided_by_name: Optional[str] = None
+    decided_at: Optional[datetime] = None
+
+
+class RecommendedSearchDecision(BaseModel):
+    search_id: str
+    action: Literal["approve", "reject", "reset"]
+
+
 # ── Full profile ─────────────────────────────────────────────────────────────
 
 
@@ -173,6 +231,7 @@ class ChampionProfile(BaseModel):
     sourcing: SourcingStrategy = SourcingStrategy()
     verification: ChampionVerification = ChampionVerification()
     briefing: ChampionBriefing = ChampionBriefing()
+    recommended_searches: List[RecommendedSearch] = Field(default_factory=list)
 
     def is_screening_ready(self) -> bool:
         """True if there is at least one question — i.e. recruiter can be asked to screen."""

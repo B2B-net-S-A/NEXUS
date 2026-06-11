@@ -145,6 +145,7 @@ jobs:
                  tests/test_saved_search_alerts.py \
                  tests/test_champion_verification.py \
                  tests/test_champion_briefing.py \
+                 tests/test_champion_recommended_searches.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
