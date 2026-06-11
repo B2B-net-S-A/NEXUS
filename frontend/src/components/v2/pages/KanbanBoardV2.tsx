@@ -179,7 +179,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
- density === "compact" ?"p-2" :"p-5",
+ density === "compact" ?"p-2.5" :"p-5",
  isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
  )}
  title={
@@ -211,7 +211,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density === "compact" ?"h-6 w-6 text-[10px]" :"h-12 w-12 text-base"
+ density === "compact" ?"h-7 w-7 text-xs" :"h-12 w-12 text-lg"
  )}
  >
  {initials}
@@ -219,19 +219,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className="min-w-0 flex-1">
  <div
  className={cn("font-medium text-foreground truncate",
- density === "compact" ?"text-xs" :"text-xl"
+ density === "compact" ?"text-sm" :"text-2xl"
  )}
  >
  {fullName}
  </div>
  <div
  className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
- density === "compact" ?"text-[10px]" :"text-sm"
+ density === "compact" ?"text-xs" :"text-base"
  )}
  >
  {item.rating != null && item.rating > 0 && (
  <span className="inline-flex items-center gap-0.5">
- <Star className={cn("fill-amber-500 text-amber-500", density === "compact" ?"h-2.5 w-2.5" :"h-3.5 w-3.5")} />
+ <Star className={cn("fill-amber-500 text-amber-500", density === "compact" ?"h-3 w-3" :"h-4 w-4")} />
  {item.rating.toFixed(1)}
  </span>
  )}
@@ -245,7 +245,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  :""
  )}
  >
- <Clock className={density === "compact" ?"h-2.5 w-2.5" :"h-3.5 w-3.5"} />
+ <Clock className={density === "compact" ?"h-3 w-3" :"h-4 w-4"} />
  {item.days_in_stage}d
  </span>
  )}
@@ -332,10 +332,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <div
  className={cn("flex-shrink-0 rounded-lg bg-background/60 border border-border",
- density === "compact" ?"w-52" :"w-80"
+ density === "compact" ?"w-60" :"w-96"
  )}
  >
- <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+ <div className={cn("border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -349,7 +349,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
  )}
- <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-xs font-medium" :"text-lg font-semibold")}>
+ <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold")}>
  {columnLabel(col)}
  </span>
  <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"}>
@@ -362,7 +362,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <div
  ref={provided.innerRef}
  {...provided.droppableProps}
- className={cn("p-2 space-y-2 min-h-[180px] max-h-[540px] overflow-y-auto rounded-b-v2-m transition-colors",
+ className={cn("p-2 space-y-2 overflow-y-auto rounded-b-v2-m transition-colors",
+ // Pipeline ma wypełniać ekran — wysokość liczona od viewportu,
+ // z podłogą na małych ekranach (min-height wygrywa z max-height).
+ "min-h-[280px] max-h-[calc(100vh-380px)]",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
