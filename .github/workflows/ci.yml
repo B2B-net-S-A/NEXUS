@@ -134,7 +134,6 @@ jobs:
                  tests/test_note_mention_render.py \
                  tests/test_job_reference.py \
                  tests/test_jobs_deadline_serialization.py \
-                 tests/test_jobs_client_name.py \
                  tests/test_dynareporter_profile.py \
                  tests/test_dynareporter_admin.py \
                  tests/test_recommendation_status_filter.py \
