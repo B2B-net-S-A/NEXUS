@@ -285,8 +285,13 @@ def add_horizontal_line(doc: Any) -> Any:
 
 
 def add_section_header(doc: Any, text: str) -> Any:
-    """Add a section header with divider above and Montserrat SemiBold title."""
-    add_horizontal_line(doc)
+    """Add a section header with divider above and Montserrat SemiBold title.
+
+    Both the divider and the title keep with the following paragraph so a
+    section header never ends up alone at the bottom of a page.
+    """
+    hr = add_horizontal_line(doc)
+    hr.paragraph_format.keep_with_next = True
 
     para = doc.add_paragraph()
     run = para.add_run(text)
@@ -296,6 +301,7 @@ def add_section_header(doc: Any, text: str) -> Any:
     run.font.size = Pt(14)
     para.paragraph_format.space_before = Pt(2)
     para.paragraph_format.space_after = Pt(3)
+    para.paragraph_format.keep_with_next = True
     return para
 
 
@@ -591,8 +597,12 @@ def render_cv_to_bytes(
 
     for i, job in enumerate(candidate_data.get("experience", [])):
         if i > 0:
-            add_horizontal_line(doc)
+            hr = add_horizontal_line(doc)
+            hr.paragraph_format.keep_with_next = True
 
+        # The whole role header (dates → company → position → "Zakres zadań:")
+        # keeps with the next paragraph so a role never starts at the bottom
+        # of a page with its duties orphaned on the next one.
         para = doc.add_paragraph()
         run = para.add_run(job["dates"])
         run.font.name = "Montserrat"
@@ -601,6 +611,7 @@ def render_cv_to_bytes(
         run.font.bold = True
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -614,6 +625,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -627,6 +639,7 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
+        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -637,6 +650,7 @@ def render_cv_to_bytes(
         run.font.underline = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
+        para.paragraph_format.keep_with_next = True
 
         add_bullet_list(
             doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
