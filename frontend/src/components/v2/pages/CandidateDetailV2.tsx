@@ -1880,23 +1880,34 @@ function ProfilTab({
  ? feedRaw
  : (feedRaw?.timeline ?? []);
 
- // CV quick-open — authenticated blob fetch via the shared axios instance
- // (Bearer interceptor) so it works cross-origin. cv_filename is candidate-level.
- const [cvOpening, setCvOpening] = useState(false);
- const openCv = async () => {
- setCvOpening(true);
- try {
- const res = await api.get(`/api/candidates/${candidate.id}/cv-download`, {
- responseType: "blob",
+ // CV quick-open — otwiera podgląd w modalu (PDF/DOCX/obraz) zamiast pobierać.
+ // Browser nie renderuje DOCX inline, więc dawny `window.open` na blobie DOCX
+ // wymuszał download (ten sam bug co „Podgląd" w zakładce Pliki). Reużywamy
+ // FilePreviewModal dla głównego dokumentu kandydata.
+ const { showError } = useToast();
+ const { data: cvDocs } = useQuery<CandidateDocument[]>({
+ queryKey: ["candidate-documents", candidate.id],
+ queryFn: async () => {
+ const res = await api.get<CandidateDocument[]>(
+ `/api/candidates/${candidate.id}/documents`,
+ );
+ return res.data;
+ },
+ enabled: !!candidate.id,
+ staleTime: 30_000,
  });
- const url = URL.createObjectURL(res.data as Blob);
- window.open(url, "_blank", "noopener,noreferrer");
- setTimeout(() => URL.revokeObjectURL(url), 60_000);
- } catch {
- // Fall back to the Pliki tab when the candidate-level CV isn't available.
+ const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
+ const openCv = () => {
+ const docs = cvDocs ?? [];
+ const primary =
+ docs.find((d) => d.is_primary) ??
+ docs.find((d) => d.filename === candidate.cv_filename) ??
+ docs[0];
+ if (primary) {
+ setPreviewDoc(primary);
+ } else {
+ // Brak rekordu dokumentu — przełącz na zakładkę Pliki.
  onOpenTab?.("pliki");
- } finally {
- setCvOpening(false);
  }
  };
 
@@ -1924,6 +1935,7 @@ function ProfilTab({
  facts.push({ icon: <Target className="h-3 w-3" />, label: "Kategoria", value: candidate.competence_category });
 
  return (
+ <>
  <div className="space-y-6">
  {/* 1. Key facts — scannable grid (only tiles with data) */}
  {facts.length > 0 && (
@@ -2006,9 +2018,9 @@ function ProfilTab({
  )}
  </div>
  {candidate.cv_filename ? (
- <Button size="sm" variant="outline" onClick={openCv} disabled={cvOpening}>
+ <Button size="sm" variant="outline" onClick={openCv}>
  <FileText className="h-3.5 w-3.5" />
- {cvOpening ? "Otwieram…" : "Otwórz"}
+ Otwórz
  </Button>
  ) : (
  <Button size="sm" variant="ghost" onClick={() => onOpenTab?.("pliki")}>
@@ -2278,6 +2290,17 @@ function ProfilTab({
  )}
  </section>
  </div>
+ <FilePreviewModal
+ doc={previewDoc}
+ candidateId={candidate.id}
+ onClose={() => setPreviewDoc(null)}
+ onDownload={(d) =>
+ downloadDocumentBlob(candidate.id, d).catch(() =>
+ showError("Nie udało się pobrać pliku."),
+ )
+ }
+ />
+ </>
  );
 }
 
@@ -3327,6 +3350,43 @@ function previewKind(doc: CandidateDocument): PreviewKind {
  return "unsupported";
 }
 
+// Pobranie bytes dokumentu przez proxy-stream backendu (`/content`). Natywny
+// `fetch` (nie axios — axios `responseType: blob` cross-origin zwracał status 0,
+// testowane na prod 25.05.2026), Bearer JWT dołączany ręcznie. Same-origin nie
+// istnieje (Next.js nie ma rewrite /api/*), więc apiBase = NEXT_PUBLIC_API_URL.
+async function fetchDocumentBlob(
+ candidateId: number,
+ docId: number,
+ disposition: "attachment" | "inline",
+): Promise<Blob> {
+ const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+ const token =
+ typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+ const url = `${apiBase}/api/candidates/${candidateId}/documents/${docId}/content?disposition=${disposition}`;
+ const res = await fetch(url, {
+ method: "GET",
+ headers: token ? { Authorization: `Bearer ${token}` } : {},
+ });
+ if (!res.ok) throw new Error(`HTTP ${res.status}`);
+ return await res.blob();
+}
+
+// Pobranie pliku na dysk (programmatic <a download>). Same-origin blob = działa.
+async function downloadDocumentBlob(
+ candidateId: number,
+ doc: { id: number; filename?: string | null },
+): Promise<void> {
+ const blob = await fetchDocumentBlob(candidateId, doc.id, "attachment");
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement("a");
+ a.href = url;
+ a.download = doc.filename ?? `document-${doc.id}`;
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+}
+
 // Podgląd pliku in-app. Browser NIE umie renderować DOCX inline — `window.open`
 // na blobie DOCX wymusza download (to był zgłoszony bug: „Podgląd" pobierał CV).
 // Modal: PDF → natywny viewer w <iframe>; DOCX → `docx-preview` (lazy import);
@@ -3368,18 +3428,7 @@ function FilePreviewModal({
 
  (async () => {
  try {
- const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
- const token =
- typeof window !== "undefined"
- ? localStorage.getItem("access_token")
- : null;
- // Same-origin proxy-stream (patrz fetchBlob) — natywny fetch, Bearer ręcznie.
- const res = await fetch(
- `${apiBase}/api/candidates/${candidateId}/documents/${doc.id}/content?disposition=inline`,
- { headers: token ? { Authorization: `Bearer ${token}` } : {} },
- );
- if (!res.ok) throw new Error(`HTTP ${res.status}`);
- const raw = await res.blob();
+ const raw = await fetchDocumentBlob(candidateId, doc.id, "inline");
  if (cancelled) return;
 
  if (kind === "docx") {
@@ -3556,31 +3605,6 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
  staleTime: 30_000,
  });
 
- // Backend `/content` proxy-stream'uje bytes z Object Storage (po Phase 3
- // migracji) lub z BYTEA (legacy). UŻYWAMY natywnego `fetch` zamiast axios
- // bo axios z `responseType: "blob"` cross-origin daje status 0 (XHR cancel
- // mid-stream) — testowane na prod 25.05.2026. Bare XHR i fetch z tymi
- // samymi nagłówkami zwracają 200. Workaround: pomijamy axios dla tego
- // jednego endpointu, jego interceptor 401-auto-redirect i tak by się tu
- // nie przydał bo Bearer JWT w localStorage jest zawsze dołączany ręcznie.
- async function fetchBlob(
- docId: number,
- disposition: "attachment" | "inline",
- ): Promise<Blob> {
- const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
- const token =
- typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
- const url = `${apiBase}/api/candidates/${candidateId}/documents/${docId}/content?disposition=${disposition}`;
- const res = await fetch(url, {
- method: "GET",
- headers: token ? { Authorization: `Bearer ${token}` } : {},
- });
- if (!res.ok) {
- throw new Error(`HTTP ${res.status}`);
- }
- return await res.blob();
- }
-
  function handlePreview(doc: CandidateDocument) {
  // DOCX nie renderuje się natywnie w przeglądarce — `window.open` na blobie
  // DOCX wymusza download (to był zgłoszony bug: „Podgląd" pobierał CV).
@@ -3599,15 +3623,7 @@ function PlikiTab({ candidateId }: { candidateId: number }) {
 
  async function handleDownload(doc: CandidateDocument) {
  try {
- const blob = await fetchBlob(doc.id, "attachment");
- const url = URL.createObjectURL(blob);
- const a = document.createElement("a");
- a.href = url;
- a.download = doc.filename ?? `document-${doc.id}`;
- document.body.appendChild(a);
- a.click();
- document.body.removeChild(a);
- URL.revokeObjectURL(url);
+ await downloadDocumentBlob(candidateId, doc);
  } catch {
  showError("Nie udało się pobrać pliku.");
  }
