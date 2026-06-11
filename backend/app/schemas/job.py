@@ -185,6 +185,7 @@ class JobResponse(BaseModel):
     recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]
+    client_name: Optional[str] = None  # denormalized (coalesce(display_name, name))
     recruiter_id: Optional[int]
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
