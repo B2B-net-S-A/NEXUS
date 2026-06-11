@@ -17,7 +17,7 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { ArrowLeft, MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus } from "lucide-react";
+import { MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
@@ -1036,10 +1036,6 @@ export default function JobDetailPage() {
 
   return (
     <div className="space-y-2">
-      <Link href="/jobs" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="w-4 h-4" /> Wróć do ofert
-      </Link>
-
       <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-4 py-2.5">
         <div className="flex items-start justify-between flex-wrap gap-2">
           <div>
