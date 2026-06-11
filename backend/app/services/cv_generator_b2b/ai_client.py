@@ -33,7 +33,8 @@ PROMPT_NAME = "cv_b2b_extraction"
 # v3 (2026-06-11): poufność notatek (stawki/red flagi), kwantyfikacja, zwięzłość
 # starszych ról, tytuł pod ofertę, kanoniczna pisownia tech, kontekst projektu,
 # higiena dat edukacji/luk.
-PROMPT_VERSION = 3
+# v4 (2026-06-11): limit 12 technologii per rola (priorytet must/nice klienta).
+PROMPT_VERSION = 4
 
 
 def _model() -> str:

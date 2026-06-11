@@ -219,3 +219,91 @@ def test_pdf_upload_accepted():
     _validate_upload(
         b"%PDF-1.4 fake", "cv.pdf", allowed_ext={".pdf", ".docx"}, label="CV"
     )
+
+
+# ── Per-role technology cap ────────────────────────────────────────────────
+
+
+def test_cap_technologies_prioritizes_champion():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _cap_role_technologies,
+    )
+
+    techs = [f"Tech{i}" for i in range(1, 12)] + ["Splunk", "QRadar", "Tech12"]
+    data = {"experience": [{"position": "x", "technologies": list(techs)}]}
+    _cap_role_technologies(data, ["Splunk", "QRadar"])
+    kept = data["experience"][0]["technologies"]
+    assert len(kept) == 12
+    assert "Splunk" in kept and "QRadar" in kept
+    # Original ordering preserved within the kept subset.
+    assert kept.index("Tech1") < kept.index("Splunk")
+
+
+def test_cap_technologies_noop_under_limit():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _cap_role_technologies,
+    )
+
+    data = {"experience": [{"position": "x", "technologies": ["A", "B"]}]}
+    _cap_role_technologies(data, ["A"])
+    assert data["experience"][0]["technologies"] == ["A", "B"]
+
+
+# ── Overlapping employment dates ───────────────────────────────────────────
+
+
+def test_parse_date_range_variants():
+    from app.services.cv_generator_b2b.standalone_service import _parse_date_range
+
+    assert _parse_date_range("03.2020 – 11.2023") == (2020 * 12 + 2, 2023 * 12 + 10)
+    assert _parse_date_range("2019") == (2019 * 12, 2019 * 12 + 11)
+    ongoing = _parse_date_range("02.2024 – obecnie")
+    assert ongoing is not None and ongoing[1] == 9999 * 12
+    assert _parse_date_range("brak dat") is None
+    assert _parse_date_range("") is None
+
+
+def test_overlap_warning_flags_parallel_roles():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            {"company": "Contina", "dates": "02.2024 – obecnie"},
+            {"company": "COI", "dates": "11.2023 – 02.2025"},
+        ]
+    }
+    warnings = _date_overlap_warnings(data, "pl")
+    assert len(warnings) == 1
+    assert "Contina" in warnings[0] and "COI" in warnings[0]
+    assert warnings[0].startswith("WERYFIKUJ")
+
+
+def test_overlap_ignores_handover_month():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            {"company": "A", "dates": "01.2020 – 03.2022"},
+            {"company": "B", "dates": "03.2022 – obecnie"},
+        ]
+    }
+    assert _date_overlap_warnings(data, "pl") == []
+
+
+def test_overlap_caps_warning_count():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _date_overlap_warnings,
+    )
+
+    data = {
+        "experience": [
+            {"company": f"Firma{i}", "dates": "01.2020 – obecnie"} for i in range(5)
+        ]
+    }
+    warnings = _date_overlap_warnings(data, "pl")
+    assert len(warnings) == 4  # 3 pary + "… i N kolejnych"
+    assert "kolejnych" in warnings[-1]

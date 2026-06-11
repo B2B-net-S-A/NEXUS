@@ -49,7 +49,11 @@ from app.services.cv_generator_b2b.champion_builder import (
     from_nexus_job,
     parse_champion_from_docx_bytes,
 )
-from app.services.cv_generator_b2b.docx_renderer import render_cv_to_bytes
+from app.services.cv_generator_b2b.docx_renderer import (
+    compile_keyword_patterns,
+    highlight_spans,
+    render_cv_to_bytes,
+)
 from app.services.cv_generator_b2b.prompts import get_prompt
 from app.services.cv_generator_b2b.text_extractor import (
     CVTextExtractionError,
@@ -304,6 +308,101 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
     return out
 
 
+# ── Per-role technology cap ────────────────────────────────────────────────
+
+# Readability: the "Technologie:" line for a long role can balloon to 20+
+# entries. Keep the most relevant 12 — champion must/nice-to-have first.
+_MAX_TECHNOLOGIES_PER_ROLE = 12
+
+
+def _cap_role_technologies(
+    candidate_data: dict[str, Any], highlight_keywords: list[str] | None
+) -> None:
+    patterns = compile_keyword_patterns(highlight_keywords or [])
+    for job in candidate_data.get("experience", []):
+        techs = job.get("technologies") or []
+        if len(techs) <= _MAX_TECHNOLOGIES_PER_ROLE:
+            continue
+        prioritized = [t for t in techs if patterns and highlight_spans(t, patterns)]
+        rest = [t for t in techs if t not in prioritized]
+        kept = set((prioritized + rest)[:_MAX_TECHNOLOGIES_PER_ROLE])
+        # Preserve the model's original ordering within the kept subset.
+        job["technologies"] = [t for t in techs if t in kept]
+
+
+# ── Overlapping employment dates check ─────────────────────────────────────
+
+_ONGOING_RE = re.compile(r"obecnie|currently|present|now", re.IGNORECASE)
+_DATE_TOKEN_RE = re.compile(r"(?:(\d{1,2})\.)?(\d{4})")
+
+# A 1-month "overlap" is usually just a handover month — don't cry wolf.
+_MIN_OVERLAP_MONTHS = 2
+
+
+def _parse_date_range(dates: str) -> tuple[int, int] | None:
+    """Parse "MM.YYYY – MM.YYYY" / "YYYY" / "MM.YYYY – obecnie" into a
+    (start, end) pair of absolute month indexes. Returns None when the
+    string doesn't carry parseable dates."""
+    if not dates or not dates.strip():
+        return None
+    tokens = [
+        (int(m.group(2)), int(m.group(1)) if m.group(1) else None)
+        for m in _DATE_TOKEN_RE.finditer(dates)
+    ]
+    if not tokens:
+        return None
+    start_year, start_month = tokens[0]
+    start = start_year * 12 + ((start_month or 1) - 1)
+    if _ONGOING_RE.search(dates):
+        end = 9999 * 12
+    else:
+        end_year, end_month = tokens[-1]
+        end = end_year * 12 + ((end_month or 12) - 1)
+    if end < start:
+        return None
+    return (start, end)
+
+
+def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> list[str]:
+    """Informational check: overlapping employment periods are common in B2B
+    (parallel contracts), but the recruiter should verify them consciously
+    before the client spots them at the interview. Never blocks generation
+    and never alters the CV itself."""
+    roles: list[tuple[str, str, tuple[int, int]]] = []
+    for job in candidate_data.get("experience", []):
+        rng = _parse_date_range(job.get("dates") or "")
+        if rng is not None:
+            label = job.get("company") or job.get("position") or "?"
+            roles.append((label, job.get("dates") or "", rng))
+
+    issues: list[str] = []
+    for i in range(len(roles)):
+        for j in range(i + 1, len(roles)):
+            name_a, dates_a, (start_a, end_a) = roles[i]
+            name_b, dates_b, (start_b, end_b) = roles[j]
+            overlap = min(end_a, end_b) - max(start_a, start_b) + 1
+            if overlap >= _MIN_OVERLAP_MONTHS:
+                if language == "en":
+                    issues.append(
+                        f"VERIFY: overlapping employment periods: "
+                        f"'{name_a}' ({dates_a}) and '{name_b}' ({dates_b})"
+                    )
+                else:
+                    issues.append(
+                        f"WERYFIKUJ: nakładające się okresy zatrudnienia: "
+                        f"'{name_a}' ({dates_a}) i '{name_b}' ({dates_b})"
+                    )
+    if len(issues) > 3:
+        more = len(issues) - 3
+        issues = issues[:3]
+        issues.append(
+            f"… i {more} kolejnych nakładających się par"
+            if language != "en"
+            else f"… and {more} more overlapping pairs"
+        )
+    return issues
+
+
 # ── Anti-fabrication guard ─────────────────────────────────────────────────
 
 
@@ -496,9 +595,13 @@ def _run_generation_pipeline(
         if highlight:
             candidate_data["highlight_keywords"] = highlight
 
-    # ── 4. Anti-fabrication seatbelt ─────────────────────────────────────
+    # Readability: hard-cap the "Technologie:" line per role (champion first).
+    _cap_role_technologies(candidate_data, candidate_data.get("highlight_keywords"))
+
+    # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
+    guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
 
     # ── 5. Render DOCX ───────────────────────────────────────────────────
     try:

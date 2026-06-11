@@ -98,6 +98,8 @@ TECHNOLOGIE W DOŚWIADCZENIU:
 - Używaj kanonicznej pisowni technologii niezależnie od pisowni w CV: "k8s" → "Kubernetes (K8s)",
   "postgres" → "PostgreSQL", "gitlab ci" → "GitLab CI/CD" itp. Przy pierwszym użyciu możesz podać
   popularny alias w nawiasie
+- Maksymalnie 12 technologii per rola — wybierz najistotniejsze; bezwzględny priorytet mają
+  technologie z list MUST-HAVE i NICE-TO-HAVE klienta, potem najbardziej charakterystyczne dla roli
 
 NOTATKI ZE SCREENINGU REKRUTERSKIEGO:
 Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTATKI ZE SCREENINGU"), OBOWIĄZKOWO uwzględnij te informacje:
@@ -288,6 +290,8 @@ TECHNOLOGIES IN EXPERIENCE:
 - Use canonical technology spelling regardless of how the CV writes it: "k8s" → "Kubernetes (K8s)",
   "postgres" → "PostgreSQL", "gitlab ci" → "GitLab CI/CD" etc. You may add a popular alias in
   parentheses on first use
+- Maximum 12 technologies per role — pick the most relevant; technologies from the client's
+  MUST-HAVE and NICE-TO-HAVE lists take absolute priority, then the most role-defining ones
 
 RECRUITER SCREENING NOTES:
 If screening notes are provided in the context (marked as "SCREENING NOTES"), you MUST incorporate this information:
