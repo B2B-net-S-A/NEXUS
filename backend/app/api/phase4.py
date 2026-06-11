@@ -117,23 +117,32 @@ async def list_saved_searches(
     When ``pinned_to_job_id`` is set, returns the union of:
 
     * the user's searches with ``pinned_to_job_id == job_id``, plus
-    * the user's own global searches (``pinned_to_job_id IS NULL``).
+    * the user's own global searches (``pinned_to_job_id IS NULL``), plus
+    * OTHER users' **shared** searches pinned to this job — this is how the
+      DL-approved "rekomendowane wyszukiwanie" (champion profile) reaches
+      every recruiter opening the job.
 
-    Other users' shared searches are excluded in this mode — pinning is
-    inherently per-user state. Pass ``only_mine=true`` for the same exclusion
-    in the global list.
+    Pass ``only_mine=true`` for the my-rows-only view in the global list.
     """
-    from sqlalchemy import or_
+    from sqlalchemy import and_, or_
 
     q = select(SavedSearch)
 
     if pinned_to_job_id is not None:
         q = q.where(
-            SavedSearch.user_id == current_user.id,
             or_(
-                SavedSearch.pinned_to_job_id == pinned_to_job_id,
-                SavedSearch.pinned_to_job_id.is_(None),
-            ),
+                and_(
+                    SavedSearch.user_id == current_user.id,
+                    or_(
+                        SavedSearch.pinned_to_job_id == pinned_to_job_id,
+                        SavedSearch.pinned_to_job_id.is_(None),
+                    ),
+                ),
+                and_(
+                    SavedSearch.shared.is_(True),
+                    SavedSearch.pinned_to_job_id == pinned_to_job_id,
+                ),
+            )
         )
     elif only_mine:
         q = q.where(SavedSearch.user_id == current_user.id)

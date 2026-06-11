@@ -48,6 +48,8 @@ from app.schemas.champion import (
     ChampionBasics,
     ChampionProfile,
     ChampionProjectContext,
+    RecommendedSearch,
+    RecommendedSearchParams,
     ScreeningQuestion,
     SourcingStrategy,
 )
@@ -911,6 +913,123 @@ async def reject_suggestion(
     return suggestion
 
 
+# ── Recommended searches (AI-proposed sourcing strategies) ──────────────────
+
+
+async def generate_recommended_searches(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    user_id: Optional[int],
+) -> dict[str, Any]:
+    """Generate 2-3 candidate-search proposals from the Champion Profile.
+
+    The LLM emits a strict whitelisted subset of `CandidateSearchRequest`
+    (validated via `RecommendedSearchParams` — invalid or empty proposals are
+    dropped, never persisted). Proposals replace previous *proposed* entries;
+    approved/rejected history is kept. Returns the updated champion_profile.
+    """
+    from app.services.llm_prompts import CHAMPION_RECOMMENDED_SEARCHES
+
+    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    job = job_res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND, detail="Job not found"
+        )
+    client_name = ""
+    if job.client_id:
+        client = await db.scalar(select(Client).where(Client.id == job.client_id))
+        client_name = client.name if client else ""
+
+    profile: dict[str, Any] = dict(job.champion_profile or {})
+    champion_excerpt = {
+        k: profile.get(k)
+        for k in (
+            "basics",
+            "project_context",
+            "sourcing",
+            "internal_consultant_insight",
+            "historical_client_questions",
+        )
+        if profile.get(k)
+    }
+
+    prompt = CHAMPION_RECOMMENDED_SEARCHES.render(
+        job_title=job.title or "",
+        client_name=client_name,
+        requirements=(job.requirements or "")[:4000],
+        must_skills=", ".join(job.must_skills or [])
+        if isinstance(job.must_skills, list)
+        else (job.must_skills or ""),
+        nice_skills=", ".join(job.nice_skills or [])
+        if isinstance(job.nice_skills, list)
+        else (job.nice_skills or ""),
+        champion_profile_json=json.dumps(
+            champion_excerpt, ensure_ascii=False, indent=1
+        )[:6000],
+    )
+    parsed = await _call_claude_json(
+        prompt=prompt,
+        system_prompt=CHAMPION_RECOMMENDED_SEARCHES.system_prompt or "",
+        max_tokens=2000,
+    )
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh: list[RecommendedSearch] = []
+    for i, raw in enumerate((parsed.get("searches") or [])[:3]):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            rs = RecommendedSearch(
+                id=f"rs-{int(now.timestamp())}-{i}",
+                name=str(raw.get("name") or "").strip()[:100] or f"Strategia {i + 1}",
+                rationale=str(raw.get("rationale") or "").strip(),
+                params=RecommendedSearchParams.model_validate(raw.get("params") or {}),
+                status="proposed",
+                generated_at=now,
+            )
+        except Exception:  # noqa: BLE001 — drop malformed proposals silently
+            logger.warning("recommended_searches: dropped invalid proposal #%d", i)
+            continue
+        if rs.params.is_empty():
+            continue
+        fresh.append(rs)
+
+    # Keep decided history, replace pending proposals.
+    existing: list[RecommendedSearch] = []
+    for entry in profile.get("recommended_searches") or []:
+        try:
+            existing.append(RecommendedSearch.model_validate(entry))
+        except Exception:  # noqa: BLE001
+            continue
+    kept = [e for e in existing if e.status != "proposed"]
+
+    defaults = ChampionProfile().model_dump(mode="json")
+    for k, v in defaults.items():
+        profile.setdefault(k, v)
+    profile["recommended_searches"] = [
+        e.model_dump(mode="json") for e in [*kept, *fresh]
+    ]
+    validated = ChampionProfile.model_validate(profile)
+    job.champion_profile = validated.model_dump(mode="json")
+
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="champion_recommended_searches_generated",
+            user_id=user_id,
+            details={"proposed": len(fresh)},
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return job.champion_profile
+
+
 # ── Explicit re-exports for tests / callers ─────────────────────────────────
 
 __all__ = [
@@ -921,6 +1040,7 @@ __all__ = [
     "enrich_from_call",
     "apply_suggestion",
     "reject_suggestion",
+    "generate_recommended_searches",
     "_call_claude_json",
     "_merge_section",
     "_merge_screening_questions",
