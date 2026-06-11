@@ -7,6 +7,7 @@ GET /api/jobs/{id}/ai-matches
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -35,12 +36,28 @@ def _normalize_skill(s) -> str:
 
 
 def _extract_skills(raw) -> list[str]:
-    """Extract skill list from JSONB field (list of dicts or list of strings)."""
+    """Extract skill list from JSONB field (list of dicts or list of strings).
+
+    Traffit-imported candidates often store ``skills`` as a JSON-encoded string
+    (e.g. ``'["Java", "Spring Boot"]'``) rather than a real JSON array. Without
+    decoding that first, a naive comma-split produces broken tokens like
+    ``["java`` that never match required skills — so a candidate who clearly
+    lists the skill would still show every requirement as a red ✗ gap. Decode
+    the JSON string before falling back to comma splitting.
+    """
     if not raw:
         return []
     if isinstance(raw, list):
         return [_normalize_skill(s) for s in raw if _normalize_skill(s)]
     if isinstance(raw, str):
+        stripped = raw.strip()
+        if stripped.startswith("[") or stripped.startswith("{"):
+            try:
+                parsed = json.loads(stripped)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, list):
+                return [_normalize_skill(s) for s in parsed if _normalize_skill(s)]
         return [s.strip().lower() for s in raw.split(",") if s.strip()]
     return []
 
@@ -56,6 +73,26 @@ def _extract_tags(raw) -> list[str]:
     return []
 
 
+def _canon_skill(s: str) -> str:
+    """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
+    and a few well-known suffix variants so e.g. ``postgresql``/``postgres``
+    and ``node.js``/``nodejs`` compare equal)."""
+    canon = "".join(ch for ch in s.lower() if ch.isalnum())
+    for a, b in (("postgresql", "postgres"), ("nodejs", "node")):
+        if canon == a:
+            canon = b
+    return canon
+
+
+def _candidate_has_skill(required: str, candidate_skills: set[str]) -> bool:
+    """True if a required skill is present among the candidate's skills, using
+    exact match plus tolerant canonicalization for common name variants."""
+    if required in candidate_skills:
+        return True
+    req_canon = _canon_skill(required)
+    return any(_canon_skill(c) == req_canon for c in candidate_skills)
+
+
 def _build_match_info(
     candidate: Candidate,
     required_skills: list[str],
@@ -68,8 +105,8 @@ def _build_match_info(
 
     req_set = set(s.lower() for s in required_skills if s)
 
-    matching = sorted(req_set & all_candidate_skills)
-    gaps = sorted(req_set - all_candidate_skills)
+    matching = sorted(s for s in req_set if _candidate_has_skill(s, all_candidate_skills))
+    gaps = sorted(s for s in req_set if not _candidate_has_skill(s, all_candidate_skills))
 
     # Compute score if not provided by Qdrant
     if score is None:
