@@ -1,7 +1,7 @@
 import enum
 from typing import Optional
 
-from sqlalchemy import Enum, ForeignKey, Integer, Text
+from sqlalchemy import Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -40,6 +40,13 @@ class Note(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+
+    # Zewnętrzne pochodzenie notatki (np. "fireflies:<transcript_id>") —
+    # dedup przy re-syncu + lookup audio dla briefingu DL.
+    source_ref: Mapped[Optional[str]] = mapped_column(String(120), index=True)
+    # Link do nagrania (Fireflies CDN). Może wygasać — briefing kopiuje
+    # audio do Object Storage zamiast polegać na tym URL-u.
+    audio_url: Mapped[Optional[str]] = mapped_column(Text)
 
     # Relationships
     candidate = relationship("Candidate", back_populates="notes")

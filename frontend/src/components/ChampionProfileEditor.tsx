@@ -244,14 +244,18 @@ export function ChampionProfileEditor({
         </div>
       )}
 
-      {/* Two-sided verification: client + our consultant at the client.
-          Reads server state (not the local draft) — updates go through a
-          dedicated endpoint with server-side stamps. */}
+      {/* Two-sided verification + DL briefing. Reads server state (not the
+          local draft) — updates go through dedicated endpoints with
+          server-side stamps. */}
       <ChampionVerificationChecklist
         jobId={jobId}
         verification={
           (data?.champion_profile as Partial<ChampionProfile> | undefined)
             ?.verification
+        }
+        briefing={
+          (data?.champion_profile as Partial<ChampionProfile> | undefined)
+            ?.briefing
         }
         canEdit={canEdit}
       />

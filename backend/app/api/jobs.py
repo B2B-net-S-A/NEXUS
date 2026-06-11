@@ -3,6 +3,8 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 
+import httpx
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, nulls_last, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +21,10 @@ from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.schemas.champion import ChampionVerificationRequest
+from app.schemas.champion import (
+    ChampionBriefingRequest,
+    ChampionVerificationRequest,
+)
 from app.schemas.job import (
     CcOverrideRequest,
     CcSuggestion,
@@ -1165,10 +1170,11 @@ async def update_champion_profile(
     profile = ChampionProfile.model_validate(payload or {})
     new_profile = profile.model_dump()
 
-    # Verification is server-stamped via the dedicated /verification endpoint —
-    # a regular profile save must never overwrite (or forge) it.
-    if old_profile.get("verification") is not None:
-        new_profile["verification"] = old_profile["verification"]
+    # Verification + briefing are server-stamped via dedicated endpoints —
+    # a regular profile save must never overwrite (or forge) them.
+    for protected in ("verification", "briefing"):
+        if old_profile.get(protected) is not None:
+            new_profile[protected] = old_profile[protected]
 
     fields_changed = diff_champion_profile(old_profile, new_profile)
     if not fields_changed:
@@ -1510,6 +1516,212 @@ async def champion_consultant_suggestions(
             }
         )
     return out
+
+
+# ── Champion Profile briefing (breakout session DL → rekruterzy) ────────────
+
+
+async def _write_briefing_block(db: AsyncSession, job: Job, briefing: dict) -> None:
+    """Persist the `briefing` block into champion_profile with full-profile
+    re-validation (mirrors the verification endpoint)."""
+    from app.schemas.champion import ChampionProfile
+
+    current_profile = dict(job.champion_profile or {})
+    defaults = ChampionProfile().model_dump(mode="json")
+    for k, v in defaults.items():
+        current_profile.setdefault(k, v)
+    current_profile["briefing"] = briefing
+    validated = ChampionProfile.model_validate(current_profile)
+    job.champion_profile = validated.model_dump(mode="json")
+
+
+@router.post("/{job_id}/champion-profile/briefing")
+async def set_champion_briefing(
+    job_id: int,
+    payload: ChampionBriefingRequest,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Attach a Fireflies meeting Note as THE briefing for this job.
+
+    The DL records a breakout session explaining the role in their own words;
+    recruiters listen to it from the Champion Profile. If the note carries a
+    Fireflies `audio_url` we copy the audio into Object Storage (their CDN
+    links expire). Optionally fires LLM enrichment so anything said verbally
+    but missing from the written profile comes back as a suggestion.
+    """
+    from app.models.note import Note, NoteType
+    from app.services import object_storage
+
+    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    job = job_res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    note = await db.scalar(select(Note).where(Note.id == payload.note_id))
+    if not note:
+        raise HTTPException(status_code=404, detail="Nie znaleziono notatki.")
+    if note.note_type != NoteType.meeting:
+        raise HTTPException(
+            status_code=422,
+            detail="Briefing musi być notatką meetingową (Fireflies).",
+        )
+    if note.job_id is not None and note.job_id != job_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Ta notatka jest podpięta do innej rekrutacji.",
+        )
+
+    # Unattached meeting → attach to this job as part of designation.
+    if note.job_id is None:
+        note.job_id = job_id
+
+    # Copy audio into our bucket (best-effort — briefing works without audio).
+    audio_storage_key: Optional[str] = None
+    if note.audio_url and object_storage.is_available():
+        try:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+                resp = await client.get(note.audio_url)
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "audio/mpeg")
+                suffix = ".mp3" if "mpeg" in content_type else ".m4a"
+                audio_storage_key = object_storage.upload_briefing_audio(
+                    resp.content,
+                    filename=f"briefing-job-{job_id}{suffix}",
+                    content_type=content_type,
+                )
+        except Exception as exc:  # noqa: BLE001 — audio is optional
+            logger.warning(
+                "[Briefing] audio download failed job=%s note=%s: %s",
+                job_id,
+                note.id,
+                exc,
+            )
+
+    title_line = (
+        note.content.split("\n", 1)[0].lstrip("# ").strip() if note.content else ""
+    )
+    actor_name = (current_user.name or "").strip() or current_user.email
+    await _write_briefing_block(
+        db,
+        job,
+        {
+            "status": "attached",
+            "note_id": note.id,
+            "title": title_line or f"Meeting #{note.id}",
+            "audio_storage_key": audio_storage_key,
+            "attached_by_id": current_user.id,
+            "attached_by_name": actor_name,
+            "attached_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="champion_briefing_attached",
+            user_id=current_user.id,
+            details={"note_id": note.id, "has_audio": bool(audio_storage_key)},
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+
+    # Cross-check: anything the DL said verbally but the written profile
+    # misses comes back as a ChampionProfileSuggestion to accept/reject.
+    suggestion_id: Optional[int] = None
+    if payload.enrich:
+        try:
+            from app.services.champion_draft_service import enrich_from_meeting
+
+            suggestion = await enrich_from_meeting(
+                db,
+                job_id=job_id,
+                meeting_title=title_line or f"Meeting #{note.id}",
+                meeting_summary="",
+                meeting_transcript=note.content or "",
+                source_ref=f"note:{note.id}",
+                user_id=current_user.id,
+            )
+            suggestion_id = suggestion.id
+        except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
+            logger.warning(
+                "[Briefing] enrichment failed job=%s note=%s: %s",
+                job_id,
+                note.id,
+                exc,
+            )
+
+    return {
+        "job_id": job.id,
+        "champion_profile": job.champion_profile,
+        "suggestion_id": suggestion_id,
+    }
+
+
+@router.delete("/{job_id}/champion-profile/briefing")
+async def clear_champion_briefing(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Detach the briefing (keeps the meeting Note itself)."""
+    from app.schemas.champion import ChampionBriefing
+    from app.services import object_storage
+
+    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    job = job_res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    old_key = ((job.champion_profile or {}).get("briefing") or {}).get(
+        "audio_storage_key"
+    )
+    if old_key and object_storage.is_available():
+        try:
+            object_storage.delete_cv(old_key)
+        except Exception:  # noqa: BLE001 — orphaned audio is harmless
+            pass
+
+    await _write_briefing_block(db, job, ChampionBriefing().model_dump(mode="json"))
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="champion_briefing_detached",
+            user_id=current_user.id,
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return {"job_id": job.id, "champion_profile": job.champion_profile}
+
+
+@router.get("/{job_id}/champion-profile/briefing/audio-url")
+async def champion_briefing_audio_url(
+    job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Short-lived presigned URL for the briefing audio.
+
+    The <audio> element cannot send Authorization headers, so the FE fetches
+    this endpoint (authed) and feeds the presigned URL into the player.
+    """
+    from app.services import object_storage
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    key = ((job.champion_profile or {}).get("briefing") or {}).get("audio_storage_key")
+    if not key:
+        raise HTTPException(status_code=404, detail="Briefing nie ma nagrania audio.")
+    if not object_storage.is_available():
+        raise HTTPException(status_code=503, detail="Object storage niedostępny.")
+    url = object_storage.get_presigned_download_url(
+        key, expires_in=600, filename="briefing.mp3", disposition="inline"
+    )
+    return {"url": url}
 
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────

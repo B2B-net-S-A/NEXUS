@@ -39,6 +39,7 @@ query GetTranscripts($fromDate: String) {
       action_items
     }
     transcript_url
+    audio_url
     participants
     sentences {
       text
@@ -57,29 +58,41 @@ def _get_headers() -> dict:
 
 
 async def _fetch_transcripts(since: Optional[datetime] = None) -> list:
-    """Fetch transcripts from Fireflies GraphQL API."""
+    """Fetch transcripts from Fireflies GraphQL API.
+
+    `audio_url` is plan-gated on some Fireflies tiers — if the API rejects
+    the field we retry once without it so the whole sync never breaks on a
+    plan downgrade.
+    """
     variables = {}
     if since:
         # Fireflies expects ISO date string
         variables["fromDate"] = since.strftime("%Y-%m-%d")
 
-    payload = {
-        "query": TRANSCRIPTS_QUERY,
-        "variables": variables,
-    }
+    async def _post(query: str) -> dict:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                FIREFLIES_API_URL,
+                json={"query": query, "variables": variables},
+                headers=_get_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            FIREFLIES_API_URL,
-            json=payload,
-            headers=_get_headers(),
-        )
-        response.raise_for_status()
-        data = response.json()
-
+    data = await _post(TRANSCRIPTS_QUERY)
     if "errors" in data:
         error_msgs = [e.get("message", "Unknown error") for e in data["errors"]]
-        raise ValueError(f"Fireflies API errors: {'; '.join(error_msgs)}")
+        joined = "; ".join(error_msgs)
+        if "audio_url" in joined:
+            logger.warning(
+                "Fireflies: audio_url niedostępny na tym planie — retry bez pola"
+            )
+            data = await _post(TRANSCRIPTS_QUERY.replace("    audio_url\n", ""))
+            if "errors" in data:
+                error_msgs = [e.get("message", "Unknown error") for e in data["errors"]]
+                raise ValueError(f"Fireflies API errors: {'; '.join(error_msgs)}")
+        else:
+            raise ValueError(f"Fireflies API errors: {joined}")
 
     return data.get("data", {}).get("transcripts", []) or []
 
@@ -159,12 +172,27 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
 
         for transcript in transcripts:
             try:
-                transcript.get("id", "")
+                transcript_id = transcript.get("id", "")
                 title = transcript.get("title", "Spotkanie bez tytułu")
                 date_str = transcript.get("date")
                 participants = transcript.get("participants", []) or []
                 sentences = transcript.get("sentences", []) or []
                 summary = transcript.get("summary")
+                audio_url = transcript.get("audio_url") or None
+                source_ref = f"fireflies:{transcript_id}" if transcript_id else None
+
+                # Dedup: `last_synced_at` is in-memory, so after a backend
+                # restart the same transcripts come back — skip ones we
+                # already imported (and refresh their audio_url, which the
+                # pre-0129 rows never captured).
+                if source_ref:
+                    existing = await db.scalar(
+                        select(Note).where(Note.source_ref == source_ref)
+                    )
+                    if existing:
+                        if audio_url and not existing.audio_url:
+                            existing.audio_url = audio_url
+                        continue
 
                 # Build note content
                 transcript_text = _extract_text(sentences)
@@ -217,6 +245,8 @@ async def sync_fireflies_transcripts(db: AsyncSession) -> dict:
                     candidate_id=candidate.id if candidate else None,
                     job_id=auto_job_id,
                     author_id=None,  # system-generated
+                    source_ref=source_ref,
+                    audio_url=audio_url,
                 )
                 db.add(note)
                 synced += 1
