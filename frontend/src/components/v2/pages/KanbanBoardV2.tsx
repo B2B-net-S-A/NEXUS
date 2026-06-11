@@ -179,7 +179,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-sm hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
- density === "compact" ?"p-2.5" :"p-5",
+ density === "compact" ?"p-2" :"p-5",
  isPending &&"opacity-70 grayscale-[40%] border-amber-300 bg-amber-50/40"
  )}
  title={
@@ -211,7 +211,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density === "compact" ?"h-7 w-7 text-xs" :"h-12 w-12 text-lg"
+ density === "compact" ?"h-6 w-6 text-[10px]" :"h-12 w-12 text-lg"
  )}
  >
  {initials}
