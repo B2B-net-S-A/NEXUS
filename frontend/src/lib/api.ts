@@ -2261,6 +2261,39 @@ export interface SourcingStrategy {
   notes: string;
 }
 
+export type ChampionVerificationMethod = "call" | "meeting" | "email" | "other";
+
+export interface ChampionClientVerification {
+  status: "pending" | "verified";
+  verified_by_id?: number | null;
+  verified_by_name?: string | null;
+  verified_at?: string | null;
+  method?: ChampionVerificationMethod | null;
+  key_corrections: string;
+  confirmed_as_is: boolean;
+}
+
+export interface ChampionConsultantVerification {
+  status: "pending" | "verified" | "skipped";
+  verified_by_id?: number | null;
+  verified_by_name?: string | null;
+  verified_at?: string | null;
+  consultant_candidate_id?: number | null;
+  consultant_name?: string | null;
+  insights: string;
+  skip_reason: string;
+}
+
+export interface ChampionVerification {
+  client: ChampionClientVerification;
+  consultant: ChampionConsultantVerification;
+}
+
+export const EMPTY_CHAMPION_VERIFICATION: ChampionVerification = {
+  client: { status: "pending", key_corrections: "", confirmed_as_is: false },
+  consultant: { status: "pending", insights: "", skip_reason: "" },
+};
+
 export interface ChampionProfile {
   basics: ChampionBasics;
   project_context: ChampionProjectContext;
@@ -2268,6 +2301,7 @@ export interface ChampionProfile {
   historical_client_questions: string;
   internal_consultant_insight: string;
   sourcing: SourcingStrategy;
+  verification?: ChampionVerification;
 }
 
 export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
@@ -2277,6 +2311,7 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
   historical_client_questions: "",
   internal_consultant_insight: "",
   sourcing: { sources: [], keywords: "", target_companies: "", notes: "" },
+  verification: EMPTY_CHAMPION_VERIFICATION,
 };
 
 export interface ChampionProfileResponse {
@@ -2285,11 +2320,44 @@ export interface ChampionProfileResponse {
   champion_profile: ChampionProfile | Record<string, never>;
 }
 
+export interface ChampionVerificationRequest {
+  side: "client" | "consultant";
+  reset?: boolean;
+  client?: {
+    method: ChampionVerificationMethod;
+    key_corrections: string;
+    confirmed_as_is: boolean;
+  };
+  consultant?: {
+    consultant_candidate_id?: number | null;
+    consultant_name?: string;
+    insights?: string;
+    skipped?: boolean;
+    skip_reason?: string;
+  };
+}
+
+export interface ChampionConsultantSuggestion {
+  candidate_id: number;
+  name: string;
+  job_title: string | null;
+  since: string | null;
+}
+
 export const championApi = {
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
   put: (jobId: number, profile: ChampionProfile) =>
     api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
+  verify: (jobId: number, payload: ChampionVerificationRequest) =>
+    api.post<ChampionProfileResponse>(
+      `/api/jobs/${jobId}/champion-profile/verification`,
+      payload
+    ),
+  consultantSuggestions: (jobId: number) =>
+    api.get<ChampionConsultantSuggestion[]>(
+      `/api/jobs/${jobId}/champion-profile/consultant-suggestions`
+    ),
 };
 
 // ── Champion Profile AI Intake (Phase 14) ──────────────────────────────────

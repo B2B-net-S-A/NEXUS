@@ -52,6 +52,90 @@ class SourcingStrategy(BaseModel):
     notes: str = ""
 
 
+# ── Two-sided verification ───────────────────────────────────────────────────
+#
+# The Champion Profile must not be a transcription of the client's request.
+# The Delivery Lead verifies it from two sides: a conversation with the client
+# (what do they REALLY need vs. what they wrote) and a conversation with one of
+# our consultants already working at that client (what the day-to-day actually
+# looks like). Soft signal only — publishing a job is never blocked on it.
+#
+# These blocks are server-stamped via POST /jobs/{id}/champion-profile/
+# verification; a regular profile PUT preserves whatever is stored so the
+# client cannot forge or wipe them.
+
+VerificationMethod = Literal["call", "meeting", "email", "other"]
+
+
+class ClientVerification(BaseModel):
+    """Outcome of the DL ↔ client conversation about the request."""
+
+    status: Literal["pending", "verified"] = "pending"
+    verified_by_id: Optional[int] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    method: Optional[VerificationMethod] = None
+    # Either the DL articulates what changed vs. the original request…
+    key_corrections: str = ""
+    # …or explicitly confirms the request was accurate as written.
+    confirmed_as_is: bool = False
+
+
+class ConsultantVerification(BaseModel):
+    """Outcome of the DL ↔ our-consultant-at-the-client conversation."""
+
+    status: Literal["pending", "verified", "skipped"] = "pending"
+    verified_by_id: Optional[int] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    consultant_candidate_id: Optional[int] = None
+    consultant_name: Optional[str] = None
+    insights: str = ""
+    # `skipped` escape hatch — no consultant placed at this client yet.
+    skip_reason: str = ""
+
+
+class ChampionVerification(BaseModel):
+    client: ClientVerification = ClientVerification()
+    consultant: ConsultantVerification = ConsultantVerification()
+
+    def summary(self) -> Literal["none", "partial", "full"]:
+        done = [
+            self.client.status == "verified",
+            self.consultant.status in ("verified", "skipped"),
+        ]
+        if all(done):
+            return "full"
+        if any(done):
+            return "partial"
+        return "none"
+
+
+class ClientVerificationIn(BaseModel):
+    """Payload the DL submits after talking to the client."""
+
+    method: VerificationMethod = "call"
+    key_corrections: str = ""
+    confirmed_as_is: bool = False
+
+
+class ConsultantVerificationIn(BaseModel):
+    """Payload the DL submits after talking to our consultant (or skipping)."""
+
+    consultant_candidate_id: Optional[int] = None
+    consultant_name: str = ""
+    insights: str = ""
+    skipped: bool = False
+    skip_reason: str = ""
+
+
+class ChampionVerificationRequest(BaseModel):
+    side: Literal["client", "consultant"]
+    reset: bool = False
+    client: Optional[ClientVerificationIn] = None
+    consultant: Optional[ConsultantVerificationIn] = None
+
+
 # ── Full profile ─────────────────────────────────────────────────────────────
 
 
@@ -62,6 +146,7 @@ class ChampionProfile(BaseModel):
     historical_client_questions: str = ""
     internal_consultant_insight: str = ""
     sourcing: SourcingStrategy = SourcingStrategy()
+    verification: ChampionVerification = ChampionVerification()
 
     def is_screening_ready(self) -> bool:
         """True if there is at least one question — i.e. recruiter can be asked to screen."""

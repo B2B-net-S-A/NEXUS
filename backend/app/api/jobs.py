@@ -4,16 +4,22 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import func, nulls_last, or_, select, update as sql_update
+from sqlalchemy import and_, func, nulls_last, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.cache import cache_invalidate
 from app.core.database import get_db
+from app.models.candidate import Candidate
+from app.models.candidate_conflict import CandidateConflict, ConflictType
+from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.schemas.champion import ChampionVerificationRequest
 from app.schemas.job import (
     CcOverrideRequest,
     CcSuggestion,
@@ -1129,6 +1135,11 @@ async def update_champion_profile(
     profile = ChampionProfile.model_validate(payload or {})
     new_profile = profile.model_dump()
 
+    # Verification is server-stamped via the dedicated /verification endpoint —
+    # a regular profile save must never overwrite (or forge) it.
+    if old_profile.get("verification") is not None:
+        new_profile["verification"] = old_profile["verification"]
+
     fields_changed = diff_champion_profile(old_profile, new_profile)
     if not fields_changed:
         return {"job_id": job.id, "champion_profile": job.champion_profile or {}}
@@ -1208,6 +1219,271 @@ async def update_champion_profile(
             )
 
     return {"job_id": job.id, "champion_profile": job.champion_profile}
+
+
+# ── Champion Profile two-sided verification ─────────────────────────────────
+
+
+@router.post("/{job_id}/champion-profile/verification")
+async def update_champion_verification(
+    job_id: int,
+    payload: ChampionVerificationRequest,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Record one side of the two-sided Champion Profile verification.
+
+    The DL confirms the profile against (a) a conversation with the client —
+    forcing them to articulate what changed vs. the original request — and
+    (b) a conversation with one of our consultants placed at that client.
+    Soft signal only: nothing blocks publishing. Stamps (who/when) are set
+    server-side so a profile PUT can neither forge nor wipe them.
+    """
+    from app.schemas.champion import (
+        ChampionProfile,
+        ChampionVerification,
+        ClientVerification,
+        ConsultantVerification,
+    )
+
+    job_res = await db.execute(
+        select(Job).where(Job.id == job_id).with_for_update()
+    )
+    job = job_res.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_profile = dict(job.champion_profile or {})
+    verification = ChampionVerification.model_validate(
+        current_profile.get("verification") or {}
+    )
+
+    actor_name = (current_user.name or "").strip() or current_user.email
+    now = datetime.now(timezone.utc)
+
+    if payload.side == "client":
+        if payload.reset:
+            verification.client = ClientVerification()
+        else:
+            data = payload.client
+            if data is None:
+                raise HTTPException(
+                    status_code=422, detail="Brak danych weryfikacji z klientem."
+                )
+            corrections = data.key_corrections.strip()
+            if not corrections and not data.confirmed_as_is:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Opisz co zmieniło się względem requestu klienta albo "
+                        "zaznacz, że request został potwierdzony 1:1."
+                    ),
+                )
+            verification.client = ClientVerification(
+                status="verified",
+                verified_by_id=current_user.id,
+                verified_by_name=actor_name,
+                verified_at=now,
+                method=data.method,
+                key_corrections=corrections,
+                confirmed_as_is=data.confirmed_as_is,
+            )
+    else:  # consultant
+        if payload.reset:
+            verification.consultant = ConsultantVerification()
+        else:
+            data = payload.consultant
+            if data is None:
+                raise HTTPException(
+                    status_code=422, detail="Brak danych weryfikacji z konsultantem."
+                )
+            if data.skipped:
+                if not data.skip_reason.strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Podaj powód pominięcia (np. brak konsultanta u klienta).",
+                    )
+                verification.consultant = ConsultantVerification(
+                    status="skipped",
+                    verified_by_id=current_user.id,
+                    verified_by_name=actor_name,
+                    verified_at=now,
+                    skip_reason=data.skip_reason.strip(),
+                )
+            else:
+                consultant_name = data.consultant_name.strip()
+                if data.consultant_candidate_id is not None:
+                    consultant = await db.scalar(
+                        select(Candidate).where(
+                            Candidate.id == data.consultant_candidate_id
+                        )
+                    )
+                    if not consultant:
+                        raise HTTPException(
+                            status_code=404, detail="Nie znaleziono konsultanta."
+                        )
+                    consultant_name = (
+                        f"{consultant.name or ''} {consultant.lastname or ''}".strip()
+                        or consultant_name
+                    )
+                if not consultant_name and data.consultant_candidate_id is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Wybierz konsultanta albo wpisz jego imię i nazwisko.",
+                    )
+                if not data.insights.strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Zapisz wnioski z rozmowy z konsultantem — jak "
+                            "naprawdę wygląda praca u klienta."
+                        ),
+                    )
+                verification.consultant = ConsultantVerification(
+                    status="verified",
+                    verified_by_id=current_user.id,
+                    verified_by_name=actor_name,
+                    verified_at=now,
+                    consultant_candidate_id=data.consultant_candidate_id,
+                    consultant_name=consultant_name or None,
+                    insights=data.insights.strip(),
+                )
+
+    # Re-validate the whole profile so we never persist a malformed JSONB.
+    defaults = ChampionProfile().model_dump(mode="json")
+    for k, v in defaults.items():
+        current_profile.setdefault(k, v)
+    current_profile["verification"] = verification.model_dump(mode="json")
+    validated = ChampionProfile.model_validate(current_profile)
+    job.champion_profile = validated.model_dump(mode="json")
+
+    side_status = (
+        verification.client.status
+        if payload.side == "client"
+        else verification.consultant.status
+    )
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job_id,
+            action="champion_verification_updated",
+            user_id=current_user.id,
+            details={"side": payload.side, "status": side_status},
+        )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return {"job_id": job.id, "champion_profile": job.champion_profile}
+
+
+@router.get("/{job_id}/champion-profile/consultant-suggestions")
+async def champion_consultant_suggestions(
+    job_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Our consultants currently working at this job's client.
+
+    Source signals, mirroring the `employment=at_client` filter but scoped to
+    one client: latest pipeline stage `hired` (no later move for that job),
+    an active Contract, or an active `current_employment` conflict. Used to
+    pre-fill the consultant picker in the verification checklist.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    later_stage = aliased(CandidateStage)
+    no_later_move = (
+        ~(
+            select(1)
+            .where(
+                later_stage.candidate_id == CandidateStage.candidate_id,
+                later_stage.job_id == CandidateStage.job_id,
+                or_(
+                    later_stage.moved_at > CandidateStage.moved_at,
+                    and_(
+                        later_stage.moved_at == CandidateStage.moved_at,
+                        later_stage.id > CandidateStage.id,
+                    ),
+                ),
+            )
+            .exists()
+        )
+    )
+    hired_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Job.title,
+                CandidateStage.moved_at,
+            )
+            .join(CandidateStage, CandidateStage.candidate_id == Candidate.id)
+            .join(Job, Job.id == CandidateStage.job_id)
+            .where(
+                Job.client_id == job.client_id,
+                CandidateStage.stage == PipelineStage.hired,
+                no_later_move,
+            )
+            .order_by(CandidateStage.moved_at.desc())
+            .limit(30)
+        )
+    ).all()
+
+    contract_rows = (
+        await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname)
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(
+                Contract.client_id == job.client_id,
+                Contract.status == ContractStatus.active,
+            )
+            .limit(30)
+        )
+    ).all()
+
+    conflict_rows = (
+        await db.execute(
+            select(Candidate.id, Candidate.name, Candidate.lastname)
+            .join(CandidateConflict, CandidateConflict.candidate_id == Candidate.id)
+            .where(
+                CandidateConflict.client_id == job.client_id,
+                CandidateConflict.type == ConflictType.current_employment,
+                CandidateConflict.active.is_(True),
+            )
+            .limit(30)
+        )
+    ).all()
+
+    out: list[dict] = []
+    seen: set[int] = set()
+    for cid, first, last, title, moved_at in hired_rows:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(
+            {
+                "candidate_id": cid,
+                "name": f"{first or ''} {last or ''}".strip(),
+                "job_title": title,
+                "since": moved_at.isoformat() if moved_at else None,
+            }
+        )
+    for cid, first, last in [*contract_rows, *conflict_rows]:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(
+            {
+                "candidate_id": cid,
+                "name": f"{first or ''} {last or ''}".strip(),
+                "job_title": None,
+                "since": None,
+            }
+        )
+    return out
 
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────
