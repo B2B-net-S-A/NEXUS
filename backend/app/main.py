@@ -46,6 +46,7 @@ from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
+from app.api import dialer as dialer_api
 from app.api import reports
 from app.api import client_knowledge
 from app.api import client_materials
@@ -463,6 +464,7 @@ app.include_router(
 app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
+app.include_router(dialer_api.router, prefix="/api/dialer", tags=["dialer"])
 app.include_router(
     teams_channels_api.router,
     prefix="/api/teams-channels",
@@ -872,6 +874,23 @@ async def api_health_check():
             checks["cloudtalk"] = "degraded"
         except Exception:
             checks["cloudtalk"] = "unhealthy"
+
+    # Own dialer status — informational. `unconfigured` while kill-switch off
+    # OR jambonz base URL empty (default state pre-provisioning).
+    if not settings.OWN_DIALER_ENABLED or not settings.JAMBONZ_BASE_URL:
+        checks["dialer"] = "unconfigured"
+    else:
+        try:
+            from app.services.dialer import JambonzClient, JambonzConfig
+
+            cfg = JambonzConfig.from_settings()
+            async with JambonzClient(cfg) as jb:
+                await asyncio.wait_for(jb.ping(), timeout=2.0)
+            checks["dialer"] = "healthy"
+        except asyncio.TimeoutError:
+            checks["dialer"] = "degraded"
+        except Exception:
+            checks["dialer"] = "unhealthy"
 
     # Autenti status — informational only. Config-only probe (no network call
     # to keep uptime-probe latency low — full ping lives at /api/autenti/health

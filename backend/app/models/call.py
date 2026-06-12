@@ -90,6 +90,22 @@ class Call(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True, index=True
     )
 
+    # ── Own browser dialer (migracja 0132) ──────────────────────────────────
+    # Provider-agnostic call id for the in-house dialer (jambonz call_sid),
+    # kept SEPARATE from cloudtalk_call_id so the live CloudTalk path is
+    # untouched. Webhook upserts dedup on this column.
+    provider_call_id: Mapped[Optional[str]] = mapped_column(
+        String(255), unique=True, nullable=True, index=True
+    )
+    # Which integration produced the row: "cloudtalk" | "dialer" (NULL for
+    # legacy/manual rows). Lets the UI/stats distinguish sources.
+    provider_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    # Object Storage key of the server-side recording (distinct from the
+    # external recording_url). Streamed back via the authed recording proxy.
+    recording_storage_key: Mapped[Optional[str]] = mapped_column(
+        String(512), nullable=True
+    )
+
     # Relationships
     candidate = relationship("Candidate", back_populates="calls")
     user = relationship("User", foreign_keys=[user_id])

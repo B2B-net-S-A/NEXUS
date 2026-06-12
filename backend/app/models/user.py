@@ -142,6 +142,14 @@ class User(Base, TimestampMixin):
         Integer, unique=True, nullable=True, index=True
     )
 
+    # ── Own browser dialer (migracja 0132) ──────────────────────────────────
+    # Per-recruiter SIP identity for the in-browser softphone. Set when the
+    # recruiter is enabled for the dialer; /api/dialer/token mints short-lived
+    # credentials bound to this username. Independent of cloudtalk_agent_id.
+    dialer_sip_username: Mapped[Optional[str]] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+
     # ── DynaReporter migration (Phase B.0, migracja 0112) ───────────────────
     # Lista identyfikatorów modułów DynaReportera do których user ma dostęp:
     # ``body-leasing``, ``sales``, ``delivery-lead``, ``placements``,

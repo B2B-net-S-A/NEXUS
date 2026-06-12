@@ -197,6 +197,7 @@ async def call_stats(
             ),
         },
         "cloudtalk_status": "live" if settings.CLOUDTALK_ENABLED else "disabled",
+        "dialer_status": "live" if settings.OWN_DIALER_ENABLED else "disabled",
     }
 
 
