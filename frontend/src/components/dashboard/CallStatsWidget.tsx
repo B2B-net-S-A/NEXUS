@@ -44,10 +44,13 @@ export default function CallStatsWidget() {
 
   if (!data) return null;
 
-  // Stay invisible when CloudTalk is disabled AND there are no historical
-  // calls anyway — keeps the dashboard tidy for accounts pre-activation.
+  // Stay invisible when BOTH telephony backends (CloudTalk + own dialer) are
+  // disabled AND there are no historical calls — keeps the dashboard tidy for
+  // accounts pre-activation.
+  const telephonyOff =
+    data.cloudtalk_status === "disabled" && data.dialer_status !== "live";
   if (
-    data.cloudtalk_status === "disabled" &&
+    telephonyOff &&
     data.user.total_calls === 0 &&
     data.global.calls_this_week === 0
   ) {
@@ -59,9 +62,9 @@ export default function CallStatsWidget() {
       <div className="flex items-center gap-2 mb-3">
         <PhoneCall className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-bold text-foreground">Rozmowy</h3>
-        {data.cloudtalk_status === "disabled" && (
+        {telephonyOff && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-            CloudTalk off
+            Telefonia off
           </span>
         )}
       </div>
