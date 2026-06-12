@@ -106,8 +106,12 @@ def _build_match_info(
 
     req_set = set(s.lower() for s in required_skills if s)
 
-    matching = sorted(s for s in req_set if _candidate_has_skill(s, all_candidate_skills))
-    gaps = sorted(s for s in req_set if not _candidate_has_skill(s, all_candidate_skills))
+    matching = sorted(
+        s for s in req_set if _candidate_has_skill(s, all_candidate_skills)
+    )
+    gaps = sorted(
+        s for s in req_set if not _candidate_has_skill(s, all_candidate_skills)
+    )
 
     # Compute score if not provided by Qdrant
     if score is None:
