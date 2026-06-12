@@ -6,50 +6,95 @@ import { ExternalLink } from "lucide-react";
 interface AudioPlayerProps {
   src: string;
   className?: string;
+  /**
+   * When true, fetch `src` with the Bearer token (same-origin authed proxy,
+   * e.g. the own-dialer recording endpoint) and play via an object URL. When
+   * false (default), the player points directly at a public/signed URL
+   * (legacy CloudTalk recordings).
+   */
+  authed?: boolean;
 }
 
 /**
- * Lightweight wrapper over `<audio controls>` for CloudTalk recordings.
+ * Lightweight wrapper over `<audio controls>` for call recordings.
  *
- * CloudTalk MP3 URLs are signed/public depending on plan tier. We render
- * the native player and also expose an external "Open" link as a fallback
- * for browsers that block the audio element (mixed-content) or codecs.
- *
- * No blob-fetching with auth headers yet — when CloudTalk requires auth on
- * recording downloads we'll switch to fetch + URL.createObjectURL (planned
- * for a follow-up once we observe the real auth flow on the dashboard).
+ * - Public mode (default): native `<source>` at a signed/public URL.
+ * - Authed mode: `fetch` the URL with the JWT, build an object URL, and feed
+ *   it to the audio element. Used for own-dialer recordings served by the
+ *   backend proxy (candidate PII — never a public URL).
  */
-export default function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
+export default function AudioPlayer({
+  src,
+  className = "",
+  authed = false,
+}: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setError(null);
-  }, [src]);
+    if (!authed || !src) {
+      return;
+    }
+    let revoked = false;
+    let createdUrl: string | null = null;
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("access_token")
+        : null;
+    fetch(src, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.blob();
+      })
+      .then((blob) => {
+        if (revoked) return;
+        createdUrl = URL.createObjectURL(blob);
+        setBlobUrl(createdUrl);
+      })
+      .catch(() => setError("Nie udało się pobrać nagrania"));
+    return () => {
+      revoked = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+      setBlobUrl(null);
+    };
+  }, [src, authed]);
 
   if (!src) return null;
 
+  const playableSrc = authed ? blobUrl : src;
+
   return (
     <div className={`space-y-1.5 ${className}`}>
-      <audio
-        ref={audioRef}
-        controls
-        preload="metadata"
-        className="w-full"
-        onError={() => setError("Nie udało się odtworzyć nagrania w przeglądarce")}
-      >
-        <source src={src} type="audio/mpeg" />
-      </audio>
+      {playableSrc ? (
+        <audio
+          ref={audioRef}
+          controls
+          preload="metadata"
+          src={authed ? (playableSrc ?? undefined) : undefined}
+          className="w-full"
+          onError={() =>
+            setError("Nie udało się odtworzyć nagrania w przeglądarce")
+          }
+        >
+          {!authed && <source src={src} type="audio/mpeg" />}
+        </audio>
+      ) : (
+        <div className="text-xs text-muted-foreground">Ładowanie nagrania…</div>
+      )}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         {error ? <span className="text-amber-600">{error}</span> : <span />}
-        <a
-          href={src}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 hover:text-primary"
-        >
-          Otwórz w nowej karcie <ExternalLink className="h-3 w-3" />
-        </a>
+        {!authed && (
+          <a
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 hover:text-primary"
+          >
+            Otwórz w nowej karcie <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
       </div>
     </div>
   );

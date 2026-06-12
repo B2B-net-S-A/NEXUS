@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { Call } from "@/lib/api";
+import { dialerApi, type Call } from "@/lib/api";
 import AudioPlayer from "./AudioPlayer";
 
 interface CallDetailsDialogProps {
@@ -47,6 +47,16 @@ export default function CallDetailsDialog({
   const DirectionIcon =
     call.direction === "outbound" ? PhoneCall : PhoneIncoming;
 
+  // Dialer recordings live in our storage → authed proxy. Legacy CloudTalk
+  // recordings are public/signed URLs.
+  const isDialer = call.provider_type === "dialer";
+  const hasRecording = isDialer
+    ? Boolean(call.recording_storage_key)
+    : Boolean(call.recording_url);
+  const recordingSrc = isDialer
+    ? dialerApi.recordingUrl(call.id)
+    : (call.recording_url ?? "");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg">
@@ -81,7 +91,7 @@ export default function CallDetailsDialog({
             <div className="space-y-1">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <User className="h-3.5 w-3.5" />
-                <span className="text-xs">Agent CloudTalk</span>
+                <span className="text-xs">Agent</span>
               </div>
               <div className="text-foreground font-medium">
                 {call.cloudtalk_agent_id ?? "—"}
@@ -95,12 +105,12 @@ export default function CallDetailsDialog({
             </div>
           </div>
 
-          {call.recording_url && (
+          {hasRecording && (
             <div className="space-y-1.5">
               <div className="text-xs font-medium text-muted-foreground">
                 Nagranie
               </div>
-              <AudioPlayer src={call.recording_url} />
+              <AudioPlayer src={recordingSrc} authed={isDialer} />
             </div>
           )}
 
@@ -126,7 +136,7 @@ export default function CallDetailsDialog({
             </details>
           )}
 
-          {!call.summary && !call.transcript && !call.recording_url && (
+          {!call.summary && !call.transcript && !hasRecording && (
             <p className="text-sm text-muted-foreground italic">
               Brak transkryptu, podsumowania ani nagrania dla tej rozmowy.
             </p>

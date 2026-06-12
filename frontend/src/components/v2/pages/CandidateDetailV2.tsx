@@ -30,6 +30,7 @@ import {
  MapPin,
  MessageSquare,
  PencilLine,
+ Phone,
  Plus,
  Printer,
  RefreshCcw,
@@ -45,6 +46,8 @@ import {
 } from"lucide-react";
 import api, {
  candidatesApi,
+ callsApi,
+ type Call,
  contractsApi,
  extractErrorMsg,
  type ContractDraftResponse,
@@ -55,6 +58,7 @@ import api, {
 } from"@/lib/api";
 import { celebrate } from"@/lib/celebrate";
 import CallButton from"@/components/calls/CallButton";
+import CallsTimeline from"@/components/calls/CallsTimeline";
 import { useToast } from"@/components/Toast";
 import { Input } from"@/components/ui/input";
 import { Label } from"@/components/ui/label";
@@ -397,6 +401,14 @@ export function CandidateDetailV2({
  queryKey: ["candidate-ai-profile", id],
  queryFn: () => api.get(`/api/candidates/${id}/ai-profile`).then((r) => r.data),
  enabled: !!id,
+ });
+
+ // Zakładka "Rozmowy" — historia połączeń (CloudTalk + własny dialer), z
+ // transkryptem/podsumowaniem AI i nagraniem. Gated na aktywną zakładkę.
+ const { data: callsData } = useQuery<Call[]>({
+ queryKey: ["candidate-calls", id],
+ queryFn: () => callsApi.getForCandidate(Number(id)),
+ enabled: !!id && activeTab === "rozmowy",
  });
 
  // Lista umów kandydata — dla zakładki"Umowa". Backend już akceptuje
@@ -823,6 +835,10 @@ export function CandidateDetailV2({
  <Mail className="h-3.5 w-3.5" />
  Email
  </TabsTrigger>
+ <TabsTrigger value="rozmowy">
+ <Phone className="h-3.5 w-3.5" />
+ Rozmowy
+ </TabsTrigger>
  <TabsTrigger value="notatki">
  <MessageSquare className="h-3.5 w-3.5" />
  Notatki
@@ -878,6 +894,9 @@ export function CandidateDetailV2({
  candidateName={fullName}
  candidateEmail={candidate.email ?? null}
  />
+ </TabsContent>
+ <TabsContent value="rozmowy" className="mt-0">
+ <CallsTimeline calls={callsData ?? []} />
  </TabsContent>
  <TabsContent value="notatki" className="mt-0">
  <NotatkiTab

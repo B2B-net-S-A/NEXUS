@@ -3778,6 +3778,10 @@ export interface Call {
   recording_url: string | null;
   cloudtalk_call_id: string | null;
   cloudtalk_agent_id: number | null;
+  // Own dialer (migracja 0132) — opcjonalne, obecne dla rozmów z provider_type="dialer".
+  provider_call_id?: string | null;
+  provider_type?: string | null;
+  recording_storage_key?: string | null;
   started_at: string | null;
   created_at: string;
 }
@@ -3796,6 +3800,7 @@ export interface CallStats {
     avg_duration_formatted: string;
   };
   cloudtalk_status: "live" | "disabled";
+  dialer_status?: "live" | "disabled";
 }
 
 export interface CloudTalkAgent {
@@ -3825,6 +3830,43 @@ export const callsApi = {
   getForCandidate: (candidateId: number) =>
     api.get<Call[]>(`/api/candidates/${candidateId}/calls`).then((r) => r.data),
   getStats: () => api.get<CallStats>("/api/calls/stats").then((r) => r.data),
+};
+
+// ── Own browser dialer (Faza 3) ─────────────────────────────────────────────
+
+export interface DialerIceServer {
+  urls: string;
+  username?: string | null;
+  credential?: string | null;
+}
+
+export interface DialerToken {
+  sip_username: string;
+  sip_password: string;
+  sip_realm: string;
+  websocket_url: string;
+  ice_servers: DialerIceServer[];
+  expires_at: number;
+}
+
+export interface DialerInitiateResponse {
+  call_id: number;
+  candidate_id: number;
+  phone: string;
+}
+
+export const dialerApi = {
+  getToken: () =>
+    api.post<DialerToken>("/api/dialer/token").then((r) => r.data),
+  initiateCall: (candidateId: number) =>
+    api
+      .post<DialerInitiateResponse>("/api/dialer/calls/initiate", {
+        candidate_id: candidateId,
+      })
+      .then((r) => r.data),
+  // Authed proxy URL for a recording (streamed via the backend — candidate PII).
+  recordingUrl: (callId: number) =>
+    `${API_BASE}/api/dialer/calls/${callId}/recording`,
 };
 
 // ── Teams notifications (Phase 7.6) ─────────────────────────────────────────
