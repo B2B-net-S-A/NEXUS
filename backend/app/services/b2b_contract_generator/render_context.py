@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.models.b2b_contract_role import B2BContractRole
-from app.services.b2b_contract_generator.formatting import start_clause
+from app.services.b2b_contract_generator.formatting import format_rate, start_clause
 from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.number_words import rate_in_words
 
@@ -60,7 +60,9 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "id": None,
             "start_date": req.start_date,
             "end_date": None,
-            "rate_candidate": req.rate_candidate,
+            # Postać wyświetlana w umowie („135,50" / „150"); słownie liczone
+            # niżej z wartości liczbowej `req.rate_candidate`.
+            "rate_candidate": format_rate(req.rate_candidate),
             "rate_client": None,
             "currency": req.currency or "PLN",
             "rate_unit": "hourly",

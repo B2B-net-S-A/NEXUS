@@ -173,22 +173,47 @@ def _pl_zloty(n: int) -> str:
     return "złotych"
 
 
+def _pl_grosz(n: int) -> str:
+    """Poprawna forma „grosz" dla liczby: 1→grosz, 2-4→grosze, reszta→groszy."""
+    if n == 1:
+        return "grosz"
+    last, last2 = n % 10, n % 100
+    if 2 <= last <= 4 and not (12 <= last2 <= 14):
+        return "grosze"
+    return "groszy"
+
+
+def _grosze_part(amount: int | float) -> int:
+    """Część groszowa kwoty (zaokrąglona do pełnych groszy), 0–99."""
+    whole = int(abs(amount))
+    return int(round((abs(amount) - whole) * 100))
+
+
 def rate_in_words(
     amount: int | float | None, language: str, currency: str = "PLN"
 ) -> str:
     """Stawka słownie z jednostką waluty ('pl' | 'en').
 
-    PLN → „sto dwadzieścia złotych" / „one hundred twenty zlotys"; inna waluta →
-    słownie + kod waluty (np. „... EUR").
+    PLN → „sto dwadzieścia złotych" / „one hundred twenty zlotys". Stawka
+    ułamkowa dolicza grosze: 135,50 → „sto trzydzieści pięć złotych pięćdziesiąt
+    groszy" (umowa wymaga, by słownie odpowiadało kwocie liczbowej). Inna waluta
+    → słownie + kod waluty (np. „... EUR"), bez części ułamkowej.
     """
     if amount is None:
         return ""
     n = int(abs(amount))
     cur = (currency or "PLN").upper()
+    grosze = _grosze_part(amount) if cur == "PLN" else 0
     if language == "en":
         words = number_to_words_en(amount)
         unit = "zlotys" if cur == "PLN" else cur
-        return f"{words} {unit}".strip()
+        out = f"{words} {unit}".strip()
+        if grosze:
+            out += f" {number_to_words_en(grosze)} groszy"
+        return out
     words = liczba_slownie(amount)
     unit = _pl_zloty(n) if cur == "PLN" else cur
-    return f"{words} {unit}".strip()
+    out = f"{words} {unit}".strip()
+    if grosze:
+        out += f" {liczba_slownie(grosze)} {_pl_grosz(grosze)}"
+    return out

@@ -226,6 +226,58 @@ def test_rate_in_words_zloty_plural():
     assert rate_in_words(100, "pl", "EUR") == "sto EUR"
 
 
+def test_rate_in_words_with_grosze():
+    """Stawka ułamkowa (135,5) → słownie z groszami, by zgadzało się z kwotą."""
+    from app.services.b2b_contract_generator.number_words import rate_in_words
+
+    assert (
+        rate_in_words(135.5, "pl", "PLN")
+        == "sto trzydzieści pięć złotych pięćdziesiąt groszy"
+    )
+    assert rate_in_words(100.01, "pl", "PLN") == "sto złotych jeden grosz"
+    assert rate_in_words(2.02, "pl", "PLN") == "dwa złote dwa grosze"
+    assert (
+        rate_in_words(135.5, "en", "PLN")
+        == "one hundred thirty five zlotys fifty groszy"
+    )
+    # Inna waluta → bez części groszowej (tylko kod waluty).
+    assert rate_in_words(100.5, "pl", "EUR") == "sto EUR"
+
+
+def test_format_rate_polish_comma():
+    """Liczba całkowita → bez przecinka; ułamkowa → polski zapis „135,50"."""
+    from app.services.b2b_contract_generator.formatting import format_rate
+
+    assert format_rate(150) == "150"
+    assert format_rate(150.0) == "150"
+    assert format_rate(135.5) == "135,50"
+    assert format_rate(99.99) == "99,99"
+    assert format_rate(None) is None
+
+
+def test_render_context_accepts_fractional_rate():
+    """Regresja 422: stawka ułamkowa (135.5) renderuje się — kwota „135,50"
+    + spójne słownie z groszami w kontekście umowy."""
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.render_context import (
+        build_render_context,
+    )
+
+    req = B2BRenderRequest(
+        role_id=None,
+        language="pl",
+        partner_name="Jan Kowalski",
+        start_date=date(2026, 7, 1),
+        rate_candidate=135.5,
+        currency="PLN",
+    )
+    ctx = build_render_context(req, None)
+    assert ctx["contract"]["rate_candidate"] == "135,50"
+    assert ctx["b2b"]["rate_in_words"] == (
+        "sto trzydzieści pięć złotych pięćdziesiąt groszy"
+    )
+
+
 # ── Numeracja umów: parser numeru + sugestia kolejnego wolnego ───────────────
 
 

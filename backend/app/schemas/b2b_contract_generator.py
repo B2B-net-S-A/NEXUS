@@ -131,7 +131,11 @@ class B2BRenderRequest(BaseModel):
     # Tryb daty rozpoczęcia w §13: "exact" → „z dniem <data>";
     # "not_earlier" → „nie wcześniej niż <data>"; "not_later" → „nie później niż".
     start_date_mode: str = "exact"
-    rate_candidate: Optional[int] = None
+    # Stawka godzinowa — może być ułamkowa (np. 135,5 PLN/h). `float`, NIE `int`:
+    # input type="number" w formularzu wysyła „135.5", a Pydantic `int` odrzuca
+    # liczbę z częścią ułamkową → 422. Formatowanie do postaci „135,50" robi
+    # `format_rate` w `render_context`.
+    rate_candidate: Optional[float] = None
     currency: str = "PLN"
     rate_in_words: Optional[str] = None
     scope_items_override: Optional[list[str]] = None

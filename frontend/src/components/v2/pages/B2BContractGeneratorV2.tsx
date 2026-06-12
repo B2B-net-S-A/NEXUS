@@ -605,7 +605,11 @@ function GeneratorForm() {
     signing_date: signingDate || null,
     start_date: startDate || null,
     start_date_mode: startDateMode,
-    rate_candidate: rateCandidate ? Number(rateCandidate) : null,
+    // Stawka bywa ułamkowa (135,5); normalizuj przecinek→kropka. Backend
+    // przyjmuje float i formatuje do „135,50" w umowie.
+    rate_candidate: rateCandidate.trim()
+      ? Number(rateCandidate.replace(",", "."))
+      : null,
     currency: currency.trim() || "PLN",
   });
 
@@ -626,7 +630,7 @@ function GeneratorForm() {
     if (!contractNumber.trim()) missing.push("Numer umowy");
     if (!signingDate) missing.push("Data podpisania");
     if (!startDate) missing.push("Data rozpoczęcia");
-    if (!rateCandidate.trim() || Number(rateCandidate) <= 0)
+    if (!rateCandidate.trim() || !(Number(rateCandidate.replace(",", ".")) > 0))
       missing.push("Stawka godzinowa");
     if (missing.length) {
       toast.showError(`Uzupełnij wymagane pola: ${missing.join(", ")}.`);

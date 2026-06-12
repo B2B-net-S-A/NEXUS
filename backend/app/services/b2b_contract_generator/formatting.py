@@ -12,6 +12,22 @@ from datetime import date, datetime
 _DATE_BLANK = "…………………"
 
 
+def format_rate(amount: object) -> str | None:
+    """Stawka do wyświetlenia w umowie: liczba całkowita → „150"; ułamkowa →
+    polski zapis z przecinkiem i dwoma miejscami → „135,50".
+
+    None → None (szablon pokazuje wtedy placeholder „…")."""
+    if amount is None or amount == "":
+        return None
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        return str(amount)
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.2f}".replace(".", ",")
+
+
 def pl_date(value: object) -> str:
     """Sformatuj datę jako DD.MM.YYYY; None/pusty → placeholder kropkowy."""
     if value is None or value == "":
