@@ -401,6 +401,54 @@ class Settings(BaseSettings):
     # days. Older calls are skipped — out of scope for the ATS workflow.
     CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
 
+    # ── Own browser dialer (SIP.js + jambonz + Polish VoIP trunk) ────────────
+    # Kill-switch mirroring CLOUDTALK_ENABLED: when False, /api/dialer/* return
+    # 503, the webhook stays in DRY-RUN (returns 200, no DB writes), and the
+    # reconciliation loop exits. Default OFF until the jambonz gateway + Datera
+    # trunk are provisioned in Coolify env vault.
+    OWN_DIALER_ENABLED: bool = False
+    # Shared secret for HMAC-SHA256 verification of jambonz → NEXUS callbacks.
+    # The same value is configured on the jambonz application webhook. Generated
+    # locally via `openssl rand -hex 32`; not derived from any API key.
+    DIALER_WEBHOOK_SECRET: str = ""
+    # jambonz control plane — lives on a SEPARATE Hetzner host (SIP/RTP cannot
+    # run behind Coolify's Traefik HTTP proxy). Backend talks to it over REST.
+    JAMBONZ_BASE_URL: str = ""
+    JAMBONZ_API_TOKEN: str = ""
+    JAMBONZ_ACCOUNT_SID: str = ""
+    JAMBONZ_APPLICATION_SID: str = ""
+    # SIP realm/domain the recruiters' browser softphones register against (WSS).
+    JAMBONZ_SIP_REALM: str = ""
+    # coturn (NAT traversal): TURN/STUN URLs sent to the browser + static secret
+    # used to mint time-limited (ephemeral) TURN credentials in /api/dialer/token.
+    COTURN_URLS: str = ""  # CSV, e.g. "turn:host:3478,turns:host:443"
+    COTURN_STATIC_SECRET: str = ""
+    # Datera SIP trunk / number management (Polish range-holder operator → clean
+    # CLI). Empty in dev — client guards before any HTTP call.
+    DATERA_BASE_URL: str = ""
+    DATERA_API_KEY: str = ""
+    DATERA_API_SECRET: str = ""
+    # AssemblyAI Polish STT — EU endpoint per DPA (candidate voice stays in the
+    # EU). Sentiment analysis is intentionally NEVER enabled (EU AI Act art.
+    # 5(1)(f) bans emotion inference in recruitment).
+    ASSEMBLYAI_API_KEY: str = ""
+    ASSEMBLYAI_BASE_URL: str = "https://api.eu.assemblyai.com"
+    # Outbound destination allowlist (CSV of allowed dial prefixes). PL-only by
+    # default — defense-in-depth alongside the jambonz dialplan (anti-toll-fraud).
+    DIALER_ALLOWED_PREFIXES: str = "+48,0048,48"
+    # Per-recruiter anti-toll-fraud caps enforced in /api/dialer/calls/initiate.
+    DIALER_MAX_CALLS_PER_USER_PER_DAY: int = 200
+    DIALER_MAX_CONCURRENT_CALLS_PER_USER: int = 2
+    # TTL for the short-lived SIP/TURN credentials minted by /api/dialer/token.
+    DIALER_SIP_CRED_TTL_SECONDS: int = 3600
+    # Recording audio purge window (RODO). Transcripts/notes are kept longer.
+    DIALER_RECORDING_RETENTION_DAYS: int = 60
+    DIALER_TRANSCRIPT_RETENTION_DAYS: int = 365
+    # Reconciliation loop cadence (catch recording/status webhooks missed during
+    # downtime). Clamped to >=300s in the loop, mirroring cloudtalk_sync.
+    DIALER_SYNC_INTERVAL_SECONDS: int = 3600
+    DIALER_HISTORICAL_BACKFILL_DAYS: int = 30
+
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
     # outbound posts are no-op'd (logged, return False) so admins can stage
@@ -427,6 +475,20 @@ class Settings(BaseSettings):
         return [
             d.strip().lower() for d in self.SSO_ALLOWED_DOMAINS.split(",") if d.strip()
         ]
+
+    @property
+    def dialer_allowed_prefixes_list(self) -> list[str]:
+        """Parse DIALER_ALLOWED_PREFIXES CSV into a list of allowed dial prefixes."""
+        if not self.DIALER_ALLOWED_PREFIXES:
+            return []
+        return [p.strip() for p in self.DIALER_ALLOWED_PREFIXES.split(",") if p.strip()]
+
+    @property
+    def coturn_urls_list(self) -> list[str]:
+        """Parse COTURN_URLS CSV into a list of TURN/STUN URLs for the browser."""
+        if not self.COTURN_URLS:
+            return []
+        return [u.strip() for u in self.COTURN_URLS.split(",") if u.strip()]
 
     @property
     def aad_group_role_map(self) -> dict[str, str]:
