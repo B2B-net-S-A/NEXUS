@@ -151,6 +151,7 @@ jobs:
                  tests/test_dialer_webhook.py \
                  tests/test_dialer_api.py \
                  tests/test_dialer_recording_proxy.py \
+                 tests/test_dialer_retention.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov
