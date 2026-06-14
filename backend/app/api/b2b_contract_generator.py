@@ -35,6 +35,7 @@ from app.models.contract import (
 )
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
+from app.models.user import UserRole
 from app.schemas.b2b_contract_generator import (
     B2BCompanyLookupResponse,
     B2BContractDetailResponse,
@@ -542,7 +543,11 @@ async def list_generated_contracts(
     limit: int = Query(50, ge=1, le=200),
 ):
     """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
-    „Wygenerowane umowy", by potwierdzić poprawność numeru."""
+    „Wygenerowane umowy", by potwierdzić poprawność numeru.
+
+    ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
+    wpisu lub admin)."""
+    is_admin = current_user.has_role(UserRole.admin)
     rows = (
         (
             await db.execute(
@@ -556,15 +561,51 @@ async def list_generated_contracts(
     )
     return [
         B2BGeneratedContractItem(
+            id=r.id,
             contract_number=r.contract_number,
             partner_name=r.partner_name,
             client_name=r.client_name,
             language=r.language,
             signing_date=r.signing_date,
             created_at=r.created_at.isoformat() if r.created_at else None,
+            can_delete=is_admin or r.created_by == current_user.id,
         )
         for r in rows
     ]
+
+
+@router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generated_contract(
+    generated_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń wpis z listy „Wygenerowane umowy".
+
+    Może to zrobić wyłącznie autor wpisu (osoba, która wygenerowała umowę) lub
+    administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
+    liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
+    ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+        )
+    number, partner, rid = row.contract_number, row.partner_name, row.id
+    await db.delete(row)
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=rid,
+            action="deleted",
+            user_id=current_user.id,
+            details={"contract_number": number, "partner_name": partner},
+        )
+    )
+    await db.commit()
 
 
 @router.post("/check-uop", response_model=B2BUopCheckResponse)

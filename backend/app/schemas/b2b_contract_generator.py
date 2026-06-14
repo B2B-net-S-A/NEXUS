@@ -188,9 +188,12 @@ class B2BUopCheckResponse(BaseModel):
 class B2BGeneratedContractItem(BaseModel):
     """Pozycja listy wygenerowanych umów (zakładka „Wygenerowane umowy")."""
 
+    id: int
     contract_number: str
     partner_name: Optional[str] = None
     client_name: Optional[str] = None
     language: Optional[str] = None
     signing_date: Optional[date] = None
     created_at: Optional[str] = None
+    # Czy bieżący użytkownik może usunąć ten wpis (autor wpisu lub admin).
+    can_delete: bool = False

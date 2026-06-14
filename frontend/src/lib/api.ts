@@ -1716,6 +1716,8 @@ export const b2bGeneratorApi = {
         params: { limit },
       })
       .then((r) => r.data),
+  deleteGenerated: (id: number) =>
+    api.delete(`/api/b2b-generator/generated/${id}`).then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
       .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
@@ -1723,12 +1725,14 @@ export const b2bGeneratorApi = {
 };
 
 export interface B2BGeneratedContractRow {
+  id: number;
   contract_number: string;
   partner_name: string | null;
   client_name: string | null;
   language: string | null;
   signing_date: string | null;
   created_at: string | null;
+  can_delete: boolean;
 }
 
 export interface B2BUopIssue {

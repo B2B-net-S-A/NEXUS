@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -51,6 +52,7 @@ import { useToast } from "@/components/Toast";
 import api, {
   b2bGeneratorApi,
   extractErrorMsg,
+  type B2BGeneratedContractRow,
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
@@ -272,19 +274,44 @@ export function B2BContractGeneratorV2() {
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
 function GeneratedContractsTab() {
+  const toast = useToast();
+  const queryClient = useQueryClient();
   const q = useQuery({
     queryKey: ["b2b-generated"],
     queryFn: () => b2bGeneratorApi.generated(100),
     staleTime: 10_000,
   });
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => b2bGeneratorApi.deleteGenerated(id),
+    onSuccess: () => {
+      toast.showSuccess("Umowa usunięta z listy.");
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
   const rows = q.data ?? [];
+
+  const confirmDelete = (r: B2BGeneratedContractRow) => {
+    const label = r.partner_name
+      ? `${r.contract_number} — ${r.partner_name}`
+      : r.contract_number;
+    if (
+      window.confirm(
+        `Usunąć umowę „${label}” z listy? Tej operacji nie można cofnąć.`,
+      )
+    ) {
+      deleteMut.mutate(r.id);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
-          numer nie powtarza istniejącego.
+          numer nie powtarza istniejącego. Wpis może usunąć osoba, która
+          wygenerowała umowę, lub administrator.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -303,23 +330,55 @@ function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Partner</th>
                   <th className="py-2 pr-4 font-medium">Klient</th>
                   <th className="py-2 pr-4 font-medium">Język</th>
-                  <th className="py-2 font-medium">Wygenerowano</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerowano</th>
+                  <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={`${r.contract_number}-${i}`} className="border-b">
-                    <td className="py-2 pr-4 font-medium">
-                      {r.contract_number}
-                    </td>
-                    <td className="py-2 pr-4">{r.partner_name || "—"}</td>
-                    <td className="py-2 pr-4">{r.client_name || "—"}</td>
-                    <td className="py-2 pr-4 uppercase">{r.language || "—"}</td>
-                    <td className="py-2 text-muted-foreground">
-                      {r.created_at ? r.created_at.slice(0, 16).replace("T", " ") : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const deleting =
+                    deleteMut.isPending && deleteMut.variables === r.id;
+                  return (
+                    <tr key={r.id} className="border-b">
+                      <td className="py-2 pr-4 font-medium">
+                        {r.contract_number}
+                      </td>
+                      <td className="py-2 pr-4">{r.partner_name || "—"}</td>
+                      <td className="py-2 pr-4">{r.client_name || "—"}</td>
+                      <td className="py-2 pr-4 uppercase">
+                        {r.language || "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {r.created_at
+                          ? r.created_at.slice(0, 16).replace("T", " ")
+                          : "—"}
+                      </td>
+                      <td className="py-2 text-right">
+                        {r.can_delete ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive hover:text-destructive"
+                            disabled={deleting}
+                            onClick={() => confirmDelete(r)}
+                            title="Usuń umowę z listy"
+                          >
+                            {deleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            <span className="ml-1">Usuń</span>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            —
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
