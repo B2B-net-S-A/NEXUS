@@ -1,7 +1,7 @@
 <h1>B2B cooperation agreement</h1>
 <h2>No. {{ b2b.contract_number or '………' }}</h2>
 <p>concluded on {{ b2b.signing_date | pl_date }} in Warsaw between: </p>
-<p><strong>B2B.</strong><strong>NET</strong><strong> S.A. </strong>with its registered office in Warsaw, Aleje Jerozolimskie 180, 02-486 Warsaw, entered in the Register of Entrepreneurs kept by the District Court for the Capital City of Warsaw in Warsaw, 14th Commercial Division of the National Court Register, KRS No. 0000387063, NIP: 5711707392, with share capital of PLN 1,360,000.00 (paid up), represented by Mr. Artur Twardowski – President of the Management Board,</p>
+<p><strong>B2B.</strong><strong>net</strong><strong> S.A. </strong>with its registered office in Warsaw, Aleje Jerozolimskie 180, 02-486 Warsaw, entered in the Register of Entrepreneurs kept by the District Court for the Capital City of Warsaw in Warsaw, 14th Commercial Division of the National Court Register, KRS No. 0000387063, NIP: 5711707392, with share capital of PLN 1,360,000.00 (paid up), represented by Mr. Artur Twardowski – President of the Management Board,</p>
 <p>hereinafter referred to as <strong>the "Company" </strong>or "<strong>B2BNET"</strong></p>
 <p>and</p>
 <p><strong>{{ b2b.g_mr }} {{ candidate.full_name or '………' }} </strong>conducting business activity under the name: {{ candidate.legal_name or '………' }}, registered in the Central Register and Information on Economic Activity at the address: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }}, </p>
@@ -136,7 +136,7 @@ Whenever this Agreement refers to:</p>
 <p>The agreement may be concluded in writing or in electronic form using a qualified electronic signature, in accordance with Article 78¹(1) of the Civil Code.</p>
 <p>The Agreement has been drawn up in two identical copies, one for each Party.</p>
 <p>_______________________________ 				________________________________ </p>
-<p>B2B.NET S.A.							Partner</p>
+<p>B2B.net S.A.							Partner</p>
 <h2>Appendix No. 1 – Confidentiality Declaration template</h2>
 <p><strong>CONFIDENTIALITY DECLARATION</strong></p>
 <p><strong>to agreement No. {{ b2b.contract_number or '…' }} dated {{ b2b.signing_date | pl_date }}</strong></p>
@@ -153,12 +153,12 @@ Whenever this Agreement refers to:</p>
 <p>Legible signature of the Partner		Date</p>
 <p>Declaration signed in the presence of:</p>
 <p>_______________________		________________</p>
-<p>Representative of B2B.NET S.A.		date</p>
+<p>Representative of B2B.net S.A.		date</p>
 <h2>Appendix No. 2 - Data Processing Agreement (DPA)</h2>
 <h2>DATA PROCESSING AGREEMENT</h2>
 <p>Concluded in Warsaw on {{ b2b.signing_date | pl_date }} as Appendix No. 2 to the B2B Cooperation Agreement no: {{ b2b.contract_number or '…' }}</p>
 <p>Between:</p>
-<p><strong>B2B</strong><strong>.</strong><strong>NET S.A</strong>. with its registered office in Warsaw, Al. Jerozolimskie 180, 02-486 Warsaw, entered in the Register of Entrepreneurs of the National Court Register under number 0000387063, NIP: 5711707392 represented by Mr. Artur Twardowski – President of the Management Board,</p>
+<p><strong>B2B</strong><strong>.</strong><strong>net S.A</strong>. with its registered office in Warsaw, Al. Jerozolimskie 180, 02-486 Warsaw, entered in the Register of Entrepreneurs of the National Court Register under number 0000387063, NIP: 5711707392 represented by Mr. Artur Twardowski – President of the Management Board,</p>
 <p>hereinafter referred to as <strong>the "</strong><strong>Controller</strong><strong>"</strong>
 
 and</p>
@@ -194,10 +194,10 @@ Final Provisions</h2>
 <p>The Processor shall be fully liable for any damages, including administrative fines imposed on the Controller, resulting from the Processor’s breach of this Data Processing Agreement or the provisions of the GDPR.</p>
 <p>In matters not covered by this Agreement, the provisions of the GDPR and the Civil Code shall apply.</p>
 <p>_______________							_______________</p>
-<p>         B2B.NET S.A.						                      Processor</p>
+<p>         B2B.net S.A.						                      Processor</p>
 <h2>Appendix No. 3 – template specifying the B2BNET Customer</h2>
 <h2>APPENDIX NO. 3 TO B2B AGREEMENT NO. {{ b2b.contract_number or '…' }}</h2>
 <h2>PROJECT CUSTOMER</h2>
 <table><tr><td>Element</td><td>Value</td></tr><tr><td>Project Customer Name:</td><td>{{ client.legal_name or client.name or '………' }}</td></tr><tr><td>Address (city):</td><td>{{ b2b.project_city or '………' }}</td></tr><tr><td>Project description and scope of services (if known):</td><td>{{ b2b.project_description or '………' }}</td></tr><tr><td>Start date of service provision:</td><td>{{ contract.start_date | pl_date }}</td></tr></table>
 <p>________________________						________________</p>
-<p>B2B.NET S.A.								            Partner</p>
+<p>B2B.net S.A.								            Partner</p>
