@@ -51,8 +51,7 @@ async def _resolve_impersonation(
     method = request.method.upper()
     path = request.url.path
     is_read_only = method in _IMPERSONATION_SAFE_METHODS or (
-        method == "POST"
-        and path.startswith(_IMPERSONATION_POST_ALLOW_PREFIXES)
+        method == "POST" and path.startswith(_IMPERSONATION_POST_ALLOW_PREFIXES)
     )
     if not is_read_only:
         raise HTTPException(
