@@ -361,7 +361,13 @@ app.add_middleware(
     allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
+        "X-Impersonate-User-Id",
+    ],
 )
 
 # Register routers
