@@ -100,6 +100,38 @@ def test_add_text_with_highlights_splits_runs():
     assert bolds == [None, True, None]
 
 
+def test_descriptive_parenthetical_bolds_only_base_term():
+    # The screenshot bug: "Figma (zaawansowana znajomość)" used to split into a
+    # bold keyword "zaawansowana znajomość" that then bolded those generic
+    # words throughout the CV prose. Now only the real skill bolds.
+    kw = ["Figma (zaawansowana znajomość)"]
+    assert _matches("Projektowanie w Figma i Sketch", kw) == ["Figma"]
+    # The qualifier must NEVER bold on its own.
+    assert _matches("zaawansowana znajomość narzędzi UX", kw) == []
+
+
+def test_acronym_parenthetical_still_splits():
+    # Genuine aliases ("K8s", ".NET", "PL/SQL") must keep bolding both forms.
+    assert _matches("klaster K8s, potem Kubernetes", ["Kubernetes (K8s)"]) == [
+        "K8s",
+        "Kubernetes",
+    ]
+    assert _matches("aplikacje .NET", ["Microsoft (.NET)"]) == [".NET"]
+
+
+def test_generic_single_word_keyword_skipped():
+    # Champion lists sometimes contain proficiency/filler entries on their own.
+    assert _matches("zaawansowana znajomość Figma", ["znajomość"]) == []
+    assert _matches("Docker mile widziane", ["mile widziane"]) == []
+    assert _matches("bardzo dobra znajomość AWS", ["bardzo dobra znajomość"]) == []
+
+
+def test_hyphen_space_spelling_drift_matches():
+    # Champion list vs CV often disagree on hyphen vs space — match both ways.
+    assert _matches("Praca z auto layout w Figma", ["auto-layout"]) == ["auto layout"]
+    assert _matches("Zaawansowany auto-layout", ["auto layout"]) == ["auto-layout"]
+
+
 # ── Claude response normalization ──────────────────────────────────────────
 
 

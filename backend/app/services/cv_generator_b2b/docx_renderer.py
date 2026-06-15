@@ -92,17 +92,124 @@ _STOP_WORDS = {
 _WORD_CHARS = "0-9A-Za-z_#+ąćęłńóśźżĄĆĘŁŃÓŚŹŻàâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ"
 
 
+# Proficiency / filler words a recruiter often types alongside a real skill
+# ("Figma – zaawansowana znajomość", "Docker (mile widziane)"). A champion
+# keyword whose every token is generic is dropped so prose words never get
+# bolded; a parenthetical made of these is treated as a qualifier, not an alias.
+_GENERIC_WORDS = {
+    # PL — proficiency / filler / requirement language
+    "zaawansowana",
+    "zaawansowany",
+    "zaawansowane",
+    "podstawowa",
+    "podstawowy",
+    "podstawowe",
+    "srednia",
+    "srednio",
+    "sredniozaawansowana",
+    "sredniozaawansowany",
+    "biegla",
+    "biegły",
+    "biegly",
+    "biegle",
+    "komunikatywna",
+    "komunikatywny",
+    "znajomosc",
+    "znajomość",
+    "doswiadczenie",
+    "doświadczenie",
+    "mile",
+    "widziane",
+    "widziana",
+    "widziany",
+    "dobra",
+    "dobry",
+    "dobre",
+    "bardzo",
+    "atut",
+    "atutem",
+    "plus",
+    "wymagane",
+    "wymagana",
+    "wymagany",
+    "opcjonalnie",
+    "opcjonalne",
+    "poziom",
+    "umiejetnosc",
+    "umiejętność",
+    "umiejetnosci",
+    "umiejętności",
+    "preferowana",
+    "preferowane",
+    "preferowany",
+    "ogolna",
+    "ogólna",
+    "praktyczna",
+    "praktyczne",
+    "must",
+    "have",
+    "nice",
+    # EN — proficiency / filler / requirement language
+    "advanced",
+    "basic",
+    "intermediate",
+    "fluent",
+    "proficient",
+    "proficiency",
+    "knowledge",
+    "experience",
+    "required",
+    "optional",
+    "good",
+    "strong",
+    "level",
+    "skills",
+    "skill",
+    "preferred",
+    "general",
+    "practical",
+    "familiarity",
+}
+
+
+def _is_alias_like(text: str) -> bool:
+    """True iff a parenthetical reads like a tech alias, not a qualifier.
+
+    "K8s" / ".NET" / "PL/SQL" → alias (bold it too); "zaawansowana znajomość"
+    or "Design System" → qualifier/phrase (bold only the base term).
+    """
+    s = text.strip()
+    if not s or len(s) > 12 or re.search(r"\s", s):
+        return False
+    return any(ch.isalnum() for ch in s)
+
+
+def _is_generic_phrase(text: str) -> bool:
+    """True iff every word in `text` is a stop/proficiency word (skip bolding)."""
+    tokens = re.findall(rf"[{_WORD_CHARS}]+", text.lower())
+    if not tokens:
+        return True
+    return all(t in _GENERIC_WORDS or t in _STOP_WORDS or len(t) < 2 for t in tokens)
+
+
 def _keyword_variants(keyword: str) -> list[str]:
     """Expand a champion keyword into matchable variants.
 
-    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] so both spellings get bolded.
+    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] — the parenthetical is an alias.
+    "Figma (zaawansowana znajomość)" → ["Figma"] — the parenthetical is a
+    qualifier and must NOT become a bold keyword (it would bold those generic
+    words throughout the CV prose).
     """
     kw = (keyword or "").strip()
     if not kw:
         return []
     m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", kw)
     if m and m.group(1).strip():
-        return [m.group(1).strip(), m.group(2).strip()]
+        base = m.group(1).strip()
+        alias = m.group(2).strip()
+        if _is_alias_like(alias):
+            return [base, alias]
+        return [base]
     return [kw]
 
 
@@ -120,10 +227,17 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
             key = v.lower()
             if len(v) < 2 or key in _STOP_WORDS or key in seen:
                 continue
+            if _is_generic_phrase(v):
+                continue
             seen.add(key)
-            escaped = re.sub(r"\\?\s+", r"\\s+", re.escape(v))
+            # Build from tokens so "auto-layout" also matches "auto layout"
+            # (hyphen ↔ space spelling drift between champion list and CV).
+            parts = [p for p in re.split(r"[\s\-]+", v) if p]
+            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
             # "CI/CD" should also match "CI / CD" — slash with optional spaces.
             escaped = escaped.replace("/", r"\s*/\s*")
+            if not escaped:
+                continue
             patterns.append(
                 re.compile(
                     rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
@@ -302,6 +416,7 @@ def add_section_header(doc: Any, text: str) -> Any:
     para.paragraph_format.space_before = Pt(2)
     para.paragraph_format.space_after = Pt(3)
     para.paragraph_format.keep_with_next = True
+    para.paragraph_format.keep_together = True
     return para
 
 
@@ -334,6 +449,9 @@ def add_bullet_point(
     para.paragraph_format.space_before = Pt(1)
     para.paragraph_format.space_after = Pt(1)
     para.paragraph_format.line_spacing = 1.5
+    # Keep a single bullet's lines on one page — a bullet never splits across a
+    # page break, so the list reflows cleanly between items instead of mid-line.
+    para.paragraph_format.keep_together = True
     return para
 
 
@@ -570,6 +688,7 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(1)
         para.paragraph_format.line_spacing = 1.5
+        para.paragraph_format.keep_together = True
 
     # === CERTYFIKATY / CERTIFICATIONS ===
     if candidate_data.get("certifications"):
@@ -612,6 +731,7 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
         para.paragraph_format.keep_with_next = True
+        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -626,6 +746,7 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
         para.paragraph_format.keep_with_next = True
+        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -640,6 +761,7 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
         para.paragraph_format.keep_with_next = True
+        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -651,6 +773,7 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
         para.paragraph_format.keep_with_next = True
+        para.paragraph_format.keep_together = True
 
         add_bullet_list(
             doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
@@ -672,6 +795,7 @@ def render_cv_to_bytes(
             )
             para.paragraph_format.space_before = Pt(4)
             para.paragraph_format.space_after = Pt(2)
+            para.paragraph_format.keep_together = True
 
     # === KLAUZULA RODO / GDPR ===
     doc.add_paragraph()
