@@ -742,6 +742,9 @@ function GeneratorForm() {
   const uopMut = useMutation({
     mutationFn: () =>
       b2bGeneratorApi.checkUop({ text: projectDescription, language }),
+    // Rekomendacje znikają dopiero przy PONOWNYM kliknięciu „Sprawdź…" (czyli
+    // tutaj) — nie przy edycji opisu — i od razu generują się nowe.
+    onMutate: () => setUop(null),
     onSuccess: (d) => setUop(d),
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
@@ -1108,7 +1111,8 @@ function GeneratorForm() {
               onChange={(e) => {
                 descTouched.current = true;
                 setProjectDescription(e.target.value);
-                if (uop) setUop(null);
+                // Wynik AI-sprawdzenia ZOSTAJE przy edycji opisu — czyści się
+                // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
               }}
               rows={4}
               placeholder="Auto z obszaru/oferty — możesz nadpisać. Po wklejeniu sprawdź AI…"
