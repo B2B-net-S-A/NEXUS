@@ -62,6 +62,11 @@ api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
+    // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
+    // efektywnego current_user — patrz backend/app/api/deps.py.
+    const impersonateId = localStorage.getItem("nexus_impersonate_id");
+    if (impersonateId) config.headers["X-Impersonate-User-Id"] = impersonateId;
   }
   return config;
 });
@@ -161,6 +166,13 @@ api.interceptors.response.use(
     }
 
     if (status === 403) {
+      // W trybie „podgląd jako użytkownik" admin celowo dostaje 403 na
+      // endpointach niedostępnych dla podglądanej roli (np. /api/admin/*).
+      // To NORMALNE — nie wolno z tego wnioskować wygaśnięcia sesji i wylogować
+      // admina. Surfacujemy 403 normalnie (komponent pokaże „brak dostępu").
+      if (localStorage.getItem("nexus_impersonate_id")) {
+        return Promise.reject(err);
+      }
       if (isAuthScopedPath(url)) {
         triggerSessionExpiredRedirect();
         return Promise.reject(err);
@@ -346,6 +358,10 @@ export interface ImportTaskStatus {
 
 export const adminApi = {
   listUsers: () => api.get("/api/admin/users"),
+  /** Admin „podgląd jako użytkownik": rozpoczyna sesję podglądu wskazanego
+   *  usera. Zwraca jego autorytatywny profil (UserResponse) + zapisuje audyt.
+   *  Faktyczna podmiana danych dzieje się przez nagłówek X-Impersonate-User-Id. */
+  startImpersonation: (id: number) => api.post(`/api/admin/impersonate/${id}`),
   createUser: (data: Record<string, unknown>) => api.post("/api/admin/users", data),
   updateUser: (id: number, data: Record<string, unknown>) => api.put(`/api/admin/users/${id}`, data),
   deactivateUser: (id: number) => api.delete(`/api/admin/users/${id}`),

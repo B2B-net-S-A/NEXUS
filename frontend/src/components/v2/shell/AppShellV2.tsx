@@ -8,6 +8,7 @@ import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWal
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 import { OpenTabsV2 } from "./OpenTabsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { KidsMascot } from "./KidsMascot";
@@ -117,6 +118,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <ImpersonationBanner />
         <TopbarV2
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
           pendingModal={pendingModal}

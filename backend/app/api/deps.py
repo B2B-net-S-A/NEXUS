@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,12 +12,89 @@ from app.models.user import User, UserRole
 
 security = HTTPBearer()
 
+# ── Admin "podgląd jako użytkownik" (impersonation) ──────────────────────────
+#
+# Admin może oglądać aplikację oczami dowolnego usera (rekruter, DL, TAC…),
+# żeby zobaczyć jego widok: sidebar, "moje rekrutacje", KPI, dashboardy.
+# Mechanika: po normalnej autoryzacji JWT (token ZAWSZE należy do admina)
+# sprawdzamy nagłówek ``X-Impersonate-User-Id``. Jeśli obecny i request
+# pochodzi od admina — efektywny ``current_user`` zostaje podmieniony na
+# wskazanego usera. Token się NIE zmienia; podmiana żyje wyłącznie w obrębie
+# requestu, więc wszystkie filtry ``current_user.id`` i ``has_role()`` widzą
+# usera podglądanego.
+#
+# Bezpieczeństwo:
+#   • tylko admin może impersonować (inaczej 403 — anomalia, audytowalna),
+#   • TYLKO ODCZYT — dozwolone metody to GET/HEAD/OPTIONS (+ POST-owe
+#     wyszukiwarki, które są read-only). Każda mutacja w trybie podglądu
+#     zwraca 403, żeby admin nie stworzył/nie zmienił danych „jako ktoś inny".
+IMPERSONATION_HEADER = "X-Impersonate-User-Id"
+_IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# Read-only POST-y (wyszukiwarki) — muszą działać w trybie podglądu, bo część
+# list (np. kandydaci) ładuje się przez POST /api/search/*.
+_IMPERSONATION_POST_ALLOW_PREFIXES = ("/api/search",)
+
+
+async def _resolve_impersonation(
+    request: Request,
+    admin: User,
+    raw_target_id: str,
+    db: AsyncSession,
+) -> User:
+    """Podmień efektywnego usera na podglądanego (tylko dla admina, read-only)."""
+    if not admin.has_role(UserRole.admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tylko administrator może oglądać widok innego użytkownika",
+        )
+
+    method = request.method.upper()
+    path = request.url.path
+    is_read_only = method in _IMPERSONATION_SAFE_METHODS or (
+        method == "POST" and path.startswith(_IMPERSONATION_POST_ALLOW_PREFIXES)
+    )
+    if not is_read_only:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Podgląd jako użytkownik jest tylko do odczytu",
+        )
+
+    try:
+        target_id = int(raw_target_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nieprawidłowy nagłówek impersonacji",
+        )
+
+    if target_id == admin.id:
+        return admin
+
+    result = await db.execute(select(User).where(User.id == target_id))
+    target = result.scalar_one_or_none()
+    if target is None or not target.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Użytkownik do podglądu nie istnieje lub jest nieaktywny",
+        )
+
+    # Ślad dla downstream (audyt/logi) — kto kogo podgląda w tym requeście.
+    request.state.impersonator_id = admin.id
+    request.state.impersonated_user_id = target.id
+    return target
+
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Validate JWT token and return current user."""
+    """Validate JWT token and return current user.
+
+    Gdy admin wysyła nagłówek ``X-Impersonate-User-Id`` zwracamy usera
+    podglądanego (read-only) zamiast właściciela tokenu — patrz sekcja
+    „podgląd jako użytkownik" powyżej.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -35,6 +112,10 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_exception
+
+    impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
+    if impersonate_raw:
+        return await _resolve_impersonation(request, user, impersonate_raw, db)
     return user
 
 
