@@ -169,6 +169,47 @@ _GENERIC_WORDS = {
     "general",
     "practical",
     "familiarity",
+    "technology",
+    "technologies",
+    "position",
+    "positions",
+    "creation",
+    "possesses",
+    # PL — requirement-prose nouns/verbs a champion entry wraps a real skill in.
+    # These are NEVER the meaningful part of a technology, so they must never
+    # bold the CV prose ("tworzenie", "technologie", "stanowisku" etc.).
+    "technologia",
+    "technologie",
+    "technologii",
+    "technologią",
+    "technologiami",
+    "technologiach",
+    "stanowisko",
+    "stanowisku",
+    "stanowiska",
+    "stanowisk",
+    "stanowiskach",
+    "tworzenie",
+    "tworzenia",
+    "tworzeniu",
+    "kluczowy",
+    "kluczowa",
+    "kluczowe",
+    "kluczowych",
+    "kluczowym",
+    "kluczowymi",
+    "posiada",
+    "posiadanie",
+    "posiadania",
+    "wymagania",
+    "wymaganiami",
+    "rozwój",
+    "rozwoju",
+    "rozwojem",
+    "lider",
+    "lidera",
+    "liderem",
+    "liderzy",
 }
 
 
@@ -192,37 +233,37 @@ def _is_generic_phrase(text: str) -> bool:
     return all(t in _GENERIC_WORDS or t in _STOP_WORDS or len(t) < 2 for t in tokens)
 
 
-def _significant_subphrases(phrase: str) -> list[str]:
-    """Split a requirement phrase into matchable sub-phrases, dropping filler.
+def _is_filler_word(word: str) -> bool:
+    """True iff `word` is a proficiency/requirement/stop word (no real meaning)."""
+    norm = re.sub(rf"[^{_WORD_CHARS}]", "", word.lower())
+    return bool(norm) and (norm in _GENERIC_WORDS or norm in _STOP_WORDS)
 
-    Champion entries are often natural language ("Znajomość Java", "Dobra
-    znajomość Spring Boot") rather than bare tech tokens. Whole-phrase matching
-    then bolds nothing in the CV, which writes just "Java" / "Spring Boot" — so
-    the recruiter sees only *part* of the client's requirements highlighted.
 
-    Runs of proficiency / stop words act as separators so the real term inside
-    a filler phrase still bolds, while a phrase with NO filler stays intact so a
-    genuine multi-word term never bolds its common parts on their own:
+def _core_keyword(phrase: str) -> str:
+    """Trim leading/trailing filler so the real term inside a champion entry
+    still bolds — WITHOUT fragmenting a verbose requirement into generic words.
 
-        "Znajomość Java"              → ["Java"]
-        "Dobra znajomość Spring Boot" → ["Spring Boot"]
-        "Java i Python"               → ["Java", "Python"]
-        "Design System"              → ["Design System"]   (no filler — kept whole)
-        "mile widziane"              → []                  (all filler — dropped)
+    Champion entries are often natural language ("Znajomość Java") rather than
+    bare tech tokens. We strip filler (proficiency / requirement / stop words)
+    from BOTH ends and keep the core as ONE phrase; the CV prose is matched
+    against that core only. A wordy requirement therefore stays whole and only
+    matches verbatim, so its generic words ("tworzenie", "rozwój") can never
+    bold the prose on their own — that earlier over-bolding is what recruiters
+    reported ("bolds random words like 'tworzenie'/'technologie'").
+
+        "Znajomość Java"               → "Java"
+        "Dobra znajomość Spring Boot"  → "Spring Boot"
+        "Design System"               → "Design System"   (no filler — unchanged)
+        "Tworzenie i rozwój aplikacji" → "Tworzenie i rozwój aplikacji"
+                                          (kept whole — matched verbatim only)
+        "mile widziane"               → ""                (all filler — dropped)
     """
-    groups: list[list[str]] = []
-    current: list[str] = []
-    for word in phrase.split():
-        norm = re.sub(rf"[^{_WORD_CHARS}]", "", word.lower())
-        if not norm or norm in _GENERIC_WORDS or norm in _STOP_WORDS:
-            if current:
-                groups.append(current)
-                current = []
-            continue
-        current.append(word)
-    if current:
-        groups.append(current)
-    return [" ".join(g) for g in groups]
+    words = phrase.split()
+    while words and _is_filler_word(words[0]):
+        words.pop(0)
+    while words and _is_filler_word(words[-1]):
+        words.pop()
+    return " ".join(words)
 
 
 def _keyword_variants(keyword: str) -> list[str]:
@@ -256,31 +297,30 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     seen: set[str] = set()
     for kw in keywords or []:
         for variant in _keyword_variants(kw):
-            # A champion entry like "Znajomość Java" splits into ["Java"] so the
-            # real term still bolds even though the whole phrase never appears
-            # verbatim in the CV; a filler-free term stays whole ("Design System").
-            for sub in _significant_subphrases(variant):
-                v = sub.strip()
-                key = v.lower()
-                if len(v) < 2 or key in _STOP_WORDS or key in seen:
-                    continue
-                if _is_generic_phrase(v):
-                    continue
-                seen.add(key)
-                # Build from tokens so "auto-layout" also matches "auto layout"
-                # (hyphen ↔ space spelling drift between champion list and CV).
-                parts = [p for p in re.split(r"[\s\-]+", v) if p]
-                escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
-                # "CI/CD" should also match "CI / CD" — slash with optional spaces.
-                escaped = escaped.replace("/", r"\s*/\s*")
-                if not escaped:
-                    continue
-                patterns.append(
-                    re.compile(
-                        rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
-                        re.IGNORECASE,
-                    )
+            # Trim filler ("Znajomość Java" → "Java") but keep the core whole so
+            # a verbose requirement is matched verbatim only and never bolds its
+            # generic words ("tworzenie", "technologie") in the CV prose.
+            v = _core_keyword(variant).strip()
+            key = v.lower()
+            if len(v) < 2 or key in _STOP_WORDS or key in seen:
+                continue
+            if _is_generic_phrase(v):
+                continue
+            seen.add(key)
+            # Build from tokens so "auto-layout" also matches "auto layout"
+            # (hyphen ↔ space spelling drift between champion list and CV).
+            parts = [p for p in re.split(r"[\s\-]+", v) if p]
+            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
+            # "CI/CD" should also match "CI / CD" — slash with optional spaces.
+            escaped = escaped.replace("/", r"\s*/\s*")
+            if not escaped:
+                continue
+            patterns.append(
+                re.compile(
+                    rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
+                    re.IGNORECASE,
                 )
+            )
     return patterns
 
 
