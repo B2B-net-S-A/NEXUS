@@ -2,7 +2,8 @@
 
 Covers the 2026-06-10 audit fixes:
   * champion keyword bolding — phrase-aware, word-boundary matching
-    (multi-word MUST-HAVEs match, "Git" no longer bolds "digital"),
+    (multi-word MUST-HAVEs match, "Git" no longer bolds "digital", and a
+    filler phrase like "Znajomość Java" still bolds the real term "Java"),
   * Claude response normalization (missing keys must not KeyError → 500),
   * the anti-fabrication seatbelt ("makijaż, nie inna osoba" — every
     technology/cert in the output must be traceable to CV or notes),
@@ -130,6 +131,30 @@ def test_hyphen_space_spelling_drift_matches():
     # Champion list vs CV often disagree on hyphen vs space — match both ways.
     assert _matches("Praca z auto layout w Figma", ["auto-layout"]) == ["auto layout"]
     assert _matches("Zaawansowany auto-layout", ["auto layout"]) == ["auto-layout"]
+
+
+def test_filler_phrase_bolds_real_term():
+    # "Bolds only part" bug: a champion entry written as natural language
+    # ("Znajomość Java") never matched because the CV writes just "Java".
+    # Now the filler is stripped and the real term still bolds.
+    assert _matches("Programowanie w Java i Spring", ["Znajomość Java"]) == ["Java"]
+    assert _matches("Backend w Spring Boot", ["Dobra znajomość Spring Boot"]) == [
+        "Spring Boot"
+    ]
+
+
+def test_stopword_separated_terms_bold_each():
+    # "Java i Python" → two distinct requirements, both bold where present.
+    assert _matches("Stack: Java, Python i Go", ["Java i Python"]) == ["Java", "Python"]
+
+
+def test_filler_free_multiword_term_stays_whole():
+    # A genuine two-word term must NOT bold its common parts on their own:
+    # "Design System" matches the phrase but never the bare word "system".
+    assert _matches("Tworzenie Design System dla klienta", ["Design System"]) == [
+        "Design System"
+    ]
+    assert _matches("migracja systemu do nowej wersji", ["Design System"]) == []
 
 
 # ── Claude response normalization ──────────────────────────────────────────
