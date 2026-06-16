@@ -138,9 +138,7 @@ async def handle_event(db: AsyncSession, claims: dict[str, Any]) -> HandlerOutco
         return "ignored"
 
     sig = await db.scalar(
-        select(DocumentSignature).where(
-            DocumentSignature.autenti_process_id == process_id
-        )
+        select(DocumentSignature).where(DocumentSignature.provider_ref == process_id)
     )
     if sig is None:
         logger.warning(

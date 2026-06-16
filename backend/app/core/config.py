@@ -354,6 +354,39 @@ class Settings(BaseSettings):
     # state pump is the webhook handler.
     AUTENTI_SWEEPER_INTERVAL_SECONDS: int = 3600
 
+    # ── In-house QES signing (Faza 1+ — drop Autenti, single-vendor KIR) ────
+    # Kill-switch: when False, /api/signing/* write endpoints return 503 and
+    # the signing sweeper loop exits immediately. Default OFF until KIR
+    # (Szafir SDK + mSzafir) is contracted and creds provisioned. See
+    # docs/in-house-qes-signature-plan.md.
+    SIGNING_ENABLED: bool = False
+    # Default provider for new signatures: ``szafir_sdk`` (card, client-side)
+    # | ``mszafir_oneshot`` (cloud) | ``upload_validate`` | ``autenti`` (legacy).
+    SIGNING_PROVIDER: str = "szafir_sdk"
+    # Token TTL for the public /sign/{token} signing links (days).
+    SIGNING_LINK_EXPIRY_DAYS: int = 14
+    # Signing sweeper cadence (timeout sweep, attach retry, expiry). Clamped
+    # to >=300s in the loop.
+    SIGNING_SWEEPER_INTERVAL_SECONDS: int = 3600
+
+    # KIR Szafir SDK (pas główny — podpis kartą client-side). Asset/licence
+    # config filled from KIR onboarding (Faza 0). Web Module JS URL is served
+    # to the /sign page; empty = SDK pas unavailable (UI hides it).
+    QTSP_SZAFIR_SDK_ENABLED: bool = False
+    QTSP_SZAFIR_WEB_MODULE_URL: str = ""
+    QTSP_SZAFIR_LICENSE_KEY: str = ""
+
+    # KIR mSzafir One Shot (pas zapasowy — cert jednorazowy w chmurze). API
+    # shape confirmed in Faza 0; empty creds = mSzafir pas returns 503.
+    QTSP_MSZAFIR_ENABLED: bool = False
+    QTSP_MSZAFIR_BASE_URL: str = ""
+    QTSP_MSZAFIR_API_KEY_ID: str = ""
+    QTSP_MSZAFIR_API_KEY_SECRET: str = ""
+
+    # EU DSS validation sidecar (autorytatywny "is QES"). Empty = validation
+    # falls back to pyHanko trust-chain only (non-authoritative).
+    DSS_VALIDATION_URL: str = ""
+
     # ── Proxycurl LinkedIn tracking (Phase: LinkedIn sync) ──────────────────
     # Kill-switch: when False OR API key empty, sync loop exits immediately
     # and on-demand sync returns 503. Used for roll-back without redeploy.
