@@ -18,21 +18,14 @@ import {
   extractErrorDetail,
   parseDispositionFilename,
   parseWarningsHeader,
-  stageLabel,
 } from "@/lib/cv-generator";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/Toast";
+import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 
 interface Props {
   open: boolean;
@@ -163,28 +156,12 @@ export function CVGeneratorV2({
               </div>
             ) : (
               <>
-                <Select value={stageId} onValueChange={setStageId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Wybierz rekrutację…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recruitments.map((r) => (
-                      <SelectItem key={r.stage_id} value={String(r.stage_id)}>
-                        <span className="flex items-center gap-2">
-                          <span className="truncate">{r.job_title}</span>
-                          <span className="text-xs text-muted-foreground">
-                            · {stageLabel(r.stage)}
-                          </span>
-                          {r.ready ? (
-                            <CheckCircle2 className="ml-1 h-3.5 w-3.5 text-emerald-600" />
-                          ) : (
-                            <AlertTriangle className="ml-1 h-3.5 w-3.5 text-amber-500" />
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <RecruitmentCombobox
+                  recruitments={recruitments}
+                  value={stageId}
+                  onChange={setStageId}
+                  loading={recruitmentsQuery.isLoading}
+                />
                 {selectedRecruitment && (
                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                     <ReadyBadge
