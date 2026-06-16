@@ -137,6 +137,8 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
+from app.api import public_signing as public_signing_api
+from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
@@ -290,6 +292,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
+    from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.services.fx_service import fx_refresh_loop
@@ -320,6 +323,7 @@ async def lifespan(app: FastAPI):
         "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
+        "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
     }
@@ -705,6 +709,14 @@ if settings.M365_INTEGRATION_ENABLED:
 # Each write/IO handler invokes _require_enabled() internally; read-only
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
+
+# In-house QES signing (drop Autenti, single-vendor KIR + OSS upload-validate).
+# Router mounted unconditionally; write/IO handlers call _require_enabled()
+# (503 when SIGNING_ENABLED=false). Public signing page under /api/public.
+app.include_router(signing_api.router, prefix="/api/signing", tags=["signing"])
+app.include_router(
+    public_signing_api.router, prefix="/api/public", tags=["public-signing"]
+)
 
 # AI features panel (Settings → AI). Admin-only. Routes mounted at
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).

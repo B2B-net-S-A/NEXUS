@@ -9,11 +9,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.document_signature import SignatureStatus
 
 SignatureType = Literal["SES", "AdES", "QES"]
+# In-house QES rail providers (Faza 1, migracja 0133).
+SigningProvider = Literal["szafir_sdk", "mszafir_oneshot", "upload_validate", "autenti"]
 
 
 # ── Request bodies ─────────────────────────────────────────────────────────
@@ -31,6 +33,23 @@ class AutentiSendRequest(BaseModel):
     # Where to redirect the signer back after they finish. Defaults to
     # ``settings.PUBLIC_BASE_URL`` plus a "thanks" page when omitted.
     return_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+class SignForSignatureRequest(BaseModel):
+    """``POST /api/signing/contracts/{contract_id}/send-for-signature`` body.
+
+    In-house QES rail (Faza 2+). Defaults to QES via the Szafir SDK pas;
+    the consultant may fall back to mSzafir One Shot on the signing page.
+    """
+
+    signature_type: SignatureType = "QES"
+    provider: Literal["szafir_sdk", "mszafir_oneshot", "upload_validate"] = "szafir_sdk"
+    expires_in_days: int = Field(default=14, ge=1, le=90)
+    # Imienny reprezentant spółki podpisujący stronę B2B Network (kartą przez
+    # Szafir). ``None`` = strona firmy nieuruchamiana w tym wywołaniu.
+    company_signer_user_id: Optional[int] = None
+    # Optional Polish cover message shown to the signer in the e-mail.
+    message_pl: Optional[str] = Field(default=None, max_length=2000)
 
 
 # ── Response shapes ────────────────────────────────────────────────────────
@@ -66,10 +85,16 @@ class DocumentSignatureResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    contract_id: int
-    contract_document_id: int
-    autenti_process_id: Optional[str] = None
-    autenti_signature_type: str
+    contract_id: Optional[int] = None
+    contract_document_id: Optional[int] = None
+    # Provider-agnostic fields (Faza 1, migracja 0133).
+    provider: str = "autenti"
+    provider_ref: Optional[str] = None
+    signature_type: str
+    signing_session_id: Optional[str] = None
+    identity_provider: Optional[str] = None
+    signature_level: Optional[str] = None
+    validation_report: Optional[dict[str, Any]] = None
     status: SignatureStatus
     sent_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -85,6 +110,21 @@ class DocumentSignatureResponse(BaseModel):
     retry_count: int
     created_at: datetime
     updated_at: datetime
+
+    # ── Backward-compat aliases (deprecated — drop after FE migration) ──────
+    # Existing FE (`autentiApi`) reads ``autenti_process_id`` /
+    # ``autenti_signature_type``. Expose them as computed fields mapped onto
+    # the renamed columns so nothing breaks before the FE swaps to the new
+    # ``provider_ref`` / ``signature_type`` names.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def autenti_process_id(self) -> Optional[str]:
+        return self.provider_ref
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def autenti_signature_type(self) -> str:
+        return self.signature_type
 
 
 class DocumentSignatureDetailResponse(DocumentSignatureResponse):
