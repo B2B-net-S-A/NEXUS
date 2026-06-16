@@ -10,9 +10,10 @@ expiring). No-info-leak: every invalid/expired/used token → the same 404.
 Rate-limited per IP via slowapi. Mounted under ``/api/public``.
 
 Plan: ``docs/in-house-qes-signature-plan.md`` §7, §13.
-"""
 
-from __future__ import annotations
+NOTE: no ``from __future__ import annotations`` here — it turns ``UploadFile``
+into a ForwardRef that FastAPI cannot resolve for the multipart ``file`` param.
+"""
 
 import asyncio
 import logging
