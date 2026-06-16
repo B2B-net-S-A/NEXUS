@@ -8,10 +8,12 @@ import {
   CheckCircle2,
   ChevronsUpDown,
   Download,
+  Eye,
   FileText,
   Loader2,
   Search,
   Sparkles,
+  Trash2,
   Upload,
   UserSearch,
   X,
@@ -34,6 +36,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -62,6 +70,35 @@ type CandidateOption = {
 };
 
 type Mode = "new" | "old";
+
+type GeneratedCvItem = {
+  id: number;
+  candidate_id?: number | null;
+  job_id?: number | null;
+  candidate_name: string;
+  position?: string | null;
+  language: string;
+  blind: boolean;
+  mode: string;
+  filename: string;
+  created_at?: string | null;
+  created_by_name?: string | null;
+  can_download: boolean;
+  can_delete: boolean;
+};
+
+function formatGeneratedDate(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const CV_ACCEPT = ".pdf,.docx";
 const CHAMPION_ACCEPT = ".docx";
@@ -103,6 +140,29 @@ export function CVGeneratorStandaloneV2() {
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+
+  // Auto-download to the browser's „Pobrane" folder is now opt-in (remembered
+  // per browser). Default off: the generated CV lands on the panel list below
+  // instead of piling up as unlabeled files while the recruiter browses on.
+  const [autoDownload, setAutoDownload] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("cvgen_auto_download") === "1",
+  );
+  useEffect(() => {
+    window.localStorage.setItem("cvgen_auto_download", autoDownload ? "1" : "0");
+  }, [autoDownload]);
+
+  // „Wygenerowane CV" — server-side list, survives navigation/refresh.
+  const [previewItem, setPreviewItem] = useState<GeneratedCvItem | null>(null);
+  const generatedQuery = useQuery({
+    queryKey: ["cv-generated"],
+    queryFn: async () => {
+      const res = await api.get<GeneratedCvItem[]>("/api/cv-generator/generated");
+      return res.data;
+    },
+    staleTime: 15_000,
+  });
 
   // ── New mode queries ────────────────────────────────────────────────────
   // Debounce — bez tego każdy keystroke strzela requestem do API.
@@ -173,8 +233,13 @@ export function CVGeneratorStandaloneV2() {
     },
     onSuccess: ({ blob, filename, warnings: w }) => {
       setWarnings(w);
-      downloadBlob(blob, filename);
-      toast.showSuccess("CV wygenerowane i pobrane.");
+      if (autoDownload) downloadBlob(blob, filename);
+      generatedQuery.refetch();
+      toast.showSuccess(
+        autoDownload
+          ? "CV wygenerowane i pobrane."
+          : "CV wygenerowane — dostępne na liście poniżej (Podgląd / Pobierz).",
+      );
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
@@ -212,13 +277,18 @@ export function CVGeneratorStandaloneV2() {
     },
     onSuccess: ({ blob, filename, warnings: w }) => {
       setWarnings(w);
-      downloadBlob(blob, filename);
+      if (autoDownload) downloadBlob(blob, filename);
+      generatedQuery.refetch();
       // Clear the per-candidate inputs so the next CV can be dropped straight in
       // without manually removing the previous file, champion and notes.
       setCvFile(null);
       setChampionFile(null);
       setScreeningNotes("");
-      toast.showSuccess("CV wygenerowane i pobrane. Formularz wyczyszczony — możesz wgrać kolejne CV.");
+      toast.showSuccess(
+        autoDownload
+          ? "CV wygenerowane i pobrane. Formularz wyczyszczony — możesz wgrać kolejne CV."
+          : "CV wygenerowane — na liście poniżej. Formularz wyczyszczony — możesz wgrać kolejne CV.",
+      );
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
@@ -243,6 +313,29 @@ export function CVGeneratorStandaloneV2() {
   function handleSubmit() {
     setWarnings([]);
     activeMut.mutate();
+  }
+
+  async function handleDownloadGenerated(item: GeneratedCvItem) {
+    try {
+      const res = await api.get(`/api/cv-generator/generated/${item.id}/docx`, {
+        responseType: "blob",
+      });
+      downloadBlob(res.data as Blob, item.filename);
+    } catch (err) {
+      toast.showError((await extractErrorDetail(err)) || "Nie udało się pobrać CV.");
+    }
+  }
+
+  async function handleDeleteGenerated(item: GeneratedCvItem) {
+    try {
+      await api.delete(`/api/cv-generator/generated/${item.id}`);
+      generatedQuery.refetch();
+      toast.showSuccess("Usunięto z listy.");
+    } catch (err) {
+      toast.showError(
+        (await extractErrorDetail(err)) || "Nie udało się usunąć wpisu.",
+      );
+    }
   }
 
   function handleModeChange(next: string) {
@@ -396,6 +489,19 @@ export function CVGeneratorStandaloneV2() {
             </div>
             <Switch checked={blindCv} onCheckedChange={setBlindCv} />
           </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label className="block">Pobierz automatycznie po wygenerowaniu</Label>
+              <p className="text-xs text-muted-foreground">
+                Włączone — CV od razu trafia do folderu „Pobrane" (jak
+                dotychczas). Wyłączone — CV pojawia się tylko na liście
+                „Wygenerowane CV" poniżej (Podgląd / Pobierz), bez zaśmiecania
+                Pobranych przy generowaniu wielu CV pod rząd.
+              </p>
+            </div>
+            <Switch checked={autoDownload} onCheckedChange={setAutoDownload} />
+          </div>
         </CardContent>
       </Card>
 
@@ -439,6 +545,98 @@ export function CVGeneratorStandaloneV2() {
           )}
         </Button>
       </div>
+
+      {/* ── Wygenerowane CV — lista trwała (przetrwa nawigację/odświeżenie) ── */}
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Wygenerowane CV
+          </CardTitle>
+          <CardDescription>
+            Ostatnio wygenerowane CV — Podgląd w aplikacji lub Pobierz, gdy
+            będziesz gotów. Lista zostaje po przejściu do innych kandydatów.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {generatedQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Ładowanie…</p>
+          ) : !generatedQuery.data?.length ? (
+            <p className="text-sm text-muted-foreground">
+              Brak wygenerowanych CV — wygeneruj pierwsze powyżej.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {generatedQuery.data.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-medium">
+                        {item.candidate_name}
+                      </span>
+                      {item.position && (
+                        <span className="truncate text-xs text-muted-foreground">
+                          · {item.position}
+                        </span>
+                      )}
+                      <Badge variant="neutral" className="uppercase">
+                        {item.language}
+                      </Badge>
+                      {item.blind && <Badge variant="outline">Blind</Badge>}
+                      {item.mode === "upload" && (
+                        <Badge variant="outline">Upload</Badge>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {item.created_by_name ? `${item.created_by_name} · ` : ""}
+                      {formatGeneratedDate(item.created_at)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!item.can_download}
+                      onClick={() => setPreviewItem(item)}
+                      title="Podgląd w aplikacji"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!item.can_download}
+                      onClick={() => handleDownloadGenerated(item)}
+                      title="Pobierz DOCX"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    {item.can_delete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteGenerated(item)}
+                        title="Usuń z listy"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <GeneratedCvPreviewModal
+        item={previewItem}
+        onClose={() => setPreviewItem(null)}
+        onDownload={handleDownloadGenerated}
+      />
     </div>
   );
 }
@@ -832,3 +1030,89 @@ function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+
+// ── Inline DOCX preview for a saved generated CV ─────────────────────────────
+
+type GeneratedCvPreviewModalProps = {
+  item: GeneratedCvItem | null;
+  onClose: () => void;
+  onDownload: (item: GeneratedCvItem) => void;
+};
+
+function GeneratedCvPreviewModal({
+  item,
+  onClose,
+  onDownload,
+}: GeneratedCvPreviewModalProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  // Fetch the re-rendered DOCX and render it inline via docx-preview (lazy
+  // import so the parser stays out of the main bundle until a preview opens).
+  useEffect(() => {
+    if (!item) return;
+    let cancelled = false;
+    setStatus("loading");
+    (async () => {
+      try {
+        const res = await api.get(
+          `/api/cv-generator/generated/${item.id}/docx`,
+          { responseType: "blob" },
+        );
+        if (cancelled) return;
+        const { renderAsync } = await import("docx-preview");
+        const host = hostRef.current;
+        if (!host || cancelled) return;
+        host.innerHTML = "";
+        await renderAsync(res.data as Blob, host, undefined, {
+          className: "docx",
+          inWrapper: true,
+          breakPages: true,
+          useBase64URL: true,
+        });
+        if (!cancelled) setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
+
+  return (
+    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent size="full" className="h-[92vh] gap-0 p-0">
+        <DialogHeader className="flex-row items-center justify-between gap-3 border-b px-4 py-3">
+          <DialogTitle className="min-w-0 truncate text-base font-semibold">
+            {item?.candidate_name}
+            {item?.position ? ` — ${item.position}` : ""}
+          </DialogTitle>
+          {item && (
+            <Button size="sm" variant="outline" onClick={() => onDownload(item)}>
+              <Download className="mr-2 h-4 w-4" />
+              Pobierz
+            </Button>
+          )}
+        </DialogHeader>
+        <div className="relative flex-1 overflow-auto bg-muted/30 p-4">
+          {status !== "ready" && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm">
+              {status === "loading" ? (
+                <span className="flex items-center text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Renderowanie podglądu…
+                </span>
+              ) : (
+                <span className="text-destructive">
+                  Nie udało się wyświetlić podglądu — pobierz plik DOCX.
+                </span>
+              )}
+            </div>
+          )}
+          <div ref={hostRef} className="docx-preview-host mx-auto" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

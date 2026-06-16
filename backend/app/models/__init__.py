@@ -38,6 +38,7 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
 from app.models.activity import Activity
@@ -202,6 +203,7 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "CvGeneratedDocument",
     "Invoice",
     "InvoiceDirection",
     "InvoiceStatus",
