@@ -17,6 +17,26 @@ Dwa twarde ograniczenia kształtowały zakres tej sesji:
 
 ---
 
+## 🔑 AKTUALIZACJA — ścieżka BEZ KIR potwierdzona (open-source)
+
+Po pytaniu „może nic nie potrzebujemy od KIR" — **research + lokalny proof potwierdziły: dla ścieżki upload-and-validate (Option B) NIE potrzebujemy NIC od KIR.**
+
+- **pyHanko `[etsi]`** (open-source) waliduje cudzy podpis PAdES względem **unijnej Trusted List (EU LOTL — klucze bootstrap wbudowane w bibliotekę)** + ma subpakiet `qualified` (`q_status.QualifiedStatus`, `assess`, `eutl_parse`) do oceny QES wg eIDAS. [(pyHanko validation docs)](https://docs.pyhanko.eu/en/latest/lib-guide/validation.html)
+- **Zweryfikowane lokalnie:** zainstalowany pyHanko, potwierdzone API (`async_validate_pdf_signature`, `EmbeddedPdfSignature`, `ValidationContext`, `qualified.q_status`). **Konflikt wersji rozwiązany:** pyHanko 0.35 wymaga `cryptography>=48`, ale `pyhanko[etsi]==0.34.1` **koegzystuje z repo-pinem `cryptography==44.0.0`** (resolver to potwierdził).
+- **Autorytatywny werdykt „is QES"** = **EU DSS** (Java sidecar, też open-source) — nasz `ValidationService` już go używa (pyHanko = lokalny pre-check integralności).
+
+**Co to znaczy:** możemy zbudować i wdrożyć **pełnoprawny, legalnie ważny przepływ QES BEZ KIR**: konsultant podpisuje umowę **własnym** podpisem kwalifikowanym (dowolnym darmowym narzędziem — ma już certyfikat), uploaduje podpisany PDF, my walidujemy (pyHanko + EU DSS). Zero dostawcy, zero opłat per podpis, ważne dla przeniesienia IP.
+
+**Czego KIR jest potrzebny (tylko wygoda):** (a) podpis **wbudowany w aplikację** (Szafir SDK Web — licencja + wg researchu robi CAdES/XAdES, PAdES-dla-PDF do potwierdzenia), (b) **wydanie jednorazowego certu** dla konsultanta BEZ podpisu (mSzafir One Shot).
+
+**Trade-off ścieżki bez KIR:** konsultant musi (1) **mieć już** podpis kwalifikowany i (2) podpisać offline + uploadować (krok więcej niż in-app). Wielu kontraktorów IT (JDG) ma podpis (JPK/ZUS); reszta wyrabia lub czekamy na mSzafir.
+
+**Dodane w kodzie (ten commit):** `pyhanko[etsi]==0.34.1` w `requirements.txt` + realny `pades.validate_pades_local` (pre-check integralności + signer, na potwierdzonym API 0.34.1). CI zweryfikuje rozwiązanie zależności na Py3.12 + cryptography 44.
+
+**Następny build bez KIR (Faza 2/4 upload-lane):** endpointy `api/signing.py` + `api/public_signing.py` (`/submit` upload), `sender.py`, strona `/sign/[token]` (download umowy → upload podpisanego PDF → werdykt), sidecar EU DSS. Wszystko KIR-niezależne i CI-weryfikowalne.
+
+---
+
 ## ✅ Faza 0 — onboarding (gotowe do wysłania)
 
 - [docs/qes-faza0-kir-outreach.md](./qes-faza0-kir-outreach.md) — zapytanie ofertowo-techniczne do KIR (25 pytań: Szafir SDK Web Module + Szafir Host, mSzafir One Shot API, PAdES/TSA, cennik, onboarding, sandbox). Do uzupełnienia: dane spółki w stopce.

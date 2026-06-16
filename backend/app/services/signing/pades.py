@@ -1,15 +1,21 @@
 """PAdES validation + (Faza 5) archival timestamp via pyHanko.
 
-In the in-house QES rail the cryptographic *signing* is done by KIR (Szafir SDK
-client-side, or mSzafir in the cloud) — pyHanko's role here is **validation**:
-a fast trust-chain pre-check on the signed PDF we receive back. The
-authoritative "is this QES per eIDAS?" verdict comes from the EU DSS sidecar
-(:mod:`app.services.signing.validation`); pyHanko is the cheap first pass and
-the local fallback when DSS is unavailable.
+In the in-house QES rail the cryptographic *signing* is done outside NEXUS
+(the consultant signs offline with their own qualified tool, then uploads the
+signed PDF — Option B; or KIR Szafir/mSzafir for the embedded pasy). pyHanko's
+role here is **validation** on the PDF we receive back.
 
-``pyhanko`` is a heavy dependency with native crypto — imported lazily so test
-collection and unrelated code paths don't pay for it. Until ``pyhanko`` is
-added to ``requirements.txt`` (Faza 3) these helpers raise a clear error.
+Division of labour (both open-source, **zero KIR dependency**):
+- **pyHanko** (this module) — fast, local, network-free *pre-check*: parses the
+  PDF, extracts the embedded signature, verifies cryptographic integrity and
+  reports the signer. It does NOT, by itself, assert eIDAS QES (that needs the
+  EU Trusted List).
+- **EU DSS** (`app.services.signing.validation.ValidationService`, Java sidecar)
+  — the **authoritative** "is this QES per eIDAS?" verdict against the EU LOTL.
+
+``pyhanko`` is verified compatible with the repo's ``cryptography==44.0.0`` pin
+at ``pyhanko[etsi]==0.34.1`` (newer pyHanko needs cryptography>=48). Imported
+lazily so unrelated paths don't pay the cost.
 
 Plan: ``docs/in-house-qes-signature-plan.md`` §4, §7.
 """
@@ -17,43 +23,78 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §4, §7.
 from __future__ import annotations
 
 import logging
+from io import BytesIO
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def _require_pyhanko() -> Any:
-    try:
-        import pyhanko  # noqa: WPS433  (intentional lazy import)
-    except ImportError as exc:  # pragma: no cover — env without pyhanko
-        raise RuntimeError(
-            "pyhanko is not installed — add it to backend/requirements.txt "
-            "(Faza 3) before using PAdES validation."
-        ) from exc
-    return pyhanko
+async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
+    """Local PAdES integrity pre-check (NON-authoritative for QES).
 
+    Parses the signed PDF, validates the first embedded signature's
+    cryptographic integrity and reports the signer DN. ``is_qes`` is left
+    ``False`` here on purpose — asserting eIDAS qualification requires the EU
+    Trusted List, which is the EU DSS sidecar's job
+    (:class:`ValidationService`). This gives the caller signer identity +
+    integrity even when DSS is unavailable, without ever *claiming* QES.
 
-def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
-    """Fast local trust-chain check of a signed PAdES (NON-authoritative).
-
-    Returns a dict shaped like the DSS report subset so callers can treat
-    local and DSS results uniformly. The ``is_qes`` flag from this path is a
-    best-effort pre-check only — eIDAS QES determination needs the DSS sidecar
-    (LOTL/Trusted-List + service-status-at-signing-time), which pyHanko's
-    author explicitly warns it does not fully implement.
+    Returns a dict shaped like the DSS report subset:
+    ``{is_qes, valid, intact, trusted, signed_by, signature_level, indication}``.
 
     Raises:
         RuntimeError: pyhanko not installed.
     """
-    _require_pyhanko()
-    # TODO(Faza 3): implement with pyhanko.sign.validation —
-    #   from pyhanko.sign.validation import validate_pdf_signature
-    #   from pyhanko_certvalidator import ValidationContext (+ EU trust roots)
-    #   embedded = ... ; status = validate_pdf_signature(embedded, vc)
-    # Map status.trusted / .valid / .signing_cert into the dict below.
-    raise NotImplementedError(
-        "validate_pades_local: pyHanko trust-chain validation lands in Faza 3."
+    try:
+        from pyhanko.pdf_utils.reader import PdfFileReader
+        from pyhanko.sign.validation import async_validate_pdf_signature
+        from pyhanko_certvalidator import ValidationContext
+    except ImportError as exc:  # pragma: no cover — env without pyhanko
+        raise RuntimeError(
+            "pyhanko is not installed — add 'pyhanko[etsi]==0.34.1' to "
+            "backend/requirements.txt before using local PAdES validation."
+        ) from exc
+
+    reader = PdfFileReader(BytesIO(signed_pdf))
+    embedded = list(reader.embedded_signatures)
+    if not embedded:
+        return {
+            "is_qes": False,
+            "valid": False,
+            "intact": False,
+            "trusted": False,
+            "signed_by": None,
+            "signature_level": None,
+            "indication": "NO_SIGNATURE",
+        }
+
+    # No EU Trusted List roots here → integrity/structure only, soft-fail on
+    # revocation, no network. Authoritative trust comes from DSS.
+    vc = ValidationContext(allow_fetching=False, revocation_mode="soft-fail")
+    status = await async_validate_pdf_signature(
+        embedded[0], signer_validation_context=vc
     )
+
+    signed_by = None
+    for attr in ("signing_cert",):
+        cert = getattr(status, attr, None)
+        if cert is not None:
+            subj = getattr(cert, "subject", None)
+            signed_by = getattr(subj, "human_friendly", None) or (
+                str(subj) if subj else None
+            )
+            break
+
+    return {
+        # Conservative: local path never asserts QES — that's DSS's verdict.
+        "is_qes": False,
+        "valid": bool(getattr(status, "bottom_line", False)),
+        "intact": bool(getattr(status, "intact", False)),
+        "trusted": bool(getattr(status, "trusted", False)),
+        "signed_by": signed_by,
+        "signature_level": None,
+        "indication": "PRE_CHECK_ONLY",
+    }
 
 
 def add_archival_timestamp(signed_pdf: bytes) -> bytes:
@@ -61,13 +102,11 @@ def add_archival_timestamp(signed_pdf: bytes) -> bytes:
 
     Re-stamps long-lived contracts before their existing timestamps expire so
     the signature stays provably valid for the (potentially decades-long) IP
-    retention horizon.
+    retention horizon. pyHanko ``PdfTimeStamper`` against a qualified TSA.
 
     Raises:
-        RuntimeError: pyhanko not installed.
+        NotImplementedError: lands in Faza 5 (needs a qualified TSA endpoint).
     """
-    _require_pyhanko()
-    # TODO(Faza 5): pyhanko PdfTimeStamper against a qualified TSA (KIR).
     raise NotImplementedError(
-        "add_archival_timestamp: B-LTA re-stamping lands in Faza 5."
+        "add_archival_timestamp: B-LTA re-stamping lands in Faza 5 (qualified TSA)."
     )

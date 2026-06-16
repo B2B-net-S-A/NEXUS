@@ -57,7 +57,7 @@ class ValidationService:
         try:
             from app.services.signing.pades import validate_pades_local
 
-            local = validate_pades_local(signed_pdf)
+            local = await validate_pades_local(signed_pdf)
             return ValidationReport(
                 is_qes=bool(local.get("is_qes")),
                 signature_level=local.get("signature_level"),

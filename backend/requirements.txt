@@ -42,6 +42,12 @@ rapidfuzz==3.10.1
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==63.0
+# In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
+# Pinned to 0.34.1: newer pyHanko requires cryptography>=48, conflicting with
+# our cryptography==44.0.0 pin. [etsi] adds EU Trusted List parsing (xsdata,
+# signxml, lxml). Authoritative QES verdict via EU DSS sidecar; pyHanko is the
+# local integrity pre-check. See docs/in-house-qes-signature-plan.md.
+pyhanko[etsi]==0.34.1
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
 boto3==1.35.0
