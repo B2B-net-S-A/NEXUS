@@ -143,9 +143,12 @@ def test_filler_phrase_bolds_real_term():
     ]
 
 
-def test_stopword_separated_terms_bold_each():
-    # "Java i Python" → two distinct requirements, both bold where present.
-    assert _matches("Stack: Java, Python i Go", ["Java i Python"]) == ["Java", "Python"]
+def test_separate_skill_chips_each_bold():
+    # Champion skills arrive as separate chips — each bolds where present.
+    assert _matches("Stack: Java, Python i Go", ["Java", "Python"]) == [
+        "Java",
+        "Python",
+    ]
 
 
 def test_filler_free_multiword_term_stays_whole():
@@ -155,6 +158,28 @@ def test_filler_free_multiword_term_stays_whole():
         "Design System"
     ]
     assert _matches("migracja systemu do nowej wersji", ["Design System"]) == []
+
+
+def test_verbose_requirement_never_bolds_generic_words():
+    # The over-bolding recruiters reported: a wordy champion entry stays whole
+    # and only matches verbatim, so its generic words never bold the CV prose.
+    kw = ["Tworzenie i rozwój aplikacji webowych"]
+    assert _matches("Tworzenie dokumentacji projektu", kw) == []
+    assert _matches("dbam o rozwój zespołu i procesów", kw) == []
+
+
+def test_requirement_prose_words_never_bold():
+    # User-cited noise: these must never bold, even as single champion entries.
+    assert (
+        _matches("Posiada kluczowe technologie wymagane na stanowisku", ["Technologie"])
+        == []
+    )
+    assert _matches("praca na stanowisku starszego developera", ["stanowisku"]) == []
+    assert _matches("Tworzenie i utrzymanie usług", ["Tworzenie"]) == []
+    # ...but a real skill wrapped in requirement prose still bolds.
+    assert _matches("Posiada Java i Spring na stanowisku", ["Znajomość Java"]) == [
+        "Java"
+    ]
 
 
 # ── Claude response normalization ──────────────────────────────────────────
