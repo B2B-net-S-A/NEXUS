@@ -309,6 +309,48 @@ def test_render_context_accepts_fractional_rate():
     )
 
 
+def test_render_payload_roundtrip_redownload():
+    """Ponowne pobranie z listy: payload zapisany jak w logu
+    (``model_dump(mode="json")``) odtwarza się w ``B2BRenderRequest`` i
+    re-renderuje do prawidłowego DOCX, z numerem nadpisanym z wiersza logu."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import (
+        render_from_context,
+    )
+    from app.services.b2b_contract_generator.render_context import (
+        build_render_context,
+    )
+
+    req = B2BRenderRequest(
+        role_id=None,
+        language="pl",
+        partner_name="Jan Kowalski",
+        client_name="Nordea Bank Abp",
+        project_city="Warszawa",
+        project_description="Usługi QA i automatyzacja testów.",
+        signing_date=date(2026, 6, 16),
+        start_date=date(2026, 7, 1),
+        rate_candidate=150,
+    )
+    # Dokładnie tak zapisujemy w b2b_generated_contracts.render_payload …
+    stored = req.model_dump(mode="json")
+    # … i tak odtwarzamy w GET /generated/{id}/docx.
+    restored = B2BRenderRequest(**stored)
+    assert restored.signing_date == date(2026, 6, 16)  # data wraca z ISO-stringa
+
+    ctx = build_render_context(restored, None)
+    ctx["b2b"]["contract_number"] = "1436/2026"  # numer bierzemy z wiersza logu
+    data = render_from_context(ctx, language="pl")
+
+    assert data[:2] == b"PK"  # DOCX = archiwum ZIP
+    full = "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+    assert "1436/2026" in full  # numer odtworzony w dokumencie
+
+
 # ── Numeracja umów: parser numeru + sugestia kolejnego wolnego ───────────────
 
 
