@@ -37,16 +37,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
+import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
 import {
   type RecruitmentOption,
@@ -54,7 +48,6 @@ import {
   extractErrorDetail,
   parseDispositionFilename,
   parseWarningsHeader,
-  stageLabel,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -584,30 +577,12 @@ function NewModeForm({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Select value={stageId} onValueChange={setStageId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Wybierz rekrutację…" />
-              </SelectTrigger>
-              <SelectContent>
-                {(recruitmentsQuery.data ?? []).map((r) => (
-                  <SelectItem key={r.stage_id} value={String(r.stage_id)}>
-                    <span className="flex items-center gap-2">
-                      <span className="truncate">{r.job_title}</span>
-                      <span className="text-xs text-muted-foreground">
-                        · {stageLabel(r.stage)}
-                      </span>
-                      <ReadinessChip ready={r.ready} />
-                    </span>
-                  </SelectItem>
-                ))}
-                {(recruitmentsQuery.data ?? []).length === 0 &&
-                  !recruitmentsQuery.isLoading && (
-                    <div className="p-3 text-xs text-muted-foreground">
-                      Brak procesów rekrutacyjnych dla tego konsultanta.
-                    </div>
-                  )}
-              </SelectContent>
-            </Select>
+            <RecruitmentCombobox
+              recruitments={recruitmentsQuery.data ?? []}
+              value={stageId}
+              onChange={setStageId}
+              loading={recruitmentsQuery.isLoading}
+            />
 
             {selectedRecruitment && (
               <div className="flex flex-wrap gap-2 text-xs">
@@ -840,14 +815,6 @@ function FileDropZone({
 }
 
 // ── Inline UI helpers ──────────────────────────────────────────────────────
-
-function ReadinessChip({ ready }: { ready: boolean }) {
-  return ready ? (
-    <CheckCircle2 className="ml-1 h-3.5 w-3.5 text-emerald-600" />
-  ) : (
-    <AlertTriangle className="ml-1 h-3.5 w-3.5 text-amber-500" />
-  );
-}
 
 function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
   return (
