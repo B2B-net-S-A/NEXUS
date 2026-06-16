@@ -21,12 +21,11 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
   "first_name": "Imię",
   "position": "Główne stanowisko/tytuł zawodowy (np. 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-5 kluczowych punktów marketingowych według schematu:",
+    "3-4 zwięzłe punkty marketingowe (każdy 1-2 linijki) według schematu:",
     "1. [X] lat doświadczenia jako [Stanowisko], w tym [Y] lat w [Największa firma]",
     "2. Specjalizacja w technologiach: [Top 4-5 technologii]",
     "3. Praktyczne doświadczenie w [kluczowy projekt/osiągnięcie]",
-    "4. Znajomość [metodologie/procesy]",
-    "5. [Certyfikaty lub dodatkowe kompetencje]"
+    "4. [Certyfikaty, metodologie lub dodatkowe kompetencje]"
   ],
   "education": [
     {
@@ -80,6 +79,7 @@ ZASADY DLA WHY_POINTS:
 - NIGDY nie używaj edukacji/studiów jako argumentu w why_points
 - Skup się TYLKO na: doświadczeniu zawodowym, technologiach, projektach, osiągnięciach, certyfikatach
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
+- ZWIĘZŁOŚĆ: sekcja "Dlaczego nasz kandydat" ma być krótka i konkretna — każdy punkt to jedna–dwie linijki, bez przydługich wyliczeń ani powtórzeń tej samej myśli w kilku punktach
 
 KWANTYFIKACJA I ZWIĘZŁOŚĆ:
 - Przenoś do why_points i obowiązków liczby oraz skalę z CV/notatek (wielkość zespołu, liczba
@@ -213,12 +213,11 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
   "first_name": "First name",
   "position": "Main position/job title (e.g., 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-5 key marketing points according to the following scheme:",
+    "3-4 concise marketing points (1-2 lines each) according to the following scheme:",
     "1. [X] years of experience as [Position], including [Y] years at [Biggest company]",
     "2. Specialization in technologies: [Top 4-5 technologies]",
     "3. Practical experience in [key project/achievement]",
-    "4. Knowledge of [methodologies/processes]",
-    "5. [Certifications or additional competencies]"
+    "4. [Certifications, methodologies or additional competencies]"
   ],
   "education": [
     {
@@ -272,6 +271,7 @@ RULES FOR WHY_POINTS:
 - NEVER use education/studies as an argument in why_points
 - Focus ONLY on: work experience, technologies, projects, achievements, certifications
 - Education is in a separate section and should not be repeated in why_points
+- CONCISENESS: the "Why our candidate" section must be short and to the point — each point is one or two lines, no overlong enumerations and no repeating the same idea across several points
 
 QUANTIFICATION AND CONCISENESS:
 - Carry numbers and scale from the CV/notes into why_points and responsibilities (team size,

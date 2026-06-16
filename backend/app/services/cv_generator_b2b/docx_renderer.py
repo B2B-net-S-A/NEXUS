@@ -192,6 +192,39 @@ def _is_generic_phrase(text: str) -> bool:
     return all(t in _GENERIC_WORDS or t in _STOP_WORDS or len(t) < 2 for t in tokens)
 
 
+def _significant_subphrases(phrase: str) -> list[str]:
+    """Split a requirement phrase into matchable sub-phrases, dropping filler.
+
+    Champion entries are often natural language ("Znajomość Java", "Dobra
+    znajomość Spring Boot") rather than bare tech tokens. Whole-phrase matching
+    then bolds nothing in the CV, which writes just "Java" / "Spring Boot" — so
+    the recruiter sees only *part* of the client's requirements highlighted.
+
+    Runs of proficiency / stop words act as separators so the real term inside
+    a filler phrase still bolds, while a phrase with NO filler stays intact so a
+    genuine multi-word term never bolds its common parts on their own:
+
+        "Znajomość Java"              → ["Java"]
+        "Dobra znajomość Spring Boot" → ["Spring Boot"]
+        "Java i Python"               → ["Java", "Python"]
+        "Design System"              → ["Design System"]   (no filler — kept whole)
+        "mile widziane"              → []                  (all filler — dropped)
+    """
+    groups: list[list[str]] = []
+    current: list[str] = []
+    for word in phrase.split():
+        norm = re.sub(rf"[^{_WORD_CHARS}]", "", word.lower())
+        if not norm or norm in _GENERIC_WORDS or norm in _STOP_WORDS:
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        current.append(word)
+    if current:
+        groups.append(current)
+    return [" ".join(g) for g in groups]
+
+
 def _keyword_variants(keyword: str) -> list[str]:
     """Expand a champion keyword into matchable variants.
 
@@ -223,27 +256,31 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     seen: set[str] = set()
     for kw in keywords or []:
         for variant in _keyword_variants(kw):
-            v = variant.strip()
-            key = v.lower()
-            if len(v) < 2 or key in _STOP_WORDS or key in seen:
-                continue
-            if _is_generic_phrase(v):
-                continue
-            seen.add(key)
-            # Build from tokens so "auto-layout" also matches "auto layout"
-            # (hyphen ↔ space spelling drift between champion list and CV).
-            parts = [p for p in re.split(r"[\s\-]+", v) if p]
-            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
-            # "CI/CD" should also match "CI / CD" — slash with optional spaces.
-            escaped = escaped.replace("/", r"\s*/\s*")
-            if not escaped:
-                continue
-            patterns.append(
-                re.compile(
-                    rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
-                    re.IGNORECASE,
+            # A champion entry like "Znajomość Java" splits into ["Java"] so the
+            # real term still bolds even though the whole phrase never appears
+            # verbatim in the CV; a filler-free term stays whole ("Design System").
+            for sub in _significant_subphrases(variant):
+                v = sub.strip()
+                key = v.lower()
+                if len(v) < 2 or key in _STOP_WORDS or key in seen:
+                    continue
+                if _is_generic_phrase(v):
+                    continue
+                seen.add(key)
+                # Build from tokens so "auto-layout" also matches "auto layout"
+                # (hyphen ↔ space spelling drift between champion list and CV).
+                parts = [p for p in re.split(r"[\s\-]+", v) if p]
+                escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
+                # "CI/CD" should also match "CI / CD" — slash with optional spaces.
+                escaped = escaped.replace("/", r"\s*/\s*")
+                if not escaped:
+                    continue
+                patterns.append(
+                    re.compile(
+                        rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
+                        re.IGNORECASE,
+                    )
                 )
-            )
     return patterns
 
 
@@ -401,11 +438,12 @@ def add_horizontal_line(doc: Any) -> Any:
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
-    Both the divider and the title keep with the following paragraph so a
-    section header never ends up alone at the bottom of a page.
+    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion: the
+    document flows line-by-line under Word's default widow/orphan handling so a
+    recruiter hand-tuning page breaks moves content one line per Enter, instead
+    of a glued block jumping a whole section across the page boundary.
     """
-    hr = add_horizontal_line(doc)
-    hr.paragraph_format.keep_with_next = True
+    add_horizontal_line(doc)
 
     para = doc.add_paragraph()
     run = para.add_run(text)
@@ -415,8 +453,6 @@ def add_section_header(doc: Any, text: str) -> Any:
     run.font.size = Pt(14)
     para.paragraph_format.space_before = Pt(2)
     para.paragraph_format.space_after = Pt(3)
-    para.paragraph_format.keep_with_next = True
-    para.paragraph_format.keep_together = True
     return para
 
 
@@ -449,9 +485,6 @@ def add_bullet_point(
     para.paragraph_format.space_before = Pt(1)
     para.paragraph_format.space_after = Pt(1)
     para.paragraph_format.line_spacing = 1.5
-    # Keep a single bullet's lines on one page — a bullet never splits across a
-    # page break, so the list reflows cleanly between items instead of mid-line.
-    para.paragraph_format.keep_together = True
     return para
 
 
@@ -688,7 +721,6 @@ def render_cv_to_bytes(
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(1)
         para.paragraph_format.line_spacing = 1.5
-        para.paragraph_format.keep_together = True
 
     # === CERTYFIKATY / CERTIFICATIONS ===
     if candidate_data.get("certifications"):
@@ -716,12 +748,11 @@ def render_cv_to_bytes(
 
     for i, job in enumerate(candidate_data.get("experience", [])):
         if i > 0:
-            hr = add_horizontal_line(doc)
-            hr.paragraph_format.keep_with_next = True
+            add_horizontal_line(doc)
 
-        # The whole role header (dates → company → position → "Zakres zadań:")
-        # keeps with the next paragraph so a role never starts at the bottom
-        # of a page with its duties orphaned on the next one.
+        # Role header (dates → company → position → "Zakres zadań:") flows
+        # naturally without keep_with_next cohesion, so manual page-break edits
+        # in Word move one line at a time instead of jumping the whole block.
         para = doc.add_paragraph()
         run = para.add_run(job["dates"])
         run.font.name = "Montserrat"
@@ -730,8 +761,6 @@ def render_cv_to_bytes(
         run.font.bold = True
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
-        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -745,8 +774,6 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
-        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -760,8 +787,6 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
-        para.paragraph_format.keep_together = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -772,8 +797,6 @@ def render_cv_to_bytes(
         run.font.underline = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
-        para.paragraph_format.keep_with_next = True
-        para.paragraph_format.keep_together = True
 
         add_bullet_list(
             doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns
@@ -795,7 +818,6 @@ def render_cv_to_bytes(
             )
             para.paragraph_format.space_before = Pt(4)
             para.paragraph_format.space_after = Pt(2)
-            para.paragraph_format.keep_together = True
 
     # === KLAUZULA RODO / GDPR ===
     doc.add_paragraph()
