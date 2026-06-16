@@ -14,7 +14,8 @@ niezależnym od numeru — dlatego constraint NIE jest na (year, contract_number
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Date, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -37,6 +38,13 @@ class B2BGeneratedContract(Base, TimestampMixin):
     signing_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Surowy payload `/render` (B2BRenderRequest jako JSON) — pozwala odtworzyć i
+    # pobrać DOCX ponownie z zakładki „Wygenerowane umowy". NULL = wiersz sprzed
+    # tej funkcji (re-download niedostępny). JSON+wariant JSONB by działał też na
+    # SQLite w testach (constraint-test tworzy tabelę na sqlite).
+    render_payload: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
 
     def __repr__(self) -> str:

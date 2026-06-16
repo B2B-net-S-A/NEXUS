@@ -289,6 +289,17 @@ function GeneratedContractsTab() {
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
+  const downloadMut = useMutation({
+    mutationFn: async (r: B2BGeneratedContractRow) => {
+      const res = await b2bGeneratorApi.downloadGenerated(r.id);
+      const filename = parseDispositionFilename(
+        res.headers["content-disposition"] || "",
+        `Umowa_B2B_${r.contract_number.replace("/", "_")}.docx`,
+      );
+      downloadBlob(res.data as Blob, filename);
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
   const rows = q.data ?? [];
 
   const confirmDelete = (r: B2BGeneratedContractRow) => {
@@ -310,8 +321,8 @@ function GeneratedContractsTab() {
         <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
-          numer nie powtarza istniejącego. Wpis może usunąć osoba, która
-          wygenerowała umowę, lub administrator.
+          numer nie powtarza istniejącego. Umowę można pobrać ponownie; wpis może
+          usunąć osoba, która wygenerowała umowę, lub administrator.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -331,6 +342,7 @@ function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Klient</th>
                   <th className="py-2 pr-4 font-medium">Język</th>
                   <th className="py-2 pr-4 font-medium">Wygenerowano</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerował</th>
                   <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
@@ -338,6 +350,8 @@ function GeneratedContractsTab() {
                 {rows.map((r) => {
                   const deleting =
                     deleteMut.isPending && deleteMut.variables === r.id;
+                  const downloading =
+                    downloadMut.isPending && downloadMut.variables?.id === r.id;
                   return (
                     <tr key={r.id} className="border-b">
                       <td className="py-2 pr-4 font-medium">
@@ -353,28 +367,49 @@ function GeneratedContractsTab() {
                           ? r.created_at.slice(0, 16).replace("T", " ")
                           : "—"}
                       </td>
+                      <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
                       <td className="py-2 text-right">
-                        {r.can_delete ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-destructive hover:text-destructive"
-                            disabled={deleting}
-                            onClick={() => confirmDelete(r)}
-                            title="Usuń umowę z listy"
-                          >
-                            {deleting ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                            <span className="ml-1">Usuń</span>
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            —
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          {r.can_download ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8"
+                              disabled={downloading}
+                              onClick={() => downloadMut.mutate(r)}
+                              title="Pobierz DOCX ponownie"
+                            >
+                              {downloading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                              <span className="ml-1">Pobierz</span>
+                            </Button>
+                          ) : null}
+                          {r.can_delete ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-destructive hover:text-destructive"
+                              disabled={deleting}
+                              onClick={() => confirmDelete(r)}
+                              title="Usuń umowę z listy"
+                            >
+                              {deleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              <span className="ml-1">Usuń</span>
+                            </Button>
+                          ) : null}
+                          {!r.can_download && !r.can_delete ? (
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
