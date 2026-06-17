@@ -52,7 +52,9 @@ import { useToast } from "@/components/Toast";
 import api, {
   b2bGeneratorApi,
   extractErrorMsg,
+  signingApi,
   type B2BGeneratedContractRow,
+  type B2BGeneratePayload,
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
@@ -791,6 +793,67 @@ function GeneratorForm() {
     if (validate()) previewMut.mutate();
   };
 
+  // ── Wyślij do podpisu (in-house QES) ──────────────────────────────────────
+  const [signLink, setSignLink] = useState<string | null>(null);
+
+  const buildGeneratePayload = (): B2BGeneratePayload | null => {
+    if (!selectedRole || !candidate || !selectedRecruitment || !startDate) {
+      return null;
+    }
+    return {
+      role_id: selectedRole.id,
+      language,
+      candidate_id: candidate.id,
+      job_id: selectedRecruitment.job_id,
+      contract_number: contractNumber.trim() || null,
+      signing_date: signingDate || null,
+      start_date: startDate,
+      project_city: projectCity.trim() || null,
+      project_description: projectDescription.trim() || null,
+      correspondence_address: partnerCorrespondenceAddress.trim() || null,
+      rate_candidate: rateCandidate.trim()
+        ? Number(rateCandidate.replace(",", "."))
+        : null,
+      currency: currency.trim() || "PLN",
+    };
+  };
+
+  const sendSignMut = useMutation({
+    mutationFn: async () => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wysłać do podpisu.",
+        );
+      }
+      // 1. Promocja do realnego Contract z treścią (draft_content_html).
+      const gen = await b2bGeneratorApi.generate(gp);
+      // 2. Wyślij do podpisu → zwraca publiczny link /sign/{token}.
+      const res = await signingApi.sendForSignature(gen.contract_id, {
+        provider: "upload_validate",
+        signature_type: "QES",
+      });
+      return res.sign_url;
+    },
+    onSuccess: (url) => {
+      setSignLink(url);
+      toast.showSuccess("Link do podpisu wygenerowany — skopiuj i wyślij konsultantowi.");
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const onSendSign = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do wysłania do podpisu.",
+      );
+      return;
+    }
+    setSignLink(null);
+    sendSignMut.mutate();
+  };
+
   return (
     <div className="space-y-4">
       {/* Źródło danych (opcjonalne) */}
@@ -1313,7 +1376,53 @@ function GeneratorForm() {
           <Download className="mr-2 h-4 w-4" />
           DOCX (EN)
         </Button>
+        <Button
+          variant="outline"
+          disabled={sendSignMut.isPending}
+          onClick={onSendSign}
+          title="Tworzy umowę i generuje link do podpisu kwalifikowanego dla konsultanta"
+        >
+          {sendSignMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <FileSignature className="mr-2 h-4 w-4" />
+          )}
+          Wyślij do podpisu (QES)
+        </Button>
       </div>
+
+      {signLink ? (
+        <Alert>
+          <div className="space-y-2">
+            <p className="font-medium">
+              Link do podpisu — wyślij go konsultantowi:
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={signLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  navigator.clipboard?.writeText(signLink);
+                  toast.showSuccess("Skopiowano link.");
+                }}
+              >
+                Kopiuj
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Konsultant otworzy link, przeczyta umowę w przeglądarce, podpisze
+              ją własnym podpisem kwalifikowanym i odeśle. Status zobaczysz w
+              profilu kandydata.
+            </p>
+          </div>
+        </Alert>
+      ) : null}
 
       {/* Podgląd */}
       {previewHtml ? (

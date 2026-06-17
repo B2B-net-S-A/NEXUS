@@ -1645,6 +1645,37 @@ export interface B2BGenerateResult {
   language: string;
 }
 
+// ── In-house QES signing (drop Autenti) ─────────────────────────────────────
+export interface SignForSignatureResult {
+  signature_id: number;
+  contract_id: number;
+  status: string;
+  sign_url: string;
+}
+
+export const signingApi = {
+  sendForSignature: (
+    contractId: number,
+    body?: {
+      provider?: "szafir_sdk" | "mszafir_oneshot" | "upload_validate";
+      signature_type?: "SES" | "AdES" | "QES";
+      expires_in_days?: number;
+      company_signer_user_id?: number;
+      message_pl?: string;
+    },
+  ) =>
+    api
+      .post<SignForSignatureResult>(
+        `/api/signing/contracts/${contractId}/send-for-signature`,
+        body ?? {},
+      )
+      .then((r) => r.data),
+  listSignatures: (contractId: number) =>
+    api
+      .get(`/api/signing/contracts/${contractId}/signatures`)
+      .then((r) => r.data),
+};
+
 export interface B2BRenderPayload {
   role_id?: number | null;
   language: string;
