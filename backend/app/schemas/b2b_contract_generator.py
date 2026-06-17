@@ -188,9 +188,16 @@ class B2BUopCheckResponse(BaseModel):
 class B2BGeneratedContractItem(BaseModel):
     """Pozycja listy wygenerowanych umów (zakładka „Wygenerowane umowy")."""
 
+    id: int
     contract_number: str
     partner_name: Optional[str] = None
     client_name: Optional[str] = None
     language: Optional[str] = None
     signing_date: Optional[date] = None
     created_at: Optional[str] = None
+    # Imię i nazwisko osoby, która wygenerowała umowę (z users.name).
+    created_by_name: Optional[str] = None
+    # Czy bieżący użytkownik może usunąć ten wpis (autor wpisu lub admin).
+    can_delete: bool = False
+    # Czy umowę da się pobrać ponownie (jest zapisany payload do re-renderu).
+    can_download: bool = False

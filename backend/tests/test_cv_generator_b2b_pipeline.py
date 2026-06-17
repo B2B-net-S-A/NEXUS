@@ -2,7 +2,8 @@
 
 Covers the 2026-06-10 audit fixes:
   * champion keyword bolding — phrase-aware, word-boundary matching
-    (multi-word MUST-HAVEs match, "Git" no longer bolds "digital"),
+    (multi-word MUST-HAVEs match, "Git" no longer bolds "digital", and a
+    filler phrase like "Znajomość Java" still bolds the real term "Java"),
   * Claude response normalization (missing keys must not KeyError → 500),
   * the anti-fabrication seatbelt ("makijaż, nie inna osoba" — every
     technology/cert in the output must be traceable to CV or notes),
@@ -25,6 +26,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     _normalize_candidate_data,
     _sanitize_for_filename,
     _validate_upload,
+    rerender_docx_from_payload,
 )
 
 
@@ -98,6 +100,87 @@ def test_add_text_with_highlights_splits_runs():
     bolds = [r.font.bold for _, r in para.runs]
     assert texts == ["Docker, ", "Kubernetes", " i Bash"]
     assert bolds == [None, True, None]
+
+
+def test_descriptive_parenthetical_bolds_only_base_term():
+    # The screenshot bug: "Figma (zaawansowana znajomość)" used to split into a
+    # bold keyword "zaawansowana znajomość" that then bolded those generic
+    # words throughout the CV prose. Now only the real skill bolds.
+    kw = ["Figma (zaawansowana znajomość)"]
+    assert _matches("Projektowanie w Figma i Sketch", kw) == ["Figma"]
+    # The qualifier must NEVER bold on its own.
+    assert _matches("zaawansowana znajomość narzędzi UX", kw) == []
+
+
+def test_acronym_parenthetical_still_splits():
+    # Genuine aliases ("K8s", ".NET", "PL/SQL") must keep bolding both forms.
+    assert _matches("klaster K8s, potem Kubernetes", ["Kubernetes (K8s)"]) == [
+        "K8s",
+        "Kubernetes",
+    ]
+    assert _matches("aplikacje .NET", ["Microsoft (.NET)"]) == [".NET"]
+
+
+def test_generic_single_word_keyword_skipped():
+    # Champion lists sometimes contain proficiency/filler entries on their own.
+    assert _matches("zaawansowana znajomość Figma", ["znajomość"]) == []
+    assert _matches("Docker mile widziane", ["mile widziane"]) == []
+    assert _matches("bardzo dobra znajomość AWS", ["bardzo dobra znajomość"]) == []
+
+
+def test_hyphen_space_spelling_drift_matches():
+    # Champion list vs CV often disagree on hyphen vs space — match both ways.
+    assert _matches("Praca z auto layout w Figma", ["auto-layout"]) == ["auto layout"]
+    assert _matches("Zaawansowany auto-layout", ["auto layout"]) == ["auto-layout"]
+
+
+def test_filler_phrase_bolds_real_term():
+    # "Bolds only part" bug: a champion entry written as natural language
+    # ("Znajomość Java") never matched because the CV writes just "Java".
+    # Now the filler is stripped and the real term still bolds.
+    assert _matches("Programowanie w Java i Spring", ["Znajomość Java"]) == ["Java"]
+    assert _matches("Backend w Spring Boot", ["Dobra znajomość Spring Boot"]) == [
+        "Spring Boot"
+    ]
+
+
+def test_separate_skill_chips_each_bold():
+    # Champion skills arrive as separate chips — each bolds where present.
+    assert _matches("Stack: Java, Python i Go", ["Java", "Python"]) == [
+        "Java",
+        "Python",
+    ]
+
+
+def test_filler_free_multiword_term_stays_whole():
+    # A genuine two-word term must NOT bold its common parts on their own:
+    # "Design System" matches the phrase but never the bare word "system".
+    assert _matches("Tworzenie Design System dla klienta", ["Design System"]) == [
+        "Design System"
+    ]
+    assert _matches("migracja systemu do nowej wersji", ["Design System"]) == []
+
+
+def test_verbose_requirement_never_bolds_generic_words():
+    # The over-bolding recruiters reported: a wordy champion entry stays whole
+    # and only matches verbatim, so its generic words never bold the CV prose.
+    kw = ["Tworzenie i rozwój aplikacji webowych"]
+    assert _matches("Tworzenie dokumentacji projektu", kw) == []
+    assert _matches("dbam o rozwój zespołu i procesów", kw) == []
+
+
+def test_requirement_prose_words_never_bold():
+    # User-cited noise: these must never bold, even as single champion entries.
+    assert (
+        _matches("Posiada kluczowe technologie wymagane na stanowisku", ["Technologie"])
+        == []
+    )
+    assert _matches("praca na stanowisku starszego developera", ["stanowisku"]) == []
+    assert _matches("Tworzenie i utrzymanie usług", ["Tworzenie"]) == []
+    # ...but a real skill wrapped in requirement prose still bolds.
+    assert _matches("Posiada Java i Spring na stanowisku", ["Znajomość Java"]) == [
+        "Java"
+    ]
 
 
 # ── Claude response normalization ──────────────────────────────────────────
@@ -307,3 +390,46 @@ def test_overlap_caps_warning_count():
     warnings = _date_overlap_warnings(data, "pl")
     assert len(warnings) == 4  # 3 pary + "… i N kolejnych"
     assert "kolejnych" in warnings[-1]
+
+
+# ── Saved-CV re-render (panel list download/preview) ───────────────────────
+
+
+def _sample_payload(blind: bool = False) -> dict:
+    return {
+        "name": "Jan Kowalski",
+        "first_name": "Jan",
+        "position": "Java Developer",
+        "language": "pl",
+        "blind_cv": blind,
+        "why_points": ["8 lat doświadczenia jako Java Developer"],
+        "skills": [{"label": "Backend:", "content": "Java, Spring Boot"}],
+        "languages": ["Polski – ojczysty", "Angielski – biegły"],
+        "experience": [
+            {
+                "dates": "01.2020 – obecnie",
+                "company": "Acme",
+                "industry": "IT",
+                "position": "Java Developer",
+                "responsibilities": ["Rozwój usług w Java"],
+                "technologies": ["Java", "Spring Boot"],
+            }
+        ],
+    }
+
+
+def test_rerender_from_payload_produces_docx():
+    # Saved-CV download/preview re-renders deterministically from the payload,
+    # with no Claude call. DOCX is a zip → starts with the PK magic bytes.
+    data = rerender_docx_from_payload(_sample_payload())
+    assert data[:2] == b"PK"
+    assert len(data) > 1000
+
+
+def test_rerender_does_not_mutate_saved_payload():
+    # render mutates candidate_data in place for blind anonymization; the helper
+    # deep-copies so the STORED payload stays reusable for the next download.
+    payload = _sample_payload(blind=True)
+    rerender_docx_from_payload(payload)
+    assert payload["name"] == "Jan Kowalski"
+    assert payload["experience"][0]["company"] == "Acme"

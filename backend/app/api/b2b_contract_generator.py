@@ -35,6 +35,7 @@ from app.models.contract import (
 )
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
+from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import (
     B2BCompanyLookupResponse,
     B2BContractDetailResponse,
@@ -503,6 +504,8 @@ async def render_standalone(
             language=lang,
             signing_date=payload.signing_date,
             created_by=current_user.id,
+            # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
+            render_payload=payload.model_dump(mode="json"),
         )
     )
     try:
@@ -542,29 +545,107 @@ async def list_generated_contracts(
     limit: int = Query(50, ge=1, le=200),
 ):
     """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
-    „Wygenerowane umowy", by potwierdzić poprawność numeru."""
+    „Wygenerowane umowy", by potwierdzić poprawność numeru.
+
+    ``can_delete`` mówi UI, czy bieżący użytkownik może usunąć dany wpis (autor
+    wpisu lub admin)."""
+    is_admin = current_user.has_role(UserRole.admin)
     rows = (
-        (
-            await db.execute(
-                select(B2BGeneratedContract)
-                .order_by(B2BGeneratedContract.created_at.desc())
-                .limit(limit)
-            )
+        await db.execute(
+            select(B2BGeneratedContract, User.name)
+            .outerjoin(User, User.id == B2BGeneratedContract.created_by)
+            .order_by(B2BGeneratedContract.created_at.desc())
+            .limit(limit)
         )
-        .scalars()
-        .all()
-    )
+    ).all()
     return [
         B2BGeneratedContractItem(
+            id=r.id,
             contract_number=r.contract_number,
             partner_name=r.partner_name,
             client_name=r.client_name,
             language=r.language,
             signing_date=r.signing_date,
             created_at=r.created_at.isoformat() if r.created_at else None,
+            created_by_name=creator_name,
+            can_delete=is_admin or r.created_by == current_user.id,
+            can_download=r.render_payload is not None,
         )
-        for r in rows
+        for r, creator_name in rows
     ]
+
+
+@router.get("/generated/{generated_id}/docx")
+async def download_generated_contract(
+    generated_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
+
+    Render jest deterministyczny z zapisanych pól formularza, więc dokument jest
+    treściowo tożsamy z pierwotnie pobranym (numer umowy bierzemy z wiersza logu,
+    nie z payloadu). Wiersze sprzed wdrożenia tej funkcji nie mają payloadu → 422
+    z prośbą o ponowne wygenerowanie."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta umowa została wygenerowana zanim dodaliśmy zapis danych — "
+                "nie można jej odtworzyć. Wygeneruj ją ponownie z formularza."
+            ),
+        )
+    payload = B2BRenderRequest(**row.render_payload)
+    lang = normalize_language(payload.language)
+    role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    context = build_render_context(payload, role)
+    context["b2b"]["contract_number"] = row.contract_number
+
+    data = render_from_context(context, language=lang)
+    label = _ascii_filename(row.partner_name or row.contract_number)
+    filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
+    return Response(
+        content=data,
+        media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generated_contract(
+    generated_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń wpis z listy „Wygenerowane umowy".
+
+    Może to zrobić wyłącznie autor wpisu (osoba, która wygenerowała umowę) lub
+    administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
+    liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
+    ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+        )
+    number, partner, rid = row.contract_number, row.partner_name, row.id
+    await db.delete(row)
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=rid,
+            action="deleted",
+            user_id=current_user.id,
+            details={"contract_number": number, "partner_name": partner},
+        )
+    )
+    await db.commit()
 
 
 @router.post("/check-uop", response_model=B2BUopCheckResponse)

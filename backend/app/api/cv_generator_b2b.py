@@ -18,7 +18,16 @@ import logging
 from typing import Literal, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -29,12 +38,15 @@ from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.user import User, UserRole
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     UploadGenerationInput,
     generate_cv_for_candidate,
     generate_cv_from_uploads,
     list_recruitments_with_readiness,
+    rerender_docx_from_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +88,24 @@ class GenerateRequest(BaseModel):
     blind_cv: bool = False
 
 
+class GeneratedCvItem(BaseModel):
+    """A row in the „Wygenerowane CV" panel list."""
+
+    id: int
+    candidate_id: Optional[int] = None
+    job_id: Optional[int] = None
+    candidate_name: str
+    position: Optional[str] = None
+    language: str
+    blind: bool
+    mode: str
+    filename: str
+    created_at: Optional[str] = None
+    created_by_name: Optional[str] = None
+    can_download: bool
+    can_delete: bool
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
@@ -99,6 +129,7 @@ def _build_docx_response(
     candidate_name: str,
     warnings: list[str],
     processing_time_ms: int,
+    generated_id: int | None = None,
 ) -> Response:
     """Wrap a generated DOCX in the standard streaming Response with metadata
     headers used by both ``/generate`` and ``/generate-upload``.
@@ -118,9 +149,11 @@ def _build_docx_response(
         "X-Generator-Processing-Ms": str(processing_time_ms),
         "Access-Control-Expose-Headers": (
             "Content-Disposition, X-Generator-Candidate-Name, "
-            "X-Generator-Warnings, X-Generator-Processing-Ms"
+            "X-Generator-Warnings, X-Generator-Processing-Ms, X-Generated-Id"
         ),
     }
+    if generated_id is not None:
+        headers["X-Generated-Id"] = str(generated_id)
     return Response(
         content=docx_bytes,
         media_type=(
@@ -128,6 +161,43 @@ def _build_docx_response(
         ),
         headers=headers,
     )
+
+
+async def _persist_generated(
+    db: AsyncSession,
+    *,
+    result,
+    mode: str,
+    candidate_id: int | None,
+    language: str,
+    blind_cv: bool,
+    user_id: int,
+) -> int:
+    """Log a generated CV so it appears in the panel list and can be
+    re-downloaded/previewed later without another Claude call. Returns the row id.
+
+    Stored alongside the Activity audit entry — the caller commits both together.
+    """
+    payload = result.render_payload or {}
+    # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
+    # the real name captured in the payload so the INTERNAL list stays
+    # identifiable (the DOCX itself remains anonymized on re-render).
+    display_name = str(payload.get("name") or result.candidate_name)
+    row = CvGeneratedDocument(
+        candidate_id=candidate_id,
+        job_id=result.job_id,
+        candidate_name=display_name,
+        position=payload.get("position"),
+        language=language,
+        blind=blind_cv,
+        mode=mode,
+        filename=result.filename,
+        render_payload=result.render_payload,
+        created_by=user_id,
+    )
+    db.add(row)
+    await db.flush()  # assign row.id before commit so the caller can return it
+    return row.id
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -291,6 +361,15 @@ async def generate(
             user_id=current_user.id,
         )
     )
+    generated_id = await _persist_generated(
+        db,
+        result=result,
+        mode="new",
+        candidate_id=payload.candidate_id,
+        language=payload.language,
+        blind_cv=payload.blind_cv,
+        user_id=current_user.id,
+    )
     await db.commit()
 
     return _build_docx_response(
@@ -299,6 +378,7 @@ async def generate(
         candidate_name=result.candidate_name,
         warnings=result.warnings,
         processing_time_ms=result.processing_time_ms,
+        generated_id=generated_id,
     )
 
 
@@ -361,6 +441,15 @@ async def generate_from_upload(
             user_id=current_user.id,
         )
     )
+    generated_id = await _persist_generated(
+        db,
+        result=result,
+        mode="upload",
+        candidate_id=None,
+        language=language,
+        blind_cv=blind_cv,
+        user_id=current_user.id,
+    )
     await db.commit()
 
     return _build_docx_response(
@@ -369,4 +458,115 @@ async def generate_from_upload(
         candidate_name=result.candidate_name,
         warnings=result.warnings,
         processing_time_ms=result.processing_time_ms,
+        generated_id=generated_id,
     )
+
+
+# ── Saved-CV list („Wygenerowane CV") ──────────────────────────────────────
+
+
+@router.get("/generated", response_model=list[GeneratedCvItem])
+async def list_generated_cvs(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(60, ge=1, le=200),
+):
+    """Recently generated CVs for the panel list (newest first).
+
+    ``can_download`` tells the UI whether the DOCX can be re-rendered (rows from
+    before this feature have no ``render_payload``); ``can_delete`` whether the
+    current user may remove the row (its author or an admin).
+    """
+    is_admin = current_user.has_role(UserRole.admin)
+    rows = (
+        await db.execute(
+            select(CvGeneratedDocument, User.name)
+            .outerjoin(User, User.id == CvGeneratedDocument.created_by)
+            .order_by(CvGeneratedDocument.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        GeneratedCvItem(
+            id=r.id,
+            candidate_id=r.candidate_id,
+            job_id=r.job_id,
+            candidate_name=r.candidate_name,
+            position=r.position,
+            language=r.language,
+            blind=r.blind,
+            mode=r.mode,
+            filename=r.filename,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+            created_by_name=creator_name,
+            can_download=r.render_payload is not None,
+            can_delete=is_admin or r.created_by == current_user.id,
+        )
+        for r, creator_name in rows
+    ]
+
+
+@router.get("/generated/{generated_id}/docx")
+async def download_generated_cv(
+    generated_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Re-render a previously generated CV from its saved payload and return it.
+
+    Deterministic render — no Claude call. Rows generated before this feature
+    have no payload → 422 asking to generate again. Used for both inline preview
+    and explicit download in the panel.
+    """
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "To CV wygenerowano zanim dodaliśmy zapis danych — nie można go "
+                "odtworzyć. Wygeneruj je ponownie."
+            ),
+        )
+    try:
+        docx_bytes = await run_in_threadpool(
+            rerender_docx_from_payload, row.render_payload
+        )
+    except Exception as err:  # noqa: BLE001 — python-docx raises various types
+        logger.exception("[cv_b2b] Re-render of saved CV %s failed: %s", row.id, err)
+        raise HTTPException(
+            status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
+        ) from err
+    return _build_docx_response(
+        docx_bytes=docx_bytes,
+        filename=row.filename,
+        candidate_name=row.candidate_name,
+        warnings=[],
+        processing_time_ms=0,
+        generated_id=row.id,
+    )
+
+
+@router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generated_cv(
+    generated_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Remove a row from the „Wygenerowane CV" list (author or admin only).
+
+    Only the list entry is deleted; nothing irreplaceable is lost — the CV can be
+    regenerated from the candidate's recruitment at any time.
+    """
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz usunąć tylko CV, które samodzielnie wygenerowałeś.",
+        )
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -305,6 +305,51 @@ async def deactivate_user(
     await db.flush()
 
 
+@router.post("/impersonate/{user_id}", response_model=UserResponse)
+async def start_impersonation(
+    user_id: int,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rozpocznij „podgląd jako użytkownik" (admin only).
+
+    Zwraca autorytatywny profil podglądanego usera (do zasilenia frontendu)
+    i zapisuje wpis audytowy. Sama podmiana danych w kolejnych requestach
+    dzieje się przez nagłówek ``X-Impersonate-User-Id`` (patrz
+    ``app/api/deps.py``) — tryb wyłącznie do odczytu.
+    """
+    if admin.id == user_id:
+        raise HTTPException(
+            status_code=400, detail="Nie można oglądać widoku samego siebie"
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target.is_active:
+        raise HTTPException(
+            status_code=400, detail="Nie można podglądać nieaktywnego użytkownika"
+        )
+
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=target.id,
+            action="impersonation_started",
+            user_id=admin.id,
+            details={
+                "admin_id": admin.id,
+                "admin_email": admin.email,
+                "target_email": target.email,
+                "target_role": target.role.value if target.role else None,
+            },
+        )
+    )
+    await db.flush()
+    return target
+
+
 @router.post("/users/{user_id}/reset-password", response_model=dict)
 async def reset_password(
     user_id: int,

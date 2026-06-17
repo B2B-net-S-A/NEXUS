@@ -58,6 +58,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
+from app.api import admin_traffit
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -138,6 +139,8 @@ from app.api import candidate_chat as candidate_chat_api
 from app.api import admin_chats as admin_chats_api
 from app.api import stage_notification_rules as stage_notification_rules_api
 from app.api import autenti as autenti_api
+from app.api import public_signing as public_signing_api
+from app.api import signing as signing_api
 from app.api import ai_settings as ai_settings_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
@@ -291,9 +294,11 @@ async def lifespan(app: FastAPI):
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
+    from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.dialer_retention import dialer_retention_loop
+    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -322,9 +327,11 @@ async def lifespan(app: FastAPI):
         "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
+        "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "dialer_retention": asyncio.create_task(dialer_retention_loop()),
+        "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
     }
 
     yield
@@ -364,7 +371,13 @@ app.add_middleware(
     allow_origin_regex=r"^chrome-extension://[a-p]{32}$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
+        "X-Impersonate-User-Id",
+    ],
 )
 
 # Register routers
@@ -457,6 +470,9 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(
+    admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
+)
 app.include_router(emails.router, prefix="/api", tags=["emails"])
 app.include_router(
     user_email_templates_api.router,
@@ -704,6 +720,14 @@ if settings.M365_INTEGRATION_ENABLED:
 # GETs stay live so the FE can show empty timelines.
 app.include_router(autenti_api.router, prefix="/api/autenti", tags=["autenti"])
 
+# In-house QES signing (drop Autenti, single-vendor KIR + OSS upload-validate).
+# Router mounted unconditionally; write/IO handlers call _require_enabled()
+# (503 when SIGNING_ENABLED=false). Public signing page under /api/public.
+app.include_router(signing_api.router, prefix="/api/signing", tags=["signing"])
+app.include_router(
+    public_signing_api.router, prefix="/api/public", tags=["public-signing"]
+)
+
 # AI features panel (Settings → AI). Admin-only. Routes mounted at
 # /api/settings/ai (prefix is declared on the router itself; we add /api here).
 app.include_router(ai_settings_api.router, prefix="/api", tags=["ai-settings"])
@@ -903,6 +927,45 @@ async def api_health_check():
         checks["autenti"] = "misconfigured"
     else:
         checks["autenti"] = "healthy"
+
+    # Traffit daily sync — informational. Reads the persisted watermark so the
+    # check reflects whether the scheduled import is actually running, not just
+    # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
+    # / `degraded` (enabled but no fresh successful run) / `healthy`.
+    if not settings.TRAFFIT_SYNC_ENABLED:
+        checks["traffit"] = "unconfigured"
+    elif not (
+        os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
+    ):
+        checks["traffit"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT last_run_finished_at, last_status "
+                            "FROM traffit_sync_state WHERE phase = '__daily__'"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            if r is None or r[0] is None:
+                checks["traffit"] = "degraded"  # enabled, no successful run yet
+            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
+                "ok",
+                None,
+            ):
+                checks["traffit"] = "degraded"
+            else:
+                checks["traffit"] = "healthy"
+        except Exception:
+            checks["traffit"] = "degraded"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502

@@ -14,9 +14,10 @@ import {
   Activity,
   Database,
   Wrench,
+  Eye,
 } from "lucide-react";
-import { adminApi } from "@/lib/api";
-import { useAuthStore, hasRole } from "@/store/auth";
+import { adminApi, extractErrorMsg } from "@/lib/api";
+import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import {
   AdminUser,
   UserFormData,
@@ -35,6 +36,7 @@ type SubTab = "users" | "system" | "audit" | "import" | "tools";
 
 export function AdminUsersTab() {
   const { user } = useAuthStore();
+  const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
   const [subTab, setSubTab] = useState<SubTab>("users");
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
@@ -105,6 +107,30 @@ export function AdminUsersTab() {
     );
   }
   if (!hasRole(user, "admin")) return null;
+
+  // „Podgląd jako użytkownik": pobierz autorytatywny profil (audyt po stronie
+  // backendu), wejdź w tryb podglądu i przeładuj na stronę główną jako ten user.
+  const handleImpersonate = async (u: AdminUser) => {
+    try {
+      const res = await adminApi.startImpersonation(u.id);
+      const d = res.data;
+      impersonate({
+        id: d.id,
+        email: d.email,
+        name: d.name,
+        role: d.role as UserRole,
+        roles: (d.roles?.length ? d.roles : [d.role]) as UserRole[],
+        profile_completed: true,
+        profile_completed_at: null,
+        force_password_change: false,
+        force_password_change_at: null,
+        allowed_sections: [],
+      });
+      // impersonate() przekierowuje na "/" po ustawieniu stanu.
+    } catch (e) {
+      alert(extractErrorMsg(e));
+    }
+  };
 
   const handleSave = (data: UserFormData) => {
     if (modal === "create") {
@@ -236,6 +262,16 @@ export function AdminUsersTab() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
+                        {u.is_active && u.id !== user.id && (
+                          <button
+                            onClick={() => handleImpersonate(u)}
+                            title="Podgląd jako ten użytkownik"
+                            className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
+
                         <button
                           onClick={() => {
                             setSelectedUser(u);

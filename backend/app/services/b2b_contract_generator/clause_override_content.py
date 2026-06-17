@@ -881,7 +881,7 @@ _SIG_PL = (
     ("sig", "__________________________            ______________________________"),
     (
         "sig",
-        "Podpis osoby reprezentującej B2B.NET S.A.            "
+        "Podpis osoby reprezentującej B2B.net S.A.            "
         "Podpis osoby reprezentującej Partnera",
     ),
 )
@@ -890,7 +890,7 @@ _SIG_EN = (
     ("sig", "__________________________            ______________________________"),
     (
         "sig",
-        "Signature of the person representing B2B.NET S.A.            "
+        "Signature of the person representing B2B.net S.A.            "
         "Signature of the person representing the Partner",
     ),
 )

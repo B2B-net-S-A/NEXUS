@@ -62,6 +62,11 @@ api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
     const token = localStorage.getItem("access_token");
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
+    // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
+    // efektywnego current_user — patrz backend/app/api/deps.py.
+    const impersonateId = localStorage.getItem("nexus_impersonate_id");
+    if (impersonateId) config.headers["X-Impersonate-User-Id"] = impersonateId;
   }
   return config;
 });
@@ -161,6 +166,13 @@ api.interceptors.response.use(
     }
 
     if (status === 403) {
+      // W trybie „podgląd jako użytkownik" admin celowo dostaje 403 na
+      // endpointach niedostępnych dla podglądanej roli (np. /api/admin/*).
+      // To NORMALNE — nie wolno z tego wnioskować wygaśnięcia sesji i wylogować
+      // admina. Surfacujemy 403 normalnie (komponent pokaże „brak dostępu").
+      if (localStorage.getItem("nexus_impersonate_id")) {
+        return Promise.reject(err);
+      }
       if (isAuthScopedPath(url)) {
         triggerSessionExpiredRedirect();
         return Promise.reject(err);
@@ -346,6 +358,10 @@ export interface ImportTaskStatus {
 
 export const adminApi = {
   listUsers: () => api.get("/api/admin/users"),
+  /** Admin „podgląd jako użytkownik": rozpoczyna sesję podglądu wskazanego
+   *  usera. Zwraca jego autorytatywny profil (UserResponse) + zapisuje audyt.
+   *  Faktyczna podmiana danych dzieje się przez nagłówek X-Impersonate-User-Id. */
+  startImpersonation: (id: number) => api.post(`/api/admin/impersonate/${id}`),
   createUser: (data: Record<string, unknown>) => api.post("/api/admin/users", data),
   updateUser: (id: number, data: Record<string, unknown>) => api.put(`/api/admin/users/${id}`, data),
   deactivateUser: (id: number) => api.delete(`/api/admin/users/${id}`),
@@ -1629,6 +1645,62 @@ export interface B2BGenerateResult {
   language: string;
 }
 
+// ── In-house QES signing (drop Autenti) ─────────────────────────────────────
+export interface SignForSignatureResult {
+  signature_id: number;
+  contract_id: number;
+  status: string;
+  sign_url: string;
+}
+
+export const signingApi = {
+  sendForSignature: (
+    contractId: number,
+    body?: {
+      provider?: "szafir_sdk" | "mszafir_oneshot" | "upload_validate";
+      signature_type?: "SES" | "AdES" | "QES";
+      expires_in_days?: number;
+      company_signer_user_id?: number;
+      message_pl?: string;
+    },
+  ) =>
+    api
+      .post<SignForSignatureResult>(
+        `/api/signing/contracts/${contractId}/send-for-signature`,
+        body ?? {},
+      )
+      .then((r) => r.data),
+  listSignatures: (contractId: number) =>
+    api
+      .get(`/api/signing/contracts/${contractId}/signatures`)
+      .then((r) => r.data),
+  // Offline (e-mail) flow: record the contract as sent → pipeline "Umowa wysłana".
+  markSentOffline: (contractId: number) =>
+    api
+      .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
+      .then((r) => r.data),
+  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate. Moves to
+  // "Umowa podpisana", or "Zatrudniony" when both parties signed (>=2 sigs).
+  uploadSigned: (contractId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<{
+        status: string;
+        is_qes: boolean;
+        signature_level: string | null;
+        signed_by: string | null;
+        indication: string | null;
+        dss_verified: boolean;
+        signature_count: number | null;
+        signers: string[];
+        both_parties_signed: boolean;
+        pipeline_stage: string;
+      }>(`/api/signing/contracts/${contractId}/upload-signed`, form)
+      .then((r) => r.data);
+  },
+};
+
 export interface B2BRenderPayload {
   role_id?: number | null;
   language: string;
@@ -1716,6 +1788,12 @@ export const b2bGeneratorApi = {
         params: { limit },
       })
       .then((r) => r.data),
+  deleteGenerated: (id: number) =>
+    api.delete(`/api/b2b-generator/generated/${id}`).then((r) => r.data),
+  downloadGenerated: (id: number) =>
+    api.get(`/api/b2b-generator/generated/${id}/docx`, {
+      responseType: "blob",
+    }),
   checkUop: (body: { text: string; language: string }) =>
     api
       .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
@@ -1723,12 +1801,16 @@ export const b2bGeneratorApi = {
 };
 
 export interface B2BGeneratedContractRow {
+  id: number;
   contract_number: string;
   partner_name: string | null;
   client_name: string | null;
   language: string | null;
   signing_date: string | null;
   created_at: string | null;
+  created_by_name: string | null;
+  can_delete: boolean;
+  can_download: boolean;
 }
 
 export interface B2BUopIssue {

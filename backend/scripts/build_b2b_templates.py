@@ -299,6 +299,52 @@ def format_komparycja(doc: _DocType) -> None:
             break
 
 
+def _lowercase_net_in_paragraph(p: Paragraph, target: str = "B2B.NET") -> int:
+    """Zamień „NET" na „net" w każdym wystąpieniu „B2B.NET" w akapicie.
+
+    Operacja jest RÓWNEJ DŁUGOŚCI i mapuje znaki z powrotem na właściwe runy,
+    więc pogrubienie/krój pisma zostają zachowane (nazwa bywa rozbita na kilka
+    runów, np. „B2B." + „NET" + „ S.A.")."""
+    runs = list(p.runs)
+    texts = [r.text for r in runs]
+    full = "".join(texts)
+    if target not in full:
+        return 0
+    lower_pos: list[int] = []
+    start = full.find(target)
+    while start != -1:
+        lower_pos += [start + 4, start + 5, start + 6]  # offsety „NET" w „B2B.NET"
+        start = full.find(target, start + 1)
+    starts, acc = [], 0
+    for t in texts:
+        starts.append(acc)
+        acc += len(t)
+    run_chars = [list(t) for t in texts]
+    for g in lower_pos:
+        for ri, t in enumerate(texts):
+            if starts[ri] <= g < starts[ri] + len(t):
+                run_chars[ri][g - starts[ri]] = run_chars[ri][g - starts[ri]].lower()
+                break
+    for ri, r in enumerate(runs):
+        new = "".join(run_chars[ri])
+        if new != texts[ri]:
+            r.text = new
+    return full.count(target)
+
+
+def normalize_company_name(doc: _DocType) -> int:
+    """Pełna nazwa spółki „B2B.NET S.A." → „B2B.net S.A." (małe „net").
+
+    Skrót „B2BNET" (termin zdefiniowany w komparycji) NIE jest ruszany — łapiemy
+    wyłącznie formę z kropką „B2B.NET", więc „B2BNET" zostaje nietknięty."""
+    changed = sum(_lowercase_net_in_paragraph(p) for p in doc.paragraphs)
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                changed += sum(_lowercase_net_in_paragraph(p) for p in cell.paragraphs)
+    return changed
+
+
 def keep_headings_with_content(doc: _DocType) -> None:
     """Nie zostawiaj nagłówka §/tytułu sekcji samego na końcu strony — Word
     przerzuci go z treścią na nową stronę (keep_with_next)."""
@@ -392,6 +438,9 @@ def build(lang: str, src: Path, rules) -> None:
     patch_appendix_table(doc, lang)
     unbold_partner(doc)
     format_komparycja(doc)  # bold tylko „Pan/Pani + imię i nazwisko"
+    normalize_company_name(
+        doc
+    )  # „B2B.NET S.A." → „B2B.net S.A." (skrót „B2BNET" bez zmian)
     keep_headings_with_content(doc)  # nagłówek § nie zostaje sam na końcu strony
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"

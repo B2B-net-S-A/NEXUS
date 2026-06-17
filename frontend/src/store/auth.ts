@@ -165,11 +165,20 @@ export function hasSection(
 interface AuthState {
   user: User | null
   token: string | null
+  /** Admin „podgląd jako użytkownik": gdy aktywny, ``user`` to user podglądany,
+   *  a ``realUser`` to zalogowany admin (do przywrócenia i do baneru).
+   *  Null gdy nie impersonujemy. Token przez cały czas należy do admina. */
+  realUser: User | null
   /** False przed wyciągnięciem user/token z localStorage (SSR + pierwszy render klienta). */
   hydrated: boolean
   /** Ładuje user + token z localStorage. Wołać raz w root provider. */
   hydrate: () => void
   setAuth: (user: User, token: string) => void
+  /** Wejdź w „podgląd jako" wskazanego usera (tylko admin). ``target`` to
+   *  autorytatywny profil zwrócony z POST /api/admin/impersonate/{id}. */
+  impersonate: (target: User) => void
+  /** Wyjdź z trybu podglądu i wróć do konta admina. */
+  stopImpersonating: () => void
   logout: () => void
 }
 
@@ -276,18 +285,73 @@ function persistUser(user: User | null): void {
   }
 }
 
+// ── Impersonacja („podgląd jako użytkownik") ────────────────────────────────
+//
+// Trzymamy 2 dodatkowe klucze TYLKO gdy admin podgląda kogoś:
+//  • REAL_USER_STORAGE_KEY — profil admina (do przywrócenia + baner),
+//  • IMPERSONATE_ID_KEY     — id podglądanego usera, czytane przez interceptor
+//                             axios który dokleja nagłówek X-Impersonate-User-Id.
+// Efektywny (podglądany) user leży w zwykłym `nexus_user`, więc cały UI
+// (sidebar, role-gating, „moje" dane) renderuje się jako podglądany user.
+const REAL_USER_STORAGE_KEY = "nexus_real_user"
+const IMPERSONATE_ID_KEY = "nexus_impersonate_id"
+
+function readRealUser(): User | null {
+  const raw = safeGet(REAL_USER_STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.id === "number" &&
+      typeof parsed.role === "string"
+    ) {
+      return parsed as User
+    }
+  } catch {
+    /* corrupt value */
+  }
+  return null
+}
+
+function writeImpersonation(realAdmin: User, targetId: number): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(
+      REAL_USER_STORAGE_KEY,
+      JSON.stringify(realAdmin)
+    )
+    window.localStorage.setItem(IMPERSONATE_ID_KEY, String(targetId))
+  } catch {
+    /* non-browser env */
+  }
+}
+
+function clearImpersonation(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(REAL_USER_STORAGE_KEY)
+    window.localStorage.removeItem(IMPERSONATE_ID_KEY)
+  } catch {
+    /* non-browser env */
+  }
+}
+
 // Initial state = ZAWSZE null na server + pierwszym rendrze klienta.
 // Inaczej SSR wyrzuca pusty sidebar a client wypełnia go z localStorage,
 // co produkuje React hydration mismatch (error #418). Dopiero po mount
 // (hydrate()) czytamy z localStorage i re-renderujemy z pełnym stanem.
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
+  realUser: null,
   hydrated: false,
   hydrate: () => {
     set({
       user: readInitialUser(),
       token: readInitialToken(),
+      realUser: readRealUser(),
       hydrated: true,
     })
   },
@@ -297,6 +361,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       /* non-browser env */
     }
+    // Świeży login zawsze kończy ewentualny stan podglądu (defensywnie).
+    clearImpersonation()
     // Backfill roles for fresh logins where the API response predates
     // migration 0110 (cached at the edge or old build still up).
     const safe: User = {
@@ -307,7 +373,37 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     persistUser(safe)
     writeAuthCookie(token)
-    set({ user: safe, token, hydrated: true })
+    set({ user: safe, token, realUser: null, hydrated: true })
+  },
+  impersonate: (target) => {
+    // Admin = obecny efektywny user (nie jesteśmy jeszcze w trybie podglądu).
+    const admin = get().realUser ?? get().user
+    if (!admin) return
+    const safeTarget: User = {
+      ...target,
+      roles:
+        Array.isArray(target.roles) && target.roles.length > 0
+          ? target.roles
+          : [target.role],
+    }
+    writeImpersonation(admin, safeTarget.id)
+    persistUser(safeTarget)
+    set({ user: safeTarget, realUser: admin })
+    // Pełny reload na stronę główną — czyści cache react-query, więc cały
+    // UI przeładowuje się jako user podglądany (z nagłówkiem impersonacji).
+    if (typeof window !== "undefined") {
+      window.location.href = "/"
+    }
+  },
+  stopImpersonating: () => {
+    const admin = get().realUser ?? readRealUser()
+    clearImpersonation()
+    if (admin) persistUser(admin)
+    set({ user: admin, realUser: null })
+    // Pełny reload — refetch wszystkich zapytań już jako admin.
+    if (typeof window !== "undefined") {
+      window.location.href = "/"
+    }
   },
   logout: () => {
     try {
@@ -316,8 +412,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       /* non-browser env */
     }
     persistUser(null)
+    clearImpersonation()
     clearAuthCookie()
-    set({ user: null, token: null, hydrated: true })
+    set({ user: null, token: null, realUser: null, hydrated: true })
     if (typeof window !== "undefined") {
       window.location.href = "/login"
     }

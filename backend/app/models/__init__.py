@@ -38,6 +38,7 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.fx_rate import FxRate
 from app.models.activity import Activity
@@ -47,6 +48,7 @@ from app.models.user_email_template import UserEmailTemplate
 from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
 from app.models.call import Call
+from app.models.traffit_sync_state import TraffitSyncState
 from app.models.client_knowledge import ClientKnowledge
 from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
@@ -145,6 +147,7 @@ from app.models.client_required_document import (
 )
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
+from app.models.signature_link import SignatureLink
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractSignedVia,
@@ -202,6 +205,7 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "CvGeneratedDocument",
     "Invoice",
     "InvoiceDirection",
     "InvoiceStatus",
@@ -213,6 +217,7 @@ __all__ = [
     "TeamsNotificationChannel",
     "JobPosting",
     "Call",
+    "TraffitSyncState",
     "ClientKnowledge",
     "ClientOnePager",
     "ClientContractTerms",
@@ -303,6 +308,7 @@ __all__ = [
     "ClientDocStatus",
     "DocumentSignature",
     "DocumentSignatureEvent",
+    "SignatureLink",
     "SignatureStatus",
     "ClientFrameworkContract",
     "FrameworkContractStatus",

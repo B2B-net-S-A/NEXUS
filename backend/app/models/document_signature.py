@@ -16,6 +16,8 @@ import enum
 from datetime import datetime
 from typing import Optional
 
+from typing import Any
+
 from sqlalchemy import (
     DateTime,
     Enum,
@@ -25,6 +27,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -92,16 +95,62 @@ class DocumentSignature(Base, TimestampMixin):
         nullable=True,
     )
 
-    # ── Autenti identifiers ───────────────────────────────────────────────
-    # Populated after the API ``create_document_process`` call returns.
-    # NULL while ``status == draft`` (very brief window).
-    autenti_process_id: Mapped[Optional[str]] = mapped_column(
+    # ── Provider linkage (provider-agnostic — Faza 1, migracja 0133) ───────
+    # ``provider`` discriminates which signing backend owns this row:
+    #   ``autenti``        — legacy aggregator (deprecated, historical rows)
+    #   ``szafir_sdk``     — KIR Szafir SDK, client-side card/token/mobile
+    #   ``mszafir_oneshot``— KIR mSzafir One Shot, cloud one-time cert
+    #   ``upload_validate``— Option B: signer uploads own-signed PAdES
+    provider: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="autenti", server_default="autenti"
+    )
+    # Provider-side reference (Autenti process_id / mSzafir process ref / …).
+    # Renamed from ``autenti_process_id`` in 0133 — UNIQUE constraint follows
+    # the column in PG. NULL while ``status == draft`` (brief window).
+    provider_ref: Mapped[Optional[str]] = mapped_column(
         String(64), unique=True, nullable=True
     )
-    # Signature constraint per plan §3 — SES (default), AdES, QES.
-    autenti_signature_type: Mapped[str] = mapped_column(
+    # Signature level per eIDAS — SES / AdES / QES. Free-form String(16)
+    # (NOT enum) so adding levels never needs ``ALTER TYPE``. For the in-house
+    # QES rail this is always ``QES``. Renamed from ``autenti_signature_type``.
+    signature_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="SES", server_default="SES"
     )
+    # mSzafir cloud signing-session id (pas 2). NULL for Szafir SDK / upload.
+    signing_session_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    # How the signer was identified: ``card`` | ``mobile`` | ``bank`` |
+    # ``mobywatel`` | ``edowod_nfc``. Captured for audit; raw identity data
+    # stays with the QTSP (RODO).
+    identity_provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Achieved PAdES level reported by validation: ``B-B`` | ``B-T`` |
+    # ``B-LT`` | ``B-LTA``. NULL until first validation.
+    signature_level: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # EU DSS / pyHanko validation report ("is this QES?"). Durable evidence.
+    validation_report: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+
+    # ── Backward-compat aliases (deprecated — remove after FE migration) ────
+    # Existing Autenti code (sender/webhook_handler) reads & writes the old
+    # attribute names. Property+setter aliases keep it working unchanged while
+    # the column is renamed underneath.
+    @property
+    def autenti_process_id(self) -> Optional[str]:
+        return self.provider_ref
+
+    @autenti_process_id.setter
+    def autenti_process_id(self, value: Optional[str]) -> None:
+        self.provider_ref = value
+
+    @property
+    def autenti_signature_type(self) -> str:
+        return self.signature_type
+
+    @autenti_signature_type.setter
+    def autenti_signature_type(self, value: str) -> None:
+        self.signature_type = value
 
     # ── State machine ──────────────────────────────────────────────────────
     status: Mapped[SignatureStatus] = mapped_column(
@@ -203,5 +252,6 @@ class DocumentSignature(Base, TimestampMixin):
         )
         return (
             f"<DocumentSignature id={self.id} {target} "
-            f"autenti={self.autenti_process_id} status={self.status.value}>"
+            f"provider={self.provider} ref={self.provider_ref} "
+            f"status={self.status.value}>"
         )

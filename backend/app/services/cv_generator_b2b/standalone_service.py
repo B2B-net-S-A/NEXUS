@@ -13,6 +13,7 @@ synchronous and slow (30-60 s). All DB access happens in the async part of
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -122,6 +123,21 @@ class GenerationResult:
     docx_bytes: bytes
     warnings: list[str]
     processing_time_ms: int
+    # ``candidate_data`` captured BEFORE render mutates it (blind anonymization),
+    # so the DOCX can be re-rendered later from the saved log without re-calling
+    # Claude. ``job_id`` is set in New mode (None for manual upload).
+    render_payload: dict[str, Any]
+    job_id: int | None = None
+
+
+def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
+    """Re-render a previously generated CV from its saved ``render_payload``.
+
+    Deterministic — no Claude call. Deep-copies because ``render_cv_to_bytes``
+    mutates the dict in place for blind anonymization, and the stored payload
+    must stay reusable for the next download.
+    """
+    return render_cv_to_bytes(copy.deepcopy(render_payload), TEMPLATE_PATH)
 
 
 @dataclass(frozen=True)
@@ -508,6 +524,7 @@ def _run_generation_pipeline(
     request_id: str,
     fallback_name: str | None,
     started_at: float,
+    job_id: int | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -603,6 +620,11 @@ def _run_generation_pipeline(
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
 
+    # Snapshot for the saved-CV log BEFORE render mutates candidate_data
+    # (blind mode rewrites name/company in place). Re-rendering this payload
+    # reproduces an identical DOCX without another Claude call.
+    render_payload = copy.deepcopy(candidate_data)
+
     # ── 5. Render DOCX ───────────────────────────────────────────────────
     try:
         docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
@@ -639,6 +661,8 @@ def _run_generation_pipeline(
         docx_bytes=docx_bytes,
         warnings=warnings,
         processing_time_ms=duration_ms,
+        render_payload=render_payload,
+        job_id=job_id,
     )
 
 
@@ -978,6 +1002,7 @@ async def generate_cv_for_candidate(
             request_id=request_id,
             fallback_name=fallback_name,
             started_at=started_at,
+            job_id=job.id,
         )
     )
 

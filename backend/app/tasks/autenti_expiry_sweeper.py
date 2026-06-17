@@ -70,7 +70,7 @@ async def _sweep_expired() -> int:
                 ),
                 DocumentSignature.expires_at.is_not(None),
                 DocumentSignature.expires_at < now,
-                DocumentSignature.autenti_process_id.is_not(None),
+                DocumentSignature.provider_ref.is_not(None),
             )
         )
         candidates = list(result.scalars().all())
@@ -139,7 +139,7 @@ async def _retry_signed_downloads() -> int:
             select(DocumentSignature).where(
                 DocumentSignature.status == SignatureStatus.completed,
                 DocumentSignature.signed_document_id.is_(None),
-                DocumentSignature.autenti_process_id.is_not(None),
+                DocumentSignature.provider_ref.is_not(None),
                 DocumentSignature.retry_count < 3,
             )
         )

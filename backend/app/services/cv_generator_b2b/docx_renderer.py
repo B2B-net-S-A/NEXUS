@@ -92,17 +92,198 @@ _STOP_WORDS = {
 _WORD_CHARS = "0-9A-Za-z_#+ąćęłńóśźżĄĆĘŁŃÓŚŹŻàâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ"
 
 
+# Proficiency / filler words a recruiter often types alongside a real skill
+# ("Figma – zaawansowana znajomość", "Docker (mile widziane)"). A champion
+# keyword whose every token is generic is dropped so prose words never get
+# bolded; a parenthetical made of these is treated as a qualifier, not an alias.
+_GENERIC_WORDS = {
+    # PL — proficiency / filler / requirement language
+    "zaawansowana",
+    "zaawansowany",
+    "zaawansowane",
+    "podstawowa",
+    "podstawowy",
+    "podstawowe",
+    "srednia",
+    "srednio",
+    "sredniozaawansowana",
+    "sredniozaawansowany",
+    "biegla",
+    "biegły",
+    "biegly",
+    "biegle",
+    "komunikatywna",
+    "komunikatywny",
+    "znajomosc",
+    "znajomość",
+    "doswiadczenie",
+    "doświadczenie",
+    "mile",
+    "widziane",
+    "widziana",
+    "widziany",
+    "dobra",
+    "dobry",
+    "dobre",
+    "bardzo",
+    "atut",
+    "atutem",
+    "plus",
+    "wymagane",
+    "wymagana",
+    "wymagany",
+    "opcjonalnie",
+    "opcjonalne",
+    "poziom",
+    "umiejetnosc",
+    "umiejętność",
+    "umiejetnosci",
+    "umiejętności",
+    "preferowana",
+    "preferowane",
+    "preferowany",
+    "ogolna",
+    "ogólna",
+    "praktyczna",
+    "praktyczne",
+    "must",
+    "have",
+    "nice",
+    # EN — proficiency / filler / requirement language
+    "advanced",
+    "basic",
+    "intermediate",
+    "fluent",
+    "proficient",
+    "proficiency",
+    "knowledge",
+    "experience",
+    "required",
+    "optional",
+    "good",
+    "strong",
+    "level",
+    "skills",
+    "skill",
+    "preferred",
+    "general",
+    "practical",
+    "familiarity",
+    "technology",
+    "technologies",
+    "position",
+    "positions",
+    "creation",
+    "possesses",
+    # PL — requirement-prose nouns/verbs a champion entry wraps a real skill in.
+    # These are NEVER the meaningful part of a technology, so they must never
+    # bold the CV prose ("tworzenie", "technologie", "stanowisku" etc.).
+    "technologia",
+    "technologie",
+    "technologii",
+    "technologią",
+    "technologiami",
+    "technologiach",
+    "stanowisko",
+    "stanowisku",
+    "stanowiska",
+    "stanowisk",
+    "stanowiskach",
+    "tworzenie",
+    "tworzenia",
+    "tworzeniu",
+    "kluczowy",
+    "kluczowa",
+    "kluczowe",
+    "kluczowych",
+    "kluczowym",
+    "kluczowymi",
+    "posiada",
+    "posiadanie",
+    "posiadania",
+    "wymagania",
+    "wymaganiami",
+    "rozwój",
+    "rozwoju",
+    "rozwojem",
+    "lider",
+    "lidera",
+    "liderem",
+    "liderzy",
+}
+
+
+def _is_alias_like(text: str) -> bool:
+    """True iff a parenthetical reads like a tech alias, not a qualifier.
+
+    "K8s" / ".NET" / "PL/SQL" → alias (bold it too); "zaawansowana znajomość"
+    or "Design System" → qualifier/phrase (bold only the base term).
+    """
+    s = text.strip()
+    if not s or len(s) > 12 or re.search(r"\s", s):
+        return False
+    return any(ch.isalnum() for ch in s)
+
+
+def _is_generic_phrase(text: str) -> bool:
+    """True iff every word in `text` is a stop/proficiency word (skip bolding)."""
+    tokens = re.findall(rf"[{_WORD_CHARS}]+", text.lower())
+    if not tokens:
+        return True
+    return all(t in _GENERIC_WORDS or t in _STOP_WORDS or len(t) < 2 for t in tokens)
+
+
+def _is_filler_word(word: str) -> bool:
+    """True iff `word` is a proficiency/requirement/stop word (no real meaning)."""
+    norm = re.sub(rf"[^{_WORD_CHARS}]", "", word.lower())
+    return bool(norm) and (norm in _GENERIC_WORDS or norm in _STOP_WORDS)
+
+
+def _core_keyword(phrase: str) -> str:
+    """Trim leading/trailing filler so the real term inside a champion entry
+    still bolds — WITHOUT fragmenting a verbose requirement into generic words.
+
+    Champion entries are often natural language ("Znajomość Java") rather than
+    bare tech tokens. We strip filler (proficiency / requirement / stop words)
+    from BOTH ends and keep the core as ONE phrase; the CV prose is matched
+    against that core only. A wordy requirement therefore stays whole and only
+    matches verbatim, so its generic words ("tworzenie", "rozwój") can never
+    bold the prose on their own — that earlier over-bolding is what recruiters
+    reported ("bolds random words like 'tworzenie'/'technologie'").
+
+        "Znajomość Java"               → "Java"
+        "Dobra znajomość Spring Boot"  → "Spring Boot"
+        "Design System"               → "Design System"   (no filler — unchanged)
+        "Tworzenie i rozwój aplikacji" → "Tworzenie i rozwój aplikacji"
+                                          (kept whole — matched verbatim only)
+        "mile widziane"               → ""                (all filler — dropped)
+    """
+    words = phrase.split()
+    while words and _is_filler_word(words[0]):
+        words.pop(0)
+    while words and _is_filler_word(words[-1]):
+        words.pop()
+    return " ".join(words)
+
+
 def _keyword_variants(keyword: str) -> list[str]:
     """Expand a champion keyword into matchable variants.
 
-    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] so both spellings get bolded.
+    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] — the parenthetical is an alias.
+    "Figma (zaawansowana znajomość)" → ["Figma"] — the parenthetical is a
+    qualifier and must NOT become a bold keyword (it would bold those generic
+    words throughout the CV prose).
     """
     kw = (keyword or "").strip()
     if not kw:
         return []
     m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", kw)
     if m and m.group(1).strip():
-        return [m.group(1).strip(), m.group(2).strip()]
+        base = m.group(1).strip()
+        alias = m.group(2).strip()
+        if _is_alias_like(alias):
+            return [base, alias]
+        return [base]
     return [kw]
 
 
@@ -116,14 +297,24 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
     seen: set[str] = set()
     for kw in keywords or []:
         for variant in _keyword_variants(kw):
-            v = variant.strip()
+            # Trim filler ("Znajomość Java" → "Java") but keep the core whole so
+            # a verbose requirement is matched verbatim only and never bolds its
+            # generic words ("tworzenie", "technologie") in the CV prose.
+            v = _core_keyword(variant).strip()
             key = v.lower()
             if len(v) < 2 or key in _STOP_WORDS or key in seen:
                 continue
+            if _is_generic_phrase(v):
+                continue
             seen.add(key)
-            escaped = re.sub(r"\\?\s+", r"\\s+", re.escape(v))
+            # Build from tokens so "auto-layout" also matches "auto layout"
+            # (hyphen ↔ space spelling drift between champion list and CV).
+            parts = [p for p in re.split(r"[\s\-]+", v) if p]
+            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
             # "CI/CD" should also match "CI / CD" — slash with optional spaces.
             escaped = escaped.replace("/", r"\s*/\s*")
+            if not escaped:
+                continue
             patterns.append(
                 re.compile(
                     rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
@@ -287,11 +478,12 @@ def add_horizontal_line(doc: Any) -> Any:
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
-    Both the divider and the title keep with the following paragraph so a
-    section header never ends up alone at the bottom of a page.
+    Paragraphs carry no ``keep_with_next`` / ``keep_together`` cohesion: the
+    document flows line-by-line under Word's default widow/orphan handling so a
+    recruiter hand-tuning page breaks moves content one line per Enter, instead
+    of a glued block jumping a whole section across the page boundary.
     """
-    hr = add_horizontal_line(doc)
-    hr.paragraph_format.keep_with_next = True
+    add_horizontal_line(doc)
 
     para = doc.add_paragraph()
     run = para.add_run(text)
@@ -301,7 +493,6 @@ def add_section_header(doc: Any, text: str) -> Any:
     run.font.size = Pt(14)
     para.paragraph_format.space_before = Pt(2)
     para.paragraph_format.space_after = Pt(3)
-    para.paragraph_format.keep_with_next = True
     return para
 
 
@@ -597,12 +788,11 @@ def render_cv_to_bytes(
 
     for i, job in enumerate(candidate_data.get("experience", [])):
         if i > 0:
-            hr = add_horizontal_line(doc)
-            hr.paragraph_format.keep_with_next = True
+            add_horizontal_line(doc)
 
-        # The whole role header (dates → company → position → "Zakres zadań:")
-        # keeps with the next paragraph so a role never starts at the bottom
-        # of a page with its duties orphaned on the next one.
+        # Role header (dates → company → position → "Zakres zadań:") flows
+        # naturally without keep_with_next cohesion, so manual page-break edits
+        # in Word move one line at a time instead of jumping the whole block.
         para = doc.add_paragraph()
         run = para.add_run(job["dates"])
         run.font.name = "Montserrat"
@@ -611,7 +801,6 @@ def render_cv_to_bytes(
         run.font.bold = True
         para.paragraph_format.space_before = Pt(1)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["company_name"] + " ")
@@ -625,7 +814,6 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run1 = para.add_run(t["position"] + " ")
@@ -639,7 +827,6 @@ def render_cv_to_bytes(
         run2.font.bold = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(0)
-        para.paragraph_format.keep_with_next = True
 
         para = doc.add_paragraph()
         run = para.add_run(t["responsibilities"])
@@ -650,7 +837,6 @@ def render_cv_to_bytes(
         run.font.underline = True
         para.paragraph_format.space_before = Pt(0)
         para.paragraph_format.space_after = Pt(1)
-        para.paragraph_format.keep_with_next = True
 
         add_bullet_list(
             doc, job.get("responsibilities", []), highlight_keywords, patterns=patterns

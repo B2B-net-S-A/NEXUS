@@ -8,15 +8,19 @@ CloudTalk integration is untouched:
 - calls.recording_storage_key — Object Storage key of the server-side recording
 - users.dialer_sip_username  — per-recruiter SIP identity for the browser softphone
 
-Revision ID: 0132_dialer_columns
-Revises: 0131_saved_search_match_log
+Revision ID: 0137_dialer_columns
+Revises: 0136_traffit_sync_state
+
+NOTE: rebased from 0132 → 0137 during the main-merge — main shipped its own
+0132_b2b_render_payload (+0133–0136) off 0131, so the dialer migration now
+chains after main's head to keep a single Alembic head.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0132_dialer_columns"
-down_revision = "0131_saved_search_match_log"
+revision = "0137_dialer_columns"
+down_revision = "0136_traffit_sync_state"
 branch_labels = None
 depends_on = None
 

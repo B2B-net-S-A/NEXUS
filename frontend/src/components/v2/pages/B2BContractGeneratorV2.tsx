@@ -4,15 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
+  CheckCircle2,
   ChevronsUpDown,
   Download,
   Eye,
   FileSignature,
   Loader2,
+  Mail,
   Printer,
   Save,
   Search,
   Sparkles,
+  Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -51,6 +55,9 @@ import { useToast } from "@/components/Toast";
 import api, {
   b2bGeneratorApi,
   extractErrorMsg,
+  signingApi,
+  type B2BGeneratedContractRow,
+  type B2BGeneratePayload,
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
@@ -272,19 +279,55 @@ export function B2BContractGeneratorV2() {
 // ── Zakładka: wygenerowane umowy (numery) ───────────────────────────────────
 
 function GeneratedContractsTab() {
+  const toast = useToast();
+  const queryClient = useQueryClient();
   const q = useQuery({
     queryKey: ["b2b-generated"],
     queryFn: () => b2bGeneratorApi.generated(100),
     staleTime: 10_000,
   });
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => b2bGeneratorApi.deleteGenerated(id),
+    onSuccess: () => {
+      toast.showSuccess("Umowa usunięta z listy.");
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+  const downloadMut = useMutation({
+    mutationFn: async (r: B2BGeneratedContractRow) => {
+      const res = await b2bGeneratorApi.downloadGenerated(r.id);
+      const filename = parseDispositionFilename(
+        res.headers["content-disposition"] || "",
+        `Umowa_B2B_${r.contract_number.replace("/", "_")}.docx`,
+      );
+      downloadBlob(res.data as Blob, filename);
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
   const rows = q.data ?? [];
+
+  const confirmDelete = (r: B2BGeneratedContractRow) => {
+    const label = r.partner_name
+      ? `${r.contract_number} — ${r.partner_name}`
+      : r.contract_number;
+    if (
+      window.confirm(
+        `Usunąć umowę „${label}” z listy? Tej operacji nie można cofnąć.`,
+      )
+    ) {
+      deleteMut.mutate(r.id);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
-          numer nie powtarza istniejącego.
+          numer nie powtarza istniejącego. Umowę można pobrać ponownie; wpis może
+          usunąć osoba, która wygenerowała umowę, lub administrator.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -303,23 +346,79 @@ function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Partner</th>
                   <th className="py-2 pr-4 font-medium">Klient</th>
                   <th className="py-2 pr-4 font-medium">Język</th>
-                  <th className="py-2 font-medium">Wygenerowano</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerowano</th>
+                  <th className="py-2 pr-4 font-medium">Wygenerował</th>
+                  <th className="py-2 text-right font-medium">Akcje</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={`${r.contract_number}-${i}`} className="border-b">
-                    <td className="py-2 pr-4 font-medium">
-                      {r.contract_number}
-                    </td>
-                    <td className="py-2 pr-4">{r.partner_name || "—"}</td>
-                    <td className="py-2 pr-4">{r.client_name || "—"}</td>
-                    <td className="py-2 pr-4 uppercase">{r.language || "—"}</td>
-                    <td className="py-2 text-muted-foreground">
-                      {r.created_at ? r.created_at.slice(0, 16).replace("T", " ") : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const deleting =
+                    deleteMut.isPending && deleteMut.variables === r.id;
+                  const downloading =
+                    downloadMut.isPending && downloadMut.variables?.id === r.id;
+                  return (
+                    <tr key={r.id} className="border-b">
+                      <td className="py-2 pr-4 font-medium">
+                        {r.contract_number}
+                      </td>
+                      <td className="py-2 pr-4">{r.partner_name || "—"}</td>
+                      <td className="py-2 pr-4">{r.client_name || "—"}</td>
+                      <td className="py-2 pr-4 uppercase">
+                        {r.language || "—"}
+                      </td>
+                      <td className="py-2 pr-4 text-muted-foreground">
+                        {r.created_at
+                          ? r.created_at.slice(0, 16).replace("T", " ")
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
+                      <td className="py-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {r.can_download ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8"
+                              disabled={downloading}
+                              onClick={() => downloadMut.mutate(r)}
+                              title="Pobierz DOCX ponownie"
+                            >
+                              {downloading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Download className="h-4 w-4" />
+                              )}
+                              <span className="ml-1">Pobierz</span>
+                            </Button>
+                          ) : null}
+                          {r.can_delete ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 text-destructive hover:text-destructive"
+                              disabled={deleting}
+                              onClick={() => confirmDelete(r)}
+                              title="Usuń umowę z listy"
+                            >
+                              {deleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              <span className="ml-1">Usuń</span>
+                            </Button>
+                          ) : null}
+                          {!r.can_download && !r.can_delete ? (
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -683,6 +782,9 @@ function GeneratorForm() {
   const uopMut = useMutation({
     mutationFn: () =>
       b2bGeneratorApi.checkUop({ text: projectDescription, language }),
+    // Rekomendacje znikają dopiero przy PONOWNYM kliknięciu „Sprawdź…" (czyli
+    // tutaj) — nie przy edycji opisu — i od razu generują się nowe.
+    onMutate: () => setUop(null),
     onSuccess: (d) => setUop(d),
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
@@ -692,6 +794,156 @@ function GeneratorForm() {
   };
   const onPreview = () => {
     if (validate()) previewMut.mutate();
+  };
+
+  // ── Wyślij do podpisu (in-house QES) ──────────────────────────────────────
+  const [signLink, setSignLink] = useState<string | null>(null);
+
+  const buildGeneratePayload = (): B2BGeneratePayload | null => {
+    if (!selectedRole || !candidate || !selectedRecruitment || !startDate) {
+      return null;
+    }
+    return {
+      role_id: selectedRole.id,
+      language,
+      candidate_id: candidate.id,
+      job_id: selectedRecruitment.job_id,
+      contract_number: contractNumber.trim() || null,
+      signing_date: signingDate || null,
+      start_date: startDate,
+      project_city: projectCity.trim() || null,
+      project_description: projectDescription.trim() || null,
+      correspondence_address: partnerCorrespondenceAddress.trim() || null,
+      rate_candidate: rateCandidate.trim()
+        ? Number(rateCandidate.replace(",", "."))
+        : null,
+      currency: currency.trim() || "PLN",
+    };
+  };
+
+  const sendSignMut = useMutation({
+    mutationFn: async () => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wysłać do podpisu.",
+        );
+      }
+      // 1. Promocja do realnego Contract z treścią (draft_content_html).
+      const gen = await b2bGeneratorApi.generate(gp);
+      // 2. Wyślij do podpisu → zwraca publiczny link /sign/{token}.
+      const res = await signingApi.sendForSignature(gen.contract_id, {
+        provider: "upload_validate",
+        signature_type: "QES",
+      });
+      return res.sign_url;
+    },
+    onSuccess: (url) => {
+      setSignLink(url);
+      toast.showSuccess("Link do podpisu wygenerowany — skopiuj i wyślij konsultantowi.");
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const onSendSign = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do wysłania do podpisu.",
+      );
+      return;
+    }
+    setSignLink(null);
+    setUploadVerdict(null);
+    sendSignMut.mutate();
+  };
+
+  // ── Offline (e-mail) flow: oznacz wysłaną / wgraj podpisaną ────────────────
+  const signedFileRef = useRef<HTMLInputElement>(null);
+  const [uploadVerdict, setUploadVerdict] = useState<{
+    is_qes: boolean;
+    signed_by: string | null;
+    signature_level: string | null;
+    both_parties_signed: boolean;
+  } | null>(null);
+
+  const markSentMut = useMutation({
+    mutationFn: async () => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby oznaczyć wysłaną.",
+        );
+      }
+      const gen = await b2bGeneratorApi.generate(gp);
+      await signingApi.markSentOffline(gen.contract_id);
+    },
+    onSuccess: () => {
+      toast.showSuccess(
+        "Oznaczono jako wysłaną — kandydat przeszedł na etap „Umowa wysłana”.",
+      );
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const uploadSignedMut = useMutation({
+    mutationFn: async (file: File) => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wgrać podpisaną umowę.",
+        );
+      }
+      const gen = await b2bGeneratorApi.generate(gp);
+      return signingApi.uploadSigned(gen.contract_id, file);
+    },
+    onSuccess: (verdict) => {
+      setUploadVerdict({
+        is_qes: verdict.is_qes,
+        signed_by: verdict.signed_by,
+        signature_level: verdict.signature_level,
+        both_parties_signed: verdict.both_parties_signed,
+      });
+      toast.showSuccess(
+        verdict.both_parties_signed
+          ? "Umowa podpisana przez obie strony — kandydat przeszedł na etap „Zatrudniony”."
+          : "Podpisaną umowę wgrano — kandydat przeszedł na etap „Umowa podpisana”.",
+      );
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const onMarkSentOffline = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do oznaczenia wysłanej.",
+      );
+      return;
+    }
+    setSignLink(null);
+    setUploadVerdict(null);
+    markSentMut.mutate();
+  };
+
+  const onUploadSignedClick = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do wgrania podpisanej umowy.",
+      );
+      return;
+    }
+    signedFileRef.current?.click();
+  };
+
+  const onSignedFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setSignLink(null);
+    setUploadVerdict(null);
+    uploadSignedMut.mutate(file);
   };
 
   return (
@@ -1049,7 +1301,8 @@ function GeneratorForm() {
               onChange={(e) => {
                 descTouched.current = true;
                 setProjectDescription(e.target.value);
-                if (uop) setUop(null);
+                // Wynik AI-sprawdzenia ZOSTAJE przy edycji opisu — czyści się
+                // tylko przy ponownym kliknięciu „Sprawdź…" (onMutate uopMut).
               }}
               rows={4}
               placeholder="Auto z obszaru/oferty — możesz nadpisać. Po wklejeniu sprawdź AI…"
@@ -1215,7 +1468,108 @@ function GeneratorForm() {
           <Download className="mr-2 h-4 w-4" />
           DOCX (EN)
         </Button>
+        <Button
+          variant="outline"
+          disabled={sendSignMut.isPending}
+          onClick={onSendSign}
+          title="Tworzy umowę i generuje link do podpisu kwalifikowanego dla konsultanta"
+        >
+          {sendSignMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <FileSignature className="mr-2 h-4 w-4" />
+          )}
+          Wyślij do podpisu (QES)
+        </Button>
+        <Button
+          variant="outline"
+          disabled={markSentMut.isPending}
+          onClick={onMarkSentOffline}
+          title="Wysłałeś umowę mailem? Oznacz wysłaną, by przenieść kandydata na etap „Umowa wysłana”."
+        >
+          {markSentMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Mail className="mr-2 h-4 w-4" />
+          )}
+          Oznacz: wysłana mailem
+        </Button>
+        <Button
+          variant="outline"
+          disabled={uploadSignedMut.isPending}
+          onClick={onUploadSignedClick}
+          title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis i przeniesiemy na etap „Umowa podpisana”."
+        >
+          {uploadSignedMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-2 h-4 w-4" />
+          )}
+          Wgraj podpisaną (z maila)
+        </Button>
+        <input
+          ref={signedFileRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          onChange={onSignedFilePicked}
+        />
       </div>
+
+      {signLink ? (
+        <Alert>
+          <div className="space-y-2">
+            <p className="font-medium">
+              Link do podpisu — wyślij go konsultantowi:
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={signLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 rounded border bg-background px-2 py-1 text-sm"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  navigator.clipboard?.writeText(signLink);
+                  toast.showSuccess("Skopiowano link.");
+                }}
+              >
+                Kopiuj
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Konsultant otworzy link, przeczyta umowę w przeglądarce, podpisze
+              ją własnym podpisem kwalifikowanym i odeśle. Status zobaczysz w
+              profilu kandydata.
+            </p>
+          </div>
+        </Alert>
+      ) : null}
+
+      {uploadVerdict ? (
+        <Alert>
+          <div className="space-y-1">
+            <p className="flex items-center gap-2 font-medium">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              {uploadVerdict.both_parties_signed
+                ? "Umowa podpisana przez obie strony — kandydat na etapie „Zatrudniony”."
+                : "Podpisaną umowę wgrano — kandydat na etapie „Umowa podpisana”."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {uploadVerdict.is_qes
+                ? "Podpis kwalifikowany (QES) potwierdzony"
+                : "Podpis wgrany — kwalifikowalność niepotwierdzona automatycznie (zweryfikuj ręcznie)"}
+              {uploadVerdict.signed_by ? ` · podpisał: ${uploadVerdict.signed_by}` : ""}
+              {uploadVerdict.signature_level
+                ? ` · poziom: ${uploadVerdict.signature_level}`
+                : ""}
+            </p>
+          </div>
+        </Alert>
+      ) : null}
 
       {/* Podgląd */}
       {previewHtml ? (

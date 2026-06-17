@@ -183,6 +183,37 @@ def test_html_template_renders(lang):
     assert "Rozwój platformy bankowej." in rendered  # opis projektu w Zał.3
 
 
+@pytest.mark.parametrize("lang", ["pl", "en"])
+def test_company_full_name_is_lowercase_net(lang, tmp_path):
+    """Pełna nazwa spółki = „B2B.net S.A." (małe „net") w DOCX i HTML; skrót
+    „B2BNET" (termin zdefiniowany w komparycji) pozostaje bez zmian.
+
+    Forma „B2B.NET" (wielkie litery) nie może wystąpić nigdzie — to ona była
+    zgłoszona jako błędna."""
+    env = Environment(autoescape=True)
+    env.filters["pl_date"] = pl_date
+    tpl = DocxTemplate(str(TEMPLATE_DIR / f"umowa_b2b_{lang}.docx"))
+    tpl.render(_sample_context(lang), jinja_env=env)
+    out = tmp_path / f"name_{lang}.docx"
+    tpl.save(str(out))
+    d = _docx.Document(str(out))
+    # python-docx łączy runy, więc rozbita nazwa („B2B." + „net" + „ S.A.")
+    # czyta się jako spójne „B2B.net S.A.".
+    docx_text = (
+        "\n".join(p.text for p in d.paragraphs)
+        + "\n"
+        + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
+    )
+    html_text = _jinja_env.from_string(
+        (TEMPLATE_DIR / f"umowa_b2b_{lang}.html").read_text(encoding="utf-8")
+    ).render(**_sample_context(lang))
+
+    for surface, text in (("docx", docx_text), ("html", html_text)):
+        assert "B2B.NET" not in text, f"[{lang}/{surface}] została wielka „B2B.NET”"
+        assert "B2B.net S.A." in text, f"[{lang}/{surface}] brak „B2B.net S.A.”"
+        assert "B2BNET" in text, f"[{lang}/{surface}] zniknął skrót „B2BNET”"
+
+
 def test_pl_template_gender_forms():
     """Formy zależne od płci podstawiają się; B2BNET (spółka) zostaje żeńskie."""
     html = (TEMPLATE_DIR / "umowa_b2b_pl.html").read_text(encoding="utf-8")
@@ -276,6 +307,48 @@ def test_render_context_accepts_fractional_rate():
     assert ctx["b2b"]["rate_in_words"] == (
         "sto trzydzieści pięć złotych pięćdziesiąt groszy"
     )
+
+
+def test_render_payload_roundtrip_redownload():
+    """Ponowne pobranie z listy: payload zapisany jak w logu
+    (``model_dump(mode="json")``) odtwarza się w ``B2BRenderRequest`` i
+    re-renderuje do prawidłowego DOCX, z numerem nadpisanym z wiersza logu."""
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import (
+        render_from_context,
+    )
+    from app.services.b2b_contract_generator.render_context import (
+        build_render_context,
+    )
+
+    req = B2BRenderRequest(
+        role_id=None,
+        language="pl",
+        partner_name="Jan Kowalski",
+        client_name="Nordea Bank Abp",
+        project_city="Warszawa",
+        project_description="Usługi QA i automatyzacja testów.",
+        signing_date=date(2026, 6, 16),
+        start_date=date(2026, 7, 1),
+        rate_candidate=150,
+    )
+    # Dokładnie tak zapisujemy w b2b_generated_contracts.render_payload …
+    stored = req.model_dump(mode="json")
+    # … i tak odtwarzamy w GET /generated/{id}/docx.
+    restored = B2BRenderRequest(**stored)
+    assert restored.signing_date == date(2026, 6, 16)  # data wraca z ISO-stringa
+
+    ctx = build_render_context(restored, None)
+    ctx["b2b"]["contract_number"] = "1436/2026"  # numer bierzemy z wiersza logu
+    data = render_from_context(ctx, language="pl")
+
+    assert data[:2] == b"PK"  # DOCX = archiwum ZIP
+    full = "\n".join(p.text for p in Document(io.BytesIO(data)).paragraphs)
+    assert "1436/2026" in full  # numer odtworzony w dokumencie
 
 
 # ── Numeracja umów: parser numeru + sugestia kolejnego wolnego ───────────────
@@ -517,7 +590,7 @@ def test_alior_zalacznik3_single_signature_after_table():
             continue
         if seen_tbl and child.tag == qn("w:p"):
             t = (Paragraph(child, doc).text or "").strip()
-            if "B2B.NET S.A." in t and "Partner" in t:
+            if "B2B.net S.A." in t and "Partner" in t:
                 pairs += 1
     assert pairs == 1, f"oczekiwano 1 podpisu po tabeli, jest {pairs}"
 
