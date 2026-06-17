@@ -6,6 +6,10 @@ import { phase5Api, RateHistoryRow } from "@/lib/api";
 
 interface Props {
   candidateId: number;
+  /** When true and there are no rate rows (and the add-form is closed), collapse
+   *  to a single compact "Dodaj stawkę" link instead of a full empty card — used
+   *  in the candidate panel footer so an empty widget doesn't add card noise. */
+  hideWhenEmpty?: boolean;
 }
 
 const CONTRACT_LABEL: Record<string, string> = {
@@ -14,7 +18,7 @@ const CONTRACT_LABEL: Record<string, string> = {
   zlecenie: "Zlecenie",
 };
 
-export function RateHistoryWidget({ candidateId }: Props) {
+export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props) {
   const [rows, setRows] = useState<RateHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<{ id: number; name: string }[]>([]);
@@ -89,6 +93,21 @@ export function RateHistoryWidget({ candidateId }: Props) {
 
   const clientName = (id: number | null) =>
     clients.find((c) => c.id === id)?.name ?? (id ? `#${id}` : "—");
+
+  // Collapsed empty state for the candidate-panel footer: a single slim link
+  // that opens the add-form, instead of a full "Brak zapisanych stawek." card.
+  if (hideWhenEmpty && !loading && rows.length === 0 && !showForm) {
+    return (
+      <button
+        type="button"
+        onClick={() => setShowForm(true)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Dodaj stawkę
+      </button>
+    );
+  }
 
   return (
     <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
