@@ -127,3 +127,28 @@ Fundament (Protocol + schematy + kolumny + flagi) jest na miejscu, więc poniżs
 3. **Offline: wgraj podpisaną** — rekruter dostał podpisaną z maila → „Wgraj podpisaną (z maila)" → walidacja PAdES → move „Umowa podpisana".
 
 **„Podpisz w panelu bez pobierania" (jak Autenti)** — niewykonalne bez KIR (wbudowany QES w przeglądarce wymaga Szafir SDK/karty lub mSzafir/chmury). Upload-validate to jedyna ścieżka bez KIR; jest wdrożona i wystarcza dla obecnego zakresu.
+
+---
+
+## ✅ Both-parties-signed → „Zatrudniony" (2026-06-17, PR #521, main `9d2cb6e`)
+
+Gdy wgrany podpisany PAdES jest podpisany **przez obie strony** (konsultant + nasza strona), umowa jest w pełni zawarta ⇒ kandydat przechodzi na terminalny etap **„Zatrudniony"** (hired) zamiast zatrzymywać się na „Umowa podpisana". Pojedynczy podpis (sam konsultant) ⇒ „Umowa podpisana".
+
+**Wykrywanie:** liczba **podpisów zatwierdzających** (approval signatures) w PAdES, z **wykluczeniem** PAdES document timestamps (B-T/B-LTA). `>= 2` ⇒ obie strony ⇒ hired; nieznana liczba (błąd parsowania / DSS) ⇒ konserwatywnie „Umowa podpisana" (**nigdy** fałszywie na hired).
+
+**Implementacja:**
+- `pades.count_approval_signatures()` — bez sieci, API zweryfikowane wobec `pyhanko[etsi]==0.34.1` (`sig_object_type` `/Sig` vs `/DocTimeStamp`, `signer_cert.subject.human_friendly`); timestampy wykluczone dwojako (`/DocTimeStamp` **i** `/SubFilter==/ETSI.RFC3161`).
+- `ValidationReport.{signature_count, signers, both_parties_signed}` (property `(count or 0) >= 2`, konserwatywna na `None`); `validation.py` przeprowadza liczbę przez pyHanko + (defensywnie, Faza-4 TODO) DSS.
+- `pipeline_hook.STAGE_HIRED="Zatrudniony"` — „Zatrudniony" (stage_def id 10) ma `legacy_enum_value="hired"`, więc generyczny resolver daje `PipelineStage.hired`; guard wymusza hired (bo „U klienta"/placementy/KPI czytają stary enum `stage`). **Nie** powiela auto-draft-Contractu z normalnego hooka hired (kontrakt już istnieje), **nie** aktywuje kontraktu.
+- `sender.finalize_signed_pdf` rozgałęzia etap docelowy; wzbogaca Activity/Notyfikację/werdykt. Współdzielone przez publiczny `/submit` i rekruterski `/upload-signed`.
+- FE: werdykt „podpisana przez obie strony / Zatrudniony" w Generatorze B2B + publicznej stronie `/sign`.
+
+**Weryfikacja:**
+- **Empiryczna (decydująca):** faktyczna `count_approval_signatures` uruchomiona na prawdziwych PDF-ach 1-podpisowym i 2-podpisowym (pyHanko, self-signed w throwaway venv): `count` = 1 i 2, nazwy sygnatariuszy poprawnie wyekstrahowane; `both_parties_signed`: None/0/1→False, 2→True.
+- **Przegląd adversarialny (python-reviewer):** SHIP. Timestampy poprawnie wykluczone na ścieżce pyHanko (aktywnej na prodzie); `None` zawsze konserwatywnie → „Umowa podpisana"; `finalize_signed_pdf` nie może paść; podwójny dostęp do `reader.embedded_signatures` bezpieczny (pyHanko cache `_embedded_signatures`).
+- Deploy `9d2cb6e` healthy; `provider: szafir_sdk` globalnie, ale upload/submit tworzą sygnaturę `provider="upload_validate"` ⇒ walidacja pyHanko (dss=False).
+- Bez nowej migracji (stage_def + enum już istnieją); `alembic heads` pojedynczy.
+
+**Ograniczenia (udokumentowane):**
+- **R2:** konsultant-spółka z reprezentacją łączną (2 podpisy zarządu) mógłby trafić `>=2` zanim my podpiszemy → fałszywe „Zatrudniony". Rzadkie (JDG dominują). Mitygacja: `signers` zapisane + zwracane (audyt); rekruter cofa. Follow-up: bramkować na dopasowaniu DN sygnatariusza do reprezentanta firmy.
+- **DSS path (Faza 4, nieaktywny):** filtr timestampów w `_map_dss_report` do walidacji wobec realnej odpowiedzi DSS przed włączeniem (TODO w kodzie).
