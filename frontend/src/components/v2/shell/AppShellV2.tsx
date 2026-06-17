@@ -36,6 +36,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname?.startsWith("/login") ?? false;
   const isSharePage = pathname?.startsWith("/share/") ?? false;
   const isApplyPage = pathname?.startsWith("/apply/") ?? false;
+  // `/sign/{token}` — public consultant signing page, no internal app shell.
+  const isSignPage = pathname?.startsWith("/sign/") ?? false;
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<QuickActionModal>(null);
@@ -85,6 +87,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isLoginPage) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
+  if (isSignPage) return <>{children}</>;
 
   // /onboarding has its own dedicated layout (no sidebar); let it render
   // without the AppShell wrapper.
