@@ -63,6 +63,8 @@ class ValidationService:
                 signature_level=local.get("signature_level"),
                 signed_by=local.get("signed_by"),
                 indication=local.get("indication"),
+                signature_count=local.get("signature_count"),
+                signers=local.get("signers") or [],
                 raw=local,
             )
         except Exception as exc:
@@ -108,16 +110,38 @@ class ValidationService:
         sig_level = None
         indication = None
         signed_by = None
+        sig_count: int | None = None
+        signer_list: list[str] = []
         try:
             simple = data.get("simpleReport") or data
             sigs = simple.get("signatureOrTimestamp") or simple.get("signature") or []
-            if sigs:
-                first = sigs[0]
+            # Approval signatures only — exclude document timestamps so a B-LTA
+            # single-party contract isn't miscounted as "both parties signed".
+            approval_sigs = [
+                s
+                for s in sigs
+                if isinstance(s, dict)
+                and str(s.get("type") or s.get("Type") or "SIGNATURE").upper()
+                != "TIMESTAMP"
+            ]
+            if approval_sigs:
+                first = approval_sigs[0]
                 sig_level = first.get("signatureLevel") or first.get("SignatureLevel")
                 indication = first.get("indication") or first.get("Indication")
                 signed_by = first.get("signedBy") or first.get("SignedBy")
+                sig_count = len(approval_sigs)
+                signer_list = [
+                    str(s.get("signedBy") or s.get("SignedBy"))
+                    for s in approval_sigs
+                    if (s.get("signedBy") or s.get("SignedBy"))
+                ]
+            # If no approval signatures were identified (e.g. an unrecognised
+            # report shape, or only timestamps), leave sig_count=None →
+            # conservative "not both parties signed". Do NOT count len(sigs):
+            # that could include document timestamps and falsely promote to hire.
         except Exception:  # pragma: no cover — defensive mapping
-            pass
+            sig_count = None
+            signer_list = []
         level_str = (sig_level or "").upper() if isinstance(sig_level, str) else ""
         is_qes = "QES" in level_str or "QESIG" in level_str
         return ValidationReport(
@@ -125,5 +149,7 @@ class ValidationService:
             signature_level=str(sig_level) if sig_level else None,
             signed_by=str(signed_by) if signed_by else None,
             indication=str(indication) if indication else None,
+            signature_count=sig_count,
+            signers=signer_list,
             raw=data,
         )

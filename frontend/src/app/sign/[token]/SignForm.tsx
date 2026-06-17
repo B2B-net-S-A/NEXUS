@@ -30,6 +30,7 @@ interface Verdict {
   signed_by: string | null;
   indication: string | null;
   dss_verified: boolean;
+  both_parties_signed?: boolean;
 }
 
 function browserApiBase(): string {
@@ -158,6 +159,11 @@ export default function SignForm({
         {verdict.signature_level && (
           <p className="text-sm text-muted-foreground">
             Poziom PAdES: {verdict.signature_level}
+          </p>
+        )}
+        {verdict.both_parties_signed && (
+          <p className="text-sm font-medium text-green-700">
+            Umowa jest podpisana przez obie strony.
           </p>
         )}
         <p className="text-sm text-muted-foreground">

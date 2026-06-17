@@ -24,9 +24,89 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
+    """Count APPROVAL signatures + collect signer subjects from a signed PDF.
+
+    Network-free, no async validation. Counts only approval signatures
+    (signature dict ``/Type == /Sig``), excluding PAdES document timestamps
+    (``/Type == /DocTimeStamp``, ``/SubFilter == /ETSI.RFC3161``). For a B2B
+    contract ``>= 2`` approval signatures means both the consultant AND our
+    company-side representative have signed → the contract is fully executed.
+
+    API verified against ``pyhanko[etsi]==0.34.1``:
+    ``EmbeddedPdfSignature.sig_object_type`` (``self.sig_object.get('/Type',
+    '/Sig')``; pyHanko itself branches on this) and
+    ``EmbeddedPdfSignature.signer_cert.subject.human_friendly`` (reads the cert
+    straight from the embedded CMS — no network, no validation context).
+
+    Returns ``(approval_count, signer_names)``; degrades to ``(None, [])`` on
+    ANY error — never raises. ``None`` count ⇒ callers treat as "not both
+    parties signed" (conservative).
+    """
+    try:
+        try:
+            embedded = list(reader.embedded_signatures)
+        except Exception:  # noqa: BLE001 — malformed/encrypted/hybrid-xref PDF
+            logger.warning(
+                "pyhanko: could not enumerate embedded_signatures", exc_info=True
+            )
+            return None, []
+
+        approval_count = 0
+        signer_names: list[str] = []
+        for emb in embedded:
+            # Discriminate approval signature (/Sig) vs document timestamp.
+            obj_type: Optional[str] = None
+            try:
+                obj_type = str(emb.sig_object_type)
+            except Exception:  # noqa: BLE001
+                try:
+                    raw_type = emb.sig_object.get("/Type", None)
+                    obj_type = str(raw_type) if raw_type is not None else "/Sig"
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "pyhanko: could not read sig /Type; skipping one",
+                        exc_info=True,
+                    )
+                    continue
+
+            subfilter: Optional[str] = None
+            try:
+                sf = emb.sig_object.get("/SubFilter", None)
+                subfilter = str(sf) if sf is not None else None
+            except Exception:  # noqa: BLE001
+                subfilter = None
+
+            if obj_type == "/DocTimeStamp" or subfilter == "/ETSI.RFC3161":
+                continue  # PAdES document timestamp — not an approval signature
+            if obj_type != "/Sig":
+                continue  # unknown subtype — conservative: do not count
+
+            approval_count += 1
+
+            # Signer subject — straight from the embedded CMS, no network.
+            name: Optional[str] = None
+            try:
+                cert = emb.signer_cert
+                subj = getattr(cert, "subject", None)
+                if subj is not None:
+                    name = getattr(subj, "human_friendly", None) or str(subj)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "pyhanko: could not extract signer_cert subject", exc_info=True
+                )
+                name = None
+            signer_names.append(name or "<nieznany sygnatariusz>")
+
+        return approval_count, signer_names
+    except Exception:  # noqa: BLE001 — last-resort guard, never break validation
+        logger.warning("pyhanko: count_approval_signatures failed", exc_info=True)
+        return None, []
 
 
 async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
@@ -40,7 +120,10 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
     integrity even when DSS is unavailable, without ever *claiming* QES.
 
     Returns a dict shaped like the DSS report subset:
-    ``{is_qes, valid, intact, trusted, signed_by, signature_level, indication}``.
+    ``{is_qes, valid, intact, trusted, signed_by, signature_level, indication,
+    signature_count, signers}``. ``signature_count``/``signers`` count only
+    approval signatures (document timestamps excluded) so the caller can detect
+    a fully-executed (both-parties-signed) contract.
 
     Raises:
         RuntimeError: pyhanko not installed.
@@ -56,6 +139,7 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
         ) from exc
 
     reader = PdfFileReader(BytesIO(signed_pdf))
+    approval_count, signer_names = count_approval_signatures(reader)
     embedded = list(reader.embedded_signatures)
     if not embedded:
         return {
@@ -66,6 +150,8 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
             "signed_by": None,
             "signature_level": None,
             "indication": "NO_SIGNATURE",
+            "signature_count": 0,
+            "signers": [],
         }
 
     # No EU Trusted List roots here → integrity/structure only, soft-fail on
@@ -94,6 +180,8 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
         "signed_by": signed_by,
         "signature_level": None,
         "indication": "PRE_CHECK_ONLY",
+        "signature_count": approval_count,
+        "signers": signer_names,
     }
 
 

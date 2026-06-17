@@ -864,6 +864,7 @@ function GeneratorForm() {
     is_qes: boolean;
     signed_by: string | null;
     signature_level: string | null;
+    both_parties_signed: boolean;
   } | null>(null);
 
   const markSentMut = useMutation({
@@ -901,9 +902,12 @@ function GeneratorForm() {
         is_qes: verdict.is_qes,
         signed_by: verdict.signed_by,
         signature_level: verdict.signature_level,
+        both_parties_signed: verdict.both_parties_signed,
       });
       toast.showSuccess(
-        "Podpisaną umowę wgrano — kandydat przeszedł na etap „Umowa podpisana”.",
+        verdict.both_parties_signed
+          ? "Umowa podpisana przez obie strony — kandydat przeszedł na etap „Zatrudniony”."
+          : "Podpisaną umowę wgrano — kandydat przeszedł na etap „Umowa podpisana”.",
       );
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -1550,7 +1554,9 @@ function GeneratorForm() {
           <div className="space-y-1">
             <p className="flex items-center gap-2 font-medium">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              Podpisaną umowę wgrano — kandydat na etapie „Umowa podpisana”.
+              {uploadVerdict.both_parties_signed
+                ? "Umowa podpisana przez obie strony — kandydat na etapie „Zatrudniony”."
+                : "Podpisaną umowę wgrano — kandydat na etapie „Umowa podpisana”."}
             </p>
             <p className="text-xs text-muted-foreground">
               {uploadVerdict.is_qes
