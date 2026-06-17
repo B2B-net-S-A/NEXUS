@@ -433,3 +433,28 @@ def test_rerender_does_not_mutate_saved_payload():
     rerender_docx_from_payload(payload)
     assert payload["name"] == "Jan Kowalski"
     assert payload["experience"][0]["company"] == "Acme"
+
+
+def test_rodo_clause_is_separated_by_closing_divider():
+    # The RODO consent clause must read as a distinct footer block, not as notes
+    # tacked onto the last role. A red divider (the B2B HR, fillcolor #e14f4f)
+    # closes the document body and the clause follows it — so in the XML the
+    # clause text comes AFTER the last divider, which itself comes AFTER the
+    # last experience content. No bottom-anchoring frame is used (it spilled the
+    # clause onto a blank second page on content-heavy CVs).
+    import io
+    import zipfile
+
+    data = rerender_docx_from_payload(_sample_payload())
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        body = z.read("word/document.xml").decode("utf-8")
+
+    last_experience_text = body.rfind("Spring Boot")  # last role's last technology
+    last_divider = body.rfind('fillcolor="#e14f4f"')
+    rodo = body.find("Wyrażam zgodę na przetwarzanie")
+
+    assert last_experience_text != -1
+    assert rodo != -1, "RODO clause missing"
+    assert last_divider > last_experience_text, "closing divider not after last role"
+    assert rodo > last_divider, "RODO clause not after the closing divider"
+    assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
