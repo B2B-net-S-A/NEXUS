@@ -6,6 +6,10 @@ import { phase5Api, ConflictRow } from "@/lib/api";
 
 interface Props {
   candidateId: number;
+  /** When true and there are no active conflicts (and the add-form is closed),
+   *  collapse to a single compact "Dodaj konflikt" link instead of a full empty
+   *  card — keeps the panel footer quiet while preserving the add affordance. */
+  hideWhenEmpty?: boolean;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -22,7 +26,7 @@ const TYPE_COLOR: Record<string, string> = {
   competitor: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
-export function ConflictsWidget({ candidateId }: Props) {
+export function ConflictsWidget({ candidateId, hideWhenEmpty = false }: Props) {
   const [rows, setRows] = useState<ConflictRow[]>([]);
   const [clients, setClients] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +97,21 @@ export function ConflictsWidget({ candidateId }: Props) {
 
   const clientName = (id: number) =>
     clients.find((c) => c.id === id)?.name ?? `#${id}`;
+
+  // Collapsed empty state for the candidate-panel footer: a single slim link
+  // that opens the add-form, instead of a full "Brak aktywnych konfliktów." card.
+  if (hideWhenEmpty && !loading && rows.length === 0 && !showForm) {
+    return (
+      <button
+        type="button"
+        onClick={() => setShowForm(true)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Dodaj konflikt
+      </button>
+    );
+  }
 
   return (
     <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">

@@ -952,13 +952,15 @@ export function CandidateDetailV2({
  </div>
  {/* /2-column grid */}
 
- {/* Side widgets (below tabs) — full width under the grid */}
- <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
- <DeferUntilVisible minHeight={140}>
- <RateHistoryWidget candidateId={Number(id)} />
+ {/* Side widgets (below tabs). hideWhenEmpty keeps the footer quiet: an empty
+ rate/conflict widget collapses to a single "Dodaj" link instead of an empty
+ card (items-start so a lone link doesn't stretch to a sibling card's height). */}
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+ <DeferUntilVisible minHeight={44}>
+ <RateHistoryWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
- <DeferUntilVisible minHeight={140}>
- <ConflictsWidget candidateId={Number(id)} />
+ <DeferUntilVisible minHeight={44}>
+ <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
  </div>
 
