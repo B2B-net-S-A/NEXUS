@@ -269,11 +269,7 @@ class TraffitClient:
             )
             # Tenant rejected the delta filter — degrade to a full scan. Safe
             # because every importer upsert is ON CONFLICT idempotent.
-            if (
-                resp.status_code == 400
-                and active_filter is not None
-                and page == 1
-            ):
+            if resp.status_code == 400 and active_filter is not None and page == 1:
                 logger.warning(
                     "GET %s rejected X-Request-Filter (HTTP 400) — "
                     "falling back to full scan without filter",

@@ -29,9 +29,7 @@ class TraffitSyncState(Base, TimestampMixin):
     phase: Mapped[str] = mapped_column(String(50), primary_key=True)
 
     # High-water mark used to compute the next delta's ``updated_at >= since``.
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Optional id-based watermark for append-only feeds (reserved; not all
     # phases use it).
     last_max_external_id: Mapped[Optional[int]] = mapped_column(BigInteger)

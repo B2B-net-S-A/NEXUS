@@ -1634,9 +1634,7 @@ class TraffitImporter:
 
     # ── Faza 5b: pipelines (recruitment_history → candidate_stages) ─────────
 
-    async def import_pipelines(
-        self, since: Optional[datetime] = None
-    ) -> PhaseProgress:
+    async def import_pipelines(self, since: Optional[datetime] = None) -> PhaseProgress:
         progress = PhaseProgress(
             phase="pipelines", started_at=datetime.now(timezone.utc)
         )
@@ -1882,9 +1880,7 @@ class TraffitImporter:
             try:
                 promoted = await self.promote_notes(since)
                 progress.notes_promoted = promoted
-                logger.info(
-                    "Activities: promoted %d notes → notes table", promoted
-                )
+                logger.info("Activities: promoted %d notes → notes table", promoted)
             except Exception as e:  # noqa: BLE001
                 await self.db.rollback()
                 progress.add_error(f"promote_notes: {e!r}")

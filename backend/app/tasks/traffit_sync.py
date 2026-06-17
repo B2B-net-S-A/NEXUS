@@ -245,9 +245,7 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                         )
                     logger.info("Traffit delta cutoff (since): %s", since)
 
-                importer = TraffitImporter(
-                    traffit, db, dry_run=False, batch_size=100
-                )
+                importer = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
 
                 for name, factory in _phase_plan(importer, since):
                     try:
@@ -360,9 +358,7 @@ async def traffit_daily_sync_loop() -> None:
             ):
                 logger.info("Traffit: weekly full reconcile is due")
                 await run_traffit_sync("full")
-            elif should_run_daily(
-                now, daily_done, settings.TRAFFIT_SYNC_HOUR_UTC
-            ):
+            elif should_run_daily(now, daily_done, settings.TRAFFIT_SYNC_HOUR_UTC):
                 logger.info("Traffit: daily delta is due")
                 await run_traffit_sync("delta")
         except asyncio.CancelledError:

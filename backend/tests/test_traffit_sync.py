@@ -104,9 +104,7 @@ def test_promote_notes_since_clause_substitution():
 
 
 def _make_client(handler) -> TraffitClient:
-    config = TraffitConfig(
-        tenant="t", client_id="c", client_secret="s", throttle_rps=0
-    )
+    config = TraffitConfig(tenant="t", client_id="c", client_secret="s", throttle_rps=0)
     client = TraffitClient(config)
     client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client._token = "tok"
@@ -126,8 +124,7 @@ async def test_get_paginated_sends_filter_header():
     client = _make_client(handler)
     flt = {"updated_at": {"value": "2026-06-15", "comparison": ">="}}
     items = [
-        x
-        async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
+        x async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
     ]
     await client._http.aclose()
 
@@ -149,8 +146,7 @@ async def test_get_paginated_falls_back_to_full_scan_on_400():
     client = _make_client(handler)
     flt = {"updated_at": {"value": "2026-06-15", "comparison": ">="}}
     items = [
-        x
-        async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
+        x async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
     ]
     await client._http.aclose()
 
