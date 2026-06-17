@@ -1,0 +1,161 @@
+"""Unit tests for the scheduled Traffit sync.
+
+Covers the pure scheduling decisions, the delta-filter builder, the notes
+promotion SQL shaping, and the TraffitClient X-Request-Filter behaviour
+(including the HTTP-400 → full-scan fallback) via an httpx MockTransport.
+No DB or network required.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+
+import httpx
+
+from app.services.traffit.client import TraffitClient, TraffitConfig
+from app.services.traffit.importer import _PROMOTE_NOTES_SQL, TraffitImporter
+from app.tasks.traffit_sync import should_run_daily, should_run_full
+
+UTC = timezone.utc
+
+
+# ── Scheduling decisions ─────────────────────────────────────────────────────
+
+
+def test_daily_first_run_fires_immediately_regardless_of_hour():
+    # No watermark → run now even before the configured hour (activation).
+    early = datetime(2026, 6, 17, 0, 30, tzinfo=UTC)
+    assert should_run_daily(early, None, hour_utc=2) is True
+
+
+def test_daily_recent_run_is_blocked():
+    now = datetime(2026, 6, 17, 3, 0, tzinfo=UTC)
+    assert should_run_daily(now, now - timedelta(hours=2), hour_utc=2) is False
+
+
+def test_daily_stale_run_after_hour_fires():
+    now = datetime(2026, 6, 17, 3, 0, tzinfo=UTC)
+    assert should_run_daily(now, now - timedelta(hours=25), hour_utc=2) is True
+
+
+def test_daily_before_hour_blocked_when_not_first_run():
+    now = datetime(2026, 6, 17, 1, 0, tzinfo=UTC)
+    assert should_run_daily(now, now - timedelta(hours=25), hour_utc=2) is False
+
+
+def test_full_only_on_configured_weekday():
+    # 2026-06-21 is a Sunday (weekday 6).
+    sunday = datetime(2026, 6, 21, 3, 0, tzinfo=UTC)
+    wednesday = datetime(2026, 6, 17, 3, 0, tzinfo=UTC)
+    assert should_run_full(sunday, None, weekday=6, hour_utc=2) is True
+    assert should_run_full(wednesday, None, weekday=6, hour_utc=2) is False
+
+
+def test_full_recent_run_blocked():
+    sunday = datetime(2026, 6, 21, 3, 0, tzinfo=UTC)
+    assert (
+        should_run_full(sunday, sunday - timedelta(days=1), weekday=6, hour_utc=2)
+        is False
+    )
+
+
+# ── Delta filter builder ─────────────────────────────────────────────────────
+
+
+def test_delta_filter_none_when_no_since():
+    assert TraffitImporter._delta_filter("updated_at", None) is None
+
+
+def test_delta_filter_is_day_granular():
+    since = datetime(2026, 6, 15, 14, 30, tzinfo=UTC)
+    assert TraffitImporter._delta_filter("created_at", since) == {
+        "created_at": {"value": "2026-06-15", "comparison": ">="}
+    }
+
+
+# ── Notes promotion SQL ──────────────────────────────────────────────────────
+
+
+def test_promote_notes_sql_shape():
+    # All Traffit note-bearing action types are selected.
+    for action in (
+        "traffit:Notatka",
+        "traffit:Email",
+        "traffit:Reply",
+        "traffit:Rozmowa telefoniczna",
+        "traffit:Spotkanie",
+    ):
+        assert action in _PROMOTE_NOTES_SQL
+    # source_ref stamp + idempotency guard present.
+    assert "'traffit:activity:' || a.external_id" in _PROMOTE_NOTES_SQL
+    assert "NOT EXISTS" in _PROMOTE_NOTES_SQL
+
+
+def test_promote_notes_since_clause_substitution():
+    full = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "")
+    delta = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", "AND a.created_at >= :since")
+    assert "/*SINCE*/" not in full and "/*SINCE*/" not in delta
+    assert ":since" not in full
+    assert "a.created_at >= :since" in delta
+
+
+# ── TraffitClient X-Request-Filter ───────────────────────────────────────────
+
+
+def _make_client(handler) -> TraffitClient:
+    config = TraffitConfig(
+        tenant="t", client_id="c", client_secret="s", throttle_rps=0
+    )
+    client = TraffitClient(config)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client._token = "tok"
+    client._token_expires_at = datetime.now(UTC) + timedelta(days=1)
+    return client
+
+
+async def test_get_paginated_sends_filter_header():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(
+            200, json=[{"id": 1}], headers={"X-Result-Total-Pages": "1"}
+        )
+
+    client = _make_client(handler)
+    flt = {"updated_at": {"value": "2026-06-15", "comparison": ">="}}
+    items = [
+        x
+        async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
+    ]
+    await client._http.aclose()
+
+    assert items == [{"id": 1}]
+    assert captured[0].headers["X-Request-Filter"] == json.dumps(flt)
+
+
+async def test_get_paginated_falls_back_to_full_scan_on_400():
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        if "X-Request-Filter" in request.headers:
+            return httpx.Response(400, text="filter rejected")
+        return httpx.Response(
+            200, json=[{"id": 2}], headers={"X-Result-Total-Pages": "1"}
+        )
+
+    client = _make_client(handler)
+    flt = {"updated_at": {"value": "2026-06-15", "comparison": ">="}}
+    items = [
+        x
+        async for x in client.get_paginated("/employees/", page_size=100, filter_=flt)
+    ]
+    await client._http.aclose()
+
+    # Falls back and still yields data; first attempt had the filter (400),
+    # retry dropped it.
+    assert items == [{"id": 2}]
+    assert "X-Request-Filter" in captured[0].headers
+    assert "X-Request-Filter" not in captured[1].headers

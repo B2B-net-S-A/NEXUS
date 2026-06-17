@@ -68,6 +68,9 @@ class PhaseProgress:
     skipped: int = 0
     errors: int = 0
     total_source: int = 0
+    # Notes promoted from activities → notes table (only set by the activities
+    # phase). Surfaced so the daily sync can report "no notatka missing".
+    notes_promoted: int = 0
     error_samples: list[str] = field(default_factory=list)
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
@@ -86,6 +89,7 @@ class PhaseProgress:
             "skipped": self.skipped,
             "errors": self.errors,
             "total_source": self.total_source,
+            "notes_promoted": self.notes_promoted,
             "error_samples": self.error_samples[:20],
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -386,6 +390,67 @@ _UPSERT_CANDIDATE_DOCUMENT = text(
 )
 
 
+# Promote Traffit candidate notes (held in `activities`) into the dedicated
+# `notes` table so the candidate "Notatki" UI shows them. This is the exact
+# logic from Alembic 0077 — lifted here so it runs on every sync (the migration
+# was one-time). Idempotent via NOT EXISTS (candidate_id, created_at), which is
+# safe against the ~43k notes already promoted by 0077 (same created_at as their
+# source activity). New rows are stamped source_ref='traffit:activity:<id>' for
+# traceability. The /*SINCE*/ placeholder is replaced with a created_at cutoff
+# in delta mode (empty string in full mode).
+_PROMOTE_NOTES_SQL = """
+INSERT INTO notes (
+    candidate_id, content, note_type, author_id, source_ref,
+    created_at, updated_at
+)
+SELECT
+    a.entity_id,
+    LEFT(
+        COALESCE(
+            a.details #>> '{content,content}',
+            a.details ->> 'content',
+            ''
+        ),
+        50000
+    ),
+    CASE
+        WHEN a.action = 'traffit:Email' THEN 'email'::notetype
+        WHEN a.action = 'traffit:Reply' THEN 'email'::notetype
+        WHEN a.action = 'traffit:Rozmowa telefoniczna' THEN 'call'::notetype
+        WHEN a.action = 'traffit:Spotkanie' THEN 'meeting'::notetype
+        WHEN a.details ->> 'traffit_type_value' ILIKE '%interview%'
+            THEN 'interview'::notetype
+        ELSE 'general'::notetype
+    END,
+    a.user_id,
+    'traffit:activity:' || a.external_id,
+    a.created_at,
+    a.updated_at
+FROM activities a
+WHERE a.external_source = 'traffit'
+  AND a.action IN (
+      'traffit:Notatka',
+      'traffit:Email',
+      'traffit:Reply',
+      'traffit:Rozmowa telefoniczna',
+      'traffit:Spotkanie'
+  )
+  AND a.entity_type = 'candidate'
+  AND a.entity_id IS NOT NULL
+  AND COALESCE(
+      a.details #>> '{content,content}',
+      a.details ->> 'content',
+      ''
+  ) <> ''
+  /*SINCE*/
+  AND NOT EXISTS (
+      SELECT 1 FROM notes n
+      WHERE n.candidate_id = a.entity_id
+        AND n.created_at = a.created_at
+  )
+"""
+
+
 # ── Importer ─────────────────────────────────────────────────────────────────
 
 
@@ -404,6 +469,44 @@ class TraffitImporter:
         self.db = db
         self.dry_run = dry_run
         self.batch_size = batch_size
+
+    # ── Delta helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _delta_filter(field_name: str, since: Optional[datetime]) -> Optional[dict]:
+        """Build a Traffit ``X-Request-Filter`` dict for an incremental sync.
+
+        Day-granular (the discovery doc's documented format is a date string),
+        which is fine for a daily job — the caller applies a generous lookback
+        window and all upserts are idempotent, so the boundary day is never
+        missed. ``None`` since → full scan (no filter).
+        """
+        if since is None:
+            return None
+        return {
+            field_name: {
+                "value": since.strftime("%Y-%m-%d"),
+                "comparison": ">=",
+            }
+        }
+
+    async def promote_notes(self, since: Optional[datetime] = None) -> int:
+        """Promote Traffit candidate activities → `notes` table (idempotent).
+
+        Replicates Alembic 0077 so new Traffit notes/emails/calls/meetings reach
+        the candidate "Notatki" UI on every sync. Returns rows inserted.
+        """
+        if self.dry_run:
+            return 0
+        since_clause = ""
+        params: dict[str, Any] = {}
+        if since is not None:
+            since_clause = "AND a.created_at >= :since"
+            params["since"] = since
+        sql = _PROMOTE_NOTES_SQL.replace("/*SINCE*/", since_clause)
+        result = await self.db.execute(text(sql), params)
+        await self.db.commit()
+        return result.rowcount or 0
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -855,7 +958,9 @@ class TraffitImporter:
 
     # ── Faza 5: candidates ──────────────────────────────────────────────────
 
-    async def import_candidates(self) -> PhaseProgress:
+    async def import_candidates(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
         progress = PhaseProgress(
             phase="candidates", started_at=datetime.now(timezone.utc)
         )
@@ -889,7 +994,9 @@ class TraffitImporter:
         adopted = 0
 
         async for raw in self.traffit.get_paginated(
-            "/employees/", page_size=self.batch_size
+            "/employees/",
+            page_size=self.batch_size,
+            filter_=self._delta_filter("updated_at", since),
         ):
             progress.processed += 1
             try:
@@ -975,7 +1082,7 @@ class TraffitImporter:
 
     # ── Faza 5: jobs ────────────────────────────────────────────────────────
 
-    async def import_jobs(self) -> PhaseProgress:
+    async def import_jobs(self, since: Optional[datetime] = None) -> PhaseProgress:
         progress = PhaseProgress(phase="jobs", started_at=datetime.now(timezone.utc))
         try:
             progress.total_source = await self.traffit.total_count("/recruitments/")
@@ -1010,7 +1117,9 @@ class TraffitImporter:
         }
 
         async for raw in self.traffit.get_paginated(
-            "/recruitments/", page_size=self.batch_size
+            "/recruitments/",
+            page_size=self.batch_size,
+            filter_=self._delta_filter("updated_at", since),
         ):
             progress.processed += 1
             try:
@@ -1169,28 +1278,36 @@ class TraffitImporter:
 
     # ── Faza 5b: candidates-cv (binary CV download) ─────────────────────────
 
-    async def import_candidates_cv(self) -> PhaseProgress:
-        """Pobiera CV files dla zaimportowanych Traffit candidates.
+    async def import_candidates_cv(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
+        """Pobiera primary CV dla Traffit candidates bez ustawionego CV pointera.
 
-        Idempotent: skipuje kandydatów z `cv_file_content IS NOT NULL`.
-        Per-kandydat: GET /employees/{traffit_id}/files → wybiera primary CV
-        → GET /employees/{traffit_id}/files/{file_id}/content (binary).
+        Idempotent: bierze tylko kandydatów z `cv_storage_key IS NULL`. W trybie
+        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu —
+        nowy kandydat dostaje CV; faktyczne (multi-)pliki ogarnia
+        import_candidate_files (które w delta podmienia/dodaje nowe pliki).
+        Per-kandydat: GET /employees/{id}/files → primary → /content (binary).
         """
         progress = PhaseProgress(
             phase="candidates_cv", started_at=datetime.now(timezone.utc)
         )
 
+        since_clause = "AND updated_at >= :since" if since is not None else ""
+        cv_params: dict[str, Any] = {"since": since} if since is not None else {}
         result = await self.db.execute(
             text(
-                """
+                f"""
                 SELECT id, external_id FROM candidates
                 WHERE external_source='traffit'
                   AND external_id IS NOT NULL
                   AND cv_file_content IS NULL
                   AND cv_storage_key IS NULL
+                  {since_clause}
                 ORDER BY id
                 """
-            )
+            ),
+            cv_params,
         )
         targets = list(result)
         progress.total_source = len(targets)
@@ -1301,8 +1418,10 @@ class TraffitImporter:
 
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
-    async def import_candidate_files(self) -> PhaseProgress:
-        """Pobiera WSZYSTKIE pliki kandydatów Traffit do `candidate_documents`.
+    async def import_candidate_files(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
+        """Pobiera pliki kandydatów Traffit do `candidate_documents`.
 
         Idempotent: ON CONFLICT (external_source, external_id) DO UPDATE.
         external_id format: `"<traffit_employee_id>-<file_id>"`.
@@ -1313,37 +1432,75 @@ class TraffitImporter:
         3. Per plik: GET /employees/{traffit_id}/files/{file_id}/content → binary
         4. UPSERT do candidate_documents
 
-        W przeciwieństwie do import_candidates_cv (single primary) — bierze
-        wszystkie pliki. Skipuje kandydatów którzy mają już komplet plików
-        (sprawdza count(*) FROM candidate_documents WHERE candidate_id = X).
+        Tryby:
+        - **full** (`since=None`): bierze kandydatów którzy NIE mają jeszcze
+          żadnych traffit-sourced plików (HAVING count = 0) — szybki bo pomija
+          już zaimportowanych.
+        - **delta** (`since`): bierze kandydatów zmienionych od ostatniego syncu
+          (`updated_at >= since`) NAWET jeśli mają już pliki, ale pobiera tylko
+          te file_id których jeszcze nie ma (po external_id) — łapie nowe/podmienione
+          CV bez re-downloadu istniejących.
         """
         progress = PhaseProgress(
             phase="candidates_files", started_at=datetime.now(timezone.utc)
         )
 
-        # Wszyscy traffit-sourced candidates. Skipujemy tych którzy
-        # mają już files w candidate_documents (idempotent).
-        result = await self.db.execute(
-            text(
-                """
-                SELECT c.id, c.external_id
-                FROM candidates c
-                LEFT JOIN candidate_documents cd
-                  ON cd.candidate_id = c.id AND cd.external_source = 'traffit'
-                WHERE c.external_source = 'traffit'
-                  AND c.external_id IS NOT NULL
-                GROUP BY c.id, c.external_id
-                HAVING count(cd.id) = 0
-                ORDER BY c.id
-                """
+        if since is None:
+            # Full mode: skip candidates that already have any traffit files.
+            result = await self.db.execute(
+                text(
+                    """
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    LEFT JOIN candidate_documents cd
+                      ON cd.candidate_id = c.id AND cd.external_source = 'traffit'
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                    GROUP BY c.id, c.external_id
+                    HAVING count(cd.id) = 0
+                    ORDER BY c.id
+                    """
+                )
             )
-        )
+        else:
+            # Delta mode: recently-changed candidates regardless of existing
+            # files; we skip already-present file_ids per candidate below.
+            result = await self.db.execute(
+                text(
+                    """
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                      AND c.updated_at >= :since
+                    ORDER BY c.id
+                    """
+                ),
+                {"since": since},
+            )
         targets = list(result)
         progress.total_source = len(targets)
         if not targets:
             progress.finished_at = datetime.now(timezone.utc)
             logger.info("Candidates files: nothing to do (already imported)")
             return progress
+
+        # Pre-load existing traffit doc external_ids for the target candidates so
+        # delta runs don't re-download files we already have.
+        existing_docs: dict[int, set[str]] = {}
+        target_ids = [r.id for r in targets]
+        if target_ids:
+            doc_rows = await self.db.execute(
+                text(
+                    "SELECT candidate_id, external_id FROM candidate_documents "
+                    "WHERE external_source='traffit' "
+                    "AND external_id IS NOT NULL "
+                    "AND candidate_id = ANY(:ids)"
+                ),
+                {"ids": target_ids},
+            )
+            for dr in doc_rows:
+                existing_docs.setdefault(dr.candidate_id, set()).add(dr.external_id)
 
         logger.info("Candidates files: %d candidates to process", len(targets))
 
@@ -1380,6 +1537,11 @@ class TraffitImporter:
                 # Pobierz binary dla każdego pliku
                 for f in files_sorted:
                     file_id = f["id"]
+                    ext_id = f"{traffit_id}-{file_id}"[:100]
+                    # Delta: skip files we already imported (no re-download).
+                    if ext_id in existing_docs.get(row.id, ()):
+                        progress.skipped += 1
+                        continue
                     filename = f.get("name") or f"file-{file_id}"
                     is_primary = bool(f.get("is_primary", False))
                     uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
@@ -1437,7 +1599,7 @@ class TraffitImporter:
                             "size_bytes": len(file_bytes),
                             "is_primary": is_primary,
                             "uploaded_at": uploaded_at,
-                            "external_id": f"{traffit_id}-{file_id}"[:100],
+                            "external_id": ext_id,
                             "external_source": "traffit",
                         },
                     )
@@ -1472,7 +1634,9 @@ class TraffitImporter:
 
     # ── Faza 5b: pipelines (recruitment_history → candidate_stages) ─────────
 
-    async def import_pipelines(self) -> PhaseProgress:
+    async def import_pipelines(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
         progress = PhaseProgress(
             phase="pipelines", started_at=datetime.now(timezone.utc)
         )
@@ -1507,7 +1671,9 @@ class TraffitImporter:
         since_commit = 0
 
         async for raw in self.traffit.get_paginated(
-            "/employees/recruitment_history", page_size=self.batch_size
+            "/employees/recruitment_history",
+            page_size=self.batch_size,
+            filter_=self._delta_filter("created_at", since),
         ):
             progress.processed += 1
             try:
@@ -1606,7 +1772,9 @@ class TraffitImporter:
 
     # ── Faza 5b: candidate activities ───────────────────────────────────────
 
-    async def import_candidate_activities(self) -> PhaseProgress:
+    async def import_candidate_activities(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
         progress = PhaseProgress(
             phase="candidate_activities", started_at=datetime.now(timezone.utc)
         )
@@ -1631,7 +1799,9 @@ class TraffitImporter:
         since_commit = 0
 
         async for raw in self.traffit.get_paginated(
-            "/employees/activities", page_size=self.batch_size
+            "/employees/activities",
+            page_size=self.batch_size,
+            filter_=self._delta_filter("created_at", since),
         ):
             progress.processed += 1
             try:
@@ -1703,6 +1873,22 @@ class TraffitImporter:
         if not self.dry_run and since_commit > 0:
             await self.db.commit()
 
+        # Promote candidate notes (Notatka/Email/Reply/Rozmowa/Spotkanie) from
+        # `activities` into the dedicated `notes` table so the candidate
+        # "Notatki" tab shows them. Idempotent (replicates Alembic 0077) and
+        # scoped to the same delta window — this is what keeps "no notatka
+        # missing" true on every recurring run, not just the one-time migration.
+        if not self.dry_run:
+            try:
+                promoted = await self.promote_notes(since)
+                progress.notes_promoted = promoted
+                logger.info(
+                    "Activities: promoted %d notes → notes table", promoted
+                )
+            except Exception as e:  # noqa: BLE001
+                await self.db.rollback()
+                progress.add_error(f"promote_notes: {e!r}")
+
         # Self-heal: the rejection *reason* lives only on these activities
         # (details.content.rejection.name), never on the recruitment_history
         # record that produced the rejected candidate_stages row. Stitch them
@@ -1746,7 +1932,9 @@ class TraffitImporter:
 
     # ── Faza 5b: candidate sources → tags ───────────────────────────────────
 
-    async def import_candidate_sources(self) -> PhaseProgress:
+    async def import_candidate_sources(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
         """Iteruje /sources/, agreguje per-kandydat i append'uje do tags JSONB."""
         progress = PhaseProgress(
             phase="candidate_sources", started_at=datetime.now(timezone.utc)
@@ -1771,7 +1959,10 @@ class TraffitImporter:
         # Tracimy ~10 records per failed page, akceptowalne dla audit-log danych.
         sources_page_size = min(self.batch_size, 10)
         async for raw in self.traffit.get_paginated(
-            "/sources/", page_size=sources_page_size, skip_on_5xx=True
+            "/sources/",
+            page_size=sources_page_size,
+            skip_on_5xx=True,
+            filter_=self._delta_filter("created_at", since),
         ):
             progress.processed += 1
             try:

@@ -226,6 +226,7 @@ class TraffitClient:
         *,
         page_size: int = 100,
         skip_on_5xx: bool = False,
+        filter_: Optional[dict] = None,
     ) -> AsyncIterator[dict]:
         """Yield each item across all pages. Sorts on `id ASC` for stability.
 
@@ -233,7 +234,16 @@ class TraffitClient:
             raising. Useful for /sources/ on b2bnetwork tenant which has random
             HTTP 500s on specific pages — losing the failed page is preferable
             to aborting the whole import.
+
+        filter_: optional Traffit ``X-Request-Filter`` dict, e.g.
+            ``{"updated_at": {"value": "2026-06-15", "comparison": ">="}}``.
+            Used for incremental (daily) delta syncs. If the tenant rejects the
+            filter header with HTTP 400, we log and fall back to a full scan —
+            the importer's upserts are idempotent, so a full scan is always safe,
+            just slower.
         """
+        # The filter may be dropped mid-flight if the server rejects it (400).
+        active_filter = filter_
         page = 1
         # If we know the total page count from page=1, use it; otherwise we
         # rely on len(items) < page_size to stop. With skip_on_5xx the first
@@ -248,12 +258,29 @@ class TraffitClient:
                 total_pages_known = None
 
         while True:
+            extra_headers = {"X-Request-Sort": json.dumps({"id": "ASC"})}
+            if active_filter is not None:
+                extra_headers["X-Request-Filter"] = json.dumps(active_filter)
             resp = await self._get_raw(
                 path,
                 page=page,
                 page_size=page_size,
-                extra_headers={"X-Request-Sort": json.dumps({"id": "ASC"})},
+                extra_headers=extra_headers,
             )
+            # Tenant rejected the delta filter — degrade to a full scan. Safe
+            # because every importer upsert is ON CONFLICT idempotent.
+            if (
+                resp.status_code == 400
+                and active_filter is not None
+                and page == 1
+            ):
+                logger.warning(
+                    "GET %s rejected X-Request-Filter (HTTP 400) — "
+                    "falling back to full scan without filter",
+                    path,
+                )
+                active_filter = None
+                continue
             if resp.status_code != 200:
                 if skip_on_5xx and 500 <= resp.status_code < 600:
                     logger.warning(

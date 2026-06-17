@@ -48,6 +48,7 @@ from app.models.user_email_template import UserEmailTemplate
 from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
 from app.models.call import Call
+from app.models.traffit_sync_state import TraffitSyncState
 from app.models.client_knowledge import ClientKnowledge
 from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
@@ -216,6 +217,7 @@ __all__ = [
     "TeamsNotificationChannel",
     "JobPosting",
     "Call",
+    "TraffitSyncState",
     "ClientKnowledge",
     "ClientOnePager",
     "ClientContractTerms",
