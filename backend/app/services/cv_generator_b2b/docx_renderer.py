@@ -860,8 +860,17 @@ def render_cv_to_bytes(
             para.paragraph_format.space_after = Pt(2)
 
     # === KLAUZULA RODO / GDPR ===
-    doc.add_paragraph()
-    doc.add_paragraph()
+    # A red divider closes the document body — the last EXPERIENCE role, or
+    # whatever the final section is — so the consent clause reads as a separate
+    # footer block instead of notes tacked onto that role's description. The
+    # clause sits just below the divider; on a content-filled CV that lands it
+    # near the foot of the page, set off from the experience above. The divider
+    # is kept tight (the clause is a 5pt block) so it takes less vertical room
+    # than the blank-line spacer it replaces and never pushes a one-page CV onto
+    # a second page just for the clause.
+    closing_divider = add_horizontal_line(doc)
+    closing_divider.paragraph_format.space_before = Pt(2)
+    closing_divider.paragraph_format.space_after = Pt(5)
 
     rodo_para = doc.add_paragraph()
     rodo_text = t["rodo"]
