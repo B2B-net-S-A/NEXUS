@@ -2,7 +2,7 @@
 
 # In-house QES e-signature — raport postępu (Faza 0 + Faza 1)
 
-**Data:** 2026-06-16 · **Branch:** `claude/cranky-nightingale-b7c730` · **Status:** Faza 0 ✅, Faza 1 ✅ (kod, do weryfikacji bazą w CI), Fazy 2–5 ⏳ (gated na KIR)
+**Data:** 2026-06-16 (zaktualizowano 2026-06-17) · **Status:** Faza 0 ✅, Faza 1 ✅, **Faza 2 + 3 ścieżki podpisu (link / oznacz wysłaną / wgraj podpisaną) WDROŻONE NA PRODZIE ✅** — patrz sekcja „WDROŻONE NA PRODZIE" na końcu. Fazy 3–5 (Szafir/mSzafir KIR, B-LTA) ⏳ gated na onboarding KIR — upload-validate ich nie wymaga.
 
 Plan referencyjny: [in-house-qes-signature-plan.md](./in-house-qes-signature-plan.md).
 
@@ -96,3 +96,34 @@ Fundament (Protocol + schematy + kolumny + flagi) jest na miejscu, więc poniżs
 - [ ] Na maszynie z DB: `alembic upgrade head && alembic downgrade -1 && alembic upgrade head` (round-trip migracji).
 - [ ] Smoke: istniejący flow Autenti (jeśli `AUTENTI_ENABLED`) niezmieniony — `provider_ref`/`signature_type` czytają się przez aliasy.
 - [ ] Dopiero po tym Fazy 2–5 (Faza 2 równolegle do odpowiedzi KIR; Fazy 3–5 po KIR).
+
+---
+
+## ✅ WDROŻONE NA PRODZIE — Faza 2 + rozszerzenia (2026-06-17)
+
+**Status:** szyna upload-validate **w pełni działa na prodzie** (`main` @ `b4ce176`, `/api/health` healthy). KIR (Szafir/mSzafir) wciąż opcjonalny — upload-validate go nie wymaga.
+
+**Wdrożone (PR-y, wszystkie merged + deployed):**
+- **#506/#511** — Faza 1+2 kod: migracja `0133`, pakiet `services/signing/`, router `api/signing.py` + publiczny `api/public_signing.py` wpięte w `main.py`, `SIGNING_ENABLED=true` w Coolify vault. E2E zweryfikowane na żywo (self-signed PAdES → `/api/public/sign/{token}/submit` → `completed`).
+- **#513** — podgląd umowy w przeglądarce (blob iframe, bo backend `X-Frame-Options: DENY`); `render_unsigned_pdf`/`prepare_send` fallback do `Contract.draft_content_html`; `send-for-signature` zwraca `sign_url` synchronicznie.
+- **#514** — przycisk „Wyślij do podpisu (QES)" w Generatorze Umów B2B (`generate` → `sendForSignature` → kopiowalny link).
+- **#515** — pipeline: migracja `0135` dodaje etap „Umowa podpisana" (id 1032, order 10) po „Umowa wysłana" (id 753, order 9) w Default B2B (template 1); `pipeline_hook.move_candidate_for_signing` przesuwa kandydata send→„Umowa wysłana", podpisano→„Umowa podpisana".
+- **#516** — **flow offline (e-mail)**: dla rekruterów, którzy wysyłają/odbierają umowę mailem zamiast publicznym linkiem, ale chcą przesuwać pipeline:
+  - `POST /api/signing/contracts/{id}/mark-sent-offline` → `DocumentSignature(status=sent)` + move „Umowa wysłana".
+  - `POST /api/signing/contracts/{id}/upload-signed` → walidacja wgranego PAdES (ta sama co flow konsultanta) + complete + move „Umowa podpisana".
+  - Wyodrębniony `sender.finalize_signed_pdf()` (walidacja + zapis + complete + move + notyfikacja) reużywany przez publiczny `/submit` i rekruterski `/upload-signed`.
+  - `prepare_send()` akceptuje też kontrakty `draft` (generator B2B tworzy `draft`) — naprawia 409 dla świeżo wygenerowanych umów (dotyczy też #514).
+  - FE: dwa przyciski w generatorze („Oznacz: wysłana mailem", „Wgraj podpisaną (z maila)") + `signingApi.markSentOffline`/`uploadSigned`.
+
+**Weryfikacja #516 na żywo (2026-06-17):**
+- Deploy `b4ce176` zielony, `/api/health` healthy (version match).
+- Endpointy: bez auth → 403; auth + nieistniejący kontrakt → 404 (`prepare_send` „Contract not found"); upload nie-PDF → 422 („To nie jest plik PDF").
+- FE (Chrome, świeży bundle prod): oba przyciski renderują się pod istniejącymi akcjami; klik bez wybranego kandydata → guard `validate()` (banner „Uzupełnij wymagane pola…"), **żaden** request `/api/signing` nie poleciał przedwcześnie.
+- DB: etapy docelowe istnieją w Default B2B (753 „Umowa wysłana", 1032 „Umowa podpisana") → `move_candidate_for_signing` rozwiązuje cele.
+
+**Trzy ścieżki podpisu — podsumowanie (wszystkie żywe na prodzie):**
+1. **Link publiczny** — „Wyślij do podpisu (QES)" → konsultant czyta w przeglądarce, podpisuje własnym narzędziem, wgrywa na `/sign/{token}` → auto-move pipeline.
+2. **Offline: oznacz wysłaną** — rekruter wysłał mailem → „Oznacz: wysłana mailem" → move „Umowa wysłana".
+3. **Offline: wgraj podpisaną** — rekruter dostał podpisaną z maila → „Wgraj podpisaną (z maila)" → walidacja PAdES → move „Umowa podpisana".
+
+**„Podpisz w panelu bez pobierania" (jak Autenti)** — niewykonalne bez KIR (wbudowany QES w przeglądarce wymaga Szafir SDK/karty lub mSzafir/chmury). Upload-validate to jedyna ścieżka bez KIR; jest wdrożona i wystarcza dla obecnego zakresu.
