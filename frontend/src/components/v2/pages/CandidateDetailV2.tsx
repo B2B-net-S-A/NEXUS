@@ -883,6 +883,7 @@ export function CandidateDetailV2({
  <NotatkiTab
  timeline={noteItems}
  recruitments={history}
+ defaultJobId={backJobId}
  noteText={noteText}
  setNoteText={setNoteText}
  onAdd={handleAddNote}
@@ -3018,6 +3019,7 @@ function unwrapNoteContent(raw: unknown): string {
 function NotatkiTab({
  timeline,
  recruitments = [],
+ defaultJobId = null,
  noteText,
  setNoteText,
  onAdd,
@@ -3031,6 +3033,7 @@ function NotatkiTab({
 }: {
  timeline: any[];
  recruitments?: any[];
+ defaultJobId?: number | null;
  noteText: string;
  setNoteText: (v: string) => void;
  onAdd: (jobId?: number | null) => void;
@@ -3047,9 +3050,14 @@ function NotatkiTab({
 
  // Lista rekrutacji kandydata (z /history) — do selektora "przypisz notatkę
  // do rekrutacji". `recruitments` jest już posortowane most-recent-first.
- const recList = Array.isArray(recruitments)
+ // Memo, by referencja była stabilna (deps useMemo/useEffect poniżej).
+ const recList = useMemo(
+ () =>
+ Array.isArray(recruitments)
  ? recruitments.filter((r: any) => r && r.job_id != null)
- : [];
+ : [],
+ [recruitments],
+ );
  const jobTitleById = useMemo(() => {
  const m = new Map<number, string>();
  for (const r of recList) {
@@ -3061,6 +3069,21 @@ function NotatkiTab({
  // Wybrana rekrutacja (null = notatka ogólna, bez przypięcia). Gdy ustawiona,
  // @mention scope zawęża się do członków joba — spójnie z backendem.
  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+
+ // Gdy profil otwarto z pipeline'u rekrutacji (`?from=job&jobId=N`), domyślnie
+ // przypnij nową notatkę do tej rekrutacji zamiast „ogólnej". Czekamy aż lista
+ // rekrutacji (`/history`) się załaduje i zawiera ten job; aplikujemy raz, żeby
+ // nie nadpisywać ręcznego wyboru użytkownika.
+ const defaultJobApplied = useRef(false);
+ useEffect(() => {
+ if (defaultJobApplied.current) return;
+ if (defaultJobId == null) return;
+ if (recList.length === 0) return; // lista jeszcze niezaładowana
+ defaultJobApplied.current = true;
+ if (recList.some((r: any) => Number(r.job_id) === Number(defaultJobId))) {
+ setSelectedJobId(Number(defaultJobId));
+ }
+ }, [defaultJobId, recList]);
 
  // Edycja/usuwanie istniejących notatek (inline). editingId = notatka w
  // trybie edycji, busyId = trwa zapis/usuwanie, confirmDeleteId = modal.
