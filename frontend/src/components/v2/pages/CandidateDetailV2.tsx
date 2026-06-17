@@ -36,6 +36,7 @@ import {
  ShieldAlert,
  Sparkles,
  Star,
+ Store,
  Target,
  Trash2,
  User,
@@ -83,6 +84,13 @@ import { Button } from"@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from"@/components/ui/card";
 import { Separator } from"@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
+import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuSeparator,
+ DropdownMenuTrigger,
+} from"@/components/ui/dropdown-menu";
 import { Textarea } from"@/components/ui/textarea";
 import { MentionTextarea } from"@/components/v2/forms/MentionTextarea";
 import { useMentionableUsers, type MentionScope } from"@/hooks/useMentionableUsers";
@@ -317,6 +325,7 @@ export function CandidateDetailV2({
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
+ const [marketplaceOpen, setMarketplaceOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
@@ -468,6 +477,11 @@ export function CandidateDetailV2({
  return false;
  }
  };
+
+ // Open a "Więcej" menu action on the next tick — after Radix tears down the
+ // dropdown's focus layer — so a Radix Dialog (e.g. CVGeneratorV2) doesn't lose
+ // focus or leave the page's pointer-events stuck during the transition.
+ const openFromMenu = (fn: () => void) => setTimeout(fn, 0);
 
  if (isLoading || !candidate) {
  return (
@@ -693,7 +707,9 @@ export function CandidateDetailV2({
  )}
  </div>
 
- {/* Action row */}
+ {/* Action row — primary recruiter tasks stay visible; secondary actions
+ collapse into a "Więcej" menu so the strip reads as a clear hierarchy
+ instead of one undifferentiated wall of buttons. */}
  <div className="flex items-center gap-2 flex-wrap mt-5">
  <Button
  size="sm"
@@ -703,14 +719,6 @@ export function CandidateDetailV2({
  >
  <UserPlus className="h-4 w-4" />
  Przypisz do oferty
- </Button>
- <Button
- size="sm"
- variant="secondary"
- onClick={() => setCvOpen(true)}
- >
- <FileText className="h-4 w-4" />
- Generuj CV
  </Button>
  <Button
  size="sm"
@@ -731,17 +739,33 @@ export function CandidateDetailV2({
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
  </Button>
- <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
+
+ {/* Utility cluster — separated so quick tools don't blend with the tasks */}
+ <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
+ {candidate && <PinButton candidateId={candidate.id} iconOnly />}
+ <DropdownMenu>
+ <DropdownMenuTrigger asChild>
+ <Button size="sm" variant="outline">
+ Więcej
+ <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+ </Button>
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-52">
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setCvOpen(true))}>
+ <FileText className="h-4 w-4" />
+ Generuj CV
+ </DropdownMenuItem>
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setEditOpen(true))}>
  <PencilLine className="h-4 w-4" />
  Edytuj
- </Button>
- {candidate && (
- <AddToMarketplaceButton
- candidateId={candidate.id}
- candidateName={`${candidate.name} ${candidate.lastname}`}
- />
- )}
- {candidate && <PinButton candidateId={candidate.id} />}
+ </DropdownMenuItem>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setMarketplaceOpen(true))}>
+ <Store className="h-4 w-4" />
+ Wrzuć na targ
+ </DropdownMenuItem>
+ </DropdownMenuContent>
+ </DropdownMenu>
  </div>
  {/* Key stats moved into ProfilTab "Kluczowe fakty" grid for a single,
  scannable source — see ProfilTab FactTile grid. */}
@@ -788,7 +812,7 @@ export function CandidateDetailV2({
  )}
 
  {/* Suggested jobs (reuse v1 widget) */}
- <SuggestedJobsWidget candidateId={Number(id)} />
+ <SuggestedJobsWidget candidateId={Number(id)} hideWhenEmpty />
 
  {/* AI-suggested talent pools (migracja 0041) */}
  <SuggestedPoolsWidget candidateId={Number(id)} />
@@ -983,6 +1007,17 @@ export function CandidateDetailV2({
  candidateName={fullName}
  candidateEmail={candidate.email ?? null}
  />
+ {/* Marketplace modal is parent-controlled so its overlay survives the
+ "Więcej" dropdown unmounting (its trigger lives inside the menu). */}
+ {candidate && (
+ <AddToMarketplaceButton
+ candidateId={candidate.id}
+ candidateName={`${candidate.name} ${candidate.lastname}`}
+ hideTrigger
+ open={marketplaceOpen}
+ onOpenChange={setMarketplaceOpen}
+ />
+ )}
  </div>
  );
 }

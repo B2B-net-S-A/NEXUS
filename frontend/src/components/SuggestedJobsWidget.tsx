@@ -26,6 +26,12 @@ interface Props {
    * (candidateId === 0 acts as a sentinel for the ephemeral case).
    */
   matches?: JobMatch[];
+  /**
+   * When true, render nothing while loading or when there are no matches (and
+   * no error). Used by the candidate panel so an empty "Brak sugerowanych
+   * projektów" card doesn't dominate the drawer above the profile content.
+   */
+  hideWhenEmpty?: boolean;
 }
 
 function ScoreChip({ score }: { score: number }) {
@@ -52,6 +58,7 @@ export function SuggestedJobsWidget({
   variant = "full",
   onShowAll,
   matches: externalMatches,
+  hideWhenEmpty = false,
 }: Props) {
   const usingExternal = externalMatches !== undefined;
   const [matches, setMatches] = useState<JobMatch[]>(
@@ -107,6 +114,10 @@ export function SuggestedJobsWidget({
       setAssigning(null);
     }
   };
+
+  // Declutter mode (candidate panel): suppress the whole card when there is
+  // nothing useful to show. Errors still render so failures stay visible.
+  if (hideWhenEmpty && matches.length === 0 && !error) return null;
 
   return (
     <div

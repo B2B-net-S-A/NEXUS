@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, X, Check, Loader2, Sparkles } from "lucide-react";
 import { marketplaceApi } from "@/lib/api";
@@ -10,6 +10,13 @@ interface Props {
   candidateId: number;
   candidateName?: string;
   onAdded?: () => void;
+  /** Controlled visibility. When provided, the parent owns the open state and
+   *  usually hides the built-in trigger via `hideTrigger`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Hide the built-in "Wrzuć na targ" trigger button — the parent supplies
+   *  its own (e.g. a dropdown-menu item that flips `open`). */
+  hideTrigger?: boolean;
 }
 
 function defaultUntil(): string {
@@ -32,9 +39,19 @@ export function AddToMarketplaceButton({
   candidateId,
   candidateName,
   onAdded,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
 }: Props) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (value: boolean) => {
+    onOpenChange?.(value);
+    if (!isControlled) setInternalOpen(value);
+  };
+  const wasOpenRef = useRef(false);
   // "form" — pick expiry date + confirm; "results" — show AI-matched projects.
   const [step, setStep] = useState<"form" | "results">("form");
   const [until, setUntil] = useState<string>(defaultUntil());
@@ -61,6 +78,19 @@ export function AddToMarketplaceButton({
     },
   });
 
+  // When the parent opens the modal programmatically (controlled mode bypasses
+  // openModal), reset to a fresh form on each closed→open transition so a prior
+  // "results" step or stale error never leaks into the next open.
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      setStep("form");
+      setError(null);
+      mutation.reset();
+    }
+    wasOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const close = () => {
     setOpen(false);
     // Reset for the next open so we always start on the form step.
@@ -78,14 +108,16 @@ export function AddToMarketplaceButton({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openModal}
-        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors"
-      >
-        <Store className="w-4 h-4" />
-        Wrzuć na targ
-      </button>
+      {!hideTrigger && (
+        <button
+          type="button"
+          onClick={openModal}
+          className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors"
+        >
+          <Store className="w-4 h-4" />
+          Wrzuć na targ
+        </button>
+      )}
 
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">

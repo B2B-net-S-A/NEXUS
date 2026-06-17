@@ -54,26 +54,11 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
 
   const suggestions = data ?? [];
 
-  if (isLoading)
-    return (
-      <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4 text-sm text-muted-foreground">
-        Ładuję sugestie pul…
-      </div>
-    );
-
-  if (suggestions.length === 0)
-    return (
-      <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-foreground dark:text-muted-foreground mb-1">
-          <Sparkles className="w-4 h-4 text-primary" />
-          Sugerowane pule
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Brak trafnych sugestii — pula talentów może być pusta, albo kandydat
-          nie ma jeszcze policzonego embedding.
-        </p>
-      </div>
-    );
+  // Declutter: the candidate panel stacks several AI-suggestion cards, so while
+  // loading or when there is nothing to suggest (most candidates have no pool
+  // embedding yet) render nothing instead of a "brak sugestii" placeholder that
+  // only pushes the profile content further down the drawer.
+  if (isLoading || suggestions.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-border dark:border-border bg-card dark:bg-gray-950 p-4 space-y-2">
