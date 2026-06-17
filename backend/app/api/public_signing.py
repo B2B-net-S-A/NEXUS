@@ -36,6 +36,7 @@ from app.models.notification import NotificationType
 from app.models.signature_link import SignatureLink
 from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
+from app.services.signing.pipeline_hook import STAGE_SIGNED, move_candidate_for_signing
 from app.services.signing.registry import get_provider
 from app.services.signing.sender import render_unsigned_pdf
 
@@ -189,6 +190,14 @@ async def submit_signed_pdf(
     link.used_at = now
     link.use_count = (link.use_count or 0) + 1
     link.last_used_at = now
+
+    # Advance the candidate to "Umowa podpisana" (best-effort).
+    try:
+        await move_candidate_for_signing(
+            db, sig.contract, stage_name=STAGE_SIGNED, moved_by=sig.sender_user_id
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("submit: pipeline move failed sig=%d", sig.id)
 
     db.add(
         Activity(
