@@ -3,12 +3,11 @@
 Two-step flow mirroring the Autenti sender, but provider-neutral and KIR-free
 for the upload-and-validate pas:
 
-1. :func:`prepare_send` — sync, called from the FastAPI handler. Validates
-   contract/candidate/snapshot, creates a ``document_signatures`` row in
-   ``status=draft``.
-2. :func:`initiate_signing` — background task. Mints a single-use
-   :class:`SignatureLink` for the consultant, flips ``draft → sent``, and
-   notifies the recruiter with the public ``/sign/{token}`` URL to share.
+1. :func:`prepare_send` — validates contract/candidate/content, creates a
+   ``document_signatures`` row in ``status=draft``.
+2. :func:`prepare_and_send` — wraps it: mints a single-use
+   :class:`SignatureLink`, flips ``draft → sent``, notifies the recruiter, and
+   returns the public ``/sign/{token}`` URL synchronously so it can be shared.
 
 The consultant opens the link, downloads the contract PDF, signs it with their
 own qualified tool, and uploads the signed PAdES — which the public endpoint
@@ -30,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
@@ -122,12 +120,15 @@ async def prepare_send(
         .order_by(ContractDocument.created_at.desc())
         .limit(1)
     )
-    if snapshot is None:
+    # Signable content: prefer a finalized snapshot (immutable reviewed HTML),
+    # else fall back to the contract's rendered draft HTML (produced by the
+    # B2B generator's /generate bridge — prod contracts have no snapshots).
+    if snapshot is None and not (contract.draft_content_html or "").strip():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                "Contract has no finalized snapshot yet — open the draft editor, "
-                "click 'Finalizuj' first, then send for signature."
+                "Umowa nie ma treści do podpisu — wygeneruj ją w Generatorze "
+                "Umów B2B (lub sfinalizuj draft), a potem wyślij do podpisu."
             ),
         )
 
@@ -136,7 +137,7 @@ async def prepare_send(
 
     sig = DocumentSignature(
         contract_id=contract.id,
-        contract_document_id=snapshot.id,
+        contract_document_id=snapshot.id if snapshot else None,
         provider=payload.provider,
         signature_type=payload.signature_type,
         status=SignatureStatus.draft,
@@ -173,10 +174,19 @@ def render_unsigned_pdf(sig: DocumentSignature) -> bytes:
     Reused by the public ``GET /sign/{token}/pdf`` endpoint so the consultant
     can download exactly the document they're about to sign.
     """
-    abs_path = storage_service.get_contract_document_path(
-        sig.contract_document.file_path
-    )
-    html = abs_path.read_bytes().decode("utf-8", errors="replace")
+    html: Optional[str] = None
+    if sig.contract_document_id and sig.contract_document is not None:
+        abs_path = storage_service.get_contract_document_path(
+            sig.contract_document.file_path
+        )
+        html = abs_path.read_bytes().decode("utf-8", errors="replace")
+    elif sig.contract is not None and sig.contract.draft_content_html:
+        html = sig.contract.draft_content_html
+    if not html:
+        raise RuntimeError(
+            f"No signable content for signature {sig.id} "
+            "(no snapshot and empty draft_content_html)"
+        )
     return render_contract_pdf(html, title=f"Umowa #{sig.contract_id}")
 
 
@@ -201,59 +211,57 @@ def mint_signature_link(
     return link
 
 
-async def initiate_signing(signature_id: int) -> None:
-    """Background task: mint the consultant link, flip to ``sent``, notify."""
-    async with AsyncSessionLocal() as db:
-        sig = await db.scalar(
-            select(DocumentSignature).where(DocumentSignature.id == signature_id)
+async def prepare_and_send(
+    db: AsyncSession,
+    *,
+    contract_id: int,
+    payload: SignForSignatureRequest,
+    sender_user: User,
+) -> tuple[DocumentSignature, str]:
+    """Validate, create the signature, mint the link, return the shareable URL.
+
+    Synchronous so the recruiter gets the ``/sign/{token}`` link back
+    immediately. Flips ``draft → sent`` and notifies the recruiter in-app.
+    """
+    sig = await prepare_send(
+        db, contract_id=contract_id, payload=payload, sender_user=sender_user
+    )
+    link = mint_signature_link(db, sig)
+    sig.status = SignatureStatus.sent
+    sig.sent_at = datetime.now(timezone.utc)
+
+    base = settings.PUBLIC_BASE_URL.rstrip("/")
+    sign_url = f"{base}/sign/{link.token}"
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=sig.contract_id,
+            action="signature_sent",
+            user_id=sig.sender_user_id,
+            external_source="signing",
+            details={"provider": sig.provider},
         )
-        if sig is None:
-            logger.error("initiate_signing: signature %d not found", signature_id)
-            return
-        if sig.status != SignatureStatus.draft:
-            logger.warning(
-                "initiate_signing id=%d status=%s (expected draft) — skip",
-                signature_id,
-                sig.status.value,
-            )
-            return
-
-        link = mint_signature_link(db, sig)
-        sig.status = SignatureStatus.sent
-        sig.sent_at = datetime.now(timezone.utc)
-
-        base = settings.PUBLIC_BASE_URL.rstrip("/")
-        sign_url = f"{base}/sign/{link.token}"
-
-        db.add(
-            Activity(
-                entity_type="contract",
-                entity_id=sig.contract_id,
-                action="signature_sent",
-                user_id=sig.sender_user_id,
-                external_source="signing",
-                details={"provider": sig.provider},
-            )
+    )
+    try:
+        await emit_notification(
+            db,
+            user_id=sig.sender_user_id,
+            title="Link do podpisu gotowy",
+            message=(
+                f"Umowa kontraktu #{sig.contract_id} dla "
+                f"{sig.signer_first_name} {sig.signer_last_name}. "
+                f"Wyślij konsultantowi link do podpisu: {sign_url}"
+            ),
+            ntype=NotificationType.signature_sent,
+            related_entity_type="document_signature",
+            related_entity_id=sig.id,
+            link=f"/candidates?contract={sig.contract_id}",
         )
-        try:
-            await emit_notification(
-                db,
-                user_id=sig.sender_user_id,
-                title="Link do podpisu gotowy",
-                message=(
-                    f"Umowa kontraktu #{sig.contract_id} dla "
-                    f"{sig.signer_first_name} {sig.signer_last_name}. "
-                    f"Wyślij konsultantowi link do podpisu: {sign_url}"
-                ),
-                ntype=NotificationType.signature_sent,
-                related_entity_type="document_signature",
-                related_entity_id=sig.id,
-                link=f"/candidates?contract={sig.contract_id}",
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "initiate_signing: notification emit failed sig=%d", sig.id
-            )
+    except Exception:  # noqa: BLE001
+        logger.exception("prepare_and_send: notification emit failed sig=%d", sig.id)
 
-        await db.commit()
-        logger.info("initiate_signing: link minted sig=%d", sig.id)
+    await db.commit()
+    await db.refresh(sig)
+    logger.info("prepare_and_send: link minted sig=%d", sig.id)
+    return sig, sign_url
