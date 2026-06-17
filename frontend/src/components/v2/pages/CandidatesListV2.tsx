@@ -1884,13 +1884,9 @@ export function CandidatesListV2() {
  >
  <FileArchive className="h-4 w-4" /> Bulk CV
  </Link>
- <Link
- href="/candidates/search"
- className={buttonVariants({ size: "sm", variant: "outline" })}
- data-testid="link-manual-search"
- >
- <Search className="h-4 w-4" /> Wyszukaj manualnie
- </Link>
+ {/* „Wyszukaj manualnie" usunięte — dublowało panel „Filtry" (ten sam
+ AdvancedSearchPopover + CC + skills). Boolean/semantyczne wyszukiwanie
+ pozostaje w /candidates/search (zakładka w profilu rekrutacji). */}
  <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline">

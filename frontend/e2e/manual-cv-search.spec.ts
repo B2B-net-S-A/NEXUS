@@ -1,13 +1,16 @@
 /**
  * Manual CV search V2 — end-to-end smoke.
  *
- * Covers the happy path of the new fallback flow:
- *  1. Entry from /candidates → button "Wyszukaj manualnie".
- *  2. /candidates/search renders the FiltersPanel (CC chips + boolean popover).
- *  3. Picking a CC chip narrows the result list.
- *  4. Saving the current search round-trips through the chips strip.
- *  5. The job profile exposes a "Wyszukaj manualnie" tab that pre-fills
+ * Covers the happy path of the boolean/semantic search flow:
+ *  1. /candidates/search renders the FiltersPanel (CC chips + boolean popover).
+ *  2. Picking a CC chip narrows the result list.
+ *  3. Saving the current search round-trips through the chips strip.
+ *  4. The job profile exposes a "Wyszukaj manualnie" tab that pre-fills
  *     filters from job metadata.
+ *
+ * NB: the standalone toolbar entry link on /candidates was removed — it
+ * duplicated the in-list "Filtry" panel. The route stays reachable directly
+ * and via the job-profile tab below.
  *
  * Runs against a live Nexus instance — uses the persisted auth state from
  * e2e/.auth/state.json (set up by auth.setup.ts).
@@ -19,15 +22,11 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 test.describe("Manual CV search V2", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run");
 
-  test("entry link from /candidates leads to /candidates/search", async ({ page }) => {
-    await page.goto("/candidates");
-    const entry = page.getByTestId("link-manual-search");
-    await expect(entry).toBeVisible({ timeout: 10_000 });
-    await entry.click();
-    await expect(page).toHaveURL(/\/candidates\/search/);
+  test("standalone /candidates/search renders the search view", async ({ page }) => {
+    await page.goto("/candidates/search");
     await expect(
       page.getByRole("heading", { name: /Wyszukiwanie kandydatów/i }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("competence category chip narrows the result count", async ({ page }) => {
