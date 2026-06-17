@@ -43,6 +43,7 @@ from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
 from app.services.signing.pdf_renderer import render_contract_pdf
 from app.services.signing.pipeline_hook import (
+    STAGE_HIRED,
     STAGE_SENT,
     STAGE_SIGNED,
     move_candidate_for_signing,
@@ -298,8 +299,10 @@ async def finalize_signed_pdf(
 
     Shared by the public ``/submit`` (consultant web upload) and the recruiter
     ``/upload-signed`` (offline e-mail) endpoints — identical validation +
-    storage + completion + "Umowa podpisana" move. Does NOT commit (caller owns
-    the transaction). Returns the validation verdict dict for the response.
+    storage + completion. Advances the candidate to "Umowa podpisana", or to
+    "Zatrudniony" when the PDF is signed by BOTH parties (consultant + our
+    company side, i.e. ``>= 2`` approval signatures). Does NOT commit (caller
+    owns the transaction). Returns the validation verdict dict for the response.
     """
     provider = get_provider(sig.provider)
     report = await provider.validate(pdf_bytes)
@@ -316,6 +319,14 @@ async def finalize_signed_pdf(
                 f"Werdykt walidacji: {report.indication or 'nieokreślony'}"
             ),
         )
+
+    # Both parties signed (consultant + our company side) ⇒ the contract is
+    # fully executed ⇒ the candidate is hired. Detected via the approval-
+    # signature count (>= 2); conservative on an unknown count → "Umowa
+    # podpisana" (never falsely promotes to "Zatrudniony"). See
+    # ``ValidationReport.both_parties_signed``.
+    both_signed = report.both_parties_signed
+    target_stage = STAGE_HIRED if both_signed else STAGE_SIGNED
 
     rel_path, size = storage_service.save_contract_document(
         sig.contract_id, f"signed_umowa_{sig.contract_id}.pdf", BytesIO(pdf_bytes)
@@ -349,28 +360,47 @@ async def finalize_signed_pdf(
                 "is_qes": report.is_qes,
                 "signature_level": report.signature_level,
                 "signed_by": report.signed_by,
+                "signature_count": report.signature_count,
+                "both_parties_signed": both_signed,
+                "pipeline_stage": target_stage,
             },
         )
     )
 
-    # Advance the candidate to "Umowa podpisana" (best-effort).
+    # Advance the candidate: "Zatrudniony" if fully executed (both parties),
+    # else "Umowa podpisana" (best-effort — a pipeline move must never break
+    # signing). The direct CandidateStage insert sets moved_by + stage_def_id,
+    # which is what the "U klienta"/placements/KPI read-time queries key off.
+    # We deliberately do NOT replicate the normal hired hook's draft-Contract
+    # auto-creation (a contract already exists here) nor activate the contract.
     try:
         contract = sig.contract or await db.get(Contract, sig.contract_id)
         await move_candidate_for_signing(
-            db, contract, stage_name=STAGE_SIGNED, moved_by=moved_by
+            db, contract, stage_name=target_stage, moved_by=moved_by
         )
     except Exception:  # noqa: BLE001
         logger.exception("finalize_signed_pdf: pipeline move failed sig=%d", sig.id)
 
     try:
+        title = (
+            "Umowa podpisana przez obie strony" if both_signed else "Umowa podpisana"
+        )
+        if both_signed:
+            message = (
+                f"Umowa kontraktu #{sig.contract_id} dla "
+                f"{sig.signer_first_name} {sig.signer_last_name} została podpisana "
+                "przez obie strony — kandydat przeszedł na etap „Zatrudniony”."
+            )
+        else:
+            message = (
+                f"Umowa kontraktu #{sig.contract_id} dla "
+                f"{sig.signer_first_name} {sig.signer_last_name} została podpisana."
+            )
         await emit_notification(
             db,
             user_id=sig.sender_user_id,
-            title="Umowa podpisana",
-            message=(
-                f"Umowa kontraktu #{sig.contract_id} dla "
-                f"{sig.signer_first_name} {sig.signer_last_name} została podpisana."
-            ),
+            title=title,
+            message=message,
             ntype=NotificationType.signature_signed,
             related_entity_type="document_signature",
             related_entity_id=sig.id,
@@ -386,4 +416,8 @@ async def finalize_signed_pdf(
         "signed_by": report.signed_by,
         "indication": report.indication,
         "dss_verified": bool(settings.DSS_VALIDATION_URL),
+        "signature_count": report.signature_count,
+        "signers": report.signers,
+        "both_parties_signed": both_signed,
+        "pipeline_stage": target_stage,
     }

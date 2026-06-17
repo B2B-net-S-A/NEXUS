@@ -1,9 +1,11 @@
 """Move the contract's candidate through signing-related pipeline stages.
 
 When a B2B contract is sent for signature the candidate advances to
-``Umowa wysłana``; when the signed PDF comes back, to ``Umowa podpisana``.
-Both stages live in the Default B2B template (``Umowa wysłana`` already
-existed; ``Umowa podpisana`` is added by migration 0134).
+``Umowa wysłana``; when the signed PDF comes back, to ``Umowa podpisana``;
+and when it comes back signed by BOTH parties (fully executed), to
+``Zatrudniony``. The first two live in the Default B2B template
+(``Umowa wysłana`` already existed; ``Umowa podpisana`` is added by migration
+0135); ``Zatrudniony`` is the pre-existing terminal hired stage.
 
 Best-effort + graceful: if the contract has no job, or the job's template has
 no such stage, we skip silently — a pipeline move must never break signing.
@@ -26,6 +28,11 @@ logger = logging.getLogger(__name__)
 
 STAGE_SENT = "Umowa wysłana"
 STAGE_SIGNED = "Umowa podpisana"
+# Fully-executed (signed by BOTH the consultant and our company side) → hired.
+# "Zatrudniony" already exists in Default B2B (template 1) with
+# legacy_enum_value="hired", so the generic move below resolves PipelineStage.hired
+# — which every hired/employment/KPI query keys off (e.g. candidates.py "U klienta").
+STAGE_HIRED = "Zatrudniony"
 
 
 async def move_candidate_for_signing(
@@ -70,6 +77,12 @@ async def move_candidate_for_signing(
             legacy = PipelineStage(stage_def.legacy_enum_value)
         except ValueError:
             legacy = PipelineStage.new
+    # Belt-and-suspenders: hire detection ("U klienta", placements, KPI) keys
+    # strictly off the legacy `stage` enum == PipelineStage.hired. In Default
+    # B2B "Zatrudniony" carries legacy_enum_value="hired", but a custom template
+    # could mis-seed it — force the hire signal so the placement always lands.
+    if stage_name == STAGE_HIRED and legacy is not PipelineStage.hired:
+        legacy = PipelineStage.hired
 
     db.add(
         CandidateStage(

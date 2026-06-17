@@ -66,7 +66,23 @@ class ValidationReport:
     signed_by: Optional[str] = None
     indication: Optional[str] = None
     sub_indication: Optional[str] = None
+    # Number of *approval* signatures embedded in the PDF (document timestamps
+    # excluded). ``None`` when the validator could not determine it — callers
+    # MUST treat ``None`` conservatively (i.e. not "both parties signed").
+    signature_count: Optional[int] = None
+    # Human-friendly signer names (one per approval signature), best-effort.
+    signers: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def both_parties_signed(self) -> bool:
+        """True only when we positively detect ≥2 approval signatures.
+
+        For a B2B contract this means the consultant AND our company-side
+        representative have both signed → the contract is fully executed.
+        Conservative on ``None`` (unknown count → not both).
+        """
+        return (self.signature_count or 0) >= 2
 
     def as_db_report(self) -> dict[str, Any]:
         """Shape persisted to ``document_signatures.validation_report`` JSONB."""
@@ -76,6 +92,8 @@ class ValidationReport:
             "signed_by": self.signed_by,
             "indication": self.indication,
             "sub_indication": self.sub_indication,
+            "signature_count": self.signature_count,
+            "signers": self.signers,
             "raw": self.raw,
         }
 

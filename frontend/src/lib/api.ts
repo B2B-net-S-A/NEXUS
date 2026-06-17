@@ -1679,7 +1679,8 @@ export const signingApi = {
     api
       .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
       .then((r) => r.data),
-  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate + "Umowa podpisana".
+  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate. Moves to
+  // "Umowa podpisana", or "Zatrudniony" when both parties signed (>=2 sigs).
   uploadSigned: (contractId: number, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -1691,6 +1692,10 @@ export const signingApi = {
         signed_by: string | null;
         indication: string | null;
         dss_verified: boolean;
+        signature_count: number | null;
+        signers: string[];
+        both_parties_signed: boolean;
+        pipeline_stage: string;
       }>(`/api/signing/contracts/${contractId}/upload-signed`, form)
       .then((r) => r.data);
   },
