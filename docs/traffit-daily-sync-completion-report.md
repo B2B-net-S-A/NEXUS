@@ -50,8 +50,10 @@ Nexus driftuje od Traffita. Analiza importera + prod DB wykazała 3 luki łamią
 - **Notatki**: `promote_notes(since)` = idempotentna replika `0077`
   (dedup `NOT EXISTS (candidate_id, created_at)`, `source_ref='traffit:activity:<id>'`),
   wołana w `import_candidate_activities`.
-- **Pliki delta**: bierze kandydatów `updated_at>=since`, pobiera tylko brakujące
-  `file_id` (po `external_id`).
+- **Pliki delta**: scope = kandydaci dotknięci w tym runie (`updated_at>=run_start`,
+  tj. Traffit-zmienieni, których faza candidates właśnie upsertowała), NIE 45-dniowe
+  okno (bo edycje w Nexusie bumpują `updated_at` wszystkich 49k → 2.7h zbędnych calli).
+  Pobiera tylko brakujące `file_id` (po `external_id`).
 - **Idempotencja**: każdy zapis `ON CONFLICT (external_source, external_id)`;
   notatki przez `(candidate_id, created_at)`. Brak DELETE — hard-delete w Traffit
   wychodzi w licznikach tygodniowego reconcile, nie jest auto-aplikowany.
