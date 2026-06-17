@@ -162,11 +162,23 @@ async def _upsert_state(
 # ── Phase plan ───────────────────────────────────────────────────────────────
 
 
-def _phase_plan(importer: TraffitImporter, since: Optional[datetime]):
+def _phase_plan(
+    importer: TraffitImporter,
+    since: Optional[datetime],
+    files_since: Optional[datetime],
+):
     """(name, coroutine-factory) in FK dependency order.
 
-    Small master-data phases full-scan every run (cheap: ~700 rows total). The
-    big phases honour ``since`` (None = full scan).
+    Small master-data phases full-scan every run (cheap: ~700 rows total).
+    Data phases honour ``since`` (None = full scan).
+
+    The CV/files phases use a separate ``files_since`` cutoff. In delta mode this
+    is the run start, not the data ``since``: the candidates phase has just
+    upserted exactly the Traffit-changed candidates (bumping their Nexus
+    ``updated_at`` to NOW() >= run start), so scoping files to ``run_start``
+    re-fetches files only for candidates Traffit actually changed — instead of
+    every candidate edited in Nexus within the 45-day window (which is all of
+    them). One /files API call per genuinely-changed candidate, not per row.
     """
     return [
         ("users", importer.import_users),
@@ -176,8 +188,8 @@ def _phase_plan(importer: TraffitImporter, since: Optional[datetime]):
         ("candidates", lambda: importer.import_candidates(since=since)),
         ("jobs", lambda: importer.import_jobs(since=since)),
         ("talents", importer.import_talents),
-        ("candidates_cv", lambda: importer.import_candidates_cv(since=since)),
-        ("candidate_files", lambda: importer.import_candidate_files(since=since)),
+        ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
+        ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
         ("pipelines", lambda: importer.import_pipelines(since=since)),
         (
             "candidate_activities",
@@ -245,9 +257,14 @@ async def run_traffit_sync(mode: str = "delta") -> dict[str, Any]:
                         )
                     logger.info("Traffit delta cutoff (since): %s", since)
 
+                # CV/files re-fetch only candidates this run actually touched
+                # (Traffit-changed → upserted with updated_at >= run_start).
+                # Full reconcile uses None (its own "missing files" gate).
+                files_since = run_start if mode == "delta" else None
+
                 importer = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
 
-                for name, factory in _phase_plan(importer, since):
+                for name, factory in _phase_plan(importer, since, files_since):
                     try:
                         progress = await factory()
                         pd = progress.as_dict()
