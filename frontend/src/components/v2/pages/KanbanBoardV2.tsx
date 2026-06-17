@@ -114,7 +114,10 @@ const CATEGORY_LABEL: Record<string, string> = {
  terminal: "Terminalny",
 };
 
-const EXTERNAL_STAGES_FOR_SCREENING = new Set(["cv_sent","client_interview","acceptance","negotiation","onboarding",
+// Screening Championa odpalamy przy weryfikacji kandydata (stage „verified" —
+// patrz submitVerifiedMove), NIE przy „cv_sent". Te etapy zewnętrzne zostają
+// jako dodatkowe punkty re-screeningu przed kontaktem z klientem.
+const EXTERNAL_STAGES_FOR_SCREENING = new Set(["client_interview","acceptance","negotiation","onboarding",
 ]);
 
 const colId = (col: KanbanColumn) =>
@@ -690,6 +693,13 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  async (payload: { rate: number; unit: RateUnit; currency: string }) => {
  if (!verifiedRatePrompt) return;
  const { item, destCol, srcColId } = verifiedRatePrompt;
+ // Pojedynczy ruch (drag/drop) vs bulk — screening Championa otwieramy
+ // tylko dla pojedynczego, żeby nie nakładać go na modal stawki kolejnego
+ // kandydata z kolejki bulk.
+ const isSingleMove = verifiedBulkTotal <= 1;
+ let newStageId: number | null = null;
+ const movedName =
+ `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  try {
  const res = await pipelineApi.move({
  candidate_id: item.candidate_id,
@@ -700,6 +710,9 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  expected_rate_unit: payload.unit,
  expected_rate_currency: payload.currency,
  });
+ // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
+ // item.id), żeby screening zapisał się na świeżym etapie „verified".
+ newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
  const verifStatus = res?.data?.verification_status as
  |"active"
  |"pending"
@@ -742,9 +755,23 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  setVerifiedRatePrompt(
  next ? { item: next.item, destCol, srcColId: next.srcColId } : null
  );
+ // Po udanym pojedynczym ruchu na „Zweryfikowany" otwórz screening
+ // Championa dla nowo utworzonego stage'u (skip przy bulk — nie nakładamy
+ // na modal stawki kolejnego kandydata).
+ if (!next && isSingleMove && newStageId != null) {
+ setScreeningPrompt({ stageId: newStageId, candidateName: movedName });
+ }
  }
  },
- [verifiedRatePrompt, verifiedQueue, jobId, jobBudgetMax, showSuccess, showError]
+ [
+ verifiedRatePrompt,
+ verifiedQueue,
+ verifiedBulkTotal,
+ jobId,
+ jobBudgetMax,
+ showSuccess,
+ showError,
+ ]
  );
 
  const handleAcceptVerification = useCallback(
