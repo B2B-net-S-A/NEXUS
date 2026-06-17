@@ -434,6 +434,35 @@ class Settings(BaseSettings):
     # days. Older calls are skipped — out of scope for the ATS workflow.
     CLOUDTALK_HISTORICAL_BACKFILL_DAYS: int = 30
 
+    # ── Traffit daily sync (scheduled import) ────────────────────────────────
+    # Keeps Nexus in sync with Traffit: daily incremental delta (updated_at >=
+    # watermark) + weekly full-scan reconcile safety net. The importer is the
+    # same one used for the one-time migration (app/services/traffit/importer.py)
+    # — every write is ON CONFLICT idempotent. Secrets (TRAFFIT_TENANT,
+    # TRAFFIT_CLIENT_ID, TRAFFIT_CLIENT_SECRET, TRAFFIT_THROTTLE_RPS) are read
+    # from the environment by TraffitConfig.from_env() — NOT declared here.
+    #
+    # Kill-switch: when False the loop exits immediately and POST
+    # /api/admin/traffit/sync returns 503. Default OFF until activated.
+    TRAFFIT_SYNC_ENABLED: bool = False
+    # Background loop wake cadence (how often it checks whether a run is due).
+    # The actual import runs at most once/day (delta) + once/week (full),
+    # gated on the persisted watermark — clamped to >=300s in the loop.
+    TRAFFIT_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
+    # UTC hour at/after which the daily delta is allowed to run (low-traffic
+    # window). The first run after enabling fires immediately regardless.
+    TRAFFIT_SYNC_HOUR_UTC: int = 2
+    # Weekday for the heavy full-scan reconcile (0=Mon … 6=Sun).
+    TRAFFIT_SYNC_FULL_WEEKDAY: int = 6
+    # Overlap window subtracted from the last watermark when computing the
+    # delta cutoff — absorbs clock skew / late-arriving edits. Idempotent
+    # upserts make the overlap harmless.
+    TRAFFIT_SYNC_DELTA_LOOKBACK_HOURS: int = 48
+    # First-ever delta (no watermark yet) looks back this far to catch
+    # everything changed in Traffit since the one-time migration. After that,
+    # the watermark drives the cutoff.
+    TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
+
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but
     # outbound posts are no-op'd (logged, return False) so admins can stage

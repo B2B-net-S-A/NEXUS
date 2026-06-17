@@ -57,6 +57,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
+from app.api import admin_traffit
 from app.api import required_documents
 from app.api import screenings
 from app.api import contacts
@@ -295,6 +296,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.signing_sweeper import signing_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
+    from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.services.fx_service import fx_refresh_loop
 
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
@@ -326,6 +328,7 @@ async def lifespan(app: FastAPI):
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
+        "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
     }
 
     yield
@@ -464,6 +467,9 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(
+    admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
+)
 app.include_router(emails.router, prefix="/api", tags=["emails"])
 app.include_router(
     user_email_templates_api.router,
@@ -900,6 +906,45 @@ async def api_health_check():
         checks["autenti"] = "misconfigured"
     else:
         checks["autenti"] = "healthy"
+
+    # Traffit daily sync — informational. Reads the persisted watermark so the
+    # check reflects whether the scheduled import is actually running, not just
+    # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
+    # / `degraded` (enabled but no fresh successful run) / `healthy`.
+    if not settings.TRAFFIT_SYNC_ENABLED:
+        checks["traffit"] = "unconfigured"
+    elif not (
+        os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
+    ):
+        checks["traffit"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT last_run_finished_at, last_status "
+                            "FROM traffit_sync_state WHERE phase = '__daily__'"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            if r is None or r[0] is None:
+                checks["traffit"] = "degraded"  # enabled, no successful run yet
+            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
+                "ok",
+                None,
+            ):
+                checks["traffit"] = "degraded"
+            else:
+                checks["traffit"] = "healthy"
+        except Exception:
+            checks["traffit"] = "degraded"
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
