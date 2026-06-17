@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,33 @@ const TONE_CLASSES: Record<Tone, string> = {
   sky: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-200 dark:border-sky-800",
   rose: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-200 dark:border-rose-800",
 };
+
+const LABEL_TONE_CLASSES: Record<Tone, string> = {
+  emerald: "text-emerald-700 dark:text-emerald-300",
+  sky: "text-sky-700 dark:text-sky-300",
+  rose: "text-rose-700 dark:text-rose-300",
+};
+
+const DOT_TONE_CLASSES: Record<Tone, string> = {
+  emerald: "bg-emerald-500",
+  sky: "bg-sky-500",
+  rose: "bg-rose-500",
+};
+
+/** Section heading with a tone-colored dot + colored text to set each bucket apart. */
+function ToneLabel({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs font-semibold",
+        LABEL_TONE_CLASSES[tone],
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT_TONE_CLASSES[tone])} />
+      {children}
+    </span>
+  );
+}
 
 function dedupeCaseInsensitive(xs: string[]): string[] {
   const seen = new Set<string>();
@@ -201,13 +228,15 @@ export function AdvancedSearchPopover({
       {/* ALL — every phrase must appear (AND) */}
       <section className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-foreground dark:text-muted-foreground">
-            Wszystkie z wymienionych fraz
-            {value.all.length > 0 && (
-              <span className="ml-1.5 text-muted-foreground dark:text-muted-foreground font-normal">
-                ({value.all.length}/{MAX_PER_BUCKET})
-              </span>
-            )}
+          <label>
+            <ToneLabel tone="emerald">
+              Wszystkie z wymienionych fraz
+              {value.all.length > 0 && (
+                <span className="text-muted-foreground dark:text-muted-foreground font-normal">
+                  ({value.all.length}/{MAX_PER_BUCKET})
+                </span>
+              )}
+            </ToneLabel>
           </label>
           {value.all.length > 0 && (
             <button
@@ -230,13 +259,15 @@ export function AdvancedSearchPopover({
       {/* ANY — multiple OR-groups that AND together */}
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-foreground dark:text-muted-foreground">
-            Którakolwiek z wymienionych fraz
-            {anyPhraseCount > 0 && (
-              <span className="ml-1.5 text-muted-foreground dark:text-muted-foreground font-normal">
-                ({anyPhraseCount})
-              </span>
-            )}
+          <label>
+            <ToneLabel tone="sky">
+              Którakolwiek z wymienionych fraz
+              {anyPhraseCount > 0 && (
+                <span className="text-muted-foreground dark:text-muted-foreground font-normal">
+                  ({anyPhraseCount})
+                </span>
+              )}
+            </ToneLabel>
           </label>
           {anyPhraseCount > 0 && (
             <button
@@ -304,13 +335,15 @@ export function AdvancedSearchPopover({
       {/* NONE — no phrase may appear (NOT) */}
       <section className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-foreground dark:text-muted-foreground">
-            Żadna z wymienionych fraz
-            {value.none.length > 0 && (
-              <span className="ml-1.5 text-muted-foreground dark:text-muted-foreground font-normal">
-                ({value.none.length}/{MAX_PER_BUCKET})
-              </span>
-            )}
+          <label>
+            <ToneLabel tone="rose">
+              Żadna z wymienionych fraz
+              {value.none.length > 0 && (
+                <span className="text-muted-foreground dark:text-muted-foreground font-normal">
+                  ({value.none.length}/{MAX_PER_BUCKET})
+                </span>
+              )}
+            </ToneLabel>
           </label>
           {value.none.length > 0 && (
             <button
