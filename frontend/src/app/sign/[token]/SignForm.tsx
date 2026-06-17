@@ -11,11 +11,12 @@
  *
  * Hits the public API with raw fetch (never the authed axios instance).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
   Download,
+  FileText,
   Loader2,
   ShieldCheck,
   Upload,
@@ -47,8 +48,36 @@ export default function SignForm({
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(alreadySigned);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState(false);
 
   const pdfUrl = `${browserApiBase()}/api/public/sign/${token}/pdf`;
+
+  // In-browser preview: fetch the contract PDF as a blob (the backend sets
+  // X-Frame-Options: DENY, so a direct cross-origin iframe is blocked — a
+  // blob: URL is same-origin and renders inline).
+  useEffect(() => {
+    if (done) return;
+    let revoked: string | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(pdfUrl);
+        if (!res.ok) throw new Error("pdf fetch failed");
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setPreviewUrl(url);
+      } catch {
+        if (!cancelled) setPreviewError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [pdfUrl, done]);
 
   async function handleSubmit() {
     if (!file) {
@@ -142,18 +171,36 @@ export default function SignForm({
     <div className="space-y-6">
       <ol className="space-y-4">
         <li className="rounded-xl border border-border bg-card p-5">
-          <p className="font-medium mb-1">1. Pobierz umowę</p>
-          <p className="text-sm text-muted-foreground mb-3">
-            Pobierz dokument PDF, który masz podpisać.
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="font-medium">1. Przeczytaj umowę</p>
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-1.5 text-sm font-medium hover:bg-secondary/80 shrink-0"
+            >
+              <Download className="h-4 w-4" /> Pobierz PDF
+            </a>
+          </div>
+          {previewError ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <FileText className="h-4 w-4" /> Podgląd niedostępny — pobierz PDF
+              powyżej.
+            </p>
+          ) : previewUrl ? (
+            <iframe
+              src={previewUrl}
+              title="Podgląd umowy"
+              className="w-full h-[460px] rounded-lg border border-border bg-white"
+            />
+          ) : (
+            <div className="flex h-[460px] items-center justify-center rounded-lg border border-border bg-muted/30">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Aby podpisać kwalifikowanym podpisem, pobierz plik (krok 2).
           </p>
-          <a
-            href={pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-medium hover:bg-secondary/80"
-          >
-            <Download className="h-4 w-4" /> Pobierz umowę (PDF)
-          </a>
         </li>
 
         <li className="rounded-xl border border-border bg-card p-5">

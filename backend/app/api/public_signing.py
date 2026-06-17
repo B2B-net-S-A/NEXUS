@@ -67,7 +67,10 @@ async def _load_signature(db: AsyncSession, signature_id: int) -> DocumentSignat
     sig = await db.scalar(
         select(DocumentSignature)
         .where(DocumentSignature.id == signature_id)
-        .options(selectinload(DocumentSignature.contract_document))
+        .options(
+            selectinload(DocumentSignature.contract_document),
+            selectinload(DocumentSignature.contract),
+        )
     )
     if sig is None:
         raise _GENERIC_404

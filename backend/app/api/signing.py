@@ -9,7 +9,6 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §7.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -27,12 +26,9 @@ from app.schemas.document_signature import (
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
     SignForSignatureRequest,
+    SignForSignatureResponse,
 )
-from app.services.signing.sender import (
-    initiate_signing,
-    mint_signature_link,
-    prepare_send,
-)
+from app.services.signing.sender import mint_signature_link, prepare_and_send
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,7 +44,7 @@ def _require_enabled() -> None:
 
 @router.post(
     "/contracts/{contract_id}/send-for-signature",
-    response_model=DocumentSignatureResponse,
+    response_model=SignForSignatureResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def send_for_signature(
@@ -56,14 +52,18 @@ async def send_for_signature(
     payload: SignForSignatureRequest,
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
-) -> DocumentSignature:
-    """Create a signature row + schedule link minting. Returns 202."""
+) -> SignForSignatureResponse:
+    """Create the signature, mint the link, return the shareable URL. 202."""
     _require_enabled()
-    sig = await prepare_send(
+    sig, sign_url = await prepare_and_send(
         db, contract_id=contract_id, payload=payload, sender_user=current_user
     )
-    asyncio.create_task(initiate_signing(sig.id))
-    return sig
+    return SignForSignatureResponse(
+        signature_id=sig.id,
+        contract_id=sig.contract_id,
+        status=sig.status,
+        sign_url=sign_url,
+    )
 
 
 @router.get(
