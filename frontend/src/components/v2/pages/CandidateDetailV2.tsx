@@ -478,9 +478,11 @@ export function CandidateDetailV2({
  }
  };
 
- // Open a "Więcej" menu action on the next tick — after Radix tears down the
- // dropdown's focus layer — so a Radix Dialog (e.g. CVGeneratorV2) doesn't lose
- // focus or leave the page's pointer-events stuck during the transition.
+ // Open a "Więcej" menu action on the next tick, after Radix finishes closing
+ // the dropdown, so a custom overlay's open isn't disturbed by the menu's
+ // dismiss. NOTE: a Radix Dialog can't reliably open from a menu item nested in
+ // the drawer Sheet (its own dismiss layer swallows the open), so CVGeneratorV2
+ // stays a direct action-row button rather than a menu item.
  const openFromMenu = (fn: () => void) => setTimeout(fn, 0);
 
  if (isLoading || !candidate) {
@@ -739,6 +741,14 @@ export function CandidateDetailV2({
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
  </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ onClick={() => setCvOpen(true)}
+ >
+ <FileText className="h-4 w-4" />
+ Generuj CV
+ </Button>
 
  {/* Utility cluster — separated so quick tools don't blend with the tasks */}
  <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
@@ -751,10 +761,6 @@ export function CandidateDetailV2({
  </Button>
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end" className="w-52">
- <DropdownMenuItem onSelect={() => openFromMenu(() => setCvOpen(true))}>
- <FileText className="h-4 w-4" />
- Generuj CV
- </DropdownMenuItem>
  <DropdownMenuItem onSelect={() => openFromMenu(() => setEditOpen(true))}>
  <PencilLine className="h-4 w-4" />
  Edytuj
