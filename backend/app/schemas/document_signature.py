@@ -52,6 +52,19 @@ class SignForSignatureRequest(BaseModel):
     message_pl: Optional[str] = Field(default=None, max_length=2000)
 
 
+class SignForSignatureResponse(BaseModel):
+    """``POST /api/signing/contracts/{id}/send-for-signature`` → 202.
+
+    Returns the shareable public signing link synchronously so the recruiter
+    can hand it to the consultant immediately.
+    """
+
+    signature_id: int
+    contract_id: int
+    status: SignatureStatus
+    sign_url: str
+
+
 # ── Response shapes ────────────────────────────────────────────────────────
 
 
