@@ -41,6 +41,7 @@ from app.schemas.document_signature import SignForSignatureRequest
 from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
 from app.services.signing.pdf_renderer import render_contract_pdf
+from app.services.signing.pipeline_hook import STAGE_SENT, move_candidate_for_signing
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,15 @@ async def prepare_and_send(
         )
     except Exception:  # noqa: BLE001
         logger.exception("prepare_and_send: notification emit failed sig=%d", sig.id)
+
+    # Advance the candidate to "Umowa wysłana" (best-effort).
+    try:
+        contract = await db.get(Contract, sig.contract_id)
+        await move_candidate_for_signing(
+            db, contract, stage_name=STAGE_SENT, moved_by=sender_user.id
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("prepare_and_send: pipeline move failed sig=%d", sig.id)
 
     await db.commit()
     await db.refresh(sig)
