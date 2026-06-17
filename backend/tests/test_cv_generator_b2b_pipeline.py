@@ -26,6 +26,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     _normalize_candidate_data,
     _sanitize_for_filename,
     _validate_upload,
+    rerender_docx_from_payload,
 )
 
 
@@ -389,3 +390,46 @@ def test_overlap_caps_warning_count():
     warnings = _date_overlap_warnings(data, "pl")
     assert len(warnings) == 4  # 3 pary + "… i N kolejnych"
     assert "kolejnych" in warnings[-1]
+
+
+# ── Saved-CV re-render (panel list download/preview) ───────────────────────
+
+
+def _sample_payload(blind: bool = False) -> dict:
+    return {
+        "name": "Jan Kowalski",
+        "first_name": "Jan",
+        "position": "Java Developer",
+        "language": "pl",
+        "blind_cv": blind,
+        "why_points": ["8 lat doświadczenia jako Java Developer"],
+        "skills": [{"label": "Backend:", "content": "Java, Spring Boot"}],
+        "languages": ["Polski – ojczysty", "Angielski – biegły"],
+        "experience": [
+            {
+                "dates": "01.2020 – obecnie",
+                "company": "Acme",
+                "industry": "IT",
+                "position": "Java Developer",
+                "responsibilities": ["Rozwój usług w Java"],
+                "technologies": ["Java", "Spring Boot"],
+            }
+        ],
+    }
+
+
+def test_rerender_from_payload_produces_docx():
+    # Saved-CV download/preview re-renders deterministically from the payload,
+    # with no Claude call. DOCX is a zip → starts with the PK magic bytes.
+    data = rerender_docx_from_payload(_sample_payload())
+    assert data[:2] == b"PK"
+    assert len(data) > 1000
+
+
+def test_rerender_does_not_mutate_saved_payload():
+    # render mutates candidate_data in place for blind anonymization; the helper
+    # deep-copies so the STORED payload stays reusable for the next download.
+    payload = _sample_payload(blind=True)
+    rerender_docx_from_payload(payload)
+    assert payload["name"] == "Jan Kowalski"
+    assert payload["experience"][0]["company"] == "Acme"
