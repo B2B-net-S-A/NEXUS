@@ -4,16 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
+  CheckCircle2,
   ChevronsUpDown,
   Download,
   Eye,
   FileSignature,
   Loader2,
+  Mail,
   Printer,
   Save,
   Search,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
@@ -851,7 +854,92 @@ function GeneratorForm() {
       return;
     }
     setSignLink(null);
+    setUploadVerdict(null);
     sendSignMut.mutate();
+  };
+
+  // ── Offline (e-mail) flow: oznacz wysłaną / wgraj podpisaną ────────────────
+  const signedFileRef = useRef<HTMLInputElement>(null);
+  const [uploadVerdict, setUploadVerdict] = useState<{
+    is_qes: boolean;
+    signed_by: string | null;
+    signature_level: string | null;
+  } | null>(null);
+
+  const markSentMut = useMutation({
+    mutationFn: async () => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby oznaczyć wysłaną.",
+        );
+      }
+      const gen = await b2bGeneratorApi.generate(gp);
+      await signingApi.markSentOffline(gen.contract_id);
+    },
+    onSuccess: () => {
+      toast.showSuccess(
+        "Oznaczono jako wysłaną — kandydat przeszedł na etap „Umowa wysłana”.",
+      );
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const uploadSignedMut = useMutation({
+    mutationFn: async (file: File) => {
+      const gp = buildGeneratePayload();
+      if (!gp) {
+        throw new Error(
+          "Wybierz kandydata, rekrutację, rolę i datę startu, aby wgrać podpisaną umowę.",
+        );
+      }
+      const gen = await b2bGeneratorApi.generate(gp);
+      return signingApi.uploadSigned(gen.contract_id, file);
+    },
+    onSuccess: (verdict) => {
+      setUploadVerdict({
+        is_qes: verdict.is_qes,
+        signed_by: verdict.signed_by,
+        signature_level: verdict.signature_level,
+      });
+      toast.showSuccess(
+        "Podpisaną umowę wgrano — kandydat przeszedł na etap „Umowa podpisana”.",
+      );
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  const onMarkSentOffline = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do oznaczenia wysłanej.",
+      );
+      return;
+    }
+    setSignLink(null);
+    setUploadVerdict(null);
+    markSentMut.mutate();
+  };
+
+  const onUploadSignedClick = () => {
+    if (!validate()) return;
+    if (!candidate || !selectedRecruitment) {
+      toast.showError(
+        "Wybierz kandydata i rekrutację — wymagane do wgrania podpisanej umowy.",
+      );
+      return;
+    }
+    signedFileRef.current?.click();
+  };
+
+  const onSignedFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    setSignLink(null);
+    setUploadVerdict(null);
+    uploadSignedMut.mutate(file);
   };
 
   return (
@@ -1389,6 +1477,39 @@ function GeneratorForm() {
           )}
           Wyślij do podpisu (QES)
         </Button>
+        <Button
+          variant="outline"
+          disabled={markSentMut.isPending}
+          onClick={onMarkSentOffline}
+          title="Wysłałeś umowę mailem? Oznacz wysłaną, by przenieść kandydata na etap „Umowa wysłana”."
+        >
+          {markSentMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Mail className="mr-2 h-4 w-4" />
+          )}
+          Oznacz: wysłana mailem
+        </Button>
+        <Button
+          variant="outline"
+          disabled={uploadSignedMut.isPending}
+          onClick={onUploadSignedClick}
+          title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis i przeniesiemy na etap „Umowa podpisana”."
+        >
+          {uploadSignedMut.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-2 h-4 w-4" />
+          )}
+          Wgraj podpisaną (z maila)
+        </Button>
+        <input
+          ref={signedFileRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          onChange={onSignedFilePicked}
+        />
       </div>
 
       {signLink ? (
@@ -1419,6 +1540,26 @@ function GeneratorForm() {
               Konsultant otworzy link, przeczyta umowę w przeglądarce, podpisze
               ją własnym podpisem kwalifikowanym i odeśle. Status zobaczysz w
               profilu kandydata.
+            </p>
+          </div>
+        </Alert>
+      ) : null}
+
+      {uploadVerdict ? (
+        <Alert>
+          <div className="space-y-1">
+            <p className="flex items-center gap-2 font-medium">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              Podpisaną umowę wgrano — kandydat na etapie „Umowa podpisana”.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {uploadVerdict.is_qes
+                ? "Podpis kwalifikowany (QES) potwierdzony"
+                : "Podpis wgrany — kwalifikowalność niepotwierdzona automatycznie (zweryfikuj ręcznie)"}
+              {uploadVerdict.signed_by ? ` · podpisał: ${uploadVerdict.signed_by}` : ""}
+              {uploadVerdict.signature_level
+                ? ` · poziom: ${uploadVerdict.signature_level}`
+                : ""}
             </p>
           </div>
         </Alert>
