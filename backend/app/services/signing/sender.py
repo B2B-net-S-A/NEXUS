@@ -21,7 +21,8 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from io import BytesIO
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -32,7 +33,7 @@ from app.core.config import settings
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
-from app.models.contract_document import ContractDocument
+from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.notification import NotificationType
 from app.models.signature_link import SignatureLink
@@ -41,7 +42,12 @@ from app.schemas.document_signature import SignForSignatureRequest
 from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
 from app.services.signing.pdf_renderer import render_contract_pdf
-from app.services.signing.pipeline_hook import STAGE_SENT, move_candidate_for_signing
+from app.services.signing.pipeline_hook import (
+    STAGE_SENT,
+    STAGE_SIGNED,
+    move_candidate_for_signing,
+)
+from app.services.signing.registry import get_provider
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +101,16 @@ async def prepare_send(
     )
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    if contract.status not in (ContractStatus.active, ContractStatus.ending):
+    if contract.status not in (
+        ContractStatus.draft,
+        ContractStatus.active,
+        ContractStatus.ending,
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"Contract is in status={contract.status.value}; "
-                "only `active` or `ending` contracts can be sent for signature"
+                f"Umowa ma status={contract.status.value}; do podpisu można "
+                "wysłać umowę `draft`, `active` lub `ending` (nie `ended`)."
             ),
         )
     if contract.candidate is None:
@@ -275,3 +285,105 @@ async def prepare_and_send(
     await db.refresh(sig)
     logger.info("prepare_and_send: link minted sig=%d", sig.id)
     return sig, sign_url
+
+
+async def finalize_signed_pdf(
+    db: AsyncSession,
+    sig: DocumentSignature,
+    pdf_bytes: bytes,
+    *,
+    moved_by: int,
+) -> dict[str, Any]:
+    """Validate a signed PAdES, attach it, complete the signature, advance pipeline.
+
+    Shared by the public ``/submit`` (consultant web upload) and the recruiter
+    ``/upload-signed`` (offline e-mail) endpoints — identical validation +
+    storage + completion + "Umowa podpisana" move. Does NOT commit (caller owns
+    the transaction). Returns the validation verdict dict for the response.
+    """
+    provider = get_provider(sig.provider)
+    report = await provider.validate(pdf_bytes)
+
+    if report.indication == "NO_SIGNATURE":
+        raise HTTPException(
+            status_code=422, detail="Plik nie zawiera podpisu elektronicznego"
+        )
+    if settings.DSS_VALIDATION_URL and not report.is_qes:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Podpis nie jest kwalifikowany (wymagany QES). "
+                f"Werdykt walidacji: {report.indication or 'nieokreślony'}"
+            ),
+        )
+
+    rel_path, size = storage_service.save_contract_document(
+        sig.contract_id, f"signed_umowa_{sig.contract_id}.pdf", BytesIO(pdf_bytes)
+    )
+    signed_doc = ContractDocument(
+        contract_id=sig.contract_id,
+        filename=f"signed_umowa_{sig.contract_id}.pdf",
+        file_path=rel_path,
+        content_type="application/pdf",
+        size_bytes=size,
+        doc_type=ContractDocumentType.contract,
+    )
+    db.add(signed_doc)
+    await db.flush()
+
+    now = datetime.now(timezone.utc)
+    sig.signed_document_id = signed_doc.id
+    sig.validation_report = report.as_db_report()
+    sig.signature_level = report.signature_level
+    sig.status = SignatureStatus.completed
+    sig.completed_at = now
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=sig.contract_id,
+            action="signature_signed",
+            user_id=sig.sender_user_id,
+            external_source="signing",
+            details={
+                "is_qes": report.is_qes,
+                "signature_level": report.signature_level,
+                "signed_by": report.signed_by,
+            },
+        )
+    )
+
+    # Advance the candidate to "Umowa podpisana" (best-effort).
+    try:
+        contract = sig.contract or await db.get(Contract, sig.contract_id)
+        await move_candidate_for_signing(
+            db, contract, stage_name=STAGE_SIGNED, moved_by=moved_by
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("finalize_signed_pdf: pipeline move failed sig=%d", sig.id)
+
+    try:
+        await emit_notification(
+            db,
+            user_id=sig.sender_user_id,
+            title="Umowa podpisana",
+            message=(
+                f"Umowa kontraktu #{sig.contract_id} dla "
+                f"{sig.signer_first_name} {sig.signer_last_name} została podpisana."
+            ),
+            ntype=NotificationType.signature_signed,
+            related_entity_type="document_signature",
+            related_entity_id=sig.id,
+            link=f"/candidates?contract={sig.contract_id}",
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("finalize_signed_pdf: notification emit failed sig=%d", sig.id)
+
+    return {
+        "status": "ok",
+        "is_qes": report.is_qes,
+        "signature_level": report.signature_level,
+        "signed_by": report.signed_by,
+        "indication": report.indication,
+        "dss_verified": bool(settings.DSS_VALIDATION_URL),
+    }

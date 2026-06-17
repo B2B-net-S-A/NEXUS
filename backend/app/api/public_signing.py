@@ -18,7 +18,6 @@ into a ForwardRef that FastAPI cannot resolve for the multipart ``file`` param.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -26,19 +25,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.models.activity import Activity
-from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.document_signature import DocumentSignature, SignatureStatus
-from app.models.notification import NotificationType
 from app.models.signature_link import SignatureLink
-from app.services import storage_service
-from app.services.notification_triggers import emit as emit_notification
-from app.services.signing.pipeline_hook import STAGE_SIGNED, move_candidate_for_signing
-from app.services.signing.registry import get_provider
-from app.services.signing.sender import render_unsigned_pdf
+from app.services.signing.sender import finalize_signed_pdf, render_unsigned_pdf
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -147,95 +138,12 @@ async def submit_signed_pdf(
     if not pdf_bytes.startswith(b"%PDF"):
         raise HTTPException(status_code=422, detail="To nie jest plik PDF")
 
-    provider = get_provider(sig.provider)
-    report = await provider.validate(pdf_bytes)
-
-    if report.indication == "NO_SIGNATURE":
-        raise HTTPException(
-            status_code=422, detail="Plik nie zawiera podpisu elektronicznego"
-        )
-    # If DSS gave an authoritative verdict and it's NOT qualified, reject —
-    # an IP-transferring B2B contract needs QES.
-    if settings.DSS_VALIDATION_URL and not report.is_qes:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Podpis nie jest kwalifikowany (wymagany QES). "
-                f"Werdykt walidacji: {report.indication or 'nieokreślony'}"
-            ),
-        )
-
-    # Persist the signed PDF.
-    rel_path, size = storage_service.save_contract_document(
-        sig.contract_id, f"signed_umowa_{sig.contract_id}.pdf", BytesIO(pdf_bytes)
-    )
-    signed_doc = ContractDocument(
-        contract_id=sig.contract_id,
-        filename=f"signed_umowa_{sig.contract_id}.pdf",
-        file_path=rel_path,
-        content_type="application/pdf",
-        size_bytes=size,
-        doc_type=ContractDocumentType.contract,
-    )
-    db.add(signed_doc)
-    await db.flush()
+    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=sig.sender_user_id)
 
     now = datetime.now(timezone.utc)
-    sig.signed_document_id = signed_doc.id
-    sig.validation_report = report.as_db_report()
-    sig.signature_level = report.signature_level
-    sig.status = SignatureStatus.completed
-    sig.completed_at = now
-
     link.used_at = now
     link.use_count = (link.use_count or 0) + 1
     link.last_used_at = now
 
-    # Advance the candidate to "Umowa podpisana" (best-effort).
-    try:
-        await move_candidate_for_signing(
-            db, sig.contract, stage_name=STAGE_SIGNED, moved_by=sig.sender_user_id
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("submit: pipeline move failed sig=%d", sig.id)
-
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_signed",
-            user_id=sig.sender_user_id,
-            external_source="signing",
-            details={
-                "is_qes": report.is_qes,
-                "signature_level": report.signature_level,
-                "signed_by": report.signed_by,
-            },
-        )
-    )
-    try:
-        await emit_notification(
-            db,
-            user_id=sig.sender_user_id,
-            title="Umowa podpisana",
-            message=(
-                f"Konsultant {sig.signer_first_name} {sig.signer_last_name} "
-                f"podpisał umowę kontraktu #{sig.contract_id}."
-            ),
-            ntype=NotificationType.signature_signed,
-            related_entity_type="document_signature",
-            related_entity_id=sig.id,
-            link=f"/candidates?contract={sig.contract_id}",
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("submit_signed_pdf: notification emit failed sig=%d", sig.id)
-
     await db.commit()
-    return {
-        "status": "ok",
-        "is_qes": report.is_qes,
-        "signature_level": report.signature_level,
-        "signed_by": report.signed_by,
-        "indication": report.indication,
-        "dss_verified": bool(settings.DSS_VALIDATION_URL),
-    }
+    return verdict

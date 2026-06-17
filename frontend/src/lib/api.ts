@@ -1674,6 +1674,26 @@ export const signingApi = {
     api
       .get(`/api/signing/contracts/${contractId}/signatures`)
       .then((r) => r.data),
+  // Offline (e-mail) flow: record the contract as sent → pipeline "Umowa wysłana".
+  markSentOffline: (contractId: number) =>
+    api
+      .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
+      .then((r) => r.data),
+  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate + "Umowa podpisana".
+  uploadSigned: (contractId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<{
+        status: string;
+        is_qes: boolean;
+        signature_level: string | null;
+        signed_by: string | null;
+        indication: string | null;
+        dss_verified: boolean;
+      }>(`/api/signing/contracts/${contractId}/upload-signed`, form)
+      .then((r) => r.data);
+  },
 };
 
 export interface B2BRenderPayload {
