@@ -118,7 +118,6 @@ import { RISK_QUERY_KEY, RiskBadge } from"@/components/v2/RiskBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
-import EmailThreadList from"@/components/emails/EmailThreadList";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
 import {
  CandidatePipelinesWidget,
@@ -828,7 +827,7 @@ export function CandidateDetailV2({
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
  <Tabs value={activeTab} onValueChange={setActiveTab}>
- {/* max-w-full + overflow-x-auto so the 8-tab list scrolls instead of
+ {/* max-w-full + overflow-x-auto so the 7-tab list scrolls instead of
  spilling over the right rail in the narrower 2-col main column. */}
  <TabsList className="px-4 pt-2 max-w-full overflow-x-auto justify-start [&>*]:shrink-0">
  <TabsTrigger value="profil">
@@ -847,10 +846,6 @@ export function CandidateDetailV2({
  {history.length}
  </Badge>
  )}
- </TabsTrigger>
- <TabsTrigger value="email">
- <Mail className="h-3.5 w-3.5" />
- Email
  </TabsTrigger>
  <TabsTrigger value="notatki">
  <MessageSquare className="h-3.5 w-3.5" />
@@ -900,13 +895,6 @@ export function CandidateDetailV2({
  />
  </div>
  </div>
- </TabsContent>
- <TabsContent value="email" className="mt-0">
- <EmailThreadList
- candidateId={Number(id)}
- candidateName={fullName}
- candidateEmail={candidate.email ?? null}
- />
  </TabsContent>
  <TabsContent value="notatki" className="mt-0">
  <NotatkiTab
