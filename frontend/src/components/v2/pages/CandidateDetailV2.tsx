@@ -479,10 +479,11 @@ export function CandidateDetailV2({
  };
 
  // Open a "Więcej" menu action on the next tick, after Radix finishes closing
- // the dropdown, so a custom overlay's open isn't disturbed by the menu's
- // dismiss. NOTE: a Radix Dialog can't reliably open from a menu item nested in
- // the drawer Sheet (its own dismiss layer swallows the open), so CVGeneratorV2
- // stays a direct action-row button rather than a menu item.
+ // the dropdown, so the opened overlay isn't disturbed by the menu's dismiss.
+ // Radix Dialogs (Email / interview / Generuj CV) only open reliably from a
+ // menu item nested in the drawer Sheet because the dropdown is modal={false}
+ // (see the DropdownMenu below) — without that, the menu's body pointer-events
+ // lock swallows the dialog open, which is what regressed in #533.
  const openFromMenu = (fn: () => void) => setTimeout(fn, 0);
 
  if (isLoading || !candidate) {
@@ -722,38 +723,17 @@ export function CandidateDetailV2({
  <UserPlus className="h-4 w-4" />
  Przypisz do oferty
  </Button>
- <Button
- size="sm"
- variant="outline"
- onClick={() => setEmailOpen(true)}
- disabled={!candidate.email}
- >
- <Mail className="h-4 w-4" />
- Email
- </Button>
- <Button
- size="sm"
- variant="outline"
- onClick={() => setScheduleOpen(true)}
- disabled={!candidate.email}
- title={candidate.email ?"Zaplanuj interview w Outlook (M365)" :"Kandydat nie ma adresu email"}
- >
- <Calendar className="h-4 w-4" />
- Zaplanuj interview
- </Button>
- <Button
- size="sm"
- variant="outline"
- onClick={() => setCvOpen(true)}
- >
- <FileText className="h-4 w-4" />
- Generuj CV
- </Button>
-
- {/* Utility cluster — separated so quick tools don't blend with the tasks */}
+ {/* Utility cluster — secondary actions collapse into "Więcej" so only the
+ primary "Przypisz do oferty" task stays visible in the strip. */}
  <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
  {candidate && <PinButton candidateId={candidate.id} iconOnly />}
- <DropdownMenu>
+ {/* modal={false} is load-bearing: a default (modal) dropdown leaves
+ body pointer-events locked while it closes, so a Radix Dialog opened
+ from a menu item (Email / interview / CV) is dismissed on the same
+ tick when the panel is nested in the drawer Sheet — the exact failure
+ #533 hit. Dropping the lock lets those dialogs open reliably from the
+ menu, so all three can live here instead of crowding the action row. */}
+ <DropdownMenu modal={false}>
  <DropdownMenuTrigger asChild>
  <Button size="sm" variant="outline">
  Więcej
@@ -761,11 +741,30 @@ export function CandidateDetailV2({
  </Button>
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end" className="w-52">
+ <DropdownMenuItem
+ disabled={!candidate.email}
+ onSelect={() => openFromMenu(() => setEmailOpen(true))}
+ >
+ <Mail className="h-4 w-4" />
+ Email
+ </DropdownMenuItem>
+ <DropdownMenuItem
+ disabled={!candidate.email}
+ title={candidate.email ?"Zaplanuj interview w Outlook (M365)" :"Kandydat nie ma adresu email"}
+ onSelect={() => openFromMenu(() => setScheduleOpen(true))}
+ >
+ <Calendar className="h-4 w-4" />
+ Zaplanuj interview
+ </DropdownMenuItem>
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setCvOpen(true))}>
+ <FileText className="h-4 w-4" />
+ Generuj CV
+ </DropdownMenuItem>
+ <DropdownMenuSeparator />
  <DropdownMenuItem onSelect={() => openFromMenu(() => setEditOpen(true))}>
  <PencilLine className="h-4 w-4" />
  Edytuj
  </DropdownMenuItem>
- <DropdownMenuSeparator />
  <DropdownMenuItem onSelect={() => openFromMenu(() => setMarketplaceOpen(true))}>
  <Store className="h-4 w-4" />
  Wrzuć na targ
