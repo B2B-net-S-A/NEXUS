@@ -266,61 +266,187 @@ def _core_keyword(phrase: str) -> str:
     return " ".join(words)
 
 
-def _keyword_variants(keyword: str) -> list[str]:
-    """Expand a champion keyword into matchable variants.
+def _split_segments(kw: str) -> tuple[str, list[str]]:
+    """Split a champion chip into the text outside parentheses + each
+    parenthetical's contents (nesting-aware).
 
-    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] — the parenthetical is an alias.
-    "Figma (zaawansowana znajomość)" → ["Figma"] — the parenthetical is a
-    qualifier and must NOT become a bold keyword (it would bold those generic
-    words throughout the CV prose).
+        "Material Design (a) (długie wyjaśnienie)"
+            → ("Material Design", ["a", "długie wyjaśnienie"])
+    """
+    outside: list[str] = []
+    parens: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in kw:
+        if ch == "(":
+            if depth == 0:
+                outside.append(" ")
+                buf = []
+            else:
+                buf.append(ch)
+            depth += 1
+        elif ch == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                parens.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        elif depth == 0:
+            outside.append(ch)
+        else:
+            buf.append(ch)
+    return "".join(outside).strip(), parens
+
+
+_NON_SUBTERM_HEADS = {"np", "tj", "eg", "itp", "itd", "czyli", "zwłaszcza", "w"}
+
+
+def _paren_is_subterm(content: str) -> bool:
+    """True iff a parenthetical lists real sub-skills ("heurystyki, best
+    practices UX", "iOS/Android", "RWD, multi-device") rather than a prose
+    explanation ("projektowanie estetycznych interfejsów zgodnie z…").
+
+    Champion chips in NEXUS read ``Koncept (pod-terminy) (długie wyjaśnienie)``.
+    A short comma-list is a sub-term group worth bolding; a multi-word sentence
+    is an explanation and must be dropped so its prose never bolds the CV.
+    """
+    c = content.strip()
+    if not c:
+        return False
+    if _is_alias_like(c):  # "K8s", ".NET", "RWD"
+        return True
+    words = c.split()
+    if len(words) > 5:
+        return False
+    first = re.sub(rf"[^{_WORD_CHARS}]", "", words[0].lower())
+    return first not in _NON_SUBTERM_HEADS
+
+
+# Conjunctions / separators that split a chip into independent bold-terms, so
+# "Material Design oraz Human Interface Guidelines" bolds BOTH halves and a
+# comma-list of sub-skills bolds each item.
+_TERM_SEPARATORS = re.compile(r"[;,]|\b(?:i|oraz|lub|and|or)\b", re.IGNORECASE)
+
+
+def _extract_keyword_terms(keyword: str) -> list[str]:
+    """Expand a champion chip into every bold-worthy term.
+
+    Strips prose-explanation parentheticals, keeps short sub-term groups, and
+    splits on conjunctions so each real concept is matched on its own:
+
+        "User-Centered Design (projektowanie w oparciu o…)"
+            → ["User-Centered Design"]
+        "Material Design oraz Human Interface Guidelines (znajomość…)"
+            → ["Material Design", "Human Interface Guidelines"]
+        "Zasady Gestalt (hierarchia, percepcja, grupowanie) (umiejętność…)"
+            → ["Zasady Gestalt", "hierarchia", "percepcja", "grupowanie"]
+        "Kubernetes (K8s)" → ["Kubernetes", "K8s"]
     """
     kw = (keyword or "").strip()
     if not kw:
         return []
-    m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", kw)
-    if m and m.group(1).strip():
-        base = m.group(1).strip()
-        alias = m.group(2).strip()
-        if _is_alias_like(alias):
-            return [base, alias]
-        return [base]
-    return [kw]
+    outside, parens = _split_segments(kw)
+    raw: list[str] = []
+    if outside:
+        raw.append(outside)
+    raw.extend(p for p in parens if _paren_is_subterm(p))
+
+    terms: list[str] = []
+    for chunk in raw:
+        for part in _TERM_SEPARATORS.split(chunk):
+            t = (part or "").strip()
+            if t:
+                terms.append(t)
+    return terms
+
+
+def _is_strong_tech_token(token: str) -> bool:
+    """True iff a single token is unmistakably a technology on its own.
+
+    Used to pull the real tech out of a verbose champion requirement
+    ("Doświadczenie z bazami danych SQL" → "SQL") WITHOUT also bolding the
+    generic Polish prose around it ("bazami", "danych"). Only a HARD tech
+    signal qualifies:
+
+        special chars      C++, C#, .NET, Node.js, CI/CD
+        digits             S3, OAuth2
+        all-caps acronym   SQL, API, AWS, REST
+        internal/camel cap PostgreSQL, GraphQL, GitLab
+
+    A plain Capitalized word (Projektowanie, Aplikacji, Server) is ambiguous —
+    it could be English tech or just a Polish common noun — so it NEVER
+    qualifies. That asymmetry is what keeps requirement prose from bolding.
+    """
+    if _is_filler_word(token):
+        return False
+    if any(ch in token for ch in "+#/."):
+        return True
+    if any(ch.isdigit() for ch in token):
+        return True
+    letters = [ch for ch in token if ch.isalpha()]
+    if len(letters) < 2:
+        return False
+    if all(ch.isupper() for ch in letters):
+        return True
+    return any(ch.isupper() for ch in token[1:])
 
 
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
     """Compile whole-phrase, word-boundary regexes for champion keywords.
 
-    Multi-word phrases ("GitLab CI/CD") match across flexible whitespace;
-    matching is case-insensitive; stop-words and 1-char keywords are skipped.
+    Every champion chip is expanded (:func:`_extract_keyword_terms`) into its
+    real concepts — explanation parentheticals stripped, conjunctions split —
+    and each concept bolds WHOLE wherever it overlaps the CV, in every section
+    including EXPERIENCE. Multi-word phrases match across flexible whitespace;
+    matching is case-insensitive.
+
+    Two guards keep the recruiter's earlier "stop bolding random words"
+    feedback honoured: leading/trailing filler is trimmed (``_core_keyword``)
+    and a fully generic term ("technologie", "mile widziane") is dropped — so
+    a standalone requirement word never bolds, while the substantive concept
+    inside it ("design systemów", "User-Centered Design") always does.
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
+
+    def _add(term: str) -> None:
+        key = term.lower()
+        if len(term) < 2 or key in _STOP_WORDS or key in seen:
+            return
+        seen.add(key)
+        # Build from tokens so "auto-layout" also matches "auto layout"
+        # (hyphen ↔ space spelling drift between champion list and CV).
+        parts = [p for p in re.split(r"[\s\-]+", term) if p]
+        escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
+        # "CI/CD" should also match "CI / CD" — slash with optional spaces.
+        escaped = escaped.replace("/", r"\s*/\s*")
+        if not escaped:
+            return
+        patterns.append(
+            re.compile(
+                rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
+                re.IGNORECASE,
+            )
+        )
+
     for kw in keywords or []:
-        for variant in _keyword_variants(kw):
-            # Trim filler ("Znajomość Java" → "Java") but keep the core whole so
-            # a verbose requirement is matched verbatim only and never bolds its
-            # generic words ("tworzenie", "technologie") in the CV prose.
-            v = _core_keyword(variant).strip()
-            key = v.lower()
-            if len(v) < 2 or key in _STOP_WORDS or key in seen:
+        for term in _extract_keyword_terms(kw):
+            # Trim filler ("Znajomość Java" → "Java", "Zaawansowany visual
+            # design" → "visual design"); a fully generic entry drops out.
+            v = _core_keyword(term).strip()
+            if len(v) < 2 or v.lower() in _STOP_WORDS:
                 continue
             if _is_generic_phrase(v):
                 continue
-            seen.add(key)
-            # Build from tokens so "auto-layout" also matches "auto layout"
-            # (hyphen ↔ space spelling drift between champion list and CV).
-            parts = [p for p in re.split(r"[\s\-]+", v) if p]
-            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
-            # "CI/CD" should also match "CI / CD" — slash with optional spaces.
-            escaped = escaped.replace("/", r"\s*/\s*")
-            if not escaped:
-                continue
-            patterns.append(
-                re.compile(
-                    rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
-                    re.IGNORECASE,
-                )
-            )
+            _add(v)
+            # Also surface a hard-tech token buried in the phrase ("Zasady WCAG
+            # 2.1/2.2" → "WCAG") so it still bolds under inflection drift.
+            words = v.split()
+            if len(words) > 1:
+                for w in words:
+                    if _is_strong_tech_token(w):
+                        _add(w)
     return patterns
 
 
@@ -860,8 +986,17 @@ def render_cv_to_bytes(
             para.paragraph_format.space_after = Pt(2)
 
     # === KLAUZULA RODO / GDPR ===
-    doc.add_paragraph()
-    doc.add_paragraph()
+    # A red divider closes the document body — the last EXPERIENCE role, or
+    # whatever the final section is — so the consent clause reads as a separate
+    # footer block instead of notes tacked onto that role's description. The
+    # clause sits just below the divider; on a content-filled CV that lands it
+    # near the foot of the page, set off from the experience above. The divider
+    # is kept tight (the clause is a 5pt block) so it takes less vertical room
+    # than the blank-line spacer it replaces and never pushes a one-page CV onto
+    # a second page just for the clause.
+    closing_divider = add_horizontal_line(doc)
+    closing_divider.paragraph_format.space_before = Pt(2)
+    closing_divider.paragraph_format.space_after = Pt(5)
 
     rodo_para = doc.add_paragraph()
     rodo_text = t["rodo"]

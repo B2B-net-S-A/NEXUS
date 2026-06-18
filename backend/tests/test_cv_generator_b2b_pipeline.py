@@ -183,6 +183,85 @@ def test_requirement_prose_words_never_bold():
     ]
 
 
+def test_verbose_requirement_bolds_substantive_phrase():
+    # Recruiter directive: bold ALL content overlapping a must-have. A wordy
+    # entry bolds its substantive remainder (filler head trimmed), and a hard
+    # tech signal inside it ("SQL") still surfaces under inflection drift.
+    kw = ["Doświadczenie z bazami danych SQL"]
+    assert _matches("Pracował z bazami danych SQL i NoSQL", kw) == ["bazami danych SQL"]
+    # The trimmed remainder is a phrase, so an unrelated prose line stays clean.
+    assert _matches("migracja systemów do chmury", kw) == []
+
+
+def test_strong_tech_tokens_pulled_from_requirement_prose():
+    # Special-char / digit / acronym tokens are unmistakably tech, so they bold
+    # even when the surrounding phrase is inflected differently in the CV.
+    assert _matches("Aplikacje w C++ i Java", ["Programowanie w C++"]) == ["C++"]
+    assert _matches("Backend w .NET", ["Tworzenie usług w .NET"]) == [".NET"]
+    assert _matches("Praca z SQL Server", ["Microsoft SQL Server"]) == ["SQL"]
+
+
+def test_generic_head_trimmed_but_substantive_phrase_bolds():
+    # The substantive remainder bolds as a whole phrase; the leading generic
+    # requirement word ("Tworzenie") never bolds on its own.
+    kw = ["Tworzenie aplikacji webowych"]
+    assert _matches("Projektowanie aplikacji webowych dla klienta", kw) == [
+        "aplikacji webowych"
+    ]
+    assert _matches("Tworzenie dokumentacji technicznej", kw) == []
+
+
+def test_champion_design_chips_full_coverage():
+    # Real UI-Designer champion MUST-HAVE chips: "KONCEPT (pod-terminy)
+    # (długie wyjaśnienie)". Every concept + sub-term must bold wherever it
+    # overlaps the CV; the long explanation parentheticals must NOT.
+    must = [
+        "User-Centered Design (projektowanie w oparciu o potrzeby użytkownika, "
+        "badania, feedback i dane, a nie wyłącznie wymagania biznesowe)",
+        "Zasady projektowania (heurystyki, best practices UX) (np. spójność "
+        "ekranów, przewidywalność zachowań aplikacji)",
+        "Zasady Gestalt (hierarchia, percepcja, grupowanie) (umiejętność "
+        "układania elementów na ekranie)",
+        "Zaawansowany visual design (typografia, kolor, kompozycja, gridy) "
+        "(projektowanie estetycznych interfejsów)",
+        "Material Design oraz Human Interface Guidelines (znajomość standardów "
+        "projektowania aplikacji dla Androida i iOS)",
+        "Projektowanie aplikacji mobilnych (iOS/Android) (doświadczenie w "
+        "projektowaniu ekranów)",
+        "Responsywne projektowanie (RWD, multi-device) (tworzenie rozwiązań "
+        "działających poprawnie)",
+        "Zasady WCAG 2.1/2.2 (projektowanie zgodne z wymaganiami dostępności)",
+        "Tworzenie i rozwój design systemów (komponenty, tokeny) "
+        "(projektowanie i utrzymywanie bibliotek)",
+    ]
+    prose = (
+        "Stosuje User-Centered Design, zasady projektowania oraz zasady Gestalt. "
+        "Zaawansowany visual design; zna Material Design i Human Interface "
+        "Guidelines. Projektowanie aplikacji mobilnych (iOS/Android), "
+        "responsywne projektowanie (RWD). Zna zasady WCAG 2.1/2.2 oraz "
+        "tworzenie i rozwój design systemów (komponenty, tokeny)."
+    )
+    found = [f.lower() for f in _matches(prose, must)]
+    for term in [
+        "user-centered design",
+        "zasady projektowania",
+        "zasady gestalt",
+        "visual design",
+        "material design",
+        "human interface guidelines",
+        "ios/android",
+        "rwd",
+        "wcag 2.1/2.2",
+        "design systemów",
+        "komponenty",
+        "tokeny",
+    ]:
+        assert any(term in f for f in found), f"{term!r} not bolded; found={found}"
+    # The long explanation prose must never bold a standalone generic word.
+    assert "tworzenie" not in found
+    assert "projektowanie" not in found
+
+
 # ── Claude response normalization ──────────────────────────────────────────
 
 
@@ -392,6 +471,74 @@ def test_overlap_caps_warning_count():
     assert "kolejnych" in warnings[-1]
 
 
+# ── Exact years of experience ──────────────────────────────────────────────
+
+
+def test_total_experience_years_counts_full_tenure():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _total_experience_years,
+    )
+
+    # 09.2018 – 09.2023 = 61 months ≈ 5.08 → 5 (the recruiter's "5 years").
+    assert _total_experience_years([{"dates": "09.2018 – 09.2023"}]) == 5
+
+
+def test_total_experience_years_merges_overlapping_roles():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _total_experience_years,
+    )
+
+    # Parallel B2B contracts must be counted once, not summed to 10.
+    years = _total_experience_years(
+        [
+            {"dates": "01.2019 – 12.2023"},
+            {"dates": "01.2019 – 12.2023"},
+        ]
+    )
+    assert years == 5
+
+
+def test_total_experience_years_none_without_dates():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _total_experience_years,
+    )
+
+    assert _total_experience_years([{"company": "X"}]) is None
+
+
+def test_fix_experience_years_corrects_undercount():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [{"dates": "09.2018 – 09.2023"}],
+        "why_points": [
+            "Ponad 4 lata doświadczenia jako UX/UI Designer, w tym 3 lata w startupie",
+            "Specjalizacja w technologiach: Figma, Sketch",
+        ],
+    }
+    _fix_experience_years(data, "pl")
+    # Headline total corrected to the exact figure; "w tym 3 lata" sub-figure
+    # and the second point are left untouched.
+    assert data["why_points"][0].startswith("5 lat doświadczenia jako UX/UI Designer")
+    assert "w tym 3 lata w startupie" in data["why_points"][0]
+    assert data["why_points"][1] == "Specjalizacja w technologiach: Figma, Sketch"
+
+
+def test_fix_experience_years_polish_plural_unit():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [{"dates": "01.2022 – 12.2023"}],  # 24 months → 2 → "2 lata"
+        "why_points": ["Ponad 1 rok doświadczenia jako Developer"],
+    }
+    _fix_experience_years(data, "pl")
+    assert data["why_points"][0] == "2 lata doświadczenia jako Developer"
+
+
 # ── Saved-CV re-render (panel list download/preview) ───────────────────────
 
 
@@ -433,3 +580,28 @@ def test_rerender_does_not_mutate_saved_payload():
     rerender_docx_from_payload(payload)
     assert payload["name"] == "Jan Kowalski"
     assert payload["experience"][0]["company"] == "Acme"
+
+
+def test_rodo_clause_is_separated_by_closing_divider():
+    # The RODO consent clause must read as a distinct footer block, not as notes
+    # tacked onto the last role. A red divider (the B2B HR, fillcolor #e14f4f)
+    # closes the document body and the clause follows it — so in the XML the
+    # clause text comes AFTER the last divider, which itself comes AFTER the
+    # last experience content. No bottom-anchoring frame is used (it spilled the
+    # clause onto a blank second page on content-heavy CVs).
+    import io
+    import zipfile
+
+    data = rerender_docx_from_payload(_sample_payload())
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        body = z.read("word/document.xml").decode("utf-8")
+
+    last_experience_text = body.rfind("Spring Boot")  # last role's last technology
+    last_divider = body.rfind('fillcolor="#e14f4f"')
+    rodo = body.find("Wyrażam zgodę na przetwarzanie")
+
+    assert last_experience_text != -1
+    assert rodo != -1, "RODO clause missing"
+    assert last_divider > last_experience_text, "closing divider not after last role"
+    assert rodo > last_divider, "RODO clause not after the closing divider"
+    assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"

@@ -80,6 +80,7 @@ ZASADY DLA WHY_POINTS:
 - Skup się TYLKO na: doświadczeniu zawodowym, technologiach, projektach, osiągnięciach, certyfikatach
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
 - ZWIĘZŁOŚĆ: sekcja "Dlaczego nasz kandydat" ma być krótka i konkretna — każdy punkt to jedna–dwie linijki, bez przydługich wyliczeń ani powtórzeń tej samej myśli w kilku punktach
+- LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (od najwcześniejszego startu do ostatniej daty / "obecnie"), zaokrąglij do pełnego roku i NIE zaniżaj — podaj konkretną liczbę ("5 lat"), NIGDY "ponad 4" gdy realnie jest ~5
 
 KWANTYFIKACJA I ZWIĘZŁOŚĆ:
 - Przenoś do why_points i obowiązków liczby oraz skalę z CV/notatek (wielkość zespołu, liczba
@@ -272,6 +273,7 @@ RULES FOR WHY_POINTS:
 - Focus ONLY on: work experience, technologies, projects, achievements, certifications
 - Education is in a separate section and should not be repeated in why_points
 - CONCISENESS: the "Why our candidate" section must be short and to the point — each point is one or two lines, no overlong enumerations and no repeating the same idea across several points
+- YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (earliest start to the latest date / "present"), round to a whole year and do NOT undercount — give a concrete number ("5 years"), NEVER "over 4" when it is really ~5
 
 QUANTIFICATION AND CONCISENESS:
 - Carry numbers and scale from the CV/notes into why_points and responsibilities (team size,

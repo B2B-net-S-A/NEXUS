@@ -37,6 +37,7 @@ import {
  ShieldAlert,
  Sparkles,
  Star,
+ Store,
  Target,
  Trash2,
  User,
@@ -87,6 +88,13 @@ import { Button } from"@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from"@/components/ui/card";
 import { Separator } from"@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
+import {
+ DropdownMenu,
+ DropdownMenuContent,
+ DropdownMenuItem,
+ DropdownMenuSeparator,
+ DropdownMenuTrigger,
+} from"@/components/ui/dropdown-menu";
 import { Textarea } from"@/components/ui/textarea";
 import { MentionTextarea } from"@/components/v2/forms/MentionTextarea";
 import { useMentionableUsers, type MentionScope } from"@/hooks/useMentionableUsers";
@@ -114,7 +122,6 @@ import { RISK_QUERY_KEY, RiskBadge } from"@/components/v2/RiskBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
-import EmailThreadList from"@/components/emails/EmailThreadList";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
 import {
  CandidatePipelinesWidget,
@@ -321,6 +328,7 @@ export function CandidateDetailV2({
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
+ const [marketplaceOpen, setMarketplaceOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
@@ -480,6 +488,14 @@ export function CandidateDetailV2({
  return false;
  }
  };
+
+ // Open a "Więcej" menu action on the next tick, after Radix finishes closing
+ // the dropdown, so the opened overlay isn't disturbed by the menu's dismiss.
+ // Radix Dialogs (Email / interview / Generuj CV) only open reliably from a
+ // menu item nested in the drawer Sheet because the dropdown is modal={false}
+ // (see the DropdownMenu below) — without that, the menu's body pointer-events
+ // lock swallows the dialog open, which is what regressed in #533.
+ const openFromMenu = (fn: () => void) => setTimeout(fn, 0);
 
  if (isLoading || !candidate) {
  return (
@@ -705,7 +721,9 @@ export function CandidateDetailV2({
  )}
  </div>
 
- {/* Action row */}
+ {/* Action row — primary recruiter tasks stay visible; secondary actions
+ collapse into a "Więcej" menu so the strip reads as a clear hierarchy
+ instead of one undifferentiated wall of buttons. */}
  <div className="flex items-center gap-2 flex-wrap mt-5">
  <Button
  size="sm"
@@ -716,44 +734,54 @@ export function CandidateDetailV2({
  <UserPlus className="h-4 w-4" />
  Przypisz do oferty
  </Button>
- <Button
- size="sm"
- variant="secondary"
- onClick={() => setCvOpen(true)}
- >
- <FileText className="h-4 w-4" />
- Generuj CV
+ {/* Utility cluster — secondary actions collapse into "Więcej" so only the
+ primary "Przypisz do oferty" task stays visible in the strip. */}
+ <div className="mx-0.5 hidden h-5 w-px bg-border sm:block" />
+ {candidate && <PinButton candidateId={candidate.id} iconOnly />}
+ {/* modal={false} is load-bearing: a default (modal) dropdown leaves
+ body pointer-events locked while it closes, so a Radix Dialog opened
+ from a menu item (Email / interview / CV) is dismissed on the same
+ tick when the panel is nested in the drawer Sheet — the exact failure
+ #533 hit. Dropping the lock lets those dialogs open reliably from the
+ menu, so all three can live here instead of crowding the action row. */}
+ <DropdownMenu modal={false}>
+ <DropdownMenuTrigger asChild>
+ <Button size="sm" variant="outline">
+ Więcej
+ <ChevronDown className="h-3.5 w-3.5 opacity-60" />
  </Button>
- <Button
- size="sm"
- variant="outline"
- onClick={() => setEmailOpen(true)}
+ </DropdownMenuTrigger>
+ <DropdownMenuContent align="end" className="w-52">
+ <DropdownMenuItem
  disabled={!candidate.email}
+ onSelect={() => openFromMenu(() => setEmailOpen(true))}
  >
  <Mail className="h-4 w-4" />
  Email
- </Button>
- <Button
- size="sm"
- variant="outline"
- onClick={() => setScheduleOpen(true)}
+ </DropdownMenuItem>
+ <DropdownMenuItem
  disabled={!candidate.email}
  title={candidate.email ?"Zaplanuj interview w Outlook (M365)" :"Kandydat nie ma adresu email"}
+ onSelect={() => openFromMenu(() => setScheduleOpen(true))}
  >
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
- </Button>
- <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)}>
+ </DropdownMenuItem>
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setCvOpen(true))}>
+ <FileText className="h-4 w-4" />
+ Generuj CV
+ </DropdownMenuItem>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setEditOpen(true))}>
  <PencilLine className="h-4 w-4" />
  Edytuj
- </Button>
- {candidate && (
- <AddToMarketplaceButton
- candidateId={candidate.id}
- candidateName={`${candidate.name} ${candidate.lastname}`}
- />
- )}
- {candidate && <PinButton candidateId={candidate.id} />}
+ </DropdownMenuItem>
+ <DropdownMenuItem onSelect={() => openFromMenu(() => setMarketplaceOpen(true))}>
+ <Store className="h-4 w-4" />
+ Wrzuć na targ
+ </DropdownMenuItem>
+ </DropdownMenuContent>
+ </DropdownMenu>
  </div>
  {/* Key stats moved into ProfilTab "Kluczowe fakty" grid for a single,
  scannable source — see ProfilTab FactTile grid. */}
@@ -800,7 +828,7 @@ export function CandidateDetailV2({
  )}
 
  {/* Suggested jobs (reuse v1 widget) */}
- <SuggestedJobsWidget candidateId={Number(id)} />
+ <SuggestedJobsWidget candidateId={Number(id)} hideWhenEmpty />
 
  {/* AI-suggested talent pools (migracja 0041) */}
  <SuggestedPoolsWidget candidateId={Number(id)} />
@@ -811,7 +839,7 @@ export function CandidateDetailV2({
  {/* Tabs */}
  <Card variant="default" size="md" className="!p-0">
  <Tabs value={activeTab} onValueChange={setActiveTab}>
- {/* max-w-full + overflow-x-auto so the 8-tab list scrolls instead of
+ {/* max-w-full + overflow-x-auto so the 7-tab list scrolls instead of
  spilling over the right rail in the narrower 2-col main column. */}
  <TabsList className="px-4 pt-2 max-w-full overflow-x-auto justify-start [&>*]:shrink-0">
  <TabsTrigger value="profil">
@@ -830,10 +858,6 @@ export function CandidateDetailV2({
  {history.length}
  </Badge>
  )}
- </TabsTrigger>
- <TabsTrigger value="email">
- <Mail className="h-3.5 w-3.5" />
- Email
  </TabsTrigger>
  <TabsTrigger value="rozmowy">
  <Phone className="h-3.5 w-3.5" />
@@ -888,13 +912,6 @@ export function CandidateDetailV2({
  </div>
  </div>
  </TabsContent>
- <TabsContent value="email" className="mt-0">
- <EmailThreadList
- candidateId={Number(id)}
- candidateName={fullName}
- candidateEmail={candidate.email ?? null}
- />
- </TabsContent>
  <TabsContent value="rozmowy" className="mt-0">
  <CallsTimeline calls={callsData ?? []} />
  </TabsContent>
@@ -941,13 +958,15 @@ export function CandidateDetailV2({
  </div>
  {/* /2-column grid */}
 
- {/* Side widgets (below tabs) — full width under the grid */}
- <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
- <DeferUntilVisible minHeight={140}>
- <RateHistoryWidget candidateId={Number(id)} />
+ {/* Side widgets (below tabs). hideWhenEmpty keeps the footer quiet: an empty
+ rate/conflict widget collapses to a single "Dodaj" link instead of an empty
+ card (items-start so a lone link doesn't stretch to a sibling card's height). */}
+ <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+ <DeferUntilVisible minHeight={44}>
+ <RateHistoryWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
- <DeferUntilVisible minHeight={140}>
- <ConflictsWidget candidateId={Number(id)} />
+ <DeferUntilVisible minHeight={44}>
+ <ConflictsWidget candidateId={Number(id)} hideWhenEmpty />
  </DeferUntilVisible>
  </div>
 
@@ -1002,6 +1021,17 @@ export function CandidateDetailV2({
  candidateName={fullName}
  candidateEmail={candidate.email ?? null}
  />
+ {/* Marketplace modal is parent-controlled so its overlay survives the
+ "Więcej" dropdown unmounting (its trigger lives inside the menu). */}
+ {candidate && (
+ <AddToMarketplaceButton
+ candidateId={candidate.id}
+ candidateName={`${candidate.name} ${candidate.lastname}`}
+ hideTrigger
+ open={marketplaceOpen}
+ onOpenChange={setMarketplaceOpen}
+ />
+ )}
  </div>
  );
 }
