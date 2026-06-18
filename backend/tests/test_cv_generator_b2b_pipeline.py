@@ -183,6 +183,36 @@ def test_requirement_prose_words_never_bold():
     ]
 
 
+def test_verbose_requirement_surfaces_strong_tech_token():
+    # Regression (#505 swung too far → bolded nothing): a wordy champion entry
+    # whose real tech sits behind a plain Polish word stopped bolding because
+    # the whole trimmed phrase only matched verbatim. The hard tech signal
+    # ("SQL") must still surface — without bolding the prose around it.
+    kw = ["Doświadczenie z bazami danych SQL"]
+    assert _matches("Pracował z bazami danych SQL i NoSQL", kw) == ["SQL"]
+    # The generic Polish prose ("bazami danych") must NEVER bold on its own.
+    assert _matches("migracja bazami danych do chmury", kw) == []
+
+
+def test_strong_tech_tokens_pulled_from_requirement_prose():
+    # Special-char / digit / acronym tokens are unmistakably tech, so they bold
+    # even when buried in a champion sentence; plain words around them do not.
+    assert _matches("Aplikacje w C++ i Java", ["Programowanie w C++"]) == ["C++"]
+    assert _matches("Backend w .NET", ["Tworzenie usług w .NET"]) == [".NET"]
+    assert _matches("Praca z SQL Server", ["Microsoft SQL Server"]) == ["SQL"]
+
+
+def test_plain_capitalized_word_in_prose_never_bolds():
+    # A capitalized common Polish noun is ambiguous (not a hard tech signal), so
+    # a verbose requirement made of such words must still bold nothing.
+    assert (
+        _matches("Projektowanie architektury systemu", ["Projektowanie systemu"]) == []
+    )
+    assert (
+        _matches("Tworzenie aplikacji webowych", ["Tworzenie aplikacji webowych"]) == []
+    )
+
+
 # ── Claude response normalization ──────────────────────────────────────────
 
 

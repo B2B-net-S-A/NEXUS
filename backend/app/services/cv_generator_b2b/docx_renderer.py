@@ -287,40 +287,117 @@ def _keyword_variants(keyword: str) -> list[str]:
     return [kw]
 
 
+def _is_strong_tech_token(token: str) -> bool:
+    """True iff a single token is unmistakably a technology on its own.
+
+    Used to pull the real tech out of a verbose champion requirement
+    ("Doświadczenie z bazami danych SQL" → "SQL") WITHOUT also bolding the
+    generic Polish prose around it ("bazami", "danych"). Only a HARD tech
+    signal qualifies:
+
+        special chars      C++, C#, .NET, Node.js, CI/CD
+        digits             S3, OAuth2
+        all-caps acronym   SQL, API, AWS, REST
+        internal/camel cap PostgreSQL, GraphQL, GitLab
+
+    A plain Capitalized word (Projektowanie, Aplikacji, Server) is ambiguous —
+    it could be English tech or just a Polish common noun — so it NEVER
+    qualifies. That asymmetry is what keeps requirement prose from bolding.
+    """
+    if _is_filler_word(token):
+        return False
+    if any(ch in token for ch in "+#/."):
+        return True
+    if any(ch.isdigit() for ch in token):
+        return True
+    letters = [ch for ch in token if ch.isalpha()]
+    if len(letters) < 2:
+        return False
+    if all(ch.isupper() for ch in letters):
+        return True
+    return any(ch.isupper() for ch in token[1:])
+
+
+def _is_clean_term(words: list[str]) -> bool:
+    """True iff every word is a meaningful part of one term, so the phrase bolds
+    whole and is never fragmented ("Spring Boot", "Design System", "GitLab
+    CI/CD"). False as soon as a word is filler or a lowercase prose word — that
+    marks a verbose requirement, where only the hard-tech tokens are surfaced.
+    """
+    for w in words:
+        if _is_filler_word(w):
+            return False
+        letters = [ch for ch in w if ch.isalpha()]
+        if not letters:
+            continue  # pure-symbol token (e.g. "/") — neutral
+        if not (letters[0].isupper() or _is_strong_tech_token(w)):
+            return False
+    return True
+
+
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
     """Compile whole-phrase, word-boundary regexes for champion keywords.
 
     Multi-word phrases ("GitLab CI/CD") match across flexible whitespace;
     matching is case-insensitive; stop-words and 1-char keywords are skipped.
+
+    A champion chip is reduced to its bold-worthy term(s):
+
+    * a clean term ("Spring Boot") or single chip ("Java") bolds WHOLE;
+    * a verbose requirement ("Doświadczenie z bazami danych SQL") never bolds
+      its prose — only the hard-tech tokens inside it surface ("SQL").
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
+
+    def _add(term: str) -> None:
+        key = term.lower()
+        if len(term) < 2 or key in _STOP_WORDS or key in seen:
+            return
+        seen.add(key)
+        # Build from tokens so "auto-layout" also matches "auto layout"
+        # (hyphen ↔ space spelling drift between champion list and CV).
+        parts = [p for p in re.split(r"[\s\-]+", term) if p]
+        escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
+        # "CI/CD" should also match "CI / CD" — slash with optional spaces.
+        escaped = escaped.replace("/", r"\s*/\s*")
+        if not escaped:
+            return
+        patterns.append(
+            re.compile(
+                rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
+                re.IGNORECASE,
+            )
+        )
+
     for kw in keywords or []:
         for variant in _keyword_variants(kw):
-            # Trim filler ("Znajomość Java" → "Java") but keep the core whole so
-            # a verbose requirement is matched verbatim only and never bolds its
-            # generic words ("tworzenie", "technologie") in the CV prose.
+            # Trim filler ("Znajomość Java" → "Java"); a fully generic entry
+            # ("mile widziane") drops out here.
             v = _core_keyword(variant).strip()
-            key = v.lower()
-            if len(v) < 2 or key in _STOP_WORDS or key in seen:
+            if len(v) < 2 or v.lower() in _STOP_WORDS:
                 continue
             if _is_generic_phrase(v):
                 continue
-            seen.add(key)
-            # Build from tokens so "auto-layout" also matches "auto layout"
-            # (hyphen ↔ space spelling drift between champion list and CV).
-            parts = [p for p in re.split(r"[\s\-]+", v) if p]
-            escaped = r"[\s\-]+".join(re.escape(p) for p in parts)
-            # "CI/CD" should also match "CI / CD" — slash with optional spaces.
-            escaped = escaped.replace("/", r"\s*/\s*")
-            if not escaped:
-                continue
-            patterns.append(
-                re.compile(
-                    rf"(?<![{_WORD_CHARS}]){escaped}(?![{_WORD_CHARS}])",
-                    re.IGNORECASE,
-                )
+            words = v.split()  # whitespace only: "auto-layout" stays one word
+            # An untrimmed, filler-free short chip is a deliberate lowercase term
+            # ("auto layout", "machine learning") — bold it whole even though it
+            # isn't capitalized. A trimmed phrase ("Doświadczenie z bazami danych
+            # SQL" → "bazami danych SQL") is prose residue, so it never bolds
+            # whole — only its hard-tech tokens do.
+            untrimmed_chip = (
+                v == " ".join(variant.split())
+                and len(words) <= 3
+                and not any(_is_filler_word(w) for w in words)
             )
+            if len(words) <= 1 or _is_clean_term(words) or untrimmed_chip:
+                _add(v)
+            if len(words) > 1:
+                # Surface a real tech buried in a verbose requirement, but never
+                # the generic Polish prose around it.
+                for w in words:
+                    if _is_strong_tech_token(w):
+                        _add(w)
     return patterns
 
 
