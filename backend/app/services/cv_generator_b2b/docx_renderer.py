@@ -266,25 +266,99 @@ def _core_keyword(phrase: str) -> str:
     return " ".join(words)
 
 
-def _keyword_variants(keyword: str) -> list[str]:
-    """Expand a champion keyword into matchable variants.
+def _split_segments(kw: str) -> tuple[str, list[str]]:
+    """Split a champion chip into the text outside parentheses + each
+    parenthetical's contents (nesting-aware).
 
-    "Kubernetes (K8s)" → ["Kubernetes", "K8s"] — the parenthetical is an alias.
-    "Figma (zaawansowana znajomość)" → ["Figma"] — the parenthetical is a
-    qualifier and must NOT become a bold keyword (it would bold those generic
-    words throughout the CV prose).
+        "Material Design (a) (długie wyjaśnienie)"
+            → ("Material Design", ["a", "długie wyjaśnienie"])
+    """
+    outside: list[str] = []
+    parens: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in kw:
+        if ch == "(":
+            if depth == 0:
+                outside.append(" ")
+                buf = []
+            else:
+                buf.append(ch)
+            depth += 1
+        elif ch == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                parens.append("".join(buf))
+                buf = []
+            else:
+                buf.append(ch)
+        elif depth == 0:
+            outside.append(ch)
+        else:
+            buf.append(ch)
+    return "".join(outside).strip(), parens
+
+
+_NON_SUBTERM_HEADS = {"np", "tj", "eg", "itp", "itd", "czyli", "zwłaszcza", "w"}
+
+
+def _paren_is_subterm(content: str) -> bool:
+    """True iff a parenthetical lists real sub-skills ("heurystyki, best
+    practices UX", "iOS/Android", "RWD, multi-device") rather than a prose
+    explanation ("projektowanie estetycznych interfejsów zgodnie z…").
+
+    Champion chips in NEXUS read ``Koncept (pod-terminy) (długie wyjaśnienie)``.
+    A short comma-list is a sub-term group worth bolding; a multi-word sentence
+    is an explanation and must be dropped so its prose never bolds the CV.
+    """
+    c = content.strip()
+    if not c:
+        return False
+    if _is_alias_like(c):  # "K8s", ".NET", "RWD"
+        return True
+    words = c.split()
+    if len(words) > 5:
+        return False
+    first = re.sub(rf"[^{_WORD_CHARS}]", "", words[0].lower())
+    return first not in _NON_SUBTERM_HEADS
+
+
+# Conjunctions / separators that split a chip into independent bold-terms, so
+# "Material Design oraz Human Interface Guidelines" bolds BOTH halves and a
+# comma-list of sub-skills bolds each item.
+_TERM_SEPARATORS = re.compile(r"[;,]|\b(?:i|oraz|lub|and|or)\b", re.IGNORECASE)
+
+
+def _extract_keyword_terms(keyword: str) -> list[str]:
+    """Expand a champion chip into every bold-worthy term.
+
+    Strips prose-explanation parentheticals, keeps short sub-term groups, and
+    splits on conjunctions so each real concept is matched on its own:
+
+        "User-Centered Design (projektowanie w oparciu o…)"
+            → ["User-Centered Design"]
+        "Material Design oraz Human Interface Guidelines (znajomość…)"
+            → ["Material Design", "Human Interface Guidelines"]
+        "Zasady Gestalt (hierarchia, percepcja, grupowanie) (umiejętność…)"
+            → ["Zasady Gestalt", "hierarchia", "percepcja", "grupowanie"]
+        "Kubernetes (K8s)" → ["Kubernetes", "K8s"]
     """
     kw = (keyword or "").strip()
     if not kw:
         return []
-    m = re.match(r"^(.*?)\s*\(([^)]+)\)\s*$", kw)
-    if m and m.group(1).strip():
-        base = m.group(1).strip()
-        alias = m.group(2).strip()
-        if _is_alias_like(alias):
-            return [base, alias]
-        return [base]
-    return [kw]
+    outside, parens = _split_segments(kw)
+    raw: list[str] = []
+    if outside:
+        raw.append(outside)
+    raw.extend(p for p in parens if _paren_is_subterm(p))
+
+    terms: list[str] = []
+    for chunk in raw:
+        for part in _TERM_SEPARATORS.split(chunk):
+            t = (part or "").strip()
+            if t:
+                terms.append(t)
+    return terms
 
 
 def _is_strong_tech_token(token: str) -> bool:
@@ -318,34 +392,20 @@ def _is_strong_tech_token(token: str) -> bool:
     return any(ch.isupper() for ch in token[1:])
 
 
-def _is_clean_term(words: list[str]) -> bool:
-    """True iff every word is a meaningful part of one term, so the phrase bolds
-    whole and is never fragmented ("Spring Boot", "Design System", "GitLab
-    CI/CD"). False as soon as a word is filler or a lowercase prose word — that
-    marks a verbose requirement, where only the hard-tech tokens are surfaced.
-    """
-    for w in words:
-        if _is_filler_word(w):
-            return False
-        letters = [ch for ch in w if ch.isalpha()]
-        if not letters:
-            continue  # pure-symbol token (e.g. "/") — neutral
-        if not (letters[0].isupper() or _is_strong_tech_token(w)):
-            return False
-    return True
-
-
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
     """Compile whole-phrase, word-boundary regexes for champion keywords.
 
-    Multi-word phrases ("GitLab CI/CD") match across flexible whitespace;
-    matching is case-insensitive; stop-words and 1-char keywords are skipped.
+    Every champion chip is expanded (:func:`_extract_keyword_terms`) into its
+    real concepts — explanation parentheticals stripped, conjunctions split —
+    and each concept bolds WHOLE wherever it overlaps the CV, in every section
+    including EXPERIENCE. Multi-word phrases match across flexible whitespace;
+    matching is case-insensitive.
 
-    A champion chip is reduced to its bold-worthy term(s):
-
-    * a clean term ("Spring Boot") or single chip ("Java") bolds WHOLE;
-    * a verbose requirement ("Doświadczenie z bazami danych SQL") never bolds
-      its prose — only the hard-tech tokens inside it surface ("SQL").
+    Two guards keep the recruiter's earlier "stop bolding random words"
+    feedback honoured: leading/trailing filler is trimmed (``_core_keyword``)
+    and a fully generic term ("technologie", "mile widziane") is dropped — so
+    a standalone requirement word never bolds, while the substantive concept
+    inside it ("design systemów", "User-Centered Design") always does.
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
@@ -371,30 +431,19 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
         )
 
     for kw in keywords or []:
-        for variant in _keyword_variants(kw):
-            # Trim filler ("Znajomość Java" → "Java"); a fully generic entry
-            # ("mile widziane") drops out here.
-            v = _core_keyword(variant).strip()
+        for term in _extract_keyword_terms(kw):
+            # Trim filler ("Znajomość Java" → "Java", "Zaawansowany visual
+            # design" → "visual design"); a fully generic entry drops out.
+            v = _core_keyword(term).strip()
             if len(v) < 2 or v.lower() in _STOP_WORDS:
                 continue
             if _is_generic_phrase(v):
                 continue
-            words = v.split()  # whitespace only: "auto-layout" stays one word
-            # An untrimmed, filler-free short chip is a deliberate lowercase term
-            # ("auto layout", "machine learning") — bold it whole even though it
-            # isn't capitalized. A trimmed phrase ("Doświadczenie z bazami danych
-            # SQL" → "bazami danych SQL") is prose residue, so it never bolds
-            # whole — only its hard-tech tokens do.
-            untrimmed_chip = (
-                v == " ".join(variant.split())
-                and len(words) <= 3
-                and not any(_is_filler_word(w) for w in words)
-            )
-            if len(words) <= 1 or _is_clean_term(words) or untrimmed_chip:
-                _add(v)
+            _add(v)
+            # Also surface a hard-tech token buried in the phrase ("Zasady WCAG
+            # 2.1/2.2" → "WCAG") so it still bolds under inflection drift.
+            words = v.split()
             if len(words) > 1:
-                # Surface a real tech buried in a verbose requirement, but never
-                # the generic Polish prose around it.
                 for w in words:
                     if _is_strong_tech_token(w):
                         _add(w)

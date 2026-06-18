@@ -21,7 +21,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -379,6 +379,93 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
     return (start, end)
 
 
+def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
+    """Sum the candidate's actual time employed across all roles, in whole
+    years. Intervals are merged so overlapping/parallel contracts (common in
+    B2B) are counted once, and an ongoing role ("obecnie") is capped at the
+    current month. Returns ``None`` when no role carries parseable dates.
+
+    Claude is reliable at EXTRACTING dates but not at the arithmetic of summing
+    them — it tends to round down ("ponad 4" for a 5-year candidate). Computing
+    the figure here makes the why_points headline exact.
+    """
+    now = datetime.now()
+    now_idx = now.year * 12 + (now.month - 1)
+    intervals: list[tuple[int, int]] = []
+    for job in experience or []:
+        rng = _parse_date_range(job.get("dates") or "")
+        if rng is None:
+            continue
+        start, end = rng
+        end = min(end, now_idx)  # cap the "obecnie" sentinel at the current month
+        if end >= start:
+            intervals.append((start, end))
+    if not intervals:
+        return None
+
+    intervals.sort()
+    total_months = 0
+    cur_start, cur_end = intervals[0]
+    for start, end in intervals[1:]:
+        if start <= cur_end + 1:  # overlapping or back-to-back → one stretch
+            cur_end = max(cur_end, end)
+        else:
+            total_months += cur_end - cur_start + 1
+            cur_start, cur_end = start, end
+    total_months += cur_end - cur_start + 1
+
+    years = round(total_months / 12)
+    return years if years >= 1 else None
+
+
+# A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
+# The optional approximate prefix is swallowed so it gets replaced by the exact
+# figure (recruiter: "5 years must read 5, not 'over 4'").
+_YEARS_PHRASE_RE = re.compile(
+    r"(?:ponad|powyżej|przeszło|niemal|prawie|blisko|około|ok\.?|~|"
+    r"over|nearly|almost|about|more than)?\s*"
+    r"\d+(?:\s*[-–/]\s*\d+)?\s*"
+    r"(?:lata|lat|roku|rok|years|year|yrs|yr)\b",
+    re.IGNORECASE,
+)
+
+
+def _polish_year_unit(years: int) -> str:
+    if years == 1:
+        return "rok"
+    if 2 <= years % 10 <= 4 and not 12 <= years % 100 <= 14:
+        return "lata"
+    return "lat"
+
+
+def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
+    """Overwrite the (often under-counted) total-years figure in the experience
+    why_point with the exact value computed from the candidate's dates. Only
+    the headline total is touched — the "w tym Y lat w …" sub-figure and any
+    other point are left as Claude wrote them.
+    """
+    years = _total_experience_years(candidate_data.get("experience") or [])
+    if not years:
+        return
+    if language == "en":
+        replacement = f"{years} {'year' if years == 1 else 'years'}"
+    else:
+        replacement = f"{years} {_polish_year_unit(years)}"
+
+    points = candidate_data.get("why_points") or []
+    for i, point in enumerate(points):
+        if not isinstance(point, str):
+            continue
+        low = point.lower()
+        if "doświadcz" not in low and "experience" not in low:
+            continue
+        match = _YEARS_PHRASE_RE.search(point)
+        if not match:
+            continue
+        points[i] = point[: match.start()] + replacement + point[match.end() :]
+        break
+
+
 def _date_overlap_warnings(candidate_data: dict[str, Any], language: str) -> list[str]:
     """Informational check: overlapping employment periods are common in B2B
     (parallel contracts), but the recruiter should verify them consciously
@@ -614,6 +701,10 @@ def _run_generation_pipeline(
 
     # Readability: hard-cap the "Technologie:" line per role (champion first).
     _cap_role_technologies(candidate_data, candidate_data.get("highlight_keywords"))
+
+    # Exact years of experience — Claude tends to under-count ("ponad 4" for a
+    # 5-year candidate); recompute the headline from the extracted dates.
+    _fix_experience_years(candidate_data, language)
 
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
