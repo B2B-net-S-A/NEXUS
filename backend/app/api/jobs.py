@@ -6,6 +6,7 @@ from typing import Optional
 import httpx
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import and_, func, nulls_last, or_, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -1595,7 +1596,10 @@ async def set_champion_briefing(
                 resp.raise_for_status()
                 content_type = resp.headers.get("content-type", "audio/mpeg")
                 suffix = ".mp3" if "mpeg" in content_type else ".m4a"
-                audio_storage_key = object_storage.upload_briefing_audio(
+                # Sync boto3 put_object — offload so the multi-MB audio upload
+                # does not block the single-worker event loop.
+                audio_storage_key = await run_in_threadpool(
+                    object_storage.upload_briefing_audio,
                     resp.content,
                     filename=f"briefing-job-{job_id}{suffix}",
                     content_type=content_type,
@@ -1689,7 +1693,8 @@ async def clear_champion_briefing(
     )
     if old_key and object_storage.is_available():
         try:
-            object_storage.delete_cv(old_key)
+            # Sync boto3 delete_object — offload off the event loop.
+            await run_in_threadpool(object_storage.delete_cv, old_key)
         except Exception:  # noqa: BLE001 — orphaned audio is harmless
             pass
 
