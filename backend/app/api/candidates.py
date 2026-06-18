@@ -3063,7 +3063,11 @@ async def download_candidate_document(
         from app.services.object_storage import download_cv, is_available
 
         if is_available():
-            content = download_cv(doc.storage_key)
+            # boto3 get_object().read() is synchronous — offload to a worker
+            # thread so the single-worker event loop stays responsive while the
+            # CV/document streams from Hetzner Object Storage. Matches the
+            # pattern in cv_source.py and asyncio.to_thread usage below.
+            content = await asyncio.to_thread(download_cv, doc.storage_key)
             return StreamingResponse(
                 io.BytesIO(content),
                 media_type=media_type,
@@ -3917,7 +3921,11 @@ async def bulk_cv_download(
 
                 if _storage_available():
                     try:
-                        data = _download_cv(candidate.cv_storage_key)
+                        # Sync boto3 download — offload so the loop is not
+                        # blocked for each of up to 200 CVs in this bulk request.
+                        data = await asyncio.to_thread(
+                            _download_cv, candidate.cv_storage_key
+                        )
                     except Exception as err:
                         logger.warning(
                             "bulk_cv_download: storage fetch failed for %s: %s",

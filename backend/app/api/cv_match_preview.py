@@ -33,6 +33,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -210,7 +211,9 @@ async def cv_upload_preview(
             tmp_path = tmp.name
 
         try:
-            cv_text = extract_text(tmp_path, filename)
+            # PDF/DOCX extraction (incl. OCR) is CPU/IO heavy and synchronous —
+            # offload so it does not block the single-worker event loop.
+            cv_text = await run_in_threadpool(extract_text, tmp_path, filename)
         except UnsupportedCvFormat as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
