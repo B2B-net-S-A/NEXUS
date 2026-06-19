@@ -55,7 +55,9 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
     if not user.email:
         logger.debug("chat_email_fallback skip — user %s nie ma emaila", user.id)
         return False
-    return send_chat_fallback_email(
+    # Blocking smtplib send — offload off the event loop.
+    return await asyncio.to_thread(
+        send_chat_fallback_email,
         to_email=user.email,
         recipient_name=user.name or user.email,
         notification_title=notif.title,

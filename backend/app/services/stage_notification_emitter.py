@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -201,7 +202,10 @@ async def notify_stage_change(
                         rec.user_id,
                     )
                     continue
-                _send_email_for_recipient(
+                # Blocking smtplib send (+ template render) — offload so the
+                # per-recipient loop does not block the event loop.
+                await run_in_threadpool(
+                    _send_email_for_recipient,
                     user=user,
                     candidate=candidate,
                     candidate_full_name=candidate_full,
