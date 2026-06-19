@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -195,17 +196,12 @@ async def import_candidates(
     }
 
 
-@router.get("/export/candidates")
-async def export_candidates(
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Export all candidates as CSV with UTF-8 BOM (Polish characters support).
-    """
-    result = await db.execute(select(Candidate).order_by(Candidate.created_at.desc()))
-    candidates = result.scalars().all()
+def _build_candidates_csv(candidates) -> bytes:
+    """Serialize candidates to CSV bytes (UTF-8 BOM for Excel/Polish chars).
 
+    Sync/CPU-bound over the full candidate list — call via run_in_threadpool so
+    the serialization of tens of thousands of rows does not block the loop.
+    """
     output = io.StringIO()
     writer = csv.writer(output)
 
@@ -261,7 +257,21 @@ async def export_candidates(
         )
 
     # Encode with UTF-8 BOM for Polish characters in Excel
-    csv_bytes = codecs.BOM_UTF8 + output.getvalue().encode("utf-8")
+    return codecs.BOM_UTF8 + output.getvalue().encode("utf-8")
+
+
+@router.get("/export/candidates")
+async def export_candidates(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export all candidates as CSV with UTF-8 BOM (Polish characters support).
+    """
+    result = await db.execute(select(Candidate).order_by(Candidate.created_at.desc()))
+    candidates = result.scalars().all()
+
+    csv_bytes = await run_in_threadpool(_build_candidates_csv, candidates)
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     filename = f"kandydaci_{timestamp}.csv"

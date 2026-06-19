@@ -160,9 +160,12 @@ async def download_for_email(
             else:
                 content = base64.b64decode(content_b64)
 
-            rel_path = _persist_bytes(email_row, filename, content)
+            # Sync disk write + hashing — offload off the event loop.
+            rel_path = await asyncio.to_thread(
+                _persist_bytes, email_row, filename, content
+            )
             row.storage_path = rel_path
-            row.sha256 = hashlib.sha256(content).hexdigest()
+            row.sha256 = (await asyncio.to_thread(hashlib.sha256, content)).hexdigest()
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Failed to persist attachment %s for email %s", m365_id, email_row.id

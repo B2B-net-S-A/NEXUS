@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1370,7 +1371,10 @@ class TraffitImporter:
                 # — tylko storage_key.
                 from app.services.object_storage import upload_cv as _upload_cv
 
-                cv_storage_key = _upload_cv(
+                # Sync boto3 put — offload so the import loop does not block
+                # the event loop for each CV upload.
+                cv_storage_key = await run_in_threadpool(
+                    _upload_cv,
                     content=cv_bytes,
                     filename=filename,
                     content_type=None,
@@ -1581,7 +1585,9 @@ class TraffitImporter:
                     # cron retry później gdy env vars są dostępne.
                     from app.services.object_storage import upload_cv
 
-                    storage_key = upload_cv(
+                    # Sync boto3 put — offload off the event loop.
+                    storage_key = await run_in_threadpool(
+                        upload_cv,
                         content=file_bytes,
                         filename=filename[:500],
                         content_type=content_type[:100] if content_type else None,

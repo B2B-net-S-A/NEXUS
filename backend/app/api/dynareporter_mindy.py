@@ -19,6 +19,7 @@ from typing import Optional
 
 from anthropic import Anthropic
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -164,7 +165,9 @@ async def commentary(
 
     client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        message = client.messages.create(
+        # Sync Anthropic SDK — offload off the single-worker event loop.
+        message = await run_in_threadpool(
+            client.messages.create,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=400,
             system=MINDY_SYSTEM_PROMPT,
@@ -209,7 +212,9 @@ async def chat(
 
     client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
     try:
-        message = client.messages.create(
+        # Sync Anthropic SDK — offload off the single-worker event loop.
+        message = await run_in_threadpool(
+            client.messages.create,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=800,
             system=full_system,
