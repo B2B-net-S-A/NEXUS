@@ -520,7 +520,9 @@ class TalentRadarImporter:
                 payloads: list[dict[str, Any]] = []
                 for row in batch:
                     try:
-                        payloads.append(self._to_payload(row))
+                        # _to_payload does a sync boto3 CV upload — offload the
+                        # whole mapping so the S3 put does not block the loop.
+                        payloads.append(await asyncio.to_thread(self._to_payload, row))
                     except Exception as e:  # noqa: BLE001
                         progress.errors += 1
                         if len(progress.error_samples) < 20:
