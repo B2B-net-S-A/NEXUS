@@ -430,7 +430,7 @@ async def test_filter_by_expected_rate_hourly_range(
     none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
     try:
         r = await app_client.get(
-            "/api/candidates?min_rate=120&max_rate=200&page_size=200",
+            "/api/candidates?min_rate=120&max_rate=200&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
@@ -452,7 +452,7 @@ async def test_filter_by_expected_rate_hourly_min_only(
     none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
     try:
         r = await app_client.get(
-            "/api/candidates?min_rate=120&page_size=200",
+            "/api/candidates?min_rate=120&page_size=100",
             headers=app_auth_headers,
         )
         assert r.status_code == 200, r.text
