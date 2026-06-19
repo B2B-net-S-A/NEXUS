@@ -32,6 +32,7 @@ import time
 from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException, status as http_status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,7 +110,11 @@ async def _call_claude_json(
     client = anthropic.Anthropic(api_key=api_key)
 
     started = time.time()
-    message = client.messages.create(
+    # Sync Anthropic SDK — offload the multi-second LLM round-trip so it does
+    # not block the single-worker event loop. This helper is shared by the
+    # champion-draft request handlers and the CloudTalk webhook.
+    message = await run_in_threadpool(
+        client.messages.create,
         model=model,
         max_tokens=max_tokens,
         system=system_prompt,
