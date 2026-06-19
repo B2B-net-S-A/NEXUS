@@ -10,6 +10,7 @@ import os
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -248,7 +249,10 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
   "salary_range_suggestion": "propozycja widełek w formacie np. '18 000 – 28 000 PLN (B2B)'"
 }}"""
 
-    message = client.messages.create(
+    # Sync Anthropic SDK — offload so the LLM round-trip does not block the
+    # single-worker event loop.
+    message = await run_in_threadpool(
+        client.messages.create,
         model="claude-opus-4-5",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],

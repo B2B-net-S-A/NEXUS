@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useMemo, useState } from"react";
+import { memo, useCallback, useEffect, useState } from"react";
 import Link from"next/link";
 import {
  DragDropContext,
@@ -420,7 +420,6 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const userRole = useAuthStore((s) => s.user?.role);
  const isApprover = !!userRole && APPROVER_ROLES.has(userRole);
  const [cols, setCols] = useState(columns);
- const [activeTab, setActiveTab] = useState<"all" |"internal" |"external" |"terminal">("all");
  const [selected, setSelected] = useState<Set<number>>(new Set());
  const [bulkBusy, setBulkBusy] = useState(false);
  const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
@@ -527,13 +526,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  })();
  }, [jobId]);
 
- const filtered = useMemo(
- () =>
- activeTab === "all"
- ? cols
- : cols.filter((c) => c.category === activeTab),
- [cols, activeTab]
- );
+ const filtered = cols;
 
  const applyOptimistic = useCallback(
  (item: KanbanItem, srcId: string, dst: KanbanColumn) => {
@@ -935,34 +928,11 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  };
 
  return (
- <div className="space-y-3">
- {/* Toolbar */}
- <div className="flex items-center gap-2 flex-wrap">
- {/* Swimlane / category tabs */}
- <div className="inline-flex gap-1 bg-card rounded-lg p-1 border border-border">
- {(
- [
- { v: "all" as const, label: "Wszystkie" },
- { v: "internal" as const, label: "Wewnętrzne" },
- { v: "external" as const, label: "Zewnętrzne" },
- { v: "terminal" as const, label: "Zakończone" },
- ]
- ).map((t) => (
- <button
- key={t.v}
- onClick={() => setActiveTab(t.v)}
- className={cn("px-3 py-1.5 text-xs rounded-md font-medium transition-colors",
- activeTab === t.v
- ?"bg-primary text-white"
- :"text-muted-foreground hover:text-foreground"
- )}
- >
- {t.label}
- </button>
- ))}
- </div>
-
- <div className="ml-auto flex items-center gap-2">
+ <div className="relative space-y-3">
+ {/* Density toggle floated into the header gap (top-right, beside the
+ tabs) so the board sits flush under the tabs instead of leaving an
+ empty toolbar band above it. */}
+ <div className="absolute -top-9 right-0 z-10 flex items-center gap-2">
  <Tooltip>
  <TooltipTrigger asChild>
  <button
@@ -980,7 +950,6 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  Gęstość: {density === "compact" ?"kompaktowa" :"cozy"}
  </TooltipContent>
  </Tooltip>
- </div>
  </div>
 
  {/* Bulk action bar */}

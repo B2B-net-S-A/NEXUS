@@ -362,10 +362,17 @@ async def _upsert_message(
     else:
         body = msg.get("body") or {}
         raw_html = body.get("content") or ""
+        # bleach sanitize/parse is sync CPU work — offload off the event loop.
         body_html = (
-            sanitize_html(raw_html) if body.get("contentType") == "html" else None
+            await asyncio.to_thread(sanitize_html, raw_html)
+            if body.get("contentType") == "html"
+            else None
         )
-        body_text = html_to_text(raw_html) if not body_html else html_to_text(body_html)
+        body_text = (
+            await asyncio.to_thread(html_to_text, raw_html)
+            if not body_html
+            else await asyncio.to_thread(html_to_text, body_html)
+        )
         if body.get("contentType") == "text" and not body_html:
             body_text = raw_html
         body_preview = (msg.get("bodyPreview") or "")[:255]

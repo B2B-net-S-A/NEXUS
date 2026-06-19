@@ -39,6 +39,7 @@ const MOTIVATIONAL_SLOGANS = [
   "Talent jest wszędzie — Ty go widzisz! 👀",
   "Końcówka dnia bliżej niż myślisz — finiszuj! 🏁",
   "Kawa w dłoni, sukces w głowie! ☕",
+  "Wczorajszy sufit dzisiejszą podłogą! 🪜",
 ];
 
 function greetingFor(firstName?: string): string {

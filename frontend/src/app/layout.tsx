@@ -8,14 +8,17 @@ import { ToastProvider } from "@/components/Toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 
+// latin-ext is required for Polish diacritics (ą ć ę ł ń ó ś ż ź). Without it
+// the browser falls back to a system font for those glyphs, so Polish text
+// renders in a visibly mismatched typeface across the whole app.
 const inter = Inter({
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   variable: "--font-inter",
   display: "swap",
 });
 
 const poppins = Poppins({
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   weight: ["400", "500", "600", "700", "800"],
   variable: "--font-poppins",
   display: "swap",

@@ -279,7 +279,9 @@ async def generate(
 
     # 4. Render draftu HTML z szablonu B2B (eager-load relacji incl. b2b_detail).
     contract = await _load_contract_with_relations(db, contract.id)
-    contract.draft_content_html = _render_draft_body(tpl, contract)
+    contract.draft_content_html = await run_in_threadpool(
+        _render_draft_body, tpl, contract
+    )
     contract.draft_template_id = tpl.id
     contract.draft_updated_at = datetime.now(timezone.utc)
     contract.draft_updated_by = current_user.id
@@ -337,7 +339,7 @@ async def download_docx(
     contract = await _load_contract_with_relations(db, contract_id)
     detail_lang = contract.b2b_detail.language if contract.b2b_detail else "pl"
     lang = normalize_language(language or detail_lang)
-    data = render_contract_docx(contract, language=lang)
+    data = await run_in_threadpool(render_contract_docx, contract, language=lang)
 
     cand = contract.candidate
     label = f"{cand.name}_{cand.lastname}" if cand else f"contract_{contract.id}"
@@ -457,7 +459,9 @@ async def render_standalone(
     if fmt == "html":
         tpl = await _b2b_template_for(db, lang)
         try:
-            html = _jinja_env.from_string(tpl.content_jinja).render(**context)
+            html = await run_in_threadpool(
+                lambda: _jinja_env.from_string(tpl.content_jinja).render(**context)
+            )
         except TemplateError as exc:
             raise HTTPException(status_code=422, detail=f"Render error: {exc}")
         # Per-klient modyfikacje umowy (§ 10, § 4 BNP, Załączniki CA/BIK…).
@@ -524,7 +528,7 @@ async def render_standalone(
         )
     context["b2b"]["contract_number"] = number
 
-    data = render_from_context(context, language=lang)
+    data = await run_in_threadpool(render_from_context, context, language=lang)
     label = _ascii_filename(payload.partner_name or number)
     filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
     return Response(
@@ -604,7 +608,7 @@ async def download_generated_contract(
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
 
-    data = render_from_context(context, language=lang)
+    data = await run_in_threadpool(render_from_context, context, language=lang)
     label = _ascii_filename(row.partner_name or row.contract_number)
     filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
     return Response(

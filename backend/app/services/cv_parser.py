@@ -36,6 +36,7 @@ import re
 from typing import Any, Optional
 
 import httpx
+from fastapi.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.services.llm_prompts import CV_ENRICHMENT
@@ -272,7 +273,10 @@ async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
     try:
         client = anthropic.Anthropic(api_key=api_key)
         user_prompt = CV_ENRICHMENT.render(cv_text=cv_text[:8000])
-        message = client.messages.create(
+        # Sync Anthropic SDK call — offload the multi-second network round-trip
+        # so it does not block the single-worker event loop.
+        message = await run_in_threadpool(
+            client.messages.create,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=2000,
             system=CV_ENRICHMENT.system_prompt or "",

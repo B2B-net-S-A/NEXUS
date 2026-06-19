@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -203,7 +204,9 @@ async def send_mention_side_effects(
         if not user.email:
             continue
         try:
-            ok = send_mention_email(
+            # Blocking smtplib send — offload off the event loop.
+            ok = await run_in_threadpool(
+                send_mention_email,
                 to_email=user.email,
                 recipient_name=user.name or user.email,
                 author_name=author_name,
