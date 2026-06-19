@@ -61,6 +61,20 @@ class TalentPool(Base):
         index=True,
     )
 
+    # Pula osobista / indywidualna (migracja 0137). False = pula firmowa /
+    # wspólna (domyślne — wszystkie istniejące pule). True = pula utworzona
+    # przez konkretnego usera na jego własny użytek. Widoczna dla całego zespołu
+    # (oznaczona właścicielem = `created_by`), ale dodawać/usuwać kandydatów oraz
+    # skasować pulę może TYLKO właściciel lub admin. Egzekwowane w
+    # api/talent_pools.py (`_assert_can_modify_pool`).
+    is_personal: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        index=True,
+    )
+
     # External source tracking — Traffit / future imports.
     # Migracja 0074 dodaje partial unique index na (external_source, external_id).
     external_id: Mapped[Optional[str]] = mapped_column(String(100), index=True)

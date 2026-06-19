@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_user
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.services.talent_pool_cc import (
@@ -29,6 +29,9 @@ class TalentPoolCreate(BaseModel):
     name: str
     description: Optional[str] = None
     criteria: Optional[dict] = None
+    # Pula osobista (migracja 0137). True = pula indywidualna usera (widoczna
+    # dla zespołu, zarządzana tylko przez właściciela). False = pula firmowa.
+    is_personal: bool = False
 
 
 class TalentPoolOut(BaseModel):
@@ -42,6 +45,12 @@ class TalentPoolOut(BaseModel):
     # Phase 10 A2 — Competence Category (nullable for legacy pools).
     competence_category_id: Optional[int] = None
     competence_category_slug: Optional[str] = None
+    # Pule osobiste (migracja 0137). `owner_id`/`owner_name` = właściciel puli
+    # (czytane z relacji `creator`), używane przez zakładkę „Pule osobiste"
+    # żeby pogrupować pule po właścicielu i oznaczyć je „pula <imię>".
+    is_personal: bool = False
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -93,6 +102,25 @@ async def _get_pool_or_404(pool_id: int, db: AsyncSession) -> TalentPool:
     return pool
 
 
+def _assert_can_modify_pool(pool: TalentPool, user: User) -> None:
+    """Kto może zmieniać zawartość puli (dodawać/usuwać kandydatów).
+
+    * Pula firmowa (``is_personal=False``) — każdy zalogowany user (zachowanie
+      historyczne, pule są wspólnym zasobem zespołu).
+    * Pula osobista (``is_personal=True``) — tylko właściciel (``created_by``)
+      lub admin. Reszta zespołu widzi pulę, ale jej nie edytuje.
+    """
+    if (
+        pool.is_personal
+        and pool.created_by != user.id
+        and not user.has_role(UserRole.admin)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="To pula osobista innego użytkownika — możesz ją tylko przeglądać.",
+        )
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
@@ -106,6 +134,7 @@ async def list_talent_pools(
         .options(
             selectinload(TalentPool.memberships),
             selectinload(TalentPool.competence_category),
+            selectinload(TalentPool.creator),
         )
         .order_by(TalentPool.created_at.desc())
     )
@@ -124,6 +153,9 @@ async def list_talent_pools(
             competence_category_slug=(
                 p.competence_category.slug if p.competence_category else None
             ),
+            is_personal=p.is_personal,
+            owner_id=p.created_by,
+            owner_name=(p.creator.name if p.creator else None),
         )
         for p in pools
     ]
@@ -138,13 +170,18 @@ async def create_talent_pool(
     # Derive the Competence Category from the pool name so the /talents category
     # filter works for manually-created pools too (the create form doesn't ask
     # for a CC). Deterministic + dependency-free — see services/talent_pool_cc.
-    cc_id = await resolve_cc_id_for_pool_name(db, data.name)
+    # Pule osobiste grupujemy po właścicielu, nie po CC — pomijamy klasyfikację
+    # (nazwy są dowolne: „Moi React seniorzy", „Do zaproszenia na meetup").
+    cc_id = (
+        None if data.is_personal else await resolve_cc_id_for_pool_name(db, data.name)
+    )
 
     pool = TalentPool(
         name=data.name,
         description=data.description,
         criteria=data.criteria or {},
         competence_category_id=cc_id,
+        is_personal=data.is_personal,
         created_by=current_user.id,
     )
     db.add(pool)
@@ -165,6 +202,9 @@ async def create_talent_pool(
             if pool.competence_category_id is not None
             else None
         ),
+        is_personal=pool.is_personal,
+        owner_id=pool.created_by,
+        owner_name=current_user.name,
     )
 
 
@@ -175,8 +215,9 @@ async def add_candidate_to_pool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Verify pool exists
-    await _get_pool_or_404(pool_id, db)
+    # Verify pool exists + the user is allowed to modify it (osobiste = owner/admin)
+    pool = await _get_pool_or_404(pool_id, db)
+    _assert_can_modify_pool(pool, current_user)
 
     # Verify candidate exists
     cand_result = await db.execute(
@@ -228,7 +269,8 @@ async def bulk_add_candidates_to_pool(
     kandydatów. Używane przez floating bulk-action bar na liście /candidates
     (Phase „Otwartość na dodatkowe projekty" Faza 2.5).
     """
-    await _get_pool_or_404(pool_id, db)
+    pool = await _get_pool_or_404(pool_id, db)
+    _assert_can_modify_pool(pool, current_user)
 
     if not data.candidate_ids:
         raise HTTPException(status_code=422, detail="candidate_ids cannot be empty")
@@ -279,6 +321,10 @@ async def remove_candidate_from_pool(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Pula osobista — tylko właściciel/admin może usuwać kandydatów.
+    pool = await _get_pool_or_404(pool_id, db)
+    _assert_can_modify_pool(pool, current_user)
+
     result = await db.execute(
         select(TalentPoolMembership).where(
             TalentPoolMembership.talent_pool_id == pool_id,
@@ -293,6 +339,45 @@ async def remove_candidate_from_pool(
     await db.commit()
 
     return {"message": "Kandydat usunięty z puli"}
+
+
+@router.delete("/talent-pools/{pool_id}", status_code=200)
+async def delete_talent_pool(
+    pool_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Usuń całą pulę talentów (kaskada usuwa memberships).
+
+    * Pula osobista — właściciel lub admin.
+    * Pula firmowa — tylko admin (ochrona wspólnego zasobu zespołu).
+    * Pula Targu (``is_marketplace``) — nieusuwalna (singleton zarządzany przez
+      marketplace_service).
+    """
+    pool = await _get_pool_or_404(pool_id, db)
+    is_admin = current_user.has_role(UserRole.admin)
+
+    if pool.is_marketplace:
+        raise HTTPException(
+            status_code=409, detail="Puli Targu kandydatów nie można usunąć."
+        )
+
+    if pool.is_personal:
+        if pool.created_by != current_user.id and not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Tylko właściciel lub admin może usunąć tę pulę.",
+            )
+    elif not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Pulę firmową może usunąć tylko administrator.",
+        )
+
+    await db.delete(pool)
+    await db.commit()
+
+    return {"message": "Pula usunięta", "pool_id": pool_id}
 
 
 @router.get("/talent-pools/{pool_id}/candidates")

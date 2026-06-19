@@ -24,6 +24,7 @@ import {
  Link as LinkIcon,
  Linkedin,
  Loader2,
+ Lock,
  Mail,
  MapPin,
  MessageSquare,
@@ -86,7 +87,7 @@ import {
  type AvailabilityStatus,
  type EmploymentInfo,
 } from"@/components/v2/CandidateHighlights";
-import { useAuthStore } from"@/store/auth";
+import { useAuthStore, hasRole } from"@/store/auth";
 import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
@@ -2979,12 +2980,24 @@ function BulkAddToPoolModal({
  pending: boolean;
 }) {
  const [filter, setFilter] = useState("");
+ const currentUser = useAuthStore((s) => s.user);
+ const isAdmin = hasRole(currentUser, "admin");
  const { data, isLoading } = useQuery({
  queryKey: ["talent-pools","bulk-modal"],
  queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
  });
- const pools: Array<{ id: number; name: string; candidate_count: number }> =
- Array.isArray(data) ? data : data?.items ?? [];
+ const pools: Array<{
+ id: number;
+ name: string;
+ candidate_count: number;
+ is_personal?: boolean;
+ owner_id?: number | null;
+ owner_name?: string | null;
+ }> = Array.isArray(data) ? data : data?.items ?? [];
+ // Pula osobista innego usera = tylko podgląd (backend zwróci 403 na bulk-add).
+ // Pokazujemy ją (jest team-visible), ale wyłączoną + z oznaczeniem właściciela.
+ const canUsePool = (p: { is_personal?: boolean; owner_id?: number | null }) =>
+ !p.is_personal || isAdmin || p.owner_id === (currentUser?.id ?? -1);
  const filtered = pools.filter((p) =>
  p.name.toLowerCase().includes(filter.toLowerCase())
  );
@@ -3016,20 +3029,36 @@ function BulkAddToPoolModal({
  Brak pul dla „{filter}". <Link href="/talents" className="underline">Stwórz nową</Link>.
  </div>
  )}
- {filtered.map((p) => (
+ {filtered.map((p) => {
+ const usable = canUsePool(p);
+ return (
  <button
  key={p.id}
  type="button"
- onClick={() => onConfirm(p.id)}
- disabled={pending}
- className="w-full text-left text-sm px-3 py-2 rounded hover:bg-muted dark:hover:bg-muted disabled:opacity-50 flex items-center justify-between"
+ onClick={() => usable && onConfirm(p.id)}
+ disabled={pending || !usable}
+ title={
+ usable
+ ? undefined
+ : `Pula osobista${p.owner_name ? ` — ${p.owner_name}` : ""} (tylko podgląd)`
+ }
+ className="w-full text-left text-sm px-3 py-2 rounded hover:bg-muted dark:hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-2"
  >
- <span>{p.name}</span>
- <span className="text-xs text-muted-foreground">
+ <span className="flex items-center gap-1.5 min-w-0">
+ {!usable && <Lock className="w-3 h-3 flex-shrink-0 text-muted-foreground" />}
+ <span className="truncate">{p.name}</span>
+ {p.is_personal && p.owner_name && (
+ <span className="text-[11px] text-muted-foreground flex-shrink-0">
+ · {p.owner_name}
+ </span>
+ )}
+ </span>
+ <span className="text-xs text-muted-foreground flex-shrink-0">
  {p.candidate_count} {p.candidate_count === 1 ?"kandydat" :"kandydatów"}
  </span>
  </button>
- ))}
+ );
+ })}
  </div>
  <div className="flex justify-end gap-2 pt-2 border-t border-border dark:border-border">
  <Button size="sm" variant="ghost" onClick={onCancel} disabled={pending}>
