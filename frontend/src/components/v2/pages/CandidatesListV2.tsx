@@ -108,6 +108,7 @@ import {
  decodeFilters,
  decodeSkillsExpr,
  encodeFilters,
+ parseRateBound,
  parseYearBound,
  type AvailabilityFilter,
  type CandidateFilters,
@@ -1242,6 +1243,14 @@ export function CandidatesListV2() {
  const [experienceMax, setExperienceMax] = useState<number | null>(
  parseYearBound(searchParams.get("exp_max"))
  );
+ // Oczekiwana stawka godzinowa (B2B, PLN/h). null bound = open. Parsed with the
+ // same clamp as decodeFilters so URL → state and saved searches agree.
+ const [rateMin, setRateMin] = useState<number | null>(
+ parseRateBound(searchParams.get("rate_min"))
+ );
+ const [rateMax, setRateMax] = useState<number | null>(
+ parseRateBound(searchParams.get("rate_max"))
+ );
  const [workedAtClientIds, setWorkedAtClientIds] = useState<number[]>(
  (searchParams.get("client_hist") ??"")
  .split(",")
@@ -1380,6 +1389,8 @@ export function CandidatesListV2() {
  if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
  if (experienceMin !== null) params.set("exp_min", String(experienceMin));
  if (experienceMax !== null) params.set("exp_max", String(experienceMax));
+ if (rateMin !== null) params.set("rate_min", String(rateMin));
+ if (rateMax !== null) params.set("rate_max", String(rateMax));
  if (stageMovedByIds.length) params.set("stage_by", stageMovedByIds.join(","));
  if (stageMovedAfter) params.set("stage_from", stageMovedAfter);
  if (stageMovedBefore) params.set("stage_to", stageMovedBefore);
@@ -1416,6 +1427,8 @@ export function CandidatesListV2() {
  workedAtClientIds,
  experienceMin,
  experienceMax,
+ rateMin,
+ rateMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1450,6 +1463,8 @@ export function CandidatesListV2() {
  workedAtClientIds,
  experienceMin,
  experienceMax,
+ rateMin,
+ rateMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1495,6 +1510,8 @@ export function CandidatesListV2() {
  worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
  min_experience: experienceMin ?? undefined,
  max_experience: experienceMax ?? undefined,
+ min_rate: rateMin ?? undefined,
+ max_rate: rateMax ?? undefined,
  stage_moved_by: stageMovedByIds.length ? stageMovedByIds : undefined,
  stage_moved_after: stageMovedAfter || undefined,
  stage_moved_before: stageMovedBefore || undefined,
@@ -1704,6 +1721,7 @@ export function CandidatesListV2() {
  currentTitleFilter.length +
  workedAtClientIds.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
+ (rateMin !== null || rateMax !== null ? 1 : 0) +
  stageMovedByIds.length +
  (stageMovedAfter || stageMovedBefore ? 1 : 0) +
  stageClientIds.length +
@@ -1734,6 +1752,8 @@ export function CandidatesListV2() {
  workedAtClientIds,
  experienceMin,
  experienceMax,
+ rateMin,
+ rateMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1764,6 +1784,8 @@ export function CandidatesListV2() {
  workedAtClientIds,
  experienceMin,
  experienceMax,
+ rateMin,
+ rateMax,
  stageMovedByIds,
  stageMovedAfter,
  stageMovedBefore,
@@ -1797,6 +1819,8 @@ export function CandidatesListV2() {
  setWorkedAtClientIds(patch.workedAtClientIds);
  if (patch.experienceMin !== undefined) setExperienceMin(patch.experienceMin);
  if (patch.experienceMax !== undefined) setExperienceMax(patch.experienceMax);
+ if (patch.rateMin !== undefined) setRateMin(patch.rateMin);
+ if (patch.rateMax !== undefined) setRateMax(patch.rateMax);
  if (patch.stageMovedByIds !== undefined) setStageMovedByIds(patch.stageMovedByIds);
  if (patch.stageMovedAfter !== undefined) setStageMovedAfter(patch.stageMovedAfter);
  if (patch.stageMovedBefore !== undefined)
@@ -1831,6 +1855,8 @@ export function CandidatesListV2() {
  setWorkedAtClientIds([]);
  setExperienceMin(null);
  setExperienceMax(null);
+ setRateMin(null);
+ setRateMax(null);
  setStageMovedByIds([]);
  setStageMovedAfter("");
  setStageMovedBefore("");
@@ -1986,6 +2012,8 @@ export function CandidatesListV2() {
                 workedAtClientIds: decoded.workedAtClientIds,
                 experienceMin: decoded.experienceMin,
                 experienceMax: decoded.experienceMax,
+                rateMin: decoded.rateMin,
+                rateMax: decoded.rateMax,
                 stageMovedByIds: decoded.stageMovedByIds,
                 stageMovedAfter: decoded.stageMovedAfter,
                 stageMovedBefore: decoded.stageMovedBefore,
@@ -2418,6 +2446,37 @@ export function CandidatesListV2() {
                     className="w-24"
                   />
                   <span className="text-xs text-muted-foreground">lat</span>
+                </div>
+              </FilterField>
+              <FilterField
+                label="Stawka godzinowa (PLN/h)"
+                hint="Oczekiwana stawka godzinowa B2B (np. od 120 do 200). Kandydaci bez podanej stawki nie są pokazywani."
+              >
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="od"
+                    value={rateMin ?? ""}
+                    onChange={(e) => {
+                      setRateMin(parseRateBound(e.target.value));
+                      setPage(1);
+                    }}
+                    className="w-24"
+                  />
+                  <span className="text-muted-foreground">–</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="do"
+                    value={rateMax ?? ""}
+                    onChange={(e) => {
+                      setRateMax(parseRateBound(e.target.value));
+                      setPage(1);
+                    }}
+                    className="w-24"
+                  />
+                  <span className="text-xs text-muted-foreground">PLN/h</span>
                 </div>
               </FilterField>
               <FilterField

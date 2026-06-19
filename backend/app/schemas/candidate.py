@@ -91,6 +91,8 @@ class CandidateCreate(BaseModel):
     linkedin: Optional[str] = None
     salary_expectation: Optional[int] = None
     salary_currency: Optional[str] = "PLN"
+    expected_rate_hourly: Optional[int] = None
+    expected_rate_currency: Optional[str] = "PLN"
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -126,6 +128,8 @@ class CandidateUpdate(BaseModel):
     linkedin: Optional[str] = None
     salary_expectation: Optional[int] = None
     salary_currency: Optional[str] = None
+    expected_rate_hourly: Optional[int] = None
+    expected_rate_currency: Optional[str] = None
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
@@ -302,6 +306,8 @@ class CandidateResponse(BaseModel):
     avatar_url: Optional[str] = None
     salary_expectation: Optional[int]
     salary_currency: Optional[str] = "PLN"
+    expected_rate_hourly: Optional[int] = None
+    expected_rate_currency: Optional[str] = "PLN"
     availability_date: Optional[date]
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None

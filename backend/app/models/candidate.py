@@ -91,6 +91,13 @@ class Candidate(Base, TimestampMixin):
     # Oczekiwania finansowe (PLN/mies.)
     salary_expectation: Mapped[Optional[int]] = mapped_column(Integer)
     salary_currency: Mapped[Optional[str]] = mapped_column(String(3), default="PLN")
+    # Oczekiwana stawka godzinowa (B2B, PLN/h) — osobne pole od miesięcznego
+    # `salary_expectation`. Napędza filtr „Stawka godzinowa (od–do)" na
+    # /candidates (migracja 0138). Indeks częściowy: ix_candidates_expected_rate_hourly.
+    expected_rate_hourly: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    expected_rate_currency: Mapped[Optional[str]] = mapped_column(
+        String(3), default="PLN"
+    )
     availability_date: Mapped[Optional[date]] = mapped_column(Date)
     notice_period: Mapped[Optional[int]] = mapped_column(
         Integer

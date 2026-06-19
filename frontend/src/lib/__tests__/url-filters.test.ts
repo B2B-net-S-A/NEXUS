@@ -39,6 +39,8 @@ describe("url-filters", () => {
       workedAtClientIds: [10, 11],
       experienceMin: 2,
       experienceMax: 30,
+      rateMin: 80,
+      rateMax: 250,
       stageMovedByIds: [4, 0],
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",

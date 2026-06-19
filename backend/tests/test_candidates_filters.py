@@ -30,7 +30,12 @@ async def _seed_user(*, name: str, role: str = "recruiter") -> int:
         return u.id
 
 
-async def _seed_candidate(*, location: str | None, created_by: int | None) -> int:
+async def _seed_candidate(
+    *,
+    location: str | None,
+    created_by: int | None,
+    expected_rate_hourly: int | None = None,
+) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
 
@@ -41,6 +46,7 @@ async def _seed_candidate(*, location: str | None, created_by: int | None) -> in
             email=f"flt-{uuid.uuid4().hex[:8]}@example.com",
             location=location,
             created_by=created_by,
+            expected_rate_hourly=expected_rate_hourly,
         )
         db.add(c)
         await db.commit()
@@ -407,3 +413,72 @@ async def test_create_candidate_sets_created_by(
     assert isinstance(data.get("created_by"), int) and data["created_by"] > 0
     cid = data["id"]
     await _cleanup([cid], None, [])
+
+
+@pytest.mark.asyncio
+async def test_filter_by_expected_rate_hourly_range(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`min_rate`/`max_rate` band-filter on expected_rate_hourly, excluding nulls.
+
+    Mirrors the `min_salary`/`max_salary` "exclusive of nulls" contract: a
+    candidate with no expected rate never matches a bounded query.
+    """
+    low = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=100)
+    inside = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=150)
+    high = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=250)
+    none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
+    try:
+        r = await app_client.get(
+            "/api/candidates?min_rate=120&max_rate=200&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert inside in ids          # 150 ∈ [120, 200]
+        assert low not in ids         # 100 < 120
+        assert high not in ids        # 250 > 200
+        assert none not in ids        # NULL excluded (exclusive of nulls)
+    finally:
+        await _cleanup([low, inside, high, none], None, [])
+
+
+@pytest.mark.asyncio
+async def test_filter_by_expected_rate_hourly_min_only(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    low = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=90)
+    high = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=200)
+    none = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=None)
+    try:
+        r = await app_client.get(
+            "/api/candidates?min_rate=120&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert high in ids            # 200 >= 120
+        assert low not in ids         # 90 < 120
+        assert none not in ids        # NULL excluded
+    finally:
+        await _cleanup([low, high, none], None, [])
+
+
+@pytest.mark.asyncio
+async def test_filter_expected_rate_response_roundtrips(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """PATCH sets expected_rate_hourly/currency and the response echoes them."""
+    cid = await _seed_candidate(location="W", created_by=None)
+    try:
+        patch = await app_client.patch(
+            f"/api/candidates/{cid}",
+            json={"expected_rate_hourly": 175, "expected_rate_currency": "PLN"},
+            headers=app_auth_headers,
+        )
+        assert patch.status_code == 200, patch.text
+        body = patch.json()
+        assert body["expected_rate_hourly"] == 175
+        assert body["expected_rate_currency"] == "PLN"
+    finally:
+        await _cleanup([cid], None, [])

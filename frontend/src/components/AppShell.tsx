@@ -241,6 +241,8 @@ interface CandidateFormData {
   linkedin: string;
   salary_expectation: string;
   salary_currency: string;
+  expected_rate_hourly: string;
+  expected_rate_currency: string;
   availability_date: string;
   notice_period: string;
   notice_period_unit: string; // "days" | "weeks" | "months"
@@ -265,6 +267,7 @@ interface CandidateFormData {
 const EMPTY_CANDIDATE: CandidateFormData = {
   name: "", lastname: "", email: "", phone: "", location: "",
   source: "manual", linkedin: "", salary_expectation: "", salary_currency: "PLN",
+  expected_rate_hourly: "", expected_rate_currency: "PLN",
   availability_date: "", notice_period: "", notice_period_unit: "days", status: "active", availability_status: "unknown", tags: "", notes: "",
   years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
   pref_remote_modes: [], pref_rate_min: "", pref_rate_max: "",
@@ -298,6 +301,8 @@ function candidateToForm(c: any): CandidateFormData {
     linkedin: c.linkedin ?? "",
     salary_expectation: c.salary_expectation ? String(c.salary_expectation) : "",
     salary_currency: c.salary_currency ?? "PLN",
+    expected_rate_hourly: c.expected_rate_hourly ? String(c.expected_rate_hourly) : "",
+    expected_rate_currency: c.expected_rate_currency ?? "PLN",
     availability_date: c.availability_date ? c.availability_date.slice(0, 10) : "",
     notice_period: c.notice_period != null ? String(c.notice_period) : "",
     notice_period_unit: c.notice_period_unit ?? (c.notice_period != null ? "days" : "days"),
@@ -355,6 +360,8 @@ function candidateFormToPayload(form: CandidateFormData) {
     linkedin: form.linkedin || undefined,
     salary_expectation: form.salary_expectation ? Number(form.salary_expectation) : undefined,
     salary_currency: form.salary_currency,
+    expected_rate_hourly: form.expected_rate_hourly ? Number(form.expected_rate_hourly) : undefined,
+    expected_rate_currency: form.expected_rate_currency || undefined,
     availability_date: form.availability_date || undefined,
     notice_period: form.notice_period ? Number(form.notice_period) : undefined,
     notice_period_unit: form.notice_period ? (form.notice_period_unit || "days") : undefined,
@@ -471,6 +478,24 @@ function CandidateFormFields({
               <option value="months">miesiące</option>
             </Select>
           </div>
+        </FieldGroup>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Stawka godzinowa B2B (PLN/h)">
+          <Input
+            type="number"
+            min={0}
+            value={form.expected_rate_hourly}
+            onChange={e => onChange("expected_rate_hourly", e.target.value)}
+            placeholder="np. 150"
+          />
+        </FieldGroup>
+        <FieldGroup label="Waluta stawki">
+          <Select value={form.expected_rate_currency} onChange={e => onChange("expected_rate_currency", e.target.value)}>
+            <option value="PLN">PLN</option>
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+          </Select>
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
