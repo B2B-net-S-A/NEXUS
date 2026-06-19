@@ -56,7 +56,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.talent_pool import TalentPoolMembership
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateDocumentOut,
@@ -4217,7 +4217,12 @@ async def get_suggested_pools(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    suggestions = await suggest_pools_for_candidate(db, candidate_id)
+    suggestions = await suggest_pools_for_candidate(
+        db,
+        candidate_id,
+        viewer_id=current_user.id,
+        viewer_is_admin=current_user.has_role(UserRole.admin),
+    )
     return [SuggestedPoolOut(**s.to_dict()) for s in suggestions]
 
 

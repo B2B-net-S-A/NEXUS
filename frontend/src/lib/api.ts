@@ -478,12 +478,18 @@ export const matchingApi = {
 // ── Talent Pools ──────────────────────────────────────────────────────────────
 export const talentPoolsApi = {
   list: () => api.get("/api/talent-pools"),
-  create: (data: { name: string; description?: string; criteria?: Record<string, unknown> }) =>
-    api.post("/api/talent-pools", data),
+  create: (data: {
+    name: string;
+    description?: string;
+    criteria?: Record<string, unknown>;
+    /** True = pula osobista (widoczna dla zespołu, zarządzana tylko przez Ciebie). */
+    is_personal?: boolean;
+  }) => api.post("/api/talent-pools", data),
   addCandidate: (poolId: number, candidateId: number) =>
     api.post(`/api/talent-pools/${poolId}/add`, { candidate_id: candidateId }),
   removeCandidate: (poolId: number, candidateId: number) =>
     api.delete(`/api/talent-pools/${poolId}/remove/${candidateId}`),
+  deletePool: (poolId: number) => api.delete(`/api/talent-pools/${poolId}`),
   getCandidates: (poolId: number) => api.get(`/api/talent-pools/${poolId}/candidates`),
   getPoolsForCandidate: (candidateId: number) =>
     api.get(`/api/talent-pools/for-candidate/${candidateId}`),

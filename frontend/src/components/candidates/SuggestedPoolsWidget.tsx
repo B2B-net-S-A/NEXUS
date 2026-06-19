@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Sparkles, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { ConfidenceBadge } from "@/components/ui/ConfidenceBadge";
+import { useToast } from "@/components/Toast";
 
 interface SuggestedPool {
   pool_id: number;
@@ -25,6 +26,7 @@ interface Props {
  */
 export function SuggestedPoolsWidget({ candidateId }: Props) {
   const qc = useQueryClient();
+  const { showError } = useToast();
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
 
   const { data, isLoading } = useQuery({
@@ -49,6 +51,14 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
       setAddedIds((s) => new Set(s).add(poolId));
       qc.invalidateQueries({ queryKey: ["suggested-pools", candidateId] });
       qc.invalidateQueries({ queryKey: ["talent-pools"] });
+    },
+    onError: (err: unknown) => {
+      // Bez tego błąd (np. 403 dla cudzej puli osobistej) ginął po cichu:
+      // kandydat się nie dodawał, a UI nie dawał żadnej informacji zwrotnej.
+      const detail = (
+        err as { response?: { data?: { detail?: string } } }
+      )?.response?.data?.detail;
+      showError(detail || "Nie udało się dodać kandydata do puli.");
     },
   });
 

@@ -146,7 +146,18 @@ async def auto_add_on_cv_sent(
         )
         return AutoAddResult(status="skipped_no_category")
 
-    pool = await db.scalar(select(TalentPool).where(TalentPool.name == pool_name))
+    # Trigger CV→Klient zawsze celuje w pulę FIRMOWĄ. Filtr `is_personal=False`
+    # (+ `is_marketplace=False`) jest kluczowy: nazwy pul nie są unikalne, więc
+    # bez niego pula OSOBISTA o kolidującej nazwie (np. „Python Senior") byłaby
+    # mutowana przez cudzy ruch na etap cv_sent — z pominięciem gate'a
+    # `_assert_can_modify_pool` (właściciel/admin). Patrz migracja 0137.
+    pool = await db.scalar(
+        select(TalentPool).where(
+            TalentPool.name == pool_name,
+            TalentPool.is_personal.is_(False),
+            TalentPool.is_marketplace.is_(False),
+        )
+    )
 
     # Prefer the Job's CC; fall back to a pure name-based classification when
     # the Job has none (true for every legacy job on prod). The fallback is

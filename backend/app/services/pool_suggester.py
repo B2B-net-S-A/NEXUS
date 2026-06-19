@@ -91,13 +91,22 @@ def _search_pool_centroids_sync(
 
 
 async def suggest_pools_for_candidate(
-    db: AsyncSession, candidate_id: int
+    db: AsyncSession,
+    candidate_id: int,
+    *,
+    viewer_id: int | None = None,
+    viewer_is_admin: bool = False,
 ) -> list[PoolSuggestion]:
     """Return pool suggestions for a candidate sorted by score descending.
 
     Empty list if the candidate has no embedding yet (not embedded or Qdrant
     unavailable). Membership info is attached so the UI can grey-out existing
     memberships while still showing confidence.
+
+    Pule osobiste (migracja 0137) podpowiadamy WYŁĄCZNIE ich właścicielowi
+    (``viewer_id``) lub adminowi (``viewer_is_admin``). Inaczej widget „Sugerowane
+    pule" proponowałby „Dodaj" do cudzej puli osobistej, a POST /add zwróciłby
+    403 (gate ``_assert_can_modify_pool``) — cichy, mylący błąd dla usera.
     """
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
@@ -130,6 +139,14 @@ async def suggest_pools_for_candidate(
             continue
         pool = pools.get(pool_id)
         if not pool:
+            continue
+        # Skip cudze pule osobiste — usera nie wolno zachęcać do dodania
+        # kandydata do puli, której i tak nie może modyfikować (→ 403).
+        if (
+            pool.is_personal
+            and not viewer_is_admin
+            and pool.created_by != viewer_id
+        ):
             continue
         band = "auto" if score >= AUTO_THRESHOLD else "suggest"
         suggestions.append(

@@ -832,6 +832,13 @@ _COLUMN_STATEMENTS = [
     "ON document_signature_events(event_id)",
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_event_signature "
     "ON document_signature_events(signature_id)",
+    # Pule osobiste (migracja 0137_talent_pool_is_personal). /api/talent-pools
+    # czyta/pisze talent_pools.is_personal — bez kolumny SELECT/INSERT crashuje
+    # (UndefinedColumnError) gdyby alembic upgrade nie wszedł (multi-head dev).
+    "ALTER TABLE talent_pools ADD COLUMN IF NOT EXISTS is_personal "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS ix_talent_pools_is_personal "
+    "ON talent_pools (is_personal, created_by)",
 ]
 
 _DATA_STATEMENTS = [
