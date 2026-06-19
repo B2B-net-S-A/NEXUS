@@ -290,7 +290,7 @@ async def recommend_candidates_for_job(
 async def pipeline_match_scores(
     request: Request,
     job_id: int,
-    current_user: CurrentUser,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Hybrid AI match scores (0-100) for the candidates currently in a job's
