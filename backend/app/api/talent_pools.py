@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,16 +129,27 @@ async def list_talent_pools(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Count memberships with a grouped aggregate instead of loading every
+    # membership row — after the cv_sent backfill there are thousands of them,
+    # so selectinload(memberships) + len() would haul the whole join table on
+    # each /talents page load.
+    counts_subq = (
+        select(
+            TalentPoolMembership.talent_pool_id.label("pool_id"),
+            func.count().label("cnt"),
+        )
+        .group_by(TalentPoolMembership.talent_pool_id)
+        .subquery()
+    )
     result = await db.execute(
-        select(TalentPool)
+        select(TalentPool, func.coalesce(counts_subq.c.cnt, 0))
+        .outerjoin(counts_subq, counts_subq.c.pool_id == TalentPool.id)
         .options(
-            selectinload(TalentPool.memberships),
             selectinload(TalentPool.competence_category),
             selectinload(TalentPool.creator),
         )
         .order_by(TalentPool.created_at.desc())
     )
-    pools = result.scalars().all()
 
     return [
         TalentPoolOut(
@@ -148,7 +159,7 @@ async def list_talent_pools(
             criteria=p.criteria,
             created_by=p.created_by,
             created_at=p.created_at,
-            candidate_count=len(p.memberships),
+            candidate_count=int(cnt),
             competence_category_id=p.competence_category_id,
             competence_category_slug=(
                 p.competence_category.slug if p.competence_category else None
@@ -157,7 +168,7 @@ async def list_talent_pools(
             owner_id=p.created_by,
             owner_name=(p.creator.name if p.creator else None),
         )
-        for p in pools
+        for p, cnt in result.all()
     ]
 
 
@@ -385,6 +396,8 @@ async def list_pool_candidates(
     pool_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    limit: int = 500,
+    offset: int = 0,
 ):
     # Verify pool
     pool_result = await db.execute(select(TalentPool).where(TalentPool.id == pool_id))
@@ -392,12 +405,27 @@ async def list_pool_candidates(
     if not pool:
         raise HTTPException(status_code=404, detail="Pula talentów nie istnieje")
 
-    # Get memberships with candidates
+    # True total (cheap aggregate) — after the cv_sent backfill the largest
+    # pools hold ~1k members, so we paginate the rows but still report the full
+    # count for the header.
+    total = (
+        await db.scalar(
+            select(func.count())
+            .select_from(TalentPoolMembership)
+            .where(TalentPoolMembership.talent_pool_id == pool_id)
+        )
+    ) or 0
+
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
     result = await db.execute(
         select(TalentPoolMembership, Candidate)
         .join(Candidate, TalentPoolMembership.candidate_id == Candidate.id)
         .where(TalentPoolMembership.talent_pool_id == pool_id)
         .order_by(TalentPoolMembership.added_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     rows = result.all()
 
@@ -426,8 +454,12 @@ async def list_pool_candidates(
             "id": pool.id,
             "name": pool.name,
             "description": pool.description,
-            "candidate_count": len(candidates),
+            "candidate_count": int(total),
         },
+        "total": int(total),
+        "returned": len(candidates),
+        "limit": limit,
+        "offset": offset,
         "candidates": candidates,
     }
 

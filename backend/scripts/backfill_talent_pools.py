@@ -46,24 +46,16 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from sqlalchemy import select  # noqa: E402
-from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.competence_category import CompetenceCategory  # noqa: E402
 from app.models.job import Job  # noqa: E402
-from app.models.recruitment_pipeline import (  # noqa: E402
-    CandidateStage,
-    PipelineStage,
-)
 from app.models.talent_pool import TalentPool, TalentPoolMembership  # noqa: E402
-from app.services.talent_pool_auto_add import auto_add_on_cv_sent  # noqa: E402
 from app.services.talent_pool_cc import (  # noqa: E402
     classify_pool_name_to_cc_slug,
 )
 
 logger = logging.getLogger("backfill_talent_pools")
-
-BATCH_COMMIT_SIZE = 500
 
 
 async def _backfill_cc(commit: bool) -> int:
@@ -150,110 +142,25 @@ async def _backfill_memberships(
 ) -> tuple[int, int]:
     """Phase B — replay cv_sent stages chronologically.
 
-    Returns (added, already_in_pool) counts.
+    Delegates to ``services.talent_pool_backfill.run_membership_backfill`` so the
+    CLI and the ``POST /api/admin/talent-pools/backfill`` endpoint share one
+    implementation. Returns (added, already_in_pool) counts.
     """
-    added = 0
-    already = 0
-    skipped = 0
-    errors = 0
+    from app.services.talent_pool_backfill import run_membership_backfill
 
-    async with AsyncSessionLocal() as db:
-        stmt = select(CandidateStage).where(
-            CandidateStage.stage == PipelineStage.cv_sent
-        )
-        if since is not None:
-            stmt = stmt.where(CandidateStage.moved_at >= since)
-        stmt = stmt.order_by(CandidateStage.moved_at.asc())
-
-        rows = (await db.execute(stmt)).scalars().all()
-        total = len(rows)
-        logger.info("Phase B: %s cv_sent stage rows to replay", total)
-
-        processed = 0
-        for row in rows:
-            processed += 1
-            job = await db.get(Job, row.job_id)
-            if job is None:
-                logger.warning(
-                    "row=%s: job_id=%s missing — skip",
-                    row.id,
-                    row.job_id,
-                )
-                skipped += 1
-                continue
-
-            try:
-                result = await auto_add_on_cv_sent(
-                    db=db,
-                    candidate_id=row.candidate_id,
-                    job=job,
-                    user_id=row.moved_by,
-                    extra_activity_details={"backfill": True},
-                )
-            except IntegrityError as e:
-                # Race with live cv_sent — rollback this row and retry once
-                await db.rollback()
-                logger.warning("row=%s: IntegrityError, retrying once (%s)", row.id, e)
-                try:
-                    job2 = await db.get(Job, row.job_id)
-                    if job2 is None:
-                        errors += 1
-                        continue
-                    result = await auto_add_on_cv_sent(
-                        db=db,
-                        candidate_id=row.candidate_id,
-                        job=job2,
-                        user_id=row.moved_by,
-                        extra_activity_details={"backfill": True, "retry": 1},
-                    )
-                except Exception as retry_err:  # noqa: BLE001
-                    await db.rollback()
-                    logger.error("row=%s: retry failed: %s", row.id, retry_err)
-                    errors += 1
-                    continue
-
-            if result.status == "added":
-                added += 1
-            elif result.status == "already_in_pool":
-                already += 1
-            elif result.status == "skipped_no_category":
-                skipped += 1
-
-            # Batch commit
-            if commit and processed % BATCH_COMMIT_SIZE == 0:
-                await db.commit()
-                logger.info(
-                    "Phase B: progress %s/%s (added=%s already=%s skipped=%s errors=%s)",
-                    processed,
-                    total,
-                    added,
-                    already,
-                    skipped,
-                    errors,
-                )
-
-        if commit:
-            await db.commit()
-            logger.info(
-                "Phase B: committed — total=%s added=%s already=%s skipped=%s errors=%s",
-                total,
-                added,
-                already,
-                skipped,
-                errors,
-            )
-        else:
-            await db.rollback()
-            logger.info(
-                "Phase B: dry-run — total=%s would-add=%s already=%s skipped=%s errors=%s",
-                total,
-                added,
-                already,
-                skipped,
-                errors,
-            )
-
-    return added, already
+    stats = await run_membership_backfill(since=since, commit=commit)
+    logger.info(
+        "Phase B: %s — total=%s added=%s already=%s skipped=%s errors=%s",
+        "committed" if commit else "dry-run",
+        stats["total"],
+        stats["added"],
+        stats["already_in_pool"],
+        stats["skipped"],
+        stats["errors"],
+    )
+    if stats.get("top_pools"):
+        logger.info("Phase B: top pools filled — %s", stats["top_pools"])
+    return stats["added"], stats["already_in_pool"]
 
 
 async def _run(
