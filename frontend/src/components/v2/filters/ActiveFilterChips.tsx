@@ -326,6 +326,21 @@ function collectChips(
  onUpdate({ experienceMin: null, experienceMax: null, page: 1 }),
  });
  }
+ if (filters.rateMin !== null || filters.rateMax !== null) {
+ const lo = filters.rateMin;
+ const hi = filters.rateMax;
+ const label =
+ lo !== null && hi !== null
+ ? `Stawka: ${lo}–${hi} PLN/h`
+ : lo !== null
+ ? `Stawka: od ${lo} PLN/h`
+ : `Stawka: do ${hi} PLN/h`;
+ chips.push({
+ key: "rate",
+ label,
+ clear: () => onUpdate({ rateMin: null, rateMax: null, page: 1 }),
+ });
+ }
  filters.qAll.forEach((phrase) => {
  chips.push({
  key: `q_all:${phrase}`,
@@ -449,6 +464,8 @@ export function ActiveFilterChips({
  workedAtClientIds: [],
  experienceMin: null,
  experienceMax: null,
+ rateMin: null,
+ rateMax: null,
  stageMovedByIds: [],
  stageMovedAfter: "",
  stageMovedBefore: "",

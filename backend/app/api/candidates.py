@@ -670,6 +670,21 @@ async def list_candidates(
         ge=0,
         description="Maximum salary expectation (PLN) — exclusive of nulls.",
     ),
+    min_rate: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Minimum expected hourly rate (B2B, PLN/h) — matches "
+            "`expected_rate_hourly`. Exclusive of nulls, like salary."
+        ),
+    ),
+    max_rate: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Maximum expected hourly rate (B2B, PLN/h) — see `min_rate`."
+        ),
+    ),
     min_experience: Optional[int] = Query(
         None,
         ge=0,
@@ -1140,6 +1155,12 @@ async def list_candidates(
         query = query.where(Candidate.salary_expectation >= min_salary)
     if max_salary is not None:
         query = query.where(Candidate.salary_expectation <= max_salary)
+    # Expected hourly rate (B2B, PLN/h). NULL rates don't match either bound and
+    # are excluded — same "exclusive of nulls" rule as salary/experience.
+    if min_rate is not None:
+        query = query.where(Candidate.expected_rate_hourly >= min_rate)
+    if max_rate is not None:
+        query = query.where(Candidate.expected_rate_hourly <= max_rate)
 
     # Lata doświadczenia — range filter over a derived experience interval.
     # Exact `years_it_experience` covers ~430 rows; the bulk of the base only
@@ -1770,6 +1791,8 @@ _EXPORT_COLUMNS = [
     "source",
     "salary_expectation",
     "salary_currency",
+    "expected_rate_hourly",
+    "expected_rate_currency",
     "availability_date",
     "champion",
     "created_at",
@@ -1808,6 +1831,8 @@ def _row_for_export(c: Candidate) -> list:
         c.source or "",
         c.salary_expectation if c.salary_expectation is not None else "",
         c.salary_currency or "",
+        c.expected_rate_hourly if c.expected_rate_hourly is not None else "",
+        c.expected_rate_currency or "",
         c.availability_date.isoformat() if c.availability_date else "",
         "true" if c.champion else "false",
         c.created_at.isoformat() if c.created_at else "",
