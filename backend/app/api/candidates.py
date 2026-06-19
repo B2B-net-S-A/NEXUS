@@ -681,9 +681,7 @@ async def list_candidates(
     max_rate: Optional[int] = Query(
         None,
         ge=0,
-        description=(
-            "Maximum expected hourly rate (B2B, PLN/h) — see `min_rate`."
-        ),
+        description=("Maximum expected hourly rate (B2B, PLN/h) — see `min_rate`."),
     ),
     min_experience: Optional[int] = Query(
         None,
