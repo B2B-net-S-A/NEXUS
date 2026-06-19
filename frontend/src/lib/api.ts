@@ -473,6 +473,14 @@ export const matchingApi = {
         location: opts?.location?.trim() || undefined,
       },
     }),
+  // Hybrid AI match scores (0-100) for the candidates currently in a job's
+  // pipeline — powers the score ring on kanban cards. Cache-first server-side.
+  pipelineScores: (jobId: number) =>
+    api.get<{
+      job_id: number;
+      profile_id: number;
+      scores: Record<string, number>;
+    }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
 // ── Talent Pools ──────────────────────────────────────────────────────────────

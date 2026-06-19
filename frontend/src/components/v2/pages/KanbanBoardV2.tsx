@@ -100,6 +100,13 @@ export interface KanbanColumn {
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
  jobId: number;
+ // AI match scores (0-100) keyed by candidate_id → score ring on each card.
+ // Kept as a candidate-keyed map (not embedded in items) so it survives the
+ // optimistic-move / "verified" item rebuilds below.
+ scoreMap?: Map<number, number>;
+ // True while the scores query is first resolving → cards show a placeholder
+ // ring instead of nothing (cold pipelines don't look broken).
+ scoresLoading?: boolean;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -125,6 +132,100 @@ const colId = (col: KanbanColumn) =>
 
 const columnLabel = (col: KanbanColumn) => col.name ?? col.stage;
 
+// ── AI match score ring ──────────────────────────────────────────────
+// Circular badge mirroring the hybrid AI match score (0-100): colored arc +
+// number. Tiers use FIXED hues (not --primary) so the traffic-light reading
+// stays stable across the user-selectable theme palettes / kids mode.
+
+function scoreRingColor(score: number): string {
+ if (score >= 75) return "text-emerald-500";
+ if (score >= 50) return "text-sky-500";
+ if (score >= 25) return "text-amber-500";
+ return "text-rose-400";
+}
+
+// `score == null` → loading placeholder (muted, pulsing, no number); shown
+// while the scores query is still resolving so cold pipelines don't look broken.
+const ScoreRing = memo(function ScoreRing({
+ score,
+ density,
+}: {
+ score: number | null;
+ density: "cozy" |"compact";
+}) {
+ const compact = density === "compact";
+ const size = compact ? 28 : 40;
+ const stroke = compact ? 3 : 3.5;
+ const r = (size - stroke) / 2;
+ const circ = 2 * Math.PI * r;
+
+ if (score == null) {
+ return (
+ <div
+ className={cn("relative shrink-0 self-center animate-pulse",
+ compact ?"h-7 w-7" :"h-10 w-10"
+ )}
+ aria-label="Obliczanie dopasowania AI…"
+ >
+ <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full">
+ <circle
+ cx={size / 2}
+ cy={size / 2}
+ r={r}
+ fill="none"
+ strokeWidth={stroke}
+ className="stroke-current text-muted-foreground/20"
+ />
+ </svg>
+ </div>
+ );
+ }
+
+ const pct = Math.max(0, Math.min(100, Math.round(score)));
+ const dash = (pct / 100) * circ;
+ const color = scoreRingColor(pct);
+ return (
+ <Tooltip>
+ <TooltipTrigger asChild>
+ <div
+ className={cn("relative shrink-0 self-center", compact ?"h-7 w-7" :"h-10 w-10")}
+ aria-label={`Dopasowanie AI: ${pct} na 100`}
+ >
+ <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
+ <circle
+ cx={size / 2}
+ cy={size / 2}
+ r={r}
+ fill="none"
+ strokeWidth={stroke}
+ className="stroke-current text-muted-foreground/20"
+ />
+ <circle
+ cx={size / 2}
+ cy={size / 2}
+ r={r}
+ fill="none"
+ strokeWidth={stroke}
+ strokeLinecap="round"
+ strokeDasharray={`${dash} ${circ - dash}`}
+ className={cn("stroke-current transition-all", color)}
+ />
+ </svg>
+ <span
+ className={cn("absolute inset-0 flex items-center justify-center font-bold",
+ compact ?"text-[10px]" :"text-xs",
+ color
+ )}
+ >
+ {pct}
+ </span>
+ </div>
+ </TooltipTrigger>
+ <TooltipContent side="top">Dopasowanie AI: {pct}/100</TooltipContent>
+ </Tooltip>
+ );
+});
+
 // ── Card ─────────────────────────────────────────────────────────────
 
 interface CardProps {
@@ -136,6 +237,8 @@ interface CardProps {
  density: "cozy" |"compact";
  canScreen: boolean;
  isApprover: boolean;
+ matchScore?: number;
+ scoresLoading?: boolean;
  onAcceptVerification?: (item: KanbanItem) => void;
  onRejectVerification?: (item: KanbanItem) => void;
 }
@@ -149,6 +252,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  density,
  canScreen,
  isApprover,
+ matchScore,
+ scoresLoading,
  onAcceptVerification,
  onRejectVerification,
 }: CardProps) {
@@ -254,6 +359,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  </div>
  </div>
+ {!isPending && (matchScore != null || scoresLoading) && (
+ <ScoreRing score={matchScore ?? null} density={density} />
+ )}
  </div>
  </Link>
 
@@ -316,6 +424,8 @@ interface ColProps {
  onOpenScreening: (stageId: number, name: string) => void;
  density: "cozy" |"compact";
  isApprover: boolean;
+ scoreMap?: Map<number, number>;
+ scoresLoading?: boolean;
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
 }
@@ -328,6 +438,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScreening,
  density,
  isApprover,
+ scoreMap,
+ scoresLoading,
  onAcceptVerification,
  onRejectVerification,
 }: ColProps) {
@@ -396,6 +508,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  density={density}
  canScreen={EXTERNAL_STAGES_FOR_SCREENING.has(item.stage)}
  isApprover={isApprover}
+ matchScore={scoreMap?.get(item.candidate_id)}
+ scoresLoading={scoresLoading}
  onAcceptVerification={onAcceptVerification}
  onRejectVerification={onRejectVerification}
  />
@@ -413,7 +527,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
-export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  const { showActionToast, showSuccess, showError } = useToast();
@@ -1028,6 +1142,8 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  }
  density={density}
  isApprover={isApprover}
+ scoreMap={scoreMap}
+ scoresLoading={scoresLoading}
  onAcceptVerification={handleAcceptVerification}
  onRejectVerification={(item) =>
  setPendingRejectVerification({ item, note: "" })
