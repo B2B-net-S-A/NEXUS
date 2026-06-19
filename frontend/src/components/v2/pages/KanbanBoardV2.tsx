@@ -928,10 +928,11 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  };
 
  return (
- <div className="space-y-3">
- {/* Toolbar */}
- <div className="flex items-center gap-2 flex-wrap">
- <div className="ml-auto flex items-center gap-2">
+ <div className="relative space-y-3">
+ {/* Density toggle floated into the header gap (top-right, beside the
+ tabs) so the board sits flush under the tabs instead of leaving an
+ empty toolbar band above it. */}
+ <div className="absolute -top-9 right-0 z-10 flex items-center gap-2">
  <Tooltip>
  <TooltipTrigger asChild>
  <button
@@ -949,7 +950,6 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  Gęstość: {density === "compact" ?"kompaktowa" :"cozy"}
  </TooltipContent>
  </Tooltip>
- </div>
  </div>
 
  {/* Bulk action bar */}
