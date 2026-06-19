@@ -2,6 +2,7 @@
 
 import * as React from"react";
 import { memo, useCallback, useEffect, useState } from"react";
+import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
 import {
  DragDropContext,
@@ -22,9 +23,16 @@ import {
  Rows3,
  Sparkles,
  Star,
+ Trash2,
  XCircle,
 } from"lucide-react";
-import api, { pipelineApi, pipelineTemplatesApi, type RateUnit } from"@/lib/api";
+import api, {
+ candidatesApi,
+ pipelineApi,
+ pipelineTemplatesApi,
+ type RateUnit,
+} from"@/lib/api";
+import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
 import { useAuthStore } from"@/store/auth";
 import { VerifiedRateModal } from"@/components/v2/modals/VerifiedRateModal";
 import {
@@ -138,6 +146,7 @@ interface CardProps {
  isApprover: boolean;
  onAcceptVerification?: (item: KanbanItem) => void;
  onRejectVerification?: (item: KanbanItem) => void;
+ onRemoveFromRecruitment: (item: KanbanItem) => void;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -151,6 +160,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  isApprover,
  onAcceptVerification,
  onRejectVerification,
+ onRemoveFromRecruitment,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -257,6 +267,26 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  </Link>
 
+ {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
+ Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
+ „pending", gdzie prawy górny róg zajmuje badge weryfikacji. */}
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ onRemoveFromRecruitment(item);
+ }}
+ className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none",
+ density === "compact" ?"h-5 w-5" :"h-6 w-6",
+ isPending ?"top-7" :"top-1"
+ )}
+ title="Usuń kandydata z tej rekrutacji"
+ aria-label={`Usuń ${fullName} z rekrutacji`}
+ >
+ <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
+ </button>
+
  {canScreen && density !== "compact" && !isPending && (
  <button
  type="button"
@@ -318,6 +348,7 @@ interface ColProps {
  isApprover: boolean;
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
+ onRemoveFromRecruitment: (item: KanbanItem) => void;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -330,6 +361,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  isApprover,
  onAcceptVerification,
  onRejectVerification,
+ onRemoveFromRecruitment,
 }: ColProps) {
  const dropId = colId(col);
  return (
@@ -398,6 +430,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  isApprover={isApprover}
  onAcceptVerification={onAcceptVerification}
  onRejectVerification={onRejectVerification}
+ onRemoveFromRecruitment={onRemoveFromRecruitment}
  />
  </div>
  )}
@@ -416,6 +449,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
+ const queryClient = useQueryClient();
  const { showActionToast, showSuccess, showError } = useToast();
  const userRole = useAuthStore((s) => s.user?.role);
  const isApprover = !!userRole && APPROVER_ROLES.has(userRole);
@@ -467,6 +501,10 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  stageId: number;
  candidateName: string;
  } | null>(null);
+ // „Usuń z rekrutacji" — korekta (dodano nie tego kandydata / nie na tę
+ // ofertę). Modal potwierdzenia trzyma board, karta tylko sygnalizuje intencję.
+ const [pendingRemoval, setPendingRemoval] = useState<KanbanItem | null>(null);
+ const [removeBusy, setRemoveBusy] = useState(false);
 
  useEffect(() => setCols(columns), [columns]);
 
@@ -809,6 +847,51 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  }
  }, [pendingRejectVerification, jobId, showSuccess, showError]);
 
+ // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
+ // kartę z kolumny, kasuje go z zaznaczenia bulk i odświeża powiązane widoki
+ // (zakładka „Rekrutacje" + widget pipeline'ów na profilu kandydata).
+ const confirmRemoveFromRecruitment = useCallback(async () => {
+ if (!pendingRemoval) return;
+ const item = pendingRemoval;
+ const removedName =
+ `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
+ setRemoveBusy(true);
+ try {
+ await candidatesApi.removeFromRecruitment(item.candidate_id, jobId);
+ setCols((prev) =>
+ prev.map((c) => {
+ if (!c.items.some((i) => i.id === item.id)) return c;
+ const items = c.items.filter((i) => i.id !== item.id);
+ return { ...c, items, count: items.length };
+ })
+ );
+ setSelected((prev) => {
+ if (!prev.has(item.id)) return prev;
+ const n = new Set(prev);
+ n.delete(item.id);
+ return n;
+ });
+ queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ queryClient.invalidateQueries({ queryKey: ["candidate-history"] });
+ queryClient.invalidateQueries({
+ queryKey: candidatePipelinesQueryKey(item.candidate_id),
+ });
+ showSuccess(`${removedName} — usunięty z rekrutacji.`);
+ setPendingRemoval(null);
+ } catch (e) {
+ console.error("Remove from recruitment failed", e);
+ const detail = (e as { response?: { data?: { detail?: unknown } } })
+ ?.response?.data?.detail;
+ showError(
+ typeof detail === "string"
+ ? detail :"Nie udało się usunąć kandydata z rekrutacji."
+ );
+ } finally {
+ setRemoveBusy(false);
+ }
+ }, [pendingRemoval, jobId, queryClient, showSuccess, showError]);
+
  const toggleSelect = (id: number) => {
  setSelected((p) => {
  const n = new Set(p);
@@ -1032,6 +1115,7 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  onRejectVerification={(item) =>
  setPendingRejectVerification({ item, note: "" })
  }
+ onRemoveFromRecruitment={(item) => setPendingRemoval(item)}
  />
  ))
  )}
@@ -1187,6 +1271,55 @@ export function KanbanBoardV2({ columns, jobId }: KanbanBoardV2Props) {
  disabled={!pendingRejectVerification.note.trim()}
  >
  Odrzuć i wróć
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
+ )}
+
+ {/* Usuń z rekrutacji — potwierdzenie (operacja nieodwracalna) */}
+ {pendingRemoval && (
+ <Dialog
+ open={true}
+ onOpenChange={(v: boolean) => {
+ if (!v && !removeBusy) setPendingRemoval(null);
+ }}
+ >
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Usunąć kandydata z tej rekrutacji?</DialogTitle>
+ <DialogDescription>
+ <span className="font-medium text-foreground">
+ {`${pendingRemoval.name ??""} ${pendingRemoval.lastname ??""}`.trim() ||"Kandydat"}
+ </span>{" "}
+ zostanie zdjęty z pipeline'u tej oferty. Usunięta zostanie cała
+ historia jego etapów wraz z powiązanymi snapshotami CV
+ (oryginalne/brandowane) i linkami do udostępnień. Tej operacji nie
+ można cofnąć — kandydata można jednak dodać do rekrutacji ponownie.
+ Sam profil kandydata oraz jego umowy pozostają bez zmian.
+ </DialogDescription>
+ </DialogHeader>
+ <DialogBody>
+ <p className="text-xs text-muted-foreground">
+ To nie to samo co odrzucenie — jeśli kandydat brał udział w procesie,
+ użyj „Odrzuć", by zachować historię.
+ </p>
+ </DialogBody>
+ <DialogFooter>
+ <Button
+ variant="ghost"
+ onClick={() => setPendingRemoval(null)}
+ disabled={removeBusy}
+ >
+ Anuluj
+ </Button>
+ <Button
+ variant="destructive"
+ onClick={confirmRemoveFromRecruitment}
+ disabled={removeBusy}
+ loading={removeBusy}
+ >
+ Usuń z rekrutacji
  </Button>
  </DialogFooter>
  </DialogContent>
