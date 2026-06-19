@@ -35,11 +35,16 @@ services:
     healthcheck:
       # /api/health = standard shape per ~/.claude/rules/deployment.md.
       # /health zachowane jako alias przez 7 dni dla uptime-probe.yml legacy.
+      # start_interval=2s → kontener zostaje `healthy` ~2s po gotowości uvicorna
+      # (nie czeka pełnego start_period), więc Coolify szybko przełącza proxy i
+      # okno „no available server" przy deployu jest krótkie. start_period=60s =
+      # zapas na `alembic upgrade head` uruchamiany w entrypoint na starcie.
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 60s
+      start_interval: 2s
     deploy:
       resources:
         limits:
