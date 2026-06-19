@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, TacPlus, require_roles
@@ -25,6 +25,7 @@ from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.kpi_panel import _ANCHOR_LOOKBACK_DAYS
 
 router = APIRouter()
 
@@ -163,44 +164,95 @@ async def report_recruitment(
         "interviews_to_placements": _safe_pct(placements, interviews),
     }
 
-    # Per-recruiter breakdown
-    per_recruiter_q = (
-        select(
-            User.id,
-            User.name,
-            func.sum(
-                case((CandidateStage.stage == PipelineStage.verified, 1), else_=0)
-            ).label("weryfikacje"),
-            func.sum(
-                case((CandidateStage.stage == PipelineStage.cv_sent, 1), else_=0)
-            ).label("rekomendacje"),
-            func.sum(
-                case((CandidateStage.stage == PipelineStage.interview, 1), else_=0)
-            ).label("interviews"),
-            func.sum(
-                case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)
-            ).label("placements"),
-        )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .join(Job, CandidateStage.job_id == Job.id)
-        .where(CandidateStage.moved_at >= start, *job_filter)
-        .group_by(User.id, User.name)
-        .order_by(
-            func.sum(
-                case((CandidateStage.stage == PipelineStage.hired, 1), else_=0)
-            ).desc()
-        )
-    )
-    rows = (await db.execute(per_recruiter_q)).all()
+    # Per-recruiter breakdown — atrybucja **verifier-anchored** (spójna z panelem
+    # „Moje KPI" / app/services/kpi_panel.py): zasługę za każdy kamień milowy pary
+    # (kandydat × rekrutacja) — weryfikację, rekomendację, interview, placement —
+    # dostaje osoba, która przeniosła kandydata na „verified", niezależnie kto
+    # klikał późniejsze etapy. Gdy para nigdy nie była zweryfikowana, kamień liczy
+    # się temu, kto wykonał ruch (fallback first_mover). Bez tego rekomendacja
+    # „CV wysłane" trafiała do osoby klikającej wysyłkę zamiast do weryfikatora —
+    # zasługa dublowała się między dwie osoby (weryfikatora i wysyłającego).
+    #
+    # Funnel TOTALS powyżej (count_stage) pozostają sumą zespołu (nie per-user),
+    # więc nie wymagają kotwicy; tu kotwiczymy tylko podział per osoba + Liga
+    # Mistrzów (top3), które są jedynym miejscem z dublowaniem zasługi.
+    anchor_lookback = start - timedelta(days=_ANCHOR_LOOKBACK_DAYS)
+    rtype_clause = ""
+    anchored_params: dict = {"lookback": anchor_lookback, "period_start": start}
+    if recruitment_type and recruitment_type != "all":
+        try:
+            RecruitmentType(recruitment_type)
+            rtype_clause = "AND j.recruitment_type::text = :rtype"
+            anchored_params["rtype"] = recruitment_type
+        except ValueError:
+            pass
 
-    # Wzbogacenie: rola + primary competence category (priority=1 lub is_primary)
-    user_ids = [r.id for r in rows]
+    per_recruiter_sql = text(
+        f"""
+        WITH cs AS (
+            SELECT cst.candidate_id, cst.job_id, cst.stage::text AS stage,
+                   cst.moved_at, cst.moved_by, cst.id
+            FROM candidate_stages cst
+            JOIN jobs j ON j.id = cst.job_id
+            WHERE cst.stage IN ('verified', 'cv_sent', 'interview', 'hired')
+              AND cst.moved_at >= :lookback
+              {rtype_clause}
+        ),
+        mf AS (
+            SELECT DISTINCT ON (candidate_id, job_id, stage)
+                   candidate_id, job_id, stage,
+                   moved_by AS first_mover, moved_at AS reached_at
+            FROM cs
+            ORDER BY candidate_id, job_id, stage, moved_at ASC, id ASC
+        ),
+        anchor AS (
+            SELECT candidate_id, job_id, first_mover AS verifier
+            FROM mf WHERE stage = 'verified'
+        ),
+        credited AS (
+            SELECT mf.stage, mf.reached_at,
+                   COALESCE(a.verifier, mf.first_mover) AS credit_user
+            FROM mf LEFT JOIN anchor a USING (candidate_id, job_id)
+        )
+        SELECT credit_user, stage, count(*) AS cnt
+        FROM credited
+        WHERE reached_at >= :period_start AND credit_user IS NOT NULL
+        GROUP BY credit_user, stage
+        """
+    )
+    anchored_rows = (
+        (await db.execute(per_recruiter_sql, anchored_params)).mappings().all()
+    )
+
+    # credit_user × stage → bucket per osoba.
+    _STAGE_TO_KEY = {
+        "verified": "weryfikacje",
+        "cv_sent": "rekomendacje",
+        "interview": "interviews",
+        "hired": "placements",
+    }
+    agg: dict[int, dict[str, int]] = {}
+    for ar in anchored_rows:
+        bucket = agg.setdefault(
+            int(ar["credit_user"]),
+            {"weryfikacje": 0, "rekomendacje": 0, "interviews": 0, "placements": 0},
+        )
+        key = _STAGE_TO_KEY.get(ar["stage"])
+        if key:
+            bucket[key] += int(ar["cnt"])
+
+    # Wzbogacenie: nazwa + rola + primary competence category (priority=1 lub is_primary)
+    user_ids = list(agg.keys())
+    name_map: dict[int, str] = {}
     role_map: dict[int, str] = {}
     category_map: dict[int, dict | None] = {}
     if user_ids:
         user_rows = (
-            await db.execute(select(User.id, User.role).where(User.id.in_(user_ids)))
+            await db.execute(
+                select(User.id, User.name, User.role).where(User.id.in_(user_ids))
+            )
         ).all()
+        name_map = {u.id: u.name for u in user_rows}
         role_map = {
             u.id: (u.role.value if hasattr(u.role, "value") else str(u.role))
             for u in user_rows
@@ -243,25 +295,31 @@ async def report_recruitment(
         category_map = {uid: payload[1] for uid, payload in best.items()}
 
     per_recruiter = []
-    for r in rows:
-        w = r.weryfikacje or 0
-        p = r.placements or 0
+    for uid, b in agg.items():
+        w = b["weryfikacje"]
+        p = b["placements"]
         per_recruiter.append(
             {
-                "user_id": r.id,
-                "user_name": r.name,
-                "role": role_map.get(r.id),
-                "primary_category": category_map.get(r.id),
+                "user_id": uid,
+                "user_name": name_map.get(uid, f"#{uid}"),
+                "role": role_map.get(uid),
+                "primary_category": category_map.get(uid),
                 "weryfikacje": w,
-                "rekomendacje": r.rekomendacje or 0,
-                "interviews": r.interviews or 0,
+                "rekomendacje": b["rekomendacje"],
+                "interviews": b["interviews"],
                 "placements": p,
                 "hit_ratio": _safe_pct(p, w),
             }
         )
 
+    # Ranking po placementach (jak dotąd order_by hired DESC) — z deterministycznym
+    # tie-breakerem (weryfikacje, potem user_id) dla stabilnej kolejności tabeli.
+    per_recruiter.sort(
+        key=lambda x: (-x["placements"], -x["weryfikacje"], x["user_id"])
+    )
+
     # Top 3 — Liga Mistrzów
-    top3 = sorted(per_recruiter, key=lambda x: x["placements"], reverse=True)[:3]
+    top3 = per_recruiter[:3]
 
     result_data = {
         "period": period,

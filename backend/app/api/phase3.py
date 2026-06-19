@@ -426,7 +426,21 @@ async def time_to_hire(
             continue
         placements += 1
         days = max(0, (hired.moved_at - start).days)
-        owner = hired.moved_by or items[0].moved_by or 0
+        # Verifier-anchored: zasługę za placement (i jego time-to-hire) dostaje
+        # osoba, która przeniosła parę na „verified" — spójnie z panelem „Moje
+        # KPI" (app/services/kpi_panel.py) i raportem /recruitment. Fallback do
+        # osoby zamykającej (hired) lub pierwszego ruchu, gdy pary nie
+        # zweryfikowano w oknie.
+        verified = next(
+            (x for x in items if x.stage == PipelineStage.verified),
+            None,
+        )
+        owner = (
+            (verified.moved_by if verified else None)
+            or hired.moved_by
+            or items[0].moved_by
+            or 0
+        )
         per_recruiter[owner].append(days)
 
     # Collect recruiter names
