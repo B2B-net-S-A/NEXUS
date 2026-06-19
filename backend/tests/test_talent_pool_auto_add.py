@@ -2,8 +2,10 @@
 
 Coverage:
   1. Pure helpers (_derive_pool_name, _seniority_label) — no DB.
-  2. Service integration: creates pool, reuses pool, idempotent, skip-no-category.
-  3. Centroid invalidation on membership add.
+  2. Legacy subcategory/seniority path: creates pool, reuses, idempotent, skip.
+  3. Title-classifier path: adds to an EXISTING catalogue pool (no creation),
+     candidate-skill variant disambiguation.
+  4. Centroid invalidation on membership add; CC population/heal.
 
 Service module: app.services.talent_pool_auto_add
 """
@@ -498,6 +500,129 @@ async def test_auto_add_leaves_cc_untouched_when_job_has_no_cc(
             assert pool.competence_category_id == cc_id
     finally:
         await _cleanup_pool_by_name(pool_name)
+
+
+# ── Title-classifier path (fills EXISTING curated pools) ──────────────────────
+
+
+async def _ensure_pool(name: str) -> tuple[int, bool]:
+    """Return (pool_id, created) for a pool with the given name."""
+    async with AsyncSessionLocal() as db:
+        pool = await db.scalar(select(TalentPool).where(TalentPool.name == name))
+        if pool is not None:
+            return pool.id, False
+        pool = TalentPool(name=name, description="test", criteria={})
+        db.add(pool)
+        await db.commit()
+        await db.refresh(pool)
+        return pool.id, True
+
+
+async def _delete_membership(pool_id: int, candidate_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        m = await db.scalar(
+            select(TalentPoolMembership).where(
+                TalentPoolMembership.talent_pool_id == pool_id,
+                TalentPoolMembership.candidate_id == candidate_id,
+            )
+        )
+        if m is not None:
+            await db.delete(m)
+            await db.commit()
+
+
+async def _delete_pool_by_id(pool_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        pool = await db.get(TalentPool, pool_id)
+        if pool is not None:
+            await db.delete(pool)
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_title_path_adds_to_existing_pool_no_creation(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """A job whose title classifies to an existing catalogue pool ("Java") adds
+    the candidate to THAT pool — no new pool is created."""
+    from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
+    pool_id, created = await _ensure_pool("Java")
+    # Title classifies to "Java"; subcategory/seniority intentionally absent so
+    # only the title path can succeed.
+    job_id = await _seed_job(
+        subcategory=None,
+        seniority=None,
+        title=f"Senior Java Developer (test {uuid.uuid4().hex[:6]})",
+    )
+    candidate_id = await _seed_candidate()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, job_id)
+            result = await auto_add_on_cv_sent(
+                db=db, candidate_id=candidate_id, job=job, user_id=None
+            )
+            await db.commit()
+
+        assert result.status == "added"
+        assert result.resolved_via == "title"
+        assert result.pool_created is False
+        assert result.pool_id == pool_id
+    finally:
+        await _delete_membership(pool_id, candidate_id)
+        if created:
+            await _delete_pool_by_id(pool_id)
+
+
+@pytest.mark.asyncio
+async def test_title_path_uses_candidate_skills_for_variant(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """An ambiguous title ("Front-end Developer") plus candidate skills naming a
+    framework resolves to the framework's pool."""
+    from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
+    pool_id, created = await _ensure_pool("React")
+    job_id = await _seed_job(
+        subcategory=None,
+        seniority=None,
+        title=f"Front-end Developer (test {uuid.uuid4().hex[:6]})",
+    )
+
+    # Candidate with React skills.
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Test",
+            lastname=f"React-{uuid.uuid4().hex[:6]}",
+            email=f"react-{uuid.uuid4().hex[:8]}@example.com",
+            skills=[{"name": "React"}, {"name": "TypeScript"}],
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+        candidate_id = cand.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, job_id)
+            candidate = await db.get(Candidate, candidate_id)
+            result = await auto_add_on_cv_sent(
+                db=db,
+                candidate_id=candidate_id,
+                job=job,
+                user_id=None,
+                candidate=candidate,
+            )
+            await db.commit()
+
+        assert result.status == "added"
+        assert result.resolved_via == "title"
+        assert result.pool_id == pool_id
+    finally:
+        await _delete_membership(pool_id, candidate_id)
+        if created:
+            await _delete_pool_by_id(pool_id)
 
 
 @pytest.mark.asyncio

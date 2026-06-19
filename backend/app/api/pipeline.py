@@ -497,21 +497,26 @@ async def move_candidate(
             "stage_notif top-level failure for stage=%s: %s", stage.id, _exc
         )
 
-    # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
-    # the client. Pool is derived from JO subcategory + seniority (see
-    # services/talent_pool_auto_add.py). Best-effort — pool-add failure
-    # must NOT block the stage change, so errors are swallowed and logged.
+    # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to the
+    # client. The pool is resolved from the job title (classifier in
+    # services/job_to_pool.py) against the existing curated catalogue, with the
+    # candidate's skills disambiguating role variants. Best-effort — pool-add
+    # failure must NOT block the stage change, so errors are swallowed/logged.
     if legacy_enum == PipelineStage.cv_sent:
         import logging
 
         from app.services.talent_pool_auto_add import auto_add_on_cv_sent
 
         try:
+            pool_candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
             await auto_add_on_cv_sent(
                 db=db,
                 candidate_id=data.candidate_id,
                 job=job,
                 user_id=current_user.id,
+                candidate=pool_candidate,
             )
         except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
@@ -1476,5 +1481,37 @@ async def bulk_move_candidates(
     for cid in data.candidate_ids:
         await on_candidate_stage_change(db, cid)
     await db.commit()
+
+    # Auto-add to a talent pool when the bulk move is "CV → klient" (same
+    # signal as the single /move path). Best-effort: a failure must not affect
+    # the move that already committed above.
+    if data.stage == PipelineStage.cv_sent:
+        import logging as _logging
+
+        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
+        pool_job = await db.scalar(select(Job).where(Job.id == data.job_id))
+        if pool_job is not None:
+            for cid in data.candidate_ids:
+                try:
+                    pool_candidate = await db.scalar(
+                        select(Candidate).where(Candidate.id == cid)
+                    )
+                    await auto_add_on_cv_sent(
+                        db=db,
+                        candidate_id=cid,
+                        job=pool_job,
+                        user_id=current_user.id,
+                        candidate=pool_candidate,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    await db.rollback()
+                    _logging.getLogger(__name__).warning(
+                        "bulk auto_add_on_cv_sent failed candidate=%s job=%s: %s",
+                        cid,
+                        data.job_id,
+                        e,
+                    )
+            await db.commit()
 
     return {"moved": moved, "stage": data.stage.value, "job_id": data.job_id}

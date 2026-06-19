@@ -303,6 +303,10 @@ function PoolDetailView({
 
   const candidates: CandidateInPool[] = data?.candidates ?? [];
   const poolColor = getPoolColor(pool.name);
+  // The API reports the true membership count separately from the (capped)
+  // page of candidate rows — the largest pools hold ~1k members after the
+  // cv_sent backfill, so we show the real total and note when truncated.
+  const total: number = data?.total ?? candidates.length;
 
   return (
     <div className="space-y-4">
@@ -360,7 +364,7 @@ function PoolDetailView({
             )}
           </div>
           <div className="bg-card/20 rounded-xl px-4 py-2 text-center">
-            <p className="text-2xl font-bold">{candidates.length}</p>
+            <p className="text-2xl font-bold">{total}</p>
             <p className="text-white/80 text-xs">kandydatów</p>
           </div>
         </div>
@@ -370,8 +374,13 @@ function PoolDetailView({
       <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
           <h2 className="font-semibold text-foreground dark:text-foreground">
-            Kandydaci w puli ({candidates.length})
+            Kandydaci w puli ({total})
           </h2>
+          {total > candidates.length && (
+            <span className="text-xs text-muted-foreground">
+              pokazano {candidates.length} z {total}
+            </span>
+          )}
         </div>
 
         {isLoading ? (
