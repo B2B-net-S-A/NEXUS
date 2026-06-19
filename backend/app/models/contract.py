@@ -35,6 +35,31 @@ class ContractWorkMode(str, enum.Enum):
     onsite = "onsite"
 
 
+class ProlongationStatus(str, enum.Enum):
+    """Czy kontrakt zostanie przedłużony (forecast renewalu).
+
+    Napędza per-klient rejestr kontraktów (np. Nordea) — pozwala filtrować
+    kontrakty po prawdopodobieństwie przedłużenia i planować rozmowy.
+    """
+
+    unknown = "unknown"  # jeszcze nie wiadomo / nie pytano
+    yes = "yes"  # klient potwierdził przedłużenie
+    no = "no"  # nie będzie przedłużenia (projekt się kończy)
+    negotiate = "negotiate"  # w trakcie negocjacji warunków
+
+
+class EngagementModel(str, enum.Enum):
+    """Model rozliczenia kontraktu — różni się per klient.
+
+    * ``time_based`` — klasyczny czasowy (start_date → end_date).
+    * ``hours_pool`` — pula godzin do wykorzystania (np. wsparcie ad-hoc):
+      ``hours_pool_total`` budżet, ``hours_pool_consumed`` zużyte.
+    """
+
+    time_based = "time_based"
+    hours_pool = "hours_pool"
+
+
 class ContractTerminationReason(str, enum.Enum):
     """Structured reasons for ending cooperation — drives attrition analytics."""
 
@@ -143,6 +168,34 @@ class Contract(Base, TimestampMixin):
     # order lapses.
     client_order_end_date: Mapped[Optional[date]] = mapped_column(
         Date, nullable=True, index=True
+    )
+
+    # ── Per-klient rejestr kontraktów (migracja 0138) ─────────────────────
+    # Numer/kod projektu po stronie klienta (np. wewnętrzny ID projektu w
+    # Nordea) — osobny od naszego `id`. `project_name` istnieje już wyżej.
+    project_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # Status przedłużenia (renewal forecast) — domyślnie "nieznany".
+    prolongation_status: Mapped[ProlongationStatus] = mapped_column(
+        Enum(ProlongationStatus, name="prolongationstatus"),
+        default=ProlongationStatus.unknown,
+        nullable=False,
+        server_default="unknown",
+        index=True,
+    )
+
+    # Model rozliczenia: czasowy vs pula godzin. Per kontrakt — jeden klient
+    # może mieć oba (np. Nordea: część czasowa, część godzinowa).
+    engagement_model: Mapped[EngagementModel] = mapped_column(
+        Enum(EngagementModel, name="engagementmodel"),
+        default=EngagementModel.time_based,
+        nullable=False,
+        server_default="time_based",
+    )
+    # Pula godzin — tylko gdy engagement_model == hours_pool.
+    hours_pool_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    hours_pool_consumed: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, server_default="0"
     )
 
     # ── Editable draft body (migracja 0058) ──────────────────────────────
@@ -260,6 +313,20 @@ class Contract(Base, TimestampMixin):
         if c is None or k is None:
             return None
         return c - k
+
+    @property
+    def hours_pool_remaining(self) -> Optional[int]:
+        """Pozostałe godziny w puli (total - consumed). None gdy nie godzinowy."""
+        if self.hours_pool_total is None:
+            return None
+        return self.hours_pool_total - (self.hours_pool_consumed or 0)
+
+    @property
+    def hours_pool_usage_pct(self) -> Optional[float]:
+        """Procent zużycia puli godzin (0–100+). None gdy brak/zerowa pula."""
+        if not self.hours_pool_total:
+            return None
+        return round((self.hours_pool_consumed or 0) / self.hours_pool_total * 100, 1)
 
     def __repr__(self) -> str:
         return f"<Contract id={self.id} candidate={self.candidate_id} client={self.client_id} status={self.status}>"

@@ -8,6 +8,8 @@ from app.models.contract import (
     ContractTerminationReason,
     ContractType,
     ContractWorkMode,
+    EngagementModel,
+    ProlongationStatus,
     RateUnit,
 )
 
@@ -36,6 +38,12 @@ class ContractCreate(BaseModel):
     team_name: Optional[str] = None
     project_name: Optional[str] = None
     handover_notes: Optional[str] = None
+    # Per-klient rejestr (migracja 0138)
+    project_code: Optional[str] = None
+    prolongation_status: ProlongationStatus = ProlongationStatus.unknown
+    engagement_model: EngagementModel = EngagementModel.time_based
+    hours_pool_total: Optional[int] = None
+    hours_pool_consumed: Optional[int] = None
 
 
 class ContractUpdate(BaseModel):
@@ -62,6 +70,12 @@ class ContractUpdate(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
+    # Per-klient rejestr (migracja 0138) — wszystkie opcjonalne dla PATCH.
+    project_code: Optional[str] = None
+    prolongation_status: Optional[ProlongationStatus] = None
+    engagement_model: Optional[EngagementModel] = None
+    hours_pool_total: Optional[int] = None
+    hours_pool_consumed: Optional[int] = None
 
 
 class ContractResponse(BaseModel):
@@ -93,6 +107,15 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
+    # Per-klient rejestr (migracja 0138)
+    project_code: Optional[str] = None
+    prolongation_status: ProlongationStatus = ProlongationStatus.unknown
+    engagement_model: EngagementModel = EngagementModel.time_based
+    hours_pool_total: Optional[int] = None
+    hours_pool_consumed: Optional[int] = None
+    # Computed (model properties) — pozostałe godziny i % zużycia puli.
+    hours_pool_remaining: Optional[int] = None
+    hours_pool_usage_pct: Optional[float] = None
     # Draft body provenance (migracja 0058) — `content_html` itself is fetched
     # via the dedicated /draft endpoint to keep list payloads small.
     draft_template_id: Optional[int] = None

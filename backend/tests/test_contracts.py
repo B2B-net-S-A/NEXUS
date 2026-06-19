@@ -254,3 +254,70 @@ async def test_contract_rate_unit_round_trip(
     await app_client.delete(
         f"/api/contracts/{body['id']}", headers=app_auth_headers
     )
+
+
+async def test_contract_register_fields_round_trip(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Per-klient rejestr (migracja 0138): project_code, prolongation_status,
+    engagement_model=hours_pool + pula godzin round-trip + inline PATCH."""
+    cands = (
+        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    clients = (
+        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    if not cands or not clients:
+        return
+    client_id = clients[0]["id"]
+    payload = {
+        "candidate_id": cands[0]["id"],
+        "client_id": client_id,
+        "start_date": "2026-04-17",
+        "contract_type": "b2b",
+        "status": "active",
+        "project_code": "NDA-TEST-001",
+        "project_name": "Register Smoke Project",
+        "engagement_model": "hours_pool",
+        "hours_pool_total": 200,
+        "hours_pool_consumed": 50,
+        "prolongation_status": "negotiate",
+    }
+    resp = await app_client.post(
+        "/api/contracts", json=payload, headers=app_auth_headers
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    cid = body["id"]
+    assert body["project_code"] == "NDA-TEST-001"
+    assert body["engagement_model"] == "hours_pool"
+    assert body["prolongation_status"] == "negotiate"
+    assert body["hours_pool_total"] == 200
+    assert body["hours_pool_consumed"] == 50
+    # Computed properties surfaced via ContractResponse.
+    assert body["hours_pool_remaining"] == 150
+    assert body["hours_pool_usage_pct"] == 25.0
+
+    # Inline prolongation edit via PATCH.
+    patched = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"prolongation_status": "yes"},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["prolongation_status"] == "yes"
+
+    # Per-client register list returns the row with the new fields.
+    listing = await app_client.get(
+        f"/api/contracts?client_id={client_id}&page_size=100",
+        headers=app_auth_headers,
+    )
+    assert listing.status_code == 200
+    row = next((r for r in listing.json()["items"] if r["id"] == cid), None)
+    assert row is not None
+    assert row["project_code"] == "NDA-TEST-001"
+    assert row["prolongation_status"] == "yes"
+    assert row["hours_pool_remaining"] == 150
+
+    # Clean up
+    await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
