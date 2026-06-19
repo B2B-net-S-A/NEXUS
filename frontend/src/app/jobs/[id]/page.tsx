@@ -17,7 +17,7 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus } from "lucide-react";
+import { MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus, ChevronUp, ChevronDown } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
@@ -960,6 +960,28 @@ export default function JobDetailPage() {
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
+  // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
+  // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
+  // ofertami i sesjami.
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setHeaderCollapsed(localStorage.getItem("nexus:jobHeaderCollapsed") === "1");
+    } catch {
+      // localStorage niedostępne (SSR / tryb prywatny) — zostaw domyślne
+    }
+  }, []);
+  const toggleHeaderCollapsed = useCallback(() => {
+    setHeaderCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("nexus:jobHeaderCollapsed", next ? "1" : "0");
+      } catch {
+        // ignoruj — to tylko preferencja UI
+      }
+      return next;
+    });
+  }, []);
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
@@ -1075,80 +1097,96 @@ export default function JobDetailPage() {
               resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
               className="mr-1"
             />
-            <button
-              onClick={() => setShowAddCandidates(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
-              data-testid="open-add-candidates"
-              title="Wyszukaj kandydatów po imieniu i nazwisku i dodaj ich do pipeline"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              Dodaj kandydata
-            </button>
-            <button
-              onClick={() => setShowEditJob(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
-            >
-              <PencilLine className="w-3.5 h-3.5 text-muted-foreground" />
-              Edytuj
-            </button>
-            <button
-              onClick={() => setShowAIWriter(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              AI Ogłoszenie
-            </button>
-            {job.status === "published" && (
-              <button
-                onClick={() => setShowInviteLink(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
-                title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
-              >
-                <Link2 className="w-3.5 h-3.5 text-primary" />
-                Wygeneruj link
-              </button>
+            {!headerCollapsed && (
+              <>
+                <button
+                  onClick={() => setShowAddCandidates(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+                  data-testid="open-add-candidates"
+                  title="Wyszukaj kandydatów po imieniu i nazwisku i dodaj ich do pipeline"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Dodaj kandydata
+                </button>
+                <button
+                  onClick={() => setShowEditJob(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
+                >
+                  <PencilLine className="w-3.5 h-3.5 text-muted-foreground" />
+                  Edytuj
+                </button>
+                <button
+                  onClick={() => setShowAIWriter(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-sm"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  AI Ogłoszenie
+                </button>
+                {job.status === "published" && (
+                  <button
+                    onClick={() => setShowInviteLink(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-sm"
+                    title="Wygeneruj indywidualny link aplikacyjny dla tej oferty"
+                  >
+                    <Link2 className="w-3.5 h-3.5 text-primary" />
+                    Wygeneruj link
+                  </button>
+                )}
+                {job.recruitment_type && RECRUITMENT_TYPE_CONFIG[job.recruitment_type] && (
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${RECRUITMENT_TYPE_CONFIG[job.recruitment_type].color}`}>
+                    {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
+                  </span>
+                )}
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  job.status === "published" ? "bg-green-100 text-green-700" :
+                  job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
+                }`}>
+                  {job.status}
+                </span>
+              </>
             )}
-            {job.recruitment_type && RECRUITMENT_TYPE_CONFIG[job.recruitment_type] && (
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${RECRUITMENT_TYPE_CONFIG[job.recruitment_type].color}`}>
-                {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
-              </span>
-            )}
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              job.status === "published" ? "bg-green-100 text-green-700" :
-              job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
-            }`}>
-              {job.status}
-            </span>
+            <button
+              type="button"
+              onClick={toggleHeaderCollapsed}
+              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border dark:border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-expanded={!headerCollapsed}
+              data-testid="toggle-job-header"
+              title={headerCollapsed ? "Rozwiń nagłówek oferty" : "Zwiń nagłówek — więcej miejsca na pipeline"}
+            >
+              {headerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
-        <div className="mt-2 border-t border-border dark:border-border pt-2 flex items-center justify-between flex-wrap gap-x-6 gap-y-1.5">
-          <JobOwnershipPanel
-            jobId={Number(id)}
-            jobTitle={job.title}
-            primaryOwner={job.primary_owner ?? null}
-            collaborators={job.collaborators ?? []}
-          />
-          {job.hiring_manager_name && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                Hiring manager (klient):
-              </span>
-              {job.hiring_manager_contact_id && job.client_id ? (
-                <Link
-                  href={`/clients/${job.client_id}?tab=zespol`}
-                  className="font-medium text-violet-600 hover:underline"
-                >
-                  {job.hiring_manager_name}
-                </Link>
-              ) : (
-                <span className="font-medium">{job.hiring_manager_name}</span>
-              )}
-            </div>
-          )}
-        </div>
+        {!headerCollapsed && (
+          <div className="mt-2 border-t border-border dark:border-border pt-2 flex items-center justify-between flex-wrap gap-x-6 gap-y-1.5">
+            <JobOwnershipPanel
+              jobId={Number(id)}
+              jobTitle={job.title}
+              primaryOwner={job.primary_owner ?? null}
+              collaborators={job.collaborators ?? []}
+            />
+            {job.hiring_manager_name && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Hiring manager (klient):
+                </span>
+                {job.hiring_manager_contact_id && job.client_id ? (
+                  <Link
+                    href={`/clients/${job.client_id}?tab=zespol`}
+                    className="font-medium text-violet-600 hover:underline"
+                  >
+                    {job.hiring_manager_name}
+                  </Link>
+                ) : (
+                  <span className="font-medium">{job.hiring_manager_name}</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
-        {job.description && (
+        {!headerCollapsed && job.description && (
           <div className="mt-2">
             <button
               type="button"
