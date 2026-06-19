@@ -999,14 +999,18 @@ function CandidateCell({
  if (!reason) {
  return <span className="text-xs text-muted-foreground">—</span>;
  }
- // Pełna treść od razu w komórce (bez line-clamp): kategoria + notatka
- // rekrutera ("Po CV — kandydat nie jest zainteresowany tą ofertą").
- // `break-words` zabezpiecza dłuższy free-text rekrutera.
+ // Kategoria + notatka rekrutera ("Po CV — kandydat nie jest
+ // zainteresowany tą ofertą"). Wiersze listy mają STAŁĄ wysokość
+ // (virtualizer, rowHeight 52/72px) — bez clampa długi free-text
+ // rekrutera wylewał się poza wiersz i nachodził na sąsiednie rzędy
+ // (nieczytelne). `line-clamp-2` przycina do 2 linii w obrębie wiersza,
+ // a pełna treść zostaje w tooltipie (`title`) i po kliknięciu w profil.
+ // `break-words` zabezpiecza długie ciągłe tokeny.
  return (
  <div className="flex items-start gap-1.5 min-w-0">
  <XCircle className="h-3 w-3 shrink-0 text-rose-500 mt-0.5" />
  <span
- className="text-xs text-foreground break-words"
+ className="text-xs text-foreground line-clamp-2 break-words"
  title={reason}
  >
  {reason}
