@@ -170,7 +170,9 @@ async def _retry_signed_downloads() -> int:
                     continue
 
                 filename = f"umowa_{sig.contract_id}_signed_{sig.id}.pdf"
-                relative_path, size = storage_service.save_contract_document(
+                # Sync file write — offload off the event loop.
+                relative_path, size = await asyncio.to_thread(
+                    storage_service.save_contract_document,
                     contract_id=sig.contract_id,
                     upload_filename=filename,
                     source=BytesIO(pdf_bytes),

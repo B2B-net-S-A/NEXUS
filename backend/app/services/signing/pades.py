@@ -26,6 +26,8 @@ import logging
 from io import BytesIO
 from typing import Any, Optional
 
+from fastapi.concurrency import run_in_threadpool
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,9 +140,14 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
             "backend/requirements.txt before using local PAdES validation."
         ) from exc
 
-    reader = PdfFileReader(BytesIO(signed_pdf))
-    approval_count, signer_names = count_approval_signatures(reader)
-    embedded = list(reader.embedded_signatures)
+    # pyHanko parse + signature enumeration is sync CPU work — offload it so
+    # the signing request path does not block the event loop.
+    def _parse_signatures() -> tuple[int, list[str], list]:
+        reader = PdfFileReader(BytesIO(signed_pdf))
+        count, names = count_approval_signatures(reader)
+        return count, names, list(reader.embedded_signatures)
+
+    approval_count, signer_names, embedded = await run_in_threadpool(_parse_signatures)
     if not embedded:
         return {
             "is_qes": False,
