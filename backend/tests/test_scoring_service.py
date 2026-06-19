@@ -136,6 +136,146 @@ def test_score_skills_tags_fallback_when_no_structured_skills():
     assert result.points == pytest.approx(ss.SKILLS_MUST_MAX)
 
 
+# ── stringified-JSON / free-form skills (Traffit/TalentRadar imports) ─────────
+
+
+def test_skill_names_from_json_encoded_string():
+    """Traffit/TalentRadar store skills as a JSON *string*, not a real array."""
+    assert ss._skill_names('["Java", "Spring Boot", "Kafka"]') == [
+        "java",
+        "spring boot",
+        "kafka",
+    ]
+
+
+def test_skill_names_from_freeform_comma_string():
+    """traffit_technologie is a flat comma list, not JSON."""
+    assert ss._skill_names("JAVA, Spring, PostgreSQL") == [
+        "java",
+        "spring",
+        "postgresql",
+    ]
+
+
+def test_skill_names_preserves_slash_compounds():
+    assert ss._skill_names("CI/CD, TCP/IP") == ["ci/cd", "tcp/ip"]
+
+
+def test_skill_names_malformed_json_string_falls_back_to_split():
+    # Not valid JSON → comma split (never broken '["java' tokens).
+    assert ss._skill_names('[Java, Spring') == ["[java", "spring"]
+
+
+# ── _skills_from_cv_extracted ─────────────────────────────────────────────────
+
+
+def test_skills_from_cv_extracted_traffit_technologie():
+    cand = make_candidate(
+        cv_extracted_data={"traffit_technologie": "Java, Hibernate, Kafka"}
+    )
+    assert ss._skills_from_cv_extracted(cand) == ["java", "hibernate", "kafka"]
+
+
+def test_skills_from_cv_extracted_nested_list():
+    cand = make_candidate(cv_extracted_data={"skills": ["Go", "Rust"]})
+    assert ss._skills_from_cv_extracted(cand) == ["go", "rust"]
+
+
+def test_skills_from_cv_extracted_missing_returns_empty():
+    assert ss._skills_from_cv_extracted(make_candidate()) == []
+    assert ss._skills_from_cv_extracted(make_candidate(cv_extracted_data={})) == []
+
+
+# ── candidate_skill_names priority + fallbacks ────────────────────────────────
+
+
+def test_candidate_skill_names_structured_wins_over_cv():
+    cand = make_candidate(
+        skills=[{"name": "Python"}],
+        cv_extracted_data={"traffit_technologie": "Java, Kafka"},
+    )
+    assert ss.candidate_skill_names(cand) == {"python"}
+
+
+def test_candidate_skill_names_falls_back_to_cv_extracted():
+    cand = make_candidate(
+        skills=[],
+        verified_tech=[],
+        cv_extracted_data={"traffit_technologie": "Java, Spring, PostgreSQL"},
+    )
+    assert ss.candidate_skill_names(cand) == {"java", "spring", "postgresql"}
+
+
+def test_candidate_skill_names_empty_everything():
+    assert ss.candidate_skill_names(make_candidate()) == set()
+
+
+# ── _score_skills regression: empty structured skills, tech in CV ─────────────
+
+
+def test_score_skills_uses_cv_extracted_when_skills_empty():
+    """Jacek Karwowski (id 25479) regression: empty `skills`, tech lives in
+    cv_extracted_data.traffit_technologie. Must skills should match, not gap."""
+    job = make_job(must_skills=[{"name": "Java"}, {"name": "Spring"}, {"name": "PostgreSQL"}])
+    cand = make_candidate(
+        skills=[],
+        verified_tech=[],
+        tags=[{"type": "traffit_source", "url": "Aktywny Search"}],
+        cv_extracted_data={
+            "traffit_technologie": (
+                "JAVA, JDK17, Hibernate, Spring, Springboot, Kafka, "
+                "PostgreSQL, Docker, Kubernetes"
+            )
+        },
+    )
+    result, must_match, must_gap, *_ = ss._score_skills(cand, job)
+    assert set(must_match) == {"java", "spring", "postgresql"}
+    assert must_gap == []
+    assert result.points == pytest.approx(ss.SKILLS_MUST_MAX)
+
+
+def test_score_skills_json_string_skills_column():
+    """The ~305 candidates whose `skills` column is a JSON *string*."""
+    job = make_job(must_skills=["Java", "Kafka"])
+    cand = make_candidate(skills='["Java", "Kafka", "Spring"]')
+    _, must_match, must_gap, *_ = ss._score_skills(cand, job)
+    assert set(must_match) == {"java", "kafka"}
+    assert must_gap == []
+
+
+# ── raw_cv_text fallback (needs the alias taxonomy loaded) ────────────────────
+
+
+@pytest.fixture
+def alias_map_loaded():
+    """Populate the module-global skill alias map for the duration of a test."""
+    saved = dict(ss.ALIAS_MAP)
+    ss.set_alias_map({"java": "java", "spring": "spring", "kafka": "kafka"})
+    try:
+        yield
+    finally:
+        ss.set_alias_map(saved)
+
+
+def test_skills_from_raw_cv_requires_alias_map():
+    # No taxonomy loaded → no raw-CV extraction (avoids per-score regex cost).
+    cand = make_candidate(raw_cv_text="Experienced Java and Kafka engineer.")
+    assert ss._skills_from_raw_cv(cand) == []
+
+
+def test_score_skills_raw_cv_fallback(alias_map_loaded):
+    job = make_job(must_skills=["Java", "Kafka"])
+    cand = make_candidate(
+        skills=[],
+        verified_tech=[],
+        cv_extracted_data={},
+        raw_cv_text="Senior engineer skilled in Java, Spring and Kafka.",
+    )
+    _, must_match, must_gap, *_ = ss._score_skills(cand, job)
+    assert set(must_match) == {"java", "kafka"}
+    assert must_gap == []
+
+
 # ── _score_salary ────────────────────────────────────────────────────────────
 
 

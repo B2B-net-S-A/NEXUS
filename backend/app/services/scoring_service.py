@@ -20,6 +20,7 @@ lists, and active penalties so the UI can render a "why" tooltip.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -243,6 +244,20 @@ class ScoreBreakdown:
 _DICT_SKILL_LIST_KEYS = ("technologies", "skills", "stack", "tech")
 
 
+def _split_skill_tokens(text: str) -> List[str]:
+    """Split a free-form skills string into lowercase tokens.
+
+    Splits on comma / semicolon / newline but NOT on ``/`` so compound names
+    like ``CI/CD`` and ``TCP/IP`` survive (mirrors
+    ``api.matching._parse_required_skills``). Used for Traffit
+    ``cv_extracted_data.traffit_technologie`` ("JAVA, Spring, Kafka, ...") and
+    for non-JSON string-typed ``skills`` columns.
+    """
+    if not text:
+        return []
+    return [t.strip().lower() for t in re.split(r"[,;\n]+", text) if t.strip()]
+
+
 # ── Alias map (Phase B1 skill taxonomy) ──────────────────────────────────────
 #
 # Populated at application startup from the `skill_aliases` table; normalized
@@ -393,6 +408,9 @@ def _skill_names(raw) -> List[str]:
       - dict with "name" key                             -> {"name": "Python"}
       - dict with a list-valued key in _DICT_SKILL_LIST_KEYS
                                                           -> {"technologies": [...]}
+      - str: JSON-encoded array/object ('["Java","Go"]') OR a free-form
+             comma list ("Java, Go") -> Traffit/TalentRadar imports store
+             skills this way; without decoding it the layer saw zero skills.
     Anything else yields [] (silent ignore, matches prior behavior for unknown types).
     """
     out: List[str] = []
@@ -414,7 +432,91 @@ def _skill_names(raw) -> List[str]:
             value = raw.get(key)
             if isinstance(value, list):
                 out.extend(_skill_names(value))
+    elif isinstance(raw, str):
+        stripped = raw.strip()
+        if stripped.startswith("[") or stripped.startswith("{"):
+            # JSON-encoded string ('["Java","Spring"]') — decode before split,
+            # otherwise a comma split yields broken tokens like ``["java``.
+            try:
+                parsed = json.loads(stripped)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, (list, dict)):
+                return _skill_names(parsed)
+        out.extend(_split_skill_tokens(stripped))
     return [s for s in out if s]
+
+
+# Cap raw-CV regex scan — long CVs (8K+) add little signal beyond the headline
+# tech and would drag the cold-path fallback on the marketplace pool scan.
+_RAW_CV_SKILL_SCAN_CAP = 4000
+
+
+def _skills_from_cv_extracted(candidate) -> List[str]:
+    """Skills pulled from ``cv_extracted_data`` for imported candidates.
+
+    Traffit imports drop the candidate's technology list into
+    ``cv_extracted_data.traffit_technologie`` (a flat comma string), and the
+    structured ``skills`` column is left empty for ~99% of the pool. TalentRadar
+    imports may instead nest a list under ``skills``. Read both shapes.
+    """
+    data = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(data, dict):
+        return []
+    tech = data.get("traffit_technologie")
+    if isinstance(tech, str) and tech.strip():
+        return _split_skill_tokens(tech)
+    nested = data.get("skills")
+    if nested:
+        return _skill_names(nested)
+    return []
+
+
+def _skills_from_raw_cv(candidate) -> List[str]:
+    """Last-resort: extract canonical skills from raw CV text via the alias
+    pattern (same mechanism as ``_extract_skills_from_champion`` for jobs).
+
+    Only fires when no structured/extracted skills exist (~12.7K candidates on
+    prod) and only when the skill taxonomy is loaded (``ALIAS_MAP`` populated).
+    """
+    pattern = _alias_pattern()
+    if pattern is None:
+        return []
+    raw = getattr(candidate, "raw_cv_text", None)
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    found: set[str] = set()
+    for match in pattern.finditer(raw[:_RAW_CV_SKILL_SCAN_CAP]):
+        canonical = ALIAS_MAP.get(match.group(1).lower())
+        if canonical:
+            found.add(canonical)
+    return sorted(found)
+
+
+def candidate_skill_names(candidate) -> set[str]:
+    """Canonical skill set for a candidate, with Traffit-aware fallbacks.
+
+    On prod ~99% of imported candidates have an EMPTY structured ``skills``
+    field — their tech lives in ``cv_extracted_data.traffit_technologie`` or only
+    in ``raw_cv_text``. Without these fallbacks the skills layer scored 0 for
+    nearly everyone, so every required skill rendered as a red ✗ gap and the
+    composite score was artificially depressed (the "Targ ocenia za surowo" bug).
+
+    Priority (first non-empty wins): structured ``skills`` + ``verified_tech``
+    → CV-extracted tech → raw CV text → tags. Fallbacks only ADD candidate
+    skills, so they can turn false gaps into matches but never invent a gap.
+    """
+    cand = set(
+        canonical_skill_names(candidate.skills)
+        + canonical_skill_names(getattr(candidate, "verified_tech", None))
+    )
+    if not cand:
+        cand = set(canonical_skill_names(_skills_from_cv_extracted(candidate)))
+    if not cand:
+        cand = set(canonical_skill_names(_skills_from_raw_cv(candidate)))
+    if not cand and candidate.tags:
+        cand = set(canonical_skill_names(candidate.tags))
+    return cand
 
 
 def _score_skills(
@@ -442,13 +544,10 @@ def _score_skills(
                 else "jd_text"
             )
 
-    cand_skills = set(
-        canonical_skill_names(candidate.skills)
-        + canonical_skill_names(candidate.verified_tech)
-    )
-    # Tags fallback
-    if not cand_skills and candidate.tags:
-        cand_skills = set(canonical_skill_names(candidate.tags))
+    # Candidate skills with Traffit-aware fallbacks (structured → CV-extracted
+    # → raw CV → tags). ~99% of imported candidates have an empty `skills`
+    # column; without the fallbacks every required skill showed as a gap.
+    cand_skills = candidate_skill_names(candidate)
 
     must_match = [s for s in must if s in cand_skills]
     must_gap = [s for s in must if s not in cand_skills]
