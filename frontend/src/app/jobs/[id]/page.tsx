@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -727,6 +727,8 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
     onSuccess: (res, { candidateId, fullName }) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      // Newly-added candidate needs its AI score ring (prefix match → any id key).
+      queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
       setAddedIds((prev) => new Set(prev).add(candidateId));
       showSuccess(
         res.total_added > 0
@@ -1036,6 +1038,24 @@ export default function JobDetailPage() {
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
   });
+
+  // AI match scores (0-100) for pipeline candidates → score ring on kanban cards.
+  // Fetched in parallel with the kanban (cache-first server-side) so cards paint
+  // immediately and the rings fill in when scores resolve.
+  const { data: pipelineScores, isLoading: scoresLoading } = useQuery({
+    queryKey: ["pipeline-scores", id],
+    queryFn: () => matchingApi.pipelineScores(Number(id)).then((r) => r.data),
+    enabled: activeTab === "pipeline" && !!id,
+    staleTime: 5 * 60_000,
+  });
+  const scoreMap = useMemo(() => {
+    const m = new Map<number, number>();
+    const s = pipelineScores?.scores;
+    if (s) {
+      for (const [cid, score] of Object.entries(s)) m.set(Number(cid), score);
+    }
+    return m;
+  }, [pipelineScores]);
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -1353,7 +1373,12 @@ export default function JobDetailPage() {
           {kanbanLoading ? (
             <div className="text-muted-foreground">Ładowanie pipeline...</div>
           ) : (
-            <KanbanBoardV2 columns={kanban?.columns ?? []} jobId={Number(id)} />
+            <KanbanBoardV2
+              columns={kanban?.columns ?? []}
+              jobId={Number(id)}
+              scoreMap={scoreMap}
+              scoresLoading={scoresLoading}
+            />
           )}
         </div>
       )}
@@ -1395,9 +1420,10 @@ export default function JobDetailPage() {
         <ManualSearchTab
           jobId={Number(id)}
           job={job}
-          onBulkAdded={() =>
-            queryClient.invalidateQueries({ queryKey: ["kanban", id] })
-          }
+          onBulkAdded={() => {
+            queryClient.invalidateQueries({ queryKey: ["kanban", id] });
+            queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+          }}
         />
       )}
 
