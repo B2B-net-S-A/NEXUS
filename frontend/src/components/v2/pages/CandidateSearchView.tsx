@@ -19,6 +19,7 @@ import {
   type SavedSearchOut,
   type SortMode,
 } from "@/lib/candidate-search-api";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 const DEFAULT_REQUEST: CandidateSearchRequest = {
   q: null,
@@ -521,6 +522,7 @@ function CandidateSearchRow({
     .map((s) => (typeof s === "string" ? s : s.name ?? null))
     .filter((s): s is string => Boolean(s))
     .slice(0, 6);
+  const formattedLocation = formatCandidateLocation(item.location);
 
   return (
     <li className="flex items-start gap-3 p-3 hover:bg-zinc-50 dark:hover:bg-zinc-900/50">
@@ -554,9 +556,9 @@ function CandidateSearchRow({
               {item.years_it_experience} lat IT
             </span>
           )}
-          {item.location && (
+          {formattedLocation && (
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              {item.location}
+              {formattedLocation}
             </span>
           )}
         </div>

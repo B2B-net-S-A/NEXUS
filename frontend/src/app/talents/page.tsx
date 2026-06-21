@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { talentPoolsApi, competenceCategoriesApi } from "@/lib/api";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import {
   Star,
   Users,
@@ -405,6 +406,10 @@ function PoolDetailView({
               const topSkills = skills
                 .slice(0, 4)
                 .map((s) => (typeof s === "object" ? s.name : s));
+              // External imports (Traffit/TalentRadar) store `location` as a raw
+              // geocoder JSON blob; normalize to a readable "Locality, Region,
+              // Country" label (same helper the main candidate list uses).
+              const location = formatCandidateLocation(c.location);
 
               return (
                 <div
@@ -430,10 +435,10 @@ function PoolDetailView({
                             {c.competence_category}
                           </span>
                         )}
-                        {c.location && (
+                        {location && (
                           <span className="text-xs text-muted-foreground flex items-center gap-0.5">
                             <MapPin className="w-3 h-3" />
-                            {c.location}
+                            {location}
                           </span>
                         )}
                       </div>
