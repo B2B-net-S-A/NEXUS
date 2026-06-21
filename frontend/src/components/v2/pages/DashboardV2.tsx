@@ -381,8 +381,8 @@ function PlacementsV2({ ir, expiringContracts }: { ir?: any; expiringContracts?:
  )}
  {!!expiringContracts && (
  <CardContent>
- <div className="mt-2 flex items-center gap-2 text-xs text-[#7a4c0d] bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
- <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+ <div className="mt-2 flex items-center gap-2 text-xs text-foreground bg-warning/10 border border-warning/20 rounded-md px-3 py-2">
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
  {expiringContracts} kontrakt{expiringContracts > 1 ?"y" :""} kończą się w ciągu 30 dni.
  </div>
  </CardContent>
@@ -415,20 +415,20 @@ function ContractorDraftsWidget() {
  className="block group"
  aria-label={`${incomplete} draftów do uzupełnienia`}
  >
- <Card className="border-amber-200 bg-amber-50 !p-4 flex items-center gap-3 transition-colors group-hover:bg-amber-100">
- <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
- <UserCog className="h-5 w-5 text-amber-700" />
+ <Card className="border-warning/20 bg-warning/10 !p-4 flex items-center gap-3 transition-colors group-hover:bg-warning/15">
+ <div className="h-10 w-10 rounded-full bg-warning/15 flex items-center justify-center shrink-0">
+ <UserCog className="h-5 w-5 text-warning" />
  </div>
  <div className="flex-1">
- <p className="text-sm font-semibold text-amber-900">
+ <p className="text-sm font-semibold text-foreground">
  Drafty do uzupełnienia: {incomplete}
  </p>
- <p className="text-xs text-amber-800">
+ <p className="text-xs text-muted-foreground">
  Kontraktorzy czekają na uzupełnienie stawek i dat — kliknij, żeby
  otworzyć listę.
  </p>
  </div>
- <ArrowRight className="h-4 w-4 text-amber-800" />
+ <ArrowRight className="h-4 w-4 text-muted-foreground" />
  </Card>
  </Link>
  );
