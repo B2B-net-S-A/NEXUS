@@ -13,5 +13,13 @@
     "components": "@/components",
     "utils": "@/lib/utils",
     "ui": "@/components/ui"
+  },
+  "registries": {
+    "@shadcnblocks": {
+      "url": "https://www.shadcnblocks.com/r/{name}",
+      "headers": {
+        "Authorization": "Bearer ${SHADCNBLOCKS_API_KEY}"
+      }
+    }
   }
 }

@@ -8,6 +8,7 @@ import { cn } from"@/lib/utils"
 import { Badge } from"@/components/ui/badge"
 import { Button } from"@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
+import { StatCard, StatCardGrid, DataTable, type DataTableColumn } from"@/components/ds"
 import { HeroLigaMistrzow, type HeroPodiumEntry } from"@/components/v2/gamification/HeroLigaMistrzow"
 import { PowerCallingSection } from"@/components/v2/gamification/PowerCallingSection"
 import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
@@ -113,93 +114,23 @@ interface LinkedInMySummary {
  } | null
 }
 
-// ── Pastel KPI card ─────────────────────────────────────────────────────
+// ── Funnel efficiency tile (token-based) ─────────────────────────────────
 
-const KPI_COLORS = {
- blue: {
- bg: "bg-sky-50 border-sky-200",
- icon: "bg-sky-100 text-sky-700",
- title: "text-sky-900",
- value: "text-sky-950",
- },
- purple: {
- bg: "bg-purple-50 border-purple-200",
- icon: "bg-purple-100 text-purple-700",
- title: "text-purple-900",
- value: "text-purple-950",
- },
- amber: {
- bg: "bg-amber-50 border-amber-200",
- icon: "bg-amber-100 text-amber-700",
- title: "text-amber-900",
- value: "text-amber-950",
- },
- emerald: {
- bg: "bg-emerald-50 border-emerald-200",
- icon: "bg-emerald-100 text-emerald-700",
- title: "text-emerald-900",
- value: "text-emerald-950",
- },
-} as const
-
-function PastelKpi({
- title,
- value,
- subtitle,
- icon: Icon,
- color,
-}: {
- title: string
- value: React.ReactNode
- subtitle?: string
- icon: React.ComponentType<{ className?: string }>
- color: keyof typeof KPI_COLORS
-}) {
- const c = KPI_COLORS[color]
- return (
- <div className={cn("rounded-lg border px-4 py-3", c.bg)}>
- <div className="flex items-center gap-2 mb-2">
- <span
- className={cn("inline-flex items-center justify-center h-7 w-7 rounded-full",
- c.icon,
- )}
- >
- <Icon className="h-4 w-4" />
- </span>
- <span className={cn("text-[11px] font-semibold uppercase tracking-wide", c.title)}>
- {title}
- </span>
- </div>
- <div className={cn("font-semibold text-3xl font-extrabold leading-none", c.value)}>
- {value}
- </div>
- {subtitle && (
- <div className={cn("text-xs mt-1.5 opacity-80", c.title)}>{subtitle}</div>
- )}
- </div>
- )
-}
-
-// ── Funnel efficiency bar ────────────────────────────────────────────────
-
-function FunnelBar({
+function FunnelTile({
  fromLabel,
  toLabel,
  pct,
- color,
 }: {
  fromLabel: string
  toLabel: string
  pct: number
- color: keyof typeof KPI_COLORS
 }) {
- const c = KPI_COLORS[color]
  return (
- <div className={cn("rounded-md border-l-4 bg-card/50 px-3 py-2", `border-${color}-400`)}>
- <div className={cn("text-[10px] uppercase tracking-wide", c.title)}>
+ <div className="rounded-md border-l-2 border-primary bg-card px-3 py-2">
+ <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
  {fromLabel} → {toLabel}
  </div>
- <div className={cn("font-semibold text-xl font-extrabold mt-0.5", c.value)}>
+ <div className="font-semibold text-xl mt-0.5 tabular-nums text-foreground">
  {pct.toFixed(1)}%
  </div>
  </div>
@@ -313,6 +244,85 @@ export default function RecruiterDashboard() {
  ? (funnel.placements_count / funnel.weryfikacje_count) * 100
  : 0
 
+ const teamRows = report?.per_recruiter ?? []
+ const teamColumns: Array<DataTableColumn<RecruiterRow>> = [
+ {
+ key: "rank",
+ header: "#",
+ width: "3rem",
+ render: (r) => (
+ <span className="text-muted-foreground tabular-nums">
+ {teamRows.indexOf(r) + 1}
+ </span>
+ ),
+ },
+ {
+ key: "person",
+ header: "Osoba",
+ render: (r) => (
+ <span className={cn(r.user_id === user.id && "font-semibold")}>
+ {r.user_name}
+ {r.user_id === user.id && (
+ <Badge variant="soft" size="sm" className="ml-2">
+ Ja
+ </Badge>
+ )}
+ </span>
+ ),
+ },
+ {
+ key: "role",
+ header: "Rola",
+ render: (r) =>
+ r.role ? (
+ <Badge variant="soft" size="sm" uppercase>
+ {r.role}
+ </Badge>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ ),
+ },
+ {
+ key: "category",
+ header: "Kategoria",
+ render: (r) =>
+ r.primary_category ? (
+ <span className="text-foreground">{r.primary_category.name_pl}</span>
+ ) : (
+ <span className="text-muted-foreground">—</span>
+ ),
+ },
+ {
+ key: "weryfikacje",
+ header: "Wer",
+ render: (r) => <span className="tabular-nums">{r.weryfikacje}</span>,
+ },
+ {
+ key: "rekomendacje",
+ header: "Rek",
+ render: (r) => <span className="tabular-nums">{r.rekomendacje}</span>,
+ },
+ {
+ key: "interviews",
+ header: "Int",
+ render: (r) => <span className="tabular-nums">{r.interviews}</span>,
+ },
+ {
+ key: "placements",
+ header: "Plac",
+ render: (r) => (
+ <span className="tabular-nums font-semibold">{r.placements}</span>
+ ),
+ },
+ {
+ key: "hit_ratio",
+ header: "Hit %",
+ render: (r) => (
+ <span className="tabular-nums">{r.hit_ratio.toFixed(1)}%</span>
+ ),
+ },
+ ]
+
  return (
  <div className="max-w-[1400px] mx-auto space-y-5 p-4 md:p-6">
  {/* Hero header with period filter */}
@@ -355,37 +365,33 @@ export default function RecruiterDashboard() {
  </Card>
  ) : (
  <>
- {/* KPI row — pastel cards */}
- <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
- <PastelKpi
- title="Weryfikacje"
+ {/* KPI row — DS StatCards */}
+ <StatCardGrid>
+ <StatCard
+ label="Weryfikacje"
  value={funnel?.weryfikacje_count ?? 0}
- subtitle={isMeRecruiter ? `Ja: ${myStats?.weryfikacje ?? 0}` :"zespół tego miesiąca"}
+ sub={isMeRecruiter ? `Ja: ${myStats?.weryfikacje ?? 0}` :"zespół tego miesiąca"}
  icon={Filter}
- color="blue"
  />
- <PastelKpi
- title="Rekomendacje"
+ <StatCard
+ label="Rekomendacje"
  value={funnel?.rekomendacje_count ?? 0}
- subtitle={isMeRecruiter ? `Ja: ${myStats?.rekomendacje ?? 0}` :"zespół tego miesiąca"}
+ sub={isMeRecruiter ? `Ja: ${myStats?.rekomendacje ?? 0}` :"zespół tego miesiąca"}
  icon={Users}
- color="purple"
  />
- <PastelKpi
- title="Interviews"
+ <StatCard
+ label="Interviews"
  value={funnel?.interviews_count ?? 0}
- subtitle={isMeRecruiter ? `Ja: ${myStats?.interviews ?? 0}` :"zespół tego miesiąca"}
+ sub={isMeRecruiter ? `Ja: ${myStats?.interviews ?? 0}` :"zespół tego miesiąca"}
  icon={CheckCircle2}
- color="amber"
  />
- <PastelKpi
- title="Placements"
+ <StatCard
+ label="Placements"
  value={funnel?.placements_count ?? 0}
- subtitle={isMeRecruiter ? `Ja: ${myStats?.placements ?? 0}` :"zespół tego miesiąca"}
+ sub={isMeRecruiter ? `Ja: ${myStats?.placements ?? 0}` :"zespół tego miesiąca"}
  icon={Target}
- color="emerald"
  />
- </div>
+ </StatCardGrid>
 
  {/* Efektywność lejka — 4 pasy */}
  <div>
@@ -393,29 +399,25 @@ export default function RecruiterDashboard() {
  Efektywność lejka
  </p>
  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
- <FunnelBar
+ <FunnelTile
  fromLabel="Weryfikacje"
  toLabel="Rekomendacje"
  pct={eff?.weryfikacje_to_rekomendacje ?? 0}
- color="blue"
  />
- <FunnelBar
+ <FunnelTile
  fromLabel="Rekomendacje"
  toLabel="Interviews"
  pct={eff?.rekomendacje_to_interviews ?? 0}
- color="purple"
  />
- <FunnelBar
+ <FunnelTile
  fromLabel="Interviews"
  toLabel="Placements"
  pct={eff?.interviews_to_placements ?? 0}
- color="amber"
  />
- <FunnelBar
+ <FunnelTile
  fromLabel="Overall (Wer"
  toLabel="Plac)"
  pct={overallPct}
- color="emerald"
  />
  </div>
  </div>
@@ -551,35 +553,31 @@ export default function RecruiterDashboard() {
  Moje LinkedIn (ten miesiąc)
  </p>
  </div>
- <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
- <PastelKpi
- title="CV dodane"
+ <StatCardGrid>
+ <StatCard
+ label="CV dodane"
  value={linkedinMy?.me?.cv_added ?? 0}
- subtitle={`${linkedinMy?.me?.days_reported ?? 0} dni raportu`}
+ sub={`${linkedinMy?.me?.days_reported ?? 0} dni raportu`}
  icon={Linkedin}
- color="blue"
  />
- <PastelKpi
- title="Wiadomości wysłane"
+ <StatCard
+ label="Wiadomości wysłane"
  value={linkedinMy?.me?.messages_sent ?? 0}
  icon={Send}
- color="purple"
  />
- <PastelKpi
- title="Odpowiedzi"
+ <StatCard
+ label="Odpowiedzi"
  value={linkedinMy?.me?.responses_received ?? 0}
- subtitle={`${linkedinMy?.me?.response_rate ?? 0}% response rate`}
+ sub={`${linkedinMy?.me?.response_rate ?? 0}% response rate`}
  icon={CheckCircle2}
- color="amber"
  />
- <PastelKpi
- title="Quality ratio"
+ <StatCard
+ label="Quality ratio"
  value={`${linkedinMy?.me?.cv_response_rate ?? 0}%`}
- subtitle="odpowiedzi / CV dodane"
+ sub="odpowiedzi / CV dodane"
  icon={Target}
- color="emerald"
  />
- </div>
+ </StatCardGrid>
  {(!linkedinMy?.me || !linkedinMy.me.days_reported) && (
  <p className="text-xs text-muted-foreground mt-2">
  Brak raportowanych metryk LinkedIn. Admin wpisuje je w{""}
@@ -606,112 +604,17 @@ export default function RecruiterDashboard() {
  onRetry={() => refetchReport()}
  />
  ) : (
- <div className="overflow-x-auto">
- <table className="w-full text-sm">
- <thead className="border-b border-border">
- <tr>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2 w-12">
- #
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Osoba
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Rola
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Kategoria
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Wer
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Rek
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Int
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Plac
- </th>
- <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
- Hit %
- </th>
- </tr>
- </thead>
- <tbody className="divide-y divide-border">
- {(report?.per_recruiter ?? []).map((r, idx) => {
- const isMe = r.user_id === user.id
- return (
- <tr
- key={r.user_id}
- className={cn("hover:bg-primary/10",
- isMe &&"bg-primary/10 font-semibold",
- )}
- >
- <td className="px-3 py-2 text-muted-foreground">
- {idx + 1}
- </td>
- <td className="px-3 py-2">
- {r.user_name}
- {isMe && (
- <Badge variant="soft" size="sm" className="ml-2">
- Ja
- </Badge>
- )}
- </td>
- <td className="px-3 py-2">
- {r.role ? (
- <span
- className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide",
- r.role === "sourcer"
- ?"bg-sky-100 text-sky-900"
- : r.role === "tac"
- ?"bg-teal-100 text-teal-900"
- : r.role === "recruiter"
- ?"bg-purple-100 text-purple-900"
- :"bg-slate-100 text-slate-900",
- )}
- >
- {r.role}
- </span>
- ) : (
- <span className="text-xs text-muted-foreground">
- —
- </span>
- )}
- </td>
- <td className="px-3 py-2">
- {r.primary_category ? (
- <span className="text-xs text-foreground">
- {r.primary_category.name_pl}
- </span>
- ) : (
- <span className="text-xs text-muted-foreground">
- —
- </span>
- )}
- </td>
- <td className="px-3 py-2 tabular-nums">{r.weryfikacje}</td>
- <td className="px-3 py-2 tabular-nums">{r.rekomendacje}</td>
- <td className="px-3 py-2 tabular-nums">{r.interviews}</td>
- <td className="px-3 py-2 tabular-nums font-semibold">
- {r.placements}
- </td>
- <td className="px-3 py-2 tabular-nums">
- {r.hit_ratio.toFixed(1)}%
- </td>
- </tr>
- )
- })}
- </tbody>
- </table>
- {(!report?.per_recruiter || report.per_recruiter.length === 0) && (
- <p className="text-center text-sm text-muted-foreground py-6">
+ <DataTable<RecruiterRow>
+ columns={teamColumns}
+ rows={report?.per_recruiter ?? []}
+ getRowKey={(r) => r.user_id}
+ rowHighlighted={(r) => r.user_id === user?.id}
+ empty={
+ <p className="text-sm text-muted-foreground">
  Brak danych w tym miesiącu.
  </p>
- )}
- </div>
+ }
+ />
  )}
  </CardContent>
  </Card>

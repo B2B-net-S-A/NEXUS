@@ -7,6 +7,7 @@ import api from"@/lib/api"
 import { cn } from"@/lib/utils"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
 import { Badge } from"@/components/ui/badge"
+import { PageHeader, StatCard, StatCardGrid } from"@/components/ds"
 import { ChampionsPodium } from"@/components/v2/gamification/ChampionsPodium"
 import { TeamKpiPanel } from"@/components/v2/kpi/TeamKpiPanel"
 import { useAuthStore } from"@/store/auth"
@@ -67,37 +68,6 @@ interface CompetitionResponse {
  prize_pln?: number
  }>
  target_pct?: number | null
-}
-
-// ── Stat card ────────────────────────────────────────────────────────
-
-function StatCard({
- title,
- value,
- icon: Icon,
- subtitle,
-}: {
- title: string
- value: React.ReactNode
- icon: React.ComponentType<{ className?: string }>
- subtitle?: string
-}) {
- return (
- <Card>
- <div className="flex items-start justify-between gap-2 mb-3">
- <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
- {title}
- </p>
- <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-primary/10 text-primary">
- <Icon className="h-4 w-4" />
- </span>
- </div>
- <div className="font-semibold text-3xl font-extrabold tracking-[-0.02em] text-foreground leading-none">
- {value}
- </div>
- {subtitle && <p className="text-xs text-muted-foreground mt-2">{subtitle}</p>}
- </Card>
- )
 }
 
 // ── Matrix: Sourcerzy × Kategorie ────────────────────────────────────
@@ -352,30 +322,24 @@ export default function HeadOfRecruitmentDashboard() {
  return (
  <div className="max-w-[1400px] mx-auto space-y-6 p-4 md:p-6">
  {/* Hero */}
- <div>
- <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
- Panel Head of Recruitment
- </p>
- <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
- Struktura zespołu rekrutacji
- </h1>
- <p className="text-sm text-muted-foreground mt-1">
- Macierze przypisań + aktualne wyniki konkursów.
- </p>
- </div>
+ <PageHeader
+ eyebrow="Panel Head of Recruitment"
+ title="Struktura zespołu rekrutacji"
+ description="Macierze przypisań + aktualne wyniki konkursów."
+ />
 
  {/* Stats */}
- <section className="grid grid-cols-2 lg:grid-cols-5 gap-4">
- <StatCard title="Sourcerzy" value={t.sourcers ?? 0} icon={Users} />
- <StatCard title="TAC-y" value={t.tacs ?? 0} icon={Users} />
- <StatCard title="Rekruterzy" value={t.recruiters ?? 0} icon={Users} />
+ <StatCardGrid className="lg:grid-cols-5">
+ <StatCard label="Sourcerzy" value={t.sourcers ?? 0} icon={Users} />
+ <StatCard label="TAC-y" value={t.tacs ?? 0} icon={Users} />
+ <StatCard label="Rekruterzy" value={t.recruiters ?? 0} icon={Users} />
  <StatCard
- title="Delivery Leadów"
+ label="Delivery Leadów"
  value={t.delivery_leads ?? 0}
  icon={UserSquare2}
  />
- <StatCard title="Klienci" value={t.clients ?? 0} icon={Link2} />
- </section>
+ <StatCard label="Klienci" value={t.clients ?? 0} icon={Link2} />
+ </StatCardGrid>
 
  {/* KPI zespołu — lejek per osoba (verifier-anchored), filtry czas/rola/osoba */}
  <TeamKpiPanel />
@@ -417,7 +381,7 @@ export default function HeadOfRecruitmentDashboard() {
  <Card>
  <CardHeader>
  <div className="flex items-center gap-2">
- <Crown className="h-4 w-4 text-amber-500" />
+ <Crown className="h-4 w-4 text-primary" />
  <CardTitle>Delivery Lead → Klienci</CardTitle>
  </div>
  <CardDescription>
@@ -452,7 +416,7 @@ export default function HeadOfRecruitmentDashboard() {
  <Card>
  <CardContent className="py-4">
  <p className="text-sm text-foreground">
- <Trophy className="inline h-4 w-4 mr-1 text-amber-500" />
+ <Trophy className="inline h-4 w-4 mr-1 text-primary" />
  Chcesz zamknąć kwartał? Admin może zamrozić wyniki przez{""}
  <code className="font-mono text-xs bg-primary/10 px-1.5 py-0.5 rounded">
  POST /api/competitions/freeze?type=...&period=...

@@ -48,6 +48,16 @@ const config: Config = {
           foreground: "hsl(var(--sidebar-foreground))",
           muted: "hsl(var(--sidebar-muted))",
           border: "hsl(var(--sidebar-border))",
+          accent: "hsl(var(--sidebar-accent))",
+          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+        chart: {
+          1: "hsl(var(--chart-1))",
+          2: "hsl(var(--chart-2))",
+          3: "hsl(var(--chart-3))",
+          4: "hsl(var(--chart-4))",
+          5: "hsl(var(--chart-5))",
         },
       },
 

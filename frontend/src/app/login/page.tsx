@@ -9,7 +9,7 @@ import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
-import { DynamindsLogo } from "@/components/brand/DynamindsLogo";
+import { AuthShell } from "@/components/blocks/AuthShell";
 
 function safeNextPath(raw: string | null): string {
   if (!raw) return "/";
@@ -114,22 +114,11 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center mb-6 text-foreground">
-            <DynamindsLogo className="h-9 w-auto" />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Zaloguj się do Nexus
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5">
-            Twój pipeline rekrutacyjny w jednym miejscu.
-          </p>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl shadow-sm p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <AuthShell
+      heading="Zaloguj się do Nexus"
+      subtitle="Twój pipeline rekrutacyjny w jednym miejscu."
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
             {sessionReason && !error && (
               <div
                 role="status"
@@ -217,13 +206,7 @@ function LoginForm() {
             </svg>
             {ssoLoading ? "Przekierowanie…" : "Zaloguj się przez Microsoft"}
           </button>
-        </div>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Nexus · B2B.net
-        </p>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
 

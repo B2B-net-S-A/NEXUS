@@ -7,7 +7,7 @@ import { authApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
-import { DynamindsLogo } from "@/components/brand/DynamindsLogo";
+import { AuthShell } from "@/components/blocks/AuthShell";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -33,22 +33,11 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center mb-6 text-foreground">
-            <DynamindsLogo className="h-9 w-auto" />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Zapomniałeś hasła?
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5 text-center">
-            Wpisz email — wyślemy link do ustawienia nowego hasła.
-          </p>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl shadow-sm p-6">
-          {sent ? (
+    <AuthShell
+      heading="Zapomniałeś hasła?"
+      subtitle="Wpisz email — wyślemy link do ustawienia nowego hasła."
+    >
+      {sent ? (
             <div className="space-y-4">
               <div
                 role="status"
@@ -118,10 +107,6 @@ export default function ForgotPasswordPage() {
               </Link>
             </form>
           )}
-        </div>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">Nexus · B2B.net</p>
-      </div>
-    </div>
+    </AuthShell>
   );
 }

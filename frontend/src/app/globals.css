@@ -79,6 +79,18 @@
     --sidebar-foreground: 222 20% 22%;
     --sidebar-muted: 215 14% 42%;
     --sidebar-border: 220 16% 88%;
+    /* Sidebar interactive states — follow the neutral accent/ring automatically
+       so palette swaps recolor the focus ring and dark/kids recolor the hover. */
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+    --sidebar-ring: var(--ring);
+
+    /* Categorical chart ramp — neutral, shared across all accent palettes. */
+    --chart-1: 243 75% 56%;            /* indigo (primary family) */
+    --chart-2: 190 80% 42%;            /* teal */
+    --chart-3: 38 92% 50%;             /* amber */
+    --chart-4: 346 77% 55%;            /* rose */
+    --chart-5: 263 70% 55%;            /* violet */
   }
 
   .dark {
@@ -111,6 +123,13 @@
     --sidebar-foreground: 210 18% 90%;
     --sidebar-muted: 215 14% 58%;
     --sidebar-border: 222 16% 15%;
+
+    /* Chart ramp — lifted lightness for contrast on the 6%-L dark canvas. */
+    --chart-1: 243 76% 65%;
+    --chart-2: 190 75% 55%;
+    --chart-3: 38 92% 60%;
+    --chart-4: 346 80% 64%;
+    --chart-5: 263 70% 67%;
   }
 
   /* ===================================================================
@@ -216,6 +235,13 @@
     --sidebar-muted: 245 25% 45%;
     --sidebar-border: 262 50% 82%;
 
+    /* Candy chart ramp so dashboards stay coherent in Game World. */
+    --chart-1: 330 82% 55%;
+    --chart-2: 190 80% 45%;
+    --chart-3: 42 100% 50%;
+    --chart-4: 265 80% 60%;
+    --chart-5: 145 65% 42%;
+
     /* Swap the whole app to the rounded game font (font-sans + font-display
        both resolve through these vars). html[...] beats the Next font class. */
     --font-inter: var(--font-kids);
@@ -252,6 +278,13 @@
     --sidebar-foreground: 50 95% 90%;
     --sidebar-muted: 265 25% 70%;
     --sidebar-border: 280 40% 32%;
+
+    /* Neon-night chart ramp. */
+    --chart-1: 320 90% 66%;
+    --chart-2: 190 85% 60%;
+    --chart-3: 42 100% 62%;
+    --chart-4: 265 85% 72%;
+    --chart-5: 145 65% 55%;
   }
 
   * {

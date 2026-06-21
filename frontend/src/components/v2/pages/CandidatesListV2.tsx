@@ -901,7 +901,7 @@ function CandidateCell({
  }
  return (
  <div className="flex items-center gap-1.5 min-w-0">
- <Building2 className="h-3 w-3 shrink-0 text-indigo-500" />
+ <Building2 className="h-3 w-3 shrink-0 text-primary" />
  <span
  className="text-sm text-foreground truncate"
  title={company}

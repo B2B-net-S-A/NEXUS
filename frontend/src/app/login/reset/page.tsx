@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { DynamindsLogo } from "@/components/brand/DynamindsLogo";
+import { AuthShell } from "@/components/blocks/AuthShell";
 import {
   AlertCircle,
   ArrowLeft,
@@ -186,34 +186,17 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10 bg-background">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-8">
-          <div className="flex items-center justify-center mb-6 text-foreground">
-            <DynamindsLogo className="h-9 w-auto" />
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Ustaw nowe hasło
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1.5 text-center">
-            Wybierz nowe hasło dla swojego konta w Nexus.
-          </p>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl shadow-sm p-6">
-          <Suspense
-            fallback={
-              <div className="text-sm text-muted-foreground text-center">
-                Ładowanie…
-              </div>
-            }
-          >
-            <ResetPasswordForm />
-          </Suspense>
-        </div>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">Nexus · B2B.net</p>
-      </div>
-    </div>
+    <AuthShell
+      heading="Ustaw nowe hasło"
+      subtitle="Wybierz nowe hasło dla swojego konta w Nexus."
+    >
+      <Suspense
+        fallback={
+          <div className="text-center text-sm text-muted-foreground">Ładowanie…</div>
+        }
+      >
+        <ResetPasswordForm />
+      </Suspense>
+    </AuthShell>
   );
 }
