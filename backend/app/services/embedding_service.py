@@ -441,6 +441,51 @@ async def search_candidates_semantic(
             return []
 
 
+async def similarity_for_candidate_ids(
+    query: str,
+    candidate_ids: list[int],
+) -> dict[int, float]:
+    """Cosine similarity of each *specific* candidate (by id) to ``query``.
+
+    Unlike :func:`search_candidates_semantic` (top-K nearest globally), this
+    returns a score for EVERY embedded candidate in ``candidate_ids`` regardless
+    of global rank — used to score in-pipeline candidates that may sit outside
+    the top-K pool. Candidates with no stored vector are simply absent from the
+    result. Deliberately does NOT record into the AI-health window (it's a
+    targeted lookup, not the user-facing semantic search).
+    """
+    ids = [int(c) for c in candidate_ids]
+    if not ids:
+        return {}
+
+    embedding = await generate_embedding(query, input_type="query")
+    if embedding is None:
+        logger.warning(
+            "[Search] similarity_for_candidate_ids: no query embedding — empty."
+        )
+        return {}
+
+    def _search():
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Filter, HasIdCondition
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        hits = client.search(
+            collection_name=_collection(),
+            query_vector=embedding,
+            query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
+            limit=len(ids),
+            with_payload=False,
+        )
+        return {int(hit.id): round(float(hit.score), 4) for hit in hits}
+
+    try:
+        return await asyncio.to_thread(_search)
+    except Exception as e:
+        logger.error(f"[Search] similarity_for_candidate_ids error: {e}")
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Phase 2: Job embedding (reverse matching)
 # ---------------------------------------------------------------------------

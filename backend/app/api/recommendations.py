@@ -40,6 +40,7 @@ from app.services.embedding_service import (
     embed_job,
     search_candidates_semantic,
     search_jobs_semantic,
+    similarity_for_candidate_ids,
 )
 from app.services.scoring_service import (
     DEFAULT_PROFILE,
@@ -296,20 +297,20 @@ async def pipeline_match_scores(
     """Hybrid AI match scores (0-100) for the candidates currently in a job's
     pipeline — powers the score ring on kanban cards.
 
-    Coverage is deliberately honest rather than exhaustive:
+    Coverage is near-complete yet never deflated:
     - Candidates with a fresh cached ``CandidateJobMatchScore`` row return that
       score directly (no recompute).
-    - Uncached candidates are scored ONLY when the job's semantic pool yields a
-      similarity for them, so the (large) semantic layer is never silently
-      zeroed — and we never persist a deflated score into the cache shared with
-      /recommendations.
-    - Candidates that are neither cached nor in the semantic pool (e.g. added
-      manually / never embedded) are simply omitted → the card renders no badge.
+    - Uncached candidates are scored with a per-candidate Qdrant similarity
+      (``similarity_for_candidate_ids`` — exact cosine for each id, NOT a top-K
+      pool), so the semantic layer is never silently zeroed regardless of the
+      candidate's global rank, and we never persist a deflated score into the
+      cache shared with /recommendations.
+    - Only candidates with no stored embedding at all are omitted → no badge.
 
     In-pipeline candidates are NOT pre-warmed by /recommendations or the
     proposals job (both exclude in-pipeline), so the first open of a pipeline
-    cold-computes its in-pool members; repeat opens are served from cache and
-    skip the embedding/Qdrant call entirely.
+    cold-computes its members; repeat opens are served from cache and skip the
+    embedding/Qdrant call entirely.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
@@ -345,26 +346,24 @@ async def pipeline_match_scores(
     cached_ids = {cid for (cid,) in cached_id_rows.all()}
     uncached_ids = [cid for cid in pipeline_ids if cid not in cached_ids]
 
-    # Semantic similarities — only needed (and only fetched) when there are
-    # uncached candidates to score. Warm pipelines touch zero AI dependencies.
+    # Per-candidate semantic similarities for the uncached set — only fetched
+    # when there's something to score (warm pipelines touch zero AI deps).
+    # Exact cosine per id (not a top-K pool), so out-of-pool candidates still get
+    # a correct semantic component instead of a zeroed one.
     similarity_map: dict[int, float] = {}
     if uncached_ids:
         try:
-            wanted = set(uncached_ids)
-            hits = await search_candidates_semantic(_build_job_text(job), top_k=200)
-            similarity_map = {
-                int(h["candidate_id"]): float(h["score"])
-                for h in hits
-                if int(h["candidate_id"]) in wanted
-            }
+            similarity_map = await similarity_for_candidate_ids(
+                _build_job_text(job), uncached_ids
+            )
         except Exception as e:  # pragma: no cover — semantic layer is best-effort
             logger.warning(
                 "pipeline-scores similarity lookup failed job=%s: %s", job_id, e
             )
 
-    # Score the cached candidates (served from cache) plus the uncached ones we
-    # have a real similarity for. Uncached + out-of-pool candidates are left out
-    # entirely — no recompute, no deflated cache write, no badge.
+    # Score the cached candidates (served from cache) plus every uncached one we
+    # have a real similarity for. Only candidates with no embedding at all are
+    # left out — no recompute, no deflated cache write, no badge.
     eligible_ids = [
         cid for cid in pipeline_ids if cid in cached_ids or cid in similarity_map
     ]
