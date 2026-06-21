@@ -34,7 +34,7 @@ slowapi==0.1.9
 sentry-sdk[fastapi]==2.20.0
 # Microsoft 365 integration (Phase M365.1)
 msal==1.31.0
-cryptography==44.0.0
+cryptography==48.0.1
 bleach==6.2.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.10.1
@@ -44,7 +44,7 @@ rapidfuzz==3.10.1
 weasyprint==63.0
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # Pinned to 0.34.1: newer pyHanko requires cryptography>=48, conflicting with
-# our cryptography==44.0.0 pin. [etsi] adds EU Trusted List parsing (xsdata,
+# our cryptography==48.0.1 pin. [etsi] adds EU Trusted List parsing (xsdata,
 # signxml, lxml). Authoritative QES verdict via EU DSS sidecar; pyHanko is the
 # local integrity pre-check. See docs/in-house-qes-signature-plan.md.
 pyhanko[etsi]==0.34.1
