@@ -1,65 +1,24 @@
-import { cn } from "@/lib/utils"
+import { type LucideIcon } from "lucide-react"
 
-const KPI_COLORS = {
-  slate: {
-    bg: "bg-slate-50 border-slate-200",
-    icon: "bg-slate-100 text-slate-700",
-    title: "text-slate-900",
-    value: "text-slate-950",
-  },
-  amber: {
-    bg: "bg-amber-50 border-amber-200",
-    icon: "bg-amber-100 text-amber-700",
-    title: "text-amber-900",
-    value: "text-amber-950",
-  },
-  purple: {
-    bg: "bg-purple-50 border-purple-200",
-    icon: "bg-purple-100 text-purple-700",
-    title: "text-purple-900",
-    value: "text-purple-950",
-  },
-  emerald: {
-    bg: "bg-emerald-50 border-emerald-200",
-    icon: "bg-emerald-100 text-emerald-700",
-    title: "text-emerald-900",
-    value: "text-emerald-950",
-  },
-} as const
+import { StatCard } from "@/components/ds"
 
-export type PastelKpiColor = keyof typeof KPI_COLORS
+export type PastelKpiColor = "slate" | "amber" | "purple" | "emerald"
 
 interface PastelKpiProps {
   title: string
   value: React.ReactNode
   subtitle?: string
-  icon: React.ComponentType<{ className?: string }>
-  color: PastelKpiColor
+  icon: LucideIcon
+  /** @deprecated Styling is now token-based (uniform indigo chip) via the DS
+   *  StatCard. Kept so existing call sites compile without edits. */
+  color?: PastelKpiColor
 }
 
-export function PastelKpi({ title, value, subtitle, icon: Icon, color }: PastelKpiProps) {
-  const c = KPI_COLORS[color]
-  return (
-    <div className={cn("rounded-lg border px-4 py-3", c.bg)}>
-      <div className="flex items-center gap-2 mb-2">
-        <span
-          className={cn(
-            "inline-flex items-center justify-center h-7 w-7 rounded-full",
-            c.icon,
-          )}
-        >
-          <Icon className="h-4 w-4" />
-        </span>
-        <span className={cn("text-[11px] font-semibold uppercase tracking-wide", c.title)}>
-          {title}
-        </span>
-      </div>
-      <div className={cn("font-semibold text-3xl font-extrabold leading-none", c.value)}>
-        {value}
-      </div>
-      {subtitle && (
-        <div className={cn("text-xs mt-1.5 opacity-80", c.title)}>{subtitle}</div>
-      )}
-    </div>
-  )
+/**
+ * Thin compat wrapper over the DS `StatCard`. Previously rendered hardcoded
+ * pastel tiles (bg-slate-50 / bg-amber-50 / …) which broke dark mode + palettes;
+ * now token-based and consistent with the recruiter dashboard.
+ */
+export function PastelKpi({ title, value, subtitle, icon }: PastelKpiProps) {
+  return <StatCard label={title} value={value} sub={subtitle} icon={icon} />
 }
