@@ -35,7 +35,7 @@ sentry-sdk[fastapi]==2.20.0
 # Microsoft 365 integration (Phase M365.1)
 msal==1.31.0
 cryptography==44.0.0
-bleach==6.2.0
+bleach==6.4.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.10.1
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
