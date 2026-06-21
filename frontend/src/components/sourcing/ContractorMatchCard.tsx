@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { recommendationsApi, type SeekingContractorRow } from "@/lib/api";
 import { EmailDraftDialog } from "./EmailDraftDialog";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 interface Props {
   row: SeekingContractorRow;
@@ -84,6 +85,7 @@ function SourceBadge({ row }: { row: SeekingContractorRow }) {
 
 export function ContractorMatchCard({ row }: Props) {
   const c = row.candidate;
+  const candidateLocation = formatCandidateLocation(c.location);
   const [assigningJobId, setAssigningJobId] = useState<number | null>(null);
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
   const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
@@ -208,9 +210,9 @@ export function ContractorMatchCard({ row }: Props) {
             {c.years_it_experience !== null && (
               <span>{c.years_it_experience} lat doświadczenia</span>
             )}
-            {c.location && (
+            {candidateLocation && (
               <span className="flex items-center gap-1">
-                <MapPin className="w-3 h-3" /> {c.location}
+                <MapPin className="w-3 h-3" /> {candidateLocation}
               </span>
             )}
           </div>

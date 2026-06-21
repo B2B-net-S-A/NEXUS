@@ -8,6 +8,7 @@ import { ArrowLeft, User2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
   const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const avatarColor = getAvatarColor(fullName);
   const score = calcScore(candidate);
+  const formattedLocation = formatCandidateLocation(candidate.location);
 
   const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
   const experience: any[] = Array.isArray(candidate.experience) ? candidate.experience : [];
@@ -100,8 +102,8 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
         {candidate.competence_category && (
           <p className="text-sm text-muted-foreground mt-0.5">{candidate.competence_category}</p>
         )}
-        {candidate.location && (
-          <p className="text-xs text-muted-foreground mt-1">📍 {candidate.location}</p>
+        {formattedLocation && (
+          <p className="text-xs text-muted-foreground mt-1">📍 {formattedLocation}</p>
         )}
         <div className="mt-3">
           <ScoreRing score={score} />

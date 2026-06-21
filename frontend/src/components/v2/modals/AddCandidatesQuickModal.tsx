@@ -13,6 +13,7 @@ import { useToast } from "@/components/Toast";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
+import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 
 interface Props {
   open: boolean;
@@ -208,6 +209,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             const fullName = `${c.name} ${c.lastname}`.trim();
             const initials = initialsOf(c.name, c.lastname);
             const color = avatarColorFor(fullName || String(c.id));
+            const candidateLocation = formatCandidateLocation(c.location);
             return (
               <button
                 key={c.id}
@@ -255,9 +257,9 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                         {c.competence_category}
                       </span>
                     )}
-                    {c.location && (
+                    {candidateLocation && (
                       <span className="truncate max-w-[140px]">
-                        · {c.location}
+                        · {candidateLocation}
                       </span>
                     )}
                     {c.source && (
