@@ -215,13 +215,13 @@ function NavLink({
 }) {
   const sharedClassName = cn(
     "relative flex items-center text-sm transition-colors duration-150",
-    "rounded-md focus:outline-none",
-    collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-8",
+    "rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar",
+    collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-9",
     active
       ? collapsed
-        ? "bg-primary/[0.15] text-primary font-medium"
-        : "bg-primary/[0.15] text-foreground font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-r before:bg-primary"
-      : "text-sidebar-muted hover:bg-foreground/[0.04] hover:text-sidebar-foreground"
+        ? "bg-primary/10 text-primary font-medium"
+        : "bg-primary/10 text-primary font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-primary"
+      : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
   );
   const inner = (
     <>
@@ -423,7 +423,7 @@ export function SidebarV2({
             aria-label={pinned ? "Zwiń sidebar" : "Rozwiń sidebar"}
             className={cn(
               "text-sidebar-muted hover:text-sidebar-foreground",
-              "p-1 rounded-md hover:bg-foreground/[0.04] transition-colors",
+              "p-1 rounded-md hover:bg-sidebar-accent transition-colors",
               collapsed ? "opacity-0" : "opacity-100"
             )}
           >
@@ -435,7 +435,7 @@ export function SidebarV2({
           <button
             onClick={onClose}
             aria-label="Zamknij menu"
-            className="p-1 rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-foreground/[0.04]"
+            className="p-1 rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent"
           >
             <X className="h-4 w-4" />
           </button>
@@ -521,7 +521,7 @@ export function SidebarV2({
             </Tooltip>
           )
         ) : user ? (
-          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-foreground/[0.04]">
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-sidebar-accent">
             <Link
               href="/profile"
               className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shrink-0 hover:bg-primary/90 transition-colors"
@@ -538,7 +538,7 @@ export function SidebarV2({
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-foreground/[0.04]"
+              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -560,7 +560,7 @@ export function SidebarV2({
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-foreground/[0.04]"
+              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent"
             >
               <LogOut className="h-4 w-4" />
             </button>
