@@ -1,0 +1,14 @@
+// DYNAMINDS DS — reusable application components (token-based, built on ui/ primitives).
+// Layer: ui/ (atoms) → ds/ (this kit) → v2/pages|shell (screens).
+export * from "./StatCard"
+export * from "./DataTable"
+export * from "./PageHeader"
+export * from "./FilterBar"
+export * from "./AppModal"
+export * from "./EmptyState"
+export * from "./Leaderboard"
+export * from "./MatchCard"
+export * from "./Kanban"
+export * from "./TabbedNav"
+export * from "./FormGroup"
+export * from "./FunnelChart"
