@@ -88,6 +88,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isSharePage) return <>{children}</>;
   if (isApplyPage) return <>{children}</>;
   if (isSignPage) return <>{children}</>;
+  // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
+  if (pathname?.startsWith("/preview")) return <>{children}</>;
 
   // /onboarding has its own dedicated layout (no sidebar); let it render
   // without the AppShell wrapper.
