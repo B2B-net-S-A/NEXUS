@@ -112,7 +112,7 @@ class TalentPoolMembership(Base):
         ForeignKey("talent_pools.id"), nullable=False, index=True
     )
     candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id"), nullable=False, index=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     added_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True

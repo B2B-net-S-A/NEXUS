@@ -323,7 +323,12 @@ class Candidate(Base, TimestampMixin):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    contracts = relationship("Contract", back_populates="candidate")
+    # passive_deletes=True: rely on the DB-level ON DELETE CASCADE (migration
+    # 0141) instead of the ORM trying to NULL the NOT NULL `contracts.candidate_id`
+    # FK on parent delete — which would raise an IntegrityError.
+    contracts = relationship(
+        "Contract", back_populates="candidate", passive_deletes=True
+    )
     calls = relationship(
         "Call", back_populates="candidate", cascade="all, delete-orphan"
     )

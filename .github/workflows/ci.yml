@@ -130,6 +130,7 @@ jobs:
                  tests/test_candidates_employment_filter.py \
                  tests/test_candidates_filters.py \
                  tests/test_candidate_remove_from_recruitment.py \
+                 tests/test_candidate_delete.py \
                  tests/test_candidate_pins.py \
                  tests/test_note_crud.py \
                  tests/test_note_mention_render.py \

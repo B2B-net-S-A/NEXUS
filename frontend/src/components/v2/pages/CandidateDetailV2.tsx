@@ -114,6 +114,7 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
+import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
 import { RISK_QUERY_KEY, RiskBadge } from"@/components/v2/RiskBadge";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
@@ -210,7 +211,7 @@ export function CandidateDetailV2({
  const router = useRouter();
  const id = candidateId ?? Number(routeParams?.id);
  const queryClient = useQueryClient();
- const { showError } = useToast();
+ const { showError, showSuccess } = useToast();
  const openTab = useTabsStore((s) => s.openTab);
 
  // ── Prev/Next candidate navigation context ─────────────────────────────
@@ -325,6 +326,7 @@ export function CandidateDetailV2({
  const [scheduleOpen, setScheduleOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+ const [deleteOpen, setDeleteOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
  const [noteText, setNoteText] = useState("");
  const [noteSaving, setNoteSaving] = useState(false);
@@ -476,6 +478,24 @@ export function CandidateDetailV2({
  return false;
  }
  };
+
+ // Hard-delete the candidate from the DB. Backend cascades all related rows
+ // (notes, contracts, pipeline, calls, …) and drops the Qdrant vector; guard is
+ // admin/delivery_lead. After success leave the detail view — close the drawer
+ // in embedded mode, otherwise navigate back to the candidate list.
+ const deleteCandidate = useMutation({
+ mutationFn: () => candidatesApi.delete(id),
+ onSuccess: () => {
+ showSuccess("Kandydat usunięty z bazy");
+ queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ queryClient.invalidateQueries({ queryKey: ["talent-pools"] });
+ setDeleteOpen(false);
+ if (embedded) onClose?.();
+ else router.push("/candidates");
+ },
+ onError: (e) =>
+ showError(extractErrorMsg(e) || "Nie udało się usunąć kandydata"),
+ });
 
  // Open a "Więcej" menu action on the next tick, after Radix finishes closing
  // the dropdown, so the opened overlay isn't disturbed by the menu's dismiss.
@@ -768,6 +788,18 @@ export function CandidateDetailV2({
  <Store className="h-4 w-4" />
  Wrzuć na targ
  </DropdownMenuItem>
+ {hasRole(currentUser, "admin", "delivery_lead") && (
+ <>
+ <DropdownMenuSeparator />
+ <DropdownMenuItem
+ onSelect={() => openFromMenu(() => setDeleteOpen(true))}
+ className="text-destructive focus:text-destructive"
+ >
+ <Trash2 className="h-4 w-4" />
+ Usuń kandydata
+ </DropdownMenuItem>
+ </>
+ )}
  </DropdownMenuContent>
  </DropdownMenu>
  </div>
@@ -1013,6 +1045,20 @@ export function CandidateDetailV2({
  onOpenChange={setMarketplaceOpen}
  />
  )}
+
+ {/* Hard-delete confirmation. Destructive + explicit "cannot be undone" copy
+ because the candidate and all related data are permanently removed. */}
+ <ConfirmV2
+ open={deleteOpen}
+ onOpenChange={setDeleteOpen}
+ variant="destructive"
+ title="Usunąć kandydata z bazy?"
+ description={`${candidate.name} ${candidate.lastname} oraz wszystkie powiązane dane (notatki, rozmowy, pipeline, kontrakty) zostaną trwale usunięte. Tej operacji nie można cofnąć.`}
+ confirmLabel="Usuń trwale"
+ cancelLabel="Anuluj"
+ loading={deleteCandidate.isPending}
+ onConfirm={() => deleteCandidate.mutate()}
+ />
  </div>
  );
 }

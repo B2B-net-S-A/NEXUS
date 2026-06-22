@@ -87,7 +87,7 @@ class Contract(Base, TimestampMixin):
 
     # Strony kontraktu
     candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id"), nullable=False, index=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id"), nullable=False, index=True

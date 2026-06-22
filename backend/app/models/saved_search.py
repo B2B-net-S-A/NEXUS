@@ -86,7 +86,7 @@ class MatchHistory(Base, TimestampMixin):
         ForeignKey("jobs.id"), nullable=False, index=True
     )
     candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id"), nullable=False, index=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     total_score: Mapped[int] = mapped_column(Integer, nullable=False)
     breakdown: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
