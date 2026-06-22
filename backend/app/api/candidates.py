@@ -807,6 +807,27 @@ async def list_candidates(
             "Historical (ignores contract status / conflict active flag)."
         ),
     ),
+    recruitment_id: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Filter by assignment to specific recruitments (job ids). Repeat the "
+            "param for multi-select (e.g. `?recruitment_id=3&recruitment_id=7`). "
+            "OR-combined and interpreted via `recruitment_match`: `assigned` "
+            "(default) keeps candidates in the pipeline of ANY of these jobs; "
+            "`not_assigned` keeps candidates in NONE of them. A candidate counts "
+            "as assigned when they have any `candidate_stages` row for the job "
+            "(any stage, including terminal) — mirrors talent-pool membership."
+        ),
+    ),
+    recruitment_match: str = Query(
+        "assigned",
+        pattern="^(assigned|not_assigned)$",
+        description=(
+            "Direction for `recruitment_id`: `assigned` (in the pipeline of any "
+            "selected recruitment) or `not_assigned` (in none of them). Ignored "
+            "when `recruitment_id` is empty."
+        ),
+    ),
     recently_changed_jobs: Optional[int] = Query(
         None,
         ge=1,
@@ -1226,6 +1247,26 @@ async def list_candidates(
     if worked_at_client_id:
         query = query.where(_worked_at_client_predicate(worked_at_client_id))
 
+    # Przynależność do rekrutacji — kandydaci przypisani (lub NIE) do wybranych
+    # rekrutacji (jobs). „Przypisany" = ma jakikolwiek wiersz `candidate_stages`
+    # dla danego joba (dowolny etap, też terminalny — analogicznie do membershipu
+    # w talent poolu). `not_assigned` neguje to dla WSZYSTKICH wybranych naraz
+    # (kandydat nie jest w pipeline żadnej z zaznaczonych rekrutacji).
+    if recruitment_id:
+        in_recruitment = (
+            select(1)
+            .where(
+                and_(
+                    CandidateStage.candidate_id == Candidate.id,
+                    CandidateStage.job_id.in_(recruitment_id),
+                )
+            )
+            .exists()
+        )
+        query = query.where(
+            ~in_recruitment if recruitment_match == "not_assigned" else in_recruitment
+        )
+
     # Phase: LinkedIn sync — filter by detected employer change window.
     # Uses ix_candidates_linkedin_employment_changed_at for fast planner path.
     if recently_changed_jobs in (1, 2, 3):
@@ -1363,8 +1404,16 @@ async def list_candidates(
             stage_exists = select(1).where(*conds).exists()
         query = query.where(stage_exists)
 
-    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
-    total = total_result.scalar()
+    # `total` is computed in the SAME statement as the page below, via
+    # `count(*) OVER()` (see the windowed execute after pagination). Folding the
+    # COUNT into the page query makes the expensive free-text search filter run
+    # ONCE per request instead of twice. The filter matches each phrase as a
+    # trigram-index bitmap scan whose recheck must detoast every matching
+    # `raw_cv_text` (multi-KB CVs); for a broad multi-keyword `q_any` over the
+    # full base that pass dominates wall-clock, and running it for a standalone
+    # COUNT and again for the page roughly doubled latency. The window is
+    # evaluated pre-LIMIT so the total stays exact, and unfiltered list loads
+    # stay cheap (an index-only scan over the already-narrow result).
 
     # Stable ORDER BY before pagination — required so next/prev candidate
     # navigation walks the same sequence between requests. id tie-breaker
@@ -1417,8 +1466,18 @@ async def list_candidates(
         query = query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
     query = query.offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(query)
-    items = list(result.scalars().all())
+    # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
+    # on every returned row, so the search filter executes once for both the
+    # page and the count. No partition/order in the window → it counts the whole
+    # filtered set, matching the previous `count(query.subquery())` exactly (the
+    # base query has no row-fanning joins — all relations are selectinload'd).
+    # Empty result → no rows → total 0.
+    result = await db.execute(
+        query.add_columns(func.count().over().label("total_count"))
+    )
+    rows = result.all()
+    items = [row[0] for row in rows]
+    total = rows[0].total_count if rows else 0
 
     # Phase D1: resolve which weight profile to use for the match-stats column.
     profile: WeightProfile = DEFAULT_PROFILE

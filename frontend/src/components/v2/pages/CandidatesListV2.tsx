@@ -93,6 +93,7 @@ import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSel
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
 import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
+import { RecruitmentMultiSelect } from"@/components/v2/filters/RecruitmentMultiSelect";
 import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
 import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
 import {
@@ -115,6 +116,7 @@ import {
  type CandidateStatusFilter,
  type EmploymentFilter,
  type PipelineStageFilter,
+ type RecruitmentMatch,
 } from"@/lib/url-filters";
 import {
  countSkillConstraints,
@@ -1257,6 +1259,16 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
+ // Przynależność do rekrutacji — przypisany (lub NIE) do wybranych rekrutacji.
+ const [recruitmentIds, setRecruitmentIds] = useState<number[]>(
+ (searchParams.get("recr") ??"")
+ .split(",")
+ .map((x) => Number.parseInt(x, 10))
+ .filter((n) => Number.isFinite(n))
+ );
+ const [recruitmentMatch, setRecruitmentMatch] = useState<RecruitmentMatch>(
+ searchParams.get("recr_mode") === "not_assigned" ? "not_assigned" : "assigned"
+ );
  // Stage-move filters — "kto dodał na etap i kiedy". Correlated with
  // `pipelineStageFilter` on the backend (matched stage move's mover + date).
  const [stageMovedByIds, setStageMovedByIds] = useState<number[]>(
@@ -1387,6 +1399,10 @@ export function CandidatesListV2() {
  if (pastCompanyFilter.length) params.set("past_co", pastCompanyFilter.join("|"));
  if (currentTitleFilter.length) params.set("title", currentTitleFilter.join("|"));
  if (workedAtClientIds.length) params.set("client_hist", workedAtClientIds.join(","));
+ if (recruitmentIds.length) {
+ params.set("recr", recruitmentIds.join(","));
+ if (recruitmentMatch !== "assigned") params.set("recr_mode", recruitmentMatch);
+ }
  if (experienceMin !== null) params.set("exp_min", String(experienceMin));
  if (experienceMax !== null) params.set("exp_max", String(experienceMax));
  if (rateMin !== null) params.set("rate_min", String(rateMin));
@@ -1440,6 +1456,8 @@ export function CandidatesListV2() {
  qAnyGroups,
  qNone,
  activeSavedSearchId,
+ recruitmentIds,
+ recruitmentMatch,
  ]);
 
  // Data --------------------------------------------------------
@@ -1475,6 +1493,8 @@ export function CandidatesListV2() {
  qAll,
  qAnyGroups,
  qNone,
+ recruitmentIds,
+ recruitmentMatch,
  ],
  queryFn: () =>
  api
@@ -1508,6 +1528,11 @@ export function CandidatesListV2() {
  past_company: pastCompanyFilter.length ? pastCompanyFilter : undefined,
  current_title: currentTitleFilter.length ? currentTitleFilter : undefined,
  worked_at_client_id: workedAtClientIds.length ? workedAtClientIds : undefined,
+ recruitment_id: recruitmentIds.length ? recruitmentIds : undefined,
+ recruitment_match:
+ recruitmentIds.length && recruitmentMatch !== "assigned"
+ ? recruitmentMatch
+ : undefined,
  min_experience: experienceMin ?? undefined,
  max_experience: experienceMax ?? undefined,
  min_rate: rateMin ?? undefined,
@@ -1725,6 +1750,7 @@ export function CandidatesListV2() {
  pastCompanyFilter.length +
  currentTitleFilter.length +
  workedAtClientIds.length +
+ recruitmentIds.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
  (rateMin !== null || rateMax !== null ? 1 : 0) +
  stageMovedByIds.length +
@@ -1755,6 +1781,8 @@ export function CandidatesListV2() {
  pastCompany: pastCompanyFilter,
  currentTitle: currentTitleFilter,
  workedAtClientIds,
+ recruitmentIds,
+ recruitmentMatch,
  experienceMin,
  experienceMax,
  rateMin,
@@ -1799,6 +1827,8 @@ export function CandidatesListV2() {
  qAll,
  qAnyGroups,
  qNone,
+ recruitmentIds,
+ recruitmentMatch,
  ]
  );
  const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
@@ -1822,6 +1852,9 @@ export function CandidatesListV2() {
  if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
  if (patch.workedAtClientIds !== undefined)
  setWorkedAtClientIds(patch.workedAtClientIds);
+ if (patch.recruitmentIds !== undefined) setRecruitmentIds(patch.recruitmentIds);
+ if (patch.recruitmentMatch !== undefined)
+ setRecruitmentMatch(patch.recruitmentMatch);
  if (patch.experienceMin !== undefined) setExperienceMin(patch.experienceMin);
  if (patch.experienceMax !== undefined) setExperienceMax(patch.experienceMax);
  if (patch.rateMin !== undefined) setRateMin(patch.rateMin);
@@ -1858,6 +1891,8 @@ export function CandidatesListV2() {
  setPastCompanyFilter([]);
  setCurrentTitleFilter([]);
  setWorkedAtClientIds([]);
+ setRecruitmentIds([]);
+ setRecruitmentMatch("assigned");
  setExperienceMin(null);
  setExperienceMax(null);
  setRateMin(null);
@@ -2628,6 +2663,49 @@ export function CandidatesListV2() {
                     setPage(1);
                   }}
                 />
+              </FilterField>
+              <FilterField
+                label="Rekrutacja"
+                hint="Przypisanie kandydata do wybranej rekrutacji — albo jego brak."
+              >
+                <RecruitmentMultiSelect
+                  value={recruitmentIds}
+                  onChange={(ids) => {
+                    setRecruitmentIds(ids);
+                    setPage(1);
+                  }}
+                />
+                {recruitmentIds.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {(
+                      [
+                        { value: "assigned", label: "Przypisani" },
+                        { value: "not_assigned", label: "Nieprzypisani" },
+                      ] as const
+                    ).map((opt) => {
+                      const active = recruitmentMatch === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => {
+                            setRecruitmentMatch(opt.value);
+                            setPage(1);
+                          }}
+                          className={cn(
+                            "px-2.5 py-1 text-xs rounded-full border transition-colors",
+                            active
+                              ? "bg-primary text-white border-primary"
+                              : "bg-card text-foreground border-border hover:border-primary hover:bg-primary/5",
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </FilterField>
             </FilterSection>
           </SheetBody>

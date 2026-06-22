@@ -37,6 +37,8 @@ describe("url-filters", () => {
       pastCompany: ["Allegro"],
       currentTitle: ["Senior Engineer"],
       workedAtClientIds: [10, 11],
+      recruitmentIds: [42, 7],
+      recruitmentMatch: "not_assigned",
       experienceMin: 2,
       experienceMax: 30,
       rateMin: 80,

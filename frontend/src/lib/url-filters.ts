@@ -16,6 +16,7 @@ export type SortMode = "newest" | "oldest" | "name";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
 export type CandidatesView = "list" | "tiles";
+export type RecruitmentMatch = "assigned" | "not_assigned";
 
 export type CandidateStatusFilter = "active" | "passive" | "blacklisted";
 export type EmploymentFilter = "at_client" | "available";
@@ -88,6 +89,13 @@ export interface CandidateFilters {
   pastCompany: string[];
   currentTitle: string[];
   workedAtClientIds: number[];
+  // Przynależność do rekrutacji — kandydaci przypisani (lub NIE) do wybranych
+  // rekrutacji (job ids). `recruitmentMatch` decyduje o kierunku: `assigned`
+  // (jest w pipeline którejkolwiek z wybranych) lub `not_assigned` (w żadnej).
+  // Pusta lista = filtr nieaktywny (tryb bez znaczenia). Round-trips w URL jako
+  // `recr` (CSV ids) + `recr_mode` (zapisywane tylko dla `not_assigned`).
+  recruitmentIds: number[];
+  recruitmentMatch: RecruitmentMatch;
   // Lata doświadczenia — inclusive numeric band (years of IT experience).
   // `null` on either side means that bound is open. The backend matches against
   // a derived per-candidate interval (exact `years_it_experience` or the coarse
@@ -149,6 +157,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   pastCompany: [],
   currentTitle: [],
   workedAtClientIds: [],
+  recruitmentIds: [],
+  recruitmentMatch: "assigned",
   experienceMin: null,
   experienceMax: null,
   rateMin: null,
@@ -238,6 +248,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
+  if (f.recruitmentIds.length) {
+    p.set("recr", CSV(f.recruitmentIds));
+    if (f.recruitmentMatch !== "assigned") p.set("recr_mode", f.recruitmentMatch);
+  }
   if (f.experienceMin !== null) p.set("exp_min", String(f.experienceMin));
   if (f.experienceMax !== null) p.set("exp_max", String(f.experienceMax));
   if (f.rateMin !== null) p.set("rate_min", String(f.rateMin));
@@ -304,6 +318,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     pastCompany: parsePipe(sp.get("past_co")),
     currentTitle: parsePipe(sp.get("title")),
     workedAtClientIds: parseCsvInt(sp.get("client_hist")),
+    recruitmentIds: parseCsvInt(sp.get("recr")),
+    recruitmentMatch:
+      sp.get("recr_mode") === "not_assigned" ? "not_assigned" : "assigned",
     experienceMin: parseYearBound(sp.get("exp_min")),
     experienceMax: parseYearBound(sp.get("exp_max")),
     rateMin: parseRateBound(sp.get("rate_min")),
@@ -425,6 +442,15 @@ export function filtersToApiParams(
     worked_at_client_id: filters.workedAtClientIds.length
       ? filters.workedAtClientIds
       : undefined,
+    recruitment_id: filters.recruitmentIds.length
+      ? filters.recruitmentIds
+      : undefined,
+    // Mode only matters with a selection, and only `not_assigned` flips the
+    // default — omit otherwise so the API call stays minimal.
+    recruitment_match:
+      filters.recruitmentIds.length && filters.recruitmentMatch !== "assigned"
+        ? filters.recruitmentMatch
+        : undefined,
     min_experience: filters.experienceMin ?? undefined,
     max_experience: filters.experienceMax ?? undefined,
     min_rate: filters.rateMin ?? undefined,
