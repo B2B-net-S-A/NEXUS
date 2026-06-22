@@ -510,9 +510,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  ref={provided.innerRef}
  {...provided.droppableProps}
  className={cn("p-2 space-y-2 overflow-y-auto rounded-b-v2-m transition-colors",
- // Pipeline ma wypełniać ekran — wysokość liczona od viewportu,
- // z podłogą na małych ekranach (min-height wygrywa z max-height).
- "min-h-[280px] max-h-[calc(100vh-380px)]",
+ // Pipeline wypełnia ekran — definite height liczona od viewportu, żeby puste/
+ // rzadkie kolumny rozciągały się na całą wysokość zamiast zapadać do floora
+ // (wcześniej tylko max-h → krótkie kolumny zostawiały pustkę na dole strony).
+ // min-height = podłoga na małych ekranach (min-height wygrywa z height),
+ // overflow-y-auto = wewnętrzny scroll gdy kart jest więcej niż mieści ekran.
+ "min-h-[280px] h-[calc(100vh-350px)]",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
