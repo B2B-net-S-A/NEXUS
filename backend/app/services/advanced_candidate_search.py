@@ -125,6 +125,40 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     return Candidate.id.in_(union(*branches))
 
 
+def _any_group_match(phrases: list[str]) -> ColumnElement:
+    """Indexable predicate for one ANY/OR-group: a candidate matches when ANY
+    phrase appears in ANY searchable field.
+
+    Semantically identical to ``or_(_phrase_match(p) for p in phrases)`` — a row
+    is in the group iff at least one phrase is a substring of at least one field
+    — but structured per COLUMN instead of per phrase. Each column branch ORs all
+    the group's patterns together, so the GIN trigram index feeds a single
+    ``BitmapOr`` + ONE bitmap-heap recheck per column. A candidate matched by
+    several phrases (the norm for related skills in one CV — Java, REST API,
+    microservices, Gitlab all together) is therefore detoasted ONCE per column,
+    not once per phrase.
+
+    The per-phrase shape ran one bitmap-heap scan per (phrase × column) and
+    re-detoasted the shared rows in every overlapping branch; on the real base
+    (broad common terms over multi-KB ``raw_cv_text``) that amplified a ~20K-row
+    match into 5× the TOAST reads and pushed a 5-keyword search to ~5s. Folding
+    the phrases into one per-column OR collapses that to a single detoast pass per
+    column (~3x faster on overlapping data, measured), while staying a trigram
+    semi-join — so rare/selective phrases still drive their own index scan and
+    stay fast. Substring scope/semantics are unchanged.
+    """
+    patterns = [f"%{_escape_like(p)}%" for p in phrases]
+    search_doc_or = or_(*(_SEARCH_DOC.ilike(pat, escape="\\") for pat in patterns))
+    cv_or = or_(*(Candidate.raw_cv_text.ilike(pat, escape="\\") for pat in patterns))
+    notes_or = or_(*(Note.content.ilike(pat, escape="\\") for pat in patterns))
+    branches = [
+        select(Candidate.id).where(search_doc_or),
+        select(Candidate.id).where(cv_or),
+        select(Note.candidate_id).where(Note.candidate_id.is_not(None), notes_or),
+    ]
+    return Candidate.id.in_(union(*branches))
+
+
 def _clean(phrases: Optional[list[str]]) -> list[str]:
     """Strip, drop blanks / too-short / duplicates (case-insensitive), cap at limit."""
     if not phrases:
@@ -201,7 +235,9 @@ def build_advanced_filter(
     if all_phrases:
         clauses.append(and_(*(_phrase_match(p) for p in all_phrases)))
     for group in any_groups:
-        clauses.append(or_(*(_phrase_match(p) for p in group)))
+        # Column-grouped OR (see _any_group_match): one detoast pass per column
+        # instead of one per phrase. Equivalent to or_(_phrase_match(p) ...).
+        clauses.append(_any_group_match(group))
     if none_phrases:
         clauses.extend(not_(_phrase_match(p)) for p in none_phrases)
 
