@@ -18,11 +18,9 @@ import {
  FileArchive,
  FileText,
  GitCompare,
- Globe,
  Layers,
  LayoutGrid,
  Link as LinkIcon,
- Linkedin,
  Loader2,
  Lock,
  Mail,
@@ -132,7 +130,6 @@ import {
  getSkillList,
 } from"@/components/v2/pages/candidate-list-helpers";
 import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar";
-import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
@@ -476,18 +473,6 @@ const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = 
  { value: "user", label: `Dla: ${ROLE_LABELS.user}` },
 ];
 
-function sourceIcon(source?: string) {
- if (source === "linkedin")
- return <Linkedin className="h-3.5 w-3.5" style={{ color: "#0A66C2" }} />;
- if (source === "pracuj")
- return (
- <span className="text-[10px] font-bold leading-none" style={{ color: "#FF6600" }}>
- P
- </span>
- );
- return <Globe className="h-3 w-3 text-muted-foreground" />;
-}
-
 function matchBadgeVariant(
  topScore: number
 ): "success" |"soft" |"neutral" |"outline" {
@@ -749,7 +734,6 @@ interface CandidateCellProps {
  initials: string;
  density: "compact" |"cozy";
  stats: Candidate["match_stats"];
- searchTerms: string[];
  onOpenDetail: () => void;
  /** Kandydat nowszy niż last_viewed_at aktywnego zapisanego wyszukiwania
   *  — renderuje badge „Nowy” przy nazwisku. */
@@ -766,13 +750,11 @@ function CandidateCell({
  initials,
  density,
  stats,
- searchTerms,
  onOpenDetail,
  isNew = false,
 }: CandidateCellProps) {
  switch (columnId) {
  case "candidate": {
- const snippet = candidate.match_snippet;
  return (
  <button
  type="button"
@@ -782,7 +764,6 @@ function CandidateCell({
  <Avatar size={density === "compact" ?"sm" :"md"}>
  <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
  </Avatar>
- <div className="min-w-0">
  <div className="flex items-center gap-1.5 min-w-0">
  <span className="font-medium text-foreground truncate hover:text-primary">
  {fullName}
@@ -791,20 +772,6 @@ function CandidateCell({
  <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold leading-none">
  Nowy
  </span>
- )}
- </div>
- <div className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
- {sourceIcon(candidate.source)}
- <span className="truncate">
- {candidate.email ?? formatCandidateLocation(candidate.location) ??"—"}
- </span>
- </div>
- {snippet && searchTerms.length > 0 && (
- <MatchSnippet
- snippet={snippet}
- terms={searchTerms}
- className="block truncate mt-0.5"
- />
  )}
  </div>
  </button>
@@ -1122,10 +1089,6 @@ export function CandidatesListV2() {
  ...visibleColumns.map((c) => c.width),
  "60px",
  ].join(" ");
- // Aggregate the user's positive search phrases (simple q + advanced
- // q_all + q_any). MatchSnippet uses these to <mark>-highlight matched
- // substrings inside each row's snippet. Skipped: q_none — exclusion
- // phrases shouldn't be highlighted as matches.
 
  // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
  // the baseline that applies to every role without a specific override.
@@ -1562,27 +1525,10 @@ export function CandidatesListV2() {
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
- // Positive search phrases used for <mark> highlighting in row snippets.
- // We memo on the raw arrays (not deps stringified) — referential equality
- // is enough since each setter creates a new array. q_none is omitted by
- // design: exclusion phrases shouldn't render as matches.
- const searchTerms = useMemo(() => {
- const terms: string[] = [];
- const simple = search.trim();
- if (simple) terms.push(simple);
- for (const t of [...qAll, ...qAnyGroups.flat()]) {
- const v = t.trim();
- if (v) terms.push(v);
- }
- return terms;
- }, [search, qAll, qAnyGroups]);
-
  // Virtualization ---------------------------------------------
- // Wysokość wiersza musi zmieścić najwyższą komórkę — „Kandydat" przy aktywnym
- // wyszukiwaniu pokazuje 3 linie (nazwisko + email + snippet „AI: …"), ~57px.
- // Stare 52/72px ściskały te 3 linie do granicy czytelności („za dużo tekstu
- // w jednym miejscu"). Luźniejsze 64/92px dają oddech na kandydata bez zmiany
- // liczby kolumn ani treści.
+ // Komórka „Kandydat" pokazuje teraz samo imię i nazwisko (email i dopasowania
+ // CV mają własne kolumny / szczegóły), więc wiersze nie zlewają się tekstem.
+ // Luźne 64/92px dają oddech na pojedynczego kandydata — lista jest przejrzysta.
  const rowHeight = density === "compact" ? 64 : 92;
  const virtualizer = useVirtualizer({
  count: items.length,
@@ -2905,7 +2851,6 @@ export function CandidatesListV2() {
  initials={initials}
  density={density}
  stats={stats}
- searchTerms={searchTerms}
  onOpenDetail={openDetail}
  isNew={isNewMatch}
  />
