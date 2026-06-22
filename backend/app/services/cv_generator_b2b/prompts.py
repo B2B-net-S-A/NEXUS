@@ -124,6 +124,13 @@ Do CV NIGDY nie przenoś:
 PROFIL CHAMPIONA (WYMAGANIA KLIENTA):
 Jeśli w kontekście znajduje się "PROFIL CHAMPIONA", OBOWIĄZKOWO dostosuj CV do wymagań klienta:
 
+NEUTRALNOŚĆ (REGUŁA NADRZĘDNA NAD PUNKTAMI 1–7):
+Profil Championa to WEWNĘTRZNE dane do pozycjonowania. NIGDY nie przenoś z niego do
+żadnego pola wyjściowego (position, why_points, responsibilities, skills) nazwy klienta,
+projektu, marki ani branży docelowej, ani żadnego tekstu identyfikującego odbiorcę CV.
+Wszystko opisuj neutralnie i samodzielnie; NIE cytuj treści z <champion_profile> dosłownie.
+Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
+
 1. MUST-HAVE TECHNOLOGIES:
    - Upewnij się że te technologie są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii)
    - OBOWIĄZKOWE: Jeśli kandydat posiada technologie z listy MUST-HAVE, WSZYSTKIE posiadane must-have technologie MUSZĄ być jawnie wymienione w sekcji why_points. Dodaj dedykowany punkt np.: "Posiada kluczowe technologie wymagane na stanowisku: [lista posiadanych must-have technologii]"
@@ -135,7 +142,7 @@ Jeśli w kontekście znajduje się "PROFIL CHAMPIONA", OBOWIĄZKOWO dostosuj CV 
    - Jeśli nie ma - dodaj do "warnings" jako "NICE-TO-HAVE: [nazwa]"
 
 3. OBOWIĄZKI NA STANOWISKU:
-   - Jeśli kandydat wykonywał podobne zadania do tych z Profilu Championa, możesz dostosować sformułowania żeby były spójne z językiem klienta
+   - Jeśli kandydat wykonywał podobne zadania do tych z Profilu Championa, możesz dostosować sformułowania do neutralnej terminologii branżowej spójnej z opisem roli — NIGDY nie wplataj nazwy klienta, projektu ani branży docelowej i nie cytuj wprost treści Profilu Championa
    - NIE zmieniaj zakresu ani sensu obowiązków - możesz zmienić TYLKO sposób opisu tego co kandydat FAKTYCZNIE robił
    - NIE dodawaj obowiązków których kandydat nie wymienił w CV ani na screeningu
    - KOLEJNOŚĆ: Obowiązki związane z technologiami MUST-HAVE muszą być ZAWSZE na początku listy responsibilities dla każdego stanowiska. Najpierw obowiązki powiązane z MUST-HAVE, potem z NICE-TO-HAVE, potem pozostałe
@@ -146,19 +153,31 @@ Jeśli w kontekście znajduje się "PROFIL CHAMPIONA", OBOWIĄZKOWO dostosuj CV 
    - Użyj kontekstu pytań do lepszego pozycjonowania kandydata
 
 5. INSIGHT KONSULTANTA:
-   - Użyj jako wskazówkę do ogólnego pozycjonowania CV i tonu why_points
+   - Użyj WYŁĄCZNIE wewnętrznie, jako wskazówkę do ogólnego pozycjonowania CV i tonu why_points — NIE cytuj jego treści w wyjściowym CV ani nie przenoś z niego nazwy klienta/projektu
 
 6. TYTUŁ CV (pole "position"):
-   - Jeśli Profil Championa lub kontekst projektu wskazuje nazwę stanowiska u klienta,
-     a kandydat FAKTYCZNIE pełnił taką rolę — użyj nomenklatury klienta (np. oferta
+   - Tytuł MUSI być ZAWSZE ogólną, neutralną nazwą roli, bez żadnego tokenu nazwy
+     klienta, marki ani branży docelowej (np. "Corporate Banking Security Analyst
+     u [klient]" → "Security Analyst")
+   - Nomenklaturę stanowiska z Profilu Championa możesz przyjąć TYLKO wtedy, gdy jest
+     już takim neutralnym tytułem roli, a kandydat FAKTYCZNIE pełnił tę rolę (np. oferta
      "Security Analyst", kandydat robił analizę bezpieczeństwa → position: "Security Analyst")
    - NIE podnoś seniority (Mid nie staje się Seniorem) i NIE zmieniaj roli na inną niż
      faktycznie wykonywana
 
-7. KONTEKST PROJEKTU KLIENTA:
-   - Jeśli podano kontekst projektu, ostatni punkt why_points powinien wiązać faktyczne
-     doświadczenie kandydata z tym projektem (np. "Doświadczenie w [X] bezpośrednio
-     odpowiada potrzebom projektu [Y]") — wyłącznie na bazie prawdziwego doświadczenia
+7. KONTEKST PROJEKTU KLIENTA (POZYCJONOWANIE, NIE TREŚĆ):
+   - Kontekstu projektu używaj WYŁĄCZNIE wewnętrznie — do wyboru, które prawdziwe
+     doświadczenie i kompetencje kandydata wyeksponować i w jakiej kolejności
+   - Doświadczenie i kompetencje opisuj NEUTRALNIE. W why_points (ani w żadnym innym
+     polu) NIE wymieniaj nazwy klienta, projektu ani branży docelowej i NIE pisz, że
+     dana umiejętność "odpowiada potrzebom", "jest idealna pod" ani "jest dopasowana do"
+     konkretnego projektu lub klienta
+   - ZAKAZANE sformułowania (i podobne): "bezpośrednio odpowiada potrzebom projektu [X]",
+     "idealnie pasuje do wymagań [klient]", "dopasowany do projektu dla [klient]"
+   - Ostatni punkt why_points ma eksponować najbardziej relewantne realne doświadczenie
+     kandydata opisane samodzielnie (np. "Praktyczne doświadczenie w analizie logów
+     i monitorowaniu backendu przy użyciu Kibany"), bez wiązania go z konkretnym
+     odbiorcą CV
 
 Gdy jest Profil Championa, JSON MUSI zawierać dodatkowe pole:
 "warnings": ["lista brakujących wymagań w formacie: MUST-HAVE: nazwa lub NICE-TO-HAVE: nazwa"]
@@ -317,6 +336,13 @@ NEVER carry into the CV:
 CHAMPION PROFILE (CLIENT REQUIREMENTS):
 If "CHAMPION PROFILE" is provided in the context, you MUST adapt the CV to client requirements:
 
+NEUTRALITY (OVERRIDING RULE ABOVE POINTS 1–7):
+The Champion Profile is INTERNAL positioning data. NEVER carry from it into any output
+field (position, why_points, responsibilities, skills) the client, project, brand or
+target-industry name, or any text that identifies the CV recipient. Describe everything
+neutrally and self-containedly; do NOT quote <champion_profile> text verbatim. This rule
+takes precedence over every one of points 1–7.
+
 1. MUST-HAVE TECHNOLOGIES:
    - Ensure these technologies are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories)
    - MANDATORY: If the candidate possesses technologies from the MUST-HAVE list, ALL possessed must-have technologies MUST be explicitly listed in the why_points section. Add a dedicated point e.g.: "Possesses key technologies required for the position: [list of possessed must-have technologies]"
@@ -328,7 +354,7 @@ If "CHAMPION PROFILE" is provided in the context, you MUST adapt the CV to clien
    - If not - add to "warnings" as "NICE-TO-HAVE: [name]"
 
 3. POSITION RESPONSIBILITIES:
-   - If the candidate performed similar tasks to those in the Champion Profile, you may adjust phrasing to be consistent with the client's language
+   - If the candidate performed similar tasks to those in the Champion Profile, you may adjust phrasing toward neutral, role-consistent industry terminology — NEVER weave in the client, project or target-industry name, and do NOT quote the Champion Profile text verbatim
    - DO NOT change the scope or meaning of responsibilities - you may only change HOW something the candidate ACTUALLY did is described
    - DO NOT add responsibilities the candidate did not mention in the CV or screening notes
    - ORDER: Responsibilities related to MUST-HAVE technologies must ALWAYS be at the top of the responsibilities list for each position. First MUST-HAVE related duties, then NICE-TO-HAVE related, then the rest
@@ -339,19 +365,29 @@ If "CHAMPION PROFILE" is provided in the context, you MUST adapt the CV to clien
    - Use question context to better position the candidate
 
 5. CONSULTANT INSIGHT:
-   - Use as guidance for overall CV positioning and why_points tone
+   - Use it ONLY internally, as guidance for overall CV positioning and why_points tone — do NOT quote its content in the output CV and do NOT carry the client/project name from it
 
 6. CV TITLE (the "position" field):
-   - If the Champion Profile or project context indicates the client's job title,
-     and the candidate ACTUALLY performed such a role — use the client's nomenclature
+   - The title MUST ALWAYS be a generic, neutral role name, with no client, brand or
+     target-industry token (e.g. "Corporate Banking Security Analyst at [client]"
+     → "Security Analyst")
+   - You may adopt the client's role nomenclature from the Champion Profile ONLY when it
+     is already such a generic role title AND the candidate ACTUALLY performed that role
      (e.g. offer "Security Analyst", candidate did security analysis → position: "Security Analyst")
    - Do NOT inflate seniority (Mid does not become Senior) and do NOT change the role
      to one the candidate did not actually perform
 
-7. CLIENT PROJECT CONTEXT:
-   - If project context is provided, the last why_point should tie the candidate's real
-     experience to that project (e.g. "Experience in [X] directly matches the needs of
-     project [Y]") — strictly based on actual experience
+7. CLIENT PROJECT CONTEXT (POSITIONING, NOT CONTENT):
+   - Use the project context ONLY internally — to decide which of the candidate's real
+     experience and competencies to surface and in what order
+   - Describe experience and competencies NEUTRALLY. In why_points (or any other field)
+     do NOT name the client, project or target industry, and do NOT state that a skill
+     "matches the needs of", "is ideal for" or "is tailored to" a specific project or client
+   - FORBIDDEN phrasings (and similar): "directly matches the needs of project [X]",
+     "perfectly fits the requirements of [client]", "tailored to the project for [client]"
+   - The last why_point should surface the candidate's most relevant real experience
+     described on its own terms (e.g. "Hands-on experience in log analysis and backend
+     monitoring with Kibana"), without tying it to a specific CV recipient
 
 When Champion Profile is provided, JSON MUST contain additional field:
 "warnings": ["list of missing requirements in format: MUST-HAVE: name or NICE-TO-HAVE: name"]
