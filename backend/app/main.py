@@ -166,6 +166,65 @@ logger = logging.getLogger(__name__)
 # FastApiIntegration tags transactions by route (transaction_style="endpoint").
 # release=$GIT_SHA matches the Compass/Atlas pattern so deploy markers in
 # Grafana correlate across all 3 apps.
+
+# HTTP status codes for transient Anthropic conditions: 429 rate-limit,
+# 529 overloaded. Both are retried with backoff by the Claude callers.
+_TRANSIENT_ANTHROPIC_STATUS = {429, 529}
+_TRANSIENT_ANTHROPIC_TYPES = {"overloaded_error", "rate_limit_error"}
+
+
+def _is_transient_anthropic_exc(exc: BaseException) -> bool:
+    """True for momentary Anthropic 429/529 (overloaded / rate-limited) errors.
+
+    Mirrors ``ai_client._is_retryable``'s status/type detection without importing
+    the anthropic SDK here — inspects the SDK exception's ``status_code`` /
+    ``response.status_code`` and the ``error.type`` carried in ``body``.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        if response is not None:
+            status = getattr(response, "status_code", None)
+    if status in _TRANSIENT_ANTHROPIC_STATUS:
+        return True
+
+    err_type = ""
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err_obj = body.get("error") or {}
+        if isinstance(err_obj, dict):
+            err_type = err_obj.get("type", "")
+    if not err_type:
+        err_type = getattr(exc, "type", "") or ""
+    return err_type in _TRANSIENT_ANTHROPIC_TYPES
+
+
+def _sentry_before_send(event: dict, hint: dict) -> dict | None:
+    """Drop transient Anthropic 429/529 errors auto-captured by Sentry's
+    AnthropicIntegration at the raw ``messages.create`` boundary.
+
+    Every Claude caller in this app wraps the SDK call and either retries with
+    exponential backoff (``cv_generator_b2b.ai_client``) or returns a clean HTTP
+    error. A momentary ``overloaded_error`` (529) / ``rate_limit_error`` (429) is
+    an expected transient condition, not a code defect — yet the integration
+    reports each one as an unhandled ``mechanism=anthropic`` event, spamming
+    alerts (Sentry issue ``a5edd981…``, ``generate_from_upload``). The genuinely
+    actionable failure — retries exhausted — is logged at ERROR level and still
+    reaches Sentry via LoggingIntegration with full app context. So suppress only
+    events that (a) carry a transient Anthropic exception and (b) came through
+    the anthropic mechanism; never swallow errors raised by our own code.
+    """
+    exc_info = hint.get("exc_info") if hint else None
+    if not (exc_info and len(exc_info) >= 2):
+        return event
+    if not _is_transient_anthropic_exc(exc_info[1]):
+        return event
+    for value in (event.get("exception") or {}).get("values", []):
+        if (value.get("mechanism") or {}).get("type") == "anthropic":
+            return None
+    return event
+
+
 if settings.SENTRY_DSN:
     try:
         import sentry_sdk
@@ -180,6 +239,7 @@ if settings.SENTRY_DSN:
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0.1")),
             send_default_pii=False,
+            before_send=_sentry_before_send,
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
                 AsyncioIntegration(),
