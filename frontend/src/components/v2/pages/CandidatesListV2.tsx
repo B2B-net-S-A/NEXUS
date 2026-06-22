@@ -1002,7 +1002,7 @@ function CandidateCell({
  }
  // Kategoria + notatka rekrutera ("Po CV — kandydat nie jest
  // zainteresowany tą ofertą"). Wiersze listy mają STAŁĄ wysokość
- // (virtualizer, rowHeight 52/72px) — bez clampa długi free-text
+ // (virtualizer, rowHeight 64/92px) — bez clampa długi free-text
  // rekrutera wylewał się poza wiersz i nachodził na sąsiednie rzędy
  // (nieczytelne). `line-clamp-2` przycina do 2 linii w obrębie wiersza,
  // a pełna treść zostaje w tooltipie (`title`) i po kliknięciu w profil.
@@ -1553,7 +1553,12 @@ export function CandidatesListV2() {
  }, [search, qAll, qAnyGroups]);
 
  // Virtualization ---------------------------------------------
- const rowHeight = density === "compact" ? 52 : 72;
+ // Wysokość wiersza musi zmieścić najwyższą komórkę — „Kandydat" przy aktywnym
+ // wyszukiwaniu pokazuje 3 linie (nazwisko + email + snippet „AI: …"), ~57px.
+ // Stare 52/72px ściskały te 3 linie do granicy czytelności („za dużo tekstu
+ // w jednym miejscu"). Luźniejsze 64/92px dają oddech na kandydata bez zmiany
+ // liczby kolumn ani treści.
+ const rowHeight = density === "compact" ? 64 : 92;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
