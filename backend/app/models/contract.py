@@ -101,6 +101,9 @@ class Contract(Base, TimestampMixin):
     # Stawki finansowe
     rate_candidate: Mapped[Optional[int]] = mapped_column(Integer)
     rate_client: Mapped[Optional[int]] = mapped_column(Integer)
+    # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
+    # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
+    framework_rate: Mapped[Optional[int]] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), default="PLN")
 
     # Jednostka stawki (godz. / dzień / mies.) + liczba godzin billingowych (dla stawki godzinowej).
@@ -140,6 +143,9 @@ class Contract(Base, TimestampMixin):
     work_mode: Mapped[Optional[ContractWorkMode]] = mapped_column(
         Enum(ContractWorkMode, name="contractworkmode"), nullable=True
     )
+    # Line manager po stronie klienta — osoba, pod którą raportuje kontraktor
+    # (odrębna rola od `client_pm_name`, który jest PM-em projektu).
+    line_manager: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     office_location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     team_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     project_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

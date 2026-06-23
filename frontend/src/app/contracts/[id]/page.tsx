@@ -54,6 +54,7 @@ interface ContractDetail {
   client_order_end_date: string | null;
   rate_candidate: number | null;
   rate_client: number | null;
+  framework_rate: number | null;
   target_rate_min: number | null;
   target_rate_max: number | null;
   currency: string;
@@ -65,6 +66,7 @@ interface ContractDetail {
   documents: unknown;
   client_pm_name: string | null;
   client_pm_email: string | null;
+  line_manager: string | null;
   work_mode: "remote" | "hybrid" | "onsite" | null;
   office_location: string | null;
   team_name: string | null;
@@ -284,6 +286,7 @@ interface EditForm {
   client_order_end_date: string;
   rate_candidate: string;
   rate_client: string;
+  framework_rate: string;
   target_rate_min: string;
   target_rate_max: string;
   currency: string;
@@ -293,6 +296,7 @@ interface EditForm {
   status: string;
   client_pm_name: string;
   client_pm_email: string;
+  line_manager: string;
   work_mode: string;
   office_location: string;
   team_name: string;
@@ -307,6 +311,7 @@ function contractToForm(c: ContractDetail): EditForm {
     client_order_end_date: c.client_order_end_date ?? "",
     rate_candidate: c.rate_candidate?.toString() ?? "",
     rate_client: c.rate_client?.toString() ?? "",
+    framework_rate: c.framework_rate?.toString() ?? "",
     target_rate_min: c.target_rate_min?.toString() ?? "",
     target_rate_max: c.target_rate_max?.toString() ?? "",
     currency: c.currency,
@@ -316,6 +321,7 @@ function contractToForm(c: ContractDetail): EditForm {
     status: c.status,
     client_pm_name: c.client_pm_name ?? "",
     client_pm_email: c.client_pm_email ?? "",
+    line_manager: c.line_manager ?? "",
     work_mode: c.work_mode ?? "",
     office_location: c.office_location ?? "",
     team_name: c.team_name ?? "",
@@ -426,6 +432,7 @@ export default function ContractDetailPage() {
       client_order_end_date: form.client_order_end_date || null,
       rate_candidate: form.rate_candidate ? Number(form.rate_candidate) : null,
       rate_client: form.rate_client ? Number(form.rate_client) : null,
+      framework_rate: form.framework_rate ? Number(form.framework_rate) : null,
       target_rate_min: form.target_rate_min ? Number(form.target_rate_min) : null,
       target_rate_max: form.target_rate_max ? Number(form.target_rate_max) : null,
       currency: form.currency,
@@ -435,6 +442,7 @@ export default function ContractDetailPage() {
       status: form.status,
       client_pm_name: form.client_pm_name || null,
       client_pm_email: form.client_pm_email || null,
+      line_manager: form.line_manager || null,
       work_mode: form.work_mode || null,
       office_location: form.office_location || null,
       team_name: form.team_name || null,
@@ -703,7 +711,7 @@ export default function ContractDetailPage() {
             )}
 
             {/* Assignment context */}
-            {!editing && (contract.client_pm_name || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
+            {!editing && (contract.client_pm_name || contract.line_manager || contract.work_mode || contract.project_name || contract.team_name || contract.office_location) && (
               <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-1">
                 <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">
                   Osadzenie u klienta
@@ -716,6 +724,11 @@ export default function ContractDetailPage() {
                         {contract.client_pm_email}
                       </span>
                     )}
+                  </InfoRow>
+                )}
+                {contract.line_manager && (
+                  <InfoRow icon={User} label="Line Manager">
+                    {contract.line_manager}
                   </InfoRow>
                 )}
                 {contract.work_mode && (
@@ -845,12 +858,27 @@ export default function ContractDetailPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      Stawka z umowy ramowej
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.framework_rate}
+                      onChange={(e) =>
+                        setForm((f) => (f ? { ...f, framework_rate: e.target.value } : f))
+                      }
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka kandydata
                     </label>
                     <input
                       type="number"
                       min="0"
-                      step="100"
+                      step="1"
                       value={form.rate_candidate}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_candidate: e.target.value } : f))
@@ -865,7 +893,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="100"
+                      step="1"
                       value={form.rate_client}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_client: e.target.value } : f))
@@ -880,7 +908,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="100"
+                      step="1"
                       value={form.target_rate_min}
                       onChange={(e) =>
                         setForm((f) =>
@@ -897,7 +925,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="100"
+                      step="1"
                       value={form.target_rate_max}
                       onChange={(e) =>
                         setForm((f) =>
@@ -1009,6 +1037,20 @@ export default function ContractDetailPage() {
                           }
                           className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                           placeholder="jan.kowalski@klient.pl"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                          Line Manager
+                        </label>
+                        <input
+                          type="text"
+                          value={form.line_manager}
+                          onChange={(e) =>
+                            setForm((f) => (f ? { ...f, line_manager: e.target.value } : f))
+                          }
+                          className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                          placeholder="Imię i nazwisko (po stronie klienta)"
                         />
                       </div>
                     </div>
@@ -1148,6 +1190,15 @@ export default function ContractDetailPage() {
                   <div className="flex justify-between pt-1 text-xs text-muted-foreground dark:text-muted-foreground">
                     <span>Marża miesięcznie (≈)</span>
                     <span>{formatCurrency(monthlyMargin, contract.currency)}</span>
+                  </div>
+                )}
+                {contract.framework_rate != null && (
+                  <div className="flex justify-between pt-2 mt-1 border-t border-border dark:border-border text-xs text-muted-foreground dark:text-muted-foreground">
+                    <span>Z umowy ramowej</span>
+                    <span>
+                      {formatCurrency(contract.framework_rate, contract.currency)}
+                      <span className="opacity-70">{unitSuffix}</span>
+                    </span>
                   </div>
                 )}
               </div>
