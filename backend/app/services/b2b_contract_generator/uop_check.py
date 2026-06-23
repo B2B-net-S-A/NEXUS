@@ -41,6 +41,11 @@ Zaproponuj bezpieczniejszą redakcję językiem rezultatu/usługi (samodzielnoś
 odpowiedzialność za rezultat, własny warsztat i organizacja czasu, możliwość \
 podwykonawstwa).
 
+NAZEWNICTWO (obowiązkowe): na określenie strony zamawiającej usługę używaj \
+WYŁĄCZNIE słowa „Klient" (ewentualnie „Klient Projektu"). NIE używaj słowa \
+„Zamawiający" — dla zachowania spójności z nomenklaturą Załącznika nr 3 do umowy \
+B2B. Dotyczy to zarówno pola „rewritten", jak i „suggestion".
+
 Zwróć WYŁĄCZNIE poprawny JSON (bez komentarzy, bez markdown) w formacie:
 {{"issues":[{{"phrase":"<cytat z tekstu>","why":"<dlaczego ryzykowne>",\
 "suggestion":"<jak przeformułować>"}}],"rewritten":"<cały tekst po bezpiecznej \
@@ -64,6 +69,11 @@ autonomy as to manner and place of performance.
 
 Propose safer wording in results/service language (autonomy, responsibility for \
 results, own toolset and time organisation, possibility of subcontracting).
+
+TERMINOLOGY (mandatory): refer to the party commissioning the services ONLY as \
+„Klient" (or „Klient Projektu") — never „Zamawiający" — to stay consistent with \
+the nomenclature of Appendix 3 (Załącznik nr 3) to the B2B contract. This applies \
+to both the "rewritten" and "suggestion" fields.
 
 Return ONLY valid JSON (no markdown, no comments):
 {{"issues":[{{"phrase":"<quote>","why":"<why risky>","suggestion":"<rephrase>"}}],\
