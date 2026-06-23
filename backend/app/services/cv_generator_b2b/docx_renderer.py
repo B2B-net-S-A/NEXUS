@@ -389,23 +389,370 @@ def _is_strong_tech_token(token: str) -> bool:
         return False
     if all(ch.isupper() for ch in letters):
         return True
-    return any(ch.isupper() for ch in token[1:])
+    # Internal camelCase hump — an uppercase letter directly after a lowercase
+    # one ("PostgreSQL", "GraphQL", "GitLab", "iOS"). A capital after a hyphen
+    # or space ("User-Centered", "Human Interface") is just Title Case, NOT a
+    # tech signal, so it must not qualify.
+    return any(
+        token[i].isupper() and token[i - 1].islower() for i in range(1, len(token))
+    )
+
+
+# Concrete technologies — tools, languages, frameworks, libraries, platforms.
+# The ONLY terms that bold without a hard-tech signal in the token itself: a
+# plain Capitalized word like "Python" / "Figma" / "Docker" / "React" carries
+# no signal (no caps drift, digit or special char), so it can only be matched
+# against this curated, lowercase, whitespace/hyphen-normalised set
+# (see :func:`_norm_tech`). Design methodologies / concepts ("User-Centered
+# Design", "Material Design", "Zasady Gestalt") are deliberately ABSENT — they
+# must never bold (recruiter directive: bold only technologies).
+_KNOWN_TECH: frozenset[str] = frozenset(
+    {
+        # Languages
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "kotlin",
+        "swift",
+        "php",
+        "ruby",
+        "scala",
+        "rust",
+        "dart",
+        "elixir",
+        "clojure",
+        "haskell",
+        "lua",
+        "perl",
+        "groovy",
+        "objective-c",
+        "node.js",
+        "node",
+        "deno",
+        "bun",
+        # Frontend
+        "react",
+        "react native",
+        "angular",
+        "vue",
+        "vue.js",
+        "svelte",
+        "next.js",
+        "nextjs",
+        "nuxt",
+        "remix",
+        "redux",
+        "mobx",
+        "jquery",
+        "tailwind",
+        "tailwind css",
+        "bootstrap",
+        "sass",
+        "scss",
+        "less",
+        "webpack",
+        "vite",
+        "rollup",
+        "babel",
+        "styled-components",
+        "astro",
+        # Backend / frameworks
+        "django",
+        "flask",
+        "fastapi",
+        "spring",
+        "spring boot",
+        "express",
+        "express.js",
+        "nestjs",
+        "laravel",
+        "symfony",
+        "rails",
+        "ruby on rails",
+        "asp.net",
+        ".net",
+        "dotnet",
+        "ktor",
+        "quarkus",
+        "micronaut",
+        # Data / databases
+        "sql",
+        "postgresql",
+        "postgres",
+        "mysql",
+        "mariadb",
+        "mongodb",
+        "redis",
+        "sqlite",
+        "oracle",
+        "sql server",
+        "mssql",
+        "cassandra",
+        "dynamodb",
+        "elasticsearch",
+        "opensearch",
+        "neo4j",
+        "clickhouse",
+        "snowflake",
+        "bigquery",
+        "redshift",
+        "databricks",
+        "spark",
+        "hadoop",
+        "kafka",
+        "rabbitmq",
+        "airflow",
+        "dbt",
+        # Cloud / devops
+        "aws",
+        "gcp",
+        "azure",
+        "docker",
+        "kubernetes",
+        "k8s",
+        "terraform",
+        "ansible",
+        "jenkins",
+        "gitlab",
+        "github",
+        "github actions",
+        "circleci",
+        "ci/cd",
+        "helm",
+        "prometheus",
+        "grafana",
+        "datadog",
+        "nginx",
+        "apache",
+        "openshift",
+        "argocd",
+        "git",
+        "svn",
+        # Observability / security
+        "splunk",
+        "qradar",
+        "sentry",
+        "kibana",
+        "logstash",
+        "vault",
+        "consul",
+        # Mobile
+        "android",
+        "ios",
+        "flutter",
+        "swiftui",
+        "jetpack compose",
+        "xamarin",
+        "ionic",
+        "cordova",
+        # Design tools
+        "figma",
+        "sketch",
+        "adobe xd",
+        "invision",
+        "zeplin",
+        "framer",
+        "photoshop",
+        "illustrator",
+        "after effects",
+        "indesign",
+        "miro",
+        "webflow",
+        "axure",
+        "protopie",
+        # APIs / protocols / standards
+        "rest",
+        "restful",
+        "graphql",
+        "grpc",
+        "soap",
+        "websocket",
+        "websockets",
+        "oauth",
+        "oauth2",
+        "openapi",
+        "swagger",
+        "jwt",
+        "saml",
+        "json",
+        "xml",
+        "yaml",
+        "html",
+        "html5",
+        "css",
+        "css3",
+        "wcag",
+        "rwd",
+        "wai-aria",
+        "aria",
+        "xpath",
+        # Data science / ML
+        "pytorch",
+        "tensorflow",
+        "keras",
+        "scikit-learn",
+        "sklearn",
+        "pandas",
+        "numpy",
+        "matplotlib",
+        "jupyter",
+        "langchain",
+        "opencv",
+        "spacy",
+        "xgboost",
+        "power bi",
+        "tableau",
+        "looker",
+        # Misc tools / platforms
+        "jira",
+        "confluence",
+        "postman",
+        "maven",
+        "gradle",
+        "npm",
+        "yarn",
+        "pnpm",
+        "unity",
+        "unreal engine",
+        "wordpress",
+        "drupal",
+        "magento",
+        "shopify",
+        "salesforce",
+        "sap",
+    }
+)
+
+
+def _norm_tech(text: str) -> str:
+    """Lowercase + collapse whitespace/hyphens for ``_KNOWN_TECH`` lookup.
+
+    Keeps tech punctuation (``.`` ``/`` ``+`` ``#``) so ".net", "ci/cd" and
+    "c++" stay distinct, but folds hyphen↔space drift ("react-native" ↔
+    "react native") onto one key.
+    """
+    return re.sub(r"[\s\-]+", " ", text.strip().lower())
+
+
+def _is_tech_word(token: str) -> bool:
+    """True iff a single token is a recognised technology — a hard-tech signal
+    (:func:`_is_strong_tech_token`) or a curated allowlist hit."""
+    return _is_strong_tech_token(token) or _norm_tech(token) in _KNOWN_TECH
+
+
+_POLISH_DIACRITICS = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+# Inflectional endings of Polish concept / soft-skill nouns a recruiter types
+# as a bare requirement ("Komunikatywność", "Projektowanie", "Negocjacje").
+_POLISH_SUFFIXES = (
+    "ość",
+    "ości",
+    "ością",
+    "ościach",
+    "anie",
+    "ania",
+    "aniu",
+    "aniem",
+    "enie",
+    "enia",
+    "eniu",
+    "eniem",
+    "owanie",
+    "owania",
+    "ywanie",
+    "ywania",
+    "cja",
+    "cji",
+    "cją",
+    "cje",
+    "cjach",
+    "sja",
+    "zja",
+    "alność",
+    "ywność",
+)
+
+
+def _looks_polish_word(token: str) -> bool:
+    """Heuristic: a Polish concept/soft-skill word, not a tech brand name.
+
+    Catches the frequent cases ("Komunikatywność", "Projektowanie",
+    "Negocjacje") via diacritics or inflectional suffixes so they are not
+    mistaken for an unlisted technology. Not exhaustive — it only needs to
+    suppress the common Polish nouns a recruiter types as a bare skill.
+    """
+    if any(ch in _POLISH_DIACRITICS for ch in token):
+        return True
+    low = token.lower()
+    return any(low.endswith(suf) for suf in _POLISH_SUFFIXES)
+
+
+def _is_tech_token_name(token: str) -> bool:
+    """Fallback for technologies absent from ``_KNOWN_TECH`` — niche tools
+    (Splunk, QRadar) the allowlist will never fully cover.
+
+    A single brand-like token qualifies when it carries an uppercase letter (a
+    proper-noun/brand signal — recruiters capitalise tool names) and is neither
+    a generic/stop word nor Polish-looking. That keeps lowercase concept
+    sub-terms ("komponenty", "tokeny") and Polish nouns ("Projektowanie",
+    "Komunikatywność") out, while letting "Splunk"/"QRadar"/"Figma" through.
+    """
+    if _is_filler_word(token) or token.lower() in _STOP_WORDS:
+        return False
+    if not any(ch.isupper() for ch in token):
+        return False
+    if _looks_polish_word(token):
+        return False
+    return sum(1 for ch in token if ch.isalpha()) >= 2
+
+
+def _is_technology(term: str) -> bool:
+    """True iff `term` is a concrete technology worth bolding on its own.
+
+    Recruiters asked the generator to bold ONLY technologies — tools,
+    languages, frameworks, libraries, platforms and technical acronyms /
+    standards — and to STOP bolding design methodologies, concepts and
+    requirement prose ("User-Centered Design", "Material Design", "Zasady
+    Gestalt", "visual design", "tworzenie i rozwój design systemów").
+
+    Qualifies when the term is the curated allowlist verbatim ("Spring Boot",
+    "SQL Server", "Adobe XD"); a SINGLE brand-like token (hard-tech signal,
+    allowlist, or proper-noun fallback — "SQL", "Figma", "Splunk", "QRadar");
+    or a multi-word phrase whose EVERY word is itself a tech token ("GitLab
+    CI/CD", "C++ STL"). A phrase with any plain word ("visual design",
+    "User-Centered Design") fails here — only a hard-tech token buried inside
+    it (handled by the caller) may still bold.
+    """
+    t = term.strip()
+    if not t:
+        return False
+    if _norm_tech(t) in _KNOWN_TECH:
+        return True
+    tokens = [tok for tok in t.split() if tok]
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return _is_tech_word(t) or _is_tech_token_name(t)
+    return all(_is_tech_word(tok) for tok in tokens)
 
 
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
-    """Compile whole-phrase, word-boundary regexes for champion keywords.
+    """Compile whole-phrase, word-boundary regexes for champion TECHNOLOGIES.
 
     Every champion chip is expanded (:func:`_extract_keyword_terms`) into its
-    real concepts — explanation parentheticals stripped, conjunctions split —
-    and each concept bolds WHOLE wherever it overlaps the CV, in every section
-    including EXPERIENCE. Multi-word phrases match across flexible whitespace;
-    matching is case-insensitive.
+    candidate terms — explanation parentheticals stripped, conjunctions split.
+    A term bolds WHOLE wherever it overlaps the CV (every section, including
+    EXPERIENCE) ONLY when it is a concrete technology (:func:`_is_technology`):
+    a tool, language, framework, library, platform or technical acronym /
+    standard. Multi-word phrases match across flexible whitespace; matching is
+    case-insensitive.
 
-    Two guards keep the recruiter's earlier "stop bolding random words"
-    feedback honoured: leading/trailing filler is trimmed (``_core_keyword``)
-    and a fully generic term ("technologie", "mile widziane") is dropped — so
-    a standalone requirement word never bolds, while the substantive concept
-    inside it ("design systemów", "User-Centered Design") always does.
+    Recruiter directive (supersedes the earlier "bold every requirement"
+    behaviour): design methodologies / concepts / requirement prose
+    ("User-Centered Design", "Material Design", "Zasady Gestalt", "visual
+    design", "tworzenie i rozwój") must NOT bold. When such a phrase still
+    hides a hard-tech token ("Zasady WCAG 2.1/2.2" → "WCAG", "bazami danych
+    SQL" → "SQL"), only that token bolds — never the surrounding concept.
     """
     patterns: list[re.Pattern[str]] = []
     seen: set[str] = set()
@@ -439,13 +786,18 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
                 continue
             if _is_generic_phrase(v):
                 continue
-            _add(v)
-            # Also surface a hard-tech token buried in the phrase ("Zasady WCAG
-            # 2.1/2.2" → "WCAG") so it still bolds under inflection drift.
-            words = v.split()
-            if len(words) > 1:
-                for w in words:
-                    if _is_strong_tech_token(w):
+            if _is_technology(v):
+                # A real technology bolds whole ("Figma", "Spring Boot",
+                # "GitLab CI/CD", "C++").
+                _add(v)
+            else:
+                # Not a technology in itself ("visual design", "User-Centered
+                # Design", "bazami danych SQL") — never bold the concept/prose;
+                # only surface a hard-tech token buried inside it ("SQL",
+                # "WCAG") so it still bolds under inflection drift. Require a
+                # letter so a bare version ("2.1/2.2") never bolds.
+                for w in v.split():
+                    if _is_strong_tech_token(w) and any(ch.isalpha() for ch in w):
                         _add(w)
     return patterns
 
