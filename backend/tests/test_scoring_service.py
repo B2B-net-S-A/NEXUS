@@ -303,12 +303,35 @@ def test_salary_below_range_decays():
     assert "poniżej" in r.reason
 
 
-def test_salary_missing_data_gets_zero():
+def test_salary_missing_data_gets_neutral():
+    # Recalibration: unknown salary is "no signal", not a negative → neutral
+    # half-budget (matching availability/champion), not a hard 0.
     job = make_job(salary_min=None, salary_max=None)
     cand = make_candidate(salary_expectation=None)
     r = ss._score_salary(cand, job)
-    assert r.points == 0.0
+    assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
     assert "brak" in r.reason
+
+
+def test_salary_missing_job_range_gets_neutral():
+    # Candidate has a rate but the job has no range → still unjudgeable → neutral.
+    job = make_job(salary_min=None, salary_max=None)
+    cand = make_candidate(salary_expectation=20000)
+    r = ss._score_salary(cand, job)
+    assert r.points == pytest.approx(ss.SALARY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+
+
+def test_salary_in_range_beats_unknown_beats_far_over():
+    # The neutral convention must keep the sensible ordering:
+    #   in-range (full) > unknown (neutral) > badly-out-of-range (decayed).
+    job = make_job(salary_min=50000, salary_max=60000)
+    in_range = ss._score_salary(make_candidate(salary_expectation=55000), job)
+    unknown = ss._score_salary(
+        make_candidate(salary_expectation=None),
+        make_job(salary_min=None, salary_max=None),
+    )
+    far_over = ss._score_salary(make_candidate(salary_expectation=80000), job)
+    assert in_range.points > unknown.points > far_over.points
 
 
 def test_salary_preferences_override_salary_expectation():
@@ -417,9 +440,24 @@ def test_location_blob_candidate_other_city_no_credit():
     assert r.points == 0.0
 
 
-def test_location_candidate_without_location_no_credit_and_no_crash():
+def test_location_candidate_unknown_location_gets_city_neutral():
+    # Recalibration: the job specifies a city but the candidate's location is
+    # unknown → can't judge a mismatch → neutral half of the city half (not 0).
+    # Remote half stays 0 (candidate has no remote prefs). No crash on None.
     job = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
     cand = make_candidate(location=None, preferences={})
+    r = ss._score_location(cand, job)
+    half = ss.LOCATION_MAX / 2.0
+    assert r.points == pytest.approx(half * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert "nieznana" in r.reason
+
+
+def test_location_empty_job_location_stays_noop():
+    # ~99.6% of imported jobs have NO location → the city half must stay a hard
+    # no-op (0), NOT neutral, so the dominant cohort's score is not inflated by a
+    # constant. Only a *one-sided* (job-has / cand-lacks) case earns city-neutral.
+    job = make_job(location=None, remote_policy=SimpleNamespace(value="remote"))
+    cand = make_candidate(location='{"locality":"Warszawa"}', preferences={})
     r = ss._score_location(cand, job)
     assert r.points == 0.0
 
@@ -461,9 +499,28 @@ def test_semantic_none_gives_zero():
     assert r.points == 0.0
 
 
-def test_semantic_mid_similarity_linear():
+def test_semantic_mid_similarity_calibrated():
+    # gamma power curve (default 0.6): 0.5 ** 0.6 ≈ 0.66 of budget — lifts the
+    # deflated middle above the old linear 0.5.
     r = ss.score_semantic(0.5)
-    assert r.points == pytest.approx(ss.SEMANTIC_MAX * 0.5)
+    expected = (0.5 ** ss.SEMANTIC_CALIBRATION_GAMMA) * ss.SEMANTIC_MAX
+    assert r.points == pytest.approx(expected)
+    if ss.SEMANTIC_CALIBRATION_GAMMA < 1.0:
+        assert r.points > ss.SEMANTIC_MAX * 0.5
+
+
+def test_semantic_gamma_curve_monotonic_and_pinned():
+    g = ss.SEMANTIC_CALIBRATION_GAMMA
+    sims = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    pts = [ss.score_semantic(s).points for s in sims]
+    # strictly increasing → per-candidate semantic ordering preserved
+    assert all(pts[i] < pts[i + 1] for i in range(len(pts) - 1))
+    # endpoints pinned: 0 → 0, 1 → full budget
+    assert pts[0] == pytest.approx(0.0)
+    assert pts[-1] == pytest.approx(ss.SEMANTIC_MAX)
+    # each point follows the configured power curve
+    for s, p in zip(sims, pts):
+        assert p == pytest.approx((s ** g) * ss.SEMANTIC_MAX)
 
 
 # ── _score_champion_fit (Phase 10/11) ────────────────────────────────────────
@@ -660,3 +717,48 @@ def test_summarize_match_stats_rounds_top_score():
     breakdowns = [_breakdown(73.456789)]
     stats = ss.summarize_match_stats(breakdowns, total_open=1, min_score=50.0)
     assert stats["top_score"] == 73.5
+
+
+# ── Recalibration invariants (ranking preservation + legacy escape hatch) ─────
+
+
+@pytest.mark.asyncio
+async def test_ranking_preserved_for_same_unknown_cohort():
+    """For candidates that share the SAME unknown-metadata set (no salary, no
+    location, no availability, no screening), neutral-fill is a constant additive
+    shift, so ranking is driven purely by the (monotonic) semantic layer and the
+    composite delta between any two equals their semantic delta exactly."""
+    db = _FakeScalarDB(None)  # no screening, no conflict
+    job = make_job(id=1, must_skills=["Python"], client_id=None)
+
+    def cohort(cid):
+        return make_candidate(id=cid, skills=[], verified_tech=[], tags=[])
+
+    hi = await ss.score_candidate_job(cohort(1), job, db, semantic_similarity=0.8)
+    mid = await ss.score_candidate_job(cohort(2), job, db, semantic_similarity=0.6)
+    lo = await ss.score_candidate_job(cohort(3), job, db, semantic_similarity=0.3)
+
+    assert hi.total > mid.total > lo.total
+    assert (hi.total - mid.total) == pytest.approx(
+        hi.semantic.points - mid.semantic.points
+    )
+    assert (mid.total - lo.total) == pytest.approx(
+        mid.semantic.points - lo.semantic.points
+    )
+
+
+def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
+    """The escape hatch: gamma=1.0 + neutral=0.0 must reproduce the exact pre-
+    recalibration behaviour (linear semantic, hard-zero unknown salary/location)."""
+    monkeypatch.setattr(ss, "SEMANTIC_CALIBRATION_GAMMA", 1.0)
+    monkeypatch.setattr(ss, "UNKNOWN_NEUTRAL_FRACTION", 0.0)
+
+    assert ss.score_semantic(0.5).points == pytest.approx(ss.SEMANTIC_MAX * 0.5)
+
+    job = make_job(salary_min=None, salary_max=None)
+    cand = make_candidate(salary_expectation=None)
+    assert ss._score_salary(cand, job).points == 0.0
+
+    job_loc = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
+    cand_loc = make_candidate(location=None, preferences={})
+    assert ss._score_location(cand_loc, job_loc).points == 0.0
