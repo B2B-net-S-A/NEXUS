@@ -529,6 +529,14 @@ _KNOWN_TECH: frozenset[str] = frozenset(
         "argocd",
         "git",
         "svn",
+        # Observability / security
+        "splunk",
+        "qradar",
+        "sentry",
+        "kibana",
+        "logstash",
+        "vault",
+        "consul",
         # Mobile
         "android",
         "ios",
@@ -633,6 +641,71 @@ def _is_tech_word(token: str) -> bool:
     return _is_strong_tech_token(token) or _norm_tech(token) in _KNOWN_TECH
 
 
+_POLISH_DIACRITICS = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+# Inflectional endings of Polish concept / soft-skill nouns a recruiter types
+# as a bare requirement ("Komunikatywność", "Projektowanie", "Negocjacje").
+_POLISH_SUFFIXES = (
+    "ość",
+    "ości",
+    "ością",
+    "ościach",
+    "anie",
+    "ania",
+    "aniu",
+    "aniem",
+    "enie",
+    "enia",
+    "eniu",
+    "eniem",
+    "owanie",
+    "owania",
+    "ywanie",
+    "ywania",
+    "cja",
+    "cji",
+    "cją",
+    "cje",
+    "cjach",
+    "sja",
+    "zja",
+    "alność",
+    "ywność",
+)
+
+
+def _looks_polish_word(token: str) -> bool:
+    """Heuristic: a Polish concept/soft-skill word, not a tech brand name.
+
+    Catches the frequent cases ("Komunikatywność", "Projektowanie",
+    "Negocjacje") via diacritics or inflectional suffixes so they are not
+    mistaken for an unlisted technology. Not exhaustive — it only needs to
+    suppress the common Polish nouns a recruiter types as a bare skill.
+    """
+    if any(ch in _POLISH_DIACRITICS for ch in token):
+        return True
+    low = token.lower()
+    return any(low.endswith(suf) for suf in _POLISH_SUFFIXES)
+
+
+def _is_tech_token_name(token: str) -> bool:
+    """Fallback for technologies absent from ``_KNOWN_TECH`` — niche tools
+    (Splunk, QRadar) the allowlist will never fully cover.
+
+    A single brand-like token qualifies when it carries an uppercase letter (a
+    proper-noun/brand signal — recruiters capitalise tool names) and is neither
+    a generic/stop word nor Polish-looking. That keeps lowercase concept
+    sub-terms ("komponenty", "tokeny") and Polish nouns ("Projektowanie",
+    "Komunikatywność") out, while letting "Splunk"/"QRadar"/"Figma" through.
+    """
+    if _is_filler_word(token) or token.lower() in _STOP_WORDS:
+        return False
+    if not any(ch.isupper() for ch in token):
+        return False
+    if _looks_polish_word(token):
+        return False
+    return sum(1 for ch in token if ch.isalpha()) >= 2
+
+
 def _is_technology(term: str) -> bool:
     """True iff `term` is a concrete technology worth bolding on its own.
 
@@ -642,11 +715,13 @@ def _is_technology(term: str) -> bool:
     requirement prose ("User-Centered Design", "Material Design", "Zasady
     Gestalt", "visual design", "tworzenie i rozwój design systemów").
 
-    A term qualifies when it is the curated allowlist verbatim ("Spring Boot",
-    "SQL Server", "Adobe XD") OR every one of its words is itself a tech token
-    ("GitLab CI/CD", "C++"). A phrase with any plain word ("visual design")
-    fails here — only a hard-tech token buried inside it (handled by the
-    caller) may still bold.
+    Qualifies when the term is the curated allowlist verbatim ("Spring Boot",
+    "SQL Server", "Adobe XD"); a SINGLE brand-like token (hard-tech signal,
+    allowlist, or proper-noun fallback — "SQL", "Figma", "Splunk", "QRadar");
+    or a multi-word phrase whose EVERY word is itself a tech token ("GitLab
+    CI/CD", "C++ STL"). A phrase with any plain word ("visual design",
+    "User-Centered Design") fails here — only a hard-tech token buried inside
+    it (handled by the caller) may still bold.
     """
     t = term.strip()
     if not t:
@@ -654,7 +729,11 @@ def _is_technology(term: str) -> bool:
     if _norm_tech(t) in _KNOWN_TECH:
         return True
     tokens = [tok for tok in t.split() if tok]
-    return bool(tokens) and all(_is_tech_word(tok) for tok in tokens)
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return _is_tech_word(t) or _is_tech_token_name(t)
+    return all(_is_tech_word(tok) for tok in tokens)
 
 
 def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]]:
