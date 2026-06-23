@@ -129,9 +129,10 @@ def test_generic_single_word_keyword_skipped():
 
 
 def test_hyphen_space_spelling_drift_matches():
-    # Champion list vs CV often disagree on hyphen vs space — match both ways.
-    assert _matches("Praca z auto layout w Figma", ["auto-layout"]) == ["auto layout"]
-    assert _matches("Zaawansowany auto-layout", ["auto layout"]) == ["auto-layout"]
+    # Champion list vs CV often disagree on hyphen vs space — match both ways
+    # (multi-word tech "react native" ↔ "react-native").
+    assert _matches("Aplikacje w react native", ["react-native"]) == ["react native"]
+    assert _matches("Zaawansowany react-native", ["react native"]) == ["react-native"]
 
 
 def test_filler_phrase_bolds_real_term():
@@ -152,12 +153,14 @@ def test_separate_skill_chips_each_bold():
     ]
 
 
-def test_filler_free_multiword_term_stays_whole():
-    # A genuine two-word term must NOT bold its common parts on their own:
-    # "Design System" matches the phrase but never the bare word "system".
-    assert _matches("Tworzenie Design System dla klienta", ["Design System"]) == [
-        "Design System"
+def test_multiword_technology_stays_whole_concept_drops():
+    # A genuine multi-word TECHNOLOGY bolds whole ("Spring Boot") — never its
+    # bare common part ("boot"). A multi-word CONCEPT ("Design System") is not
+    # a technology, so it must NOT bold at all (tech-only directive).
+    assert _matches("Backend w Spring Boot dla klienta", ["Spring Boot"]) == [
+        "Spring Boot"
     ]
+    assert _matches("Tworzenie Design System dla klienta", ["Design System"]) == []
     assert _matches("migracja systemu do nowej wersji", ["Design System"]) == []
 
 
@@ -183,13 +186,13 @@ def test_requirement_prose_words_never_bold():
     ]
 
 
-def test_verbose_requirement_bolds_substantive_phrase():
-    # Recruiter directive: bold ALL content overlapping a must-have. A wordy
-    # entry bolds its substantive remainder (filler head trimmed), and a hard
-    # tech signal inside it ("SQL") still surfaces under inflection drift.
+def test_verbose_requirement_bolds_only_buried_tech():
+    # Recruiter directive: bold ONLY technologies. A wordy non-tech requirement
+    # ("bazami danych SQL") never bolds the Polish prose — only the hard-tech
+    # token buried inside it ("SQL") surfaces.
     kw = ["Doświadczenie z bazami danych SQL"]
-    assert _matches("Pracował z bazami danych SQL i NoSQL", kw) == ["bazami danych SQL"]
-    # The trimmed remainder is a phrase, so an unrelated prose line stays clean.
+    assert _matches("Pracował z bazami danych SQL i NoSQL", kw) == ["SQL"]
+    # No tech token present → an unrelated prose line stays clean.
     assert _matches("migracja systemów do chmury", kw) == []
 
 
@@ -201,20 +204,21 @@ def test_strong_tech_tokens_pulled_from_requirement_prose():
     assert _matches("Praca z SQL Server", ["Microsoft SQL Server"]) == ["SQL"]
 
 
-def test_generic_head_trimmed_but_substantive_phrase_bolds():
-    # The substantive remainder bolds as a whole phrase; the leading generic
-    # requirement word ("Tworzenie") never bolds on its own.
+def test_non_tech_substantive_phrase_does_not_bold():
+    # A substantive but non-technology requirement ("aplikacji webowych") must
+    # NOT bold — it carries no tech token. Only technologies bold.
     kw = ["Tworzenie aplikacji webowych"]
-    assert _matches("Projektowanie aplikacji webowych dla klienta", kw) == [
-        "aplikacji webowych"
-    ]
+    assert _matches("Projektowanie aplikacji webowych dla klienta", kw) == []
     assert _matches("Tworzenie dokumentacji technicznej", kw) == []
 
 
-def test_champion_design_chips_full_coverage():
+def test_champion_design_chips_only_hard_tech_bolds():
     # Real UI-Designer champion MUST-HAVE chips: "KONCEPT (pod-terminy)
-    # (długie wyjaśnienie)". Every concept + sub-term must bold wherever it
-    # overlaps the CV; the long explanation parentheticals must NOT.
+    # (długie wyjaśnienie)". Recruiter directive — bold ONLY technologies:
+    # platforms ("iOS/Android") and technical acronyms/standards ("RWD",
+    # "WCAG"). Design methodologies / concepts ("User-Centered Design",
+    # "Material Design", "Zasady Gestalt", "visual design", "design systemów")
+    # must NOT bold.
     must = [
         "User-Centered Design (projektowanie w oparciu o potrzeby użytkownika, "
         "badania, feedback i dane, a nie wyłącznie wymagania biznesowe)",
@@ -242,24 +246,61 @@ def test_champion_design_chips_full_coverage():
         "tworzenie i rozwój design systemów (komponenty, tokeny)."
     )
     found = [f.lower() for f in _matches(prose, must)]
-    for term in [
+    # Technologies / platforms / standards bold.
+    assert "ios/android" in found, found
+    assert "rwd" in found, found
+    assert "wcag" in found, found
+    # Methodologies / concepts / requirement prose must NEVER bold.
+    for concept in [
+        "user-centered",
         "user-centered design",
         "zasady projektowania",
-        "zasady gestalt",
+        "gestalt",
         "visual design",
         "material design",
-        "human interface guidelines",
-        "ios/android",
-        "rwd",
-        "wcag 2.1/2.2",
+        "human interface",
         "design systemów",
         "komponenty",
         "tokeny",
+        "tworzenie",
+        "projektowanie",
     ]:
-        assert any(term in f for f in found), f"{term!r} not bolded; found={found}"
-    # The long explanation prose must never bold a standalone generic word.
-    assert "tworzenie" not in found
-    assert "projektowanie" not in found
+        assert all(concept not in f for f in found), (
+            f"{concept!r} must not bold; found={found}"
+        )
+
+
+def test_only_listed_technologies_bold():
+    # The headline requirement: in a mixed must-have/nice-to-have list, only
+    # the concrete technologies bold; the design concepts alongside them do not.
+    keywords = [
+        "Figma (zaawansowana znajomość)",
+        "React",
+        "Doświadczenie w Python",
+        "Docker oraz Kubernetes",
+        "Znajomość SQL i PostgreSQL",
+        "User-Centered Design",  # concept — must NOT bold
+        "Zasady Gestalt",  # concept — must NOT bold
+    ]
+    prose = (
+        "Projektant pracujący w Figma, buduje aplikacje w React i Python. "
+        "Konteneryzacja: Docker, Kubernetes. Bazy: SQL, PostgreSQL. "
+        "Stosuje User-Centered Design oraz zasady Gestalt."
+    )
+    found = [f.lower() for f in _matches(prose, keywords)]
+    for tech in [
+        "figma",
+        "react",
+        "python",
+        "docker",
+        "kubernetes",
+        "sql",
+        "postgresql",
+    ]:
+        assert tech in found, f"{tech!r} should bold; found={found}"
+    joined = " ".join(found)
+    assert "user-centered" not in joined
+    assert "gestalt" not in joined
 
 
 # ── Claude response normalization ──────────────────────────────────────────

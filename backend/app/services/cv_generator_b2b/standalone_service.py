@@ -689,7 +689,8 @@ def _run_generation_pipeline(
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
 
-    # Bold everything the client asked for — must-have AND nice-to-have.
+    # Bold only the TECHNOLOGIES the client listed — must-have AND nice-to-have
+    # (compile_keyword_patterns drops methodologies/concepts/requirement prose).
     if champion_dto:
         highlight = [
             kw.strip()
