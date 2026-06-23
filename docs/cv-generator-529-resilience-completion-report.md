@@ -75,6 +75,16 @@ przeciążony, Opus wolny) generacja **po prostu się udaje** dzięki fallbackow
 - `CV_B2B_MAX_RETRIES` → steruje worst-case latency przed 503.
 - `CV_B2B_REQUEST_TIMEOUT` → ceiling pojedynczego wywołania.
 
+## Follow-up: rate limit na `/generate` (PR osobny)
+
+Po deployu fixu dołożono `@limiter.limit("10/minute")` na `POST /api/cv-generator/generate`
+i `/generate-upload` (`slowapi`, key=IP — spójne z `cv_match_preview`). Motywacja:
+te endpointy to najdroższe wywołania w aplikacji, a fallback z tego fixu może
+**podwoić** rozliczany koszt (Sonnet retry → Opus) podczas overloadu; wcześniej
+były bez throttlingu, mimo że tańszy bliźniak (`/recommendations/cv-upload-preview`)
+limit już miał. Metryka „działamy na fallbacku Opus" — jako alert Grafana/Loki na
+logu `falling back to claude-opus-4-8` (bez metrics-infra w kodzie).
+
 ## Znane ograniczenia
 - Worst-case latency przy globalnym przeciążeniu obu modeli: ~28–34 s backoffu
   przed czystym 503 (mieści się w komunikowanym UI oknie 60–90 s).
