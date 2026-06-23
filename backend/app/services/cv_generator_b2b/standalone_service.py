@@ -40,6 +40,7 @@ from app.models.screening_note import ScreeningNote
 from app.services import object_storage
 from app.services.cv_generator_b2b.ai_client import (
     CVGeneratorAIError,
+    CVGeneratorOverloadedError,
     CVGeneratorTruncatedError,
     analyze_with_ai,
 )
@@ -88,6 +89,7 @@ class StandaloneGenerationError(RuntimeError):
         - 'no_notes'              → 422
         - 'extraction_failed'     → 502
         - 'ai_failed'             → 502
+        - 'ai_overloaded'         → 503  (transient — Claude pool saturated)
         - 'render_failed'         → 500
         - 'invalid_input'         → 400
     """
@@ -662,6 +664,10 @@ def _run_generation_pipeline(
         response_text = analyze_with_ai(user_content, request_id, system=system_prompt)
     except CVGeneratorTruncatedError as err:
         raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
+    except CVGeneratorOverloadedError as err:
+        # Transient — Claude pool saturated even after fallback. Surface the
+        # clean retry-actionable message as-is (no raw API dict).
+        raise StandaloneGenerationError(code="ai_overloaded", message=str(err)) from err
     except CVGeneratorAIError as err:
         raise StandaloneGenerationError(
             code="ai_failed",

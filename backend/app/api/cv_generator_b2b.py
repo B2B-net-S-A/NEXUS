@@ -119,6 +119,7 @@ def _error_status(code: str) -> int:
         "invalid_input": 400,
         "extraction_failed": 502,
         "ai_failed": 502,
+        "ai_overloaded": 503,
         "render_failed": 500,
     }.get(code, 500)
 
