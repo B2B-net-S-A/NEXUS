@@ -101,32 +101,24 @@ api.interceptors.response.use(
   }
 );
 
-// Session-expired auto-redirect — handles 401 + 403 patterns the user would
-// otherwise need to recover from manually (clearing cookies, finding the login
-// URL). Three triggers:
+// Session-expired auto-redirect.
 //
-//   1. Any 401             → token rejected, definitively expired
-//   2. 403 on /api/auth/me or /api/users/me/*   → session-scoped endpoints
-//      that should ALWAYS work for any authenticated user; one failure here
-//      is a clear "your session is dead" signal
-//   3. ≥3 unique 403s within a 5s window         → "dashboard scenario":
-//      multiple widgets fire in parallel on mount, all 403 → session expired.
-//      Single 403 on one endpoint is treated as a real permission denial and
-//      surfaced normally (e.g. recruiter hitting /api/admin/*).
+// A dead session — expired JWT, or a deploy that rotated SECRET_KEY — is always
+// reported by the backend as **401 Unauthorized**: `get_current_user` raises 401
+// for any token it cannot validate. That is the single, unambiguous "your
+// session is gone" signal, so it is the only trigger for an automatic
+// logout+redirect (otherwise the user is stranded — UserMenu doesn't render when
+// user=null, leaving no way to reach /login).
 //
-// Repro for trigger 3: log in, wait for JWT to expire OR deploy with rotated
-// SECRET_KEY, open dashboard — every widget would show "Brak uprawnień" with
-// no way to log out (UserMenu doesn't render when user=null).
-const AUTH_SCOPED_PATHS = ["/api/auth/me", "/api/users/me"];
-const SESSION_403_WINDOW_MS = 5_000;
-const SESSION_403_THRESHOLD = 3;
-const recent403Endpoints = new Map<string, number>();
+// A **403 Forbidden** means the opposite: the user IS authenticated, they just
+// lack permission for that one resource (a recruiter opening the Chat tab of a
+// candidate they aren't assigned to, an admin previewing-as-role hitting
+// /api/admin/*, etc.). A 403 must NEVER log the user out. An earlier heuristic
+// treated a burst of 403s as an expired session and logged people out whenever
+// several forbidden endpoints fired together — e.g. the candidate Chat tab fans
+// out members + pinned + messages + read on mount, all 403 for a non-member.
+// 403s are now surfaced to the caller and handled in place by the component.
 let sessionRedirectInFlight = false;
-
-function isAuthScopedPath(url: string | undefined): boolean {
-  if (!url) return false;
-  return AUTH_SCOPED_PATHS.some((p) => url.startsWith(p));
-}
 
 function triggerSessionExpiredRedirect(): void {
   if (typeof window === "undefined") return;
@@ -148,45 +140,11 @@ function triggerSessionExpiredRedirect(): void {
 }
 
 api.interceptors.response.use(
-  (res) => {
-    // Any 2xx response means the session is alive — reset the 403 sliding
-    // window so a later permission-denied click on a single admin endpoint
-    // doesn't compound with stale failures from the prior page.
-    if (recent403Endpoints.size > 0) recent403Endpoints.clear();
-    return res;
-  },
+  (res) => res,
   (err: AxiosError) => {
     if (typeof window === "undefined") return Promise.reject(err);
-    const status = err.response?.status;
-    const url = err.config?.url;
-
-    if (status === 401) {
+    if (err.response?.status === 401) {
       triggerSessionExpiredRedirect();
-      return Promise.reject(err);
-    }
-
-    if (status === 403) {
-      // W trybie „podgląd jako użytkownik" admin celowo dostaje 403 na
-      // endpointach niedostępnych dla podglądanej roli (np. /api/admin/*).
-      // To NORMALNE — nie wolno z tego wnioskować wygaśnięcia sesji i wylogować
-      // admina. Surfacujemy 403 normalnie (komponent pokaże „brak dostępu").
-      if (localStorage.getItem("nexus_impersonate_id")) {
-        return Promise.reject(err);
-      }
-      if (isAuthScopedPath(url)) {
-        triggerSessionExpiredRedirect();
-        return Promise.reject(err);
-      }
-      // Count unique-endpoint 403s within the rolling window — keyed by URL
-      // so a single endpoint retrying itself doesn't trip the heuristic.
-      const now = Date.now();
-      for (const [key, ts] of recent403Endpoints) {
-        if (now - ts > SESSION_403_WINDOW_MS) recent403Endpoints.delete(key);
-      }
-      if (url) recent403Endpoints.set(url, now);
-      if (recent403Endpoints.size >= SESSION_403_THRESHOLD) {
-        triggerSessionExpiredRedirect();
-      }
     }
     return Promise.reject(err);
   },

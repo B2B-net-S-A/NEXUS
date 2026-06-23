@@ -29,6 +29,8 @@ import {
   X,
 } from "lucide-react";
 
+import type { AxiosError } from "axios";
+
 import { candidateChatApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { hasMinRole, useAuthStore } from "@/store/auth";
@@ -45,6 +47,19 @@ const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏
 
 const PAGE_LIMIT = 50;
 
+/** 403 = użytkownik jest zalogowany, ale nie jest członkiem czatu kandydata. */
+function isForbidden(err: unknown): boolean {
+  return (err as AxiosError | undefined)?.response?.status === 403;
+}
+
+// 403 (brak członkostwa) i 404 nie są błędami przejściowymi — nie ponawiaj,
+// żeby nie zasypywać backendu i nie migotać UI. Inne błędy: krótki retry.
+function chatQueryRetry(failureCount: number, err: unknown): boolean {
+  const s = (err as AxiosError | undefined)?.response?.status;
+  if (s === 403 || s === 404) return false;
+  return failureCount < 2;
+}
+
 interface CandidateChatTabProps {
   candidateId: number;
 }
@@ -57,10 +72,11 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   const queryClient = useQueryClient();
 
   // ── Members (dla autocomplete) ────────────────────────────────────────────
-  const { data: members = [] } = useQuery({
+  const { data: members = [], error: membersError } = useQuery({
     queryKey: ["candidate-chat-members", candidateId],
     queryFn: async () => (await candidateChatApi.getMembers(candidateId)).data,
     staleTime: 60_000,
+    retry: chatQueryRetry,
   });
 
   // ── Pinned ────────────────────────────────────────────────────────────────
@@ -68,6 +84,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     queryKey: ["candidate-chat-pinned", candidateId],
     queryFn: async () => (await candidateChatApi.getPinned(candidateId)).data,
     staleTime: 30_000,
+    retry: chatQueryRetry,
   });
 
   // ── Messages — infinite scroll w stronę "starsze" ─────────────────────────
@@ -88,6 +105,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     },
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? (lastPage.next_before_id ?? undefined) : undefined,
+    retry: chatQueryRetry,
   });
 
   // Merge wszystkich page'y w jedną listę i odwróć (najstarsza pierwsza, dla UI od dołu).
@@ -282,6 +300,26 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     setEditingId(null);
     setText("");
   };
+
+  // Brak członkostwa → backend zwraca 403 na wszystkich endpointach czatu.
+  // Pokazujemy czysty komunikat zamiast pustego/zepsutego czatu (i — co
+  // najważniejsze — nie wylogowujemy użytkownika; patrz interceptor w lib/api).
+  const accessDenied =
+    isForbidden(messagesQuery.error) || isForbidden(membersError);
+
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6">
+        <MessageCircle className="w-10 h-10 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Czat tego kandydata jest dostępny tylko dla osób zaangażowanych w jego
+          rekrutacje (twórca profilu, rekruter/DL/TAC oferty lub jej
+          współpracownik).
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
