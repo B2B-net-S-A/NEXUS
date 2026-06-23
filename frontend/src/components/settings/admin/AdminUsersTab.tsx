@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Shield,
@@ -41,6 +41,7 @@ export function AdminUsersTab() {
   const [subTab, setSubTab] = useState<SubTab>("users");
   const [modal, setModal] = useState<"create" | "edit" | "reset" | null>(null);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -98,6 +99,18 @@ export function AdminUsersTab() {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     },
   });
+
+  // Filtr po statusie + domyślne sortowanie alfabetyczne po imieniu (locale pl).
+  const displayedUsers = useMemo(() => {
+    const list = (users ?? []).filter((u) =>
+      statusFilter === "active"
+        ? u.is_active
+        : statusFilter === "inactive"
+          ? !u.is_active
+          : true,
+    );
+    return [...list].sort((a, b) => a.name.localeCompare(b.name, "pl"));
+  }, [users, statusFilter]);
 
   if (!user) {
     return (
@@ -198,7 +211,31 @@ export function AdminUsersTab() {
       </div>
 
       {subTab === "users" && (
-        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-x-auto">
+          <div className="flex items-center gap-2 flex-wrap px-4 py-3 border-b border-border dark:border-border">
+            <span className="text-sm text-muted-foreground dark:text-muted-foreground">Status:</span>
+            {([
+              { id: "all", label: "Wszyscy" },
+              { id: "active", label: "Aktywni" },
+              { id: "inactive", label: "Nieaktywni" },
+            ] as const).map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setStatusFilter(id)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === id
+                    ? "bg-primary text-white"
+                    : "bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="ml-auto text-xs text-muted-foreground dark:text-muted-foreground">
+              {displayedUsers.length}{" "}
+              {displayedUsers.length === 1 ? "użytkownik" : "użytkowników"}
+            </span>
+          </div>
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground dark:text-muted-foreground">Ładowanie...</div>
           ) : (
@@ -215,7 +252,7 @@ export function AdminUsersTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {(users ?? []).map((u) => (
+                {displayedUsers.map((u) => (
                   <tr key={u.id} className="hover:bg-muted dark:bg-card transition-colors">
                     <td className="px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">{u.email}</td>
@@ -309,10 +346,10 @@ export function AdminUsersTab() {
                     </td>
                   </tr>
                 ))}
-                {users?.length === 0 && (
+                {displayedUsers.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
-                      Brak użytkowników
+                      Brak użytkowników{statusFilter !== "all" ? " o wybranym statusie" : ""}
                     </td>
                   </tr>
                 )}
