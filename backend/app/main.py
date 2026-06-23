@@ -57,7 +57,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
-from app.api import admin_traffit
+from app.api import admin_candidates, admin_traffit
 from app.api import admin_talent_pools
 from app.api import required_documents
 from app.api import screenings
@@ -530,6 +530,11 @@ app.include_router(activities.router, prefix="/api/activities", tags=["activitie
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(
     admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
+)
+app.include_router(
+    admin_candidates.router,
+    prefix="/api/admin/candidates",
+    tags=["admin", "candidates"],
 )
 app.include_router(
     admin_talent_pools.router,

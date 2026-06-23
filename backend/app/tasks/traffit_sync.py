@@ -190,6 +190,10 @@ def _phase_plan(
         ("talents", importer.import_talents),
         ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
         ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
+        (
+            "candidates_enrich_names",
+            lambda: importer.enrich_missing_names(since=files_since),
+        ),
         ("pipelines", lambda: importer.import_pipelines(since=since)),
         (
             "candidate_activities",
