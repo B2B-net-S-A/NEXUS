@@ -386,6 +386,29 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
         return False
 
 
+async def delete_candidate_embedding(candidate_id: int) -> bool:
+    """Best-effort removal of a candidate's vector from Qdrant.
+
+    The point id is the integer candidate_id (see ``embed_candidate``). Failures
+    are logged and swallowed — a hard candidate delete must not be blocked by an
+    unreachable Qdrant.
+    """
+
+    def _delete():
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        client.delete(collection_name=_collection(), points_selector=[candidate_id])
+
+    try:
+        await asyncio.to_thread(_delete)
+        logger.info(f"[Embed] Deleted candidate {candidate_id} vector from Qdrant.")
+        return True
+    except Exception as e:  # pragma: no cover - network/Qdrant failure path
+        logger.warning(f"[Embed] Failed to delete candidate {candidate_id} vector: {e}")
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Semantic search
 # ---------------------------------------------------------------------------

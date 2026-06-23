@@ -3355,6 +3355,7 @@ async def delete_candidate(
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    had_embedding = candidate.embedding_id is not None
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate_id,
@@ -3363,6 +3364,15 @@ async def delete_candidate(
     )
     db.add(activity)
     await db.delete(candidate)
+    # Flush now so FK/integrity errors surface as a failed request (rollback via
+    # get_db) instead of a late commit error. Related rows are removed by DB-level
+    # ON DELETE CASCADE/SET NULL (migration 0141) plus ORM cascades on Candidate.
+    await db.flush()
+    # Best-effort: drop the orphaned vector from Qdrant. Never blocks the delete.
+    if had_embedding:
+        from app.services.embedding_service import delete_candidate_embedding
+
+        await delete_candidate_embedding(candidate_id)
 
 
 _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")

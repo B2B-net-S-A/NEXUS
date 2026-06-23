@@ -40,7 +40,7 @@ class ScreeningNote(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     candidate_id: Mapped[int] = mapped_column(
-        ForeignKey("candidates.id"), nullable=False, index=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id"), nullable=True, index=True

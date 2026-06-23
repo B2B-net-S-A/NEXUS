@@ -49,7 +49,7 @@ class CalendarEvent(Base, TimestampMixin):
 
     # Optional relations
     candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id"), index=True
+        ForeignKey("candidates.id", ondelete="SET NULL"), index=True
     )
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
     client_id: Mapped[Optional[int]] = mapped_column(
