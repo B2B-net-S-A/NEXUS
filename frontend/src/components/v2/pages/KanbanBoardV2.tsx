@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useState } from"react";
+import { memo, useCallback, useEffect, useRef, useState } from"react";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
 import {
@@ -115,6 +115,11 @@ interface KanbanBoardV2Props {
  // True while the scores query is first resolving → cards show a placeholder
  // ring instead of nothing (cold pipelines don't look broken).
  scoresLoading?: boolean;
+ // Stan zwinięcia nagłówka oferty (parent steruje). Sam w sobie nie zmienia
+ // wysokości — służy jako trigger re-pomiaru: gdy nagłówek się zwija/rozwija,
+ // board przesuwa się w pionie i kolumny muszą przeliczyć wysokość, żeby
+ // wypełnić zwolnioną przestrzeń (inaczej zostaje dziura na dole).
+ headerCollapsed?: boolean;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -459,6 +464,10 @@ interface ColProps {
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
+ // Wyliczona z viewportu wysokość scrollowanej listy kart (px). Gdy podana,
+ // wygrywa z domyślnym calc — pozwala kolumnom wypełnić ekran niezależnie od
+ // stanu nagłówka. undefined = SSR/pierwszy render przed pomiarem (fallback calc).
+ columnHeight?: number;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -474,6 +483,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onAcceptVerification,
  onRejectVerification,
  onRemoveFromRecruitment,
+ columnHeight,
 }: ColProps) {
  const dropId = colId(col);
  return (
@@ -515,9 +525,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // (wcześniej tylko max-h → krótkie kolumny zostawiały pustkę na dole strony).
  // min-height = podłoga na małych ekranach (min-height wygrywa z height),
  // overflow-y-auto = wewnętrzny scroll gdy kart jest więcej niż mieści ekran.
- "min-h-[280px] h-[calc(100vh-350px)]",
+ //
+ // Wysokość: gdy parent zmierzył `columnHeight` (px od realnej pozycji boardu
+ // do dołu viewportu) — używamy jej inline. Dzięki temu po zwinięciu nagłówka
+ // board rośnie i wypełnia zwolnioną przestrzeń (brak dziury na dole). Calc
+ // poniżej zostaje jako fallback na SSR/pierwszy render przed pomiarem.
+ "min-h-[280px]",
+ columnHeight == null && "h-[calc(100vh-350px)]",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
+ style={columnHeight != null ? { height: columnHeight } : undefined}
  >
  {col.items.map((item, index) => (
  <Draggable
@@ -563,7 +580,13 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
-export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading }: KanbanBoardV2Props) {
+// Dół boardu: pb-4 kontenera (16px) + dolny padding <main> (24px). Tyle zostawiamy
+// pod kolumnami, żeby strona nie scrollowała się w pionie pod pipeline.
+const BOARD_BOTTOM_GAP = 40;
+// Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
+const MIN_COLUMN_HEIGHT = 280;
+
+export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  const queryClient = useQueryClient();
@@ -584,6 +607,48 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading }: Kanba
  >([]);
  const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
+
+ // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
+ // Problem: stary `h-[calc(100vh-350px)]` miał na sztywno offset 350px = wysokość
+ // rozwiniętego nagłówka. Po zwinięciu nagłówka treść nad boardem maleje, ale
+ // offset zostaje 350 → board się nie rozciąga i na dole robi się dziura.
+ // Fix: mierzymy `getBoundingClientRect().top` boardu i wypełniamy resztę
+ // viewportu. Adaptuje się do KAŻDEGO stanu nagłówka (zwinięty/rozwinięty,
+ // z opisem/bez, zawijające się przyciski) — bez magicznych liczb.
+ const boardRef = useRef<HTMLDivElement>(null);
+ const [columnHeight, setColumnHeight] = useState<number | undefined>(undefined);
+ const measureColumnHeight = useCallback(() => {
+ const el = boardRef.current;
+ if (!el || typeof window === "undefined") return;
+ const top = el.getBoundingClientRect().top;
+ const next = Math.max(
+ MIN_COLUMN_HEIGHT,
+ Math.round(window.innerHeight - top - BOARD_BOTTOM_GAP)
+ );
+ setColumnHeight((prev) => (prev === next ? prev : next));
+ }, []);
+ // Listenery (resize) ustawiamy raz; ResizeObserver na <html> łapie zmiany
+ // viewportu (np. pasek narzędzi mobile). CSS calc-fallback trzyma sensowną
+ // wysokość do pierwszego pomiaru, więc useEffect (po paint) wystarcza i nie
+ // generuje ostrzeżenia SSR.
+ useEffect(() => {
+ measureColumnHeight();
+ window.addEventListener("resize", measureColumnHeight);
+ const ro =
+ typeof ResizeObserver !== "undefined"
+ ? new ResizeObserver(() => measureColumnHeight())
+ : null;
+ ro?.observe(document.documentElement);
+ return () => {
+ window.removeEventListener("resize", measureColumnHeight);
+ ro?.disconnect();
+ };
+ }, [measureColumnHeight]);
+ // Re-pomiar gdy cokolwiek nad/wewnątrz boardu może przesunąć jego pozycję:
+ // zwinięcie nagłówka (prop), zmiana gęstości, status-baru lub liczby kolumn.
+ useEffect(() => {
+ measureColumnHeight();
+ }, [measureColumnHeight, headerCollapsed, density, statusMessage, cols.length]);
 
  // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
  // dla wszystkich zaznaczonych kandydatów).
@@ -1209,7 +1274,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading }: Kanba
 
  {/* Board */}
  <DragDropContext onDragEnd={onDragEnd}>
- <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 300 }}>
+ <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 300 }}>
  {filtered.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
@@ -1230,6 +1295,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading }: Kanba
  isApprover={isApprover}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
+ columnHeight={columnHeight}
  onAcceptVerification={handleAcceptVerification}
  onRejectVerification={(item) =>
  setPendingRejectVerification({ item, note: "" })
