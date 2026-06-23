@@ -131,7 +131,9 @@ async def verify_and_consume_token(
     user_id = row[0]
     user = await db.scalar(select(User).where(User.id == user_id))
     if user is None:
-        logger.warning("email_verification: token valid but user_id=%s missing", user_id)
+        logger.warning(
+            "email_verification: token valid but user_id=%s missing", user_id
+        )
         return None
 
     logger.info("email_verification: token consumed user_id=%s", user_id)

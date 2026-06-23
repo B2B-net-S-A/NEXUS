@@ -142,7 +142,9 @@ async def test_register_duplicate_is_generic_201_no_enumeration(
 
     # Exactly one row, still a read-only viewer (no escalation, no duplicate).
     async with AsyncSessionLocal() as db:
-        rows = (await db.execute(select(User).where(User.email == email))).scalars().all()
+        rows = (
+            (await db.execute(select(User).where(User.email == email))).scalars().all()
+        )
     assert len(rows) == 1
     assert rows[0].role == UserRole.user
 
