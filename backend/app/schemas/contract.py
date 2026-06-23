@@ -23,6 +23,7 @@ class ContractCreate(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
     rate_client: Optional[int] = None
+    framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
     currency: str = "PLN"
@@ -33,6 +34,7 @@ class ContractCreate(BaseModel):
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
+    line_manager: Optional[str] = None
     work_mode: Optional[ContractWorkMode] = None
     office_location: Optional[str] = None
     team_name: Optional[str] = None
@@ -52,6 +54,7 @@ class ContractUpdate(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
     rate_client: Optional[int] = None
+    framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
     currency: Optional[str] = None
@@ -62,6 +65,7 @@ class ContractUpdate(BaseModel):
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
+    line_manager: Optional[str] = None
     work_mode: Optional[ContractWorkMode] = None
     office_location: Optional[str] = None
     team_name: Optional[str] = None
@@ -88,6 +92,7 @@ class ContractResponse(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int]
     rate_client: Optional[int]
+    framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
     currency: str
@@ -99,6 +104,7 @@ class ContractResponse(BaseModel):
     documents: Optional[Any]
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
+    line_manager: Optional[str] = None
     work_mode: Optional[ContractWorkMode] = None
     office_location: Optional[str] = None
     team_name: Optional[str] = None

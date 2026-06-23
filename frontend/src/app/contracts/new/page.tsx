@@ -91,6 +91,8 @@ function NewContractForm() {
   const [billingHours, setBillingHours] = useState("160");
   const [rateCandidate, setRateCandidate] = useState("");
   const [rateClient, setRateClient] = useState("");
+  const [frameworkRate, setFrameworkRate] = useState("");
+  const [lineManager, setLineManager] = useState("");
 
   const [error, setError] = useState("");
 
@@ -162,6 +164,8 @@ function NewContractForm() {
         billing_hours_per_month: Number(billingHours) || 160,
         rate_candidate: rateCandidate ? Number(rateCandidate) : null,
         rate_client: rateClient ? Number(rateClient) : null,
+        framework_rate: frameworkRate ? Number(frameworkRate) : null,
+        line_manager: lineManager.trim() || null,
       };
       return contractsApi.create(payload);
     },
@@ -422,6 +426,17 @@ function NewContractForm() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Line Manager — osoba po stronie klienta, pod którą raportuje kontraktor */}
+            <div>
+              <Label className="mb-1.5 block">Line Manager</Label>
+              <Input
+                type="text"
+                value={lineManager}
+                onChange={(e) => setLineManager(e.target.value)}
+                placeholder="Imię i nazwisko (po stronie klienta)"
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -522,13 +537,24 @@ function NewContractForm() {
               )}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <Label className="mb-1.5 block">Stawka z umowy ramowej</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={frameworkRate}
+                  onChange={(e) => setFrameworkRate(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
               <div>
                 <Label className="mb-1.5 block">Stawka kandydata</Label>
                 <Input
                   type="number"
                   min="0"
-                  step="100"
+                  step="1"
                   value={rateCandidate}
                   onChange={(e) => setRateCandidate(e.target.value)}
                   placeholder="—"
@@ -539,7 +565,7 @@ function NewContractForm() {
                 <Input
                   type="number"
                   min="0"
-                  step="100"
+                  step="1"
                   value={rateClient}
                   onChange={(e) => setRateClient(e.target.value)}
                   placeholder="—"
