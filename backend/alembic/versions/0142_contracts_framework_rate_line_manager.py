@@ -1,7 +1,7 @@
-"""Kontrakt: stawka z umowy ramowej + line manager.
+"""Kontrakt: stawka z umowy ramowej + line manager (+ merge head fork).
 
 Revision ID: 0142_contracts_framework_rate_line_manager
-Revises: 0141_candidate_delete_cascade
+Revises: 0141_candidate_delete_cascade, 0139_email_verification
 Create Date: 2026-06-23
 
 Dodaje do tabeli ``contracts`` dwie kolumny widoczne w formularzu "Nowy
@@ -15,6 +15,13 @@ kontrakt":
     pod którą raportuje kontraktor. Analogiczne do ``client_pm_name``, ale
     osobna rola.
 
+NOTE on down_revision: ``main`` rozjechał się na dwa heady — ``0141_candidate_
+delete_cascade`` (lineage kontraktów) oraz ``0139_email_verification`` (self-
+registration), oba schodzące z ``0138_candidate_expected_hourly_rate``. Ta
+migracja je **scala** (merge), więc po niej drzewo ma znowu jeden head. Sam
+merge nie wykonuje operacji 0139 — tylko spina gałęzie i dokłada 2 kolumny do
+``contracts`` (niezależne od zmian auth).
+
 Idempotent: ``ADD COLUMN IF NOT EXISTS`` — współgra z entrypoint safety-net
 oraz z DEBUG ``Base.metadata.create_all``.
 """
@@ -22,7 +29,7 @@ oraz z DEBUG ``Base.metadata.create_all``.
 from alembic import op
 
 revision = "0142_contracts_framework_rate_line_manager"
-down_revision = "0141_candidate_delete_cascade"
+down_revision = ("0141_candidate_delete_cascade", "0139_email_verification")
 branch_labels = None
 depends_on = None
 
