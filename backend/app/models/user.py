@@ -68,6 +68,17 @@ class User(Base, TimestampMixin):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Email-verification gate for self-service registration (POST /api/auth/register).
+    # ``True`` = address confirmed (legacy email/password users, Microsoft SSO
+    # users, and admin-created accounts are all implicitly verified — backfilled
+    # by migration 0139 with server_default true). ``False`` = a self-registered
+    # account whose owner has NOT yet clicked the verification link; login is
+    # blocked until they do (see app/api/auth.py:login). Set to False only by the
+    # self-registration endpoint, flipped to True by POST /api/auth/verify-email.
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+
     # KPI Coach opt-in flag. Default True → every operational recruiter gets
     # the in-app coaching (praise/remind/eod summary). User can disable in
     # Settings → Coaching. Non-operational roles (admin, head_of_recruitment,

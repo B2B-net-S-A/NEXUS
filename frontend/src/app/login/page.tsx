@@ -206,6 +206,16 @@ function LoginForm() {
             </svg>
             {ssoLoading ? "Przekierowanie…" : "Zaloguj się przez Microsoft"}
           </button>
+
+          <p className="text-center text-sm text-muted-foreground pt-5">
+            Nie masz konta?{" "}
+            <Link
+              href="/register"
+              className="text-primary hover:text-primary/80 hover:underline underline-offset-4 font-medium"
+            >
+              Zarejestruj się
+            </Link>
+          </p>
     </AuthShell>
   );
 }

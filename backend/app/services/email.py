@@ -215,6 +215,66 @@ def send_password_reset_email(
     return send_email(to_email, subject, text_body, html_body)
 
 
+def send_email_verification_email(
+    *,
+    to_email: str,
+    recipient_name: str,
+    verify_url: str,
+    expires_minutes: int = 60 * 24,
+) -> bool:
+    """Wysyła email z linkiem potwierdzającym adres po self-service rejestracji.
+
+    Args:
+        to_email: adres email odbiorcy (świeżo zarejestrowany).
+        recipient_name: imię (lub email) odbiorcy do "Cześć X".
+        verify_url: pełny URL z tokenem
+            (np. https://nexus.dynaminds.pl/register/verify?token=...).
+        expires_minutes: TTL linka (do treści maila — backend ustawia faktyczny
+            TTL; default 24 h).
+
+    Treść: link aktywacyjny + czas ważności + info "jeśli to nie Ty — zignoruj".
+    HTML body sanitizes user-controlled content via ``html.escape()``.
+    Best-effort: zwraca False (no-op) gdy SMTP wyłączony — rejestracja i tak
+    kończy się sukcesem, user może poprosić o ponowny link.
+    """
+    subject = "Potwierdź swój adres email w NEXUS"
+
+    text_body = (
+        f"Cześć {recipient_name},\n\n"
+        f"Dziękujemy za rejestrację w NEXUS. Aby aktywować konto, potwierdź "
+        f"swój adres email klikając w poniższy link "
+        f"(ważny przez {expires_minutes // 60} godzin):\n\n"
+        f"{verify_url}\n\n"
+        f"Po potwierdzeniu zalogujesz się i uzyskasz dostęp w trybie do "
+        f"odczytu. O nadanie szerszych uprawnień poproś administratora.\n\n"
+        f"Jeśli to nie Ty zakładałeś(-aś) konto, zignoruj tę wiadomość.\n\n"
+        "— NEXUS · B2BNet"
+    )
+
+    safe_recipient = html.escape(recipient_name)
+    safe_link = html.escape(verify_url, quote=True)
+
+    html_body = (
+        f"<p>Cześć {safe_recipient},</p>"
+        f"<p>Dziękujemy za rejestrację w NEXUS. Aby aktywować konto, potwierdź "
+        f"swój adres email:</p>"
+        f'<p><a href="{safe_link}" style="display:inline-block;background:#2563eb;'
+        f"color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;"
+        f'font-weight:500">Potwierdź adres email</a></p>'
+        f'<p style="color:#666;font-size:13px">Link jest ważny przez '
+        f"<strong>{expires_minutes // 60} godzin</strong>. "
+        f"Jeśli przycisk nie działa, skopiuj poniższy URL do przeglądarki:</p>"
+        f'<p style="color:#666;font-size:12px;word-break:break-all">{safe_link}</p>'
+        f'<p style="color:#666;font-size:13px">Po potwierdzeniu zalogujesz się '
+        f"w trybie do odczytu. O nadanie szerszych uprawnień poproś "
+        f"administratora.</p>"
+        f'<hr><p style="color:#888;font-size:12px">Jeśli to nie Ty zakładałeś(-aś) '
+        f"konto, zignoruj tę wiadomość.</p>"
+        '<p style="color:#888;font-size:12px">NEXUS · B2BNet</p>'
+    )
+    return send_email(to_email, subject, text_body, html_body)
+
+
 def send_password_changed_notification(
     *,
     to_email: str,

@@ -204,6 +204,17 @@ export const authApi = {
   /** Set new password using a token from the reset email. */
   resetPasswordWithToken: (token: string, new_password: string) =>
     api.post("/api/auth/reset-password", { token, new_password }),
+  /** Self-service registration. Creates a read-only (viewer) account restricted
+   *  to whitelisted corporate domains; an activation link is emailed and the
+   *  account cannot log in until verified. Returns 201 with a generic message. */
+  register: (name: string, email: string, password: string) =>
+    api.post("/api/auth/register", { name, email, password }),
+  /** Confirm the email address using the token from the activation link. */
+  verifyEmail: (token: string) => api.post("/api/auth/verify-email", { token }),
+  /** Re-send the activation link. Always 200 with a generic message
+   *  (anti-enumeration). */
+  resendVerification: (email: string) =>
+    api.post("/api/auth/resend-verification", { email }),
 };
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
