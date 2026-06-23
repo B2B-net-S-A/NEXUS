@@ -1420,6 +1420,43 @@ class TraffitImporter:
         )
         return progress
 
+    # ── Faza: enrich-names (parse stored CV → fill name/email/phone) ────────
+
+    async def enrich_missing_names(
+        self, since: Optional[datetime] = None
+    ) -> PhaseProgress:
+        """Recover name/email/phone for candidates imported as ``"? ?"``.
+
+        Traffit records with neither a name nor a usable email land as
+        ``name="?"`` / ``lastname="?"``. This phase runs after ``candidates_cv``
+        (so a CV pointer exists), parses the stored CV through the shared
+        backfill, and fills the blank fields — so the daily sync self-heals and
+        ``"? ?"`` rows never accumulate. Scoped to ``since`` in delta mode (only
+        this run's fresh rows); full reconcile (``since=None``) sweeps any
+        stragglers. Skipped in dry-run.
+
+        Maps the backfill's resolved/unresolved counts onto PhaseProgress so the
+        watermark reports them: inserted = names resolved, skipped = still blank.
+        """
+        progress = PhaseProgress(
+            phase="candidates_enrich_names", started_at=datetime.now(timezone.utc)
+        )
+        if self.dry_run:
+            progress.finished_at = datetime.now(timezone.utc)
+            return progress
+
+        from app.services.cv_backfill import backfill_missing_names
+
+        stats = await backfill_missing_names(self.db, since=since, prefer_llm=True)
+        progress.total_source = stats.get("total", 0)
+        progress.processed = stats.get("processed", 0)
+        progress.inserted = stats.get("resolved", 0)
+        progress.skipped = stats.get("unresolved", 0)
+        progress.errors = stats.get("errors", 0)
+        progress.finished_at = datetime.now(timezone.utc)
+        logger.info("Enrich missing names done: %s", stats)
+        return progress
+
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
     async def import_candidate_files(
