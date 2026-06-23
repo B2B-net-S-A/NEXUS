@@ -69,8 +69,31 @@ tokens. Trigram `search_doc`/`raw_cv_text` indexes retained for the fallback pat
 - **Local (Postgres 16 in Docker):** migration applies cleanly (column + GIN index + trigger
   present); **24 search tests pass** (7 new FTS semantics + 17 existing advanced-search parity);
   27 further candidate-filter tests pass; `ruff check` / `ruff format` clean.
-- **Prod timing (post-deploy):** _pending — re-run the authenticated API-timing harness for
-  `q_all=java|selenium` and confirm < 3s; screenshot the list via Chrome._
+- **Prod timing (post-deploy, version `86d08e1`):** re-ran the authenticated API-timing
+  harness — all under 3s:
+
+  | Request | Before | After |
+  |---|---|---|
+  | `q_all=java\|selenium` full app request (all includes) | 3.4–4.2s | **~2.0s** (4.9s only on the first cold hit) |
+  | `q_all=java\|selenium` filter only | 2.9–3.9s | **1.6–1.8s** |
+  | `java` alone (≈17K matches) | 3.8s | **1.5–1.7s** |
+  | `selenium` alone | — | **0.34s** |
+  | `kubernetes` (cold) | 7.6s | **0.4–0.8s** |
+  | `java` page 50 (cold) | 26.9s | **2.1s** |
+
+  Result count for `java|selenium` shifted 3537 → 3484 (−1.5%), consistent with word-prefix
+  dropping mid-word substring noise. UI verified via Chrome: the `/candidates?q_all=java|selenium`
+  list renders 3484 rows with Java/Selenium snippet highlights — no "Ładowanie kandydatów…" hang.
+
+### Deploy note (one-time)
+
+The migration runs synchronously in the container entrypoint (`alembic upgrade head`) before
+uvicorn binds. The 50K-row backfill + `CREATE INDEX CONCURRENTLY` took > 6 min, so the new
+container wasn't ready in time and the **Deploy smoke-test job failed (502s for ~6 min)** even
+though `alembic` completed and prod is now healthy on the new version. This is **one-time** —
+0143 never re-runs, so subsequent deploys start normally. Follow-up worth considering: extend the
+healthcheck grace / smoke-test window, or move heavy backfills off the synchronous startup path,
+so a long migration doesn't show as a failed deploy (or briefly 502 the public URL).
 
 ## Known limitations / follow-ups
 
