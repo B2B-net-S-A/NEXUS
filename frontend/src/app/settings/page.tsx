@@ -371,8 +371,17 @@ function FirefliesCard() {
 // ── Settings page ─────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { user } = useAuthStore();
+  const { user, hydrated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<Tab>("integracje");
+
+  // The auth store hydrates `user` from localStorage in a post-mount effect
+  // (AppShellV2). Until then `user` is null, so role-gated tabs (Procesy,
+  // Administracja) and admin advanced-links get filtered out and flash in once
+  // hydration completes. Gate on `hydrated` like the sibling settings pages
+  // (linkedin-metrics, team-structure) to avoid the flash-of-missing-tabs.
+  if (!hydrated) {
+    return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
+  }
 
   const visibleTabs = TABS.filter((tab) => !tab.roles || hasRole(user, ...tab.roles));
   const visibleAdvancedLinks = ADVANCED_LINKS.filter(
