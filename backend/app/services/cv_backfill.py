@@ -162,6 +162,7 @@ async def enrich_candidate_from_cv_bytes(
         "parsed": False,
         "name_source": None,
         "resolved": False,
+        "email_collision": False,
     }
 
     raw_text: Optional[str] = None
@@ -197,6 +198,23 @@ async def enrich_candidate_from_cv_bytes(
         if f_last and not parsed.get("last_name"):
             parsed["last_name"] = f_last
             result["name_source"] = result["name_source"] or "filename"
+
+    # Guard the UNIQUE(email) constraint: duplicate Traffit rows (same CV) would
+    # otherwise collide on commit and lose the whole enrichment. Drop a parsed
+    # email that already belongs to another candidate so the name/phone still
+    # get filled (a second row can't own the same email anyway).
+    email = parsed.get("email")
+    if email and db is not None:
+        clash = await db.scalar(
+            text(
+                "SELECT 1 FROM candidates "
+                "WHERE lower(email) = lower(:e) AND id != :id LIMIT 1"
+            ),
+            {"e": email, "id": candidate.id},
+        )
+        if clash:
+            parsed.pop("email", None)
+            result["email_collision"] = True
 
     _apply_cv_enrichment(candidate, parsed)
     result["resolved"] = _name_resolved(candidate)
