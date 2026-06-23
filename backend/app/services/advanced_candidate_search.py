@@ -35,8 +35,21 @@ bitmap index scans, ~100-200ms):
     STORED generated column, migration 0126),
   • ``raw_cv_text``   → ``ix_candidates_cv_trgm`` (migration 0013),
   • ``notes.content`` → ``ix_notes_content_trgm`` (migration 0126).
-Substring scope/semantics are unchanged (a candidate matches iff the phrase is a
-substring of any searchable field or a note).
+
+Performance (2026-06-23): the substring path above stayed slow for COMMON terms.
+pg_trgm GIN is lossy for ``LIKE``, so the ``raw_cv_text ILIKE`` branch re-reads
+and DETOASTS every CV the index flags; a common keyword flags thousands of rows
+(``java`` ≈ 17K = 34% of the base), so it was thousands of multi-KB CV detoasts
+per request — measured 3.4s (``java|selenium``) up to 26.9s (``java`` page 50)
+cold. Fix: plain alphanumeric words (≥3 chars) now route through a word-PREFIX
+``tsvector`` match (``search_fts @@ to_tsquery('simple', 'phrase:*')`` →
+``ix_candidates_search_fts``, migration 0143), which is evaluated against the
+compact stored tsvector and never detoasts the CV. Short / special-char fragments
+(``c++``, ``c#``, ``.net``, ``node.js``, multi-word phrases) keep the exact
+trigram-substring path above. Semantics shift for the FTS path only: matching is
+word-PREFIX (token-aware) rather than arbitrary substring — ``jav`` → ``java``
+and ``java`` → ``javascript`` still match; only rare mid-word substrings
+(``ava`` → ``java``) are dropped.
 """
 
 from __future__ import annotations
@@ -44,6 +57,7 @@ from __future__ import annotations
 from typing import Optional
 
 from sqlalchemy import Text, and_, column, func, not_, or_, select, union
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
@@ -55,6 +69,14 @@ _MIN_PHRASE_LEN = 2
 # crafted URL can't fan out into an unbounded AND-of-ORs query plan.
 _MAX_ANY_GROUPS = 10
 
+# Phrases at/above this length that are a single plain alphanumeric token route
+# through the fast FTS word-prefix path (see `_fts_eligible` / `_phrase_match`).
+_FTS_MIN_WORD_LEN = 3
+# Postgres text-search config used for both the stored tsvector (migration 0143)
+# and the query side. 'simple' = lowercase + tokenize only (no stemming, no
+# stopwords) → predictable tech tokens (`java` → `java`, never stemmed away).
+_FTS_CONFIG = "simple"
+
 # candidates.search_doc — PG STORED generated column (migration 0126) holding the
 # space-joined concatenation of every searchable candidate text field EXCEPT
 # raw_cv_text (which keeps its own ix_candidates_cv_trgm) and notes (separate
@@ -63,6 +85,14 @@ _MAX_ANY_GROUPS = 10
 # column — deliberately NOT mapped on the ORM entity so `select(Candidate)` never
 # loads this duplicated text into every row of every candidate list response.
 _SEARCH_DOC = column("search_doc", Text)
+
+# candidates.search_fts — STORED tsvector (migration 0143) over the same field
+# scope as search_doc PLUS raw_cv_text (capped), backed by ix_candidates_search_fts
+# (GIN). `@@` is evaluated against this compact tsvector, so the keyword filter
+# never detoasts the multi-KB CV text the way the lossy pg_trgm substring recheck
+# does — that detoast was the 3-27s seen for common terms. Bare column (not ORM-
+# mapped) so `select(Candidate)` never ships the tsvector in list responses.
+_SEARCH_FTS = column("search_fts", TSVECTOR)
 
 
 def _escape_like(value: str) -> str:
@@ -87,33 +117,74 @@ def _identity_expr() -> ColumnElement:
     )
 
 
+def _fts_eligible(phrase: str) -> bool:
+    """True when ``phrase`` should route through the fast FTS word-prefix path
+    instead of trigram-substring.
+
+    Eligible = a single plain alphanumeric token of ``_FTS_MIN_WORD_LEN``+ chars
+    (``java``, ``selenium``, ``python``, ``łukasz``). Anything with whitespace or
+    special chars (``c++``, ``c#``, ``.net``, ``node.js``, ``senior java``) or
+    shorter keeps exact substring semantics via the trigram path — the FTS parser
+    would split those awkwardly, and short fragments are better matched as
+    substrings. ``str.isalnum()`` is unicode-aware, so accented/Polish tokens
+    qualify.
+    """
+    return len(phrase) >= _FTS_MIN_WORD_LEN and phrase.isalnum()
+
+
 def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
-    """Indexable predicate: candidate matches ``phrase`` (case-insensitive
-    substring) in ANY searchable field.
+    """Indexable predicate: candidate matches ``phrase`` in ANY searchable field.
 
     Built as ``candidates.id IN (UNION of id-subqueries)`` so each branch drives
-    its own GIN trigram index (Append of bitmap index scans) instead of a single
-    OR-of-ILIKEs the planner can only satisfy with a full seq scan:
+    its own index (Append of bitmap scans) instead of a single OR the planner can
+    only satisfy with a full seq scan. Two routes (see ``_fts_eligible``):
+
+    FTS word-prefix (plain alphanumeric word, ≥3 chars) — the fast path:
+      • ``search_fts @@ to_tsquery('simple', 'phrase:*')`` → ix_candidates_search_fts.
+        The GIN tsvector match reads the compact stored tsvector and never
+        detoasts the multi-KB ``raw_cv_text`` the way the lossy pg_trgm recheck
+        did (that detoast was the 3-27s for common terms — migration 0143).
+        ``:*`` is a word-PREFIX match so ``jav`` still finds ``java`` (incremental
+        ⌘K typing) and ``java`` still finds ``javascript`` (word-prefix); only
+        rare mid-word substrings (``ava`` → ``java``) are dropped.
+      • ``notes.content ILIKE`` → ix_notes_content_trgm. Notes stay substring
+        (separate, smaller table; recruiter prose where substring is reasonable).
+
+    Substring fallback (short / non-alphanumeric fragment):
       • ``search_doc ILIKE``    → ix_candidates_search_doc_trgm (all non-CV cols),
       • ``raw_cv_text ILIKE``   → ix_candidates_cv_trgm,
-      • ``notes.content ILIKE`` → ix_notes_content_trgm (candidate_id NOT NULL so
-        the ``NOT IN`` form used by the NONE bucket can't hit the NULL trap).
+      • ``notes.content ILIKE`` → ix_notes_content_trgm.
+
+    The ``notes.candidate_id NOT NULL`` guard keeps the ``NOT IN`` form used by
+    the NONE bucket off the NULL trap.
 
     When ``fuzzy`` is set (simple ``?q=`` search, phrase ≥3 chars) a trigram-
     similarity branch on identity is unioned in via the ``%`` operator —
-    preserving the old typo-tolerant identity match. The caller MUST set
+    preserving typo-tolerant identity matching. The caller MUST set
     ``pg_trgm.similarity_threshold`` for the transaction first (see
-    ``list_candidates``); the substring branches are unaffected by that GUC.
+    ``list_candidates``); the other branches are unaffected by that GUC.
     """
     pattern = f"%{_escape_like(phrase)}%"
-    branches = [
-        select(Candidate.id).where(_SEARCH_DOC.ilike(pattern, escape="\\")),
-        select(Candidate.id).where(Candidate.raw_cv_text.ilike(pattern, escape="\\")),
-        select(Note.candidate_id).where(
-            Note.candidate_id.is_not(None),
-            Note.content.ilike(pattern, escape="\\"),
-        ),
-    ]
+    notes_branch = select(Note.candidate_id).where(
+        Note.candidate_id.is_not(None),
+        Note.content.ilike(pattern, escape="\\"),
+    )
+    if _fts_eligible(phrase):
+        # `phrase` is guaranteed alphanumeric, so `phrase + ":*"` is always valid
+        # tsquery syntax (a single prefix-matched lexeme) — no operators to inject.
+        tsquery = func.to_tsquery(_FTS_CONFIG, phrase + ":*")
+        branches = [
+            select(Candidate.id).where(_SEARCH_FTS.op("@@")(tsquery)),
+            notes_branch,
+        ]
+    else:
+        branches = [
+            select(Candidate.id).where(_SEARCH_DOC.ilike(pattern, escape="\\")),
+            select(Candidate.id).where(
+                Candidate.raw_cv_text.ilike(pattern, escape="\\")
+            ),
+            notes_branch,
+        ]
     if fuzzy:
         # self_group() forces parentheses around the `||` concatenation: in
         # PostgreSQL `%` binds tighter than `||`, so `a || b % c` would parse as
