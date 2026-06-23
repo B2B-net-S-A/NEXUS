@@ -52,6 +52,7 @@ import { AddCandidateFromCVModal } from"@/components/v2/modals/AddCandidateFromC
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from"@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateDetailV2 } from"@/components/v2/pages/CandidateDetailV2";
+import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import {
  Sheet,
  SheetContent,
@@ -1525,17 +1526,49 @@ export function CandidatesListV2() {
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+ // Płaska, odduplikowana lista fraz wyszukiwania (q + q_all + q_any) — używana
+ // do podświetlenia <mark> w snippetach CV. `q_none` celowo pomijamy: fraz
+ // wykluczających nie podświetlamy. Tokeny <2 znaki odpadają (zaśmiecają mark).
+ const searchTerms = useMemo(() => {
+ const raw = [...search.split(/\s+/), ...qAll, ...qAnyGroups.flat()];
+ const seen = new Set<string>();
+ const out: string[] = [];
+ for (const term of raw) {
+ const norm = term.trim();
+ if (norm.length < 2) continue;
+ const key = norm.toLowerCase();
+ if (seen.has(key)) continue;
+ seen.add(key);
+ out.push(norm);
+ }
+ return out;
+ }, [search, qAll, qAnyGroups]);
+ const hasSearchTerms = searchTerms.length > 0;
+
  // Virtualization ---------------------------------------------
- // Komórka „Kandydat" pokazuje teraz samo imię i nazwisko (email i dopasowania
- // CV mają własne kolumny / szczegóły), więc wiersze nie zlewają się tekstem.
- // Luźne 64/92px dają oddech na pojedynczego kandydata — lista jest przejrzysta.
+ // Bazowa wysokość wiersza: luźne 64/92px dają oddech na pojedynczego kandydata.
+ // Gdy wyszukiwanie jest aktywne i kandydat ma dopasowany fragment CV
+ // (`match_snippet`), wiersz rośnie o SNIPPET_AREA, by zmieścić snippet pod
+ // danymi — recruiter od razu widzi, z czego wynika dopasowanie (parytet Traffit).
  const rowHeight = density === "compact" ? 64 : 92;
+ const SNIPPET_AREA = 36;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
- estimateSize: () => rowHeight,
+ estimateSize: (index) => {
+ const c = items[index];
+ return rowHeight + (hasSearchTerms && c?.match_snippet ? SNIPPET_AREA : 0);
+ },
  overscan: 10,
  });
+ // estimateSize zależy od danych (snippet) i gęstości; react-virtual czyta
+ // estimateSize na nowo dopiero po `measure()` (resecie cache rozmiarów), więc
+ // wymuszamy je po każdej zmianie wyników / gęstości / aktywności wyszukiwania.
+ // Klucz to stabilna referencja `data` z react-query (NIE `items`, które są
+ // świeżą tablicą co render → pętla re-measure).
+ useEffect(() => {
+ virtualizer.measure();
+ }, [virtualizer, data, rowHeight, hasSearchTerms]);
 
  // Selection ---------------------------------------------------
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -2806,6 +2839,7 @@ export function CandidatesListV2() {
  setDetailPosition((page - 1) * pageSize + idx + 1);
  }
  };
+ const snippet = hasSearchTerms ? candidate.match_snippet : null;
  return (
  <div
  key={candidate.id}
@@ -2817,10 +2851,9 @@ export function CandidatesListV2() {
  width: "100%",
  height: `${virtualRow.size}px`,
  transform: `translateY(${virtualRow.start}px)`,
- gridTemplateColumns,
  }}
  className={cn(
- "grid items-center gap-4 px-4 border-b border-border/50 transition-colors",
+ "flex flex-col overflow-hidden border-b border-border/50 transition-colors",
  "border-l-4 border-l-transparent",
  // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
@@ -2828,6 +2861,10 @@ export function CandidatesListV2() {
  "hover:bg-muted/60 hover:border-l-primary/50",
  isSelected && "!bg-primary/10 !border-l-primary"
  )}
+ >
+ <div
+ className="grid items-center gap-4 px-4 shrink-0"
+ style={{ gridTemplateColumns, height: `${rowHeight}px` }}
  >
  <div
  className="flex items-center"
@@ -2868,6 +2905,23 @@ export function CandidatesListV2() {
  <Briefcase className="h-3.5 w-3.5" />
  </button>
  </div>
+ </div>
+ {/* Snippet CV: dlaczego kandydat trafił w wyniki. Wcięty pod nazwisko
+     (32px checkbox + 16px gap), pełna szerokość, max 2 linie. Klik otwiera
+     szczegóły — tak jak reszta wiersza. */}
+ {snippet && (
+ <button
+ type="button"
+ onClick={openDetail}
+ className="flex-1 min-h-0 overflow-hidden px-4 pb-1.5 text-left"
+ >
+ <MatchSnippet
+ snippet={snippet}
+ terms={searchTerms}
+ className="block pl-12 line-clamp-2"
+ />
+ </button>
+ )}
  </div>
  );
  })}
