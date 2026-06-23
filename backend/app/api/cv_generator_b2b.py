@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import (
@@ -25,6 +25,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -36,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -318,7 +320,9 @@ async def list_candidate_recruitments(
 
 
 @router.post("/generate")
+@limiter.limit("10/minute")
 async def generate(
+    request: Request,
     payload: GenerateRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -384,15 +388,23 @@ async def generate(
 
 
 @router.post("/generate-upload")
+@limiter.limit("10/minute")
 async def generate_from_upload(
+    request: Request,
     current_user: CurrentUser,
-    cv_file: UploadFile = File(..., description="Plik CV (PDF / DOCX)"),
+    # UploadFile params MUST use the Annotated form here: this module runs under
+    # `from __future__ import annotations` (PEP 563), and the `slowapi` wrapper
+    # makes FastAPI mis-resolve a stringized `UploadFile = File(...)` default as a
+    # response field → FastAPIError at import. Annotated[...] sidesteps it (same
+    # pattern as cv_match_preview).
+    cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
     screening_notes: str = Form(""),
-    champion_file: Optional[UploadFile] = File(
-        None, description="Opcjonalny plik DOCX z Profilem Championa"
-    ),
+    champion_file: Annotated[
+        Optional[UploadFile],
+        File(description="Opcjonalny plik DOCX z Profilem Championa"),
+    ] = None,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """1:1 odpowiednik external ``POST /api/v1/generate`` (multipart wariant).
