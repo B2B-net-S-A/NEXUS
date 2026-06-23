@@ -1378,6 +1378,7 @@ export default function JobDetailPage() {
               jobId={Number(id)}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
+              headerCollapsed={headerCollapsed}
             />
           )}
         </div>
