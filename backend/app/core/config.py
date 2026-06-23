@@ -48,17 +48,21 @@ class Settings(BaseSettings):
     # Kalibracja 2026-05-29 na żywych rozkładach z joba 15 (Scrum Master):
     #   • legacy rerank score (Voyage rerank-2.5, 0-1): klaster 0.61-0.87 →
     #     próg 0.5 trzyma trafny zbiór, ucina szum gdy poszerzymy pulę.
-    #   • hybrydowy composite (0-100): 2 wyróżniki (58.9, 53.8) + długi płaski
-    #     ogon 24-34 (semantycznie dociągnięci, ale composite zaniżony bo
-    #     salary/location/availability często nieznane → punkty częściowe).
-    #     To sygnał RANKINGOWY, nie skalibrowane 0-100 → próg celowo niski (25
-    #     daje ~48 kandydatów; 30 dałoby tylko 6; 50 tylko 2).
+    #   • hybrydowy composite (0-100): historycznie ZANIŻONY (długi płaski ogon
+    #     24-34 — semantycznie trafni, ale composite ciągniony w dół bo surowy
+    #     cosinus + salary/location nieznane → 0 pkt). RECALIBRACJA 2026-06-23
+    #     (patrz scoring_service.SEMANTIC_CALIBRATION_GAMMA / UNKNOWN_NEUTRAL_
+    #     FRACTION niżej) podnosi krzywą semantyczną i traktuje brak danych jako
+    #     neutralny (połowa budżetu, jak availability/champion). Trafny kandydat
+    #     ląduje teraz ~55-70 zamiast ~30-37 → próg podniesiony 25 → 40, by
+    #     utrzymać podobny zbiór wyników na nowej skali (tunowalny env runtime).
     # legacy /ai-matches (rerank/cosine/skill-fraction, skala 0-1)
     AI_MATCH_MIN_SCORE: float = 0.5
     # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank ~liniowy)
     AI_MATCH_POOL_SIZE: int = 100
-    # hybrydowe /recommendations + proposals (skala 0-100)
-    RECOMMENDATION_MIN_SCORE: float = 25.0
+    # hybrydowe /recommendations + proposals (skala 0-100). Po recalibracji
+    # (2026-06-23) skala jest realistyczna, więc próg podniesiony z 25 → 40.
+    RECOMMENDATION_MIN_SCORE: float = 40.0
     # twardy bezpiecznik rozmiaru wyniku (oba silniki)
     MATCH_MAX_RESULTS: int = 200
     # Gdy filtr lokalizacji jest aktywny na /recommendations, poszerzamy pulę
@@ -67,6 +71,21 @@ class Settings(BaseSettings):
     # podzbiór. Po retrieve pre-filtrujemy po lokalizacji i scorujemy DOPIERO
     # dopasowany podzbiór, więc koszt scoringu pozostaje ograniczony.
     RECOMMENDATION_LOCATION_POOL_SIZE: int = 500
+
+    # ── Hybrid composite calibration (recalibracja 2026-06-23) ────────────────
+    # Composite 0-100 było systematycznie zaniżane: (1) surowy cosinus Voyage dla
+    # trafnych kandydatów to ~0.4-0.65 → liniowe sim*budżet niedoszacowuje; (2)
+    # salary/location dawały 0 przy braku danych (~99% importów bez stawki,
+    # ~99.6% ofert bez lokalizacji), podczas gdy availability/champion_fit już
+    # używały neutralnej połowy. Oba sterowalne runtime (env, is_runtime):
+    #   • SEMANTIC_CALIBRATION_GAMMA<1 podnosi środek krzywej (0.6: cos 0.5→0.66
+    #     budżetu) bez saturacji szczytu; monotoniczne → ranking zachowany.
+    #     1.0 = stare liniowe zachowanie.
+    #   • SCORE_UNKNOWN_NEUTRAL_FRACTION=0.5 → „brak sygnału = połowa budżetu"
+    #     (jak availability). 0.0 = stare twarde zero.
+    # Pełny rollback bez redeployu: ustaw 1.0 / 0.0.
+    SEMANTIC_CALIBRATION_GAMMA: float = 0.6
+    SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.5
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -135,7 +154,11 @@ class Settings(BaseSettings):
     # Kill-switch bez redeploya: MARKETPLACE_ENABLED=false wyłącza skany oraz
     # loop, ale pozostawia endpointy API (UI może dalej listować kandydatów).
     MARKETPLACE_ENABLED: bool = True
-    MARKETPLACE_SCORE_THRESHOLD: float = 70.0
+    # Próg alertów Targu (skala composite 0-100). Podniesiony 70 → 80 wraz z
+    # recalibracją scoringu (2026-06-23): po podniesieniu skali stary próg 70
+    # stał się osiągalny przez ~6-10× większy zbiór → ryzyko zalewu notyfikacji.
+    # 80 przywraca rzadkość „tylko realnie mocne dopasowania". Tunowalny env.
+    MARKETPLACE_SCORE_THRESHOLD: float = 80.0
     MARKETPLACE_DEFAULT_DURATION_DAYS: int = 30
     MARKETPLACE_SWEEP_INTERVAL_SECONDS: int = 1800  # 30 min safety net
     MARKETPLACE_TOP_K_MATCHES_PER_CANDIDATE: int = 3

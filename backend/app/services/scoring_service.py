@@ -29,12 +29,46 @@ from typing import Iterable, List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.services.location_utils import location_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
+
+
+# ── Calibration knobs (runtime-tunable via Coolify env; reversible) ──────────
+#
+# The hybrid composite (0-100) was chronically DEFLATED for two reasons:
+#   1. Raw Voyage cosine (voyage-3-large) for genuinely-relevant candidates
+#      clusters ~0.4-0.65, so a linear `sim * budget` under-credits good
+#      semantic fits (a 0.55 match earned only ~55% of the budget).
+#   2. salary/location returned 0 when the underlying data was simply UNKNOWN
+#      (true for ~99% of imported candidates / ~99.6% of imported jobs) — unlike
+#      availability and champion_fit, which already award a neutral half-budget
+#      for "no signal". The inconsistency depressed the composite for the whole
+#      imported pool (see config.py calibration notes — the "zaniżony" bug).
+#
+# Both are corrected below and gated behind env so the exact legacy behaviour is
+# one flip away (gamma=1.0 + neutral=0.0):
+#
+#   SEMANTIC_CALIBRATION_GAMMA  power curve applied to cosine before scaling
+#                               (0.6 default; 1.0 == legacy linear). Strictly
+#                               increasing in sim → per-candidate semantic
+#                               ranking is preserved exactly.
+#   UNKNOWN_NEUTRAL_FRACTION    fraction of a layer's budget awarded when there
+#                               is genuinely no data to judge it (0.5 default,
+#                               matching availability/champion; 0.0 == legacy).
+#
+# Read as module globals inside the scoring functions so tests can monkeypatch
+# them and an offline override (eval/tooling) takes effect at call time.
+SEMANTIC_CALIBRATION_GAMMA: float = float(
+    getattr(settings, "SEMANTIC_CALIBRATION_GAMMA", 0.6)
+)
+UNKNOWN_NEUTRAL_FRACTION: float = float(
+    getattr(settings, "SCORE_UNKNOWN_NEUTRAL_FRACTION", 0.5)
+)
 
 
 # ── Point budgets (defaults; overridable by WeightProfile) ──────────────────
@@ -599,7 +633,17 @@ def _score_salary(
         cand_rate = prefs.get("rate_min") or cand_rate or prefs.get("rate_max")
 
     if not cand_rate or (not job_min and not job_max):
-        return LayerResult(points=0.0, max_points=max_pts, reason="brak danych")
+        # No data to judge salary fit → neutral (benefit of the doubt), matching
+        # the availability/champion_fit convention. Hard-zeroing here was a main
+        # driver of deflated composites: ~99% of imported candidates have no
+        # stated rate. A *known* mismatch still decays below this neutral value
+        # via the out-of-range branch below. UNKNOWN_NEUTRAL_FRACTION=0.0 restores
+        # the legacy 0.
+        return LayerResult(
+            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
+            max_points=max_pts,
+            reason="brak danych (neutralnie)",
+        )
 
     # Inside range → full points
     if (job_min is None or cand_rate >= job_min) and (
@@ -659,9 +703,20 @@ def _score_location(
 
     job_tokens = location_tokens(job.location)
     cand_tokens = location_tokens(candidate.location)
-    if job_tokens and tokens_overlap(cand_tokens, job_tokens):
-        points += half
-        reason_bits.append("lokalizacja OK")
+    if job_tokens:
+        if tokens_overlap(cand_tokens, job_tokens):
+            points += half
+            reason_bits.append("lokalizacja OK")
+        elif not cand_tokens:
+            # The job specifies a location but the candidate's is unknown — we
+            # cannot judge a mismatch, so award a neutral half rather than 0
+            # (consistent with the salary/availability convention). A real
+            # different-city candidate (cand_tokens present, no overlap) still
+            # earns 0. When the job has no location at all (~99.6% of imported
+            # jobs) this whole block is skipped → unchanged no-op, so the city
+            # half never inflates the dominant cohort's score.
+            points += half * UNKNOWN_NEUTRAL_FRACTION
+            reason_bits.append("lokalizacja nieznana")
 
     return LayerResult(
         points=min(points, max_pts),
@@ -784,13 +839,24 @@ async def _check_penalties(
 def score_semantic(
     semantic_similarity: Optional[float], profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
-    """Convert Qdrant cosine similarity (0-1) → profile.semantic points."""
+    """Convert Qdrant cosine similarity (0-1) → profile.semantic points.
+
+    The raw cosine is passed through a power curve (``sim ** gamma``, where
+    gamma = ``SEMANTIC_CALIBRATION_GAMMA``) before scaling. With the default
+    gamma < 1 this lifts the mid-range similarities where genuinely-relevant
+    candidates cluster (~0.4-0.65 on voyage-3-large) without saturating the top:
+    the curve is strictly increasing, so per-candidate semantic ordering — and
+    therefore ranking — is preserved exactly. gamma = 1.0 reproduces the legacy
+    linear mapping. ``None`` (no embedding) still scores 0.
+    """
     max_pts = profile.semantic
     if semantic_similarity is None:
         return LayerResult(points=0.0, max_points=max_pts, reason="brak embeddingu")
     sim = max(0.0, min(1.0, float(semantic_similarity)))
+    gamma = SEMANTIC_CALIBRATION_GAMMA
+    calibrated = sim**gamma if gamma and gamma > 0 else sim
     return LayerResult(
-        points=sim * max_pts, max_points=max_pts, reason=f"sim {sim:.2f}"
+        points=calibrated * max_pts, max_points=max_pts, reason=f"sim {sim:.2f}"
     )
 
 
