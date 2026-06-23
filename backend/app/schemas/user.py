@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models.user import UserRole
 
@@ -11,6 +11,21 @@ class UserCreate(BaseModel):
     password: str
     name: str
     role: UserRole = UserRole.recruiter
+
+
+class SelfRegisterRequest(BaseModel):
+    """Public self-service registration body (POST /api/auth/register).
+
+    Deliberately has NO ``role`` field — self-registered accounts are ALWAYS
+    created as the read-only ``user`` (viewer) role server-side. An admin
+    elevates the role afterwards in the panel. This closes the prior hole where
+    the endpoint accepted an arbitrary ``role`` and anyone could self-provision
+    an ``admin``.
+    """
+
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=255)
 
 
 class UserUpdate(BaseModel):
@@ -29,6 +44,9 @@ class UserResponse(BaseModel):
     # lives here. Frontend should prefer ``roles`` for permission checks.
     roles: list[UserRole] = []
     is_active: bool
+    # Email-verification gate (migracja 0139). True dla wszystkich kont poza
+    # świeżo self-zarejestrowanymi, które nie kliknęły jeszcze linku.
+    email_verified: bool = True
     profile_completed: bool = False
     profile_completed_at: Optional[datetime] = None
     # Force-change-password gate (migracja 0078). Po admin-resecie hasła

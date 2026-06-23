@@ -303,7 +303,20 @@ class Settings(BaseSettings):
     # JSON parsing for List types from env vars, which broke a plain ``b2bnetwork.pl``
     # value at startup. Use ``settings.sso_allowed_domains_list`` to get the parsed
     # list of lowercased, stripped domains.
+    #
+    # NB: this whitelist now governs BOTH Microsoft SSO auto-provisioning AND
+    # email/password self-registration (POST /api/auth/register). The same set
+    # of corporate domains is allowed to self-provision via either path.
     SSO_ALLOWED_DOMAINS: str = ""
+
+    # ── Self-service email/password registration (POST /api/auth/register) ────
+    # Kill-switch. When False the endpoint returns 503 (registration closed) and
+    # the frontend /register page shows "rejestracja wyłączona". Default OFF for
+    # safety — flip to True in Coolify env vault once SSO_ALLOWED_DOMAINS is set
+    # to the corporate domain(s). Self-registered accounts are always created as
+    # the read-only ``user`` (viewer) role, email-unverified until they click the
+    # verification link; an admin elevates the role afterwards in the panel.
+    SELF_REGISTRATION_ENABLED: bool = False
 
     # ── AAD group-based RBAC (Phase 7.2) ─────────────────────────────────────
     # Kill-switch. When False the SSO callback skips Graph /me/memberOf entirely
