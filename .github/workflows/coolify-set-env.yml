@@ -1,0 +1,83 @@
+name: Coolify set env
+
+# Manually-triggered ops helper: set a single Coolify env var on the NEXUS app
+# using the already-stored COOLIFY_* secrets, then trigger a runtime restart.
+# Used to flip feature flags (e.g. SELF_REGISTRATION_ENABLED) without SSH/UI.
+on:
+  workflow_dispatch:
+    inputs:
+      key:
+        description: "Env var name"
+        required: true
+      value:
+        description: "Env var value"
+        required: true
+      is_buildtime:
+        description: "true if the value must be baked at build time (forces full rebuild)"
+        required: false
+        default: "false"
+      redeploy:
+        description: "Trigger a deploy/restart after setting the var"
+        required: false
+        default: "true"
+
+concurrency:
+  group: coolify-set-env
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set env via Coolify API
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          KEY: ${{ inputs.key }}
+          VALUE: ${{ inputs.value }}
+          IS_BUILDTIME: ${{ inputs.is_buildtime }}
+          REDEPLOY: ${{ inputs.redeploy }}
+        run: |
+          set -euo pipefail
+          base="${COOLIFY_URL%/}"
+          auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+
+          # Detect whether the key already exists (do NOT print env values — the
+          # vault holds secrets like SMTP_PASSWORD).
+          curl -fsS "${auth[@]}" "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs" -o /tmp/envs.json
+          exists=$(jq -r --arg k "$KEY" 'any(.[]?; .key==$k)' /tmp/envs.json)
+          echo "key '${KEY}' already present: ${exists}"
+
+          payload=$(jq -n --arg k "$KEY" --arg v "$VALUE" --argjson bt "${IS_BUILDTIME}" \
+            '{key:$k, value:$v, is_buildtime:$bt, is_runtime:true, is_preview:false}')
+
+          if [ "$exists" = "true" ]; then
+            method=PATCH
+          else
+            method=POST
+          fi
+          echo "→ ${method} /api/v1/applications/.../envs (key=${KEY})"
+          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" -X "$method" "${auth[@]}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "${base}/api/v1/applications/${COOLIFY_APP_UUID}/envs")
+          echo "env write HTTP ${code}"
+          # Print only a safe error hint, never the full body (could echo a value).
+          if [ "$code" -ge 400 ]; then
+            jq -r '.message // .error // "request failed"' /tmp/resp.json 2>/dev/null || true
+            exit 1
+          fi
+
+          if [ "$REDEPLOY" = "true" ]; then
+            force="false"
+            [ "$IS_BUILDTIME" = "true" ] && force="true"
+            dcode=$(curl -s -o /tmp/dep.json -w "%{http_code}" -X GET "${auth[@]}" \
+              "${base}/api/v1/deploy?uuid=${COOLIFY_APP_UUID}&force=${force}")
+            echo "deploy trigger HTTP ${dcode} (force=${force})"
+            [ "$dcode" -ge 400 ] && { echo "deploy trigger failed"; exit 1; } || true
+          fi
+          echo "done: ${KEY} set; redeploy=${REDEPLOY}"
