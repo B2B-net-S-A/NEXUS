@@ -45,6 +45,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { LanguageTiles } from "@/components/v2/LanguageTiles";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
@@ -463,20 +464,11 @@ export function CVGeneratorStandaloneV2() {
         <CardContent className="space-y-6">
           <div>
             <Label className="mb-2 block">Język CV</Label>
-            <RadioGroup
+            <LanguageTiles
               value={language}
-              onValueChange={(v) => setLanguage(v as "pl" | "en")}
-              className="flex gap-6"
-            >
-              <label className="flex items-center gap-2 text-sm">
-                <RadioGroupItem value="pl" />
-                Polski
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <RadioGroupItem value="en" />
-                English
-              </label>
-            </RadioGroup>
+              onChange={setLanguage}
+              className="sm:max-w-md"
+            />
           </div>
 
           <div className="flex items-center justify-between gap-4">
