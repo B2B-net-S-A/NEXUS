@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/Toast";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
+import { LanguageTiles } from "@/components/v2/LanguageTiles";
 
 interface Props {
   open: boolean;
@@ -213,22 +214,11 @@ export function CVGeneratorV2({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="mb-2 block">Język</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {(["pl", "en"] as const).map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => setLanguage(l)}
-                    className={cn(
-                      "px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                      language === l
-                        ? "bg-primary text-white"
-                        : "bg-card text-foreground border border-border",
-                    )}
-                  >
-                    {l.toUpperCase()}
-                  </button>
-                ))}
-              </div>
+              <LanguageTiles
+                value={language}
+                onChange={setLanguage}
+                ariaLabel="Język"
+              />
             </div>
             <div>
               <Label className="mb-2 block">Blind CV</Label>
