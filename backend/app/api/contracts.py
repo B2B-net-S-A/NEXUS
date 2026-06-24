@@ -457,13 +457,30 @@ async def expiring_contracts(
     """Return contracts expiring within N days."""
     cutoff = date.today() + timedelta(days=days)
     result = await db.execute(
-        select(Contract).where(
+        select(Contract)
+        .where(
             Contract.end_date <= cutoff,
             Contract.end_date >= date.today(),
             Contract.status == ContractStatus.active,
         )
+        # Eager-load the schedule: it's a serialized field on ContractResponse,
+        # so from_attributes would otherwise trigger an async lazy-load error.
+        .options(selectinload(Contract.candidate_rate_schedule))
     )
-    return list(result.scalars().all())
+    today = date.today()
+    return [
+        ContractResponse.model_validate(
+            {
+                **{
+                    k: getattr(c, k, None)
+                    for k in ContractResponse.model_fields.keys()
+                },
+                "candidate_rate_schedule": _schedule_entries(c),
+                **_effective_candidate_fields(c, today),
+            }
+        )
+        for c in result.scalars().all()
+    ]
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)

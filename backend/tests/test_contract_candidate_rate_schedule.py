@@ -64,6 +64,19 @@ async def _pick_parties(app_client: AsyncClient, headers: dict):
     return items[0]["candidate_id"], items[0]["client_id"]
 
 
+async def test_expiring_serializes_schedule_field(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """/expiring returns ContractResponse incl. the schedule field — must not
+    trip an async lazy-load on candidate_rate_schedule."""
+    resp = await app_client.get(
+        "/api/contracts/expiring", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    for item in resp.json():
+        assert "candidate_rate_schedule" in item
+
+
 async def test_create_with_schedule_derives_current_rate(
     app_client: AsyncClient, app_auth_headers: dict
 ):
