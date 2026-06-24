@@ -338,6 +338,37 @@ def test_normalize_rejects_non_dict():
     assert exc.value.code == "ai_failed"
 
 
+def test_normalize_folds_typographic_dashes_to_hyphens():
+    data = _normalize_candidate_data(
+        {
+            "name": "Jan Kowalski",
+            "why_points": ["5 lat doświadczenia — w tym 3 w fintechu"],
+            "languages": ["Polski – ojczysty", "Angielski – biegły"],
+            "certifications": ["AWS SAA — Amazon (2022)"],
+            "experience": [
+                {
+                    "company": "ACME",
+                    "dates": "03.2020 – obecnie",
+                    "responsibilities": ["Wdrożenie CI/CD — GitLab"],
+                }
+            ],
+            "skills": [{"label": "DevOps:", "content": "Docker – zaawansowany"}],
+        },
+        fallback_name=None,
+    )
+    assert data["why_points"] == ["5 lat doświadczenia - w tym 3 w fintechu"]
+    assert data["languages"] == ["Polski - ojczysty", "Angielski - biegły"]
+    assert data["certifications"] == ["AWS SAA - Amazon (2022)"]
+    job = data["experience"][0]
+    assert job["dates"] == "03.2020 - obecnie"
+    assert job["responsibilities"] == ["Wdrożenie CI/CD - GitLab"]
+    assert data["skills"][0]["content"] == "Docker - zaawansowany"
+    # No typographic dash survives anywhere in the output.
+    blob = repr(data)
+    for dash in ("–", "—", "‒", "―", "−"):
+        assert dash not in blob
+
+
 # ── Anti-fabrication guard ─────────────────────────────────────────────────
 
 _SOURCE = """
