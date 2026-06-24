@@ -83,10 +83,16 @@ export function ContractRegisterDialog({
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
 
-  // BNP używa nomenklatury „Numer zamówienia" zamiast „Numer projektu".
-  const projectCodeLabel = (clientName ?? "").toLowerCase().includes("bnp")
+  // Etykieta pola „Numer projektu" zależy od nomenklatury klienta:
+  // BNP → „Numer zamówienia", PFRON → „Numer zlecenia". Dopasowanie po nazwie,
+  // spójne z detekcją w B2BContractGeneratorV2 (hasSpecialClauses).
+  const clientNameLower = (clientName ?? "").toLowerCase();
+  const projectCodeLabel = clientNameLower.includes("bnp")
     ? "Numer zamówienia"
-    : "Numer projektu";
+    : clientNameLower.includes("pfron") ||
+        clientNameLower.includes("rehabilitacji osób niepełnosprawnych")
+      ? "Numer zlecenia"
+      : "Numer projektu";
 
   // ── Form state ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
