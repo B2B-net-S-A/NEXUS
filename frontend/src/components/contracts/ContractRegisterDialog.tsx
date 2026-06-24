@@ -83,6 +83,11 @@ export function ContractRegisterDialog({
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
 
+  // BNP używa nomenklatury „Numer zamówienia" zamiast „Numer projektu".
+  const projectCodeLabel = (clientName ?? "").toLowerCase().includes("bnp")
+    ? "Numer zamówienia"
+    : "Numer projektu";
+
   // ── Form state ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [candidateOpen, setCandidateOpen] = useState(false);
@@ -315,7 +320,7 @@ export function ContractRegisterDialog({
             {/* Projekt */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label className="mb-1.5 block">Numer projektu</Label>
+                <Label className="mb-1.5 block">{projectCodeLabel}</Label>
                 <Input
                   value={projectCode}
                   onChange={(e) => setProjectCode(e.target.value)}
