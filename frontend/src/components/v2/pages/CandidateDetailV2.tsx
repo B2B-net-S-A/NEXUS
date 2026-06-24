@@ -99,6 +99,7 @@ import {
  renderWithMentions,
 } from"@/lib/renderMentions";
 import { EditCandidateModal } from"@/components/AppShell";
+import { IdentityEditor } from"./CandidateIdentityEditor";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from"@/components/v2/modals/SendEmailV2";
 import { AutentiEnvelopeCard } from"@/components/v2/contract/AutentiEnvelopeCard";
@@ -333,6 +334,9 @@ export function CandidateDetailV2({
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
+ // Inline edycja tożsamości/kontaktu (imię, nazwisko, email, telefon) wprost
+ // w nagłówku — szybka korekta np. kandydatów zaimportowanych jako "?".
+ const [editingIdentity, setEditingIdentity] = useState(false);
  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
  const [deleteOpen, setDeleteOpen] = useState(false);
  const [screeningStage, setScreeningStage] = useState<number | null>(null);
@@ -358,6 +362,12 @@ export function CandidateDetailV2({
  openTab("candidate", Number(id), fullName);
  }
  }, [candidate, id, openTab, embedded]);
+
+ // Wyjdź z inline-edycji nagłówka przy przełączeniu kandydata (prev/next w
+ // drawerze), żeby formularz nie pokazywał danych poprzedniego kandydata.
+ useEffect(() => {
+ setEditingIdentity(false);
+ }, [id]);
 
  // Timeline API returns `{ timeline: [...] }` — normalize to array.
  const { data: timelineRaw } = useQuery<{ timeline?: any[] } | any[]>({
@@ -611,6 +621,13 @@ export function CandidateDetailV2({
  </Avatar>
 
  <div className="flex-1 min-w-0">
+ {editingIdentity ? (
+ <IdentityEditor
+ candidate={candidate}
+ onClose={() => setEditingIdentity(false)}
+ />
+ ) : (
+ <>
  <div className="flex items-center gap-2 flex-wrap">
  <h1 className="font-semibold text-2xl md:text-3xl font-extrabold tracking-[-0.02em] text-foreground">
  {fullName}
@@ -645,6 +662,15 @@ export function CandidateDetailV2({
  :""}
  </Badge>
  )}
+ <button
+ type="button"
+ onClick={() => setEditingIdentity(true)}
+ className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+ title="Edytuj imię, nazwisko, e-mail i telefon"
+ >
+ <PencilLine className="h-3.5 w-3.5" />
+ Edytuj dane
+ </button>
  </div>
  {/* Scannable one-liner: title · experience · location · salary ·
  availability — falls back to current_role when no facts resolve. */}
@@ -716,6 +742,8 @@ export function CandidateDetailV2({
  </div>
  ) : null;
  })()}
+ </>
+ )}
  </div>
 
  {/* Active viewers (presence) — other users currently on this candidate */}
