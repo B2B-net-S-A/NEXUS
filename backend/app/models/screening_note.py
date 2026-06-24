@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, Enum, ForeignKey, Integer, String, Text, DateTime, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -84,7 +84,13 @@ class ScreeningNote(Base):
     )
 
     # Relationships
-    candidate = relationship("Candidate", backref="screening_notes")
+    # passive_deletes=True: like pool_memberships, this backref makes
+    # ``Candidate.screening_notes`` a one-to-many that would otherwise NULL the
+    # NOT NULL ``candidate_id`` on parent-delete → NotNullViolation. Defer to the
+    # DB-level ON DELETE CASCADE (migration 0146) on hard candidate delete.
+    candidate = relationship(
+        "Candidate", backref=backref("screening_notes", passive_deletes=True)
+    )
     job = relationship("Job", backref="screening_notes")
     author = relationship("User", foreign_keys=[author_id])
     mentions = relationship(

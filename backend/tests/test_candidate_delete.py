@@ -154,7 +154,7 @@ async def test_every_candidate_fk_has_on_delete_rule():
         """
         SELECT rel.relname AS table_name,
                att.attname AS column_name,
-               con.confdeltype AS on_delete
+               con.confdeltype::text AS on_delete
         FROM pg_constraint con
         JOIN pg_class rel ON rel.oid = con.conrelid
         JOIN pg_class frel ON frel.oid = con.confrelid
