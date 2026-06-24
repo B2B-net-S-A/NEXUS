@@ -9,9 +9,18 @@ Routes mounted under ``/api/cv-generator``:
                                             (1:1 with external CV-Generator)
 
 All endpoints require an authenticated user (any role).
-"""
 
-from __future__ import annotations
+NOTE: this module must NOT use ``from __future__ import annotations``. The two
+``@limiter.limit`` (slowapi) POST endpoints below take params whose FastAPI
+markers live only inside ``Annotated[...]`` (``cv_file`` → ``File()``,
+``current_user`` → ``Depends()``) with no default value. Under PEP 563 the
+slowapi wrapper makes FastAPI evaluate those stringized annotations against
+slowapi's module globals (where ``UploadFile``/``File``/``Depends`` are
+undefined), so the markers are lost and the params get misclassified as required
+*query* params → ``422 {"loc":["query","cv_file"],"msg":"Field required"}`` at
+request time. Real (non-stringized) annotations sidestep it. Same reason as
+``cv_match_preview``.
+"""
 
 import json
 import logging
@@ -392,11 +401,9 @@ async def generate(
 async def generate_from_upload(
     request: Request,
     current_user: CurrentUser,
-    # UploadFile params MUST use the Annotated form here: this module runs under
-    # `from __future__ import annotations` (PEP 563), and the `slowapi` wrapper
-    # makes FastAPI mis-resolve a stringized `UploadFile = File(...)` default as a
-    # response field → FastAPIError at import. Annotated[...] sidesteps it (same
-    # pattern as cv_match_preview).
+    # No `from __future__ import annotations` in this module (see module docstring),
+    # so this multipart marker resolves correctly even under the slowapi
+    # `@limiter.limit` wrapper. Annotated form is the FastAPI-recommended style.
     cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
