@@ -97,6 +97,9 @@ function NewContractForm() {
   const [rateClient, setRateClient] = useState("");
   const [frameworkRate, setFrameworkRate] = useState("");
   const [lineManager, setLineManager] = useState("");
+  // Zużycie zamówienia (ilość + jednostka RBH/MD) — klienci per-zamówienie.
+  const [orderConsumption, setOrderConsumption] = useState("");
+  const [orderConsumptionUnit, setOrderConsumptionUnit] = useState("rbh");
 
   const [error, setError] = useState("");
 
@@ -179,6 +182,8 @@ function NewContractForm() {
         rate_client: rateClient ? Number(rateClient) : null,
         framework_rate: frameworkRate ? Number(frameworkRate) : null,
         line_manager: lineManager.trim() || null,
+        order_consumption: orderConsumption ? Number(orderConsumption) : null,
+        order_consumption_unit: orderConsumption ? orderConsumptionUnit : null,
       };
       return contractsApi.create(payload);
     },
@@ -677,6 +682,36 @@ function NewContractForm() {
                   kontraktu.
                 </p>
               )}
+            </div>
+
+            {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label className="mb-1.5 block">Zużycie zamówienia</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={orderConsumption}
+                  onChange={(e) => setOrderConsumption(e.target.value)}
+                  placeholder="—"
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5 block">Jednostka zużycia</Label>
+                <Select
+                  value={orderConsumptionUnit}
+                  onValueChange={setOrderConsumptionUnit}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rbh">RBH</SelectItem>
+                    <SelectItem value="md">MD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardContent>
         </Card>

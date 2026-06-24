@@ -172,6 +172,8 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "hours_pool_consumed": contract.hours_pool_consumed,
         "hours_pool_remaining": contract.hours_pool_remaining,
         "hours_pool_usage_pct": contract.hours_pool_usage_pct,
+        "order_consumption": contract.order_consumption,
+        "order_consumption_unit": contract.order_consumption_unit,
         "monthly_rate_candidate": contract.monthly_rate_candidate,
         "monthly_rate_client": contract.monthly_rate_client,
         "monthly_margin": contract.monthly_margin,

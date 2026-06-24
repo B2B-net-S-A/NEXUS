@@ -79,6 +79,8 @@ interface ContractDetail {
   team_name: string | null;
   project_name: string | null;
   handover_notes: string | null;
+  order_consumption: number | null;
+  order_consumption_unit: "rbh" | "md" | null;
   termination_reason: ContractTerminationReason | null;
   termination_lessons: string | null;
   terminated_at: string | null;
@@ -309,6 +311,8 @@ interface EditForm {
   team_name: string;
   project_name: string;
   handover_notes: string;
+  order_consumption: string;
+  order_consumption_unit: string;
 }
 
 function contractToForm(c: ContractDetail): EditForm {
@@ -334,6 +338,8 @@ function contractToForm(c: ContractDetail): EditForm {
     team_name: c.team_name ?? "",
     project_name: c.project_name ?? "",
     handover_notes: c.handover_notes ?? "",
+    order_consumption: c.order_consumption?.toString() ?? "",
+    order_consumption_unit: c.order_consumption_unit ?? "rbh",
   };
 }
 
@@ -455,6 +461,12 @@ export default function ContractDetailPage() {
       team_name: form.team_name || null,
       project_name: form.project_name || null,
       handover_notes: form.handover_notes || null,
+      order_consumption: form.order_consumption
+        ? Number(form.order_consumption)
+        : null,
+      order_consumption_unit: form.order_consumption
+        ? form.order_consumption_unit
+        : null,
     };
     updateMutation.mutate(payload);
   };
@@ -1002,6 +1014,44 @@ export default function ContractDetailPage() {
                       />
                     </div>
                   )}
+                </div>
+
+                {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      Zużycie zamówienia
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.order_consumption}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, order_consumption: e.target.value } : f,
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      Jednostka zużycia
+                    </label>
+                    <select
+                      value={form.order_consumption_unit}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, order_consumption_unit: e.target.value } : f,
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    >
+                      <option value="rbh">RBH</option>
+                      <option value="md">MD</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="border-t border-border dark:border-border pt-3">
