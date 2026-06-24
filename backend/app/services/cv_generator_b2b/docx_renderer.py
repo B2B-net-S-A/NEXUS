@@ -1213,7 +1213,8 @@ def render_cv_to_bytes(
     if candidate_data.get("skills"):
         add_section_header(doc, t["skills"])
 
-    for skill_category in candidate_data.get("skills", []):
+    skill_categories = candidate_data.get("skills", [])
+    for cat_idx, skill_category in enumerate(skill_categories):
         para = doc.add_paragraph()
 
         pPr = para._element.get_or_add_pPr()
@@ -1230,8 +1231,11 @@ def render_cv_to_bytes(
         run1.font.color.rgb = COLOR_TEXT
         run1.font.size = Pt(10)
 
+        # Skill categories form one comma-separated list across bullets:
+        # every bullet ends with a comma, only the last closes with a period.
         content = skill_category["content"].rstrip(" ,.")
-        content = content + "."
+        is_last_category = cat_idx == len(skill_categories) - 1
+        content = content + ("." if is_last_category else ",")
         add_text_with_highlights(
             para, content, highlight_keywords, Pt(10), patterns=patterns
         )
