@@ -35,6 +35,7 @@ from sqlalchemy import (
     select,
     text,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -3364,10 +3365,30 @@ async def delete_candidate(
     )
     db.add(activity)
     await db.delete(candidate)
-    # Flush now so FK/integrity errors surface as a failed request (rollback via
-    # get_db) instead of a late commit error. Related rows are removed by DB-level
-    # ON DELETE CASCADE/SET NULL (migration 0141) plus ORM cascades on Candidate.
-    await db.flush()
+    # Flush now so FK/integrity errors surface here (rollback via get_db) instead
+    # of a late commit error. Related rows are removed by DB-level ON DELETE
+    # CASCADE/SET NULL (migrations 0141 + 0146 sweep) plus ORM cascades on
+    # Candidate. Migration 0146 makes the DB authoritative for EVERY candidate
+    # FK; this try/except is defense-in-depth so a future uncovered FK surfaces
+    # as an actionable 409 (which carries CORS headers) rather than an unhandled
+    # 500 — which Starlette emits ABOVE the CORS middleware, so the browser only
+    # sees an opaque "Network Error".
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        logger.warning(
+            "[delete_candidate] FK violation deleting candidate %s: %s",
+            candidate_id,
+            exc.orig,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie można usunąć kandydata — istnieją powiązane dane bez reguły "
+                "kaskadowego usuwania. Zgłoś to administratorowi (brakująca "
+                "kaskada ON DELETE na kluczu obcym do candidates)."
+            ),
+        ) from exc
     # Best-effort: drop the orphaned vector from Qdrant. Never blocks the delete.
     if had_embedding:
         from app.services.embedding_service import delete_candidate_embedding
