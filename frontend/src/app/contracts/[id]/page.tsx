@@ -54,6 +54,13 @@ interface ContractDetail {
   client_order_end_date: string | null;
   rate_candidate: number | null;
   rate_client: number | null;
+  candidate_rate_schedule: {
+    id: number;
+    rate: number;
+    effective_from: string;
+    note: string | null;
+    created_at: string;
+  }[];
   framework_rate: number | null;
   target_rate_min: number | null;
   target_rate_max: number | null;
@@ -880,11 +887,18 @@ export default function ContractDetailPage() {
                       min="0"
                       step="1"
                       value={form.rate_candidate}
+                      disabled={contract.candidate_rate_schedule.length > 0}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_candidate: e.target.value } : f))
                       }
-                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground disabled:opacity-60 disabled:cursor-not-allowed"
                     />
+                    {contract.candidate_rate_schedule.length > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Stawka kandydata ma harmonogram — zmień ją przez aneks
+                        „Zmień stawkę” (z datą wejścia w życie).
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -1170,6 +1184,40 @@ export default function ContractDetailPage() {
                     <span className="text-xs opacity-70">{unitSuffix}</span>
                   </span>
                 </div>
+                {contract.candidate_rate_schedule.length > 1 &&
+                  (() => {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const sorted = [...contract.candidate_rate_schedule].sort(
+                      (a, b) => a.effective_from.localeCompare(b.effective_from),
+                    );
+                    const past = sorted.filter((s) => s.effective_from <= today);
+                    const currentId = (past.length ? past[past.length - 1] : sorted[0]).id;
+                    return (
+                      <div className="pt-1 pl-2 border-l-2 border-border space-y-1">
+                        {sorted.map((s) => (
+                          <div
+                            key={s.id}
+                            className={`flex justify-between text-xs ${
+                              s.id === currentId
+                                ? "text-foreground font-medium"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            <span>
+                              od {formatDate(s.effective_from)}
+                              {s.id === currentId && (
+                                <span className="ml-1 opacity-70">(aktualna)</span>
+                              )}
+                            </span>
+                            <span>
+                              {formatCurrency(s.rate, contract.currency)}
+                              <span className="opacity-70">{unitSuffix}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 <div className="flex justify-between pt-2 border-t border-border dark:border-border">
                   <span className="text-muted-foreground dark:text-muted-foreground flex items-center gap-1">
                     <TrendingUp className="w-3.5 h-3.5" /> Marża

@@ -14,6 +14,27 @@ from app.models.contract import (
 )
 
 
+class ContractCandidateRateInput(BaseModel):
+    """One step in the candidate-rate schedule sent from the create form."""
+
+    rate: int
+    effective_from: date
+    note: Optional[str] = None
+
+
+class ContractCandidateRateEntry(BaseModel):
+    """One step in the candidate-rate schedule returned to the client."""
+
+    id: int
+    rate: int
+    effective_from: date
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ContractCreate(BaseModel):
     candidate_id: int
     client_id: int
@@ -29,6 +50,9 @@ class ContractCreate(BaseModel):
     currency: str = "PLN"
     rate_unit: RateUnit = RateUnit.monthly
     billing_hours_per_month: int = 160
+    # Effective-dated candidate-rate schedule (optional). When provided, drives
+    # the candidate rate over time; `rate_candidate` is derived from it.
+    candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None
     contract_type: ContractType = ContractType.b2b
     status: ContractStatus = ContractStatus.draft
     documents: Optional[Any] = None
@@ -99,6 +123,9 @@ class ContractResponse(BaseModel):
     rate_unit: RateUnit
     billing_hours_per_month: int
     margin: Optional[int]
+    # Effective-dated candidate-rate schedule (oldest → newest). Empty for
+    # contracts created before the schedule feature.
+    candidate_rate_schedule: list[ContractCandidateRateEntry] = []
     contract_type: ContractType
     status: ContractStatus
     documents: Optional[Any]
