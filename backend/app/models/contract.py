@@ -254,6 +254,16 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ContractAmendment.created_at.desc()",
     )
+    # Effective-dated candidate-rate schedule (migracja 0144). Each row is a
+    # step "rate od <effective_from>". The current candidate rate is derived
+    # at read time via `effective_candidate_rate` — no background scheduler.
+    candidate_rate_schedule = relationship(
+        "ContractCandidateRate",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ContractCandidateRate.effective_from",
+    )
     onboarding_items = relationship(
         "ContractOnboardingItem",
         back_populates="contract",
@@ -292,6 +302,24 @@ class Contract(Base, TimestampMixin):
         if self.rate_client is not None and self.rate_candidate is not None:
             return self.rate_client - self.rate_candidate
         return None
+
+    def effective_candidate_rate(self, on: date) -> Optional[int]:
+        """Candidate rate in effect on a given date, from the schedule.
+
+        Latest entry with ``effective_from <= on`` wins. If the schedule has
+        only future-dated entries, the earliest upcoming step is used as the
+        baseline so a fresh contract always has a sensible rate. Falls back to
+        the legacy ``rate_candidate`` column when no schedule exists (existing
+        contracts predate the schedule). Requires ``candidate_rate_schedule`` to
+        be eager-loaded — callers serialize within async sessions.
+        """
+        schedule = list(self.candidate_rate_schedule or [])
+        if not schedule:
+            return self.rate_candidate
+        past = [e for e in schedule if e.effective_from <= on]
+        if past:
+            return max(past, key=lambda e: e.effective_from).rate
+        return min(schedule, key=lambda e: e.effective_from).rate
 
     def monthly_rate(self, rate: Optional[int]) -> Optional[int]:
         """Normalize a stored rate to a monthly amount using rate_unit + billing_hours."""
