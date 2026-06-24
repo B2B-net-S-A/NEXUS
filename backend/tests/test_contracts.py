@@ -321,3 +321,59 @@ async def test_contract_register_fields_round_trip(
 
     # Clean up
     await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+
+async def test_contract_order_consumption_round_trip(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Zużycie zamówienia (migracja 0144): ilość + jednostka RBH/MD round-trip
+    przez create (formularz "Nowy kontrakt") + zmiana jednostki przez PATCH."""
+    cands = (
+        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    clients = (
+        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
+    ).json().get("items", [])
+    if not cands or not clients:
+        return
+    payload = {
+        "candidate_id": cands[0]["id"],
+        "client_id": clients[0]["id"],
+        "start_date": "2026-04-17",
+        "contract_type": "b2b",
+        "status": "draft",
+        # Fractional MD proves NUMERIC(10,2) (nie INTEGER jak hours_pool).
+        "order_consumption": 21.5,
+        "order_consumption_unit": "md",
+    }
+    resp = await app_client.post(
+        "/api/contracts", json=payload, headers=app_auth_headers
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    cid = body["id"]
+    assert body["order_consumption"] == 21.5
+    assert body["order_consumption_unit"] == "md"
+
+    # Inline edit — przeliczenie MD → RBH przez PATCH.
+    patched = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"order_consumption": 172, "order_consumption_unit": "rbh"},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["order_consumption"] == 172
+    assert patched.json()["order_consumption_unit"] == "rbh"
+
+    # Brak wartości = oba null (spójność: nie zostawiamy sierocej jednostki).
+    cleared = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"order_consumption": None, "order_consumption_unit": None},
+        headers=app_auth_headers,
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["order_consumption"] is None
+    assert cleared.json()["order_consumption_unit"] is None
+
+    # Clean up
+    await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)

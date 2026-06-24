@@ -1,8 +1,19 @@
 import enum
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text, event
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    event,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +69,17 @@ class EngagementModel(str, enum.Enum):
 
     time_based = "time_based"
     hours_pool = "hours_pool"
+
+
+class OrderConsumptionUnit(str, enum.Enum):
+    """Jednostka zużycia zamówienia — RBH (roboczogodziny) lub MD (mandays).
+
+    Klienci rozliczający się per-zamówienie (np. BNP, BIK, Polkomtel, Bosch)
+    raportują zużycie zamówienia w roboczogodzinach lub w osobodniach.
+    """
+
+    rbh = "rbh"  # roboczogodziny (man-hours)
+    md = "md"  # mandays / osobodni (man-days)
 
 
 class ContractTerminationReason(str, enum.Enum):
@@ -202,6 +224,18 @@ class Contract(Base, TimestampMixin):
     hours_pool_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     hours_pool_consumed: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, server_default="0"
+    )
+
+    # ── Zużycie zamówienia (migracja 0144) ────────────────────────────────
+    # Ilość zużyta z zamówienia klienta wraz z jednostką: RBH (roboczogodziny)
+    # lub MD (osobodni). Wymagane przez klientów rozliczających się per-
+    # zamówienie (BNP, BIK, Polkomtel, Bosch). Oba pola nullable — wypełniane
+    # razem (ilość + jednostka) z formularza "Nowy kontrakt".
+    order_consumption: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    order_consumption_unit: Mapped[Optional[OrderConsumptionUnit]] = mapped_column(
+        Enum(OrderConsumptionUnit, name="orderconsumptionunit"), nullable=True
     )
 
     # ── Editable draft body (migracja 0058) ──────────────────────────────

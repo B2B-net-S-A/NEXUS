@@ -9,6 +9,7 @@ from app.models.contract import (
     ContractType,
     ContractWorkMode,
     EngagementModel,
+    OrderConsumptionUnit,
     ProlongationStatus,
     RateUnit,
 )
@@ -70,6 +71,9 @@ class ContractCreate(BaseModel):
     engagement_model: EngagementModel = EngagementModel.time_based
     hours_pool_total: Optional[int] = None
     hours_pool_consumed: Optional[int] = None
+    # Zużycie zamówienia (migracja 0144) — ilość + jednostka RBH/MD.
+    order_consumption: Optional[float] = None
+    order_consumption_unit: Optional[OrderConsumptionUnit] = None
 
 
 class ContractUpdate(BaseModel):
@@ -104,6 +108,9 @@ class ContractUpdate(BaseModel):
     engagement_model: Optional[EngagementModel] = None
     hours_pool_total: Optional[int] = None
     hours_pool_consumed: Optional[int] = None
+    # Zużycie zamówienia (migracja 0144) — opcjonalne dla PATCH.
+    order_consumption: Optional[float] = None
+    order_consumption_unit: Optional[OrderConsumptionUnit] = None
 
 
 class ContractResponse(BaseModel):
@@ -146,6 +153,9 @@ class ContractResponse(BaseModel):
     engagement_model: EngagementModel = EngagementModel.time_based
     hours_pool_total: Optional[int] = None
     hours_pool_consumed: Optional[int] = None
+    # Zużycie zamówienia (migracja 0144) — ilość + jednostka RBH/MD.
+    order_consumption: Optional[float] = None
+    order_consumption_unit: Optional[OrderConsumptionUnit] = None
     # Computed (model properties) — pozostałe godziny i % zużycia puli.
     hours_pool_remaining: Optional[int] = None
     hours_pool_usage_pct: Optional[float] = None
