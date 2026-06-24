@@ -16,10 +16,10 @@ Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures from conftest
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 
 async def _seed_candidate() -> int:
@@ -132,6 +132,105 @@ async def test_delete_candidate_hard_deletes_with_related_rows(
         f"/api/candidates/{candidate_id}", headers=app_auth_headers
     )
     assert r3.status_code == 404
+
+
+async def test_every_candidate_fk_has_on_delete_rule():
+    """Schema invariant (the real guard for the prod bug): EVERY foreign key
+    referencing ``candidates.id`` must declare an ``ON DELETE`` rule (CASCADE or
+    SET NULL).
+
+    A FK left at NO ACTION/RESTRICT blocks the hard delete with an
+    ``IntegrityError`` → unhandled 500 → Starlette emits it ABOVE the CORS
+    middleware → the browser sees only an opaque "Network Error". Migration
+    ``0146`` makes the DB authoritative for every candidate FK; this test fails
+    if that migration is reverted or a new uncascaded FK is introduced.
+
+    Postgres-specific: ``pg_constraint.confdeltype`` —
+    a=NO ACTION, r=RESTRICT, c=CASCADE, n=SET NULL, d=SET DEFAULT.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    sql = text(
+        """
+        SELECT rel.relname AS table_name,
+               att.attname AS column_name,
+               con.confdeltype::text AS on_delete
+        FROM pg_constraint con
+        JOIN pg_class rel ON rel.oid = con.conrelid
+        JOIN pg_class frel ON frel.oid = con.confrelid
+        JOIN pg_attribute att
+          ON att.attrelid = con.conrelid AND att.attnum = ANY(con.conkey)
+        WHERE con.contype = 'f' AND frel.relname = 'candidates'
+        ORDER BY 1, 2
+        """
+    )
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(sql)).all()
+
+    assert rows, "expected at least one FK referencing candidates"
+    offenders = [(t, c, d) for (t, c, d) in rows if d not in ("c", "n")]
+    assert not offenders, (
+        "FK(s) to candidates without ON DELETE CASCADE/SET NULL — these block "
+        f"hard delete and surface as a browser 'Network Error': {offenders}"
+    )
+
+
+async def test_delete_candidate_cascades_membership_and_unlinks_calendar(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """End-to-end: a candidate with a talent-pool membership (the confirmed
+    prod culprit — that table has NO ORM relationship on ``Candidate``, so it
+    relies SOLELY on the DB-level ON DELETE rule) plus a calendar event.
+
+    Delete must 204; the membership is gone (CASCADE), the calendar event
+    survives but is unlinked (SET NULL).
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent
+    from app.models.candidate import Candidate
+    from app.models.talent_pool import TalentPool, TalentPoolMembership
+
+    candidate_id = await _seed_candidate()
+    async with AsyncSessionLocal() as db:
+        pool = TalentPool(name=f"DelPool-{uuid.uuid4().hex[:6]}")
+        db.add(pool)
+        await db.commit()
+        await db.refresh(pool)
+        pool_id = pool.id
+        db.add(
+            TalentPoolMembership(talent_pool_id=pool_id, candidate_id=candidate_id)
+        )
+        ev = CalendarEvent(
+            title="survives the candidate delete",
+            start_time=datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc),
+            candidate_id=candidate_id,
+        )
+        db.add(ev)
+        await db.commit()
+        await db.refresh(ev)
+        event_id = ev.id
+
+    assert await _count(TalentPoolMembership, candidate_id=candidate_id) == 1
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 204, r.text
+
+    assert await _count(Candidate, id=candidate_id) == 0
+    # CASCADE — membership row removed with the candidate.
+    assert await _count(TalentPoolMembership, candidate_id=candidate_id) == 0
+    # SET NULL — calendar event survives, just unlinked.
+    assert await _count(CalendarEvent, id=event_id) == 1
+    async with AsyncSessionLocal() as db:
+        ev2 = await db.get(CalendarEvent, event_id)
+        assert ev2 is not None and ev2.candidate_id is None
+        # cleanup
+        await db.delete(ev2)
+        pool = await db.get(TalentPool, pool_id)
+        if pool is not None:
+            await db.delete(pool)
+        await db.commit()
 
 
 async def test_delete_candidate_forbidden_for_recruiter(app_client: AsyncClient):

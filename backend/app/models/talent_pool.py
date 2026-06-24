@@ -13,7 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -137,7 +137,15 @@ class TalentPoolMembership(Base):
 
     # Relationships
     pool = relationship("TalentPool", back_populates="memberships")
-    candidate = relationship("Candidate", backref="pool_memberships")
+    # passive_deletes=True: the backref makes ``Candidate.pool_memberships`` a
+    # one-to-many whose default on parent-delete is to NULL this row's
+    # ``candidate_id`` — but it's NOT NULL, so that raises a NotNullViolation
+    # (the real cause of "Network Error" on hard-deleting a candidate that
+    # belongs to a pool). Defer to the DB-level ON DELETE CASCADE (migration
+    # 0146) instead of letting the ORM touch these rows.
+    candidate = relationship(
+        "Candidate", backref=backref("pool_memberships", passive_deletes=True)
+    )
     added_by_user = relationship("User", foreign_keys=[added_by])
     source_job = relationship("Job", foreign_keys=[source_job_id])
 
