@@ -21,7 +21,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
   "first_name": "Imię",
   "position": "Główne stanowisko/tytuł zawodowy (np. 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-4 zwięzłe punkty marketingowe (każdy 1-2 linijki) według schematu:",
+    "3-4 punkty — każdy to JEDNA krótka linijka z jednym konkretem, bez lania wody. Według schematu:",
     "1. [X] lat doświadczenia jako [Stanowisko], w tym [Y] lat w [Największa firma]",
     "2. Specjalizacja w technologiach: [Top 4-5 technologii]",
     "3. Praktyczne doświadczenie w [kluczowy projekt/osiągnięcie]",
@@ -79,7 +79,13 @@ ZASADY DLA WHY_POINTS:
 - NIGDY nie używaj edukacji/studiów jako argumentu w why_points
 - Skup się TYLKO na: doświadczeniu zawodowym, technologiach, projektach, osiągnięciach, certyfikatach
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
-- ZWIĘZŁOŚĆ: sekcja "Dlaczego nasz kandydat" ma być krótka i konkretna — każdy punkt to jedna–dwie linijki, bez przydługich wyliczeń ani powtórzeń tej samej myśli w kilku punktach
+- ZWIĘZŁOŚĆ (KRYTYCZNE): sekcja "Dlaczego nasz kandydat" to samo MIĘSO — konkrety, zero marketingowego lania wody. Twarde reguły:
+  • Maksymalnie 3-5 punktów ŁĄCZNIE — wliczając punkt must-have i punkt z notatek (to NIE są punkty "dodatkowe" ponad limit). Domyślnie celuj w 3-4.
+  • Każdy punkt = JEDNA krótka linijka, jeden konkretny fakt, do ~18 słów. NIGDY "1-2 linijki", nigdy wielozdaniowe wyliczenia.
+  • Każdy punkt zaczyna od konkretu (liczba lat, technologia, skala, realne osiągnięcie) — nie od ogólnika ani przymiotnika.
+  • ZAKAZ frazesów i pustych przymiotników: "doświadczony i zaangażowany", "bogate/szerokie doświadczenie", "wszechstronny/dynamiczny specjalista", "pasjonat", "udokumentowane sukcesy" — jeśli słowo nie niesie konkretnego faktu, usuń je.
+  • Żadnych dwóch punktów o tej samej myśli — każdy wnosi NOWĄ informację.
+  • PRZYKŁAD — ŹLE: „Doświadczony i zaangażowany specjalista z bogatym doświadczeniem w realizacji wielu projektów IT"; DOBRZE: „8 lat jako Backend Developer, w tym 3 lata w fintechu".
 - LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (od najwcześniejszego startu do ostatniej daty / "obecnie"), zaokrąglij do pełnego roku i NIE zaniżaj — podaj konkretną liczbę ("5 lat"), NIGDY "ponad 4" gdy realnie jest ~5
 
 KWANTYFIKACJA I ZWIĘZŁOŚĆ:
@@ -107,7 +113,7 @@ Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTAT
 - Dodaj wszystkie wymienione technologie/narzędzia do sekcji SKILLS (w odpowiednich kategoriach)
 - Wzbogać WHY_POINTS o nowe informacje, osiągnięcia i kompetencje wspomniane podczas screeningu
 - Uzupełnij sekcje EXPERIENCE o szczegóły techniczne i kontekst z notatek
-- Wykorzystaj treść "Notatki" jako inspirację do dodatkowego punktu w why_points
+- Wykorzystaj treść "Notatki" jako inspirację do punktu w why_points — mieszcząc się w limicie 3-5 punktów, NIE dokładaj punktu ponad limit
 - Jeśli kandydat wspomniał o technologiach/projektach niewidocznych w CV, DODAJ je do odpowiednich sekcji
 - Traktuj informacje ze screeningu jako równie ważne jak te z CV
 
@@ -233,7 +239,7 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
   "first_name": "First name",
   "position": "Main position/job title (e.g., 'Java Developer', 'Senior DevOps Engineer')",
   "why_points": [
-    "3-4 concise marketing points (1-2 lines each) according to the following scheme:",
+    "3-4 points — each is ONE short line with a single concrete fact, no filler. Per the scheme:",
     "1. [X] years of experience as [Position], including [Y] years at [Biggest company]",
     "2. Specialization in technologies: [Top 4-5 technologies]",
     "3. Practical experience in [key project/achievement]",
@@ -291,7 +297,13 @@ RULES FOR WHY_POINTS:
 - NEVER use education/studies as an argument in why_points
 - Focus ONLY on: work experience, technologies, projects, achievements, certifications
 - Education is in a separate section and should not be repeated in why_points
-- CONCISENESS: the "Why our candidate" section must be short and to the point — each point is one or two lines, no overlong enumerations and no repeating the same idea across several points
+- CONCISENESS (CRITICAL): the "Why our candidate" section is pure SUBSTANCE — specifics, zero marketing filler. Hard rules:
+  • At most 3-5 points IN TOTAL — including the must-have point and the notes point (these are NOT "extra" points beyond the limit). Default to aiming for 3-4.
+  • Each point = ONE short line, one concrete fact, up to ~18 words. NEVER "1-2 lines", never multi-clause enumerations.
+  • Each point opens with the fact (years, technology, scale, real achievement) — not with a generality or an adjective.
+  • NO clichés or empty adjectives: "experienced and committed", "rich/broad experience", "versatile/dynamic specialist", "passionate", "proven track record" — if a word carries no concrete fact, delete it.
+  • No two points about the same idea — every point adds NEW information.
+  • EXAMPLE — BAD: "An experienced and committed specialist with rich experience delivering many IT projects"; GOOD: "8 years as a Backend Developer, including 3 years in fintech".
 - YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (earliest start to the latest date / "present"), round to a whole year and do NOT undercount — give a concrete number ("5 years"), NEVER "over 4" when it is really ~5
 
 QUANTIFICATION AND CONCISENESS:
@@ -319,7 +331,7 @@ If screening notes are provided in the context (marked as "SCREENING NOTES"), yo
 - Add all mentioned technologies/tools to the SKILLS section (in appropriate categories)
 - Enrich WHY_POINTS with new information, achievements and competencies mentioned during screening
 - Supplement EXPERIENCE sections with technical details and context from notes
-- Use the "Note" content as inspiration for an additional why_point
+- Use the "Note" content as inspiration for a why_point — staying within the 3-5 point limit, do NOT add a point beyond the limit
 - If candidate mentioned technologies/projects not visible in CV, ADD them to appropriate sections
 - Treat screening information as equally important as CV information
 
