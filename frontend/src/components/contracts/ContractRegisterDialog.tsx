@@ -7,6 +7,7 @@ import api, { contractsApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogBody,
@@ -84,7 +85,8 @@ export function ContractRegisterDialog({
   const queryClient = useQueryClient();
 
   // Etykieta pola „Numer projektu" zależy od nomenklatury klienta:
-  // BNP → „Numer zamówienia", PFRON → „Numer zlecenia". Dopasowanie po nazwie,
+  // BNP → „Numer zamówienia", PFRON → „Numer zlecenia",
+  // Centrum e-Zdrowia → „Numer umowy". Dopasowanie po nazwie,
   // spójne z detekcją w B2BContractGeneratorV2 (hasSpecialClauses).
   const clientNameLower = (clientName ?? "").toLowerCase();
   const projectCodeLabel = clientNameLower.includes("bnp")
@@ -92,7 +94,9 @@ export function ContractRegisterDialog({
     : clientNameLower.includes("pfron") ||
         clientNameLower.includes("rehabilitacji osób niepełnosprawnych")
       ? "Numer zlecenia"
-      : "Numer projektu";
+      : clientNameLower.includes("e-zdrow") || clientNameLower.includes("ezdrow")
+        ? "Numer umowy"
+        : "Numer projektu";
 
   // ── Form state ──────────────────────────────────────────────────────────
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
@@ -105,6 +109,9 @@ export function ContractRegisterDialog({
     useState<EngagementModel>("time_based");
   const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState("");
+  // „Czas nieokreślony" — jawny odpowiednik pustego `end_date` (rejestr renderuje
+  // brak daty końca jako „bezterminowo"). Zaznaczone ⇔ end_date wysłany jako null.
+  const [indefiniteEnd, setIndefiniteEnd] = useState(false);
   const [hoursTotal, setHoursTotal] = useState("");
   const [hoursConsumed, setHoursConsumed] = useState("");
   const [prolongation, setProlongation] =
@@ -122,7 +129,9 @@ export function ContractRegisterDialog({
       setProjectName(contract.project_name ?? "");
       setEngagementModel(contract.engagement_model ?? "time_based");
       setStartDate(contract.start_date?.slice(0, 10) ?? todayISO());
-      setEndDate(contract.end_date?.slice(0, 10) ?? "");
+      const ed = contract.end_date?.slice(0, 10) ?? "";
+      setEndDate(ed);
+      setIndefiniteEnd(!ed); // brak daty końca = bezterminowo (czas nieokreślony)
       setHoursTotal(
         contract.hours_pool_total != null ? String(contract.hours_pool_total) : "",
       );
@@ -141,6 +150,7 @@ export function ContractRegisterDialog({
       setEngagementModel("time_based");
       setStartDate(todayISO());
       setEndDate("");
+      setIndefiniteEnd(false);
       setHoursTotal("");
       setHoursConsumed("");
       setProlongation("unknown");
@@ -167,7 +177,7 @@ export function ContractRegisterDialog({
         project_name: projectName.trim() || null,
         engagement_model: engagementModel,
         start_date: startDate,
-        end_date: endDate || null,
+        end_date: indefiniteEnd ? null : endDate || null,
         hours_pool_total: isPool && hoursTotal ? Number(hoursTotal) : null,
         hours_pool_consumed: isPool && hoursConsumed ? Number(hoursConsumed) : null,
         prolongation_status: prolongation,
@@ -380,9 +390,22 @@ export function ContractRegisterDialog({
                 <Label className="mb-1.5 block">Data zakończenia</Label>
                 <Input
                   type="date"
-                  value={endDate}
+                  value={indefiniteEnd ? "" : endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  disabled={indefiniteEnd}
                 />
+                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                  <Checkbox
+                    checked={indefiniteEnd}
+                    onCheckedChange={(v) => {
+                      const checked = v === true;
+                      setIndefiniteEnd(checked);
+                      if (checked) setEndDate("");
+                    }}
+                    aria-label="Czas nieokreślony"
+                  />
+                  Czas nieokreślony
+                </label>
               </div>
             </div>
 
