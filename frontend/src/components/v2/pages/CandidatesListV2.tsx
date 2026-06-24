@@ -51,6 +51,11 @@ import { ImportCandidatesV2 } from"@/components/v2/modals/ImportCandidatesV2";
 import { AddCandidateFromCVModal } from"@/components/v2/modals/AddCandidateFromCVModal";
 import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
 import { GenerateInviteLinkV2 } from"@/components/v2/modals/GenerateInviteLinkV2";
+import {
+  FilePreviewModal,
+  downloadDocumentBlob,
+  type CandidateDocument,
+} from "@/components/v2/files/FilePreviewModal";
 import { CandidateDetailV2 } from"@/components/v2/pages/CandidateDetailV2";
 import { MatchSnippet } from"@/components/v2/MatchSnippet";
 import {
@@ -527,83 +532,80 @@ const HARD_DEFAULT_COLUMNS: ColumnId[] = [
  "created",
 ];
 
-/** Otwiera CV w nowej karcie z auth-blob (Bearer JWT). Pipeline:
- *    1) GET /api/candidates/{id}/documents  → znajdź primary doc.
- *    2) GET /documents/{doc_id}/content?disposition=inline → backend
- *       proxy-streamuje bytes z Object Storage (Hetzner) lub BYTEA.
- *  Stary endpoint `/cv-download` jest broken dla rows zmigrowanych do
- *  Object Storage (2026-05-07) — szukał w lokalnym UPLOAD_DIR. Tutaj
- *  użyty endpoint ma już proxy-mode (patrz PlikiTab.fetchBlob, ta sama
- *  notatka o axios+responseType:blob cancelled cross-origin). */
+/** Otwiera CV w podglądzie in-app (modal): PDF → natywny viewer w <iframe>,
+ *  DOCX → render przez `docx-preview`. Wcześniej robiliśmy `window.open(blob)`,
+ *  co dla DOCX wymuszało DOWNLOAD (przeglądarka nie ma natywnego viewera Worda)
+ *  — to był zgłoszony bug „przycisk CV pobiera CV zamiast go otwierać". Pipeline:
+ *    1) GET /api/candidates/{id}/documents → znajdź primary doc.
+ *    2) <FilePreviewModal> sam streamuje content (?disposition=inline) i renderuje.
+ *  Modal współdzielony z `CandidateDetailV2` (PlikiTab) — components/v2/files. */
 function CandidateCvCell({ candidate }: { candidate: Candidate }) {
- const [opening, setOpening] = useState(false);
- if (!candidate.cv_filename) {
- return <span className="text-xs text-muted-foreground" aria-label="Brak CV">—</span>;
- }
- const openCv = async (e: React.MouseEvent) => {
- e.stopPropagation();
- if (opening) return;
- setOpening(true);
- try {
- const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
- const token =
- typeof window !== "undefined"
- ? localStorage.getItem("access_token")
- : null;
- const authHeaders: HeadersInit = token
- ? { Authorization: `Bearer ${token}` }
- : {};
-
- const docsRes = await fetch(
- `${apiBase}/api/candidates/${candidate.id}/documents`,
- { headers: authHeaders },
- );
- if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
- const docs: Array<{
- id: number;
- is_primary?: boolean;
- content_type?: string | null;
- }> = await docsRes.json();
- const primary = docs.find((d) => d.is_primary) ?? docs[0];
- if (!primary) throw new Error("no document");
-
- const fileRes = await fetch(
- `${apiBase}/api/candidates/${candidate.id}/documents/${primary.id}/content?disposition=inline`,
- { headers: authHeaders },
- );
- if (!fileRes.ok) throw new Error(`content HTTP ${fileRes.status}`);
- const blob = await fileRes.blob();
- const ct =
- primary.content_type ||
- fileRes.headers.get("content-type") ||
- "application/pdf";
- const typed = new Blob([blob], { type: ct });
- const url = URL.createObjectURL(typed);
- window.open(url, "_blank", "noopener,noreferrer");
- setTimeout(() => URL.revokeObjectURL(url), 60_000);
- } catch {
- // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
- } finally {
- setOpening(false);
- }
- };
- return (
- <button
- type="button"
- onClick={openCv}
- disabled={opening}
- title="Otwórz CV w nowej karcie"
- aria-label="Otwórz CV kandydata w nowej karcie"
- className="inline-flex h-7 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-0 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 disabled:opacity-50"
- >
- {opening ? (
- <Loader2 className="h-3 w-3 animate-spin" />
- ) : (
- <FileText className="h-3 w-3" />
- )}
- <span>CV</span>
- </button>
- );
+  const [loading, setLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
+  if (!candidate.cv_filename) {
+    return (
+      <span className="text-xs text-muted-foreground" aria-label="Brak CV">
+        —
+      </span>
+    );
+  }
+  const openCv = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loading) return;
+    setLoading(true);
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("access_token")
+          : null;
+      const authHeaders: HeadersInit = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+      const docsRes = await fetch(
+        `${apiBase}/api/candidates/${candidate.id}/documents`,
+        { headers: authHeaders },
+      );
+      if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
+      const docs: CandidateDocument[] = await docsRes.json();
+      const primary = docs.find((d) => d.is_primary) ?? docs[0];
+      if (!primary) throw new Error("no document");
+      setPreviewDoc(primary);
+    } catch {
+      // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openCv}
+        disabled={loading}
+        title="Otwórz CV w podglądzie"
+        aria-label="Otwórz podgląd CV kandydata"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-2 py-0 text-xs font-medium text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 disabled:opacity-50"
+      >
+        {loading ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <FileText className="h-3 w-3" />
+        )}
+        <span>CV</span>
+      </button>
+      {previewDoc && (
+        <FilePreviewModal
+          doc={previewDoc}
+          candidateId={candidate.id}
+          onClose={() => setPreviewDoc(null)}
+          onDownload={(d) =>
+            downloadDocumentBlob(candidate.id, d).catch(() => {})
+          }
+        />
+      )}
+    </>
+  );
 }
 
 /** Pokazuje liczbę aktywnych rekrutacji (nie-terminalnych stages) z popoverem
