@@ -472,8 +472,7 @@ async def expiring_contracts(
         ContractResponse.model_validate(
             {
                 **{
-                    k: getattr(c, k, None)
-                    for k in ContractResponse.model_fields.keys()
+                    k: getattr(c, k, None) for k in ContractResponse.model_fields.keys()
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
                 **_effective_candidate_fields(c, today),

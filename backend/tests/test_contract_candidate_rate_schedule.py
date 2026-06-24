@@ -69,9 +69,7 @@ async def test_expiring_serializes_schedule_field(
 ):
     """/expiring returns ContractResponse incl. the schedule field — must not
     trip an async lazy-load on candidate_rate_schedule."""
-    resp = await app_client.get(
-        "/api/contracts/expiring", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/contracts/expiring", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     for item in resp.json():
         assert "candidate_rate_schedule" in item
@@ -116,9 +114,7 @@ async def test_create_with_schedule_derives_current_rate(
 
         # GET detail returns the same derived view.
         detail = (
-            await app_client.get(
-                f"/api/contracts/{cid}", headers=app_auth_headers
-            )
+            await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
         ).json()
         assert detail["rate_candidate"] == 100
         assert len(detail["candidate_rate_schedule"]) == 2
@@ -135,14 +131,10 @@ async def test_create_with_schedule_derives_current_rate(
         )
         assert amend.status_code == 201, amend.text
         after = (
-            await app_client.get(
-                f"/api/contracts/{cid}", headers=app_auth_headers
-            )
+            await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
         ).json()
         assert len(after["candidate_rate_schedule"]) == 3
         # Still 100 today — the new step is future-dated.
         assert after["rate_candidate"] == 100
     finally:
-        await app_client.delete(
-            f"/api/contracts/{cid}", headers=app_auth_headers
-        )
+        await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
