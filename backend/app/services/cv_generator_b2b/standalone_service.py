@@ -248,6 +248,31 @@ def _supported_cv_doc_filter() -> Any:
 # ── Claude response normalization ─────────────────────────────────────────
 
 
+# Claude picks up the prompt's typographic en-dashes (date examples like
+# "MM.YYYY – MM.YYYY") and sprinkles em/en dashes across the generated CV.
+# Recruiters want plain ASCII hyphens, so fold every dash variant down to "-".
+_DASH_TRANS = {
+    ord("‐"): "-",  # hyphen
+    ord("‑"): "-",  # non-breaking hyphen
+    ord("‒"): "-",  # figure dash
+    ord("–"): "-",  # en dash
+    ord("—"): "-",  # em dash
+    ord("―"): "-",  # horizontal bar
+    ord("−"): "-",  # minus sign
+}
+
+
+def _normalize_dashes(value: Any) -> Any:
+    """Recursively replace typographic dashes with plain hyphens in strings."""
+    if isinstance(value, str):
+        return value.translate(_DASH_TRANS)
+    if isinstance(value, list):
+        return [_normalize_dashes(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _normalize_dashes(v) for k, v in value.items()}
+    return value
+
+
 def _str_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -323,7 +348,7 @@ def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str,
     ]
 
     out["warnings"] = _str_list(data.get("warnings"))
-    return out
+    return _normalize_dashes(out)
 
 
 # ── Per-role technology cap ────────────────────────────────────────────────
