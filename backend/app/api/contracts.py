@@ -25,6 +25,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.call import Call
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -198,6 +199,13 @@ async def list_contracts(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    q: Optional[str] = Query(
+        None,
+        description=(
+            "Free-text search — case-insensitive substring match across "
+            "candidate name + lastname, client name and job title."
+        ),
+    ),
     status: Optional[list[ContractStatus]] = Query(
         None,
         description=(
@@ -230,6 +238,27 @@ async def list_contracts(
         selectinload(Contract.job),
         selectinload(Contract.candidate_rate_schedule),
     )
+    if q and q.strip():
+        # Free-text search across the joined candidate/client/job. ILIKE is
+        # case-insensitive and Unicode-aware, so "grądzki" matches "Grądzki".
+        # Job is outer-joined (job_id is nullable) so contracts without a job
+        # still match on candidate/client. These relationships are many-to-one,
+        # so the joins never multiply rows — no DISTINCT needed.
+        pattern = f"%{q.strip()}%"
+        query = (
+            query.join(Contract.candidate)
+            .join(Contract.client)
+            .outerjoin(Contract.job)
+            .where(
+                or_(
+                    Candidate.name.ilike(pattern),
+                    Candidate.lastname.ilike(pattern),
+                    func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
+                    Client.name.ilike(pattern),
+                    Job.title.ilike(pattern),
+                )
+            )
+        )
     if status:
         query = query.where(Contract.status.in_(status))
     if client_id:
