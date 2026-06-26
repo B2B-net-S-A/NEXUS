@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export interface CandidateDocument {
   id: number;
@@ -104,19 +105,20 @@ export async function downloadDocumentBlob(
   URL.revokeObjectURL(url);
 }
 
-// Podgląd pliku in-app. Modal: PDF → natywny viewer w <iframe>; DOCX →
-// `docx-preview` (lazy import); obraz → <img>; reszta → fallback z przyciskiem
-// pobierania. Wszystko same-origin (blob z proxy-streamu backendu).
-export function FilePreviewModal({
+// Body podglądu (bez chromu dialogu): pobiera i renderuje PDF/DOCX/obraz z
+// fallbackami loading/error/unsupported. Współdzielone przez `FilePreviewModal`
+// (w dialogu) i podglądy inline (np. widok CV w pipelinie). Wypełnia rodzica —
+// osadź w kontenerze z wysokością (flex-child z min-h-0 albo box o stałej h).
+export function FilePreviewContent({
   doc,
   candidateId,
-  onClose,
   onDownload,
+  className,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
-  onClose: () => void;
   onDownload: (doc: CandidateDocument) => void;
+  className?: string;
 }) {
   const docxHostRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -127,7 +129,7 @@ export function FilePreviewModal({
 
   const kind = doc ? previewKind(doc) : "unsupported";
 
-  // Pobranie contentu po otwarciu modalu (zmiana doc.id).
+  // Pobranie contentu po zmianie doc.id.
   useEffect(() => {
     if (!doc) return;
     let cancelled = false;
@@ -202,6 +204,95 @@ export function FilePreviewModal({
     };
   }, [kind, docxBlob]);
 
+  if (!doc) return null;
+
+  return (
+    <div className={cn("relative overflow-auto bg-muted/40", className)}>
+      {status === "loading" && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Ładowanie podglądu…
+          </span>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <AlertTriangle className="h-8 w-8 text-[hsl(var(--accent-error))]" />
+          <p className="text-sm text-muted-foreground">
+            Nie udało się wyświetlić podglądu tego pliku.
+          </p>
+          <button
+            type="button"
+            onClick={() => onDownload(doc)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
+          >
+            <Download className="h-4 w-4" />
+            Pobierz plik
+          </button>
+        </div>
+      )}
+
+      {kind === "pdf" && blobUrl && (
+        <iframe
+          src={blobUrl}
+          title={doc.filename ?? "PDF"}
+          className="h-full w-full border-0"
+        />
+      )}
+
+      {kind === "image" && blobUrl && (
+        <div className="flex h-full w-full items-center justify-center p-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={blobUrl}
+            alt={doc.filename ?? "Podgląd"}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+      )}
+
+      {kind === "docx" && (
+        <div ref={docxHostRef} className="docx-preview-host w-full" />
+      )}
+
+      {kind === "unsupported" && status !== "loading" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <FileText className="h-8 w-8 text-muted-foreground" />
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Podgląd nie jest dostępny dla tego formatu
+            {doc.content_type ? ` (${doc.content_type})` : ""}. Pobierz plik, aby
+            go otworzyć.
+          </p>
+          <button
+            type="button"
+            onClick={() => onDownload(doc)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
+          >
+            <Download className="h-4 w-4" />
+            Pobierz plik
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Podgląd pliku in-app (modal). PDF → natywny viewer w <iframe>; DOCX →
+// `docx-preview` (lazy import); obraz → <img>; reszta → fallback z pobraniem.
+// Body wydzielone do `FilePreviewContent`, by ten sam podgląd działał inline.
+export function FilePreviewModal({
+  doc,
+  candidateId,
+  onClose,
+  onDownload,
+}: {
+  doc: CandidateDocument | null;
+  candidateId: number;
+  onClose: () => void;
+  onDownload: (doc: CandidateDocument) => void;
+}) {
   return (
     <Dialog open={!!doc} onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="full" className="h-[92vh] p-0 gap-0" hideClose>
@@ -232,75 +323,12 @@ export function FilePreviewModal({
           </div>
         </DialogHeader>
 
-        <div className="relative flex-1 min-h-0 overflow-auto bg-muted/40">
-          {status === "loading" && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Ładowanie podglądu…
-              </span>
-            </div>
-          )}
-
-          {status === "error" && doc && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <AlertTriangle className="h-8 w-8 text-[hsl(var(--accent-error))]" />
-              <p className="text-sm text-muted-foreground">
-                Nie udało się wyświetlić podglądu tego pliku.
-              </p>
-              <button
-                type="button"
-                onClick={() => onDownload(doc)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
-              >
-                <Download className="h-4 w-4" />
-                Pobierz plik
-              </button>
-            </div>
-          )}
-
-          {kind === "pdf" && blobUrl && (
-            <iframe
-              src={blobUrl}
-              title={doc?.filename ?? "PDF"}
-              className="h-full w-full border-0"
-            />
-          )}
-
-          {kind === "image" && blobUrl && (
-            <div className="flex h-full w-full items-center justify-center p-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={blobUrl}
-                alt={doc?.filename ?? "Podgląd"}
-                className="max-h-full max-w-full object-contain"
-              />
-            </div>
-          )}
-
-          {kind === "docx" && (
-            <div ref={docxHostRef} className="docx-preview-host w-full" />
-          )}
-
-          {kind === "unsupported" && doc && status !== "loading" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <FileText className="h-8 w-8 text-muted-foreground" />
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Podgląd nie jest dostępny dla tego formatu
-                {doc.content_type ? ` (${doc.content_type})` : ""}. Pobierz plik,
-                aby go otworzyć.
-              </p>
-              <button
-                type="button"
-                onClick={() => onDownload(doc)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm hover:bg-background/60"
-              >
-                <Download className="h-4 w-4" />
-                Pobierz plik
-              </button>
-            </div>
-          )}
-        </div>
+        <FilePreviewContent
+          doc={doc}
+          candidateId={candidateId}
+          onDownload={onDownload}
+          className="flex-1 min-h-0"
+        />
       </DialogContent>
     </Dialog>
   );
