@@ -111,6 +111,7 @@ import { CVBrandedEditModal } from"@/components/v2/modals/CVBrandedEditModal";
 import { CVShareLinkModal } from"@/components/v2/modals/CVShareLinkModal";
 import {
   FilePreviewModal,
+  FilePreviewContent,
   previewKind,
   downloadDocumentBlob,
   formatFileSize,
@@ -330,7 +331,20 @@ export function CandidateDetailV2({
 
  const showNav = navMode !== "off";
 
- const [activeTab, setActiveTab] = useState("profil");
+ // Gdy profil otwarto z pipeline'u rekrutacji (`?from=job&jobId=N`), domyślnie
+ // pokaż złożony widok „Podgląd" (CV + notatka + timeline, jak w Traffit)
+ // zamiast zakładki Profil ze stawkami. Start zawsze od "profil" (spójny SSR/
+ // hydration — `backJobId` z `useSearchParams` bywa pusty server-side), a efekt
+ // przełącza na "podglad" raz, po montażu, gdy jobId jest już znany. Po
+ // pierwszym przełączeniu user może swobodnie zmieniać zakładki.
+ const [activeTab, setActiveTab] = useState<string>("profil");
+ const pipelineTabApplied = useRef(false);
+ useEffect(() => {
+ if (pipelineTabApplied.current) return;
+ if (backJobId == null) return;
+ pipelineTabApplied.current = true;
+ setActiveTab("podglad");
+ }, [backJobId]);
  const [emailOpen, setEmailOpen] = useState(false);
  const [cvOpen, setCvOpen] = useState(false);
  const [assignOpen, setAssignOpen] = useState(false);
@@ -376,7 +390,11 @@ export function CandidateDetailV2({
  queryKey: ["candidate-timeline", id],
  queryFn: () =>
  api.get(`/api/candidates/${id}/timeline?limit=50`).then((r) => r.data),
- enabled: !!id && (activeTab === "timeline" || activeTab === "notatki"),
+ enabled:
+ !!id &&
+ (activeTab === "timeline" ||
+ activeTab === "notatki" ||
+ activeTab === "podglad"),
  });
  const timeline: any[] = Array.isArray(timelineRaw)
  ? timelineRaw
@@ -404,7 +422,11 @@ export function CandidateDetailV2({
  queryFn: () => api.get(`/api/candidates/${id}/history`).then((r) => r.data),
  // Także na zakładce "notatki" — potrzebujemy listy rekrutacji do selektora
  // "przypisz notatkę do rekrutacji".
- enabled: !!id && (activeTab === "rekrutacje" || activeTab === "notatki"),
+ enabled:
+ !!id &&
+ (activeTab === "rekrutacje" ||
+ activeTab === "notatki" ||
+ activeTab === "podglad"),
  });
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
@@ -904,6 +926,10 @@ export function CandidateDetailV2({
  <User className="h-3.5 w-3.5" />
  Profil
  </TabsTrigger>
+ <TabsTrigger value="podglad">
+ <Eye className="h-3.5 w-3.5" />
+ Podgląd
+ </TabsTrigger>
  <TabsTrigger value="timeline">
  <MessageSquare className="h-3.5 w-3.5" />
  Timeline
@@ -945,6 +971,22 @@ export function CandidateDetailV2({
  <div className="p-5">
  <TabsContent value="profil" className="mt-0">
  <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
+ </TabsContent>
+ <TabsContent value="podglad" className="mt-0">
+ <PipelinePane
+ candidateId={Number(id)}
+ cvFilename={candidate.cv_filename ?? null}
+ timeline={timeline ?? []}
+ recruitments={history}
+ defaultJobId={backJobId}
+ noteText={noteText}
+ setNoteText={setNoteText}
+ onAdd={handleAddNote}
+ saving={noteSaving}
+ viewers={presenceViewers}
+ currentUserId={currentUser?.id}
+ setEditing={setPresenceEditing}
+ />
  </TabsContent>
  <TabsContent value="timeline" className="mt-0">
  <TimelineTab items={timeline ?? []} />
@@ -3376,41 +3418,31 @@ function unwrapNoteContent(raw: unknown): string {
  .trim();
 }
 
-function NotatkiTab({
- timeline,
+// Kompozytor notatki — selektor rekrutacji + pole z @mentions + przycisk.
+// Wydzielony z `NotatkiTab`, by ten sam kompozytor działał też w widoku
+// „Podgląd" (pipeline) obok timeline'u. Stan wyboru rekrutacji + auto-preset
+// z `defaultJobId` żyją tutaj; listę notatek (jeśli jest) renderuje rodzic.
+function NoteComposer({
  recruitments = [],
  defaultJobId = null,
  noteText,
  setNoteText,
  onAdd,
- onEdit,
- onDelete,
  saving,
  viewers = [],
  currentUserId,
- canModerate = false,
  setEditing,
 }: {
- timeline: any[];
  recruitments?: any[];
  defaultJobId?: number | null;
  noteText: string;
  setNoteText: (v: string) => void;
  onAdd: (jobId?: number | null) => void;
- onEdit: (noteId: number, content: string) => Promise<boolean>;
- onDelete: (noteId: number) => Promise<boolean>;
  saving: boolean;
  viewers?: PresenceViewer[];
  currentUserId?: number;
- canModerate?: boolean;
  setEditing?: (field: string, active: boolean) => void;
 }) {
- const items = Array.isArray(timeline) ? timeline : [];
- const notes = items.filter((t: any) => t.type === "note");
-
- // Lista rekrutacji kandydata (z /history) — do selektora "przypisz notatkę
- // do rekrutacji". `recruitments` jest już posortowane most-recent-first.
- // Memo, by referencja była stabilna (deps useMemo/useEffect poniżej).
  const recList = useMemo(
  () =>
  Array.isArray(recruitments)
@@ -3421,54 +3453,33 @@ function NotatkiTab({
  const jobTitleById = useMemo(() => {
  const m = new Map<number, string>();
  for (const r of recList) {
- if (r.job_id != null) m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
+ if (r.job_id != null)
+ m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
  }
  return m;
  }, [recList]);
 
- // Wybrana rekrutacja (null = notatka ogólna, bez przypięcia). Gdy ustawiona,
- // @mention scope zawęża się do członków joba — spójnie z backendem.
+ // Wybrana rekrutacja (null = notatka ogólna). Gdy ustawiona, @mention scope
+ // zawęża się do członków joba — spójnie z backendem.
  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
- // Gdy profil otwarto z pipeline'u rekrutacji (`?from=job&jobId=N`), domyślnie
- // przypnij nową notatkę do tej rekrutacji zamiast „ogólnej". Czekamy aż lista
- // rekrutacji (`/history`) się załaduje i zawiera ten job; aplikujemy raz, żeby
- // nie nadpisywać ręcznego wyboru użytkownika.
+ // Gdy profil otwarto z pipeline'u (`?from=job&jobId=N`), domyślnie przypnij
+ // nową notatkę do tej rekrutacji. Czekamy aż lista rekrutacji się załaduje;
+ // aplikujemy raz, żeby nie nadpisywać ręcznego wyboru użytkownika.
  const defaultJobApplied = useRef(false);
  useEffect(() => {
  if (defaultJobApplied.current) return;
  if (defaultJobId == null) return;
- if (recList.length === 0) return; // lista jeszcze niezaładowana
+ if (recList.length === 0) return;
  defaultJobApplied.current = true;
  if (recList.some((r: any) => Number(r.job_id) === Number(defaultJobId))) {
  setSelectedJobId(Number(defaultJobId));
  }
  }, [defaultJobId, recList]);
 
- // Edycja/usuwanie istniejących notatek (inline). editingId = notatka w
- // trybie edycji, busyId = trwa zapis/usuwanie, confirmDeleteId = modal.
- const [editingId, setEditingId] = useState<number | null>(null);
- const [editText, setEditText] = useState("");
- const [busyId, setBusyId] = useState<number | null>(null);
- const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-
- // Notatkę może zmienić jej autor albo admin (moderacja) — zgodne z
- // _can_modify_note na backendzie. author_id bywa null dla importów Traffit:
- // wtedy tylko admin (canModerate) widzi akcje, autor-match jest niemożliwy.
- const canModifyNote = (n: any): boolean =>
- currentUserId != null &&
- (canModerate ||
- (n.author_id != null && Number(n.author_id) === Number(currentUserId)));
-
  const othersEditingNotes = viewers.filter(
  (v) => v.user_id !== currentUserId && v.editing.includes("notes"),
  );
-
- // Mentionable users dla render badge'y w liście notatek (zawsze global —
- // lista notatek miesza notatki z różnych rekrutacji). Autocomplete w
- // textarea używa osobnego, kontekstowego scope (job gdy wybrany).
- const { data: users = [] } = useMentionableUsers({ kind: "global" });
- const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
 
  const mentionScope: MentionScope =
  selectedJobId != null
@@ -3476,7 +3487,6 @@ function NotatkiTab({
  : { kind: "global" };
 
  return (
- <div className="space-y-4">
  <div className="space-y-2">
  {recList.length > 0 && (
  <div className="flex items-center gap-2 flex-wrap">
@@ -3542,6 +3552,219 @@ function NotatkiTab({
  </Button>
  </div>
  </div>
+ );
+}
+
+// Widok „Podgląd" (pipeline) — domyślny po wejściu z rekrutacji. Lewa kolumna:
+// inline podgląd głównego CV; prawa: kompozytor notatki (przypięty do tej
+// rekrutacji) + timeline aktywności. Odwzorowuje ekran kandydata z Traffita.
+function PipelinePane({
+ candidateId,
+ cvFilename,
+ timeline,
+ recruitments = [],
+ defaultJobId = null,
+ noteText,
+ setNoteText,
+ onAdd,
+ saving,
+ viewers = [],
+ currentUserId,
+ setEditing,
+}: {
+ candidateId: number;
+ cvFilename?: string | null;
+ timeline: any[];
+ recruitments?: any[];
+ defaultJobId?: number | null;
+ noteText: string;
+ setNoteText: (v: string) => void;
+ onAdd: (jobId?: number | null) => void;
+ saving: boolean;
+ viewers?: PresenceViewer[];
+ currentUserId?: number;
+ setEditing?: (field: string, active: boolean) => void;
+}) {
+ const { showError } = useToast();
+ const { data: documents } = useQuery<CandidateDocument[]>({
+ queryKey: ["candidate-documents", candidateId],
+ queryFn: async () => {
+ const res = await api.get<CandidateDocument[]>(
+ `/api/candidates/${candidateId}/documents`,
+ );
+ return res.data;
+ },
+ enabled: !!candidateId,
+ staleTime: 30_000,
+ });
+
+ // Główny dokument: primary → dopasowany po cv_filename → pierwszy z listy.
+ const primaryDoc = useMemo<CandidateDocument | null>(() => {
+ const docs = documents ?? [];
+ return (
+ docs.find((d) => d.is_primary) ??
+ docs.find((d) => d.filename === cvFilename) ??
+ docs[0] ??
+ null
+ );
+ }, [documents, cvFilename]);
+
+ async function handleDownload(doc: CandidateDocument) {
+ try {
+ await downloadDocumentBlob(candidateId, doc);
+ } catch {
+ showError("Nie udało się pobrać pliku.");
+ }
+ }
+
+ return (
+ <div className="grid grid-cols-1 lg:grid-cols-[1.45fr_1fr] gap-4 items-start">
+ {/* Lewa kolumna — CV inline */}
+ <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
+ {primaryDoc ? (
+ <div className="flex flex-col h-[78vh]">
+ <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2">
+ <span className="min-w-0 truncate text-sm font-medium text-foreground">
+ {primaryDoc.filename}
+ </span>
+ <button
+ type="button"
+ onClick={() => handleDownload(primaryDoc)}
+ className="inline-flex shrink-0 items-center gap-1 text-sm text-[hsl(var(--accent-primary))] hover:underline"
+ title="Pobierz plik na dysk"
+ >
+ <Download className="h-3.5 w-3.5" />
+ Pobierz
+ </button>
+ </div>
+ <FilePreviewContent
+ doc={primaryDoc}
+ candidateId={candidateId}
+ onDownload={handleDownload}
+ className="flex-1 min-h-0"
+ />
+ </div>
+ ) : (
+ <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+ <FileText className="h-8 w-8 text-muted-foreground" />
+ <p className="text-sm text-muted-foreground">
+ Brak CV w profilu kandydata.
+ </p>
+ </div>
+ )}
+ </div>
+
+ {/* Prawa kolumna — notatka + timeline */}
+ <div className="space-y-4">
+ <NoteComposer
+ recruitments={recruitments}
+ defaultJobId={defaultJobId}
+ noteText={noteText}
+ setNoteText={setNoteText}
+ onAdd={onAdd}
+ saving={saving}
+ viewers={viewers}
+ currentUserId={currentUserId}
+ setEditing={setEditing}
+ />
+ <Separator />
+ <div>
+ <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
+ Aktywność
+ </h3>
+ <div className="max-h-[52vh] overflow-y-auto pr-1">
+ <TimelineTab items={timeline ?? []} />
+ </div>
+ </div>
+ </div>
+ </div>
+ );
+}
+
+function NotatkiTab({
+ timeline,
+ recruitments = [],
+ defaultJobId = null,
+ noteText,
+ setNoteText,
+ onAdd,
+ onEdit,
+ onDelete,
+ saving,
+ viewers = [],
+ currentUserId,
+ canModerate = false,
+ setEditing,
+}: {
+ timeline: any[];
+ recruitments?: any[];
+ defaultJobId?: number | null;
+ noteText: string;
+ setNoteText: (v: string) => void;
+ onAdd: (jobId?: number | null) => void;
+ onEdit: (noteId: number, content: string) => Promise<boolean>;
+ onDelete: (noteId: number) => Promise<boolean>;
+ saving: boolean;
+ viewers?: PresenceViewer[];
+ currentUserId?: number;
+ canModerate?: boolean;
+ setEditing?: (field: string, active: boolean) => void;
+}) {
+ const items = Array.isArray(timeline) ? timeline : [];
+ const notes = items.filter((t: any) => t.type === "note");
+
+ // Lista rekrutacji kandydata (z /history) — do selektora "przypisz notatkę
+ // do rekrutacji". `recruitments` jest już posortowane most-recent-first.
+ // Memo, by referencja była stabilna (deps useMemo/useEffect poniżej).
+ const recList = useMemo(
+ () =>
+ Array.isArray(recruitments)
+ ? recruitments.filter((r: any) => r && r.job_id != null)
+ : [],
+ [recruitments],
+ );
+ const jobTitleById = useMemo(() => {
+ const m = new Map<number, string>();
+ for (const r of recList) {
+ if (r.job_id != null) m.set(Number(r.job_id), r.job_title ?? `Oferta #${r.job_id}`);
+ }
+ return m;
+ }, [recList]);
+
+ // Edycja/usuwanie istniejących notatek (inline). editingId = notatka w
+ // trybie edycji, busyId = trwa zapis/usuwanie, confirmDeleteId = modal.
+ const [editingId, setEditingId] = useState<number | null>(null);
+ const [editText, setEditText] = useState("");
+ const [busyId, setBusyId] = useState<number | null>(null);
+ const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+ // Notatkę może zmienić jej autor albo admin (moderacja) — zgodne z
+ // _can_modify_note na backendzie. author_id bywa null dla importów Traffit:
+ // wtedy tylko admin (canModerate) widzi akcje, autor-match jest niemożliwy.
+ const canModifyNote = (n: any): boolean =>
+ currentUserId != null &&
+ (canModerate ||
+ (n.author_id != null && Number(n.author_id) === Number(currentUserId)));
+
+ // Mentionable users dla render badge'y w liście notatek (zawsze global —
+ // lista notatek miesza notatki z różnych rekrutacji). Autocomplete w
+ // textarea używa osobnego, kontekstowego scope (job gdy wybrany).
+ const { data: users = [] } = useMentionableUsers({ kind: "global" });
+ const usersByEmail = useMemo(() => buildUsersByEmail(users), [users]);
+
+ return (
+ <div className="space-y-4">
+ <NoteComposer
+ recruitments={recruitments}
+ defaultJobId={defaultJobId}
+ noteText={noteText}
+ setNoteText={setNoteText}
+ onAdd={onAdd}
+ saving={saving}
+ viewers={viewers}
+ currentUserId={currentUserId}
+ setEditing={setEditing}
+ />
 
  <Separator />
 
