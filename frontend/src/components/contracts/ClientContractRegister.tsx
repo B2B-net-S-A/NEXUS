@@ -1,14 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Calendar, Clock, FileText, Pencil, Plus } from "lucide-react";
 import api, { contractsApi } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useAuthStore, hasRole } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FilterBar } from "@/components/ds/FilterBar";
 import {
   Select,
   SelectContent,
@@ -52,23 +59,35 @@ const PROLONGATION_DOT_CLASS: Record<string, string> = {
   neutral: "bg-foreground",
 };
 
+/** Liczba kontraktów na stronę w rejestrze klienta. */
+const PAGE_SIZE = 50;
+
 interface RegisterResponse {
   items: RegisterContractRow[];
   total: number;
+  page: number;
+  page_size: number;
 }
+
+/** Klucz React Query rejestru — współdzielony przez listę i optimistic update prolongaty. */
+type RegisterQueryKey = readonly [
+  "client-register",
+  number,
+  number,
+  string,
+];
 
 /** Inline-editowalny status przedłużenia (Select) lub read-only Badge. */
 function ProlongationCell({
   row,
-  clientId,
+  queryKey,
   canEdit,
 }: {
   row: RegisterContractRow;
-  clientId: number;
+  queryKey: RegisterQueryKey;
   canEdit: boolean;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = ["client-register", clientId];
 
   const mutation = useMutation({
     mutationFn: (value: ProlongationStatus) =>
@@ -204,20 +223,36 @@ export function ClientContractRegister({
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RegisterContractRow | null>(null);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput.trim(), 300);
 
-  const queryKey = ["client-register", clientId];
-  const { data, isLoading } = useQuery({
+  // Każda zmiana frazy wyszukiwania cofa do pierwszej strony wyników.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const queryKey: RegisterQueryKey = ["client-register", clientId, page, search];
+  const { data, isLoading, isFetching } = useQuery({
     queryKey,
     queryFn: () =>
       api
         .get<RegisterResponse>("/api/contracts", {
-          params: { client_id: clientId, page_size: 100 },
+          params: {
+            client_id: clientId,
+            page,
+            page_size: PAGE_SIZE,
+            q: search || undefined,
+          },
         })
         .then((r) => r.data),
+    placeholderData: keepPreviousData,
   });
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
+  const pageSize = data?.page_size ?? PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const resolvedName = clientName ?? items[0]?.candidate_name ?? undefined;
 
   const openNew = () => {
@@ -253,6 +288,15 @@ export function ClientContractRegister({
         )}
       </div>
 
+      {/* Wyszukiwarka — filtruje po nazwisku konsultanta (server-side, łączona z paginacją). */}
+      <FilterBar
+        search={{
+          value: searchInput,
+          onChange: setSearchInput,
+          placeholder: "Szukaj po nazwisku konsultanta…",
+        }}
+      />
+
       {/* Table */}
       <Table density="cozy">
         <TableHeader>
@@ -282,9 +326,11 @@ export function ClientContractRegister({
               <TableCell colSpan={canEdit ? 8 : 7} className="text-center py-12">
                 <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
                 <p className="text-sm text-muted-foreground">
-                  Brak kontraktów dla tego klienta.
+                  {search
+                    ? `Brak konsultantów pasujących do „${search}”.`
+                    : "Brak kontraktów dla tego klienta."}
                 </p>
-                {canEdit && (
+                {canEdit && !search && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -336,7 +382,7 @@ export function ClientContractRegister({
                 <TableCell>
                   <ProlongationCell
                     row={row}
-                    clientId={clientId}
+                    queryKey={queryKey}
                     canEdit={canEdit}
                   />
                 </TableCell>
@@ -369,6 +415,35 @@ export function ClientContractRegister({
           )}
         </TableBody>
       </Table>
+
+      {/* Paginacja — widoczna tylko gdy wyników jest więcej niż jedna strona. */}
+      {!isLoading && totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            Strona <strong className="text-foreground">{page}</strong> z{" "}
+            {totalPages}
+            {isFetching && <span className="ml-2 opacity-60">· ładowanie…</span>}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Poprzednia
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Następna
+            </Button>
+          </div>
+        </div>
+      )}
 
       {canEdit && (
         <ContractRegisterDialog
