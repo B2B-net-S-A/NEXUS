@@ -10,6 +10,7 @@ import {
  Plus,
  Search,
  TrendingUp,
+ X,
 } from"lucide-react";
 import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
@@ -78,10 +79,25 @@ function marginColor(margin: number | undefined, rateClient: number | undefined)
  return"text-[#1d5e31] font-semibold";
 }
 
+// Polish plural for "kontrakt" + matching verb (1 / 2–4 / 0,5+ forms), so the
+// banner reads correctly whether 1 or 45 contracts are expiring.
+function expiringBannerText(n: number): string {
+ const m10 = n % 10;
+ const m100 = n % 100;
+ const few = m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14);
+ const noun = n === 1 ?"kontrakt" : few ?"kontrakty" :"kontraktów";
+ const verb = few ?"kończą się" :"kończy się";
+ return `${n} ${noun} ${verb} w ciągu 30 dni`;
+}
+
 export function ContractsListV2() {
  const [search, setSearch] = useState("");
  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
  const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>([]);
+ // Date-based "ending within 30 days" quick filter, driven by the banner's
+ // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
+ // so it always matches the date-based /api/contracts/expiring banner.
+ const [endingSoon, setEndingSoon] = useState(false);
  const [page, setPage] = useState(1);
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
  const [toast, setToast] = useState<string | null>(null);
@@ -97,7 +113,7 @@ export function ContractsListV2() {
  };
 
  const { data, isLoading } = useQuery({
- queryKey: ["contracts-v2", search, statusFilter, typeFilter, page],
+ queryKey: ["contracts-v2", search, statusFilter, typeFilter, endingSoon, page],
  queryFn: () =>
  api
  .get("/api/contracts", {
@@ -105,6 +121,7 @@ export function ContractsListV2() {
  q: search || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
+ expiring_in_days: endingSoon ? 30 : undefined,
  page,
  },
  paramsSerializer: { indexes: null },
@@ -165,7 +182,7 @@ export function ContractsListV2() {
  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
  <div className="flex-1">
  <p className="text-sm font-semibold text-amber-800">
- {expiringCount} kontrakt{expiringCount > 1 ?"y" :""} kończą się w ciągu 30 dni
+ {expiringBannerText(expiringCount)}
  </p>
  <p className="text-xs text-amber-700">
  Sprawdź, czy wymagają przedłużenia albo wypowiedzenia.
@@ -175,9 +192,14 @@ export function ContractsListV2() {
  size="sm"
  variant="outline"
  onClick={() => {
- // Backend ContractStatus enum uses `ending` (frontend banner reads
- //"Kończące się"). Filter by that single status to surface them.
- setStatusFilter(["ending"]);
+ // Surface exactly the contracts the banner counts. The banner reads
+ // the date-based /api/contracts/expiring (end_date within 30 days),
+ // so filter the list the same way via `expiring_in_days` — not the
+ // stored `ending` status, which is a cron-maintained set disjoint
+ // from the banner's and would show the wrong rows (or none).
+ setEndingSoon(true);
+ setStatusFilter([]);
+ setSearch("");
  setPage(1);
  }}
  >
@@ -203,6 +225,7 @@ export function ContractsListV2() {
  value={statusFilter}
  onChange={(v) => {
  setStatusFilter(v);
+ setEndingSoon(false);
  setPage(1);
  }}
  options={CONTRACT_STATUS_OPTIONS}
@@ -233,6 +256,20 @@ export function ContractsListV2() {
  : `Typ: ${n}`
  }
  />
+ {endingSoon && (
+ <Button
+ size="sm"
+ variant="outline"
+ className="gap-1"
+ onClick={() => {
+ setEndingSoon(false);
+ setPage(1);
+ }}
+ >
+ Kończące się w ciągu 30 dni
+ <X className="h-3.5 w-3.5" />
+ </Button>
+ )}
  </div>
 
  {/* Bulk actions bar */}
