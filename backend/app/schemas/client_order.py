@@ -23,7 +23,7 @@ class ClientOrderCreate(BaseModel):
     status: ClientOrderStatus = ClientOrderStatus.draft
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
+    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     """Może być różny od Contract.rate_client (przedłużenie z podwyżką)."""
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
@@ -40,7 +40,7 @@ class ClientOrderUpdate(BaseModel):
     status: Optional[ClientOrderStatus] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
+    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
     framework_contract_id: Optional[int] = None

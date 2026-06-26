@@ -36,11 +36,12 @@ class NewContractorOrderRequest(BaseModel):
     """Nullable — kolumna "Zamówienie od" bywa pusta."""
     order_end_date: Optional[date] = None
 
-    # Finansowe (oba wymagane dla auto-marżowego Contractu)
-    rate_client: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
-    """Stawka jaką klient nam płaci (z PDF zamówienia) — dziesiętna (np. 118.13)."""
+    # Finansowe (oba wymagane dla auto-marżowego Contractu). NUMERIC(12,3) —
+    # do 3 miejsc po przecinku (np. Alior 164.375 zł/h).
+    rate_client: Decimal = Field(..., ge=0, max_digits=12, decimal_places=3)
+    """Stawka jaką klient nam płaci (z PDF zamówienia) — dziesiętna (np. 164.375)."""
 
-    rate_candidate: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
+    rate_candidate: Decimal = Field(..., ge=0, max_digits=12, decimal_places=3)
     """Stawka jaką my płacimy kontraktorowi (z naszego B2B) — dziesiętna (np. 157.5)."""
 
     rate_unit: str = "monthly"
