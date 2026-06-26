@@ -12,9 +12,10 @@ Fed by two paths (unified history):
 """
 
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Integer, Text
+from sqlalchemy import Date, ForeignKey, Integer, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -31,7 +32,7 @@ class ContractCandidateRate(Base, TimestampMixin):
         ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Candidate rate in the contract's `rate_unit` / `currency`.
-    rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     # Date from which this rate applies ("Obowiązuje od").
     effective_from: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

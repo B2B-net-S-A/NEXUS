@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from pydantic import BaseModel
@@ -16,8 +17,8 @@ class ContractAmendmentCreate(BaseModel):
     # will be applied to the contract. Everything else is captured in
     # old_values / new_values for audit.
     new_end_date: Optional[date] = None
-    new_rate_candidate: Optional[int] = None
-    new_rate_client: Optional[int] = None
+    new_rate_candidate: Optional[Decimal] = None
+    new_rate_client: Optional[Decimal] = None
     new_rate_unit: Optional[str] = None
     new_billing_hours_per_month: Optional[int] = None
     new_project_name: Optional[str] = None

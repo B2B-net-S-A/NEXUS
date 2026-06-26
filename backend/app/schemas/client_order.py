@@ -95,7 +95,7 @@ class ContractWithOrdersRead(BaseModel):
     contract_status: str
     contract_start_date: Optional[date]
     contract_end_date: Optional[date]
-    rate_candidate: Optional[int]  # we płacimy
+    rate_candidate: Optional[Decimal]  # we płacimy
 
     # Initial Job z którego powstał Contract
     initial_job_id: Optional[int]

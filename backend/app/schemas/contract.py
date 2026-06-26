@@ -18,7 +18,7 @@ from app.models.contract import (
 class ContractCandidateRateInput(BaseModel):
     """One step in the candidate-rate schedule sent from the create form."""
 
-    rate: int
+    rate: float
     effective_from: date
     note: Optional[str] = None
 
@@ -27,7 +27,7 @@ class ContractCandidateRateEntry(BaseModel):
     """One step in the candidate-rate schedule returned to the client."""
 
     id: int
-    rate: int
+    rate: float
     effective_from: date
     note: Optional[str] = None
     created_by: Optional[int] = None
@@ -43,7 +43,7 @@ class ContractCreate(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
-    rate_candidate: Optional[int] = None
+    rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
@@ -80,7 +80,7 @@ class ContractUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
-    rate_candidate: Optional[int] = None
+    rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
@@ -121,7 +121,7 @@ class ContractResponse(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date]
     client_order_end_date: Optional[date] = None
-    rate_candidate: Optional[int]
+    rate_candidate: Optional[float]
     rate_client: Optional[float]
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
@@ -233,7 +233,7 @@ class ContractDetailResponse(ContractResponse):
     candidate_name: Optional[str] = None
     client_name: Optional[str] = None
     job_title: Optional[str] = None
-    monthly_rate_candidate: Optional[int] = None
+    monthly_rate_candidate: Optional[float] = None
     monthly_rate_client: Optional[float] = None
     monthly_margin: Optional[float] = None
 
@@ -253,7 +253,7 @@ class ContractActivityEntry(BaseModel):
 
 class ContractRateHistoryEntry(BaseModel):
     id: int
-    rate: int
+    rate: float
     currency: str
     contract_type: str
     start_date: date
@@ -344,7 +344,7 @@ class ContractorListItem(BaseModel):
     status: ContractStatus
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    rate_candidate: Optional[int] = None
+    rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
     rate_unit: RateUnit
     margin: Optional[float] = None

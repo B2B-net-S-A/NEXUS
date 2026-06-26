@@ -121,10 +121,9 @@ class Contract(Base, TimestampMixin):
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
-    # Stawki finansowe
-    rate_candidate: Mapped[Optional[int]] = mapped_column(Integer)
-    # Stawka klienta — Numeric(10,2): część klientów (np. VeloBank) ma stawki
-    # godzinowe z groszami (206.25, 162.50). Kandydat trzymany jako Integer.
+    # Stawki finansowe — Numeric(10,2): stawki godzinowe bywają z groszami/
+    # połówką (np. klient VeloBank 206.25, kandydat Erste 157.5).
+    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
     # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
