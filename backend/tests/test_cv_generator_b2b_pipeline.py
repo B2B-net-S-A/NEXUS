@@ -26,6 +26,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     _normalize_candidate_data,
     _sanitize_for_filename,
     _validate_upload,
+    ascii_filename_fallback,
     rerender_docx_from_payload,
 )
 
@@ -447,12 +448,30 @@ def test_guard_handles_diacritics():
 # ── Filename sanitization ──────────────────────────────────────────────────
 
 
-def test_sanitize_transliterates_polish_l():
-    assert _sanitize_for_filename("Łukasz Kamecki") == "Lukasz_Kamecki"
+def test_sanitize_preserves_polish_letters():
+    # The on-disk filename keeps the candidate's real spelling — Polish letters
+    # (ł, ą, ż, ó…) survive; only whitespace is normalized to underscores.
+    assert _sanitize_for_filename("Łukasz Kamecki") == "Łukasz_Kamecki"
+    assert _sanitize_for_filename("Michał Bogdan") == "Michał_Bogdan"
+    assert _sanitize_for_filename("Kamil Szukajło") == "Kamil_Szukajło"
 
 
-def test_sanitize_strips_diacritics():
-    assert _sanitize_for_filename("Michał Bogdan") == "Michal_Bogdan"
+def test_sanitize_replaces_unsafe_characters():
+    assert _sanitize_for_filename("Jan/Kowalski") == "Jan_Kowalski"
+    assert _sanitize_for_filename("   ") == "kandydat"
+
+
+def test_ascii_filename_fallback_transliterates_polish():
+    # The Content-Disposition ASCII fallback still folds Polish → ASCII so the
+    # legacy ``filename="…"`` parameter stays latin-1 encodable.
+    assert (
+        ascii_filename_fallback("CV_B2B_Łukasz_Kamecki.docx")
+        == "CV_B2B_Lukasz_Kamecki.docx"
+    )
+    assert (
+        ascii_filename_fallback("CV_B2B_Kamil_Szukajło.docx")
+        == "CV_B2B_Kamil_Szukajlo.docx"
+    )
 
 
 # ── Upload validation ──────────────────────────────────────────────────────

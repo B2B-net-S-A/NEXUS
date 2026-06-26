@@ -43,6 +43,17 @@ export function parseDispositionFilename(
   disposition: string,
   fallback: string,
 ): string {
+  // Prefer the RFC 5987 `filename*=UTF-8''<percent-encoded>` parameter — it
+  // carries the real name including Polish characters (ł, ą, ż…). Fall back to
+  // the ASCII `filename="…"` for responses that don't set the extended form.
+  const extended = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1]);
+    } catch {
+      // Malformed percent-encoding — fall through to the plain parameter.
+    }
+  }
   const match = disposition.match(/filename="?([^";]+)"?/);
   return match ? match[1] : fallback;
 }
