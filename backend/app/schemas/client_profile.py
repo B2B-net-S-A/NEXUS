@@ -64,7 +64,7 @@ class ActiveConsultantItem(BaseModel):
     candidate: CandidateBrief
     job_id: Optional[int] = None
     job_title: Optional[str] = None
-    start_date: date
+    start_date: Optional[date] = None
     end_date: Optional[date] = None
     days_to_end: Optional[int] = (
         None  # null if no end_date; < 30 triggers amber UI, < 7 red
@@ -78,7 +78,7 @@ class HistoricalPlacementItem(BaseModel):
     contract_id: int
     candidate: CandidateBrief
     job_title: Optional[str] = None
-    start_date: date
+    start_date: Optional[date] = None
     end_date: Optional[date] = None
     terminated_at: Optional[date] = None
     termination_reason: Optional[ContractTerminationReason] = None

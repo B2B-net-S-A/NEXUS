@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -24,18 +25,20 @@ class NewContractorOrderRequest(BaseModel):
     """MSA pod którą jest Order. Nullable bo klient może nie mieć MSA."""
 
     # Contract-level
-    contract_start_date: date
+    contract_start_date: Optional[date] = None
+    """Nullable — zamówienie może nie mieć znanej daty "od"."""
     contract_end_date: Optional[date] = None
     """End date kontraktu (typically dłuższy niż pierwszy Order)."""
 
     # Order-level
     title: str = Field(..., min_length=1, max_length=255)
-    order_start_date: date
+    order_start_date: Optional[date] = None
+    """Nullable — kolumna "Zamówienie od" bywa pusta."""
     order_end_date: Optional[date] = None
 
     # Finansowe (oba wymagane dla auto-marżowego Contractu)
-    rate_client: int = Field(..., ge=0)
-    """Stawka jaką klient nam płaci (z PDF zamówienia)."""
+    rate_client: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
+    """Stawka jaką klient nam płaci (z PDF zamówienia) — dziesiętna (np. 118.13)."""
 
     rate_candidate: int = Field(..., ge=0)
     """Stawka jaką my płacimy kontraktorowi (z naszego B2B)."""
@@ -59,5 +62,5 @@ class NewContractorOrderResponse(BaseModel):
     contract_id: int
     order_id: int
     candidate_name: str
-    monthly_margin: int
+    monthly_margin: Decimal
     """rate_client - rate_candidate przeliczone na miesięczną stawkę."""

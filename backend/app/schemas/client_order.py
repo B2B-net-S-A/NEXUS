@@ -23,7 +23,7 @@ class ClientOrderCreate(BaseModel):
     status: ClientOrderStatus = ClientOrderStatus.draft
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    rate_client: Optional[int] = Field(None, ge=0)
+    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     """Może być różny od Contract.rate_client (przedłużenie z podwyżką)."""
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
@@ -40,7 +40,7 @@ class ClientOrderUpdate(BaseModel):
     status: Optional[ClientOrderStatus] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    rate_client: Optional[int] = Field(None, ge=0)
+    rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
     framework_contract_id: Optional[int] = None
@@ -59,7 +59,7 @@ class ClientOrderRead(BaseModel):
     status: ClientOrderStatus
     start_date: Optional[date]
     end_date: Optional[date]
-    rate_client: Optional[int]
+    rate_client: Optional[Decimal]
     total_value: Optional[Decimal]
     currency: Optional[str]
     filename: Optional[str]
@@ -76,7 +76,7 @@ class ClientOrderRead(BaseModel):
     candidate_name: Optional[str] = None
     contract_status: Optional[str] = None
     job_title: Optional[str] = None
-    monthly_margin: Optional[int] = None
+    monthly_margin: Optional[Decimal] = None
     """rate_client (z Order) - rate_candidate (z Contract), normalizowane do mc."""
     days_to_end: Optional[int] = None
 
@@ -104,8 +104,8 @@ class ContractWithOrdersRead(BaseModel):
     # Pozycja na obecnym kontrakcie (z Order najnowszego)
     latest_order_id: Optional[int] = None
     latest_order_end_date: Optional[date] = None
-    latest_order_rate_client: Optional[int] = None
-    latest_order_monthly_margin: Optional[int] = None
+    latest_order_rate_client: Optional[Decimal] = None
+    latest_order_monthly_margin: Optional[Decimal] = None
     days_to_latest_end: Optional[int] = None
 
     orders: list[ClientOrderRead] = []
