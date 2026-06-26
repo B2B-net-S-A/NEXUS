@@ -153,6 +153,27 @@ def test_separate_skill_chips_each_bold():
     ]
 
 
+def test_versioned_tech_bolds_bare_brand():
+    # Reported bug: a champion skill carrying a version ("Java 17+") matched
+    # only verbatim, so plain "Java" in the CV body never bolded. Every token
+    # of such a compound is itself a technology, so each brand token now bolds
+    # on its own — the version suffix no longer forces a verbatim-only match.
+    body = "Programowanie w Java i Spring Boot, mikroserwisy w Java."
+    for kw in ("Java 17+", "Java 17", "Java SE 17"):
+        assert _matches(body, [kw]) == ["Java", "Java"], kw
+    # A bare digit/version token never bolds on its own (needs a letter).
+    assert _matches("wersja 17 systemu", ["Java 17+"]) == []
+
+
+def test_all_listed_compound_tokens_bold():
+    # "bold ALL technologies from must-have + nice-to-have": an all-tech
+    # compound bolds each constituent technology where it appears alone.
+    assert _matches("Integracje przez REST oraz samodzielne API", ["REST API"]) == [
+        "REST",
+        "API",
+    ]
+
+
 def test_multiword_technology_stays_whole_concept_drops():
     # A genuine multi-word TECHNOLOGY bolds whole ("Spring Boot") — never its
     # bare common part ("boot"). A multi-word CONCEPT ("Design System") is not

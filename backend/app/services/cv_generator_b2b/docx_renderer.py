@@ -790,6 +790,20 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
                 # A real technology bolds whole ("Figma", "Spring Boot",
                 # "GitLab CI/CD", "C++").
                 _add(v)
+                # A NON-curated compound qualifies only because EVERY token is
+                # itself a technology ("Java 17+", "Java 17", "REST API",
+                # "GitLab CI/CD") — so also bold each brand token on its own.
+                # Without this a champion skill carrying a version ("Java 17+")
+                # matched only verbatim, so plain "Java" in the CV never bolded
+                # (recruiter directive: bold ALL must-have + nice-to-have
+                # technologies). Curated multi-word techs ("Spring Boot", "SQL
+                # Server", "React Native") stay whole — their bare common part
+                # ("Boot", "Native") must never bold.
+                tokens = v.split()
+                if len(tokens) > 1 and _norm_tech(v) not in _KNOWN_TECH:
+                    for tok in tokens:
+                        if _is_tech_word(tok) and any(ch.isalpha() for ch in tok):
+                            _add(tok)
             else:
                 # Not a technology in itself ("visual design", "User-Centered
                 # Design", "bazami danych SQL") — never bold the concept/prose;
@@ -1030,7 +1044,8 @@ def render_cv_to_bytes(
             ``name``, ``position``, ``why_points``, ``skills``, ``languages``,
             ``experience``. Optional: ``education``, ``certifications``,
             ``language`` ('pl' default), ``blind_cv`` (False default),
-            ``highlight_keywords`` (list of MUST-HAVE technologies).
+            ``highlight_keywords`` (champion MUST-HAVE + NICE-TO-HAVE
+            technologies).
         template_path: Path to ``szablon_firmowy.docx``.
 
     Returns:
