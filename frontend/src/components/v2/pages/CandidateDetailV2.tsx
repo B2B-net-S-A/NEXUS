@@ -10,6 +10,7 @@ import StarterKit from"@tiptap/starter-kit";
 import {
  AlertTriangle,
  ArrowLeft,
+  ArrowRight,
  Ban,
  Calendar,
  CheckCircle2,
@@ -77,6 +78,7 @@ import { CandidateEngagementPanel } from"@/components/candidates/CandidateEngage
 import { CandidateLocationPanel } from"@/components/candidates/CandidateLocationPanel";
 import { CandidateSourcesPanel } from"@/components/candidates/CandidateSourcesPanel";
 import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
+import { stageLabel } from "@/lib/cv-generator";
 import { useTabsStore } from"@/store/tabs";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
@@ -2479,67 +2481,313 @@ function timelineItemLabel(item: any): string {
  return TIMELINE_LABEL[item.type] ?? item.type ??"Zdarzenie";
 }
 
+// ── Timeline (kandydat) — zgrupowany po dniach, czytelne karty zdarzeń ───────
+// Wcześniej był to płaski strumień jednakowych wierszy (każdy z tą samą ikoną
+// MessageSquare i surową etykietą typu „Etap: rejected") — nieczytelny przy
+// kilkudziesięciu zdarzeniach. Teraz: nagłówek dnia + karta na zdarzenie z
+// awatarem autora, czytelnym „kto co zrobił" i kolorowymi badge'ami etapów
+// (Nowy → Screening), wzorem osi czasu z Traffita.
+
+// Etap → wariant Badge, żeby przejście „Nowy → Screening" czytało się kolorem:
+// info (wczesny lejek) → soft (środek) → success/danger (stany końcowe).
+const STAGE_BADGE_VARIANT: Record<
+  string,
+  React.ComponentProps<typeof Badge>["variant"]
+> = {
+  new: "info",
+  contacted: "info",
+  prep_call: "info",
+  screening: "soft",
+  verified: "soft",
+  interview: "soft",
+  cv_sent: "soft",
+  client_review: "soft",
+  client_interview: "soft",
+  acceptance: "success",
+  negotiation: "warning",
+  onboarding: "success",
+  active: "success",
+  hired: "success",
+  rejected: "danger",
+  withdrawn: "neutral",
+  on_hold: "warning",
+};
+
+function StageBadge({ stage }: { stage: string }) {
+  return (
+    <Badge size="sm" variant={STAGE_BADGE_VARIANT[stage] ?? "neutral"}>
+      {stageLabel(stage)}
+    </Badge>
+  );
+}
+
+// Pełna etykieta dnia dla nagłówka grupy — „Środa, 24 czerwca 2026".
+const TIMELINE_DAY_FMT = new Intl.DateTimeFormat("pl-PL", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+// Na karcie pokazujemy godzinę (HH:MM) — w obrębie dnia „Xh temu" to szum.
+const TIMELINE_TIME_FMT = new Intl.DateTimeFormat("pl-PL", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+function timelineDayKey(ts?: string | null): string {
+  if (!ts) return "no-date";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "no-date";
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function timelineDayLabel(ts?: string | null): string {
+  if (!ts) return "Bez daty";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "Bez daty";
+  const now = new Date();
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const full = TIMELINE_DAY_FMT.format(d);
+  const cap = full.charAt(0).toUpperCase() + full.slice(1);
+  if (sameDay(d, now)) return `Dziś · ${cap}`;
+  if (sameDay(d, yesterday)) return `Wczoraj · ${cap}`;
+  return cap;
+}
+
+function timelineTime(ts?: string | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? "" : TIMELINE_TIME_FMT.format(d);
+}
+
+// Autor zdarzenia — napędza inicjały awatara i pogrubione imię w nagłówku.
+function timelineActor(item: any): string | null {
+  if (item.type === "stage_change") return item.moved_by_name ?? null;
+  if (item.type === "note") return item.author_name ?? null;
+  if (item.type === "activity") return item.user_name ?? null;
+  return null;
+}
+
+function timelineInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Ikona w kółku dla zdarzeń systemowych/importu (bez ludzkiego autora) —
+// utrzymuje skanowalność wiersza wg rodzaju zdarzenia.
+function TimelineIcon({ item }: { item: any }) {
+  let Icon = MessageSquare;
+  if (item.type === "stage_change") Icon = ArrowRight;
+  else if (item.type === "activity") {
+    const action = typeof item.action === "string" ? item.action : "";
+    if (action.includes("Plik")) Icon = FileText;
+    else if (action.startsWith("rejection_email")) Icon = Mail;
+    else if (action === "applied_via_invite") Icon = UserPlus;
+  }
+  return <Icon className="h-3.5 w-3.5" />;
+}
+
+// Dla każdej zmiany etapu — etap, Z którego nastąpiło przejście, wyliczony z
+// chronologicznie wcześniejszej zmiany na TEJ SAMEJ rekrutacji (backend wysyła
+// tylko etap docelowy). Pozwala renderować „Nowy → Screening" jak w Traffit.
+function buildStageFromMap(items: any[]): Map<number, string> {
+  const byJob = new Map<number | string, any[]>();
+  for (const it of items) {
+    if (it.type !== "stage_change") continue;
+    const key = it.job_id ?? "—";
+    const arr = byJob.get(key);
+    if (arr) arr.push(it);
+    else byJob.set(key, [it]);
+  }
+  const fromMap = new Map<number, string>();
+  for (const group of byJob.values()) {
+    const asc = [...group].sort((a, b) =>
+      String(a.timestamp ?? "").localeCompare(String(b.timestamp ?? "")),
+    );
+    for (let i = 1; i < asc.length; i++) {
+      if (asc[i].id != null) fromMap.set(asc[i].id, asc[i - 1].stage);
+    }
+  }
+  return fromMap;
+}
+
+// Nagłówek karty: pogrubiony autor + co zrobił. Dla zmian etapu kolorowe
+// badge'y „z → do" renderuje TimelineCard w osobnym wierszu.
+function TimelineHeadline({
+  item,
+  fromStage,
+}: {
+  item: any;
+  fromStage?: string;
+}) {
+  const actor = timelineActor(item);
+  if (item.type === "stage_change") {
+    return (
+      <span className="text-sm text-foreground">
+        <span className="font-semibold">{actor ?? "System"}</span>{" "}
+        <span className="text-muted-foreground">
+          {fromStage ? "zmienił etap" : "przypisał do etapu"}
+        </span>
+      </span>
+    );
+  }
+  if (item.type === "note") {
+    return (
+      <span className="text-sm text-foreground">
+        <span className="font-semibold">{actor ?? "Notatka"}</span>{" "}
+        <span className="text-muted-foreground">dodał notatkę</span>
+      </span>
+    );
+  }
+  return (
+    <span className="text-sm font-medium text-foreground">
+      {timelineItemLabel(item)}
+    </span>
+  );
+}
+
+function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
+  const actor = timelineActor(item);
+  const useAvatar =
+    !!actor && (item.type === "stage_change" || item.type === "note");
+  const content = item.content
+    ? unwrapNoteContent(item.content_rendered ?? item.content)
+    : null;
+  const isStage = item.type === "stage_change";
+  return (
+    <div className="flex gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm transition-shadow hover:shadow-md">
+      {useAvatar ? (
+        <Avatar className="h-8 w-8 shrink-0">
+          <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
+            {timelineInitials(actor as string)}
+          </AvatarFallback>
+        </Avatar>
+      ) : (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <TimelineIcon item={item} />
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <TimelineHeadline item={item} fromStage={fromStage} />
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {timelineTime(item.timestamp)}
+          </span>
+        </div>
+
+        {isStage && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {fromStage ? (
+              <>
+                <StageBadge stage={fromStage} />
+                <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <StageBadge stage={item.stage} />
+              </>
+            ) : (
+              <StageBadge stage={item.stage} />
+            )}
+          </div>
+        )}
+
+        {item.job_title && (
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {item.job_title}
+          </p>
+        )}
+
+        {content && (
+          <p className="mt-1.5 whitespace-pre-line text-sm text-foreground">
+            {content}
+          </p>
+        )}
+
+        {item.notes && (
+          <p className="mt-1.5 whitespace-pre-line rounded-md bg-muted/50 px-2.5 py-1.5 text-sm italic text-muted-foreground">
+            {item.notes}
+          </p>
+        )}
+
+        {item.rating ? (
+          <div className="mt-1.5 flex gap-0.5">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Star
+                key={n}
+                className={cn(
+                  "h-3.5 w-3.5",
+                  n <= item.rating
+                    ? "fill-amber-500 text-amber-500"
+                    : "fill-[hsl(var(--border))] text-[hsl(var(--border))]",
+                )}
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function TimelineTab({ items }: { items: any[] }) {
- if (!Array.isArray(items) || items.length === 0) {
- return (
- <div className="py-10 text-center text-sm text-muted-foreground">
- Brak zdarzeń w timeline.
- </div>
- );
- }
- return (
- <div className="space-y-0">
- {items.map((item: any, i: number) => (
- <div
- key={`${item.type}-${item.id}-${i}`}
- className="flex gap-3 py-2.5 border-b border-border/50 last:border-0"
- >
- <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
- <MessageSquare className="h-3.5 w-3.5" />
- </div>
- <div className="flex-1 min-w-0">
- <div className="flex items-baseline gap-2 flex-wrap">
- <span className="text-sm font-medium text-foreground">
- {timelineItemLabel(item)}
- </span>
- <span className="ml-auto text-xs text-muted-foreground">
- {item.timestamp ? formatRelativeTime(item.timestamp) : ""}
- </span>
- </div>
- {item.type === "stage_change" && item.moved_by_name && (
- <p className="text-xs text-muted-foreground mt-0.5">
- Przeniósł: {item.moved_by_name}
- </p>
- )}
- {item.content && (
- <p className="text-sm text-foreground mt-1 whitespace-pre-line">
- {unwrapNoteContent(item.content_rendered ?? item.content)}
- </p>
- )}
- {item.notes && (
- <p className="text-sm text-muted-foreground mt-1 italic whitespace-pre-line">
- {item.notes}
- </p>
- )}
- {item.rating && (
- <div className="flex gap-0.5 mt-1">
- {[1, 2, 3, 4, 5].map((n) => (
- <Star
- key={n}
- className={cn("h-3.5 w-3.5",
- n <= item.rating
- ?"text-amber-500 fill-amber-500"
- :"text-[hsl(var(--border))] fill-[hsl(var(--border))]"
- )}
- />
- ))}
- </div>
- )}
- </div>
- </div>
- ))}
- </div>
- );
+  const { groups, fromMap } = useMemo(() => {
+    const list = Array.isArray(items) ? items : [];
+    const stageFrom = buildStageFromMap(list);
+    const grouped: { key: string; label: string; items: any[] }[] = [];
+    let cur: { key: string; label: string; items: any[] } | null = null;
+    for (const item of list) {
+      const key = timelineDayKey(item.timestamp);
+      if (!cur || cur.key !== key) {
+        cur = { key, label: timelineDayLabel(item.timestamp), items: [] };
+        grouped.push(cur);
+      }
+      cur.items.push(item);
+    }
+    return { groups: grouped, fromMap: stageFrom };
+  }, [items]);
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return (
+      <div className="py-10 text-center text-sm text-muted-foreground">
+        Brak zdarzeń w timeline.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {groups.map((group) => (
+        <section key={group.key} className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <h4 className="text-xs font-semibold text-muted-foreground">
+              {group.label}
+            </h4>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          {group.items.map((item: any, i: number) => (
+            <TimelineCard
+              key={`${item.type}-${item.id}-${i}`}
+              item={item}
+              fromStage={
+                item.type === "stage_change" && item.id != null
+                  ? fromMap.get(item.id)
+                  : undefined
+              }
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
 }
 
 type RecruitmentRate = {
