@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import List, Optional
@@ -241,10 +242,14 @@ async def list_contracts(
     if q and q.strip():
         # Free-text search across the joined candidate/client/job. ILIKE is
         # case-insensitive and Unicode-aware, so "grądzki" matches "Grądzki".
+        # Names are stored NFC (precomposed "ą" = U+0105), but some keyboards
+        # and pasted text emit NFD ("a" + combining ogonek); without folding,
+        # those decomposed queries silently match nothing. Normalise the query
+        # to NFC so it lines up with the stored form.
         # Job is outer-joined (job_id is nullable) so contracts without a job
         # still match on candidate/client. These relationships are many-to-one,
         # so the joins never multiply rows — no DISTINCT needed.
-        pattern = f"%{q.strip()}%"
+        pattern = f"%{unicodedata.normalize('NFC', q.strip())}%"
         query = (
             query.join(Contract.candidate)
             .join(Contract.client)

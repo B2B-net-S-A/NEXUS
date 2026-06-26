@@ -9,6 +9,7 @@ find "Grądzki").
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import date, timedelta
 
@@ -102,6 +103,18 @@ async def test_search_by_surname_is_case_and_diacritic_insensitive(
         ids = {item["id"] for item in body["items"]}
         assert row[0] in ids
         assert body["total"] == 1
+
+        # NFD form of the same query (decomposed 'ą' = 'a' + combining ogonek)
+        # must also match the NFC-stored name — the server normalises to NFC.
+        nfd_query = unicodedata.normalize("NFD", f"grądzki{token}")
+        assert nfd_query != f"grądzki{token}"  # sanity: forms really differ
+        r_nfd = await app_client.get(
+            "/api/contracts",
+            params={"q": nfd_query, "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert r_nfd.status_code == 200, r_nfd.text
+        assert row[0] in {item["id"] for item in r_nfd.json()["items"]}
     finally:
         await _cleanup([row])
 
