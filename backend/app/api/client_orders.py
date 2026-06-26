@@ -13,7 +13,7 @@ Flow B — "Nowy kontraktor / zamówienie" (POST /contract-with-order) —
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import (
@@ -531,19 +531,15 @@ async def create_contract_with_order(
     except ValueError:
         raise HTTPException(400, detail="Invalid rate_unit") from None
 
-    # Contract.rate_client jest Integer (stawki kontraktu trzymane całkowicie);
-    # dziesiętną precyzję (np. 118.13) zachowujemy na Order.rate_client poniżej.
-    contract_rate_client = int(
-        Decimal(payload.rate_client).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    )
-
+    # Contract.rate_client i rate_candidate to Numeric(10,2) (migracje 0147/0148)
+    # — trzymamy stawki dokładnie, bez zaokrąglania (np. 287.5 / 157.5 PLN/h).
     contract = Contract(
         candidate_id=payload.candidate_id,
         client_id=client_id,
         job_id=payload.job_id,
         start_date=payload.contract_start_date,
         end_date=payload.contract_end_date,
-        rate_client=contract_rate_client,
+        rate_client=payload.rate_client,
         rate_candidate=payload.rate_candidate,
         currency=payload.currency,
         rate_unit=rate_unit_enum,
