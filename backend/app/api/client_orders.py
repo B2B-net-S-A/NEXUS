@@ -13,6 +13,7 @@ Flow B — "Nowy kontraktor / zamówienie" (POST /contract-with-order) —
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from fastapi import (
@@ -72,10 +73,10 @@ def _days_to(target: Optional[date]) -> Optional[int]:
 
 
 def _normalize_monthly(
-    rate: Optional[int],
+    rate: Optional[Decimal | int],
     rate_unit: Optional[RateUnit],
     billing_hours: Optional[int],
-) -> Optional[int]:
+) -> Optional[Decimal | int]:
     if rate is None:
         return None
     if rate_unit == RateUnit.monthly or rate_unit is None:
@@ -87,7 +88,9 @@ def _normalize_monthly(
     return rate
 
 
-def _compute_monthly_margin(order: ClientOrder, contract: Contract) -> Optional[int]:
+def _compute_monthly_margin(
+    order: ClientOrder, contract: Contract
+) -> Optional[Decimal | int]:
     """Marża/mc dla Order: (Order.rate_client OR Contract.rate_client) - Contract.rate_candidate."""
     rate_client_effective = order.rate_client or contract.rate_client
     if rate_client_effective is None or contract.rate_candidate is None:
@@ -528,13 +531,19 @@ async def create_contract_with_order(
     except ValueError:
         raise HTTPException(400, detail="Invalid rate_unit") from None
 
+    # Contract.rate_client jest Integer (stawki kontraktu trzymane całkowicie);
+    # dziesiętną precyzję (np. 118.13) zachowujemy na Order.rate_client poniżej.
+    contract_rate_client = int(
+        Decimal(payload.rate_client).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
     contract = Contract(
         candidate_id=payload.candidate_id,
         client_id=client_id,
         job_id=payload.job_id,
         start_date=payload.contract_start_date,
         end_date=payload.contract_end_date,
-        rate_client=payload.rate_client,
+        rate_client=contract_rate_client,
         rate_candidate=payload.rate_candidate,
         currency=payload.currency,
         rate_unit=rate_unit_enum,

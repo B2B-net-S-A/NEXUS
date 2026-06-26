@@ -118,7 +118,7 @@ class ContractResponse(BaseModel):
     candidate_id: int
     client_id: int
     job_id: Optional[int]
-    start_date: date
+    start_date: Optional[date] = None
     end_date: Optional[date]
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int]
@@ -342,7 +342,7 @@ class ContractorListItem(BaseModel):
     client_name: Optional[str] = None
     job_title: Optional[str] = None
     status: ContractStatus
-    start_date: date
+    start_date: Optional[date] = None
     end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
     rate_client: Optional[int] = None

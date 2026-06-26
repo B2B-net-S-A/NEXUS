@@ -117,7 +117,8 @@ class Contract(Base, TimestampMixin):
     job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("jobs.id"), index=True)
 
     # Daty
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Nullable — kontrakt może powstać z zamówienia bez znanej daty "od".
+    start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
     # Stawki finansowe
