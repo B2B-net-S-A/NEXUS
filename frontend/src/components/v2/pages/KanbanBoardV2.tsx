@@ -35,6 +35,7 @@ import api, {
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
 import { useAuthStore } from"@/store/auth";
 import { VerifiedRateModal } from"@/components/v2/modals/VerifiedRateModal";
+import { ClientRateModal } from"@/components/v2/modals/ClientRateModal";
 import {
  Dialog,
  DialogBody,
@@ -669,6 +670,18 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  { item: KanbanItem; srcColId: string }[]
  >([]);
  const [verifiedBulkTotal, setVerifiedBulkTotal] = useState(0);
+ // „CV Wysłane" → zapytaj o stawkę do klienta (sell rate). Analogiczne do
+ // verified, ale stawka jest opcjonalna i zapisywana osobnym PATCH-em po ruchu
+ // (kolumny client_rate_* na najnowszym CandidateStage). Bulk = kolejka modali.
+ const [clientRatePrompt, setClientRatePrompt] = useState<{
+ item: KanbanItem;
+ destCol: KanbanColumn;
+ srcColId: string;
+ } | null>(null);
+ const [clientRateQueue, setClientRateQueue] = useState<
+ { item: KanbanItem; srcColId: string }[]
+ >([]);
+ const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
  const [pendingRejectVerification, setPendingRejectVerification] = useState<{
  item: KanbanItem;
  note: string;
@@ -884,6 +897,15 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  return;
  }
 
+ // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
+ // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
+ if (dst.stage === "cv_sent") {
+ setClientRateQueue([]);
+ setClientRateBulkTotal(1);
+ setClientRatePrompt({ item, destCol: dst, srcColId: colId(src) });
+ return;
+ }
+
  // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
  // żeby anulowanie nie zostawiało karty w złej kolumnie.
  if (dst.category === "terminal" && (dst.stage === "rejected" || dst.stage === "withdrawn")) {
@@ -1096,6 +1118,59 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  }, [jobId]);
 
+ // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
+ // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
+ // nowy CandidateStage), potem PATCH stawki na ten najnowszy etap. Obsługuje
+ // też kolejkę bulk (jeden modal na kandydata).
+ const submitClientRateMove = useCallback(
+ async (
+ payload: { rate: number; unit: RateUnit; currency: string } | null
+ ) => {
+ if (!clientRatePrompt) return;
+ const { item, destCol, srcColId } = clientRatePrompt;
+ const isBulk = clientRateBulkTotal > 1;
+
+ applyOptimistic(item, srcColId, destCol);
+ const ok = await sendMove(item, destCol, undefined, { silent: isBulk });
+ if (ok && payload) {
+ try {
+ await candidatesApi.setRecruitmentClientRate(item.candidate_id, jobId, {
+ rate_value: payload.rate,
+ rate_unit: payload.unit,
+ rate_currency: payload.currency,
+ });
+ if (!isBulk) {
+ showSuccess("Przeniesiono na „CV Wysłane” i zapisano stawkę do klienta.");
+ }
+ } catch (e) {
+ console.error("Set client rate failed", e);
+ showError("Przeniesiono, ale nie udało się zapisać stawki do klienta — uzupełnij ją z profilu kandydata."
+ );
+ }
+ } else if (!ok && isBulk) {
+ await refreshBoard();
+ }
+
+ // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki (lub zamknij).
+ const [next, ...rest] = clientRateQueue;
+ setClientRateQueue(rest);
+ setClientRatePrompt(
+ next ? { item: next.item, destCol, srcColId: next.srcColId } : null
+ );
+ },
+ [
+ clientRatePrompt,
+ clientRateQueue,
+ clientRateBulkTotal,
+ jobId,
+ applyOptimistic,
+ sendMove,
+ refreshBoard,
+ showSuccess,
+ showError,
+ ]
+ );
+
  const bulkMove = async (destColId: string) => {
  const dst = cols.find((c) => colId(c) === destColId);
  if (!dst || selected.size === 0) return;
@@ -1120,6 +1195,20 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  setVerifiedBulkTotal(entries.length);
  setVerifiedQueue(entries.slice(1));
  setVerifiedRatePrompt({
+ item: entries[0].item,
+ destCol: dst,
+ srcColId: entries[0].srcColId,
+ });
+ setSelected(new Set());
+ return;
+ }
+
+ // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali (analogicznie
+ // do verified). Pominięcie/anulowanie obsłużone w submitClientRateMove.
+ if (dst.stage === "cv_sent") {
+ setClientRateBulkTotal(entries.length);
+ setClientRateQueue(entries.slice(1));
+ setClientRatePrompt({
  item: entries[0].item,
  destCol: dst,
  srcColId: entries[0].srcColId,
@@ -1411,6 +1500,30 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  jobBudgetMax={jobBudgetMax}
  onConfirm={submitVerifiedMove}
+ />
+ )}
+
+ {/* „CV Wysłane" — recruiter podaje stawkę do klienta (lub pomija) */}
+ {clientRatePrompt && (
+ <ClientRateModal
+ key={clientRatePrompt.item.id}
+ open={true}
+ onOpenChange={(v) => {
+ if (!v) {
+ // Anulowanie (X/Escape) przerywa też resztę bulk-kolejki.
+ setClientRatePrompt(null);
+ setClientRateQueue([]);
+ setClientRateBulkTotal(0);
+ }
+ }}
+ candidateName={
+ (`${clientRatePrompt.item.name ??""} ${clientRatePrompt.item.lastname ??""}`.trim() ||"Kandydat") +
+ (clientRateBulkTotal > 1
+ ? ` (${clientRateBulkTotal - clientRateQueue.length}/${clientRateBulkTotal})`
+ : "")
+ }
+ onConfirm={(payload) => submitClientRateMove(payload)}
+ onSkip={() => submitClientRateMove(null)}
  />
  )}
 
