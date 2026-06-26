@@ -7,9 +7,10 @@ which client on what contract type" before making a new offer.
 
 import enum
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -39,7 +40,7 @@ class RateHistory(Base, TimestampMixin):
         ForeignKey("jobs.id"), nullable=True, index=True
     )
 
-    rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="PLN", nullable=False)
     contract_type: Mapped[ContractType] = mapped_column(
         Enum(ContractType, name="contracttype"), nullable=False

@@ -40,8 +40,8 @@ class NewContractorOrderRequest(BaseModel):
     rate_client: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
     """Stawka jaką klient nam płaci (z PDF zamówienia) — dziesiętna (np. 118.13)."""
 
-    rate_candidate: int = Field(..., ge=0)
-    """Stawka jaką my płacimy kontraktorowi (z naszego B2B)."""
+    rate_candidate: Decimal = Field(..., ge=0, max_digits=10, decimal_places=2)
+    """Stawka jaką my płacimy kontraktorowi (z naszego B2B) — dziesiętna (np. 157.5)."""
 
     rate_unit: str = "monthly"
     """``monthly`` / ``daily`` / ``hourly`` (default monthly)."""
