@@ -144,25 +144,40 @@ export function FilePreviewContent({
     }
 
     (async () => {
-      try {
-        const raw = await fetchDocumentBlob(candidateId, doc.id, "inline");
-        if (cancelled) return;
-
-        if (kind === "docx") {
-          // Render w osobnym efekcie — potrzebuje kontenera DOM.
-          setDocxBlob(raw);
-        } else {
-          // PDF / obraz — wymuszamy poprawny MIME (Blob default octet-stream
-          // wymusiłby download zamiast inline renderu).
-          const typed = doc.content_type
-            ? new Blob([raw], { type: doc.content_type })
-            : raw;
-          createdUrl = URL.createObjectURL(typed);
-          setBlobUrl(createdUrl);
-          setStatus("ready");
+      // Stream contentu z proxy backendu (→ Hetzner Object Storage) bywa
+      // przejściowo zawodny (np. 500/reset przy szybkim remountcie podczas
+      // przełączania zakładek). Ponawiamy do 3× z krótkim backoffem zanim
+      // pokażemy błąd — inline podgląd CV jest centralnym elementem widoku.
+      let raw: Blob | null = null;
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        try {
+          raw = await fetchDocumentBlob(candidateId, doc.id, "inline");
+          break;
+        } catch {
+          raw = null;
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          }
         }
-      } catch {
-        if (!cancelled) setStatus("error");
+      }
+      if (cancelled) return;
+      if (!raw) {
+        setStatus("error");
+        return;
+      }
+
+      if (kind === "docx") {
+        // Render w osobnym efekcie — potrzebuje kontenera DOM.
+        setDocxBlob(raw);
+      } else {
+        // PDF / obraz — wymuszamy poprawny MIME (Blob default octet-stream
+        // wymusiłby download zamiast inline renderu).
+        const typed = doc.content_type
+          ? new Blob([raw], { type: doc.content_type })
+          : raw;
+        createdUrl = URL.createObjectURL(typed);
+        setBlobUrl(createdUrl);
+        setStatus("ready");
       }
     })();
 
