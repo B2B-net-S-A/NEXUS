@@ -466,6 +466,44 @@ function stageLabel(stage: string): string {
  return STAGE_LABELS[stage] ?? stage;
 }
 
+// Terminalne etapy — rekrutacja zamknięta, ale nadal pokazujemy ją w kolumnie
+// „Rekrutacje" (kandydat „widnieje w pipeline"); status różnicujemy kolorem.
+const TERMINAL_STAGES = new Set(["rejected", "withdrawn", "hired"]);
+
+function isTerminalStage(stage: string): boolean {
+ return TERMINAL_STAGES.has(stage);
+}
+
+/** Kolor badge'a etapu w popoverze „Rekrutacje": zielony = zatrudniony,
+ *  czerwony = odrzucony, szary = wycofany, neutralny = etap aktywny. */
+function stageBadgeClass(stage: string): string {
+ switch (stage) {
+ case "hired":
+ return "border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
+ case "rejected":
+ return "border-transparent bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
+ case "withdrawn":
+ return "border-transparent bg-muted text-muted-foreground";
+ default:
+ return "";
+ }
+}
+
+/** Sortuje rekrutacje do popovera: aktywne najpierw, terminalne na końcu;
+ *  wewnątrz grupy najnowszy ruch pierwszy. */
+function sortRecruitments<T extends { stage: string; moved_at?: string | null }>(
+ recs: readonly T[]
+): T[] {
+ return [...recs].sort((a, b) => {
+ const ta = isTerminalStage(a.stage) ? 1 : 0;
+ const tb = isTerminalStage(b.stage) ? 1 : 0;
+ if (ta !== tb) return ta - tb;
+ const ma = a.moved_at ? Date.parse(a.moved_at) : 0;
+ const mb = b.moved_at ? Date.parse(b.moved_at) : 0;
+ return mb - ma;
+ });
+}
+
 // Role scopes the admin can target when saving candidates-columns as default.
 // Order matches the user hierarchy (admin → user).
 const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = [
@@ -608,13 +646,22 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
   );
 }
 
-/** Pokazuje liczbę aktywnych rekrutacji (nie-terminalnych stages) z popoverem
- *  na hover/click z listą {job_title, klient, stage}. Klik w wpis → /jobs/{id}. */
+/** Pokazuje liczbę rekrutacji, w których kandydat się znajduje (wszystkie etapy,
+ *  też terminalne — odrzucony/zatrudniony/wycofany), z popoverem na hover/click
+ *  z listą {job_title, klient, stage}. Status różnicowany kolorem badge'a.
+ *  Klik w wpis → /jobs/{id}. */
 function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
- const recs = candidate.active_recruitments ?? [];
+ const recs = sortRecruitments(candidate.active_recruitments ?? []);
  if (recs.length === 0) {
  return <span className="text-xs text-muted-foreground">—</span>;
  }
+ // Aktywne (nie-terminalne) sterują kolorem licznika: bursztynowy gdy są
+ // żywe procesy, neutralny gdy wszystkie zamknięte.
+ const activeCount = recs.filter((r) => !isTerminalStage(r.stage)).length;
+ const counterClass =
+ activeCount > 0
+ ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200"
+ : "bg-muted text-muted-foreground hover:bg-muted/80";
  return (
  <Popover>
  <PopoverTrigger asChild>
@@ -622,9 +669,9 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  type="button"
  onClick={(e) => e.stopPropagation()}
  className="inline-flex items-center gap-1"
- title={`Aktywne rekrutacje: ${recs.length}`}
+ title={`Rekrutacje: ${recs.length}${activeCount < recs.length ? ` (aktywne: ${activeCount})` : ""}`}
  >
- <Badge size="sm" variant="soft" className="gap-1 bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200">
+ <Badge size="sm" variant="soft" className={`gap-1 ${counterClass}`}>
  <Briefcase className="h-3 w-3" />
  {recs.length}
  </Badge>
@@ -637,7 +684,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  >
  <div className="px-3 py-2 border-b border-border">
  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
- Aktywne rekrutacje ({recs.length})
+ Rekrutacje ({recs.length})
  </div>
  </div>
  <ul className="max-h-80 overflow-auto">
@@ -669,7 +716,11 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  </div>
  )}
  </div>
- <Badge size="sm" variant="outline" className="shrink-0">
+ <Badge
+ size="sm"
+ variant="outline"
+ className={`shrink-0 ${stageBadgeClass(r.stage)}`}
+ >
  {stageLabel(r.stage)}
  </Badge>
  </Link>
@@ -687,7 +738,7 @@ function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
  *  „nie da się sprawdzić kto/kiedy" complaint was just discoverability).
  *  Stage-aware: when a `?stage=` filter is active it attributes the recruitment
  *  whose stage matches it (freshest move if several); otherwise the
- *  most-recently-moved active recruitment. */
+ *  most-recently-moved recruitment (any stage, też terminalny). */
 function StageMovedCell({ candidate }: { candidate: Candidate }) {
  const searchParams = useSearchParams();
  const recs = candidate.active_recruitments ?? [];
