@@ -225,6 +225,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                 </span>
                 <input
                   type="number"
+                  step="0.001"
                   value={form.new_rate_candidate}
                   onChange={(e) =>
                     setForm({ ...form, new_rate_candidate: e.target.value })
@@ -238,6 +239,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
                 </span>
                 <input
                   type="number"
+                  step="0.001"
                   value={form.new_rate_client}
                   onChange={(e) =>
                     setForm({ ...form, new_rate_client: e.target.value })

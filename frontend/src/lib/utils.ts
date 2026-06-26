@@ -7,7 +7,11 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatCurrency(amount: number | null | undefined, currency = "PLN"): string {
   if (amount == null) return "—";
-  return new Intl.NumberFormat("pl-PL", { style: "currency", currency }).format(amount);
+  return new Intl.NumberFormat("pl-PL", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 3,
+  }).format(amount);
 }
 
 export function formatDate(date: string | Date | null | undefined): string {

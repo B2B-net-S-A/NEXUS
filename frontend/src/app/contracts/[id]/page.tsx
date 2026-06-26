@@ -882,7 +882,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="1"
+                      step="0.001"
                       value={form.framework_rate}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, framework_rate: e.target.value } : f))
@@ -897,7 +897,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="1"
+                      step="0.001"
                       value={form.rate_candidate}
                       disabled={contract.candidate_rate_schedule.length > 0}
                       onChange={(e) =>
@@ -919,7 +919,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="1"
+                      step="0.001"
                       value={form.rate_client}
                       onChange={(e) =>
                         setForm((f) => (f ? { ...f, rate_client: e.target.value } : f))
@@ -934,7 +934,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="1"
+                      step="0.001"
                       value={form.target_rate_min}
                       onChange={(e) =>
                         setForm((f) =>
@@ -951,7 +951,7 @@ export default function ContractDetailPage() {
                     <input
                       type="number"
                       min="0"
-                      step="1"
+                      step="0.001"
                       value={form.target_rate_max}
                       onChange={(e) =>
                         setForm((f) =>
