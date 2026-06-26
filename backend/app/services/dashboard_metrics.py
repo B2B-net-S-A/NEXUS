@@ -52,9 +52,7 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             select(func.count(Contract.id)).where(
                 Contract.end_date <= cutoff,
                 Contract.end_date >= date.today(),
-                Contract.status.in_(
-                    [ContractStatus.active, ContractStatus.ending]
-                ),
+                Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             )
         )
     ).scalar()
