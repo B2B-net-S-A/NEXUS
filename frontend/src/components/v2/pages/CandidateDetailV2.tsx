@@ -874,10 +874,14 @@ export function CandidateDetailV2({
  <div
  className={cn(
  "grid gap-5 items-start",
- !embedded && "lg:grid-cols-[1fr_340px]",
+ // „Podgląd" korzysta z pełnej szerokości (bez prawego railu sugestii) —
+ // CV + notatka + timeline jak w Traffit. Reszta zakładek: tabs + rail 340px.
+ !embedded && activeTab !== "podglad" && "lg:grid-cols-[1fr_340px]",
  )}
  >
- {/* Side rail — AI screening + suggestions (right column on full-page) */}
+ {/* Side rail — AI screening + suggestions (prawy panel na full-page).
+ Ukryty na „Podglądzie" — ta zakładka korzysta z pełnej szerokości. */}
+ {activeTab !== "podglad" && (
  <aside
  className={cn(
  "space-y-4",
@@ -913,6 +917,7 @@ export function CandidateDetailV2({
  {/* AI-suggested talent pools (migracja 0041) */}
  <SuggestedPoolsWidget candidateId={Number(id)} />
  </aside>
+ )}
 
  {/* Main column — tabs */}
  <div className={cn("space-y-5 min-w-0", !embedded && "lg:order-1")}>
@@ -3618,9 +3623,10 @@ function PipelinePane({
  }
 
  return (
- <div className="grid grid-cols-1 lg:grid-cols-[1.45fr_1fr] gap-4 items-start">
- {/* Lewa kolumna — CV inline */}
- <div className="rounded-lg border border-border overflow-hidden bg-muted/30">
+ <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 items-start">
+ {/* Lewa kolumna — CV inline. minmax(0,…) + min-w-0 — bez nich szeroka
+ treść timeline'u rozpychała kolumny i CV zwężało się do paru pikseli. */}
+ <div className="min-w-0 rounded-lg border border-border overflow-hidden bg-muted/30">
  {primaryDoc ? (
  <div className="flex flex-col h-[78vh]">
  <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2">
@@ -3655,7 +3661,7 @@ function PipelinePane({
  </div>
 
  {/* Prawa kolumna — notatka + timeline */}
- <div className="space-y-4">
+ <div className="space-y-4 min-w-0">
  <NoteComposer
  recruitments={recruitments}
  defaultJobId={defaultJobId}
