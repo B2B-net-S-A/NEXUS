@@ -714,10 +714,12 @@ async def list_candidates(
     include_active_recruitments: bool = Query(
         False,
         description=(
-            "When true, each candidate gets `active_recruitments` — list of "
-            "non-terminal pipeline stages (stage NOT IN rejected/withdrawn/hired). "
-            "One aggregated SQL per page (DISTINCT ON candidate_id, job_id, "
-            "ordered by moved_at DESC) + JOIN Job + Client. No N+1."
+            "When true, each candidate gets `active_recruitments` — every "
+            "recruitment the candidate appears in (latest stage per job, "
+            "including terminal rejected/withdrawn/hired; front differentiates "
+            "by stage badge). One aggregated SQL per page (DISTINCT ON "
+            "candidate_id, job_id, ordered by moved_at DESC) + JOIN Job + "
+            "Client. No N+1."
         ),
     ),
     include_last_activity: bool = Query(
@@ -1519,11 +1521,13 @@ async def list_candidates(
             for cand in items:
                 match_stats_by_candidate[cand.id] = zero
 
-    # Active recruitments aggregation (non-terminal stages). One SQL per page:
-    # DISTINCT ON (candidate_id, job_id) ORDER BY moved_at DESC, id DESC →
-    # najnowszy ruch per parę. Następnie WHERE stage NOT IN terminal
-    # (rejected/withdrawn/hired) + JOIN Job + Client. Lista bezpieczna dla
-    # response — żadnych szczegółów scorecard/rate'ów.
+    # Recruitments aggregation (WSZYSTKIE etapy — też terminalne). One SQL per
+    # page: DISTINCT ON (candidate_id, job_id) ORDER BY moved_at DESC, id DESC →
+    # najnowszy ruch per parę + JOIN Job + Client. Pokazujemy każdą rekrutację,
+    # w której kandydat się pojawił (również rejected/withdrawn/hired) — front
+    # różnicuje status badge'em. Wcześniej kolumna ukrywała terminalne etapy, więc
+    # odrzucony/zatrudniony kandydat znikał z listy mimo bycia w pipeline. Lista
+    # bezpieczna dla response — żadnych szczegółów scorecard/rate'ów.
     active_recruitments_by_candidate: dict[int, list[ActiveRecruitmentBrief]] = {}
     if include_active_recruitments and items:
         candidate_ids = [c.id for c in items]
@@ -1549,11 +1553,6 @@ async def list_candidates(
             )
             .subquery()
         )
-        terminal_stages = (
-            PipelineStage.rejected,
-            PipelineStage.withdrawn,
-            PipelineStage.hired,
-        )
         mover = aliased(User)
         active_stmt = (
             select(
@@ -1569,7 +1568,6 @@ async def list_candidates(
             .join(Job, Job.id == latest_per_pair.c.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
             .outerjoin(mover, mover.id == latest_per_pair.c.moved_by)
-            .where(latest_per_pair.c.stage.not_in(terminal_stages))
         )
         for (
             cand_id,

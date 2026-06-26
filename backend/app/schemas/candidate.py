@@ -239,9 +239,11 @@ class TalentPoolBrief(BaseModel):
 
 
 class ActiveRecruitmentBrief(BaseModel):
-    """Aktywna (nie-terminalna) rekrutacja kandydata — używana w liście
-    kandydatów do pokazania w jakich pipeline'ach kandydat aktualnie się
-    znajduje. Wyłącznie najnowszy ruch per (candidate_id, job_id).
+    """Rekrutacja kandydata — używana w liście kandydatów do pokazania w jakich
+    pipeline'ach kandydat się znajduje. Obejmuje WSZYSTKIE etapy, też terminalne
+    (rejected/withdrawn/hired) — front różnicuje status badge'em, więc odrzucony
+    czy zatrudniony kandydat nadal jest widoczny. Wyłącznie najnowszy ruch per
+    (candidate_id, job_id).
 
     `moved_at` / `moved_by_name` opisują KTO i KIEDY przeniósł kandydata na
     jego BIEŻĄCY etap w tej rekrutacji (= ten sam najnowszy ruch). Pozwala

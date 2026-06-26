@@ -821,3 +821,31 @@ async def test_active_recruitments_mover_reflects_latest_move(
             job_ids=[job_id],
             user_ids=[mover_a, mover_b],
         )
+
+
+@pytest.mark.asyncio
+async def test_active_recruitments_includes_terminal_stage(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A candidate whose LATEST move is terminal (`rejected`) STILL surfaces in
+    `active_recruitments` — the list „Rekrutacje" column shows every pipeline the
+    candidate appears in, not only the live ones (front różnicuje status badge'em).
+    Regression guard for the „odrzucony kandydat znika z kolumny Rekrutacje" fix."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate(name_suffix="-TERMINAL")
+    base = datetime(2026, 5, 20, 10, 0, tzinfo=timezone.utc)
+    await _seed_stage(cand, job_id, "screening", moved_at=base)
+    await _seed_stage(cand, job_id, "rejected", moved_at=base + timedelta(days=2))
+    try:
+        r = await app_client.get(
+            "/api/candidates?include_active_recruitments=true&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        item = next((it for it in r.json()["items"] if it["id"] == cand), None)
+        assert item is not None
+        rec = _rec_for_job(item, job_id)
+        assert rec is not None, "rejected recruitment must still appear in column"
+        assert rec["stage"] == "rejected"
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
