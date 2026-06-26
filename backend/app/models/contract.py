@@ -335,10 +335,27 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
     )
 
-    def calculate_margin(self) -> Optional[int]:
+    @staticmethod
+    def _as_decimal(value: object) -> Optional[Decimal]:
+        """Coerce a rate (Decimal/int/float) to Decimal, tolerant of None.
+
+        Stawki bywają mieszane typami: kolumny to ``Numeric`` (→ ``Decimal`` z
+        bazy), ale schematy PATCH/CREATE przekazują ``float``/``int`` przed
+        flush. ``Decimal - float`` rzuca ``TypeError`` (500), więc normalizujemy
+        oba operandy do ``Decimal`` przez ``str`` (bez błędu binarnego floata).
+        """
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    def calculate_margin(self) -> Optional[Decimal]:
         """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""
-        if self.rate_client is not None and self.rate_candidate is not None:
-            return self.rate_client - self.rate_candidate
+        client = self._as_decimal(self.rate_client)
+        candidate = self._as_decimal(self.rate_candidate)
+        if client is not None and candidate is not None:
+            return client - candidate
         return None
 
     def effective_candidate_rate(self, on: date) -> Optional[int]:
@@ -359,28 +376,29 @@ class Contract(Base, TimestampMixin):
             return max(past, key=lambda e: e.effective_from).rate
         return min(schedule, key=lambda e: e.effective_from).rate
 
-    def monthly_rate(self, rate: Optional[int]) -> Optional[int]:
+    def monthly_rate(self, rate: object) -> Optional[Decimal]:
         """Normalize a stored rate to a monthly amount using rate_unit + billing_hours."""
-        if rate is None:
+        dec = self._as_decimal(rate)
+        if dec is None:
             return None
         if self.rate_unit == RateUnit.monthly:
-            return rate
+            return dec
         if self.rate_unit == RateUnit.daily:
-            return rate * 22  # standardowy miesiąc roboczy (PL)
+            return dec * 22  # standardowy miesiąc roboczy (PL)
         if self.rate_unit == RateUnit.hourly:
-            return rate * (self.billing_hours_per_month or 160)
-        return rate
+            return dec * (self.billing_hours_per_month or 160)
+        return dec
 
     @property
-    def monthly_rate_client(self) -> Optional[int]:
+    def monthly_rate_client(self) -> Optional[Decimal]:
         return self.monthly_rate(self.rate_client)
 
     @property
-    def monthly_rate_candidate(self) -> Optional[int]:
+    def monthly_rate_candidate(self) -> Optional[Decimal]:
         return self.monthly_rate(self.rate_candidate)
 
     @property
-    def monthly_margin(self) -> Optional[int]:
+    def monthly_margin(self) -> Optional[Decimal]:
         c, k = self.monthly_rate_client, self.monthly_rate_candidate
         if c is None or k is None:
             return None
