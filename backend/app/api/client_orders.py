@@ -289,7 +289,7 @@ async def create_order_extension(
     order_status: ClientOrderStatus = Form(ClientOrderStatus.active),
     start_date: Optional[date] = Form(None),
     end_date: Optional[date] = Form(None),
-    rate_client: Optional[int] = Form(None),
+    rate_client: Optional[Decimal] = Form(None),
     total_value: Optional[str] = Form(None),
     currency: Optional[str] = Form(None),
     framework_contract_id: Optional[int] = Form(None),
@@ -297,7 +297,7 @@ async def create_order_extension(
     notes: Optional[str] = Form(None),
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
-    from decimal import Decimal, InvalidOperation
+    from decimal import InvalidOperation
 
     await _assert_client(db, client_id)
 
@@ -531,8 +531,8 @@ async def create_contract_with_order(
     except ValueError:
         raise HTTPException(400, detail="Invalid rate_unit") from None
 
-    # Contract.rate_client i rate_candidate to Numeric(10,2) (migracje 0147/0148)
-    # — trzymamy stawki dokładnie, bez zaokrąglania (np. 287.5 / 157.5 PLN/h).
+    # Contract.rate_client i rate_candidate to NUMERIC(12,3) — trzymamy pełną
+    # stawkę dziesiętną bez zaokrąglania (np. Alior 164,375 zł/h, Erste 157,5).
     contract = Contract(
         candidate_id=payload.candidate_id,
         client_id=client_id,
