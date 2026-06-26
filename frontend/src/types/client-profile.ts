@@ -114,7 +114,7 @@ export function formatPLN(value: number | null | undefined): string {
   return new Intl.NumberFormat("pl-PL", {
     style: "currency",
     currency: "PLN",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 3,
   }).format(value);
 }
 

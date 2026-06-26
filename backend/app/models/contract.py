@@ -121,10 +121,11 @@ class Contract(Base, TimestampMixin):
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
 
-    # Stawki finansowe — Numeric(10,2): stawki godzinowe bywają z groszami/
-    # połówką (np. klient VeloBank 206.25, kandydat Erste 157.5).
-    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
-    rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
+    # Stawki finansowe — Numeric(12,3): stawki godzinowe bywają z groszami/
+    # połówką (np. klient VeloBank 206.25, kandydat Erste 157.5) lub z trzecim
+    # miejscem po przecinku (np. Alior 164.375 / 141.175 zł/h — migracja 0149).
+    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
+    rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
     # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
     # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
     framework_rate: Mapped[Optional[int]] = mapped_column(Integer)
@@ -142,8 +143,8 @@ class Contract(Base, TimestampMixin):
     )
 
     # Marża — obliczana automatycznie (rate_client - rate_candidate).
-    # Numeric(10,2) bo rate_client może mieć grosze.
-    margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
+    # Numeric(12,3) bo stawki mogą mieć do 3 miejsc po przecinku (migracja 0149).
+    margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
 
     contract_type: Mapped[ContractType] = mapped_column(
         Enum(ContractType), default=ContractType.b2b, nullable=False

@@ -570,7 +570,7 @@ function NewContractForm() {
                 <Input
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.001"
                   value={frameworkRate}
                   onChange={(e) => setFrameworkRate(e.target.value)}
                   placeholder="—"
@@ -581,7 +581,7 @@ function NewContractForm() {
                 <Input
                   type="number"
                   min="0"
-                  step="1"
+                  step="0.001"
                   value={rateClient}
                   onChange={(e) => setRateClient(e.target.value)}
                   placeholder="—"
@@ -610,7 +610,7 @@ function NewContractForm() {
                       <Input
                         type="number"
                         min="0"
-                        step="1"
+                        step="0.001"
                         value={row.rate}
                         onChange={(e) =>
                           setRateSchedule((rows) =>

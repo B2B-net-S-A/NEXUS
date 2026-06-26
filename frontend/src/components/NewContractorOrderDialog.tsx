@@ -377,6 +377,7 @@ export function NewContractorOrderDialog({
             <input
               type="number"
               min="0"
+              step="0.001"
               value={rateClient}
               onChange={(e) => setRateClient(e.target.value)}
               required
@@ -389,6 +390,7 @@ export function NewContractorOrderDialog({
             <input
               type="number"
               min="0"
+              step="0.001"
               value={rateCandidate}
               onChange={(e) => setRateCandidate(e.target.value)}
               required

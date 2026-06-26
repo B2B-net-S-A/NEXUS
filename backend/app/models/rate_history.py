@@ -40,7 +40,7 @@ class RateHistory(Base, TimestampMixin):
         ForeignKey("jobs.id"), nullable=True, index=True
     )
 
-    rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="PLN", nullable=False)
     contract_type: Mapped[ContractType] = mapped_column(
         Enum(ContractType, name="contracttype"), nullable=False

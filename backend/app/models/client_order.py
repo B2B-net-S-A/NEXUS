@@ -91,9 +91,10 @@ class ClientOrder(Base, TimestampMixin):
     # Rate_client per Order — może różnić się od Contract.rate_client przy
     # przedłużeniach z podwyżką. rate_candidate trzymamy na Contract (typically
     # stała przez całą współpracę z kontraktorem).
-    # Numeric(10,2) — stawka klienta z PO może być dziesiętna (np. 118.13 PLN/h).
+    # Numeric(12,3) — stawka klienta z PO może być dziesiętna z 3 miejscami
+    # po przecinku (np. Alior 164.375 PLN/h — migracja 0149).
     rate_client: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(10, 2), nullable=True
+        Numeric(12, 3), nullable=True
     )
 
     total_value: Mapped[Optional[Decimal]] = mapped_column(

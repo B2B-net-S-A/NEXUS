@@ -133,6 +133,7 @@ export function ExtendOrderDialog({
             <input
               type="number"
               min="0"
+              step="0.001"
               value={rateClient}
               onChange={(e) => setRateClient(e.target.value)}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"

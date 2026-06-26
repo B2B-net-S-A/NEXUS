@@ -170,6 +170,7 @@ export function DraftCompletionModal({
  id="rate_candidate"
  type="number"
  min={0}
+ step={0.001}
  value={form.rate_candidate}
  onChange={(e) =>
  setForm((f) => ({ ...f, rate_candidate: e.target.value }))
@@ -182,6 +183,7 @@ export function DraftCompletionModal({
  id="rate_client"
  type="number"
  min={0}
+ step={0.001}
  value={form.rate_client}
  onChange={(e) =>
  setForm((f) => ({ ...f, rate_client: e.target.value }))
