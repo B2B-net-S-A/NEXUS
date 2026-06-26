@@ -456,14 +456,21 @@ async def expiring_contracts(
     db: AsyncSession = Depends(get_db),
     days: int = Query(EXPIRY_WARNING_DAYS, ge=1, le=90),
 ):
-    """Return contracts expiring within N days."""
+    """Return contracts expiring within N days.
+
+    Counts both `active` and `ending` contracts: the daily `_promote_statuses`
+    cron flips an active contract to `ending` once it crosses the 30-day mark,
+    so filtering on `active` alone silently drops every already-promoted
+    contract (the banner would read 0 while dozens are genuinely expiring).
+    This matches the active+ending set the Slack expiry summary already uses.
+    """
     cutoff = date.today() + timedelta(days=days)
     result = await db.execute(
         select(Contract)
         .where(
             Contract.end_date <= cutoff,
             Contract.end_date >= date.today(),
-            Contract.status == ContractStatus.active,
+            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
         )
         # Eager-load the schedule: it's a serialized field on ContractResponse,
         # so from_attributes would otherwise trigger an async lazy-load error.

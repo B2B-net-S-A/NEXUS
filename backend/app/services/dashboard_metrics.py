@@ -44,12 +44,17 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     ).scalar()
 
     cutoff = date.today() + timedelta(days=30)
+    # active + ending: the cron promotes active→ending at the 30-day mark, so
+    # an active-only count under-reports (often to 0). Keep this in sync with
+    # the /api/contracts/expiring banner.
     contracts_expiring = (
         await db.execute(
             select(func.count(Contract.id)).where(
                 Contract.end_date <= cutoff,
                 Contract.end_date >= date.today(),
-                Contract.status == ContractStatus.active,
+                Contract.status.in_(
+                    [ContractStatus.active, ContractStatus.ending]
+                ),
             )
         )
     ).scalar()
