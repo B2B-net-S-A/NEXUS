@@ -44,7 +44,7 @@ class ContractCreate(BaseModel):
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
-    rate_client: Optional[int] = None
+    rate_client: Optional[float] = None
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
@@ -81,7 +81,7 @@ class ContractUpdate(BaseModel):
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
-    rate_client: Optional[int] = None
+    rate_client: Optional[float] = None
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
@@ -122,14 +122,14 @@ class ContractResponse(BaseModel):
     end_date: Optional[date]
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[int]
-    rate_client: Optional[int]
+    rate_client: Optional[float]
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
     currency: str
     rate_unit: RateUnit
     billing_hours_per_month: int
-    margin: Optional[int]
+    margin: Optional[float]
     # Effective-dated candidate-rate schedule (oldest → newest). Empty for
     # contracts created before the schedule feature.
     candidate_rate_schedule: list[ContractCandidateRateEntry] = []
@@ -234,8 +234,8 @@ class ContractDetailResponse(ContractResponse):
     client_name: Optional[str] = None
     job_title: Optional[str] = None
     monthly_rate_candidate: Optional[int] = None
-    monthly_rate_client: Optional[int] = None
-    monthly_margin: Optional[int] = None
+    monthly_rate_client: Optional[float] = None
+    monthly_margin: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -345,9 +345,9 @@ class ContractorListItem(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     rate_candidate: Optional[int] = None
-    rate_client: Optional[int] = None
+    rate_client: Optional[float] = None
     rate_unit: RateUnit
-    margin: Optional[int] = None
+    margin: Optional[float] = None
     contract_type: ContractType
     work_mode: Optional[ContractWorkMode] = None
     # Only populated for drafts — lists the required fields still missing

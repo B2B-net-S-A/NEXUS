@@ -122,7 +122,9 @@ class Contract(Base, TimestampMixin):
 
     # Stawki finansowe
     rate_candidate: Mapped[Optional[int]] = mapped_column(Integer)
-    rate_client: Mapped[Optional[int]] = mapped_column(Integer)
+    # Stawka klienta — Numeric(10,2): część klientów (np. VeloBank) ma stawki
+    # godzinowe z groszami (206.25, 162.50). Kandydat trzymany jako Integer.
+    rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
     # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
     framework_rate: Mapped[Optional[int]] = mapped_column(Integer)
@@ -139,8 +141,9 @@ class Contract(Base, TimestampMixin):
         Integer, nullable=False, default=160, server_default="160"
     )
 
-    # Marża — obliczana automatycznie (rate_client - rate_candidate)
-    margin: Mapped[Optional[int]] = mapped_column(Integer)
+    # Marża — obliczana automatycznie (rate_client - rate_candidate).
+    # Numeric(10,2) bo rate_client może mieć grosze.
+    margin: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
 
     contract_type: Mapped[ContractType] = mapped_column(
         Enum(ContractType), default=ContractType.b2b, nullable=False
