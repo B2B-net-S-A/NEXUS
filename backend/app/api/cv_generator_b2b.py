@@ -54,6 +54,7 @@ from app.models.user import User, UserRole
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     UploadGenerationInput,
+    ascii_filename_fallback,
     generate_cv_for_candidate,
     generate_cv_from_uploads,
     list_recruitments_with_readiness,
@@ -153,9 +154,17 @@ def _build_docx_response(
     Percent-encode the human-readable name and force ASCII-only ``\\uXXXX``
     escapes in the warnings JSON — ``decodeURIComponent`` / ``JSON.parse`` on
     the client decode both transparently.
+
+    The filename follows the same rule via RFC 6266/5987: an ASCII ``filename=``
+    fallback (latin-1 safe) plus a ``filename*=UTF-8''…`` parameter carrying the
+    real, Polish-character spelling so modern clients save it intact.
     """
+    ascii_name = ascii_filename_fallback(filename)
+    disposition = f'attachment; filename="{ascii_name}"'
+    if filename != ascii_name:
+        disposition += f"; filename*=UTF-8''{quote(filename, safe='')}"
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": disposition,
         "X-Generator-Candidate-Name": quote(candidate_name),
         "X-Generator-Warnings": json.dumps(warnings, ensure_ascii=True),
         "X-Generator-Processing-Ms": str(processing_time_ms),

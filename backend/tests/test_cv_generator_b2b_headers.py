@@ -74,7 +74,29 @@ def test_ascii_name_is_unchanged_enough_to_read():
 
     _assert_all_headers_latin1(response)
     assert unquote(response.headers["X-Generator-Candidate-Name"]) == "Anna Kowalska"
+    # Pure-ASCII filename needs no RFC 5987 extension — header stays simple.
     assert (
         response.headers["Content-Disposition"]
         == 'attachment; filename="CV_B2B_Anna_Kowalska.docx"'
     )
+
+
+def test_polish_filename_uses_rfc5987_and_is_latin1_safe():
+    response = _build_docx_response(
+        docx_bytes=b"PK\x03\x04 fake docx",
+        filename="CV_B2B_Kamil_Szukajło.docx",
+        candidate_name="Kamil Szukajło",
+        warnings=[],
+        processing_time_ms=0,
+    )
+
+    _assert_all_headers_latin1(response)
+
+    disposition = response.headers["Content-Disposition"]
+    # ASCII fallback for legacy clients…
+    assert 'filename="CV_B2B_Kamil_Szukajlo.docx"' in disposition
+    # …plus the RFC 5987 extended parameter carrying the real Polish spelling,
+    # which decodes back to the original filename on the client.
+    assert "filename*=UTF-8''" in disposition
+    encoded = disposition.split("filename*=UTF-8''", 1)[1]
+    assert unquote(encoded) == "CV_B2B_Kamil_Szukajło.docx"

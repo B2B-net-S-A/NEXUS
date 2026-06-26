@@ -160,17 +160,40 @@ class RecruitmentReadiness:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-# Letters NFKD cannot decompose to ASCII — transliterate manually so
-# "Łukasz" → "Lukasz" instead of "ukasz".
+# Letters NFKD cannot decompose to ASCII — transliterate manually so the ASCII
+# fallback renders "Łukasz" → "Lukasz" instead of dropping it to "ukasz".
 _TRANSLIT = str.maketrans({"ł": "l", "Ł": "L", "đ": "d", "Đ": "D", "ø": "o", "Ø": "O"})
 
 
 def _sanitize_for_filename(name: str) -> str:
-    """Transliterate + strip diacritics + replace non-alphanumerics."""
-    name = name.translate(_TRANSLIT)
-    nkfd = unicodedata.normalize("NFKD", name)
+    """Sanitize ``name`` into a filename component while **preserving** Polish
+    diacritics (ł, ą, ż, ó, …) and other Unicode letters.
+
+    Whitespace collapses to underscores; characters that are neither Unicode
+    word characters nor ``.``/``-`` become underscores. The latin-1 constraint
+    of HTTP headers is handled separately at the ``Content-Disposition`` layer
+    (see :func:`ascii_filename_fallback`), so the file saved on disk keeps the
+    candidate's real spelling.
+    """
+    cleaned = re.sub(r"\s+", "_", name)
+    # ``\w`` matches Unicode letters/digits/underscore for ``str`` patterns, so
+    # Polish letters survive while punctuation/brackets become underscores.
+    cleaned = re.sub(r"[^\w.-]", "_", cleaned)
+    return cleaned.strip("_") or "kandydat"
+
+
+def ascii_filename_fallback(filename: str) -> str:
+    """ASCII-fold ``filename`` for the legacy ``filename="…"`` parameter of
+    ``Content-Disposition`` — HTTP header values must be latin-1 encodable.
+
+    Modern clients receive the real (possibly Polish) name via the RFC 5987
+    ``filename*`` parameter; this is only the fallback for clients that ignore
+    it. Transliterates Polish letters, strips diacritics, then replaces anything
+    left outside ``[A-Za-z0-9._-]`` with an underscore.
+    """
+    folded = filename.translate(_TRANSLIT)
+    nkfd = unicodedata.normalize("NFKD", folded)
     ascii_str = "".join(ch for ch in nkfd if not unicodedata.combining(ch))
-    ascii_str = re.sub(r"\s+", "_", ascii_str)
     ascii_str = re.sub(r"[^A-Za-z0-9._-]", "_", ascii_str)
     return ascii_str.strip("_") or "kandydat"
 
