@@ -426,6 +426,7 @@ _KNOWN_TECH: frozenset[str] = frozenset(
         "lua",
         "perl",
         "groovy",
+        "bash",
         "objective-c",
         "node.js",
         "node",
@@ -790,6 +791,21 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
                 # A real technology bolds whole ("Figma", "Spring Boot",
                 # "GitLab CI/CD", "C++").
                 _add(v)
+                # A NON-curated compound qualifies only because EVERY part is
+                # itself a technology — joined by whitespace ("Java 17+", "REST
+                # API") OR a slash ("Bash/Python", "Java/Kotlin"). Also bold
+                # each brand part on its own, so a champion chip that fuses two
+                # techs bolds BOTH wherever the CV writes them apart: "Bash" and
+                # "Python" must bold in a "…, Bash, Python," list, not only in
+                # the verbatim "Bash/Python". Curated wholes ("CI/CD", "Spring
+                # Boot", "React Native") are guarded out — their bare common
+                # part ("CD", "Boot", "Native") must never bold. Require a
+                # letter so a bare version ("17+", "2.2") never bolds.
+                parts = [p for p in re.split(r"[\s/]+", v) if p]
+                if len(parts) > 1 and _norm_tech(v) not in _KNOWN_TECH:
+                    for part in parts:
+                        if _is_tech_word(part) and any(ch.isalpha() for ch in part):
+                            _add(part)
             else:
                 # Not a technology in itself ("visual design", "User-Centered
                 # Design", "bazami danych SQL") — never bold the concept/prose;

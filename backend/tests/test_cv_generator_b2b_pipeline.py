@@ -153,6 +153,27 @@ def test_separate_skill_chips_each_bold():
     ]
 
 
+def test_slash_joined_compound_bolds_each_tech():
+    # Recruiter report: a champion chip that fuses two technologies with a slash
+    # ("Bash/Python") used to bold ONLY the verbatim slash form, so a CV listing
+    # them apart ("…, Bash, Python,") left both unbolded. Now each tech bolds
+    # wherever it appears — directive: bold ALL must-have + nice-to-have techs.
+    kw = ["Bash/Python"]
+    assert _matches("Posiada kluczowe technologie: Git, Bash, Python", kw) == [
+        "Bash",
+        "Python",
+    ]
+    # The verbatim slash form still bolds as a single run.
+    assert _matches("Automatyzacja w Bash/Python", kw) == ["Bash/Python"]
+
+
+def test_slash_compound_does_not_fragment_curated_whole():
+    # A curated slash-tech ("CI/CD") stays a single bold run — its halves
+    # ("CI", "CD") must NOT bold on their own elsewhere in the CV.
+    assert _matches("Wdrożenie CI/CD w firmie", ["CI/CD"]) == ["CI/CD"]
+    assert _matches("Płyta CD w napędzie", ["CI/CD"]) == []
+
+
 def test_multiword_technology_stays_whole_concept_drops():
     # A genuine multi-word TECHNOLOGY bolds whole ("Spring Boot") — never its
     # bare common part ("boot"). A multi-word CONCEPT ("Design System") is not
