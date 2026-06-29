@@ -325,6 +325,54 @@ def test_only_listed_technologies_bold():
     assert "gestalt" not in joined
 
 
+def test_multiword_microsoft_products_bold_whole():
+    # Multi-word brand names (no per-token hard-tech signal) must bold WHOLE,
+    # not partially. Before the allowlist extension "Microsoft Intune" and
+    # "Microsoft 365" produced no span at all (recruiter: a key technology must
+    # bold everywhere it appears).
+    found = _matches(
+        "Wdrożenie Microsoft Intune oraz migracja do Microsoft 365",
+        ["Microsoft Intune", "Microsoft 365"],
+    )
+    assert found == ["Microsoft Intune", "Microsoft 365"]
+
+
+def test_key_technology_bolds_consistently_across_sections():
+    # The same champion technology must bold in EVERY place it appears — the
+    # "why" headline, the skills list, a responsibility line and the per-role
+    # "Technologie:" line all run through the same patterns.
+    keywords = ["Microsoft Intune", "Active Directory"]
+    sections = [
+        "Posiada kluczowe technologie: Microsoft Intune, Active Directory",  # why
+        "Zarządzanie urządzeniami: Microsoft Intune",  # skills
+        "Konfiguracja zasad w Microsoft Intune i Active Directory",  # duty
+        "Microsoft Intune, Active Directory, Azure AD",  # tech line
+    ]
+    for text in sections:
+        found = {f.lower() for f in _matches(text, keywords)}
+        assert "microsoft intune" in found, f"not bold in: {text!r}"
+    # And it appears in every section that contains it.
+    assert all("Microsoft Intune" in s for s in sections[:4])
+
+
+def test_curated_multiword_suppresses_stray_token_bold():
+    # A curated entry bolds the phrase WHOLE and skips token-splitting, so the
+    # generic tail ("AD") no longer bolds on its own elsewhere in the CV.
+    found = _matches("Integracja z Azure AD; osobny dział AD HR", ["Azure AD"])
+    assert found == ["Azure AD"]
+
+
+def test_allowlist_extension_does_not_bold_concepts():
+    # Lock guard: adding product names must not regress the "only technologies"
+    # rule — a design methodology alongside them still never bolds.
+    keywords = ["Microsoft Intune", "User-Centered Design", "Material Design"]
+    prose = "Wdraża Microsoft Intune; stosuje User-Centered Design i Material Design."
+    found = [f.lower() for f in _matches(prose, keywords)]
+    assert "microsoft intune" in found
+    joined = " ".join(found)
+    assert "user-centered" not in joined and "material design" not in joined
+
+
 # ── Claude response normalization ──────────────────────────────────────────
 
 
