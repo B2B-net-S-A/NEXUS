@@ -2562,7 +2562,11 @@ const STAGE_BADGE_VARIANT: Record<
 
 function StageBadge({ stage }: { stage: string }) {
   return (
-    <Badge size="sm" variant={STAGE_BADGE_VARIANT[stage] ?? "neutral"}>
+    <Badge
+      size="lg"
+      variant={STAGE_BADGE_VARIANT[stage] ?? "neutral"}
+      className="font-semibold"
+    >
       {stageLabel(stage)}
     </Badge>
   );
@@ -2733,11 +2737,11 @@ function TimelineCard({ item, fromStage }: { item: any; fromStage?: string }) {
         </div>
 
         {isStage && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             {fromStage ? (
               <>
                 <StageBadge stage={fromStage} />
-                <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <StageBadge stage={item.stage} />
               </>
             ) : (
