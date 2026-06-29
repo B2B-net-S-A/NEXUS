@@ -43,7 +43,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 type CandidateOption = {
   id: number;
@@ -160,12 +160,16 @@ function NewContractForm() {
     mutationFn: () => {
       // Rows with a numeric rate become schedule steps; an empty effective_from
       // defaults to the contract start date. Backend derives the current rate.
+      // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
       const schedule = rateSchedule
-        .filter((r) => r.rate.trim() !== "")
         .map((r) => ({
-          rate: Number(r.rate),
+          rate: parseDecimalInput(r.rate),
           effective_from: r.effectiveFrom || startDate,
-        }));
+        }))
+        .filter(
+          (r): r is { rate: number; effective_from: string } => r.rate !== null,
+        );
+      const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
         candidate_id: candidate!.id,
         client_id: Number(clientId),
@@ -179,11 +183,11 @@ function NewContractForm() {
         billing_hours_per_month: Number(billingHours) || 160,
         rate_candidate: schedule.length === 0 ? null : undefined,
         candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
-        rate_client: rateClient ? Number(rateClient) : null,
-        framework_rate: frameworkRate ? Number(frameworkRate) : null,
+        rate_client: parseDecimalInput(rateClient),
+        framework_rate: parseDecimalInput(frameworkRate),
         line_manager: lineManager.trim() || null,
-        order_consumption: orderConsumption ? Number(orderConsumption) : null,
-        order_consumption_unit: orderConsumption ? orderConsumptionUnit : null,
+        order_consumption: orderConsumptionVal,
+        order_consumption_unit: orderConsumptionVal !== null ? orderConsumptionUnit : null,
       };
       return contractsApi.create(payload);
     },
@@ -568,23 +572,25 @@ function NewContractForm() {
               <div>
                 <Label className="mb-1.5 block">Stawka z umowy ramowej</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
+                  type="text"
+                  inputMode="decimal"
                   value={frameworkRate}
-                  onChange={(e) => setFrameworkRate(e.target.value)}
-                  placeholder="—"
+                  onChange={(e) =>
+                    setFrameworkRate(sanitizeDecimalInput(e.target.value))
+                  }
+                  placeholder="np. 215,60"
                 />
               </div>
               <div>
                 <Label className="mb-1.5 block">Stawka klienta</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
+                  type="text"
+                  inputMode="decimal"
                   value={rateClient}
-                  onChange={(e) => setRateClient(e.target.value)}
-                  placeholder="—"
+                  onChange={(e) =>
+                    setRateClient(sanitizeDecimalInput(e.target.value))
+                  }
+                  placeholder="np. 215,60"
                 />
               </div>
             </div>
@@ -608,18 +614,19 @@ function NewContractForm() {
                         </span>
                       )}
                       <Input
-                        type="number"
-                        min="0"
-                        step="0.001"
+                        type="text"
+                        inputMode="decimal"
                         value={row.rate}
                         onChange={(e) =>
                           setRateSchedule((rows) =>
                             rows.map((r, i) =>
-                              i === idx ? { ...r, rate: e.target.value } : r,
+                              i === idx
+                                ? { ...r, rate: sanitizeDecimalInput(e.target.value) }
+                                : r,
                             ),
                           )
                         }
-                        placeholder="—"
+                        placeholder="np. 215,60"
                       />
                     </div>
                     <div className="flex-1">
@@ -689,11 +696,12 @@ function NewContractForm() {
               <div>
                 <Label className="mb-1.5 block">Zużycie zamówienia</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={orderConsumption}
-                  onChange={(e) => setOrderConsumption(e.target.value)}
+                  onChange={(e) =>
+                    setOrderConsumption(sanitizeDecimalInput(e.target.value))
+                  }
                   placeholder="—"
                 />
               </div>
