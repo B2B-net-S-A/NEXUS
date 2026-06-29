@@ -621,6 +621,69 @@ _KNOWN_TECH: frozenset[str] = frozenset(
         "shopify",
         "salesforce",
         "sap",
+        # Microsoft endpoint management / identity / MDM. Multi-word brand
+        # names carry no per-token hard-tech signal ("Microsoft"/"Endpoint"/
+        # "Manager" are plain words), so without the allowlist they bold only
+        # partially or not at all — single-word brands ("Intune", "AirWatch")
+        # already bold via the proper-noun fallback. Recruiter directive: a key
+        # technology must bold at EVERY occurrence across the whole CV, and a
+        # curated entry also bolds the phrase WHOLE (no stray "AD"/"ONE" runs).
+        # Keys are stored normalised (hyphens → spaces) to match _norm_tech.
+        "microsoft intune",
+        "microsoft endpoint manager",
+        "endpoint manager",
+        "configuration manager",
+        "windows autopilot",
+        "azure ad",
+        "azure active directory",
+        "active directory",
+        "microsoft entra",
+        "microsoft entra id",
+        "entra id",
+        "conditional access",
+        "group policy",
+        "windows server",
+        "hyper v",
+        # Microsoft 365 / productivity / data
+        "microsoft 365",
+        "office 365",
+        "microsoft office",
+        "exchange online",
+        "microsoft exchange",
+        "sharepoint online",
+        "microsoft teams",
+        "power automate",
+        "power apps",
+        "power platform",
+        "power query",
+        "microsoft defender",
+        "microsoft sentinel",
+        "microsoft graph",
+        "dynamics 365",
+        # Azure / Microsoft dev stack (multi-word). Only phrases whose tokens
+        # carry NO independent tech signal — a phrase like "Microsoft SQL
+        # Server" / ".NET Core" is deliberately ABSENT: its sub-token ("SQL",
+        # ".NET") is itself a technology that the buried-token logic already
+        # bolds, and a curated whole-phrase entry would SUPPRESS that.
+        "azure functions",
+        "visual studio",
+        "visual studio code",
+        "vs code",
+        "entity framework",
+        "spring security",
+        "spring data",
+        "spring cloud",
+        "spring mvc",
+        # MDM / EMM platforms (peers of Intune)
+        "workspace one",
+        "vmware workspace one",
+        "jamf pro",
+        # Cloud platforms (multi-word)
+        "google cloud",
+        "google cloud platform",
+        "google workspace",
+        "amazon web services",
+        "elastic stack",
     }
 )
 
