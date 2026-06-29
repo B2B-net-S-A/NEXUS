@@ -586,6 +586,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
+// Poziomy auto-scroll boardu podczas drag: szerokość strefy przy krawędzi (px),
+// w której zaczynamy przewijać, oraz maks. prędkość (px/klatkę ~60fps).
+const BOARD_AUTOSCROLL_EDGE = 100;
+const BOARD_AUTOSCROLL_SPEED = 20;
 
 export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
@@ -650,6 +654,66 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  useEffect(() => {
  measureColumnHeight();
  }, [measureColumnHeight, headerCollapsed, density, statusMessage, cols.length]);
+
+ // Poziomy auto-scroll tablicy podczas drag. @hello-pangea/dnd auto-przewija
+ // TYLKO okno albo własny scroll-kontener danego Droppable (u nas: pionowy
+ // scroll wewnątrz kolumny). Poziomego scrollera boardu (przodka, nie „ramki"
+ // Droppable) biblioteka NIE rusza — dlatego kart nie dawało się dociągnąć do
+ // skrajnie prawych kolumn (np. „Odrzucony"): trzymając kartę przy krawędzi,
+ // board nie przewijał się. Przewijamy go ręcznie: pętla rAF (start na
+ // onDragStart) czyta ostatnią pozycję kursora i przesuwa scrollLeft, gdy karta
+ // jest blisko lewej/prawej krawędzi boardu.
+ const autoScrollRaf = useRef<number | null>(null);
+ const dragPointerX = useRef<number | null>(null);
+
+ const trackDragPointer = useCallback((e: MouseEvent | TouchEvent) => {
+ const x = "touches" in e ? e.touches[0]?.clientX : e.clientX;
+ if (x != null) dragPointerX.current = x;
+ }, []);
+
+ const stepBoardAutoScroll = useCallback(() => {
+ const el = boardRef.current;
+ const x = dragPointerX.current;
+ if (el && x != null) {
+ const rect = el.getBoundingClientRect();
+ const fromLeft = x - rect.left;
+ const fromRight = rect.right - x;
+ const canLeft = el.scrollLeft > 0;
+ const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+ if (fromLeft < BOARD_AUTOSCROLL_EDGE && canLeft) {
+ el.scrollLeft -=
+ BOARD_AUTOSCROLL_SPEED * (1 - Math.max(fromLeft, 0) / BOARD_AUTOSCROLL_EDGE);
+ } else if (fromRight < BOARD_AUTOSCROLL_EDGE && canRight) {
+ el.scrollLeft +=
+ BOARD_AUTOSCROLL_SPEED * (1 - Math.max(fromRight, 0) / BOARD_AUTOSCROLL_EDGE);
+ }
+ }
+ autoScrollRaf.current = requestAnimationFrame(stepBoardAutoScroll);
+ }, []);
+
+ const startBoardAutoScroll = useCallback(() => {
+ if (typeof window === "undefined") return;
+ window.addEventListener("mousemove", trackDragPointer);
+ window.addEventListener("touchmove", trackDragPointer, { passive: true });
+ if (autoScrollRaf.current == null) {
+ autoScrollRaf.current = requestAnimationFrame(stepBoardAutoScroll);
+ }
+ }, [trackDragPointer, stepBoardAutoScroll]);
+
+ const stopBoardAutoScroll = useCallback(() => {
+ if (typeof window !== "undefined") {
+ window.removeEventListener("mousemove", trackDragPointer);
+ window.removeEventListener("touchmove", trackDragPointer);
+ }
+ if (autoScrollRaf.current != null) {
+ cancelAnimationFrame(autoScrollRaf.current);
+ autoScrollRaf.current = null;
+ }
+ dragPointerX.current = null;
+ }, [trackDragPointer]);
+
+ // Sprzątanie, gdy komponent zniknie w trakcie drag (np. nawigacja).
+ useEffect(() => stopBoardAutoScroll, [stopBoardAutoScroll]);
 
  // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
  // dla wszystkich zaznaczonych kandydatów).
@@ -876,6 +940,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
+ stopBoardAutoScroll();
  if (!res.destination) return;
  const src = cols.find((c) => colId(c) === res.source.droppableId);
  const dst = cols.find((c) => colId(c) === res.destination!.droppableId);
@@ -920,7 +985,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  applyOptimistic(item, colId(src), dst);
  sendMove(item, dst);
  },
- [cols, applyOptimistic, sendMove]
+ [cols, applyOptimistic, sendMove, stopBoardAutoScroll]
  );
 
  // Submit z modala"Zweryfikowany — podaj rate"
@@ -1362,7 +1427,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  )}
 
  {/* Board */}
- <DragDropContext onDragEnd={onDragEnd}>
+ <DragDropContext onDragStart={startBoardAutoScroll} onDragEnd={onDragEnd}>
  <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 300 }}>
  {filtered.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
