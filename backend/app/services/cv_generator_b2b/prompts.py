@@ -87,6 +87,7 @@ ZASADY DLA WHY_POINTS:
   • Żadnych dwóch punktów o tej samej myśli — każdy wnosi NOWĄ informację.
   • PRZYKŁAD — ŹLE: „Doświadczony i zaangażowany specjalista z bogatym doświadczeniem w realizacji wielu projektów IT"; DOBRZE: „8 lat jako Backend Developer, w tym 3 lata w fintechu".
 - LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (od najwcześniejszego startu do ostatniej daty / "obecnie"), zaokrąglij do pełnego roku i NIE zaniżaj — podaj konkretną liczbę ("5 lat"), NIGDY "ponad 4" gdy realnie jest ~5
+- LICZBA LAT ZAWSZE PRZY ROLI, NIGDY PRZY POJEDYNCZEJ TECHNOLOGII (KRYTYCZNE): łączny staż (np. „6 lat") wiąż WYŁĄCZNIE z rolą lub specjalizacją zawodową ("6 lat jako administrator systemów / specjalista MDM"), NIGDY z konkretnym narzędziem ani technologią. NIE pisz „[X] lat doświadczenia z [technologia]" używając łącznego stażu — to FAŁSZYWIE zawyża doświadczenie z tą technologią (kandydat z 6-letnim stażem, który Intune używa od 2 lat, ma „2 lata doświadczenia z Microsoft Intune", a NIE „6 lat z Microsoft Intune"). Liczbę lat możesz postawić przy konkretnej technologii TYLKO wtedy, gdy odpowiada ona REALNEMU okresowi jej używania — policzonemu z dat tych ról, w których ta technologia faktycznie występuje w CV/notatkach. Gdy nie da się ustalić tego okresu — wymień technologię BEZ liczby lat.
 
 KWANTYFIKACJA I ZWIĘZŁOŚĆ:
 - Przenoś do why_points i obowiązków liczby oraz skalę z CV/notatek (wielkość zespołu, liczba
@@ -140,7 +141,7 @@ Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
 1. MUST-HAVE TECHNOLOGIES:
    - Upewnij się że te technologie są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii)
    - OBOWIĄZKOWE: Jeśli kandydat posiada technologie z listy MUST-HAVE, WSZYSTKIE posiadane must-have technologie MUSZĄ być jawnie wymienione w sekcji why_points. Dodaj dedykowany punkt np.: "Posiada kluczowe technologie wymagane na stanowisku: [lista posiadanych must-have technologii]"
-   - Jeśli kandydat je ma - umieść je RÓWNIEŻ w pierwszych why_points w kontekście jego doświadczenia
+   - Jeśli kandydat je ma - umieść je RÓWNIEŻ w pierwszych why_points w kontekście jego doświadczenia, ale NIGDY nie łącz ich z łączną liczbą lat stażu (patrz reguła „LICZBA LAT ZAWSZE PRZY ROLI") — staż z technologią musi odpowiadać realnemu okresowi jej używania, nie całej karierze
    - Jeśli kandydat NIE MA którejś technologii - dodaj ją do pola "warnings" w JSON
 
 2. NICE-TO-HAVE TECHNOLOGIES:
@@ -305,6 +306,7 @@ RULES FOR WHY_POINTS:
   • No two points about the same idea — every point adds NEW information.
   • EXAMPLE — BAD: "An experienced and committed specialist with rich experience delivering many IT projects"; GOOD: "8 years as a Backend Developer, including 3 years in fintech".
 - YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (earliest start to the latest date / "present"), round to a whole year and do NOT undercount — give a concrete number ("5 years"), NEVER "over 4" when it is really ~5
+- YEARS ALWAYS WITH THE ROLE, NEVER WITH A SINGLE TECHNOLOGY (CRITICAL): tie the total tenure (e.g. "6 years") ONLY to a role or professional specialization ("6 years as a systems administrator / MDM specialist"), NEVER to a specific tool or technology. Do NOT write "[X] years of experience with [technology]" using the total tenure — that FALSELY inflates experience with that technology (a candidate with 6 years total who has used Intune for 2 years has "2 years of experience with Microsoft Intune", NOT "6 years with Microsoft Intune"). You may put a year count next to a specific technology ONLY when it equals the REAL time it was used — computed from the dates of the roles where that technology actually appears in the CV/notes. When that period cannot be established, list the technology WITHOUT a year count.
 
 QUANTIFICATION AND CONCISENESS:
 - Carry numbers and scale from the CV/notes into why_points and responsibilities (team size,
@@ -358,7 +360,7 @@ takes precedence over every one of points 1–7.
 1. MUST-HAVE TECHNOLOGIES:
    - Ensure these technologies are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories)
    - MANDATORY: If the candidate possesses technologies from the MUST-HAVE list, ALL possessed must-have technologies MUST be explicitly listed in the why_points section. Add a dedicated point e.g.: "Possesses key technologies required for the position: [list of possessed must-have technologies]"
-   - If candidate has them - place them ALSO in the first why_points in the context of their experience
+   - If candidate has them - place them ALSO in the first why_points in the context of their experience, but NEVER attach the total tenure figure to them (see the "YEARS ALWAYS WITH THE ROLE" rule) — a year count next to a technology must reflect the real time it was used, not the whole career
    - If candidate DOES NOT HAVE a technology - add it to the "warnings" field in JSON
 
 2. NICE-TO-HAVE TECHNOLOGIES:

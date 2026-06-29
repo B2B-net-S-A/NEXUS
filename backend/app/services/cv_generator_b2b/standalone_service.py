@@ -488,11 +488,54 @@ def _polish_year_unit(years: int) -> str:
     return "lat"
 
 
+# Connectors that bind a duration to a specific technology/tool ("5 lat z
+# Kubernetes", "3 years with Docker", "2 lata w Intune"). Role connectors
+# ("jako" / "as") are deliberately excluded — a duration tied to a ROLE is the
+# total-career headline we DO want to correct.
+_TECH_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|with|in)\b", re.IGNORECASE)
+
+
+def _experience_tech_terms(candidate_data: dict[str, Any]) -> set[str]:
+    """Collect the candidate's technology vocabulary — the champion highlight
+    list plus every role's ``technologies`` — lowercased. Used to tell a
+    technology-specific duration ("2 lata z Intune") apart from the total-career
+    headline so the recompute never inflates the former. Sub-4-char tokens are
+    dropped to avoid spurious substring hits (e.g. "AI", "Go", "MDM")."""
+    raw: list[str] = list(candidate_data.get("highlight_keywords") or [])
+    for job in candidate_data.get("experience") or []:
+        raw.extend(job.get("technologies") or [])
+    return {s for t in raw if len(s := str(t).strip().lower()) >= 4}
+
+
+def _years_bound_to_technology(
+    point: str, years_end: int, tech_terms: set[str]
+) -> bool:
+    """True when the years figure is tied to a specific technology rather than a
+    role — e.g. "6 lat doświadczenia z Microsoft Intune". Only the clause the
+    figure introduces is inspected (up to the next comma / "w tym" / "including")
+    so a trailing tech mention or the "w tym Y lat w [firma]" sub-figure can't
+    trigger a false positive."""
+    if not tech_terms:
+        return False
+    tail = point[years_end:]
+    clause = re.split(r"[,;]| w tym | including | incl\.? ", tail, maxsplit=1)[0]
+    conn = _TECH_CONNECTOR_RE.search(clause)
+    if not conn:
+        return False
+    after = clause[conn.end() :].lower()
+    return any(term in after for term in tech_terms)
+
+
 def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
     """Overwrite the (often under-counted) total-years figure in the experience
     why_point with the exact value computed from the candidate's dates. Only
     the headline total is touched — the "w tym Y lat w …" sub-figure and any
     other point are left as Claude wrote them.
+
+    A technology-specific duration ("2 lata z Microsoft Intune") is left alone:
+    overwriting it with the total career figure would falsely inflate experience
+    with that one technology, so such points are skipped in favour of a generic
+    role/seniority headline.
     """
     years = _total_experience_years(candidate_data.get("experience") or [])
     if not years:
@@ -501,6 +544,8 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         replacement = f"{years} {'year' if years == 1 else 'years'}"
     else:
         replacement = f"{years} {_polish_year_unit(years)}"
+
+    tech_terms = _experience_tech_terms(candidate_data)
 
     points = candidate_data.get("why_points") or []
     for i, point in enumerate(points):
@@ -511,6 +556,8 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             continue
         match = _YEARS_PHRASE_RE.search(point)
         if not match:
+            continue
+        if _years_bound_to_technology(point, match.end(), tech_terms):
             continue
         points[i] = point[: match.start()] + replacement + point[match.end() :]
         break

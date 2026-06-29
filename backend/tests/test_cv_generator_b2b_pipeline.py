@@ -651,6 +651,69 @@ def test_fix_experience_years_polish_plural_unit():
     assert data["why_points"][0] == "2 lata doświadczenia jako Developer"
 
 
+def test_fix_experience_years_skips_technology_specific_point():
+    # A 6-year-total candidate who used Intune for only part of that time must
+    # not have "2 lata z Microsoft Intune" rewritten to the total "6 lat z
+    # Intune". The total belongs on the generic role headline instead.
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {  # 01.2018 – 12.2023 = 72 months → 6 years total
+                "dates": "01.2018 – 12.2023",
+                "technologies": ["Microsoft Intune", "Azure AD"],
+            }
+        ],
+        "highlight_keywords": ["Microsoft Intune", "Microsoft Endpoint Manager"],
+        "why_points": [
+            "2 lata doświadczenia z Microsoft Intune i Microsoft Endpoint Manager",
+            "Ponad 4 lata doświadczenia jako Specjalista MDM",
+        ],
+    }
+    _fix_experience_years(data, "pl")
+    # Tech-specific duration left untouched; total lands on the role headline.
+    assert data["why_points"][0] == (
+        "2 lata doświadczenia z Microsoft Intune i Microsoft Endpoint Manager"
+    )
+    assert data["why_points"][1] == "6 lat doświadczenia jako Specjalista MDM"
+
+
+def test_fix_experience_years_never_inflates_lone_technology_point():
+    # When the ONLY experience point is technology-specific, the recompute must
+    # leave it alone rather than clobber the tech duration with the total.
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"dates": "01.2019 – 12.2023", "technologies": ["Kubernetes"]}
+        ],  # 5 years total
+        "why_points": ["Ponad 3 lata doświadczenia z Kubernetes"],
+    }
+    _fix_experience_years(data, "pl")
+    assert data["why_points"][0] == "Ponad 3 lata doświadczenia z Kubernetes"
+
+
+def test_fix_experience_years_still_fixes_industry_duration():
+    # An industry/domain duration ("w fintechu") is NOT a technology binding —
+    # the total-tenure correction must still apply.
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"dates": "01.2019 – 12.2023", "technologies": ["Java"]}
+        ],  # 5 years total
+        "why_points": ["Ponad 4 lata doświadczenia w fintechu"],
+    }
+    _fix_experience_years(data, "pl")
+    assert data["why_points"][0] == "5 lat doświadczenia w fintechu"
+
+
 # ── Saved-CV re-render (panel list download/preview) ───────────────────────
 
 
