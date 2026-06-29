@@ -16,7 +16,12 @@ import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBe
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
 import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
-import { formatDate, formatCurrency } from "@/lib/utils";
+import {
+  formatDate,
+  formatCurrency,
+  parseDecimalInput,
+  sanitizeDecimalInput,
+} from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
 import {
   ArrowLeft,
@@ -443,11 +448,12 @@ export default function ContractDetailPage() {
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       client_order_end_date: form.client_order_end_date || null,
-      rate_candidate: form.rate_candidate ? Number(form.rate_candidate) : null,
-      rate_client: form.rate_client ? Number(form.rate_client) : null,
-      framework_rate: form.framework_rate ? Number(form.framework_rate) : null,
-      target_rate_min: form.target_rate_min ? Number(form.target_rate_min) : null,
-      target_rate_max: form.target_rate_max ? Number(form.target_rate_max) : null,
+      // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
+      rate_candidate: parseDecimalInput(form.rate_candidate),
+      rate_client: parseDecimalInput(form.rate_client),
+      framework_rate: parseDecimalInput(form.framework_rate),
+      target_rate_min: parseDecimalInput(form.target_rate_min),
+      target_rate_max: parseDecimalInput(form.target_rate_max),
       currency: form.currency,
       rate_unit: form.rate_unit,
       billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
@@ -461,12 +467,11 @@ export default function ContractDetailPage() {
       team_name: form.team_name || null,
       project_name: form.project_name || null,
       handover_notes: form.handover_notes || null,
-      order_consumption: form.order_consumption
-        ? Number(form.order_consumption)
-        : null,
-      order_consumption_unit: form.order_consumption
-        ? form.order_consumption_unit
-        : null,
+      order_consumption: parseDecimalInput(form.order_consumption),
+      order_consumption_unit:
+        parseDecimalInput(form.order_consumption) !== null
+          ? form.order_consumption_unit
+          : null,
     };
     updateMutation.mutate(payload);
   };
@@ -880,12 +885,15 @@ export default function ContractDetailPage() {
                       Stawka z umowy ramowej
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
                       value={form.framework_rate}
                       onChange={(e) =>
-                        setForm((f) => (f ? { ...f, framework_rate: e.target.value } : f))
+                        setForm((f) =>
+                          f
+                            ? { ...f, framework_rate: sanitizeDecimalInput(e.target.value) }
+                            : f,
+                        )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
@@ -895,13 +903,16 @@ export default function ContractDetailPage() {
                       Stawka kandydata
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
                       value={form.rate_candidate}
                       disabled={contract.candidate_rate_schedule.length > 0}
                       onChange={(e) =>
-                        setForm((f) => (f ? { ...f, rate_candidate: e.target.value } : f))
+                        setForm((f) =>
+                          f
+                            ? { ...f, rate_candidate: sanitizeDecimalInput(e.target.value) }
+                            : f,
+                        )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground disabled:opacity-60 disabled:cursor-not-allowed"
                     />
@@ -917,12 +928,15 @@ export default function ContractDetailPage() {
                       Stawka klienta
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
                       value={form.rate_client}
                       onChange={(e) =>
-                        setForm((f) => (f ? { ...f, rate_client: e.target.value } : f))
+                        setForm((f) =>
+                          f
+                            ? { ...f, rate_client: sanitizeDecimalInput(e.target.value) }
+                            : f,
+                        )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     />
@@ -932,13 +946,14 @@ export default function ContractDetailPage() {
                       Widełki docelowe (min)
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
                       value={form.target_rate_min}
                       onChange={(e) =>
                         setForm((f) =>
-                          f ? { ...f, target_rate_min: e.target.value } : f,
+                          f
+                            ? { ...f, target_rate_min: sanitizeDecimalInput(e.target.value) }
+                            : f,
                         )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
@@ -949,13 +964,14 @@ export default function ContractDetailPage() {
                       Widełki docelowe (max)
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.001"
+                      type="text"
+                      inputMode="decimal"
                       value={form.target_rate_max}
                       onChange={(e) =>
                         setForm((f) =>
-                          f ? { ...f, target_rate_max: e.target.value } : f,
+                          f
+                            ? { ...f, target_rate_max: sanitizeDecimalInput(e.target.value) }
+                            : f,
                         )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
@@ -1023,13 +1039,14 @@ export default function ContractDetailPage() {
                       Zużycie zamówienia
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
                       value={form.order_consumption}
                       onChange={(e) =>
                         setForm((f) =>
-                          f ? { ...f, order_consumption: e.target.value } : f,
+                          f
+                            ? { ...f, order_consumption: sanitizeDecimalInput(e.target.value) }
+                            : f,
                         )
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"

@@ -10,6 +10,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 interface ExtendOrderDialogProps {
   clientId: number;
@@ -49,6 +50,9 @@ export function ExtendOrderDialog({
   );
   const [file, setFile] = useState<File | null>(null);
 
+  // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
+  const rateClientNum = parseDecimalInput(rateClient);
+
   const mutation = useMutation({
     mutationFn: async () => {
       const fd = new FormData();
@@ -57,8 +61,10 @@ export function ExtendOrderDialog({
       fd.append("order_status", "active");
       if (startDate) fd.append("start_date", startDate);
       if (endDate) fd.append("end_date", endDate);
-      if (rateClient) fd.append("rate_client", rateClient);
-      if (totalValue) fd.append("total_value", totalValue);
+      // Wyślij znormalizowaną liczbę (kropka dziesiętna), nie surowy string z przecinkiem.
+      if (rateClientNum !== null) fd.append("rate_client", String(rateClientNum));
+      const totalValueNum = parseDecimalInput(totalValue);
+      if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
       if (jobId) fd.append("job_id", jobId);
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
@@ -131,28 +137,26 @@ export function ExtendOrderDialog({
           <label>
             <span className="text-sm">Klient płaci (rate_client) /mc</span>
             <input
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               value={rateClient}
-              onChange={(e) => setRateClient(e.target.value)}
+              onChange={(e) => setRateClient(sanitizeDecimalInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               placeholder="np. 17000"
             />
-            {contract.rate_candidate !== null && rateClient && (
+            {contract.rate_candidate !== null && rateClientNum !== null && (
               <span className="text-xs text-green-700 mt-0.5 block">
-                marża /mc: {Number(rateClient) - contract.rate_candidate}
+                marża /mc: {rateClientNum - contract.rate_candidate}
               </span>
             )}
           </label>
           <label>
             <span className="text-sm">Total value (opcjonalnie)</span>
             <input
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="decimal"
               value={totalValue}
-              onChange={(e) => setTotalValue(e.target.value)}
+              onChange={(e) => setTotalValue(sanitizeDecimalInput(e.target.value))}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
             />
           </label>

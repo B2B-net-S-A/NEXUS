@@ -11,6 +11,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 interface NewContractorOrderDialogProps {
   clientId: number;
@@ -128,9 +129,12 @@ export function NewContractorOrderDialog({
     );
   }, [selectedCandidate, selectedJobTitle, titleTouched]);
 
+  // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
+  const rateClientNum = parseDecimalInput(rateClient);
+  const rateCandidateNum = parseDecimalInput(rateCandidate);
   const margin =
-    rateClient && rateCandidate
-      ? Number(rateClient) - Number(rateCandidate)
+    rateClientNum !== null && rateCandidateNum !== null
+      ? rateClientNum - rateCandidateNum
       : null;
 
   const mutation = useMutation({
@@ -146,8 +150,8 @@ export function NewContractorOrderDialog({
         contract_end_date: contractEnd || null,
         order_start_date: orderStart || contractStart,
         order_end_date: orderEnd || null,
-        rate_client: Number(rateClient),
-        rate_candidate: Number(rateCandidate),
+        rate_client: rateClientNum ?? 0,
+        rate_candidate: rateCandidateNum ?? 0,
         rate_unit: rateUnit,
         billing_hours_per_month: Number(billingHours),
         currency,
@@ -175,8 +179,8 @@ export function NewContractorOrderDialog({
             !selectedCandidate ||
             !title ||
             !contractStart ||
-            !rateClient ||
-            !rateCandidate
+            rateClientNum === null ||
+            rateCandidateNum === null
           ) {
             showError("Wypełnij wymagane pola (kandydat, tytuł, daty, stawki)");
             return;
@@ -375,27 +379,25 @@ export function NewContractorOrderDialog({
           <label>
             <span className="text-sm">Klient płaci /mc *</span>
             <input
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               value={rateClient}
-              onChange={(e) => setRateClient(e.target.value)}
+              onChange={(e) => setRateClient(sanitizeDecimalInput(e.target.value))}
               required
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="rate_client"
+              placeholder="np. 215,60"
             />
           </label>
           <label>
             <span className="text-sm">My płacimy kontraktorowi *</span>
             <input
-              type="number"
-              min="0"
-              step="0.001"
+              type="text"
+              inputMode="decimal"
               value={rateCandidate}
-              onChange={(e) => setRateCandidate(e.target.value)}
+              onChange={(e) => setRateCandidate(sanitizeDecimalInput(e.target.value))}
               required
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-              placeholder="rate_candidate"
+              placeholder="np. 150,40"
             />
           </label>
         </div>
@@ -403,8 +405,8 @@ export function NewContractorOrderDialog({
         {margin !== null && (
           <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
             Marża /mc (przybl.): <strong>{margin.toLocaleString("pl-PL")}</strong> {currency}
-            {Number(rateClient) > 0 && (
-              <> ({((margin / Number(rateClient)) * 100).toFixed(1)}%)</>
+            {rateClientNum !== null && rateClientNum > 0 && (
+              <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
             )}
           </div>
         )}
