@@ -114,11 +114,18 @@ export function FilePreviewContent({
   candidateId,
   onDownload,
   className,
+  hidePdfSidebar = false,
 }: {
   doc: CandidateDocument | null;
   candidateId: number;
   onDownload: (doc: CandidateDocument) => void;
   className?: string;
+  // Inline CV (widok „Podgląd"): chowamy natywny rail miniatur stron PDF
+  // (#navpanes=0 — to „podgląd z lewej", który zabierał połowę miejsca) i
+  // dopasowujemy stronę do szerokości kolumny (zoom=page-width), żeby CV
+  // wypełniało całą przeznaczoną na nie przestrzeń. Modal (np. wielostronicowe
+  // umowy) korzysta z railu do nawigacji, więc tam zostaje domyślnie widoczny.
+  hidePdfSidebar?: boolean;
 }) {
   const docxHostRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -251,7 +258,7 @@ export function FilePreviewContent({
 
       {kind === "pdf" && blobUrl && (
         <iframe
-          src={blobUrl}
+          src={hidePdfSidebar ? `${blobUrl}#navpanes=0&zoom=page-width` : blobUrl}
           title={doc.filename ?? "PDF"}
           className="h-full w-full border-0"
         />
