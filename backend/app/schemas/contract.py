@@ -36,6 +36,19 @@ class ContractCandidateRateEntry(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ContractClientRateEntry(BaseModel):
+    """One step in the client-rate schedule returned to the client."""
+
+    id: int
+    rate: float
+    effective_from: date
+    note: Optional[str] = None
+    created_by: Optional[int] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ContractCreate(BaseModel):
     candidate_id: int
     client_id: int
@@ -133,6 +146,9 @@ class ContractResponse(BaseModel):
     # Effective-dated candidate-rate schedule (oldest → newest). Empty for
     # contracts created before the schedule feature.
     candidate_rate_schedule: list[ContractCandidateRateEntry] = []
+    # Effective-dated client-rate schedule (oldest → newest). Empty until a
+    # `rate_change` amendment first defers the client rate to a future date.
+    client_rate_schedule: list[ContractClientRateEntry] = []
     contract_type: ContractType
     status: ContractStatus
     documents: Optional[Any]
