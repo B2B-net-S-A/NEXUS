@@ -81,11 +81,27 @@ class Settings(BaseSettings):
     #   • SEMANTIC_CALIBRATION_GAMMA<1 podnosi środek krzywej (0.6: cos 0.5→0.66
     #     budżetu) bez saturacji szczytu; monotoniczne → ranking zachowany.
     #     1.0 = stare liniowe zachowanie.
-    #   • SCORE_UNKNOWN_NEUTRAL_FRACTION=0.5 → „brak sygnału = połowa budżetu"
-    #     (jak availability). 0.0 = stare twarde zero.
+    #   • SCORE_UNKNOWN_NEUTRAL_FRACTION → „brak sygnału = ten ułamek budżetu".
+    #     Steruje WSZYSTKIMI czterema warstwami metadanych przy braku danych
+    #     (salary, location, availability, champion_fit) — jeden spójny pokrętło.
+    #     0.0 = stare twarde zero.
     # Pełny rollback bez redeployu: ustaw 1.0 / 0.0.
+    #
+    # Dostrojenie 2026-06-30 („AI scoring dalej zbyt surowy" — joby z Traffitu):
+    # ~99% importów to oferty bez lokalizacji/widełek/deadline'u/championa (np.
+    # „Ferryt Developer" #240915), więc 35 z 100 pkt żyje w warstwach metadanych,
+    # które mogą przyznać tylko swój neutralny ułamek. Przy 0.5 nawet idealny
+    # trafny kandydat dobijał ~55. Dwie zmiany (obie zachowują ranking →
+    # P@5/Recall@20/MRR/nDCG niezmienione, bo to stały addytywny shift per-job dla
+    # dominującej kohorty „wszystko nieznane"):
+    #   1. location przestaje twardo-zerować przy braku sygnału (brak lokalizacji
+    #      oferty / brak preferencji remote kandydata) — teraz neutralny ułamek,
+    #      spójnie z salary/availability/champion (patrz scoring_service).
+    #   2. ułamek podniesiony 0.5 → 0.65 (benefit of the doubt dla nieznanych).
+    # Efekt: trafny kandydat ~64, dotąd ~55; cała pula +~9 pkt. Mniej → 0.5;
+    # więcej leniency → 0.7 (env, bez redeployu).
     SEMANTIC_CALIBRATION_GAMMA: float = 0.6
-    SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.5
+    SCORE_UNKNOWN_NEUTRAL_FRACTION: float = 0.65
 
     # Ollama (local LLM + embeddings fallback)
     OLLAMA_BASE_URL: str = "http://localhost:11434"

@@ -385,45 +385,50 @@ def test_location_same_city_prefix_partial():
     assert r.points <= ss.LOCATION_MAX
 
 
-# Blob-awareness + the no-op-when-job-empty invariant. ~99.6% of imported jobs
-# (15/3894) have no location, so the city half must contribute 0 for them —
-# making the fix a strict no-op there and protecting the eval metrics. The fix
-# only adds signal on the ~15 jobs that DO carry a location, where a candidate
-# storing the Traffit/TalentRadar JSON blob (~99% of located rows) finally earns
-# the city half the old raw-string substring compare silently denied.
+# No-signal neutrality (2026-06-30). ~99.6% of imported jobs carry no location
+# and ~99% of imported candidates state no remote preference, so BOTH halves are
+# usually "no signal". They now award the neutral fraction (like
+# salary/availability/champion) instead of a hard 0 — a per-job constant lift
+# that leaves ranking (and every rank-based eval metric) unchanged. To ISOLATE
+# the city half in a test, give the candidate a remote pref the job doesn't offer
+# (known mismatch → remote half = 0), not an empty pref (now neutral, not 0).
 
 
-def test_location_no_job_location_is_noop_even_with_located_candidate():
-    # Candidate has a real (blob) location, but the job has none → no city
-    # credit, no remote credit → identical to pre-fix behaviour.
+def test_location_no_job_location_both_halves_neutral():
+    # Candidate has a real (blob) location, the job has none, candidate states no
+    # remote pref → nothing to judge on either half → both go neutral (was a hard
+    # 0 before 2026-06-30). Total = LOCATION_MAX * UNKNOWN_NEUTRAL_FRACTION.
     job = make_job(location=None, remote_policy=SimpleNamespace(value="on_site"))
     cand = make_candidate(
         location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
         preferences={},
     )
     r = ss._score_location(cand, job)
-    assert r.points == 0.0
-    assert r.reason == "brak dopasowania"
+    assert r.points == pytest.approx(ss.LOCATION_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert "nieznan" in r.reason
 
 
-def test_location_no_job_location_keeps_remote_half_only():
-    # With no job location, only the remote-policy half can be earned.
+def test_location_no_job_location_remote_match_plus_city_neutral():
+    # Remote pref matches the job's policy (full remote half); job has no
+    # location → city half neutral. Total = half + half * frac.
     job = make_job(location="", remote_policy=SimpleNamespace(value="hybrid"))
     cand = make_candidate(
         location='{"locality":"Gdańsk","country":"Polska"}',
         preferences={"remote_modes": ["hybrid"]},
     )
     r = ss._score_location(cand, job)
-    assert r.points == pytest.approx(ss.LOCATION_MAX / 2.0)
+    half = ss.LOCATION_MAX / 2.0
+    assert r.points == pytest.approx(half + half * ss.UNKNOWN_NEUTRAL_FRACTION)
 
 
 def test_location_blob_candidate_matches_job_city():
     # Structured JSON blob is parsed so a same-city candidate earns the city
-    # half (the old raw-string substring compare never matched a blob).
+    # half. Candidate's remote pref is a known mismatch (job on_site, cand wants
+    # remote) → remote half is a clean 0, isolating the city half at exactly half.
     job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
     cand = make_candidate(
         location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
-        preferences={},  # no remote half → isolates the city half
+        preferences={"remote_modes": ["remote"]},  # mismatch → isolates city half
     )
     r = ss._score_location(cand, job)
     assert r.points == pytest.approx(ss.LOCATION_MAX / 2.0)
@@ -431,35 +436,36 @@ def test_location_blob_candidate_matches_job_city():
 
 
 def test_location_blob_candidate_other_city_no_credit():
+    # Different city (known mismatch) + remote known mismatch → both halves 0.
     job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
     cand = make_candidate(
         location='{"locality":"Gdańsk","region1":"Pomorskie","country":"Polska"}',
-        preferences={},
+        preferences={"remote_modes": ["remote"]},  # mismatch → remote half 0 too
     )
     r = ss._score_location(cand, job)
     assert r.points == 0.0
 
 
-def test_location_candidate_unknown_location_gets_city_neutral():
-    # Recalibration: the job specifies a city but the candidate's location is
-    # unknown → can't judge a mismatch → neutral half of the city half (not 0).
-    # Remote half stays 0 (candidate has no remote prefs). No crash on None.
+def test_location_all_unknown_both_halves_neutral():
+    # Job specifies a city but the candidate's location is unknown AND the
+    # candidate states no remote pref → can't judge either half → both neutral.
+    # Total = LOCATION_MAX * UNKNOWN_NEUTRAL_FRACTION. No crash on None location.
     job = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
     cand = make_candidate(location=None, preferences={})
     r = ss._score_location(cand, job)
-    half = ss.LOCATION_MAX / 2.0
-    assert r.points == pytest.approx(half * ss.UNKNOWN_NEUTRAL_FRACTION)
-    assert "nieznana" in r.reason
+    assert r.points == pytest.approx(ss.LOCATION_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
+    assert "nieznan" in r.reason
 
 
-def test_location_empty_job_location_stays_noop():
-    # ~99.6% of imported jobs have NO location → the city half must stay a hard
-    # no-op (0), NOT neutral, so the dominant cohort's score is not inflated by a
-    # constant. Only a *one-sided* (job-has / cand-lacks) case earns city-neutral.
-    job = make_job(location=None, remote_policy=SimpleNamespace(value="remote"))
-    cand = make_candidate(location='{"locality":"Warszawa"}', preferences={})
+def test_location_known_mismatch_still_zero():
+    # The lift only touches NO-SIGNAL cases. A candidate with a stated remote
+    # pref the job doesn't offer AND a different city earns a hard 0 — known
+    # mismatches are not given benefit of the doubt.
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    cand = make_candidate(location='{"locality":"Gdańsk"}', preferences={"remote_modes": ["remote"]})
     r = ss._score_location(cand, job)
     assert r.points == 0.0
+    assert r.reason == "brak dopasowania"
 
 
 # ── _score_availability ──────────────────────────────────────────────────────
@@ -472,11 +478,13 @@ def test_availability_before_deadline_full_points():
     assert r.points == pytest.approx(ss.AVAILABILITY_MAX)
 
 
-def test_availability_no_date_half_points():
+def test_availability_no_date_neutral():
+    # No availability date → neutral benefit-of-the-doubt (UNKNOWN_NEUTRAL_
+    # FRACTION), consistent with salary/location/champion. Was hardcoded 0.5.
     job = make_job(deadline=date(2026, 6, 1))
     cand = make_candidate(availability_date=None)
     r = ss._score_availability(cand, job)
-    assert r.points == pytest.approx(ss.AVAILABILITY_MAX * 0.5)
+    assert r.points == pytest.approx(ss.AVAILABILITY_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
 
 
 def test_availability_late_decays():
@@ -542,7 +550,7 @@ async def test_champion_fit_no_screening_gives_neutral_half():
     cand = make_candidate(id=1)
     job = make_job(id=2)
     r = await ss._score_champion_fit(cand, job, db, ss.DEFAULT_PROFILE)
-    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * 0.5)
+    assert r.points == pytest.approx(ss.CHAMPION_FIT_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
     assert r.max_points == ss.CHAMPION_FIT_MAX
     assert "brak screening" in r.reason
 
@@ -745,6 +753,33 @@ async def test_ranking_preserved_for_same_unknown_cohort():
     assert (mid.total - lo.total) == pytest.approx(
         mid.semantic.points - lo.semantic.points
     )
+
+
+@pytest.mark.asyncio
+async def test_sparse_traffit_job_metadata_all_neutral():
+    """End-to-end guard for the 2026-06-30 lift. On a sparse Traffit-style job
+    (no location, no deadline, no salary range, no champion) with an unscreened
+    candidate carrying no metadata — the ~99% case — all FOUR metadata layers
+    award the neutral fraction (no hard 0 on location, no hardcoded 0.5 on
+    availability/champion). The composite is lifted well above the old ~55 cap."""
+    db = _FakeScalarDB(None)  # no screening, no conflict
+    job = make_job(
+        id=1, location=None, deadline=None, salary_min=None, salary_max=None,
+        must_skills=[], nice_skills=[], client_id=None,
+    )
+    cand = make_candidate(
+        id=1, skills=[], verified_tech=[], tags=[],
+        location=None, availability_date=None, salary_expectation=None,
+        preferences={},
+    )
+    b = await ss.score_candidate_job(cand, job, db, semantic_similarity=0.5)
+    frac = ss.UNKNOWN_NEUTRAL_FRACTION
+    assert b.salary.points == pytest.approx(ss.SALARY_MAX * frac)
+    assert b.location.points == pytest.approx(ss.LOCATION_MAX * frac)
+    assert b.availability.points == pytest.approx(ss.AVAILABILITY_MAX * frac)
+    assert b.champion_fit.points == pytest.approx(ss.CHAMPION_FIT_MAX * frac)
+    # Lifted past the old deflated ceiling (top sparse-job match used to cap ~55).
+    assert b.total > 60.0
 
 
 def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):

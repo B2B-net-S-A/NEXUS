@@ -211,11 +211,15 @@ class ScoreBreakdown:
     matching_nice: List[str] = field(default_factory=list)
     gap_nice: List[str] = field(default_factory=list)
     penalties: List[str] = field(default_factory=list)
-    # Phase 10: Champion screening layer — defaults to neutral (half) budget
-    # when there is no screening yet (recruiter hasn't answered DL's questions).
+    # Phase 10: Champion screening layer — defaults to the neutral
+    # benefit-of-the-doubt budget when there is no screening yet (recruiter
+    # hasn't answered DL's questions). Governed by the same UNKNOWN_NEUTRAL_
+    # FRACTION knob as the live `_score_champion_fit` path (read at instantiation
+    # so monkeypatch/env overrides apply). Placeholder only — real scoring always
+    # supplies a computed champion_fit.
     champion_fit: LayerResult = field(
         default_factory=lambda: LayerResult(
-            points=CHAMPION_FIT_MAX * 0.5,
+            points=CHAMPION_FIT_MAX * UNKNOWN_NEUTRAL_FRACTION,
             max_points=CHAMPION_FIT_MAX,
             reason="brak screeningu",
         )
@@ -680,12 +684,27 @@ def _score_location(
     (``{"locality":"Warszawa",...}``) is compared on place tokens, not by
     raw-string substring (which practically never matched a blob).
 
-    No-op where there is nothing to match: ``job.location`` is empty for
-    ≈99.6% of imported jobs (15/3894 populated), so ``job_tokens`` is empty and
-    the city half contributes 0 for those rows — identical to the prior
-    behaviour. The fix only changes scores on the ~15 jobs that *do* carry a
-    location, where a same-city candidate now earns the city half it was
-    silently denied before.
+    "No signal" handling (2026-06-30) — both halves now follow the same
+    benefit-of-the-doubt convention as salary/availability/champion_fit: when
+    there is genuinely nothing to judge, award the neutral fraction instead of a
+    hard 0. Concretely:
+
+      remote half  full      remote policy known AND candidate mode matches
+                   0         known MISMATCH (candidate stated modes, job's not among them)
+                   neutral   no signal (job has no remote policy OR candidate stated none)
+      city  half   full      job + candidate share a place token
+                   0         known DIFFERENT city (both sides have tokens, no overlap)
+                   neutral   can't judge (job has a location but candidate's is unknown,
+                             OR — new — the job carries no location at all)
+
+    Previously the no-job-location case hard-zeroed the city half (a deliberate
+    "don't inflate the dominant cohort by a constant" choice). ~99.6% of
+    imported jobs carry no location and ~99% of imported candidates state no
+    remote preference, so that left this whole 8-pt layer dead — a top match on
+    a Traffit job capped at ~55. Since the lift is a per-job constant for the
+    dominant "all-unknown" cohort it leaves ranking — and every rank-based eval
+    metric — unchanged. ``UNKNOWN_NEUTRAL_FRACTION = 0`` reproduces the legacy
+    hard-zero exactly (the offline escape hatch).
     """
     max_pts = profile.location
     points = 0.0
@@ -694,13 +713,23 @@ def _score_location(
     # Split budget 50/50 between remote policy and city match.
     half = max_pts / 2.0
 
+    # ── Remote-policy half ────────────────────────────────────────────────────
     prefs = getattr(candidate, "preferences", None) or {}
     remote_modes = prefs.get("remote_modes") if isinstance(prefs, dict) else None
     job_remote = job.remote_policy.value if job.remote_policy else None
-    if remote_modes and job_remote and job_remote in remote_modes:
-        points += half
-        reason_bits.append(f"remote {job_remote} OK")
+    if job_remote and remote_modes:
+        # Both sides known → judge the fit.
+        if job_remote in remote_modes:
+            points += half
+            reason_bits.append(f"remote {job_remote} OK")
+        # else: known mismatch (candidate doesn't accept the job's mode) → 0.
+    else:
+        # No signal: the job states no remote policy, or the candidate stated no
+        # preference (~99% of the imported pool). Can't judge → neutral.
+        points += half * UNKNOWN_NEUTRAL_FRACTION
+        reason_bits.append("remote nieznany")
 
+    # ── City half ─────────────────────────────────────────────────────────────
     job_tokens = location_tokens(job.location)
     cand_tokens = location_tokens(candidate.location)
     if job_tokens:
@@ -708,15 +737,17 @@ def _score_location(
             points += half
             reason_bits.append("lokalizacja OK")
         elif not cand_tokens:
-            # The job specifies a location but the candidate's is unknown — we
-            # cannot judge a mismatch, so award a neutral half rather than 0
-            # (consistent with the salary/availability convention). A real
-            # different-city candidate (cand_tokens present, no overlap) still
-            # earns 0. When the job has no location at all (~99.6% of imported
-            # jobs) this whole block is skipped → unchanged no-op, so the city
-            # half never inflates the dominant cohort's score.
+            # Job specifies a place, candidate's is unknown → can't judge a
+            # mismatch → neutral. A real different-city candidate (cand_tokens
+            # present, no overlap) still earns 0.
             points += half * UNKNOWN_NEUTRAL_FRACTION
             reason_bits.append("lokalizacja nieznana")
+    else:
+        # Job carries no location (~99.6% of imported jobs) → can't judge city
+        # fit → neutral, consistent with the remote half and the
+        # salary/availability convention. (Was a hard 0 before 2026-06-30.)
+        points += half * UNKNOWN_NEUTRAL_FRACTION
+        reason_bits.append("lokalizacja nieznana")
 
     return LayerResult(
         points=min(points, max_pts),
@@ -731,7 +762,13 @@ def _score_availability(
     """Availability fit. Full points before deadline, decay 30 days post."""
     max_pts = profile.availability
     if not candidate.availability_date:
-        return LayerResult(points=max_pts * 0.5, max_points=max_pts, reason="brak daty")
+        # No signal → benefit-of-the-doubt neutral (same knob as
+        # salary/location/champion_fit). Was a hardcoded 0.5 before 2026-06-30.
+        return LayerResult(
+            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
+            max_points=max_pts,
+            reason="brak daty",
+        )
     if not job.deadline:
         return LayerResult(points=max_pts, max_points=max_pts, reason="brak deadline")
 
@@ -782,14 +819,20 @@ async def _score_champion_fit(
         .limit(1)
     )
     if stage is None or not stage.screening_answers:
+        # No screening yet → neutral (same knob as salary/location/availability)
+        # so unscreened candidates stay competitive. Was hardcoded 0.5.
         return LayerResult(
-            points=max_pts * 0.5, max_points=max_pts, reason="brak screeningu"
+            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
+            max_points=max_pts,
+            reason="brak screeningu",
         )
     try:
         answers = ScreeningAnswers.model_validate(stage.screening_answers)
     except Exception:
         return LayerResult(
-            points=max_pts * 0.5, max_points=max_pts, reason="screening niepoprawny"
+            points=max_pts * UNKNOWN_NEUTRAL_FRACTION,
+            max_points=max_pts,
+            reason="screening niepoprawny",
         )
 
     pct = answers.match_percent()
