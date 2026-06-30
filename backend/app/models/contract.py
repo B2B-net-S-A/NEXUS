@@ -302,6 +302,18 @@ class Contract(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ContractCandidateRate.effective_from",
     )
+    # Effective-dated client-rate schedule (mirror of the candidate schedule).
+    # Lets a future-dated `rate_change` amendment keep the old client rate until
+    # it takes effect (old rate runs to the end of the current order; the new
+    # rate applies from the amendment's effective_date). Current client rate is
+    # derived at read time via `effective_client_rate` — no background job.
+    client_rate_schedule = relationship(
+        "ContractClientRate",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ContractClientRate.effective_from",
+    )
     onboarding_items = relationship(
         "ContractOnboardingItem",
         back_populates="contract",
@@ -371,6 +383,25 @@ class Contract(Base, TimestampMixin):
         schedule = list(self.candidate_rate_schedule or [])
         if not schedule:
             return self.rate_candidate
+        past = [e for e in schedule if e.effective_from <= on]
+        if past:
+            return max(past, key=lambda e: e.effective_from).rate
+        return min(schedule, key=lambda e: e.effective_from).rate
+
+    def effective_client_rate(self, on: date) -> Optional[Decimal]:
+        """Client rate in effect on a given date, from the schedule.
+
+        Mirror of ``effective_candidate_rate``: the latest entry with
+        ``effective_from <= on`` wins; if the schedule has only future-dated
+        entries, the earliest upcoming step is used as the baseline. Falls back
+        to the legacy ``rate_client`` column when no schedule exists (contracts
+        without a client-rate amendment, which is the common case). Requires
+        ``client_rate_schedule`` to be eager-loaded — callers serialize within
+        async sessions.
+        """
+        schedule = list(self.client_rate_schedule or [])
+        if not schedule:
+            return self.rate_client
         past = [e for e in schedule if e.effective_from <= on]
         if past:
             return max(past, key=lambda e: e.effective_from).rate

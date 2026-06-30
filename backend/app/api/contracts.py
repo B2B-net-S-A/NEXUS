@@ -34,6 +34,7 @@ from app.models.contract import (
 )
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
+from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -49,6 +50,7 @@ from app.schemas.contract import (
     ContractActivityEntry,
     ContractBenchmarkComparison,
     ContractCandidateRateEntry,
+    ContractClientRateEntry,
     ContractCreate,
     ContractDetailResponse,
     ContractDraftFinalizeResponse,
@@ -94,31 +96,38 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 EXPIRY_WARNING_DAYS = 30
 
 
-def _effective_candidate_fields(contract: Contract, on: date) -> dict:
-    """Derive the current candidate rate (+ margin) from the schedule at read time.
+def _effective_rate_fields(contract: Contract, on: date) -> dict:
+    """Derive the current candidate + client rates (+ margin) at read time.
 
-    The schedule is the source of truth for the candidate rate over time, so we
-    recompute `rate_candidate`/`margin`/monthly-equivalents from the entry in
-    effect on `on` rather than trusting any cached column. Requires
-    `candidate_rate_schedule` to be eager-loaded.
+    Both rates live in effective-dated schedules (the source of truth over time),
+    so we recompute `rate_candidate`/`rate_client`/`margin`/monthly-equivalents
+    from the entries in effect on `on` rather than trusting any cached column. A
+    future-dated step (e.g. a `rate_change` amendment for the next order) does not
+    change today's rate. Requires both `candidate_rate_schedule` and
+    `client_rate_schedule` to be eager-loaded.
     """
-    eff = contract.effective_candidate_rate(on)
+    eff_candidate = contract.effective_candidate_rate(on)
+    eff_client = contract.effective_client_rate(on)
+    candidate_dec = Contract._as_decimal(eff_candidate)
+    client_dec = Contract._as_decimal(eff_client)
     margin = (
-        contract.rate_client - eff
-        if contract.rate_client is not None and eff is not None
+        client_dec - candidate_dec
+        if client_dec is not None and candidate_dec is not None
         else None
     )
-    monthly_candidate = contract.monthly_rate(eff)
-    monthly_client = contract.monthly_rate_client
+    monthly_candidate = contract.monthly_rate(eff_candidate)
+    monthly_client = contract.monthly_rate(eff_client)
     monthly_margin = (
         monthly_client - monthly_candidate
         if monthly_client is not None and monthly_candidate is not None
         else None
     )
     return {
-        "rate_candidate": eff,
+        "rate_candidate": eff_candidate,
+        "rate_client": eff_client,
         "margin": margin,
         "monthly_rate_candidate": monthly_candidate,
+        "monthly_rate_client": monthly_client,
         "monthly_margin": monthly_margin,
     }
 
@@ -129,6 +138,16 @@ def _schedule_entries(contract: Contract) -> list[ContractCandidateRateEntry]:
         ContractCandidateRateEntry.model_validate(e)
         for e in sorted(
             contract.candidate_rate_schedule or [], key=lambda e: e.effective_from
+        )
+    ]
+
+
+def _client_schedule_entries(contract: Contract) -> list[ContractClientRateEntry]:
+    """Serialize a contract's client-rate schedule (oldest → newest)."""
+    return [
+        ContractClientRateEntry.model_validate(e)
+        for e in sorted(
+            contract.client_rate_schedule or [], key=lambda e: e.effective_from
         )
     ]
 
@@ -146,6 +165,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "rate_candidate": contract.rate_candidate,
         "rate_client": contract.rate_client,
         "candidate_rate_schedule": _schedule_entries(contract),
+        "client_rate_schedule": _client_schedule_entries(contract),
         "framework_rate": contract.framework_rate,
         "target_rate_min": contract.target_rate_min,
         "target_rate_max": contract.target_rate_max,
@@ -189,8 +209,8 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "client_name": contract.client.name if contract.client else None,
         "job_title": contract.job.title if contract.job else None,
     }
-    # Derive current candidate rate / margin from the schedule (read-time).
-    data.update(_effective_candidate_fields(contract, date.today()))
+    # Derive current candidate + client rates / margin from the schedules.
+    data.update(_effective_rate_fields(contract, date.today()))
     return ContractDetailResponse(**data)
 
 
@@ -238,6 +258,7 @@ async def list_contracts(
         selectinload(Contract.client),
         selectinload(Contract.job),
         selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
     )
     if q and q.strip():
         # Free-text search across the joined candidate/client/job. ILIKE is
@@ -340,8 +361,9 @@ async def list_contracts(
                 "job_title": c.job.title if c.job else None,
                 "latest_order_end_date": latest_order_dates.get(c.id),
                 "candidate_rate_schedule": _schedule_entries(c),
-                # Current candidate rate / margin derived from the schedule.
-                **_effective_candidate_fields(c, _today),
+                "client_rate_schedule": _client_schedule_entries(c),
+                # Current candidate + client rates / margin derived from schedules.
+                **_effective_rate_fields(c, _today),
             }
         )
         for c in contracts
@@ -390,6 +412,7 @@ async def create_contract(
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
         )
     )
     return _to_detail(result.scalar_one())
@@ -508,7 +531,10 @@ async def expiring_contracts(
         )
         # Eager-load the schedule: it's a serialized field on ContractResponse,
         # so from_attributes would otherwise trigger an async lazy-load error.
-        .options(selectinload(Contract.candidate_rate_schedule))
+        .options(
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+        )
     )
     today = date.today()
     return [
@@ -518,7 +544,8 @@ async def expiring_contracts(
                     k: getattr(c, k, None) for k in ContractResponse.model_fields.keys()
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
-                **_effective_candidate_fields(c, today),
+                "client_rate_schedule": _client_schedule_entries(c),
+                **_effective_rate_fields(c, today),
             }
         )
         for c in result.scalars().all()
@@ -538,6 +565,7 @@ async def get_contract(
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -640,6 +668,7 @@ async def update_contract(
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -688,6 +717,7 @@ async def activate_contract(
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()
@@ -754,6 +784,7 @@ async def _load_contract_with_relations(db: AsyncSession, contract_id: int) -> C
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
             selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )
@@ -1348,7 +1379,10 @@ async def create_contract_amendment(
     contract_res = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
-        .options(selectinload(Contract.candidate_rate_schedule))
+        .options(
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+        )
     )
     contract = contract_res.scalar_one_or_none()
     if not contract:
@@ -1413,7 +1447,33 @@ async def create_contract_amendment(
             )
             new_values["rate_candidate"] = data.new_rate_candidate
         if data.new_rate_client is not None:
-            contract.rate_client = data.new_rate_client
+            # The client rate also lives in an effective-dated schedule (mirror
+            # of the candidate rate). A future-dated change therefore keeps the
+            # old client rate until its effective_date: the running order bills
+            # at the old rate to its end, and the new rate applies only from the
+            # new order. Seed a baseline step (current rate from the contract's
+            # start) the first time we touch the schedule so history stays
+            # complete; then append the new step.
+            if (
+                not contract.client_rate_schedule
+                and contract.rate_client is not None
+            ):
+                contract.client_rate_schedule.append(
+                    ContractClientRate(
+                        rate=contract.rate_client,
+                        effective_from=contract.start_date or date.today(),
+                        note="Stawka początkowa",
+                        created_by=current_user.id,
+                    )
+                )
+            contract.client_rate_schedule.append(
+                ContractClientRate(
+                    rate=data.new_rate_client,
+                    effective_from=data.effective_date,
+                    note=data.reason,
+                    created_by=current_user.id,
+                )
+            )
             new_values["rate_client"] = data.new_rate_client
         if data.new_rate_unit is not None:
             contract.rate_unit = data.new_rate_unit  # type: ignore[assignment]
@@ -1426,9 +1486,11 @@ async def create_contract_amendment(
                 status_code=422,
                 detail="At least one rate field must change for rate_change amendment",
             )
-        # Current candidate rate derived from the (updated) schedule — a
-        # future-dated step won't change today's rate until it takes effect.
+        # Current rates derived from the (updated) schedules — a future-dated
+        # step won't change today's rate until it takes effect. Keep the cached
+        # columns consistent so direct reads + the margin event see today's rate.
         contract.rate_candidate = contract.effective_candidate_rate(date.today())
+        contract.rate_client = contract.effective_client_rate(date.today())
         contract.margin = contract.calculate_margin()
 
     elif data.amendment_type == ContractAmendmentType.scope_change:
@@ -1735,6 +1797,7 @@ async def terminate_contract(
             selectinload(Contract.client),
             selectinload(Contract.job),
             selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
         )
     )
     contract = result.scalar_one_or_none()

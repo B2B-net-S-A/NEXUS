@@ -31,6 +31,7 @@ from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
 from app.models.rate_card import RateCard
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
+from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_onboarding import (
     ContractOnboardingItem,
     OnboardingItemStatus,
@@ -201,6 +202,7 @@ __all__ = [
     "ContractAmendment",
     "ContractAmendmentType",
     "ContractCandidateRate",
+    "ContractClientRate",
     "ContractOnboardingItem",
     "OnboardingItemStatus",
     "ContractTemplate",
