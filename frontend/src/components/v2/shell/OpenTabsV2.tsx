@@ -86,7 +86,17 @@ export function OpenTabsV2() {
   // hide it there to avoid showing the same open recruitments twice.
   const onJobDetail = /^\/jobs\/\d+/.test(pathname ?? "");
 
-  if (!mounted || onJobDetail || tabs.length === 0) return null;
+  // On the candidate list/detail pages the left CandidateTabsRail shows the
+  // candidate tabs, so we drop candidate pills here (keeping any open job/client
+  // tabs) to avoid showing the same candidates twice. Must stay in sync with
+  // the showRail predicate in app/candidates/layout.tsx.
+  const onCandidateRail =
+    pathname === "/candidates" || /^\/candidates\/\d+/.test(pathname ?? "");
+  const visibleTabs = onCandidateRail
+    ? tabs.filter((t) => t.type !== "candidate")
+    : tabs;
+
+  if (!mounted || onJobDetail || visibleTabs.length === 0) return null;
 
   const handleActivate = (tab: Tab) => {
     activateTab(tab.id);
@@ -101,7 +111,7 @@ export function OpenTabsV2() {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-4">
       <div className="flex items-end gap-0.5 overflow-x-auto scrollbar-none py-1">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <TabPill
             key={tab.id}
             tab={tab}
