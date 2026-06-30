@@ -82,21 +82,16 @@ export function OpenTabsV2() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // On recruitment detail pages the left JobTabsRail replaces this bar, so we
-  // hide it there to avoid showing the same open recruitments twice.
+  // On recruitment detail pages the left JobTabsRail replaces this bar, and on
+  // the candidate list/detail pages the left CandidateTabsRail does the same.
+  // Hide the whole strip on those routes so the side rail is the single home
+  // for recently opened items — no duplicate top bar. The candidate predicate
+  // must stay in sync with the showRail predicate in app/candidates/layout.tsx.
   const onJobDetail = /^\/jobs\/\d+/.test(pathname ?? "");
-
-  // On the candidate list/detail pages the left CandidateTabsRail shows the
-  // candidate tabs, so we drop candidate pills here (keeping any open job/client
-  // tabs) to avoid showing the same candidates twice. Must stay in sync with
-  // the showRail predicate in app/candidates/layout.tsx.
   const onCandidateRail =
     pathname === "/candidates" || /^\/candidates\/\d+/.test(pathname ?? "");
-  const visibleTabs = onCandidateRail
-    ? tabs.filter((t) => t.type !== "candidate")
-    : tabs;
 
-  if (!mounted || onJobDetail || visibleTabs.length === 0) return null;
+  if (!mounted || onJobDetail || onCandidateRail || tabs.length === 0) return null;
 
   const handleActivate = (tab: Tab) => {
     activateTab(tab.id);
@@ -111,7 +106,7 @@ export function OpenTabsV2() {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-4">
       <div className="flex items-end gap-0.5 overflow-x-auto scrollbar-none py-1">
-        {visibleTabs.map((tab) => (
+        {tabs.map((tab) => (
           <TabPill
             key={tab.id}
             tab={tab}
