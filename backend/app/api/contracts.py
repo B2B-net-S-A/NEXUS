@@ -1454,10 +1454,7 @@ async def create_contract_amendment(
             # new order. Seed a baseline step (current rate from the contract's
             # start) the first time we touch the schedule so history stays
             # complete; then append the new step.
-            if (
-                not contract.client_rate_schedule
-                and contract.rate_client is not None
-            ):
+            if not contract.client_rate_schedule and contract.rate_client is not None:
                 contract.client_rate_schedule.append(
                     ContractClientRate(
                         rate=contract.rate_client,
