@@ -465,10 +465,6 @@ interface ColProps {
  onAcceptVerification: (item: KanbanItem) => void;
  onRejectVerification: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
- // Wyliczona z viewportu wysokość scrollowanej listy kart (px). Gdy podana,
- // wygrywa z domyślnym calc — pozwala kolumnom wypełnić ekran niezależnie od
- // stanu nagłówka. undefined = SSR/pierwszy render przed pomiarem (fallback calc).
- columnHeight?: number;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -484,16 +480,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onAcceptVerification,
  onRejectVerification,
  onRemoveFromRecruitment,
- columnHeight,
 }: ColProps) {
  const dropId = colId(col);
  return (
  <div
- className={cn("flex-shrink-0 rounded-lg bg-background/60 border border-border",
+ className={cn("flex flex-col flex-shrink-0 rounded-lg bg-background/60 border border-border",
  density === "compact" ?"w-60" :"w-96"
  )}
  >
- <div className={cn("border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-sm border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -520,22 +515,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <div
  ref={provided.innerRef}
  {...provided.droppableProps}
- className={cn("p-2 space-y-2 overflow-y-auto rounded-b-v2-m transition-colors",
- // Pipeline wypełnia ekran — definite height liczona od viewportu, żeby puste/
- // rzadkie kolumny rozciągały się na całą wysokość zamiast zapadać do floora
- // (wcześniej tylko max-h → krótkie kolumny zostawiały pustkę na dole strony).
- // min-height = podłoga na małych ekranach (min-height wygrywa z height),
- // overflow-y-auto = wewnętrzny scroll gdy kart jest więcej niż mieści ekran.
- //
- // Wysokość: gdy parent zmierzył `columnHeight` (px od realnej pozycji boardu
- // do dołu viewportu) — używamy jej inline. Dzięki temu po zwinięciu nagłówka
- // board rośnie i wypełnia zwolnioną przestrzeń (brak dziury na dole). Calc
- // poniżej zostaje jako fallback na SSR/pierwszy render przed pomiarem.
- "min-h-[280px]",
- columnHeight == null && "h-[calc(100vh-350px)]",
+ className={cn(
+ // Kolumna wypełnia wysokość boardu (flex-1), a sam board (przodek) jest
+ // JEDYNYM scroll-kontenerem (oba kierunki). Dzięki temu @hello-pangea/dnd
+ // śledzi scroll boardu i trafienia dropa zgadzają się z kursorem nawet po
+ // auto-scrollu. Brak własnego overflow-y kolumny = brak zagnieżdżonego
+ // scroll-kontenera (biblioteka go nie wspiera → wcześniej kursor mapował
+ // się na złą kolumnę po poziomym auto-scrollu).
+ "flex-1 p-2 space-y-2 rounded-b-v2-m transition-colors",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
- style={columnHeight != null ? { height: columnHeight } : undefined}
  >
  {col.items.map((item, index) => (
  <Draggable
@@ -549,7 +538,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {...dragProvided.draggableProps}
  {...dragProvided.dragHandleProps}
  className={cn("transition-shadow",
- dragSnapshot.isDragging &&"shadow-md rotate-1 opacity-90"
+ dragSnapshot.isDragging &&"relative z-20 shadow-md rotate-1 opacity-90"
  )}
  >
  <CandidateKanbanCard
@@ -586,10 +575,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
-// Poziomy auto-scroll boardu podczas drag: szerokość strefy przy krawędzi (px),
-// w której zaczynamy przewijać, oraz maks. prędkość (px/klatkę ~60fps).
-const BOARD_AUTOSCROLL_EDGE = 100;
-const BOARD_AUTOSCROLL_SPEED = 20;
 
 export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
@@ -654,66 +639,6 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  useEffect(() => {
  measureColumnHeight();
  }, [measureColumnHeight, headerCollapsed, density, statusMessage, cols.length]);
-
- // Poziomy auto-scroll tablicy podczas drag. @hello-pangea/dnd auto-przewija
- // TYLKO okno albo własny scroll-kontener danego Droppable (u nas: pionowy
- // scroll wewnątrz kolumny). Poziomego scrollera boardu (przodka, nie „ramki"
- // Droppable) biblioteka NIE rusza — dlatego kart nie dawało się dociągnąć do
- // skrajnie prawych kolumn (np. „Odrzucony"): trzymając kartę przy krawędzi,
- // board nie przewijał się. Przewijamy go ręcznie: pętla rAF (start na
- // onDragStart) czyta ostatnią pozycję kursora i przesuwa scrollLeft, gdy karta
- // jest blisko lewej/prawej krawędzi boardu.
- const autoScrollRaf = useRef<number | null>(null);
- const dragPointerX = useRef<number | null>(null);
-
- const trackDragPointer = useCallback((e: MouseEvent | TouchEvent) => {
- const x = "touches" in e ? e.touches[0]?.clientX : e.clientX;
- if (x != null) dragPointerX.current = x;
- }, []);
-
- const stepBoardAutoScroll = useCallback(() => {
- const el = boardRef.current;
- const x = dragPointerX.current;
- if (el && x != null) {
- const rect = el.getBoundingClientRect();
- const fromLeft = x - rect.left;
- const fromRight = rect.right - x;
- const canLeft = el.scrollLeft > 0;
- const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
- if (fromLeft < BOARD_AUTOSCROLL_EDGE && canLeft) {
- el.scrollLeft -=
- BOARD_AUTOSCROLL_SPEED * (1 - Math.max(fromLeft, 0) / BOARD_AUTOSCROLL_EDGE);
- } else if (fromRight < BOARD_AUTOSCROLL_EDGE && canRight) {
- el.scrollLeft +=
- BOARD_AUTOSCROLL_SPEED * (1 - Math.max(fromRight, 0) / BOARD_AUTOSCROLL_EDGE);
- }
- }
- autoScrollRaf.current = requestAnimationFrame(stepBoardAutoScroll);
- }, []);
-
- const startBoardAutoScroll = useCallback(() => {
- if (typeof window === "undefined") return;
- window.addEventListener("mousemove", trackDragPointer);
- window.addEventListener("touchmove", trackDragPointer, { passive: true });
- if (autoScrollRaf.current == null) {
- autoScrollRaf.current = requestAnimationFrame(stepBoardAutoScroll);
- }
- }, [trackDragPointer, stepBoardAutoScroll]);
-
- const stopBoardAutoScroll = useCallback(() => {
- if (typeof window !== "undefined") {
- window.removeEventListener("mousemove", trackDragPointer);
- window.removeEventListener("touchmove", trackDragPointer);
- }
- if (autoScrollRaf.current != null) {
- cancelAnimationFrame(autoScrollRaf.current);
- autoScrollRaf.current = null;
- }
- dragPointerX.current = null;
- }, [trackDragPointer]);
-
- // Sprzątanie, gdy komponent zniknie w trakcie drag (np. nawigacja).
- useEffect(() => stopBoardAutoScroll, [stopBoardAutoScroll]);
 
  // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
  // dla wszystkich zaznaczonych kandydatów).
@@ -940,7 +865,6 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
- stopBoardAutoScroll();
  if (!res.destination) return;
  const src = cols.find((c) => colId(c) === res.source.droppableId);
  const dst = cols.find((c) => colId(c) === res.destination!.droppableId);
@@ -985,7 +909,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  applyOptimistic(item, colId(src), dst);
  sendMove(item, dst);
  },
- [cols, applyOptimistic, sendMove, stopBoardAutoScroll]
+ [cols, applyOptimistic, sendMove]
  );
 
  // Submit z modala"Zweryfikowany — podaj rate"
@@ -1427,8 +1351,20 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  )}
 
  {/* Board */}
- <DragDropContext onDragStart={startBoardAutoScroll} onDragEnd={onDragEnd}>
- <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 300 }}>
+ <DragDropContext onDragEnd={onDragEnd}>
+ <div
+ ref={boardRef}
+ className={cn(
+ // Board = JEDYNY scroll-kontener (oba kierunki). Po usunięciu overflow-y
+ // z kolumn to on jest „closestScrollable" każdej kolumny → @hello-pangea/dnd
+ // śledzi jego scroll i auto-scrolluje go natywnie (drop trafia pod kursor,
+ // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
+ // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
+ "flex gap-3 overflow-auto pb-4 min-h-[280px]",
+ columnHeight == null && "h-[calc(100vh-350px)]"
+ )}
+ style={columnHeight != null ? { height: columnHeight } : undefined}
+ >
  {filtered.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
@@ -1449,7 +1385,6 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  isApprover={isApprover}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
- columnHeight={columnHeight}
  onAcceptVerification={handleAcceptVerification}
  onRejectVerification={(item) =>
  setPendingRejectVerification({ item, note: "" })
