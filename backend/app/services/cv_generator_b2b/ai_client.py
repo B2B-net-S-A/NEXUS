@@ -60,7 +60,10 @@ PROMPT_NAME = "cv_b2b_extraction"
 # starszych ról, tytuł pod ofertę, kanoniczna pisownia tech, kontekst projektu,
 # higiena dat edukacji/luk.
 # v4 (2026-06-11): limit 12 technologii per rola (priorytet must/nice klienta).
-PROMPT_VERSION = 4
+# v5 (2026-07-01): wierność obowiązków — zakaz rozdmuchiwania zakresu (klienci/
+# domeny/usługi/integracje), Profil Championa i notatki tylko jako pozycjonowanie,
+# nie źródło wymyślonych obowiązków (generator nie nagina prawdy).
+PROMPT_VERSION = 5
 
 
 def _model() -> str:
