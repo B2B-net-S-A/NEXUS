@@ -302,7 +302,9 @@ async def _run_generate_new_job(
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
             logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
-            await _finalize_failure(db, generated_id, "Nieoczekiwany błąd generacji CV.")
+            await _finalize_failure(
+                db, generated_id, "Nieoczekiwany błąd generacji CV."
+            )
             await db.commit()
             return
 
@@ -343,7 +345,9 @@ async def _run_generate_upload_job(
             return
         except Exception as err:  # noqa: BLE001 — a job must never crash silently
             logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
-            await _finalize_failure(db, generated_id, "Nieoczekiwany błąd generacji CV.")
+            await _finalize_failure(
+                db, generated_id, "Nieoczekiwany błąd generacji CV."
+            )
             await db.commit()
             return
 

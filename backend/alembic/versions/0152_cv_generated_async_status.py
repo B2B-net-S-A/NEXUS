@@ -41,8 +41,7 @@ def upgrade() -> None:
         "ADD COLUMN IF NOT EXISTS error_message VARCHAR(1000)"
     )
     op.execute(
-        "ALTER TABLE cv_generated_documents "
-        "ADD COLUMN IF NOT EXISTS warnings JSONB"
+        "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS warnings JSONB"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_cv_generated_documents_status "
@@ -54,7 +53,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_cv_generated_documents_status")
     op.execute("ALTER TABLE cv_generated_documents DROP COLUMN IF EXISTS warnings")
-    op.execute(
-        "ALTER TABLE cv_generated_documents DROP COLUMN IF EXISTS error_message"
-    )
+    op.execute("ALTER TABLE cv_generated_documents DROP COLUMN IF EXISTS error_message")
     op.execute("ALTER TABLE cv_generated_documents DROP COLUMN IF EXISTS status")
