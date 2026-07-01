@@ -279,6 +279,9 @@ async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
             client.messages.create,
             model=settings.CLAUDE_MODEL_CV,
             max_tokens=2000,
+            # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+            # tokens count toward max_tokens and would truncate this JSON output.
+            thinking={"type": "disabled"},
             system=CV_ENRICHMENT.system_prompt or "",
             messages=[{"role": "user", "content": user_prompt}],
         )

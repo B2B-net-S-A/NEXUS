@@ -255,6 +255,9 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
         client.messages.create,
         model="claude-sonnet-5",
         max_tokens=1500,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this JSON output.
+        thinking={"type": "disabled"},
         messages=[{"role": "user", "content": prompt}],
     )
 

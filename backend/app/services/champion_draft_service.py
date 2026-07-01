@@ -117,6 +117,9 @@ async def _call_claude_json(
         client.messages.create,
         model=model,
         max_tokens=max_tokens,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this JSON output.
+        thinking={"type": "disabled"},
         system=system_prompt,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -213,6 +216,9 @@ def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
     message = client.messages.create(
         model=model,
         max_tokens=1500,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens and would truncate this summary.
+        thinking={"type": "disabled"},
         system=_CHUNK_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": chunk}],
     )
