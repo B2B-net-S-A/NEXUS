@@ -101,6 +101,10 @@ def _call_claude_sync(prompt: str, *, model: str) -> dict:
     payload = {
         "model": model,
         "max_tokens": 400,
+        # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
+        # tokens count toward max_tokens (only 400 here) and would truncate the
+        # output before any JSON is emitted.
+        "thinking": {"type": "disabled"},
         "system": SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": prompt}],
     }
