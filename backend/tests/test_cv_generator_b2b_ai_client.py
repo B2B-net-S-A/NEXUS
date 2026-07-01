@@ -312,6 +312,52 @@ def test_extracts_text_when_thinking_block_leads(monkeypatch):
     assert analyze_with_ai("payload", "req-thinking") == '{"ok": true}'
 
 
+def _capture_kwargs_client(monkeypatch, text='{"ok": true}'):
+    """Install a fake client that records the kwargs of the last create call."""
+    captured: dict = {}
+
+    class _Msgs:
+        def create(self, **kwargs):
+            captured.clear()
+            captured.update(kwargs)
+            return _FakeMessage(text)
+
+    class _Client:
+        def __init__(self, *a, **k) -> None:
+            self.messages = _Msgs()
+
+    monkeypatch.setattr(ai_client.anthropic, "Anthropic", _Client)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    return captured
+
+
+def test_thinking_disabled_by_default(monkeypatch):
+    # Sonnet 5 does adaptive thinking (effort=high) by default; thinking tokens
+    # count toward max_tokens and truncate the CV JSON. The call must pin
+    # thinking off so the full budget goes to the output.
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    monkeypatch.delenv("CV_B2B_THINKING", raising=False)
+    captured = _capture_kwargs_client(monkeypatch)
+
+    analyze_with_ai("payload", "req-think-off", system="sys")
+
+    assert captured.get("thinking") == {"type": "disabled"}
+
+
+def test_thinking_can_be_reenabled_via_env(monkeypatch):
+    # Escape hatch: CV_B2B_THINKING=adaptive omits the param so the model
+    # decides (restores default adaptive thinking) without a redeploy.
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    monkeypatch.setenv("CV_B2B_THINKING", "adaptive")
+    captured = _capture_kwargs_client(monkeypatch)
+
+    analyze_with_ai("payload", "req-think-on", system="sys")
+
+    assert "thinking" not in captured
+
+
 def test_no_text_block_raises_clean_error(monkeypatch):
     # A response with only non-text blocks must raise a clean AI error instead
     # of returning "" (which fails JSON parsing at char 0 downstream).

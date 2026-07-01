@@ -120,6 +120,24 @@ def _request_timeout() -> float:
     return _env_number("CV_B2B_REQUEST_TIMEOUT", _DEFAULT_REQUEST_TIMEOUT, float)
 
 
+def _thinking_param() -> dict[str, str] | None:
+    """Extended-thinking config for the extraction call.
+
+    ``claude-sonnet-5`` runs adaptive thinking with ``effort=high`` BY DEFAULT,
+    and thinking tokens are billed as output — they count toward ``max_tokens``
+    and crowd out the CV JSON, tripping ``stop_reason=max_tokens`` (the
+    "Odpowiedź Claude została ucięta" truncation). CV extraction is a structured
+    transformation that gains little from extended reasoning, so thinking is
+    disabled by default. Set ``CV_B2B_THINKING`` to ``adaptive``/``on`` to
+    restore the model's default adaptive thinking (e.g. if extraction quality
+    regresses) — that omits the param so the model decides.
+    """
+    mode = os.environ.get("CV_B2B_THINKING", "disabled").strip().lower()
+    if mode in ("adaptive", "on", "true", "1", "enabled", "default"):
+        return None  # omit → model default (adaptive)
+    return {"type": "disabled"}
+
+
 def _api_key() -> str | None:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if key:
@@ -342,6 +360,11 @@ def analyze_with_ai(content: str, request_id: str, system: str | None = None) ->
                 "cache_control": {"type": "ephemeral"},
             }
         ]
+    # Disable Sonnet 5's default adaptive thinking — its thinking tokens count
+    # toward max_tokens and were truncating the CV JSON (stop_reason=max_tokens).
+    thinking = _thinking_param()
+    if thinking is not None:
+        kwargs["thinking"] = thinking
 
     start = time.time()
     last_err: BaseException | None = None
