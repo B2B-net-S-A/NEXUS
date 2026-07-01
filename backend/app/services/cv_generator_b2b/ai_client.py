@@ -2,7 +2,7 @@
 external CV-Generator port.
 
 Policy:
-  - Primary model: ``claude-sonnet-4-6`` (env-overridable via ``CV_B2B_MODEL``).
+  - Primary model: ``claude-sonnet-5`` (env-overridable via ``CV_B2B_MODEL``).
   - Fallback models: ``claude-opus-4-8`` (env-overridable via
     ``CV_B2B_FALLBACK_MODELS``, comma-separated). A 529 ``overloaded_error`` is
     per-model-pool, so when the primary pool is saturated we re-issue the call
@@ -40,7 +40,7 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "claude-sonnet-5"
 _DEFAULT_FALLBACK_MODELS = ("claude-opus-4-8",)
 _DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_MAX_RETRIES = 3

@@ -74,7 +74,7 @@ from app.services.llm_prompts import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-opus-4-5")
+DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-sonnet-5")
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000"))
 
 
@@ -218,7 +218,7 @@ def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
 
 
 async def _summarize_transcript_for_champion(
-    transcript: str, *, summarize_model: str = "claude-haiku-4-5-20251001"
+    transcript: str, *, summarize_model: str = "claude-sonnet-5"
 ) -> str:
     """Map-reduce: chunk → per-chunk summary → concat.
 
@@ -226,8 +226,8 @@ async def _summarize_transcript_for_champion(
     than MAX_TRANSCRIPT_CHARS don't lose context past the legacy hard cutoff.
     Short transcripts return verbatim — same output shape as the legacy path.
 
-    Uses Claude Haiku (cheap + fast) for the per-chunk extraction; the merged
-    output is then fed into the existing Opus-based Champion prompt template.
+    Uses Claude Sonnet 5 for the per-chunk extraction; the merged
+    output is then fed into the existing Champion prompt template.
     """
     import asyncio as _asyncio  # noqa: PLC0415 — local rename, avoid shadowing top import
 
