@@ -1,10 +1,12 @@
 """Tests for the effective-dated candidate-rate schedule (migracja 0144)."""
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 from httpx import AsyncClient
 
-from app.models.contract import Contract
+from app.api.contracts import _effective_rate_fields
+from app.models.contract import Contract, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 
 
@@ -47,6 +49,44 @@ def test_resolver_uses_earliest_when_all_future():
     ]
     # Nothing in effect yet → earliest upcoming step is the baseline.
     assert c.effective_candidate_rate(date(2026, 6, 24)) == 200
+
+
+def test_resolver_same_date_amendment_supersedes_baseline():
+    """A same-day "Zmień stawkę" must win the tie against the seeded baseline.
+
+    When the amendment's ``effective_date`` equals ``start_date``, the endpoint
+    seeds a baseline step (old rate) and appends the new step — both share
+    ``effective_from``. The later-inserted step (the amendment) must win, else
+    the margin keeps using the stale rate (the reported 205−150 instead of the
+    correct 205−165).
+    """
+    c = Contract()
+    c.rate_candidate = 150
+    c.candidate_rate_schedule = [
+        _rate(150, date(2026, 7, 1)),  # seeded baseline ("Stawka początkowa")
+        _rate(165, date(2026, 7, 1)),  # amendment, same effective_from
+    ]
+    assert c.effective_candidate_rate(date(2026, 7, 1)) == 165
+
+
+def test_same_date_candidate_amendment_updates_margin():
+    """End-to-end guard for the reported bug: client 205, candidate 150→165 on
+    the same day → margin must be 205−165 = 40 (not 205−150 = 55)."""
+    on = date(2026, 7, 1)
+    c = Contract()
+    c.rate_unit = RateUnit.hourly
+    c.billing_hours_per_month = 160
+    c.rate_client = 205
+    c.rate_candidate = 150
+    c.client_rate_schedule = []  # client rate unchanged
+    c.candidate_rate_schedule = [
+        _rate(150, on),
+        _rate(165, on),
+    ]
+    fields = _effective_rate_fields(c, on)
+    assert fields["rate_candidate"] == 165
+    assert fields["margin"] == Decimal("40")  # 205 - 165
+    assert fields["monthly_margin"] == Decimal("6400")  # 40 * 160
 
 
 # ── API integration (in-process; no-op when no seed data) ────────────────────
