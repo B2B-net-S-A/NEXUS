@@ -7,8 +7,8 @@ Asystent AI dla DynaReportera. Dwa endpointy:
   odpowiedź. History trzymana po stronie frontu (localStorage), backend
   stateless.
 
-Używa Claude Haiku (CLAUDE_MODEL_CV) dla niskich kosztów (tani model do
-quick analytical insight'ów).
+Używa modelu z CLAUDE_MODEL_CV (domyślnie Claude Sonnet 5) do generacji
+quick analytical insight'ów.
 """
 
 from __future__ import annotations

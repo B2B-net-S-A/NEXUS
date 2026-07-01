@@ -253,7 +253,7 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
     # single-worker event loop.
     message = await run_in_threadpool(
         client.messages.create,
-        model="claude-opus-4-5",
+        model="claude-sonnet-5",
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )

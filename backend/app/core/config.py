@@ -110,7 +110,7 @@ class Settings(BaseSettings):
 
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-haiku-4-5-20251001"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
 
     # Fireflies integration
