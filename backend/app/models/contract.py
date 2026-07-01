@@ -300,7 +300,10 @@ class Contract(Base, TimestampMixin):
         back_populates="contract",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        order_by="ContractCandidateRate.effective_from",
+        # (effective_from, id): id makes same-day ties deterministic so the
+        # newer step (higher id) loads last — the resolver's tiebreak and the
+        # frontend's "(aktualna)" pick both rely on that order.
+        order_by="ContractCandidateRate.effective_from, ContractCandidateRate.id",
     )
     # Effective-dated client-rate schedule (mirror of the candidate schedule).
     # Lets a future-dated `rate_change` amendment keep the old client rate until
@@ -312,7 +315,9 @@ class Contract(Base, TimestampMixin):
         back_populates="contract",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        order_by="ContractClientRate.effective_from",
+        # (effective_from, id): id makes same-day ties deterministic so the
+        # newer step (higher id) loads last — mirror of candidate_rate_schedule.
+        order_by="ContractClientRate.effective_from, ContractClientRate.id",
     )
     onboarding_items = relationship(
         "ContractOnboardingItem",
@@ -370,42 +375,63 @@ class Contract(Base, TimestampMixin):
             return client - candidate
         return None
 
-    def effective_candidate_rate(self, on: date) -> Optional[int]:
-        """Candidate rate in effect on a given date, from the schedule.
+    @staticmethod
+    def _resolve_scheduled_rate(
+        schedule: object, on: date, fallback: Optional[Decimal]
+    ) -> Optional[Decimal]:
+        """Rate in effect on ``on`` from an effective-dated schedule.
 
-        Latest entry with ``effective_from <= on`` wins. If the schedule has
-        only future-dated entries, the earliest upcoming step is used as the
-        baseline so a fresh contract always has a sensible rate. Falls back to
-        the legacy ``rate_candidate`` column when no schedule exists (existing
-        contracts predate the schedule). Requires ``candidate_rate_schedule`` to
-        be eager-loaded — callers serialize within async sessions.
+        The step in effect wins: the latest ``effective_from <= on``, or — when
+        every step is future-dated — the earliest upcoming one (so a fresh
+        contract still has a rate). Ties on ``effective_from`` are broken by
+        **insertion order: the last-added step wins**, so a same-day
+        ``rate_change`` amendment supersedes the baseline seeded from the
+        contract's start. That baseline shares ``effective_from`` with the new
+        step exactly when the amendment's ``effective_date == start_date``;
+        without this tiebreak the stale baseline wins the tie and the margin
+        keeps using the *old* rate (e.g. 205 − 150 instead of 205 − 165). The
+        enumerate index is a robust tiebreak both before flush (in-memory append
+        order) and after (the schedule loads ``effective_from, id`` → newer step
+        last). Falls back to the legacy column when the schedule is empty
+        (contracts that predate the schedule).
         """
-        schedule = list(self.candidate_rate_schedule or [])
-        if not schedule:
-            return self.rate_candidate
-        past = [e for e in schedule if e.effective_from <= on]
+        entries = list(schedule or [])
+        if not entries:
+            return fallback
+        past = [(i, e) for i, e in enumerate(entries) if e.effective_from <= on]
         if past:
-            return max(past, key=lambda e: e.effective_from).rate
-        return min(schedule, key=lambda e: e.effective_from).rate
+            _, step = max(past, key=lambda ie: (ie[1].effective_from, ie[0]))
+            return step.rate
+        # Only future-dated steps: earliest upcoming, last-inserted breaks ties.
+        earliest = min(e.effective_from for e in entries)
+        _, step = max(
+            (ie for ie in enumerate(entries) if ie[1].effective_from == earliest),
+            key=lambda ie: ie[0],
+        )
+        return step.rate
+
+    def effective_candidate_rate(self, on: date) -> Optional[int]:
+        """Candidate rate in effect on ``on`` — see ``_resolve_scheduled_rate``.
+
+        Falls back to the legacy ``rate_candidate`` column when no schedule
+        exists. Requires ``candidate_rate_schedule`` to be eager-loaded — callers
+        serialize within async sessions.
+        """
+        return self._resolve_scheduled_rate(
+            self.candidate_rate_schedule, on, self.rate_candidate
+        )
 
     def effective_client_rate(self, on: date) -> Optional[Decimal]:
-        """Client rate in effect on a given date, from the schedule.
+        """Client rate in effect on ``on`` — see ``_resolve_scheduled_rate``.
 
-        Mirror of ``effective_candidate_rate``: the latest entry with
-        ``effective_from <= on`` wins; if the schedule has only future-dated
-        entries, the earliest upcoming step is used as the baseline. Falls back
-        to the legacy ``rate_client`` column when no schedule exists (contracts
-        without a client-rate amendment, which is the common case). Requires
-        ``client_rate_schedule`` to be eager-loaded — callers serialize within
-        async sessions.
+        Mirror of ``effective_candidate_rate`` for the client-rate schedule.
+        Falls back to the legacy ``rate_client`` column when no schedule exists
+        (contracts without a client-rate amendment, the common case). Requires
+        ``client_rate_schedule`` to be eager-loaded.
         """
-        schedule = list(self.client_rate_schedule or [])
-        if not schedule:
-            return self.rate_client
-        past = [e for e in schedule if e.effective_from <= on]
-        if past:
-            return max(past, key=lambda e: e.effective_from).rate
-        return min(schedule, key=lambda e: e.effective_from).rate
+        return self._resolve_scheduled_rate(
+            self.client_rate_schedule, on, self.rate_client
+        )
 
     def monthly_rate(self, rate: object) -> Optional[Decimal]:
         """Normalize a stored rate to a monthly amount using rate_unit + billing_hours."""

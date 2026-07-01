@@ -58,6 +58,18 @@ def test_client_resolver_uses_earliest_when_all_future():
     assert c.effective_client_rate(date(2026, 6, 24)) == 300
 
 
+def test_client_resolver_same_date_amendment_supersedes_baseline():
+    """Mirror guard: a same-day client rate_change must beat the seeded-baseline
+    tie, so the client rate/margin reflect the new order's rate."""
+    c = Contract()
+    c.rate_client = 200
+    c.client_rate_schedule = [
+        _crate(200, date(2026, 7, 1)),  # seeded baseline
+        _crate(240, date(2026, 7, 1)),  # amendment, same effective_from
+    ]
+    assert c.effective_client_rate(date(2026, 7, 1)) == 240
+
+
 def test_future_client_rate_change_keeps_old_rate_and_margin_today():
     """The bug guard: a future-dated client rate must NOT change today's
     rate/margin. Old client rate (200) holds until the new order; the new rate
