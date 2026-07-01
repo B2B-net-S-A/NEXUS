@@ -1,7 +1,7 @@
 <h1>Umowa o współpracę B2B</h1>
 <h2>nr {{ b2b.contract_number or '………' }}</h2>
 <p>zawarta w dniu {{ b2b.signing_date | pl_date }} roku w Warszawie pomiędzy: </p>
-<p><strong>B2B.</strong><strong>net</strong><strong> S.A.</strong> z siedzibą w Warszawie, Aleje Jerozolimskie 180, 02-486 Warszawa, wpisaną do Rejestru Przedsiębiorców prowadzonego przez Sąd Rejonowy dla m.st. Warszawy w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego, KRS pod nr 0000387063, NIP: 5711707392, o kapitale akcyjnym 1.360.000,00 zł (opłaconym), reprezentowaną przez Pana Artura Twardowskiego – Prezesa Zarządu,</p>
+<p><strong>B2B.</strong><strong>net</strong><strong> S.A.</strong> z siedzibą w Warszawie, Aleje Jerozolimskie 180, 02-486 Warszawa, wpisaną do Rejestru Przedsiębiorców prowadzonego przez Sąd Rejonowy dla m.st. Warszawy w Warszawie, XIV Wydział Gospodarczy Krajowego Rejestru Sądowego, KRS pod nr 0000387063, NIP: 5711707392, o kapitale zakładowym 1.360.000,00 zł (opłaconym), reprezentowaną przez Pana Artura Twardowskiego – Prezesa Zarządu,</p>
 <p>dalej jako <strong>„</strong><strong>Spółka</strong><strong>”</strong> lub „<strong>B2BNET</strong><strong>”</strong></p>
 <p>a</p>
 <p><strong>{{ b2b.g_pan }} {{ b2b.partner_instrumental or candidate.full_name or '………' }} </strong>{{ b2b.g_prowadzacy }} działalność gospodarczą pod firmą: {{ candidate.legal_name or '………' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ candidate.business_address or '………' }}, NIP: {{ candidate.nip or '………' }}, REGON: {{ candidate.regon or '………' }}, </p>
