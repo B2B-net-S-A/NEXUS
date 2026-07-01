@@ -274,3 +274,58 @@ def test_missing_api_key_raises(monkeypatch):
     monkeypatch.setattr(ai_client, "_api_key", lambda: None)
     with pytest.raises(CVGeneratorAIError):
         analyze_with_ai("payload", "req-6")
+
+
+# ── content-block extraction (Claude 5 thinking-block resilience) ─────────────
+
+
+class _FakeThinkingBlock:
+    """A non-text block (e.g. a thinking block) — no ``.text`` attribute."""
+
+    def __init__(self, thinking: str) -> None:
+        self.thinking = thinking
+
+
+class _MultiBlockMessage:
+    def __init__(self, blocks, stop_reason: str = "end_turn") -> None:
+        self.content = list(blocks)
+        self.stop_reason = stop_reason
+        self.usage = _FakeUsage()
+
+
+def test_extracts_text_when_thinking_block_leads(monkeypatch):
+    # Claude 5 can return a thinking block as content[0]; the JSON lives in a
+    # later text block. Reading content[0].text would yield "" → a misleading
+    # "invalid JSON (char 0)" failure downstream. The client must skip the
+    # thinking block and return the text block's payload.
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+    _install_fake_client(
+        monkeypatch,
+        {
+            "claude-sonnet-5": lambda: _MultiBlockMessage(
+                [_FakeThinkingBlock("reasoning..."), _FakeBlock('{"ok": true}')]
+            ),
+        },
+    )
+
+    assert analyze_with_ai("payload", "req-thinking") == '{"ok": true}'
+
+
+def test_no_text_block_raises_clean_error(monkeypatch):
+    # A response with only non-text blocks must raise a clean AI error instead
+    # of returning "" (which fails JSON parsing at char 0 downstream).
+    monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")  # single model, no fallback
+    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "0")
+    _install_fake_client(
+        monkeypatch,
+        {
+            "claude-sonnet-5": lambda: _MultiBlockMessage(
+                [_FakeThinkingBlock("only thinking, no answer")]
+            ),
+        },
+    )
+
+    with pytest.raises(CVGeneratorAIError):
+        analyze_with_ai("payload", "req-no-text")

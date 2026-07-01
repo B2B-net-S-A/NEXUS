@@ -235,10 +235,19 @@ def _call_model(
                 messages=[{"role": "user", "content": content}],
                 **kwargs,
             )
-            block: Any = message.content[0] if message.content else None
-            if block is None:
+            if not message.content:
                 raise CVGeneratorAIError("Empty response from Claude")
-            text = getattr(block, "text", "")
+            # Claude 5 models can lead with a non-text block (e.g. a thinking
+            # block), so content[0] is not guaranteed to hold the JSON text —
+            # blindly reading content[0].text yielded an empty string here,
+            # which surfaced downstream as a misleading "invalid JSON (char 0)"
+            # failure. Concatenate every text block instead (mirrors the
+            # defensive pattern already used in dynareporter_mindy.py).
+            text = "".join(
+                getattr(b, "text", "") or ""
+                for b in message.content
+                if hasattr(b, "text")
+            )
             # Check truncation BEFORE logging success — otherwise a truncated
             # response logs "Claude success" immediately followed by the
             # truncation error, which is contradictory in Grafana/Loki.
@@ -247,6 +256,11 @@ def _call_model(
                     f"Odpowiedź Claude została ucięta limitem {max_tokens} tokenów "
                     "(stop_reason=max_tokens). Zwiększ CV_B2B_MAX_TOKENS."
                 )
+            if not text.strip():
+                # Content present but no usable text (e.g. only a thinking
+                # block) — surface a clean error instead of returning "" that
+                # later fails JSON parsing at "char 0".
+                raise CVGeneratorAIError("Claude returned no text content")
             duration = int((time.time() - start) * 1000)
             usage = getattr(message, "usage", None)
             logger.info(

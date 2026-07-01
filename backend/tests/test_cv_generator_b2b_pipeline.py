@@ -13,6 +13,8 @@ Covers the 2026-06-10 audit fixes:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.services.cv_generator_b2b.docx_renderer import (
@@ -23,12 +25,32 @@ from app.services.cv_generator_b2b.docx_renderer import (
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _fabrication_warnings,
+    _loads_cv_json,
     _normalize_candidate_data,
     _sanitize_for_filename,
     _validate_upload,
     ascii_filename_fallback,
     rerender_docx_from_payload,
 )
+
+
+# ── Lenient JSON parsing (Claude 5 prose-wrapper resilience) ────────────────
+
+
+def test_loads_cv_json_plain_object():
+    assert _loads_cv_json('{"name": "Ada"}') == {"name": "Ada"}
+
+
+def test_loads_cv_json_strips_prose_preamble():
+    # Claude 5 sometimes prefixes the JSON with a sentence despite the
+    # "return only JSON" instruction — the outermost {...} slice must win.
+    wrapped = 'Oto dane kandydata:\n{"name": "Ada", "skills": ["Python"]}\nGotowe.'
+    assert _loads_cv_json(wrapped) == {"name": "Ada", "skills": ["Python"]}
+
+
+def test_loads_cv_json_raises_when_no_object():
+    with pytest.raises(json.JSONDecodeError):
+        _loads_cv_json("przepraszam, nie mogę tego zrobić")
 
 
 # ── Keyword bolding ────────────────────────────────────────────────────────

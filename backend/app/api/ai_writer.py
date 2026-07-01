@@ -258,7 +258,11 @@ Zwróć WYŁĄCZNIE poprawny JSON (bez markdown, bez komentarzy) w tej dokładne
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = message.content[0].text.strip()
+    # Claude 5 models can lead with a non-text block (e.g. a thinking block),
+    # so content[0].text may be absent/empty — collect every text block.
+    raw = "".join(
+        getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+    ).strip()
     # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]

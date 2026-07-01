@@ -282,7 +282,12 @@ async def _parse_with_claude(cv_text: str) -> Optional[dict[str, Any]]:
             system=CV_ENRICHMENT.system_prompt or "",
             messages=[{"role": "user", "content": user_prompt}],
         )
-        raw = message.content[0].text
+        # Claude 5 models can lead with a non-text block (e.g. a thinking
+        # block), so content[0].text may be absent/empty — collect every text
+        # block instead of blindly reading content[0].
+        raw = "".join(
+            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+        )
         unwrapped = _strip_json_fences(raw)
         data = json.loads(unwrapped)
         if not isinstance(data, dict):

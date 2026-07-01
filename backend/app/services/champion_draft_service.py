@@ -122,7 +122,13 @@ async def _call_claude_json(
     )
     latency_ms = int((time.time() - started) * 1000)
 
-    raw = _strip_code_fences(message.content[0].text)
+    # Claude 5 models can lead with a non-text block (e.g. a thinking block),
+    # so content[0].text may be absent/empty — collect every text block.
+    raw = _strip_code_fences(
+        "".join(
+            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+        )
+    )
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
