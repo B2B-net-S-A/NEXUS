@@ -69,8 +69,7 @@ def _user_prompt(job: Job, client_name: str) -> str:
 
 
 def _call_claude_sync(prompt: str, *, model: str) -> dict:
-<<<<<<< HEAD
-    """Sync Claude Haiku call via httpx. Wrapped in asyncio.to_thread.
+    """Sync Claude call via httpx. Wrapped in asyncio.to_thread.
 
     Supports both styles of credential:
       - ANTHROPIC_API_KEY=sk-ant-api03-... → x-api-key header (SDK default)
@@ -115,32 +114,10 @@ def _call_claude_sync(prompt: str, *, model: str) -> dict:
         if block.get("type") == "text":
             text += block.get("text") or ""
     text = text.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-=======
-    """Sync Claude Haiku call. Wrapped in asyncio.to_thread by caller."""
-    import anthropic
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
-    client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model=model,
-        max_tokens=400,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = ""
-    for block in getattr(msg, "content", []) or []:
-        if getattr(block, "type", None) == "text":
-            text += block.text or ""
-    text = text.strip()
     # Strip code fences if present.
     if text.startswith("```"):
         text = text.strip("`")
         # Drop leading "json\n" line if any.
->>>>>>> origin/main
         if "\n" in text:
             text = text.split("\n", 1)[1]
         text = text.strip()
@@ -232,7 +209,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--commit", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--limit", type=int, default=None)
-    p.add_argument("--model", default="claude-haiku-4-5-20251001")
+    p.add_argument("--model", default="claude-sonnet-5")
     p.add_argument("--log-every", type=int, default=50)
     args = p.parse_args()
     if not args.commit and not args.dry_run:
