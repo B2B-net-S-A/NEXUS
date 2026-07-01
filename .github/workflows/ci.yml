@@ -147,6 +147,7 @@ jobs:
                  tests/test_cv_generator_b2b_headers.py \
                  tests/test_cv_generator_b2b_pipeline.py \
                  tests/test_cv_generator_b2b_ai_client.py \
+                 tests/test_cv_generator_b2b_async.py \
                  tests/test_sentry_filtering.py \
                  tests/test_saved_search_alerts.py \
                  tests/test_champion_verification.py \

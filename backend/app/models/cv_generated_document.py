@@ -39,10 +39,27 @@ class CvGeneratedDocument(Base, TimestampMixin):
     blind: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mode: Mapped[str] = mapped_column(String(10), default="new", nullable=False)
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Async-generation status. Generacja leci w tle (BackgroundTasks), więc wynik
+    # nie ginie gdy rekruter zamknie kartę w trakcie tych 60-90 s:
+    #   * "processing" — zadanie w toku (render_payload jeszcze NULL),
+    #   * "ready"      — gotowe, DOCX odtwarzalny z render_payload,
+    #   * "failed"     — błąd generacji (powód w error_message).
+    # Wiersze sprzed async-generacji były zawsze ukończone → server_default "ready".
+    status: Mapped[str] = mapped_column(
+        String(20), default="ready", server_default="ready", nullable=False, index=True
+    )
+    # Powód niepowodzenia (StandaloneGenerationError.message) gdy status="failed".
+    error_message: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     # candidate_data do ponownego renderu DOCX. NULL = wiersz sprzed tej funkcji
-    # → re-download niedostępny. JSON+wariant JSONB, by tabela tworzyła się też
-    # na SQLite w testach.
+    # LUB nadal "processing"/"failed" → re-download niedostępny. JSON+wariant
+    # JSONB, by tabela tworzyła się też na SQLite w testach.
     render_payload: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Uwagi Claude + seatbelt (fabrykacja / nakładające się daty). Wcześniej
+    # wracały nagłówkiem X-Generator-Warnings; przy generacji w tle nie ma już
+    # inline-response, więc utrwalamy je tu, by lista mogła je pokazać po fakcie.
+    warnings: Mapped[Optional[list]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
     created_by: Mapped[Optional[int]] = mapped_column(

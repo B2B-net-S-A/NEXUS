@@ -55,8 +55,6 @@ import {
   type RecruitmentOption,
   downloadBlob,
   extractErrorDetail,
-  parseDispositionFilename,
-  parseWarningsHeader,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -82,10 +80,19 @@ type GeneratedCvItem = {
   blind: boolean;
   mode: string;
   filename: string;
+  status: "processing" | "ready" | "failed";
+  error_message?: string | null;
+  warnings?: string[];
   created_at?: string | null;
   created_by_name?: string | null;
   can_download: boolean;
   can_delete: boolean;
+};
+
+type EnqueuedResponse = {
+  id: number;
+  status: string;
+  candidate_name: string;
 };
 
 function formatGeneratedDate(iso?: string | null): string {
@@ -140,7 +147,10 @@ export function CVGeneratorStandaloneV2() {
   // ── Shared options ──────────────────────────────────────────────────────
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  // Ids enqueued in THIS session with auto-download on — downloaded once they
+  // flip to „ready" (see the effect below). A ref, not state: mutating it must
+  // not re-render, and it needn't survive a reload.
+  const autoDownloadIds = useRef<Set<number>>(new Set());
 
   // Auto-download to the browser's „Pobrane" folder is now opt-in (remembered
   // per browser). Default off: the generated CV lands on the panel list below
@@ -163,6 +173,10 @@ export function CVGeneratorStandaloneV2() {
       return res.data;
     },
     staleTime: 15_000,
+    // Generacja leci w tle — dopóki któreś CV jest „processing", odpytuj listę,
+    // by wiersz sam przeskoczył na „ready"/„failed" bez odświeżania strony.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.status === "processing") ? 4000 : false,
   });
 
   // ── New mode queries ────────────────────────────────────────────────────
@@ -205,12 +219,14 @@ export function CVGeneratorStandaloneV2() {
   const canSubmit = mode === "new" ? canSubmitNew : canSubmitOld;
 
   // ── New mode mutation ───────────────────────────────────────────────────
+  // Enqueues background generation (202) and returns immediately — the recruiter
+  // can leave the tab; the CV lands on the „Wygenerowane CV" list when ready.
   const generateMut = useMutation({
     mutationFn: async () => {
       if (!candidate || !selectedRecruitment) {
         throw new Error("Missing inputs");
       }
-      const res = await api.post(
+      const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate",
         {
           candidate_id: candidate.id,
@@ -218,33 +234,20 @@ export function CVGeneratorStandaloneV2() {
           language,
           blind_cv: blindCv,
         },
-        {
-          responseType: "blob",
-          timeout: 180_000,
-        },
+        { timeout: 30_000 },
       );
-      return {
-        blob: res.data as Blob,
-        filename: parseDispositionFilename(
-          res.headers["content-disposition"] || "",
-          `CV_${candidate.lastname}.docx`,
-        ),
-        warnings: parseWarningsHeader(res.headers["x-generator-warnings"]),
-      };
+      return res.data;
     },
-    onSuccess: ({ blob, filename, warnings: w }) => {
-      setWarnings(w);
-      if (autoDownload) downloadBlob(blob, filename);
+    onSuccess: (data) => {
+      if (autoDownload) autoDownloadIds.current.add(data.id);
       generatedQuery.refetch();
       toast.showSuccess(
-        autoDownload
-          ? "CV wygenerowane i pobrane."
-          : "CV wygenerowane — dostępne na liście poniżej (Podgląd / Pobierz).",
+        "Generacja ruszyła w tle — CV pojawi się na liście poniżej, gdy będzie gotowe. Możesz zamknąć kartę.",
       );
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
-      toast.showError(detail || "Generowanie nie powiodło się.");
+      toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
   });
 
@@ -258,27 +261,22 @@ export function CVGeneratorStandaloneV2() {
       fd.append("blind_cv", String(blindCv));
       if (screeningNotes.trim()) fd.append("screening_notes", screeningNotes);
       if (championFile) fd.append("champion_file", championFile);
-      const res = await api.post("/api/cv-generator/generate-upload", fd, {
-        // The shared axios instance defaults to application/json; FormData needs
-        // an explicit multipart Content-Type so axios fills in the boundary,
-        // otherwise FastAPI can't parse the upload (422). Matches every other
-        // upload in the app.
-        headers: { "Content-Type": "multipart/form-data" },
-        responseType: "blob",
-        timeout: 180_000,
-      });
-      return {
-        blob: res.data as Blob,
-        filename: parseDispositionFilename(
-          res.headers["content-disposition"] || "",
-          "CV_B2B.docx",
-        ),
-        warnings: parseWarningsHeader(res.headers["x-generator-warnings"]),
-      };
+      const res = await api.post<EnqueuedResponse>(
+        "/api/cv-generator/generate-upload",
+        fd,
+        {
+          // The shared axios instance defaults to application/json; FormData needs
+          // an explicit multipart Content-Type so axios fills in the boundary,
+          // otherwise FastAPI can't parse the upload (422). Matches every other
+          // upload in the app.
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 60_000,
+        },
+      );
+      return res.data;
     },
-    onSuccess: ({ blob, filename, warnings: w }) => {
-      setWarnings(w);
-      if (autoDownload) downloadBlob(blob, filename);
+    onSuccess: (data) => {
+      if (autoDownload) autoDownloadIds.current.add(data.id);
       generatedQuery.refetch();
       // Clear the per-candidate inputs so the next CV can be dropped straight in
       // without manually removing the previous file, champion and notes.
@@ -286,33 +284,40 @@ export function CVGeneratorStandaloneV2() {
       setChampionFile(null);
       setScreeningNotes("");
       toast.showSuccess(
-        autoDownload
-          ? "CV wygenerowane i pobrane. Formularz wyczyszczony — możesz wgrać kolejne CV."
-          : "CV wygenerowane — na liście poniżej. Formularz wyczyszczony — możesz wgrać kolejne CV.",
+        "Generacja ruszyła w tle — CV pojawi się na liście poniżej. Formularz wyczyszczony — możesz wgrać kolejne CV.",
       );
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
-      toast.showError(detail || "Generowanie nie powiodło się.");
+      toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
   });
 
   const activeMut = mode === "new" ? generateMut : uploadMut;
 
-  // Generacja trwa 30-60 s — przypadkowe odświeżenie/zamknięcie karty gubi
-  // wynik bez śladu. Ostrzeż zanim user wyrzuci pracę do kosza.
+  // Auto-download CVs enqueued in THIS session as they turn „ready" — keeps the
+  // old „pobierz od razu" convenience for recruiters who stay on the page.
+  // Leavers just find the CV on the list; the whole point is that closing the
+  // tab no longer loses the result, so there is no more beforeunload guard.
   useEffect(() => {
-    if (!activeMut.isPending) return;
-    const warn = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [activeMut.isPending]);
+    const items = generatedQuery.data;
+    if (!items || autoDownloadIds.current.size === 0) return;
+    for (const item of items) {
+      if (
+        autoDownloadIds.current.has(item.id) &&
+        item.status === "ready" &&
+        item.can_download
+      ) {
+        autoDownloadIds.current.delete(item.id);
+        void handleDownloadGenerated(item);
+      }
+    }
+    // handleDownloadGenerated is a stable in-scope helper; re-running only when
+    // the list data changes is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generatedQuery.data]);
 
   function handleSubmit() {
-    setWarnings([]);
     activeMut.mutate();
   }
 
@@ -342,7 +347,6 @@ export function CVGeneratorStandaloneV2() {
   function handleModeChange(next: string) {
     const nextMode = next === "old" ? "old" : "new";
     setMode(nextMode);
-    setWarnings([]);
   }
 
   function handleCvFile(f: File | null) {
@@ -444,7 +448,6 @@ export function CVGeneratorStandaloneV2() {
           setCandidateOpen={setCandidateOpen}
           setCandidateQuery={setCandidateQuery}
           setStageId={setStageId}
-          setWarnings={setWarnings}
         />
       ) : (
         <OldModeForm
@@ -497,27 +500,11 @@ export function CVGeneratorStandaloneV2() {
         </CardContent>
       </Card>
 
-      {warnings.length > 0 && (
-        <div className="mt-4">
-          <Alert
-            variant="warning"
-            title="Uwagi z analizy Claude"
-            description={
-              <ul className="ml-4 list-disc">
-                {warnings.map((w, idx) => (
-                  <li key={idx}>{w}</li>
-                ))}
-              </ul>
-            }
-          />
-        </div>
-      )}
-
       <div className="mt-6 flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
           {activeMut.isPending
-            ? "Claude analizuje CV i renderuje DOCX — nie zamykaj karty…"
-            : "Generacja zajmuje 60–90 sekund (Claude + render DOCX)."}
+            ? "Uruchamiam generację…"
+            : "Generacja leci w tle (60–90 s) — CV pojawi się na liście poniżej. Możesz zamknąć kartę."}
         </p>
         <Button
           size="lg"
@@ -560,64 +547,13 @@ export function CVGeneratorStandaloneV2() {
           ) : (
             <ul className="divide-y divide-border">
               {generatedQuery.data.map((item) => (
-                <li
+                <GeneratedCvRow
                   key={item.id}
-                  className="flex items-center justify-between gap-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-medium">
-                        {item.candidate_name}
-                      </span>
-                      {item.position && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          · {item.position}
-                        </span>
-                      )}
-                      <Badge variant="neutral" className="uppercase">
-                        {item.language}
-                      </Badge>
-                      {item.blind && <Badge variant="outline">Blind</Badge>}
-                      {item.mode === "upload" && (
-                        <Badge variant="outline">Upload</Badge>
-                      )}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {item.created_by_name ? `${item.created_by_name} · ` : ""}
-                      {formatGeneratedDate(item.created_at)}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!item.can_download}
-                      onClick={() => setPreviewItem(item)}
-                      title="Podgląd w aplikacji"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!item.can_download}
-                      onClick={() => handleDownloadGenerated(item)}
-                      title="Pobierz DOCX"
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    {item.can_delete && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteGenerated(item)}
-                        title="Usuń z listy"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </li>
+                  item={item}
+                  onPreview={setPreviewItem}
+                  onDownload={handleDownloadGenerated}
+                  onDelete={handleDeleteGenerated}
+                />
               ))}
             </ul>
           )}
@@ -653,7 +589,6 @@ type NewModeFormProps = {
   setCandidateOpen: (v: boolean) => void;
   setCandidateQuery: (v: string) => void;
   setStageId: (v: string) => void;
-  setWarnings: (w: string[]) => void;
 };
 
 function NewModeForm({
@@ -668,7 +603,6 @@ function NewModeForm({
   setCandidateOpen,
   setCandidateQuery,
   setStageId,
-  setWarnings,
 }: NewModeFormProps) {
   return (
     <>
@@ -737,7 +671,6 @@ function NewModeForm({
                         onSelect={() => {
                           setCandidate(c);
                           setStageId("");
-                          setWarnings([]);
                           setCandidateOpen(false);
                         }}
                       >
@@ -1019,6 +952,128 @@ function ReadyBadge({ label, ok }: { label: string; ok: boolean }) {
       )}
       {label}
     </Badge>
+  );
+}
+
+// ── „Wygenerowane CV" list row ───────────────────────────────────────────────
+
+type GeneratedCvRowProps = {
+  item: GeneratedCvItem;
+  onPreview: (item: GeneratedCvItem) => void;
+  onDownload: (item: GeneratedCvItem) => void;
+  onDelete: (item: GeneratedCvItem) => void;
+};
+
+function GeneratedCvRow({
+  item,
+  onPreview,
+  onDownload,
+  onDelete,
+}: GeneratedCvRowProps) {
+  const [showWarnings, setShowWarnings] = useState(false);
+  const warnings = item.warnings ?? [];
+
+  return (
+    <li className="py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate font-medium">{item.candidate_name}</span>
+            {item.position && (
+              <span className="truncate text-xs text-muted-foreground">
+                · {item.position}
+              </span>
+            )}
+            <Badge variant="neutral" className="uppercase">
+              {item.language}
+            </Badge>
+            {item.blind && <Badge variant="outline">Blind</Badge>}
+            {item.mode === "upload" && <Badge variant="outline">Upload</Badge>}
+            {item.status === "processing" && (
+              <Badge variant="warning" className="flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generuję…
+              </Badge>
+            )}
+            {item.status === "failed" && (
+              <Badge variant="danger" className="flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Błąd
+              </Badge>
+            )}
+            {item.status === "ready" && warnings.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowWarnings((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs text-amber-600 hover:underline dark:text-amber-400"
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {warnings.length} {warnings.length === 1 ? "uwaga" : "uwagi"}
+              </button>
+            )}
+          </div>
+          <p className="truncate text-xs text-muted-foreground">
+            {item.created_by_name ? `${item.created_by_name} · ` : ""}
+            {formatGeneratedDate(item.created_at)}
+          </p>
+          {item.status === "failed" && item.error_message && (
+            <p className="mt-1 text-xs text-destructive">{item.error_message}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {item.status === "processing" ? (
+            <span
+              className="flex items-center gap-1 text-xs text-muted-foreground"
+              title="Generacja w toku — możesz zamknąć kartę"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </span>
+          ) : (
+            <>
+              {item.status === "ready" && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!item.can_download}
+                    onClick={() => onPreview(item)}
+                    title="Podgląd w aplikacji"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!item.can_download}
+                    onClick={() => onDownload(item)}
+                    title="Pobierz DOCX"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+              {item.can_delete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(item)}
+                  title="Usuń z listy"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      {item.status === "ready" && showWarnings && warnings.length > 0 && (
+        <ul className="ml-4 mt-2 list-disc space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
+          {warnings.map((w, idx) => (
+            <li key={idx}>{w}</li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
