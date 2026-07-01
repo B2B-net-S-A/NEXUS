@@ -302,6 +302,25 @@ def _str_list(value: Any) -> list[str]:
     return [str(x).strip() for x in value if x is not None and str(x).strip()]
 
 
+def _loads_cv_json(text: str) -> Any:
+    """Parse Claude's JSON, tolerating a leading/trailing prose wrapper.
+
+    Claude 5 occasionally emits a sentence around the JSON ("Oto dane: {...}")
+    despite the "return only JSON" instruction. Fall back to the outermost
+    ``{...}`` slice before giving up, so a chatty response doesn't fail the
+    whole generation. Raises ``json.JSONDecodeError`` when no parseable JSON
+    object is present.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end > start:
+            return json.loads(text[start : end + 1])  # may raise → caller handles
+        raise
+
+
 def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str, Any]:
     """Coerce the Claude JSON into the exact shape the DOCX renderer needs.
 
@@ -774,7 +793,7 @@ def _run_generation_pipeline(
     cleaned = re.sub(r"```\n?", "", cleaned).strip()
 
     try:
-        raw_data = json.loads(cleaned)
+        raw_data = _loads_cv_json(cleaned)
     except json.JSONDecodeError as err:
         logger.error(
             "[cv_b2b][%s] Claude returned non-JSON (first 200 chars): %r",
