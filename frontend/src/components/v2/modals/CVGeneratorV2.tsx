@@ -6,19 +6,12 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  Download,
   Loader2,
   Sparkles,
 } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
-import {
-  type RecruitmentOption,
-  downloadBlob,
-  extractErrorDetail,
-  parseDispositionFilename,
-  parseWarningsHeader,
-} from "@/lib/cv-generator";
+import { type RecruitmentOption, extractErrorDetail } from "@/lib/cv-generator";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +38,7 @@ export function CVGeneratorV2({
   const [stageId, setStageId] = useState<string>("");
   const [language, setLanguage] = useState<"pl" | "en">("pl");
   const [blindCv, setBlindCv] = useState(false);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [enqueued, setEnqueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const recruitmentsQuery = useQuery({
@@ -78,7 +71,11 @@ export function CVGeneratorV2({
   const generateMut = useMutation({
     mutationFn: async () => {
       if (!selectedRecruitment) throw new Error("Wybierz rekrutację");
-      const res = await api.post(
+      const res = await api.post<{
+        id: number;
+        status: string;
+        candidate_name: string;
+      }>(
         "/api/cv-generator/generate",
         {
           candidate_id: candidateId,
@@ -86,38 +83,39 @@ export function CVGeneratorV2({
           language,
           blind_cv: blindCv,
         },
-        {
-          responseType: "blob",
-          timeout: 180_000,
-        },
+        { timeout: 30_000 },
       );
-      return {
-        blob: res.data as Blob,
-        filename: parseDispositionFilename(
-          res.headers["content-disposition"] || "",
-          `CV_${candidateName.replace(/\s+/g, "_")}.docx`,
-        ),
-        warnings: parseWarningsHeader(res.headers["x-generator-warnings"]),
-      };
+      return res.data;
     },
-    onSuccess: ({ blob, filename, warnings: w }) => {
-      setWarnings(w);
+    onSuccess: () => {
       setError(null);
-      downloadBlob(blob, filename);
-      toast.showSuccess("CV wygenerowane i pobrane.");
+      setEnqueued(true);
+      toast.showSuccess(
+        "Generacja ruszyła w tle — CV pojawi się w Generatorze CV, gdy będzie gotowe.",
+      );
     },
     onError: async (err: unknown) => {
       const detail = await extractErrorDetail(err);
-      setError(detail || "Generowanie nie powiodło się.");
-      toast.showError(detail || "Generowanie nie powiodło się.");
+      setError(detail || "Nie udało się uruchomić generacji.");
+      toast.showError(detail || "Nie udało się uruchomić generacji.");
     },
   });
 
   const recruitments = recruitmentsQuery.data ?? [];
   const hasAny = recruitments.length > 0;
 
+  // Reset the „enqueued" success view when the dialog closes so re-opening lands
+  // on the form again.
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      setEnqueued(false);
+      setError(null);
+    }
+    onOpenChange(next);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent size="lg" className="p-0 max-h-[92vh]">
         <div className="flex shrink-0 items-start justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
@@ -139,154 +137,167 @@ export function CVGeneratorV2({
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 space-y-5 p-6 overflow-y-auto">
-          <div>
-            <Label className="mb-2 block">Proces rekrutacyjny</Label>
-            {recruitmentsQuery.isLoading ? (
-              <div className="text-xs text-muted-foreground">
-                Ładowanie rekrutacji…
+        {enqueued ? (
+          <div className="flex-1 min-h-0 space-y-4 p-6">
+            <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+              <div className="space-y-1 text-sm">
+                <div className="font-medium text-foreground">
+                  Generacja ruszyła w tle
+                </div>
+                <p className="text-muted-foreground">
+                  CV dla <span className="font-medium">{candidateName}</span>{" "}
+                  generuje się w tle (60–90 s) i pojawi się na liście
+                  „Wygenerowane CV" w Generatorze CV. Możesz spokojnie zamknąć to
+                  okno — wynik nie przepadnie.
+                </p>
               </div>
-            ) : !hasAny ? (
-              <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                Kandydat nie uczestniczy w żadnej rekrutacji. Jeśli chcesz
-                wygenerować CV bez kontekstu klienta — otwórz{" "}
-                <a href="/cv-generator" className="text-primary underline">
-                  /cv-generator → Old mode
-                </a>{" "}
-                i wgraj plik CV ręcznie.
-              </div>
-            ) : (
-              <>
-                <RecruitmentCombobox
-                  recruitments={recruitments}
-                  value={stageId}
-                  onChange={setStageId}
-                  loading={recruitmentsQuery.isLoading}
-                />
-                {selectedRecruitment && (
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    <ReadyBadge
-                      label="CV w systemie"
-                      ok={selectedRecruitment.has_cv}
-                    />
-                    <ReadyBadge
-                      label="Profil Championa"
-                      ok={selectedRecruitment.has_champion}
-                    />
-                    <ReadyBadge
-                      label="Notatki z rozmów"
-                      ok={selectedRecruitment.has_notes}
-                    />
-                  </div>
-                )}
-                {selectedRecruitment && !selectedRecruitment.ready && (
-                  <div
-                    role="alert"
-                    className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-                  >
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <div className="space-y-1">
-                      {!selectedRecruitment.has_cv && (
-                        <div>
-                          Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
-                          dodaj plik w zakładce Dokumenty na profilu.
-                        </div>
-                      )}
-                      {!selectedRecruitment.has_champion && (
-                        <div>
-                          Brakuje Profilu Championa na ofercie — uzupełnij go na
-                          karcie oferty.
-                        </div>
-                      )}
-                      {!selectedRecruitment.has_notes && (
-                        <div>
-                          Brak notatek z rozmów — wymagana co najmniej jedna:
-                          screening, transkrypt CloudTalk albo notatka procesu.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="mb-2 block">Język</Label>
-              <LanguageTiles
-                value={language}
-                onChange={setLanguage}
-                ariaLabel="Język"
-              />
             </div>
-            <div>
-              <Label className="mb-2 block">Blind CV</Label>
-              <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
-                <span className="text-xs text-muted-foreground">
-                  Anonimizuj imię, nazwisko i nazwy firm
-                </span>
-                <Switch checked={blindCv} onCheckedChange={setBlindCv} />
-              </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => handleOpenChange(false)}
+              >
+                Zamknij
+              </Button>
+              <a href="/cv-generator">
+                <Button size="md">Otwórz Generator CV</Button>
+              </a>
             </div>
           </div>
-
-          {warnings.length > 0 && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-            >
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <div>
-                <div className="font-medium">Uwagi z analizy Claude</div>
-                <ul className="ml-4 mt-1 list-disc">
-                  {warnings.map((w, idx) => (
-                    <li key={idx}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive"
-            >
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-            <p className="text-xs text-muted-foreground">
-              {generateMut.isPending
-                ? "Claude analizuje CV i renderuje DOCX…"
-                : "Generacja zajmuje 60–90 sekund. Output: DOCX szablon B2B Network."}
-            </p>
-            <Button
-              size="md"
-              disabled={!canSubmit || generateMut.isPending}
-              onClick={() => {
-                setError(null);
-                setWarnings([]);
-                generateMut.mutate();
-              }}
-            >
-              {generateMut.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generuję…
-                </>
+        ) : (
+          <div className="flex-1 min-h-0 space-y-5 p-6 overflow-y-auto">
+            <div>
+              <Label className="mb-2 block">Proces rekrutacyjny</Label>
+              {recruitmentsQuery.isLoading ? (
+                <div className="text-xs text-muted-foreground">
+                  Ładowanie rekrutacji…
+                </div>
+              ) : !hasAny ? (
+                <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                  Kandydat nie uczestniczy w żadnej rekrutacji. Jeśli chcesz
+                  wygenerować CV bez kontekstu klienta — otwórz{" "}
+                  <a href="/cv-generator" className="text-primary underline">
+                    /cv-generator → Old mode
+                  </a>{" "}
+                  i wgraj plik CV ręcznie.
+                </div>
               ) : (
                 <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Generuj CV (DOCX)
+                  <RecruitmentCombobox
+                    recruitments={recruitments}
+                    value={stageId}
+                    onChange={setStageId}
+                    loading={recruitmentsQuery.isLoading}
+                  />
+                  {selectedRecruitment && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      <ReadyBadge
+                        label="CV w systemie"
+                        ok={selectedRecruitment.has_cv}
+                      />
+                      <ReadyBadge
+                        label="Profil Championa"
+                        ok={selectedRecruitment.has_champion}
+                      />
+                      <ReadyBadge
+                        label="Notatki z rozmów"
+                        ok={selectedRecruitment.has_notes}
+                      />
+                    </div>
+                  )}
+                  {selectedRecruitment && !selectedRecruitment.ready && (
+                    <div
+                      role="alert"
+                      className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                    >
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <div className="space-y-1">
+                        {!selectedRecruitment.has_cv && (
+                          <div>
+                            Kandydat nie ma wgranego CV (PDF/DOCX) w systemie —
+                            dodaj plik w zakładce Dokumenty na profilu.
+                          </div>
+                        )}
+                        {!selectedRecruitment.has_champion && (
+                          <div>
+                            Brakuje Profilu Championa na ofercie — uzupełnij go na
+                            karcie oferty.
+                          </div>
+                        )}
+                        {!selectedRecruitment.has_notes && (
+                          <div>
+                            Brak notatek z rozmów — wymagana co najmniej jedna:
+                            screening, transkrypt CloudTalk albo notatka procesu.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
-            </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="mb-2 block">Język</Label>
+                <LanguageTiles
+                  value={language}
+                  onChange={setLanguage}
+                  ariaLabel="Język"
+                />
+              </div>
+              <div>
+                <Label className="mb-2 block">Blind CV</Label>
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
+                  <span className="text-xs text-muted-foreground">
+                    Anonimizuj imię, nazwisko i nazwy firm
+                  </span>
+                  <Switch checked={blindCv} onCheckedChange={setBlindCv} />
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive"
+              >
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                {generateMut.isPending
+                  ? "Uruchamiam generację…"
+                  : "Generacja leci w tle (60–90 s) — CV trafi na listę „Wygenerowane CV”. Możesz zamknąć okno."}
+              </p>
+              <Button
+                size="md"
+                disabled={!canSubmit || generateMut.isPending}
+                onClick={() => {
+                  setError(null);
+                  generateMut.mutate();
+                }}
+              >
+                {generateMut.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Uruchamiam…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generuj CV w tle
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   );

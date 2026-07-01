@@ -24,11 +24,13 @@ request time. Real (non-stringized) annotations sidestep it. Same reason as
 
 import json
 import logging
+from pathlib import Path
 from typing import Annotated, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -45,7 +47,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -112,10 +114,26 @@ class GeneratedCvItem(BaseModel):
     blind: bool
     mode: str
     filename: str
+    # Async generation lifecycle — the UI polls this list and renders a spinner
+    # for "processing", the CV for "ready" and the reason for "failed".
+    status: str = "ready"
+    error_message: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
     created_at: Optional[str] = None
     created_by_name: Optional[str] = None
     can_download: bool
     can_delete: bool
+
+
+class GenerateEnqueuedResponse(BaseModel):
+    """202 payload — generation was enqueued and runs in the background.
+
+    The recruiter can leave the tab; the result appears on ``GET /generated``
+    (poll it) with ``status`` flipping to „ready" or „failed"."""
+
+    id: int
+    status: str = "processing"
+    candidate_name: str
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -184,41 +202,171 @@ def _build_docx_response(
     )
 
 
-async def _persist_generated(
+async def _create_pending_row(
     db: AsyncSession,
     *,
-    result,
     mode: str,
     candidate_id: int | None,
+    candidate_name: str,
+    position: str | None,
     language: str,
     blind_cv: bool,
     user_id: int,
 ) -> int:
-    """Log a generated CV so it appears in the panel list and can be
-    re-downloaded/previewed later without another Claude call. Returns the row id.
-
-    Stored alongside the Activity audit entry — the caller commits both together.
+    """Insert a „processing" placeholder so the CV shows on the list the moment
+    generation is enqueued — the recruiter can then close the tab while the
+    background job fills in ``render_payload`` / ``status``. Returns the row id.
     """
-    payload = result.render_payload or {}
-    # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
-    # the real name captured in the payload so the INTERNAL list stays
-    # identifiable (the DOCX itself remains anonymized on re-render).
-    display_name = str(payload.get("name") or result.candidate_name)
     row = CvGeneratedDocument(
         candidate_id=candidate_id,
-        job_id=result.job_id,
-        candidate_name=display_name,
-        position=payload.get("position"),
+        job_id=None,
+        candidate_name=candidate_name or "Generowanie…",
+        position=position,
         language=language,
         blind=blind_cv,
         mode=mode,
-        filename=result.filename,
-        render_payload=result.render_payload,
+        filename="",  # filled from the rendered filename on completion
+        status="processing",
+        render_payload=None,
         created_by=user_id,
     )
     db.add(row)
     await db.flush()  # assign row.id before commit so the caller can return it
     return row.id
+
+
+async def _finalize_success(db: AsyncSession, generated_id: int, *, result) -> bool:
+    """Flip a „processing" row to „ready" with its render payload + warnings, so
+    it can be re-downloaded/previewed later without another Claude call. Returns
+    ``False`` when the row vanished (recruiter deleted it mid-generation).
+    """
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if row is None:
+        return False
+    payload = result.render_payload or {}
+    # For blind CVs ``result.candidate_name`` is the anonymized "Kandydat" — use
+    # the real name captured in the payload so the INTERNAL list stays
+    # identifiable (the DOCX itself remains anonymized on re-render).
+    row.candidate_name = str(payload.get("name") or result.candidate_name)
+    row.position = payload.get("position")
+    row.job_id = result.job_id
+    row.filename = result.filename
+    row.render_payload = result.render_payload
+    row.warnings = list(result.warnings or [])
+    row.error_message = None
+    row.status = "ready"
+    return True
+
+
+async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
+    """Mark a „processing" row „failed" with the reason. No-op if it's gone."""
+    row = await db.get(CvGeneratedDocument, generated_id)
+    if row is None:
+        return
+    row.status = "failed"
+    row.error_message = message[:1000]
+
+
+# ── Background generation jobs ─────────────────────────────────────────────
+#
+# Scheduled via FastAPI ``BackgroundTasks`` AFTER the 202 response is fully sent,
+# so a client disconnect (recruiter closing the tab) no longer cancels the work —
+# that is the whole point of this feature. Each job owns a fresh DB session
+# (the request session is long gone) and never raises: any failure is written
+# onto the row as ``status="failed"``. Orphaned „processing" rows left by a
+# server restart mid-job are reaped to „failed" on startup (see main.lifespan).
+
+
+async def _run_generate_new_job(
+    generated_id: int,
+    *,
+    candidate_id: int,
+    stage_id: int,
+    language: Literal["pl", "en"],
+    blind_cv: bool,
+    user_id: int,
+) -> None:
+    """Background worker for New-mode (DB-backed) generation."""
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await generate_cv_for_candidate(
+                db,
+                candidate_id=candidate_id,
+                stage_id=stage_id,
+                language=language,
+                blind_cv=blind_cv,
+            )
+        except StandaloneGenerationError as err:
+            await _finalize_failure(db, generated_id, err.message)
+            await db.commit()
+            return
+        except Exception as err:  # noqa: BLE001 — a job must never crash silently
+            logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
+            await _finalize_failure(db, generated_id, "Nieoczekiwany błąd generacji CV.")
+            await db.commit()
+            return
+
+        if await _finalize_success(db, generated_id, result=result):
+            db.add(
+                Activity(
+                    entity_type="candidate",
+                    entity_id=candidate_id,
+                    action="b2b_cv_generated",
+                    details={
+                        "stage_id": stage_id,
+                        "language": language,
+                        "blind_cv": blind_cv,
+                        "filename": result.filename,
+                        "warnings_count": len(result.warnings),
+                        "processing_time_ms": result.processing_time_ms,
+                        "generated_id": generated_id,
+                    },
+                    user_id=user_id,
+                )
+            )
+        await db.commit()
+
+
+async def _run_generate_upload_job(
+    generated_id: int,
+    *,
+    payload: UploadGenerationInput,
+    user_id: int,
+) -> None:
+    """Background worker for Old-mode (manual upload) generation."""
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await run_in_threadpool(generate_cv_from_uploads, payload)
+        except StandaloneGenerationError as err:
+            await _finalize_failure(db, generated_id, err.message)
+            await db.commit()
+            return
+        except Exception as err:  # noqa: BLE001 — a job must never crash silently
+            logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
+            await _finalize_failure(db, generated_id, "Nieoczekiwany błąd generacji CV.")
+            await db.commit()
+            return
+
+        if await _finalize_success(db, generated_id, result=result):
+            # Upload mode has no candidate context — anchor the audit on the user.
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user_id,
+                    action="b2b_cv_generated_upload",
+                    details={
+                        "cv_filename": payload.cv_filename,
+                        "language": payload.language,
+                        "blind_cv": payload.blind_cv,
+                        "filename": result.filename,
+                        "warnings_count": len(result.warnings),
+                        "processing_time_ms": result.processing_time_ms,
+                        "generated_id": generated_id,
+                    },
+                    user_id=user_id,
+                )
+            )
+        await db.commit()
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -337,79 +485,72 @@ async def list_candidate_recruitments(
     ]
 
 
-@router.post("/generate")
+@router.post(
+    "/generate",
+    response_model=GenerateEnqueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 @limiter.limit("10/minute")
 async def generate(
     request: Request,
     payload: GenerateRequest,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-) -> Response:
-    """Generate the B2B-formatted CV and return it as a streamed DOCX.
+) -> GenerateEnqueuedResponse:
+    """Enqueue New-mode CV generation and return immediately (202 Accepted).
 
-    Streams ``application/vnd.openxmlformats-officedocument.wordprocessingml.document``
-    with the rendered filename in ``Content-Disposition``. Warnings (e.g.
-    missing MUST-HAVE / NICE-TO-HAVE technologies) are surfaced via the
-    ``X-Generator-Warnings`` header as a JSON-encoded array.
+    Generation (60-90 s: Claude + DOCX render) runs in the background, so the
+    recruiter can close/leave the tab without losing the result — it lands on
+    the „Wygenerowane CV" list (``GET /generated``) with ``status`` „ready" or
+    „failed". A „processing" placeholder row is created here so the CV shows up
+    on the list right away; the deep readiness contract (CV file / champion /
+    notes present) is validated inside the background job and any failure is
+    written onto that row.
     """
+    candidate = await db.get(Candidate, payload.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
 
-    try:
-        result = await generate_cv_for_candidate(
-            db,
-            candidate_id=payload.candidate_id,
-            stage_id=payload.stage_id,
-            language=payload.language,
-            blind_cv=payload.blind_cv,
-        )
-    except StandaloneGenerationError as err:
-        raise HTTPException(
-            status_code=_error_status(err.code), detail=err.message
-        ) from err
-
-    # Audit trail — CV generation is a Claude-billed operation on personal
-    # data; without this there is zero trace of who generated what.
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=payload.candidate_id,
-            action="b2b_cv_generated",
-            details={
-                "stage_id": payload.stage_id,
-                "language": payload.language,
-                "blind_cv": payload.blind_cv,
-                "filename": result.filename,
-                "warnings_count": len(result.warnings),
-                "processing_time_ms": result.processing_time_ms,
-            },
-            user_id=current_user.id,
-        )
-    )
-    generated_id = await _persist_generated(
+    candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
+    generated_id = await _create_pending_row(
         db,
-        result=result,
         mode="new",
         candidate_id=payload.candidate_id,
+        candidate_name=candidate_name,
+        position=getattr(candidate, "current_position", None),
         language=payload.language,
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
     )
+    # Commit before scheduling/returning so the row is visible to both the poll
+    # and the background job (which opens its own session).
     await db.commit()
 
-    return _build_docx_response(
-        docx_bytes=result.docx_bytes,
-        filename=result.filename,
-        candidate_name=result.candidate_name,
-        warnings=result.warnings,
-        processing_time_ms=result.processing_time_ms,
-        generated_id=generated_id,
+    background_tasks.add_task(
+        _run_generate_new_job,
+        generated_id,
+        candidate_id=payload.candidate_id,
+        stage_id=payload.stage_id,
+        language=payload.language,
+        blind_cv=payload.blind_cv,
+        user_id=current_user.id,
+    )
+    return GenerateEnqueuedResponse(
+        id=generated_id, status="processing", candidate_name=candidate_name
     )
 
 
-@router.post("/generate-upload")
+@router.post(
+    "/generate-upload",
+    response_model=GenerateEnqueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 @limiter.limit("10/minute")
 async def generate_from_upload(
     request: Request,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     # No `from __future__ import annotations` in this module (see module docstring),
     # so this multipart marker resolves correctly even under the slowapi
     # `@limiter.limit` wrapper. Annotated form is the FastAPI-recommended style.
@@ -422,12 +563,15 @@ async def generate_from_upload(
         File(description="Opcjonalny plik DOCX z Profilem Championa"),
     ] = None,
     db: AsyncSession = Depends(get_db),
-) -> Response:
-    """1:1 odpowiednik external ``POST /api/v1/generate`` (multipart wariant).
+) -> GenerateEnqueuedResponse:
+    """1:1 odpowiednik external ``POST /api/v1/generate`` (multipart wariant),
+    ale enqueue + 202 (generacja w tle).
 
-    Old-mode: user wgrywa CV ręcznie, opcjonalnie DOCX championa i notatki
-    ze screeningu. Poza wpisem audytowym nic nie trafia do NEXUS DB — pełen
-    flow przebiega na danych z requestu i Claude API.
+    Old-mode: user wgrywa CV ręcznie, opcjonalnie DOCX championa i notatki ze
+    screeningu. Bajty plików czytamy tu (``UploadFile`` nie przeżyje requestu)
+    i przekazujemy do zadania w tle, dzięki czemu rekruter może zamknąć kartę —
+    wynik ląduje na liście „Wygenerowane CV". Poza wpisem audytowym nic nie
+    trafia do NEXUS DB.
     """
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
@@ -436,7 +580,7 @@ async def generate_from_upload(
         champion_bytes = await champion_file.read()
         champion_filename = champion_file.filename
 
-    payload = UploadGenerationInput(
+    gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
         cv_filename=cv_file.filename or "cv.pdf",
         language=language,
@@ -446,48 +590,28 @@ async def generate_from_upload(
         champion_filename=champion_filename,
     )
 
-    try:
-        result = await run_in_threadpool(generate_cv_from_uploads, payload)
-    except StandaloneGenerationError as err:
-        raise HTTPException(
-            status_code=_error_status(err.code), detail=err.message
-        ) from err
-
-    # Upload mode has no candidate context — anchor the audit entry on the user.
-    db.add(
-        Activity(
-            entity_type="user",
-            entity_id=current_user.id,
-            action="b2b_cv_generated_upload",
-            details={
-                "cv_filename": cv_file.filename,
-                "language": language,
-                "blind_cv": blind_cv,
-                "filename": result.filename,
-                "warnings_count": len(result.warnings),
-                "processing_time_ms": result.processing_time_ms,
-            },
-            user_id=current_user.id,
-        )
-    )
-    generated_id = await _persist_generated(
+    # Provisional label until Claude parses the real name out of the CV.
+    provisional = Path(cv_file.filename or "").stem or "Nowe CV"
+    generated_id = await _create_pending_row(
         db,
-        result=result,
         mode="upload",
         candidate_id=None,
+        candidate_name=provisional,
+        position=None,
         language=language,
         blind_cv=blind_cv,
         user_id=current_user.id,
     )
     await db.commit()
 
-    return _build_docx_response(
-        docx_bytes=result.docx_bytes,
-        filename=result.filename,
-        candidate_name=result.candidate_name,
-        warnings=result.warnings,
-        processing_time_ms=result.processing_time_ms,
-        generated_id=generated_id,
+    background_tasks.add_task(
+        _run_generate_upload_job,
+        generated_id,
+        payload=gen_payload,
+        user_id=current_user.id,
+    )
+    return GenerateEnqueuedResponse(
+        id=generated_id, status="processing", candidate_name=provisional
     )
 
 
@@ -502,9 +626,11 @@ async def list_generated_cvs(
 ):
     """Recently generated CVs for the panel list (newest first).
 
-    ``can_download`` tells the UI whether the DOCX can be re-rendered (rows from
-    before this feature have no ``render_payload``); ``can_delete`` whether the
-    current user may remove the row (its author or an admin).
+    ``status`` drives the row's look (spinner while „processing", the CV once
+    „ready", the reason on „failed"); the UI polls this endpoint while any row
+    is still „processing". ``can_download`` is true only for „ready" rows with a
+    saved ``render_payload`` (rows from before this feature have none);
+    ``can_delete`` whether the current user may remove the row (author or admin).
     """
     is_admin = current_user.has_role(UserRole.admin)
     rows = (
@@ -526,9 +652,12 @@ async def list_generated_cvs(
             blind=r.blind,
             mode=r.mode,
             filename=r.filename,
+            status=r.status,
+            error_message=r.error_message,
+            warnings=list(r.warnings or []),
             created_at=r.created_at.isoformat() if r.created_at else None,
             created_by_name=creator_name,
-            can_download=r.render_payload is not None,
+            can_download=r.status == "ready" and r.render_payload is not None,
             can_delete=is_admin or r.created_by == current_user.id,
         )
         for r, creator_name in rows
