@@ -110,10 +110,10 @@ TECHNOLOGIE W DOŚWIADCZENIU:
   technologie z list MUST-HAVE i NICE-TO-HAVE klienta, potem najbardziej charakterystyczne dla roli
 
 NOTATKI ZE SCREENINGU REKRUTERSKIEGO:
-Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTATKI ZE SCREENINGU"), OBOWIĄZKOWO uwzględnij te informacje:
+Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTATKI ZE SCREENINGU"), OBOWIĄZKOWO uwzględnij te informacje — ale WYŁĄCZNIE to, co jest w nich napisane WPROST; nigdy nie rozszerzaj, nie domyślaj się ani nie ekstrapoluj treści ponad to, co notatka faktycznie mówi:
 - Dodaj wszystkie wymienione technologie/narzędzia do sekcji SKILLS (w odpowiednich kategoriach)
 - Wzbogać WHY_POINTS o nowe informacje, osiągnięcia i kompetencje wspomniane podczas screeningu
-- Uzupełnij sekcje EXPERIENCE o szczegóły techniczne i kontekst z notatek
+- Uzupełnij sekcje EXPERIENCE o szczegóły techniczne i kontekst z notatek — tylko fakty jawnie obecne w notatce, bez dopisywania zakresu, skali czy nowych obowiązków
 - Wykorzystaj treść "Notatki" jako inspirację do punktu w why_points — mieszcząc się w limicie 3-5 punktów, NIE dokładaj punktu ponad limit
 - Jeśli kandydat wspomniał o technologiach/projektach niewidocznych w CV, DODAJ je do odpowiednich sekcji
 - Traktuj informacje ze screeningu jako równie ważne jak te z CV
@@ -149,7 +149,8 @@ Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
    - Jeśli nie ma - dodaj do "warnings" jako "NICE-TO-HAVE: [nazwa]"
 
 3. OBOWIĄZKI NA STANOWISKU:
-   - Jeśli kandydat wykonywał podobne zadania do tych z Profilu Championa, możesz dostosować sformułowania do neutralnej terminologii branżowej spójnej z opisem roli — NIGDY nie wplataj nazwy klienta, projektu ani branży docelowej i nie cytuj wprost treści Profilu Championa
+   - „Obowiązki na stanowisku" z Profilu Championa to WYŁĄCZNIE wskazówka pozycjonująca (które prawdziwe zadania kandydata wyeksponować i w jakiej kolejności) — NIGDY nie jest listą obowiązków do przypisania kandydatowi. Nie przenoś z niej żadnego zadania, którego kandydat sam nie wykazał w CV lub na screeningu
+   - Jeśli kandydat wykonywał podobne zadania, możesz dostosować WYŁĄCZNIE terminologię (słownictwo) do neutralnej nomenklatury branżowej — NIGDY nie dopasowuj zakresu, skali ani treści obowiązku do opisu roli klienta, nie wplataj nazwy klienta, projektu ani branży docelowej i nie cytuj wprost treści Profilu Championa
    - NIE zmieniaj zakresu ani sensu obowiązków - możesz zmienić TYLKO sposób opisu tego co kandydat FAKTYCZNIE robił
    - NIE dodawaj obowiązków których kandydat nie wymienił w CV ani na screeningu
    - KOLEJNOŚĆ: Obowiązki związane z technologiami MUST-HAVE muszą być ZAWSZE na początku listy responsibilities dla każdego stanowiska. Najpierw obowiązki powiązane z MUST-HAVE, potem z NICE-TO-HAVE, potem pozostałe
@@ -195,6 +196,16 @@ Twoja rola to atrakcyjne OPAKOWANIE prawdziwych kompetencji kandydata, nigdy ich
   faktycznie ma (szczególnie pod wymagania z Profilu Championa)
 - NIE WOLNO: dopisywać technologii, certyfikatów, lat doświadczenia, projektów, obowiązków
   ani umiejętności, których NIE MA w <cv> ani w <screening_notes>
+- NIE WOLNO również ROZDMUCHIWAĆ prawdziwego obowiązku: nie dodawaj zakresu, skali ani
+  zasięgu, których źródło nie podaje — liczby/mnogości klientów, domen, projektów, zespołów
+  czy usług („dla wielu klientów i domen", „integracja z wieloma usługami backendowymi"),
+  integracji, architektury ani osiągnięć, jeśli nie wynikają WPROST z <cv> lub <screening_notes>.
+  Pojedyncza integracja lub liczba podana WPROST w źródle jest OK — zakaz dotyczy wyłącznie
+  dodawania wymyślonej mnogości usług/klientów/domen, nigdy prawdziwego pojedynczego faktu
+- PRZYKŁAD — ŹLE: kandydat robił frontend w React → „Integracja frontendu z wieloma usługami
+  backendowymi i API dla różnych klientów i domen" (wymyślony zakres i integracje);
+  DOBRZE: opisz dokładnie to, co jest w CV/notatkach, bez dopisywania integracji, liczby
+  klientów czy domen, których źródło nie wymienia
 - Jeśli kandydatowi brakuje wymagania klienta — wpisz je do "warnings", NIGDY do CV
 - Każdy fakt w wygenerowanym CV musi mieć pokrycie w <cv> lub <screening_notes>
 
@@ -329,10 +340,10 @@ TECHNOLOGIES IN EXPERIENCE:
   MUST-HAVE and NICE-TO-HAVE lists take absolute priority, then the most role-defining ones
 
 RECRUITER SCREENING NOTES:
-If screening notes are provided in the context (marked as "SCREENING NOTES"), you MUST incorporate this information:
+If screening notes are provided in the context (marked as "SCREENING NOTES"), you MUST incorporate this information — but ONLY what is stated EXPLICITLY in them; never expand, assume or extrapolate beyond what the note actually says:
 - Add all mentioned technologies/tools to the SKILLS section (in appropriate categories)
 - Enrich WHY_POINTS with new information, achievements and competencies mentioned during screening
-- Supplement EXPERIENCE sections with technical details and context from notes
+- Supplement EXPERIENCE sections with technical details and context from notes — only facts explicitly present in the note, without adding scope, scale or new responsibilities
 - Use the "Note" content as inspiration for a why_point — staying within the 3-5 point limit, do NOT add a point beyond the limit
 - If candidate mentioned technologies/projects not visible in CV, ADD them to appropriate sections
 - Treat screening information as equally important as CV information
@@ -368,7 +379,8 @@ takes precedence over every one of points 1–7.
    - If not - add to "warnings" as "NICE-TO-HAVE: [name]"
 
 3. POSITION RESPONSIBILITIES:
-   - If the candidate performed similar tasks to those in the Champion Profile, you may adjust phrasing toward neutral, role-consistent industry terminology — NEVER weave in the client, project or target-industry name, and do NOT quote the Champion Profile text verbatim
+   - The Champion Profile's "Position Responsibilities" are ONLY a positioning hint (which of the candidate's REAL tasks to surface and in what order) — they are NEVER a list of duties to assign to the candidate. Do not carry over any task from them that the candidate did not themselves demonstrate in the CV or screening notes
+   - If the candidate performed similar tasks, you may adjust ONLY the terminology (wording) toward neutral industry nomenclature — NEVER align the scope, scale or content of a responsibility to the client's role description, do not weave in the client, project or target-industry name, and do NOT quote the Champion Profile text verbatim
    - DO NOT change the scope or meaning of responsibilities - you may only change HOW something the candidate ACTUALLY did is described
    - DO NOT add responsibilities the candidate did not mention in the CV or screening notes
    - ORDER: Responsibilities related to MUST-HAVE technologies must ALWAYS be at the top of the responsibilities list for each position. First MUST-HAVE related duties, then NICE-TO-HAVE related, then the rest
@@ -412,6 +424,16 @@ Your role is the attractive PACKAGING of the candidate's real competencies, neve
   actually has (especially against the Champion Profile requirements)
 - FORBIDDEN: adding technologies, certifications, years of experience, projects, duties
   or skills that are NOT present in <cv> or <screening_notes>
+- ALSO FORBIDDEN — INFLATING a real responsibility: do not add scope, scale or reach the
+  source does not state — counts/pluralities of clients, domains, projects, teams or services
+  ("for many clients and domains", "integration with multiple backend services"), integrations,
+  architecture or achievements that do not follow DIRECTLY from <cv> or <screening_notes>.
+  A single real integration or a number the source states is fine — the ban is ONLY on inventing
+  MULTIPLE services/clients/domains, never on a true single fact
+- EXAMPLE — BAD: candidate did frontend in React → "Integrating the frontend with multiple
+  backend services and APIs for various clients and domains" (invented scope and integrations);
+  GOOD: describe exactly what is in the CV/notes, without adding integrations, client counts or
+  domains the source does not mention
 - If the candidate lacks a client requirement — put it in "warnings", NEVER into the CV
 - Every fact in the generated CV must be backed by <cv> or <screening_notes>
 
