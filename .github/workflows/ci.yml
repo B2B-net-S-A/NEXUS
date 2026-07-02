@@ -156,6 +156,7 @@ jobs:
                  tests/test_reports_recruitment_anchored.py \
                  tests/test_contract_candidate_rate_schedule.py \
                  tests/test_contract_client_rate_schedule.py \
+                 tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
