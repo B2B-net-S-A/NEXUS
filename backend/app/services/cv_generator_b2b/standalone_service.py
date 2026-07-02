@@ -507,42 +507,51 @@ def _polish_year_unit(years: int) -> str:
     return "lat"
 
 
-# Connectors that bind a duration to a specific technology/tool ("5 lat z
-# Kubernetes", "3 years with Docker", "2 lata w Intune"). Role connectors
-# ("jako" / "as") are deliberately excluded — a duration tied to a ROLE is the
-# total-career headline we DO want to correct.
-_TECH_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|with|in)\b", re.IGNORECASE)
+# Connectors that bind a duration to a specific technology, tool or company
+# ("5 lat z Kubernetes", "3 years with Docker", "8 years at Gigaset", "5 lat
+# w Gigaset"). Role connectors ("jako" / "as") are deliberately excluded — a
+# duration tied to a ROLE is the total-career headline we DO want to correct.
+_BOUND_CONNECTOR_RE = re.compile(r"\b(?:z|ze|w|we|u|with|in|at)\b", re.IGNORECASE)
+
+# Markers introducing the "w tym Y lat w [firmie]" sub-figure of a why_point.
+# That figure is scoped to one company/chapter of the career, so the recompute
+# must never land on it — only the clause BEFORE a marker is searched.
+_SUBFIGURE_SPLIT_RE = re.compile(r"\sw tym\s|\sincluding\s|\sincl\.?\s", re.IGNORECASE)
 
 
-def _experience_tech_terms(candidate_data: dict[str, Any]) -> set[str]:
-    """Collect the candidate's technology vocabulary — the champion highlight
-    list plus every role's ``technologies`` — lowercased. Used to tell a
-    technology-specific duration ("2 lata z Intune") apart from the total-career
-    headline so the recompute never inflates the former. Sub-4-char tokens are
-    dropped to avoid spurious substring hits (e.g. "AI", "Go", "MDM")."""
+def _experience_bound_terms(candidate_data: dict[str, Any]) -> set[str]:
+    """Collect the vocabulary a duration must never be inflated against: the
+    champion highlight list, every role's ``technologies`` and every role's
+    company name — lowercased. Used to tell a scoped duration ("2 lata z
+    Intune", "5 years at Gigaset") apart from the total-career headline so the
+    recompute never inflates the former. Sub-4-char tokens are dropped to
+    avoid spurious substring hits (e.g. "AI", "Go", "MDM")."""
     raw: list[str] = list(candidate_data.get("highlight_keywords") or [])
     for job in candidate_data.get("experience") or []:
         raw.extend(job.get("technologies") or [])
+        company = str(job.get("company") or "")
+        raw.append(company)
+        raw.extend(company.split())
     return {s for t in raw if len(s := str(t).strip().lower()) >= 4}
 
 
-def _years_bound_to_technology(
-    point: str, years_end: int, tech_terms: set[str]
+def _years_bound_to_tech_or_company(
+    point: str, years_end: int, bound_terms: set[str]
 ) -> bool:
-    """True when the years figure is tied to a specific technology rather than a
-    role — e.g. "6 lat doświadczenia z Microsoft Intune". Only the clause the
-    figure introduces is inspected (up to the next comma / "w tym" / "including")
-    so a trailing tech mention or the "w tym Y lat w [firma]" sub-figure can't
-    trigger a false positive."""
-    if not tech_terms:
+    """True when the years figure is tied to a specific technology or company
+    rather than a role — e.g. "6 lat doświadczenia z Microsoft Intune" or
+    "5 years at Gigaset". Only the clause the figure introduces is inspected
+    (up to the next comma / "w tym" / "including") so a trailing tech mention
+    or the "w tym Y lat w [firma]" sub-figure can't trigger a false positive."""
+    if not bound_terms:
         return False
     tail = point[years_end:]
     clause = re.split(r"[,;]| w tym | including | incl\.? ", tail, maxsplit=1)[0]
-    conn = _TECH_CONNECTOR_RE.search(clause)
+    conn = _BOUND_CONNECTOR_RE.search(clause)
     if not conn:
         return False
     after = clause[conn.end() :].lower()
-    return any(term in after for term in tech_terms)
+    return any(term in after for term in bound_terms)
 
 
 def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
@@ -551,10 +560,16 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
     the headline total is touched — the "w tym Y lat w …" sub-figure and any
     other point are left as Claude wrote them.
 
-    A technology-specific duration ("2 lata z Microsoft Intune") is left alone:
-    overwriting it with the total career figure would falsely inflate experience
-    with that one technology, so such points are skipped in favour of a generic
+    A technology- or company-specific duration ("2 lata z Microsoft Intune",
+    "5 years at Gigaset") is left alone: overwriting it with the total career
+    figure would falsely inflate experience with that one technology or tenure
+    at that one company, so such points are skipped in favour of a generic
     role/seniority headline.
+
+    Only the clause before "w tym" / "including" is searched. When the headline
+    figure itself is unparseable (e.g. "5+ years"), the search must not drift
+    into the sub-figure — that once turned "including 5 years at Gigaset" into
+    "including 8 years at Gigaset" by stamping the career total there.
     """
     years = _total_experience_years(candidate_data.get("experience") or [])
     if not years:
@@ -564,7 +579,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
     else:
         replacement = f"{years} {_polish_year_unit(years)}"
 
-    tech_terms = _experience_tech_terms(candidate_data)
+    bound_terms = _experience_bound_terms(candidate_data)
 
     points = candidate_data.get("why_points") or []
     for i, point in enumerate(points):
@@ -573,10 +588,11 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         low = point.lower()
         if "doświadcz" not in low and "experience" not in low:
             continue
-        match = _YEARS_PHRASE_RE.search(point)
+        head = _SUBFIGURE_SPLIT_RE.split(point, maxsplit=1)[0]
+        match = _YEARS_PHRASE_RE.search(head)
         if not match:
             continue
-        if _years_bound_to_technology(point, match.end(), tech_terms):
+        if _years_bound_to_tech_or_company(point, match.end(), bound_terms):
             continue
         points[i] = point[: match.start()] + replacement + point[match.end() :]
         break
