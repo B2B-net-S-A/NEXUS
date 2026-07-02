@@ -784,6 +784,86 @@ def test_fix_experience_years_still_fixes_industry_duration():
     assert data["why_points"][0] == "5 lat doświadczenia w fintechu"
 
 
+def test_fix_experience_years_never_lands_on_company_subfigure():
+    # Regression (Grzegorz Zieliński CV): "5+ years" is not parseable as the
+    # headline figure, so the search used to drift into the "including 5 years
+    # at Gigaset" sub-figure and stamp the 8-year career total there — a tenure
+    # the candidate never had. The whole point must survive as written.
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"company": "CGI / Fiserv", "dates": "06.2024 - currently"},
+            {"company": "Gigaset", "dates": "03.2020 - 05.2024"},
+            {"company": "Gigaset", "dates": "2019 - 2020"},
+        ],  # merged career ≈ 8 years, Gigaset itself ≈ 5
+        "why_points": [
+            "5+ years of experience as a QA Automation Engineer, "
+            "including 5 years at Gigaset"
+        ],
+    }
+    _fix_experience_years(data, "en")
+    assert data["why_points"][0] == (
+        "5+ years of experience as a QA Automation Engineer, "
+        "including 5 years at Gigaset"
+    )
+
+
+def test_fix_experience_years_fixes_headline_and_preserves_company_subfigure():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"company": "Gigaset", "dates": "01.2019 – 12.2023"}
+        ],  # 5 years total
+        "why_points": [
+            "Ponad 3 lata doświadczenia jako inżynier QA, w tym 4 lata w Gigaset"
+        ],
+    }
+    _fix_experience_years(data, "pl")
+    assert data["why_points"][0] == (
+        "5 lat doświadczenia jako inżynier QA, w tym 4 lata w Gigaset"
+    )
+
+
+def test_fix_experience_years_skips_company_bound_headline():
+    # A duration tied to a company ("5 lat w Gigaset") is that company's
+    # tenure, not the career total — inflating it would fabricate employment.
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"company": "Gigaset", "dates": "01.2019 – 12.2023"},
+            {"company": "Acme Corp", "dates": "01.2016 – 12.2018"},
+        ],  # 8 years total
+        "why_points": ["5 lat doświadczenia w Gigaset jako inżynier QA"],
+    }
+    _fix_experience_years(data, "pl")
+    assert data["why_points"][0] == "5 lat doświadczenia w Gigaset jako inżynier QA"
+
+
+def test_fix_experience_years_skips_company_bound_headline_en():
+    from app.services.cv_generator_b2b.standalone_service import (
+        _fix_experience_years,
+    )
+
+    data = {
+        "experience": [
+            {"company": "Gigaset", "dates": "01.2019 – 12.2023"},
+            {"company": "Acme Corp", "dates": "01.2016 – 12.2018"},
+        ],  # 8 years total
+        "why_points": ["5 years of experience at Gigaset"],
+    }
+    _fix_experience_years(data, "en")
+    assert data["why_points"][0] == "5 years of experience at Gigaset"
+
+
 # ── Saved-CV re-render (panel list download/preview) ───────────────────────
 
 
