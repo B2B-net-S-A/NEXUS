@@ -152,6 +152,20 @@ def _client_schedule_entries(contract: Contract) -> list[ContractClientRateEntry
     ]
 
 
+def _synced_client_order_end(
+    current: Optional[date], new_end_date: date
+) -> Optional[date]:
+    """Client-order end date after a contract extension.
+
+    Extending a contract means the client renewed the underlying purchase order,
+    so "Koniec zamówienia u klienta" follows the new contract horizon instead of
+    lingering on the old date. Contracts that never tracked an order end
+    (``current is None``) stay untracked — we don't invent an order end where the
+    user deliberately left one out. Shared by the amendment and bulk-extend paths.
+    """
+    return new_end_date if current is not None else None
+
+
 def _to_detail(contract: Contract) -> ContractDetailResponse:
     """Serialize a Contract (with eager-loaded relations) to the detail schema."""
     data = {
@@ -455,7 +469,14 @@ async def bulk_extend_contracts(
             m -= 12
             y += 1
         new_day = min(c.end_date.day, 28)  # safe for all months
-        c.end_date = c.end_date.replace(year=y, month=m, day=new_day)
+        new_end = c.end_date.replace(year=y, month=m, day=new_day)
+        c.end_date = new_end
+        # Client order is renewed together with the contract — keep its end date
+        # in sync (only when the contract already tracks one). Mirrors the
+        # extension-amendment path.
+        c.client_order_end_date = _synced_client_order_end(
+            c.client_order_end_date, new_end
+        )
         # If the contract had rolled to ending/ended, bring it back to active
         if c.status in (ContractStatus.ending, ContractStatus.ended):
             c.status = ContractStatus.active
@@ -1391,6 +1412,11 @@ async def create_contract_amendment(
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {
         "end_date": contract.end_date.isoformat() if contract.end_date else None,
+        "client_order_end_date": (
+            contract.client_order_end_date.isoformat()
+            if contract.client_order_end_date
+            else None
+        ),
         "rate_candidate": contract.rate_candidate,
         "rate_client": contract.rate_client,
         "rate_unit": contract.rate_unit.value
@@ -1413,6 +1439,17 @@ async def create_contract_amendment(
                 detail="new_end_date is required for extension amendment",
             )
         contract.end_date = data.new_end_date
+        # Keep "Koniec zamówienia u klienta" in step with the new contract end —
+        # an extension renews the client's order alongside the contract. Only
+        # touch it when the contract already tracks an order end (see helper).
+        synced_order_end = _synced_client_order_end(
+            contract.client_order_end_date, data.new_end_date
+        )
+        if synced_order_end != contract.client_order_end_date:
+            contract.client_order_end_date = synced_order_end
+            new_values["client_order_end_date"] = (
+                synced_order_end.isoformat() if synced_order_end else None
+            )
         # If status was 'ending' or 'ended', flip back to active after extension.
         if contract.status in (ContractStatus.ending, ContractStatus.ended):
             contract.status = ContractStatus.active
