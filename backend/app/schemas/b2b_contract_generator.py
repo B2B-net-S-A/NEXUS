@@ -68,7 +68,12 @@ class B2BGenerateRequest(BaseModel):
     project_city: Optional[str] = None
     project_description: Optional[str] = None
     correspondence_address: Optional[str] = None
-    rate_candidate: Optional[int] = None
+    # Stawka godzinowa bywa ułamkowa (np. 83,5 PLN/h) — `float`, NIE `int`.
+    # `int` odrzucał 83.5 przez 422 (Pydantic wymusza liczbę całkowitą, NIE
+    # zaokrągla), więc stawka trafiająca na `Contract.rate_candidate`
+    # (Numeric(12,3)) musiała być ręcznie zaokrąglona do 84. Spójne z
+    # `B2BRenderRequest` i `ContractCreate/Update`.
+    rate_candidate: Optional[float] = None
     currency: str = "PLN"
     rate_in_words: Optional[str] = None
     # Nadpisanie zakresu roli na poziomie tej umowy (None = użyj domyślnego).
@@ -94,7 +99,10 @@ class B2BContractDetailResponse(BaseModel):
     project_city: Optional[str] = None
     project_description: Optional[str] = None
     correspondence_address: Optional[str] = None
-    rate_candidate: Optional[int] = None
+    # Odczyt z `Contract.rate_candidate` (Numeric(12,3)) — `float`, by nie ucinać
+    # groszy przy read-backu (i nie wywalać 500 na response_model dla stawki
+    # ułamkowej, np. 83,5).
+    rate_candidate: Optional[float] = None
     currency: Optional[str] = None
     rate_in_words: Optional[str] = None
     scope_items_override: Optional[list[str]] = None

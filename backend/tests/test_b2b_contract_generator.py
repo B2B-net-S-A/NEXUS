@@ -309,6 +309,39 @@ def test_render_context_accepts_fractional_rate():
     )
 
 
+def test_generate_request_accepts_fractional_rate():
+    """Regresja: stawka kandydata ułamkowa (83,5) musi przejść przez
+    `B2BGenerateRequest` bez zaokrąglania. Wcześniej pole było `int` → Pydantic
+    odrzucał 83.5 (422), więc do „szablonu" wchodziła zaokrąglona 84, a na
+    `Contract.rate_candidate` (Numeric(12,3)) zapisywała się liczba całkowita."""
+    from app.schemas.b2b_contract_generator import B2BGenerateRequest
+
+    req = B2BGenerateRequest(
+        candidate_id=1,
+        client_id=2,
+        role_id=3,
+        start_date=date(2026, 7, 1),
+        rate_candidate=83.5,
+    )
+    # Grosze zachowane — brak zaokrąglenia do 84.
+    assert req.rate_candidate == 83.5
+
+
+def test_detail_response_preserves_fractional_rate():
+    """Read-back stawki ułamkowej z Contract (Numeric(12,3)) nie może się ucinać
+    ani wywalać 500 na response_model — pole `float`, nie `int`."""
+    from decimal import Decimal
+
+    from app.schemas.b2b_contract_generator import B2BContractDetailResponse
+
+    resp = B2BContractDetailResponse(
+        contract_id=1,
+        language="pl",
+        rate_candidate=Decimal("83.5"),
+    )
+    assert resp.rate_candidate == 83.5
+
+
 def test_render_payload_roundtrip_redownload():
     """Ponowne pobranie z listy: payload zapisany jak w logu
     (``model_dump(mode="json")``) odtwarza się w ``B2BRenderRequest`` i
