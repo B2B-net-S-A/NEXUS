@@ -2,7 +2,7 @@
 external CV-Generator port.
 
 Policy:
-  - Primary model: ``claude-sonnet-5`` (env-overridable via ``CV_B2B_MODEL``).
+  - Primary model: ``claude-sonnet-4-6`` (env-overridable via ``CV_B2B_MODEL``).
   - Fallback models: ``claude-opus-4-8`` (env-overridable via
     ``CV_B2B_FALLBACK_MODELS``, comma-separated). A 529 ``overloaded_error`` is
     per-model-pool, so when the primary pool is saturated we re-issue the call
@@ -40,7 +40,12 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+# Rewert #628 (sonnet-5): fala feedbacku od rekruterów — jakość CV wyraźnie
+# spadła. Sonnet 5 z wymuszonym thinking=disabled (konieczne, bo jego adaptive
+# thinking zjadał budżet max_tokens — #630/#632) generuje słabsze CV niż
+# Sonnet 4.6 w swoim naturalnym trybie. Ewentualny powrót na Sonnet 5 wymaga
+# CV_B2B_THINKING=adaptive + CV_B2B_MAX_TOKENS>=24576 i porównania jakości.
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_FALLBACK_MODELS = ("claude-opus-4-8",)
 _DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_MAX_RETRIES = 3
@@ -123,6 +128,9 @@ def _request_timeout() -> float:
 def _thinking_param() -> dict[str, str] | None:
     """Extended-thinking config for the extraction call.
 
+    Dla ``claude-sonnet-4-6`` (obecny primary) ``disabled`` jest no-opem —
+    thinking i tak jest tam domyślnie wyłączony. Pin ma znaczenie, gdy przez
+    ``CV_B2B_MODEL`` wybrany zostanie model Claude 5:
     ``claude-sonnet-5`` runs adaptive thinking with ``effort=high`` BY DEFAULT,
     and thinking tokens are billed as output — they count toward ``max_tokens``
     and crowd out the CV JSON, tripping ``stop_reason=max_tokens`` (the

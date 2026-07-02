@@ -80,7 +80,7 @@ def _install_fake_client(monkeypatch, plan):
 def test_default_model_chain(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
-    assert ai_client._models() == ["claude-sonnet-5", "claude-opus-4-8"]
+    assert ai_client._models() == ["claude-sonnet-4-6", "claude-opus-4-8"]
 
 
 def test_model_chain_respects_env_and_dedups(monkeypatch):
@@ -91,9 +91,9 @@ def test_model_chain_respects_env_and_dedups(monkeypatch):
 
 
 def test_empty_fallback_env_yields_single_model(monkeypatch):
-    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-4-6")
     monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")
-    assert ai_client._models() == ["claude-sonnet-5"]
+    assert ai_client._models() == ["claude-sonnet-4-6"]
 
 
 # ── analyze_with_ai behaviour ────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def test_success_on_primary_no_fallback(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": lambda: _FakeMessage('{"ok": true}'),
+            "claude-sonnet-4-6": lambda: _FakeMessage('{"ok": true}'),
             "claude-opus-4-8": lambda: _FakeMessage("should-not-be-called"),
         },
     )
@@ -113,7 +113,7 @@ def test_success_on_primary_no_fallback(monkeypatch):
     out = analyze_with_ai("payload", "req-1", system="sys")
 
     assert out == '{"ok": true}'
-    assert calls == ["claude-sonnet-5"]  # fallback never touched
+    assert calls == ["claude-sonnet-4-6"]  # fallback never touched
 
 
 def test_falls_back_to_second_model_on_overload(monkeypatch):
@@ -127,7 +127,7 @@ def test_falls_back_to_second_model_on_overload(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": overloaded,
+            "claude-sonnet-4-6": overloaded,
             "claude-opus-4-8": lambda: _FakeMessage('{"from": "opus"}'),
         },
     )
@@ -136,7 +136,7 @@ def test_falls_back_to_second_model_on_overload(monkeypatch):
 
     assert out == '{"from": "opus"}'
     # Primary retried (max_retries=1 → 2 attempts) then opus succeeded once.
-    assert calls == ["claude-sonnet-5", "claude-sonnet-5", "claude-opus-4-8"]
+    assert calls == ["claude-sonnet-4-6", "claude-sonnet-4-6", "claude-opus-4-8"]
 
 
 def test_all_models_overloaded_raises_clean_message(monkeypatch):
@@ -150,7 +150,7 @@ def test_all_models_overloaded_raises_clean_message(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": overloaded,
+            "claude-sonnet-4-6": overloaded,
             "claude-opus-4-8": overloaded,
         },
     )
@@ -182,7 +182,7 @@ def test_overload_then_non_retryable_fallback_still_overloaded(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": overloaded,
+            "claude-sonnet-4-6": overloaded,
             "claude-opus-4-8": bad_request,
         },
     )
@@ -190,7 +190,7 @@ def test_overload_then_non_retryable_fallback_still_overloaded(monkeypatch):
     with pytest.raises(CVGeneratorOverloadedError):
         analyze_with_ai("payload", "req-overload-then-4xx")
 
-    assert calls == ["claude-sonnet-5", "claude-opus-4-8"]
+    assert calls == ["claude-sonnet-4-6", "claude-opus-4-8"]
 
 
 def test_empty_model_chain_raises_without_calling_claude(monkeypatch):
@@ -198,7 +198,7 @@ def test_empty_model_chain_raises_without_calling_claude(monkeypatch):
     monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")
     calls = _install_fake_client(
         monkeypatch,
-        {"claude-sonnet-5": lambda: _FakeMessage("unreached")},
+        {"claude-sonnet-4-6": lambda: _FakeMessage("unreached")},
     )
 
     with pytest.raises(CVGeneratorAIError) as exc:
@@ -218,7 +218,7 @@ def test_garbage_max_retries_env_does_not_crash(monkeypatch):
     monkeypatch.setenv("CV_B2B_MAX_TOKENS", "not-a-number")
     _install_fake_client(
         monkeypatch,
-        {"claude-sonnet-5": lambda: _FakeMessage('{"ok": 1}')},
+        {"claude-sonnet-4-6": lambda: _FakeMessage('{"ok": 1}')},
     )
 
     assert analyze_with_ai("payload", "req-garbage-env") == '{"ok": 1}'
@@ -235,7 +235,7 @@ def test_non_retryable_4xx_does_not_fall_back(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": bad_request,
+            "claude-sonnet-4-6": bad_request,
             "claude-opus-4-8": lambda: _FakeMessage("unreached"),
         },
     )
@@ -246,7 +246,7 @@ def test_non_retryable_4xx_does_not_fall_back(monkeypatch):
     # Not an overload — surfaced as a plain AI error, fallback never attempted,
     # and no pointless retries on a deterministic 4xx.
     assert not isinstance(exc.value, CVGeneratorOverloadedError)
-    assert calls == ["claude-sonnet-5"]
+    assert calls == ["claude-sonnet-4-6"]
 
 
 def test_truncation_raises_immediately_without_fallback(monkeypatch):
@@ -255,7 +255,7 @@ def test_truncation_raises_immediately_without_fallback(monkeypatch):
     calls = _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": lambda: _FakeMessage("{...", stop_reason="max_tokens"),
+            "claude-sonnet-4-6": lambda: _FakeMessage("{...", stop_reason="max_tokens"),
             "claude-opus-4-8": lambda: _FakeMessage("unreached"),
         },
     )
@@ -265,7 +265,7 @@ def test_truncation_raises_immediately_without_fallback(monkeypatch):
 
     # Truncation is a content-length issue — identical on any model, so no
     # fallback is attempted.
-    assert calls == ["claude-sonnet-5"]
+    assert calls == ["claude-sonnet-4-6"]
 
 
 def test_missing_api_key_raises(monkeypatch):
@@ -303,7 +303,7 @@ def test_extracts_text_when_thinking_block_leads(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": lambda: _MultiBlockMessage(
+            "claude-sonnet-4-6": lambda: _MultiBlockMessage(
                 [_FakeThinkingBlock("reasoning..."), _FakeBlock('{"ok": true}')]
             ),
         },
@@ -367,7 +367,7 @@ def test_no_text_block_raises_clean_error(monkeypatch):
     _install_fake_client(
         monkeypatch,
         {
-            "claude-sonnet-5": lambda: _MultiBlockMessage(
+            "claude-sonnet-4-6": lambda: _MultiBlockMessage(
                 [_FakeThinkingBlock("only thinking, no answer")]
             ),
         },
