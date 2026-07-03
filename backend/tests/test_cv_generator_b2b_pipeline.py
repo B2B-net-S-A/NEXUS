@@ -180,22 +180,44 @@ def test_separate_skill_chips_each_bold():
 
 def test_versioned_tech_bolds_bare_brand():
     # Reported bug: a champion skill carrying a version ("Java 17+") matched
-    # only verbatim, so plain "Java" in the CV body never bolded. Every token
-    # of such a compound is itself a technology, so each brand token now bolds
-    # on its own — the version suffix no longer forces a verbatim-only match.
+    # only verbatim, so plain "Java" in the CV body never bolded. When the
+    # compound is ONE real technology plus a version/qualifier token that
+    # carries no letter ("17+", "17"), the bare brand is recovered and bolds.
     body = "Programowanie w Java i Spring Boot, mikroserwisy w Java."
-    for kw in ("Java 17+", "Java 17", "Java SE 17"):
+    for kw in ("Java 17+", "Java 17"):
         assert _matches(body, [kw]) == ["Java", "Java"], kw
     # A bare digit/version token never bolds on its own (needs a letter).
     assert _matches("wersja 17 systemu", ["Java 17+"]) == []
+    # ...but a two-real-word compound ("Java SE") is a phrase, not a lone
+    # brand + junk, so it bolds only whole — bare "Java" does NOT leak out.
+    assert _matches(body, ["Java SE 17"]) == []
+    assert _matches("Migracja na Java SE 17 w projekcie", ["Java SE 17"]) == [
+        "Java SE 17"
+    ]
 
 
-def test_all_listed_compound_tokens_bold():
-    # "bold ALL technologies from must-have + nice-to-have": an all-tech
-    # compound bolds each constituent technology where it appears alone.
-    assert _matches("Integracje przez REST oraz samodzielne API", ["REST API"]) == [
-        "REST",
-        "API",
+def test_multiword_product_name_bolds_only_whole():
+    # A genuine multi-word product name whose words are EACH a technology
+    # ("REST API") bolds ONLY as the whole phrase — never split into single
+    # tokens that would bold unrelated occurrences. Recruiter directive: bold
+    # the listed phrase, not words torn from it.
+    assert _matches("Integracje przez REST oraz samodzielne API", ["REST API"]) == []
+    assert _matches("Pełne REST API w projekcie", ["REST API"]) == ["REST API"]
+
+
+def test_shared_vendor_prefix_never_leaks_to_other_products():
+    # Reported bug: champion must-have "Apache Airflow" + "Apache Kafka" got
+    # split into a standalone "Apache" pattern, which then bolded the shared
+    # "Apache" prefix of NON-required products ("Apache NiFi", "Apache Spark").
+    # A two-tech compound now bolds only whole, so the vendor prefix never
+    # leaks — only the two listed phrases bold, nothing on Spark/NiFi.
+    body = (
+        "Delivered platforms using Apache Kafka, Apache Spark, Apache Airflow, "
+        "and Apache NiFi for analytics."
+    )
+    assert _matches(body, ["Apache Airflow", "Apache Kafka"]) == [
+        "Apache Kafka",
+        "Apache Airflow",
     ]
 
 
