@@ -853,22 +853,33 @@ def compile_keyword_patterns(keywords: list[str] | None) -> list[re.Pattern[str]
                 continue
             if _is_technology(v):
                 # A real technology bolds whole ("Figma", "Spring Boot",
-                # "GitLab CI/CD", "C++").
+                # "GitLab CI/CD", "Apache Airflow", "C++").
                 _add(v)
-                # A NON-curated compound qualifies only because EVERY token is
-                # itself a technology ("Java 17+", "Java 17", "REST API",
-                # "GitLab CI/CD") — so also bold each brand token on its own.
-                # Without this a champion skill carrying a version ("Java 17+")
-                # matched only verbatim, so plain "Java" in the CV never bolded
-                # (recruiter directive: bold ALL must-have + nice-to-have
-                # technologies). Curated multi-word techs ("Spring Boot", "SQL
-                # Server", "React Native") stay whole — their bare common part
-                # ("Boot", "Native") must never bold.
+                # Recover a buried brand token ONLY when the compound is ONE
+                # real technology plus version/qualifier junk: "Java 17+" /
+                # "Java 17" → bare "Java" (the digit token carries no letter,
+                # so it drops and a single alpha tech remains). Without this a
+                # versioned champion skill matched only verbatim, so plain
+                # "Java" in the CV never bolded.
+                #
+                # A GENUINE multi-word product name whose words are EACH a
+                # technology ("Apache Airflow", "Apache Kafka", "REST API")
+                # bolds ONLY as the whole phrase — it must NOT be split into a
+                # shared vendor prefix ("Apache") that would then leak onto
+                # OTHER products the client never listed ("Apache NiFi",
+                # "Apache Spark"). Recruiter directive: bold the listed phrase,
+                # not single words torn from it. Curated multi-word techs
+                # ("Spring Boot", "SQL Server") already stay whole via the
+                # `_KNOWN_TECH` guard below.
                 tokens = v.split()
                 if len(tokens) > 1 and _norm_tech(v) not in _KNOWN_TECH:
-                    for tok in tokens:
-                        if _is_tech_word(tok) and any(ch.isalpha() for ch in tok):
-                            _add(tok)
+                    alpha_tech = [
+                        tok
+                        for tok in tokens
+                        if _is_tech_word(tok) and any(ch.isalpha() for ch in tok)
+                    ]
+                    if len(alpha_tech) == 1:
+                        _add(alpha_tech[0])
             else:
                 # Not a technology in itself ("visual design", "User-Centered
                 # Design", "bazami danych SQL") — never bold the concept/prose;
