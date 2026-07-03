@@ -1006,11 +1006,11 @@ def _full_page_payload() -> dict:
 
 def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     # When the CV ends well short of the page, the RODO consent clause is pinned
-    # to the foot of the last page — justified, once, set off by a thin red rule
-    # — so it reads as a footer instead of dangling mid-page below the last role.
-    # It rides in a floating DrawingML text box (zero in-flow height, anchored to
-    # the bottom margin), NOT a w:framePr (the frame approach spilled the clause
-    # onto a blank second page on content-heavy CVs).
+    # to the foot of the last page — justified, once, set apart by whitespace (no
+    # rule) — so it reads as a footer instead of dangling mid-page below the last
+    # role. It rides in a floating DrawingML text box (zero in-flow height,
+    # anchored to the bottom margin), NOT a w:framePr (the frame approach spilled
+    # the clause onto a blank second page on content-heavy CVs).
     import io
     import re
     import zipfile
@@ -1026,17 +1026,14 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
     ), "RODO not pinned to the bottom margin"
-    # Justified, with the branded red rule above the clause.
     assert 'w:val="both"' in body, "RODO clause not justified"
-    assert "E14F4F" in body, "red rule above the RODO clause missing"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
 
 
 def test_rodo_clause_stays_in_flow_and_justified_when_page_is_full():
     # A content-heavy CV has no room to drop the clause to the foot of the page
-    # without overlapping the last lines, so it stays in the normal flow: the red
-    # VML divider (fillcolor #e14f4f) closes the body after the last role and the
-    # justified clause follows it. No bottom-anchored float here.
+    # without overlapping the last lines, so it stays in the normal flow —
+    # justified, after the last role, with no rule above it and no float.
     import io
     import zipfile
 
@@ -1045,13 +1042,11 @@ def test_rodo_clause_stays_in_flow_and_justified_when_page_is_full():
         body = z.read("word/document.xml").decode("utf-8")
 
     last_experience_text = body.rfind("Spring Boot")  # last role's last technology
-    last_divider = body.rfind('fillcolor="#e14f4f"')
     rodo = body.find("Wyrażam zgodę na przetwarzanie")
 
     assert last_experience_text != -1
     assert rodo != -1, "RODO clause missing"
     assert 'name="RodoClause"' not in body, "full-page CV should not float the clause"
-    assert last_divider > last_experience_text, "closing divider not after last role"
-    assert rodo > last_divider, "RODO clause not after the closing divider"
+    assert rodo > last_experience_text, "RODO clause not after the last role"
     assert 'w:val="both"' in body, "in-flow RODO clause not justified"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"

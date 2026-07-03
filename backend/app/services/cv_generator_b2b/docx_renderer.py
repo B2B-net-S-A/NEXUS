@@ -1038,8 +1038,8 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
     The clause lives inside a floating text box anchored to the bottom page
     margin, so — no matter where the CV body ends — it always lands at the foot
     of the final page (once, just above the footer) instead of dangling in the
-    middle of a half-filled page. The text is justified and a thin red rule on
-    top mirrors the branded divider that used to precede the clause in the flow.
+    middle of a half-filled page. The text is justified; the whitespace gap above
+    it does the separating, so there is no rule between it and the CV body.
 
     The box floats (``wrapNone``) with zero in-flow height, so it never pushes a
     one-page CV onto a second page. It is anchored in a trailing paragraph whose
@@ -1086,8 +1086,7 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
             f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{content_w_emu}" cy="{box_h_emu}"/></a:xfrm>',
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>',
             "</wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr>",
-            '<w:pBdr><w:top w:val="single" w:sz="12" w:space="4" w:color="E14F4F"/></w:pBdr>',
-            '<w:spacing w:before="40" w:after="0"/><w:jc w:val="both"/></w:pPr>',
+            '<w:spacing w:before="0" w:after="0"/><w:jc w:val="both"/></w:pPr>',
             '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>',
             '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>',
             f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t>',
@@ -1104,19 +1103,17 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
 
 
 def add_inflow_rodo(doc: Any, rodo_text: str) -> Any:
-    """Render the RODO clause in the normal flow (justified), after a divider.
+    """Render the RODO clause in the normal flow (justified).
 
     Used when the CV body nearly fills the page, so there is no room to drop the
-    clause to the foot of the page without overlapping the last lines. The text
-    is justified either way — only the vertical placement differs from
+    clause to the foot of the page without overlapping the last lines. No rule
+    above it (matching the pinned variant) — a small top gap plus the 5pt size
+    set it apart from the last role. Only the vertical placement differs from
     :func:`add_bottom_pinned_rodo`.
     """
-    divider = add_horizontal_line(doc)
-    divider.paragraph_format.space_before = Pt(2)
-    divider.paragraph_format.space_after = Pt(5)
-
     rodo_para = doc.add_paragraph()
     rodo_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    rodo_para.paragraph_format.space_before = Pt(10)
     run = rodo_para.add_run(rodo_text)
     run.font.name = "Montserrat"
     run.font.size = Pt(5)
