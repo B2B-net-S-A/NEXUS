@@ -16,9 +16,11 @@ import io
 import logging
 import re
 from typing import Any
+from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
@@ -1030,6 +1032,146 @@ def add_horizontal_line(doc: Any) -> Any:
     return para
 
 
+def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
+    """Pin the RODO consent clause to the bottom of the last page.
+
+    The clause lives inside a floating text box anchored to the bottom page
+    margin, so — no matter where the CV body ends — it always lands at the foot
+    of the final page (once, just above the footer) instead of dangling in the
+    middle of a half-filled page. The text is justified and a thin red rule on
+    top mirrors the branded divider that used to precede the clause in the flow.
+
+    The box floats (``wrapNone``) with zero in-flow height, so it never pushes a
+    one-page CV onto a second page. It is anchored in a trailing paragraph whose
+    mark is shrunk to ~2pt to keep that anchor line negligible.
+    """
+    section = doc.sections[-1]
+    content_w_emu = int(section.page_width - section.left_margin - section.right_margin)
+    # ~4 lines of 5pt text; spAutoFit lets Word recompute while the bottom edge
+    # stays pinned to the margin, so an over/under-estimate is self-correcting.
+    box_h_emu = 320040
+
+    anchor_para = doc.add_paragraph()
+    anchor_para.paragraph_format.space_before = Pt(0)
+    anchor_para.paragraph_format.space_after = Pt(0)
+    # Shrink the otherwise-empty anchor line so it barely adds vertical space.
+    rpr = OxmlElement("w:rPr")
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), "4")
+    rpr.append(sz)
+    anchor_para._element.get_or_add_pPr().append(rpr)
+
+    # Built as a single line (no inter-tag whitespace) so no stray text nodes
+    # slip into element-only content models.
+    drawing_xml = "".join(
+        [
+            '<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+            ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+            ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+            ' xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">',
+            '<wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0"'
+            ' relativeHeight="251659264" behindDoc="0" locked="0"'
+            ' layoutInCell="1" allowOverlap="1">',
+            '<wp:simplePos x="0" y="0"/>',
+            '<wp:positionH relativeFrom="margin"><wp:align>left</wp:align></wp:positionH>',
+            '<wp:positionV relativeFrom="margin"><wp:align>bottom</wp:align></wp:positionV>',
+            f'<wp:extent cx="{content_w_emu}" cy="{box_h_emu}"/>',
+            '<wp:effectExtent l="0" t="0" r="0" b="0"/>',
+            "<wp:wrapNone/>",
+            '<wp:docPr id="101" name="RodoClause"/>',
+            "<wp:cNvGraphicFramePr/>",
+            "<a:graphic><a:graphicData"
+            ' uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">',
+            '<wps:wsp><wps:cNvSpPr txBox="1"/><wps:spPr>',
+            f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{content_w_emu}" cy="{box_h_emu}"/></a:xfrm>',
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>',
+            "</wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr>",
+            '<w:pBdr><w:top w:val="single" w:sz="12" w:space="4" w:color="E14F4F"/></w:pBdr>',
+            '<w:spacing w:before="40" w:after="0"/><w:jc w:val="both"/></w:pPr>',
+            '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>',
+            '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>',
+            f'<w:t xml:space="preserve">{escape(rodo_text)}</w:t>',
+            "</w:r></w:p></w:txbxContent></wps:txbx>",
+            '<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="0" tIns="0"'
+            ' rIns="0" bIns="0" anchor="b" anchorCtr="0"><a:spAutoFit/></wps:bodyPr>',
+            "</wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing>",
+        ]
+    )
+
+    run = anchor_para.add_run()
+    run._element.append(parse_xml(drawing_xml))
+    return anchor_para
+
+
+def add_inflow_rodo(doc: Any, rodo_text: str) -> Any:
+    """Render the RODO clause in the normal flow (justified), after a divider.
+
+    Used when the CV body nearly fills the page, so there is no room to drop the
+    clause to the foot of the page without overlapping the last lines. The text
+    is justified either way — only the vertical placement differs from
+    :func:`add_bottom_pinned_rodo`.
+    """
+    divider = add_horizontal_line(doc)
+    divider.paragraph_format.space_before = Pt(2)
+    divider.paragraph_format.space_after = Pt(5)
+
+    rodo_para = doc.add_paragraph()
+    rodo_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    run = rodo_para.add_run(rodo_text)
+    run.font.name = "Montserrat"
+    run.font.size = Pt(5)
+    run.font.color.rgb = COLOR_TEXT
+    return rodo_para
+
+
+def _estimate_body_height_pt(doc: Any) -> float:
+    """Roughly estimate the rendered height (pt) of the document body so far.
+
+    Deliberately *over*-estimates (generous line height, ceil'd wrap counts) so
+    the caller only pins the RODO clause to the page foot when the body is
+    comfortably short — biasing away from the one failure mode that looks
+    broken: a bottom-pinned clause overlapping the last content line.
+
+    Only an approximation of Word's line breaking — good enough for the
+    "is there a clear gap at the bottom?" decision, not for exact layout.
+    """
+    from math import ceil
+
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    section = doc.sections[-1]
+    content_w_pt = (
+        section.page_width - section.left_margin - section.right_margin
+    ) / 12700  # EMU → pt
+
+    def para_height(par: Paragraph) -> float:
+        sizes = [r.font.size.pt for r in par.runs if r.font.size is not None]
+        size_pt = max(sizes) if sizes else 10.0
+        pf = par.paragraph_format
+        before = pf.space_before.pt if pf.space_before is not None else 0.0
+        after = pf.space_after.pt if pf.space_after is not None else 0.0
+        text_len = len(par.text)
+        if text_len == 0:
+            # Divider / spacer paragraph: reserve a little vertical room.
+            lines = 1
+        else:
+            chars_per_line = max(1.0, content_w_pt / (size_pt * 0.48))
+            lines = max(1, ceil(text_len / chars_per_line))
+        return before + after + lines * size_pt * 1.3
+
+    total = 0.0
+    for child in doc.element.body:
+        tag = child.tag
+        if tag.endswith("}p"):
+            total += para_height(Paragraph(child, doc))
+        elif tag.endswith("}tbl"):
+            table = Table(child, doc)
+            # ~1 line of 10pt text plus cell padding per row.
+            total += len(table.rows) * 24.0
+    return total
+
+
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
@@ -1420,25 +1562,23 @@ def render_cv_to_bytes(
             para.paragraph_format.space_after = Pt(2)
 
     # === KLAUZULA RODO / GDPR ===
-    # A red divider closes the document body — the last EXPERIENCE role, or
-    # whatever the final section is — so the consent clause reads as a separate
-    # footer block instead of notes tacked onto that role's description. The
-    # clause sits just below the divider; on a content-filled CV that lands it
-    # near the foot of the page, set off from the experience above. The divider
-    # is kept tight (the clause is a 5pt block) so it takes less vertical room
-    # than the blank-line spacer it replaces and never pushes a one-page CV onto
-    # a second page just for the clause.
-    closing_divider = add_horizontal_line(doc)
-    closing_divider.paragraph_format.space_before = Pt(2)
-    closing_divider.paragraph_format.space_after = Pt(5)
-
-    rodo_para = doc.add_paragraph()
-    rodo_text = t["rodo"]
-
-    run = rodo_para.add_run(rodo_text)
-    run.font.name = "Montserrat"
-    run.font.size = Pt(5)
-    run.font.color.rgb = COLOR_TEXT
+    # The consent clause is always justified. Where it lands vertically depends
+    # on how full the page is:
+    #   * body ends well short of the page → pin it to the foot of the last page
+    #     (add_bottom_pinned_rodo), so it reads as a footer instead of dangling
+    #     mid-page below a half-filled CV — the case recruiters complained about;
+    #   * body nearly fills the page → keep it in the flow (add_inflow_rodo), so
+    #     a bottom-pinned float can't overlap the final content lines.
+    # The threshold is conservative (only pin when the body uses well under the
+    # page) because the estimate over-counts and overlapping is the worst look.
+    section = doc.sections[-1]
+    usable_h_pt = (
+        section.page_height - section.top_margin - section.bottom_margin
+    ) / 12700  # EMU → pt
+    if _estimate_body_height_pt(doc) < 0.62 * usable_h_pt:
+        add_bottom_pinned_rodo(doc, t["rodo"])
+    else:
+        add_inflow_rodo(doc, t["rodo"])
 
     out = io.BytesIO()
     doc.save(out)

@@ -984,17 +984,63 @@ def test_rerender_does_not_mutate_saved_payload():
     assert payload["experience"][0]["company"] == "Acme"
 
 
-def test_rodo_clause_is_separated_by_closing_divider():
-    # The RODO consent clause must read as a distinct footer block, not as notes
-    # tacked onto the last role. A red divider (the B2B HR, fillcolor #e14f4f)
-    # closes the document body and the clause follows it — so in the XML the
-    # clause text comes AFTER the last divider, which itself comes AFTER the
-    # last experience content. No bottom-anchoring frame is used (it spilled the
-    # clause onto a blank second page on content-heavy CVs).
+def _full_page_payload() -> dict:
+    # Enough experience to (over-)fill the page, so the RODO clause is rendered
+    # in-flow rather than pinned to the foot of the page.
+    payload = _sample_payload()
+    payload["experience"] = [
+        {
+            "dates": f"01.20{10 + i} – 12.20{11 + i}",
+            "company": f"Firma {i}",
+            "industry": "IT",
+            "position": "Java Developer",
+            "responsibilities": [
+                f"Rozwój usług backendowych numer {j}" for j in range(4)
+            ],
+            "technologies": ["Java", "Spring Boot"],
+        }
+        for i in range(5)
+    ]
+    return payload
+
+
+def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
+    # When the CV ends well short of the page, the RODO consent clause is pinned
+    # to the foot of the last page — justified, once, set off by a thin red rule
+    # — so it reads as a footer instead of dangling mid-page below the last role.
+    # It rides in a floating DrawingML text box (zero in-flow height, anchored to
+    # the bottom margin), NOT a w:framePr (the frame approach spilled the clause
+    # onto a blank second page on content-heavy CVs).
     import io
+    import re
     import zipfile
 
     data = rerender_docx_from_payload(_sample_payload())
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        body = z.read("word/document.xml").decode("utf-8")
+
+    assert "Wyrażam zgodę na przetwarzanie" in body, "RODO clause missing"
+    # A single floating text box, pinned to the bottom page margin.
+    assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
+    assert "wrapNone" in body, "RODO box not floating (would add in-flow height)"
+    assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
+        r"<[\w:]*align>bottom<", body
+    ), "RODO not pinned to the bottom margin"
+    # Justified, with the branded red rule above the clause.
+    assert 'w:val="both"' in body, "RODO clause not justified"
+    assert "E14F4F" in body, "red rule above the RODO clause missing"
+    assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
+
+
+def test_rodo_clause_stays_in_flow_and_justified_when_page_is_full():
+    # A content-heavy CV has no room to drop the clause to the foot of the page
+    # without overlapping the last lines, so it stays in the normal flow: the red
+    # VML divider (fillcolor #e14f4f) closes the body after the last role and the
+    # justified clause follows it. No bottom-anchored float here.
+    import io
+    import zipfile
+
+    data = rerender_docx_from_payload(_full_page_payload())
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         body = z.read("word/document.xml").decode("utf-8")
 
@@ -1004,6 +1050,8 @@ def test_rodo_clause_is_separated_by_closing_divider():
 
     assert last_experience_text != -1
     assert rodo != -1, "RODO clause missing"
+    assert 'name="RodoClause"' not in body, "full-page CV should not float the clause"
     assert last_divider > last_experience_text, "closing divider not after last role"
     assert rodo > last_divider, "RODO clause not after the closing divider"
+    assert 'w:val="both"' in body, "in-flow RODO clause not justified"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
