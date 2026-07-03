@@ -100,3 +100,23 @@ def test_polish_filename_uses_rfc5987_and_is_latin1_safe():
     assert "filename*=UTF-8''" in disposition
     encoded = disposition.split("filename*=UTF-8''", 1)[1]
     assert unquote(encoded) == "CV_B2B_Kamil_Szukajło.docx"
+
+
+def test_role_prefixed_filename_with_spaces_roundtrips():
+    # New shape "{role}_{name}.docx" carries spaces (e.g. "IT Analyst_Jan
+    # Kowalski.docx"). The legacy filename= param folds spaces to underscores for
+    # latin-1 safety; the RFC 5987 filename*= param preserves the real spelling.
+    response = _build_docx_response(
+        docx_bytes=b"PK\x03\x04 fake docx",
+        filename="IT Analyst_Jan Kowalski.docx",
+        candidate_name="Jan Kowalski",
+        warnings=[],
+        processing_time_ms=0,
+    )
+
+    _assert_all_headers_latin1(response)
+
+    disposition = response.headers["Content-Disposition"]
+    assert 'filename="IT_Analyst_Jan_Kowalski.docx"' in disposition
+    encoded = disposition.split("filename*=UTF-8''", 1)[1]
+    assert unquote(encoded) == "IT Analyst_Jan Kowalski.docx"

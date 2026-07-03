@@ -24,11 +24,13 @@ from app.services.cv_generator_b2b.docx_renderer import (
 )
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
+    _build_download_filename,
     _fabrication_warnings,
     _format_candidate_answers,
     _has_candidate_answers,
     _loads_cv_json,
     _normalize_candidate_data,
+    _sanitize_filename_part,
     _sanitize_for_filename,
     _validate_upload,
     ascii_filename_fallback,
@@ -641,6 +643,43 @@ def test_ascii_filename_fallback_transliterates_polish():
         ascii_filename_fallback("CV_B2B_Kamil_Szukajło.docx")
         == "CV_B2B_Kamil_Szukajlo.docx"
     )
+
+
+def test_sanitize_filename_part_preserves_spaces_and_diacritics():
+    # The role/name component keeps spaces, Polish letters and tech tokens like
+    # ``+``/``#`` — only runs of whitespace collapse to a single space.
+    assert _sanitize_filename_part("IT Analyst") == "IT Analyst"
+    assert _sanitize_filename_part("  IT   Analyst  ") == "IT Analyst"
+    assert _sanitize_filename_part("C++ Developer") == "C++ Developer"
+    assert _sanitize_filename_part("C# Developer") == "C# Developer"
+    assert _sanitize_filename_part("Łukasz Kamecki") == "Łukasz Kamecki"
+
+
+def test_sanitize_filename_part_strips_reserved_chars():
+    # Filesystem-reserved characters are removed without leaving double spaces.
+    assert _sanitize_filename_part("Data Engineer / ETL") == "Data Engineer ETL"
+    assert _sanitize_filename_part('Role: "x"?') == "Role x"
+    assert _sanitize_filename_part("   ") == ""
+
+
+def test_build_download_filename_uses_role():
+    # With a recruitment role the download name is "{role}_{name}.docx" and the
+    # user-facing example spelling (spaces intact) is preserved.
+    assert (
+        _build_download_filename("IT Analyst", "Jan Kowalski")
+        == "IT Analyst_Jan Kowalski.docx"
+    )
+    # Polish letters survive on disk (Content-Disposition folds ASCII separately).
+    assert (
+        _build_download_filename("Analityk IT", "Kamil Szukajło")
+        == "Analityk IT_Kamil Szukajło.docx"
+    )
+
+
+def test_build_download_filename_falls_back_without_role():
+    # No role (manual-upload mode / blank title) → legacy "CV_B2B_{name}.docx".
+    assert _build_download_filename(None, "Jan Kowalski") == "CV_B2B_Jan_Kowalski.docx"
+    assert _build_download_filename("   ", "Jan Kowalski") == "CV_B2B_Jan_Kowalski.docx"
 
 
 # ── Upload validation ──────────────────────────────────────────────────────

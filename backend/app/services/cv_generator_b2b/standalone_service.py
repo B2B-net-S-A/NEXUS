@@ -198,6 +198,41 @@ def ascii_filename_fallback(filename: str) -> str:
     return ascii_str.strip("_") or "kandydat"
 
 
+# Characters reserved by common filesystems (path separators, wildcards,
+# quotes, angle brackets, pipe, control chars). Everything else — including
+# spaces, ``+``/``#`` (e.g. "C++ Developer") and Polish diacritics — survives.
+_FILENAME_RESERVED = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _sanitize_filename_part(text: str) -> str:
+    """Clean one component of the download filename while **preserving** spaces
+    and Polish diacritics.
+
+    Runs of whitespace collapse to a single space; only filesystem-reserved
+    characters are dropped. HTTP-header encoding is handled separately at the
+    ``Content-Disposition`` layer (:func:`ascii_filename_fallback` + the RFC 5987
+    ``filename*`` parameter), so the file saved on disk keeps the real spelling.
+    """
+    without_reserved = _FILENAME_RESERVED.sub("", text)
+    collapsed = re.sub(r"\s+", " ", without_reserved)
+    return collapsed.strip(" .")
+
+
+def _build_download_filename(role_title: str | None, candidate_name: str) -> str:
+    """Compose the CV download filename.
+
+    With a recruitment role (Champion Profile → ``Job.title``) the name is
+    ``"{role}_{name}.docx"`` (e.g. ``"IT Analyst_Jan Kowalski.docx"``). Without
+    one — manual-upload mode or a blank title — it falls back to the legacy
+    ``"CV_B2B_{name}.docx"`` shape.
+    """
+    role_part = _sanitize_filename_part(role_title or "")
+    if role_part:
+        name_part = _sanitize_filename_part(candidate_name) or "Kandydat"
+        return f"{role_part}_{name_part}.docx"
+    return f"CV_B2B_{_sanitize_for_filename(candidate_name)}.docx"
+
+
 def _champion_present(job: Job | None) -> bool:
     if job is None:
         return False
@@ -799,6 +834,7 @@ def _run_generation_pipeline(
     fallback_name: str | None,
     started_at: float,
     job_id: int | None = None,
+    job_title: str | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -898,6 +934,15 @@ def _run_generation_pipeline(
     # 5-year candidate); recompute the headline from the extracted dates.
     _fix_experience_years(candidate_data, language)
 
+    # The recruitment role (Champion Profile → Job.title) is the authoritative
+    # CV title: it drives both the header ("{position} – {name}") and the
+    # download filename, overriding the AI-derived position. Done BEFORE the
+    # render_payload snapshot so re-downloads reproduce the same header.
+    # Manual-upload mode passes no job_title → the AI position is kept.
+    role_title = (job_title or "").strip()
+    if role_title:
+        candidate_data["position"] = role_title
+
     # ── 4. Anti-fabrication seatbelt + date sanity ───────────────────────
     source_text = f"{cv_text}\n{screening_notes_text}"
     guard_warnings = _fabrication_warnings(candidate_data, source_text, language)
@@ -919,8 +964,7 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_name = str(candidate_data.get("name") or fallback_name or "Kandydat")
-    sanitized_name = _sanitize_for_filename(candidate_name)
-    filename = f"CV_B2B_{sanitized_name}.docx"
+    filename = _build_download_filename(role_title, candidate_name)
 
     duration_ms = int((time.time() - started_at) * 1000)
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
@@ -1300,6 +1344,7 @@ async def generate_cv_for_candidate(
             fallback_name=fallback_name,
             started_at=started_at,
             job_id=job.id,
+            job_title=job.title,
         )
     )
 
