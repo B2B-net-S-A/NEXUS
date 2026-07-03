@@ -207,5 +207,18 @@ class B2BGeneratedContractItem(BaseModel):
     created_by_name: Optional[str] = None
     # Czy bieżący użytkownik może usunąć ten wpis (autor wpisu lub admin).
     can_delete: bool = False
+    # Czy bieżący użytkownik może edytować ten wpis (autor wpisu lub admin).
+    can_edit: bool = False
     # Czy umowę da się pobrać ponownie (jest zapisany payload do re-renderu).
     can_download: bool = False
+
+
+class B2BGeneratedContractUpdate(BaseModel):
+    """Edycja wpisu „Wygenerowane umowy" — obecnie tylko korekta nazwy Klienta.
+
+    Aktualizuje kolumnę ``client_name`` (widoczną na liście) oraz
+    ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
+    poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
+    Pusta/whitespace nazwa → ``None`` (kolumna jest nullowalna)."""
+
+    client_name: Optional[str] = None

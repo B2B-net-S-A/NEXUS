@@ -42,6 +42,7 @@ from app.schemas.b2b_contract_generator import (
     B2BGenerateRequest,
     B2BGenerateResponse,
     B2BGeneratedContractItem,
+    B2BGeneratedContractUpdate,
     B2BNextNumberResponse,
     B2BRenderHtmlResponse,
     B2BRenderRequest,
@@ -573,6 +574,7 @@ async def list_generated_contracts(
             created_at=r.created_at.isoformat() if r.created_at else None,
             created_by_name=creator_name,
             can_delete=is_admin or r.created_by == current_user.id,
+            can_edit=is_admin or r.created_by == current_user.id,
             can_download=r.render_payload is not None,
         )
         for r, creator_name in rows
@@ -615,6 +617,76 @@ async def download_generated_contract(
         content=data,
         media_type=_DOCX_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
+async def update_generated_contract(
+    generated_id: int,
+    payload: B2BGeneratedContractUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Popraw wpis na liście „Wygenerowane umowy" — obecnie tylko nazwę Klienta.
+
+    Aktualizuje zarówno kolumnę ``client_name`` (widoczną na liście), jak i
+    ``render_payload['client_name']`` — dzięki temu ponowne pobranie DOCX ma już
+    poprawioną nazwę, a per-klienta klauzule (§/załączniki) dobiorą się pod nią.
+    Edytować może wyłącznie autor wpisu lub administrator (jak przy usuwaniu)."""
+    row = await db.get(B2BGeneratedContract, generated_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    is_admin = current_user.has_role(UserRole.admin)
+    if not is_admin and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Możesz edytować tylko umowy, które samodzielnie wygenerowałeś.",
+        )
+
+    old_client = row.client_name
+    new_client = (payload.client_name or "").strip() or None
+    row.client_name = new_client
+    # Zsynchronizuj zapisany payload → ponowny render DOCX i klauzule per-klient
+    # użyją już poprawionej nazwy. Reassign (nie mutacja in-place), by SQLAlchemy
+    # wykrył zmianę kolumny JSON.
+    if row.render_payload is not None:
+        row.render_payload = {**row.render_payload, "client_name": new_client}
+
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=row.id,
+            action="updated",
+            user_id=current_user.id,
+            details={
+                "contract_number": row.contract_number,
+                "field": "client_name",
+                "old": old_client,
+                "new": new_client,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(row)
+
+    creator_name = None
+    if row.created_by is not None:
+        creator_name = await db.scalar(
+            select(User.name).where(User.id == row.created_by)
+        )
+    can_manage = is_admin or row.created_by == current_user.id
+    return B2BGeneratedContractItem(
+        id=row.id,
+        contract_number=row.contract_number,
+        partner_name=row.partner_name,
+        client_name=row.client_name,
+        language=row.language,
+        signing_date=row.signing_date,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        created_by_name=creator_name,
+        can_delete=can_manage,
+        can_edit=can_manage,
+        can_download=row.render_payload is not None,
     )
 
 

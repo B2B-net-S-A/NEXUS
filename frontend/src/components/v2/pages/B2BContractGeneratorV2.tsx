@@ -11,6 +11,7 @@ import {
   FileSignature,
   Loader2,
   Mail,
+  Pencil,
   Printer,
   Save,
   Search,
@@ -305,7 +306,33 @@ function GeneratedContractsTab() {
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
+  // Edycja nazwy Klienta „w miejscu" — poprawa literówki bez ponownej generacji.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editClientName, setEditClientName] = useState("");
+  const updateMut = useMutation({
+    mutationFn: ({ id, client_name }: { id: number; client_name: string }) =>
+      b2bGeneratorApi.updateGenerated(id, { client_name }),
+    onSuccess: () => {
+      toast.showSuccess("Nazwa Klienta zaktualizowana.");
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
   const rows = q.data ?? [];
+
+  const startEdit = (r: B2BGeneratedContractRow) => {
+    setEditingId(r.id);
+    setEditClientName(r.client_name ?? "");
+  };
+  const saveEdit = (id: number) => {
+    const name = editClientName.trim();
+    if (!name) {
+      toast.showError("Podaj nazwę Klienta.");
+      return;
+    }
+    updateMut.mutate({ id, client_name: name });
+  };
 
   const confirmDelete = (r: B2BGeneratedContractRow) => {
     const label = r.partner_name
@@ -326,8 +353,9 @@ function GeneratedContractsTab() {
         <CardTitle className="text-base">Wygenerowane umowy</CardTitle>
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
-          numer nie powtarza istniejącego. Umowę można pobrać ponownie; wpis może
-          usunąć osoba, która wygenerowała umowę, lub administrator.
+          numer nie powtarza istniejącego. Umowę można pobrać ponownie, a nazwę
+          Klienta poprawić („Edytuj"); wpis może edytować lub usunąć osoba, która
+          wygenerowała umowę, lub administrator.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -357,13 +385,36 @@ function GeneratedContractsTab() {
                     deleteMut.isPending && deleteMut.variables === r.id;
                   const downloading =
                     downloadMut.isPending && downloadMut.variables?.id === r.id;
+                  const editing = editingId === r.id;
+                  const saving = updateMut.isPending && editing;
                   return (
                     <tr key={r.id} className="border-b">
                       <td className="py-2 pr-4 font-medium">
                         {r.contract_number}
                       </td>
                       <td className="py-2 pr-4">{r.partner_name || "—"}</td>
-                      <td className="py-2 pr-4">{r.client_name || "—"}</td>
+                      <td className="py-2 pr-4">
+                        {editing ? (
+                          <Input
+                            autoFocus
+                            value={editClientName}
+                            onChange={(e) => setEditClientName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                saveEdit(r.id);
+                              } else if (e.key === "Escape") {
+                                setEditingId(null);
+                              }
+                            }}
+                            disabled={saving}
+                            className="h-8 min-w-[16rem]"
+                            placeholder="Pełna nazwa Klienta"
+                          />
+                        ) : (
+                          r.client_name || "—"
+                        )}
+                      </td>
                       <td className="py-2 pr-4 uppercase">
                         {r.language || "—"}
                       </td>
@@ -375,45 +426,90 @@ function GeneratedContractsTab() {
                       <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
                       <td className="py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {r.can_download ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8"
-                              disabled={downloading}
-                              onClick={() => downloadMut.mutate(r)}
-                              title="Pobierz DOCX ponownie"
-                            >
-                              {downloading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                              <span className="ml-1">Pobierz</span>
-                            </Button>
-                          ) : null}
-                          {r.can_delete ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-destructive hover:text-destructive"
-                              disabled={deleting}
-                              onClick={() => confirmDelete(r)}
-                              title="Usuń umowę z listy"
-                            >
-                              {deleting ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                              <span className="ml-1">Usuń</span>
-                            </Button>
-                          ) : null}
-                          {!r.can_download && !r.can_delete ? (
-                            <span className="text-xs text-muted-foreground">
-                              —
-                            </span>
-                          ) : null}
+                          {editing ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8"
+                                disabled={saving}
+                                onClick={() => saveEdit(r.id)}
+                                title="Zapisz nazwę Klienta"
+                              >
+                                {saving ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Save className="h-4 w-4" />
+                                )}
+                                <span className="ml-1">Zapisz</span>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8"
+                                disabled={saving}
+                                onClick={() => setEditingId(null)}
+                                title="Anuluj edycję"
+                              >
+                                <X className="h-4 w-4" />
+                                <span className="ml-1">Anuluj</span>
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              {r.can_edit ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => startEdit(r)}
+                                  title="Popraw nazwę Klienta"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  <span className="ml-1">Edytuj</span>
+                                </Button>
+                              ) : null}
+                              {r.can_download ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={downloading}
+                                  onClick={() => downloadMut.mutate(r)}
+                                  title="Pobierz DOCX ponownie"
+                                >
+                                  {downloading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Download className="h-4 w-4" />
+                                  )}
+                                  <span className="ml-1">Pobierz</span>
+                                </Button>
+                              ) : null}
+                              {r.can_delete ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 text-destructive hover:text-destructive"
+                                  disabled={deleting}
+                                  onClick={() => confirmDelete(r)}
+                                  title="Usuń umowę z listy"
+                                >
+                                  {deleting ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                  <span className="ml-1">Usuń</span>
+                                </Button>
+                              ) : null}
+                              {!r.can_edit && !r.can_download && !r.can_delete ? (
+                                <span className="text-xs text-muted-foreground">
+                                  —
+                                </span>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
