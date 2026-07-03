@@ -25,6 +25,8 @@ from app.services.cv_generator_b2b.docx_renderer import (
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _fabrication_warnings,
+    _format_candidate_answers,
+    _has_candidate_answers,
     _loads_cv_json,
     _normalize_candidate_data,
     _sanitize_for_filename,
@@ -513,6 +515,81 @@ def test_guard_handles_diacritics():
     }
     source = "Zarzadzanie lancuchem CI w GitLabie"
     assert _fabrication_warnings(data, source, "pl") == []
+
+
+# ── Candidate screening answers (fed into the CV as notes context) ─────────
+
+_QUESTIONS = [
+    {"id": "q1", "question": "Ile lat pracowałeś z Kubernetes?"},
+    {"id": "q2", "question": "Czy prowadziłeś migracje do chmury?"},
+]
+
+
+def test_candidate_answers_pairs_question_with_response():
+    answers = {
+        "answers": [
+            {"question_id": "q1", "response": "5 lat, głównie na produkcji"},
+            {"question_id": "q2", "response": "Tak, dwie migracje do AWS"},
+        ]
+    }
+    text = _format_candidate_answers(answers, _QUESTIONS)
+    assert "P: Ile lat pracowałeś z Kubernetes?" in text
+    assert "O: 5 lat, głównie na produkcji" in text
+    assert "P: Czy prowadziłeś migracje do chmury?" in text
+    assert "O: Tak, dwie migracje do AWS" in text
+
+
+def test_candidate_answers_skips_blank_responses():
+    answers = {
+        "answers": [
+            {"question_id": "q1", "response": "  "},
+            {"question_id": "q2", "response": "Tak, dwie migracje do AWS"},
+        ]
+    }
+    text = _format_candidate_answers(answers, _QUESTIONS)
+    assert "Kubernetes" not in text  # blank answer dropped along with its question
+    assert text == "P: Czy prowadziłeś migracje do chmury?\nO: Tak, dwie migracje do AWS"
+
+
+def test_candidate_answers_answer_only_when_question_missing():
+    # Question id no longer present on the Champion Profile — keep the answer,
+    # drop the dangling question label rather than emitting an empty "P:".
+    answers = {"answers": [{"question_id": "gone", "response": "Node.js i Go"}]}
+    text = _format_candidate_answers(answers, _QUESTIONS)
+    assert text == "O: Node.js i Go"
+
+
+def test_candidate_answers_excludes_recruiter_judgment():
+    # overall_fit / deal_breaker_hit / recruiter notes must never reach the CV.
+    answers = {
+        "answers": [
+            {"question_id": "q1", "response": "3 lata", "deal_breaker_hit": True}
+        ],
+        "overall_fit": "miss",
+        "notes": "Sceptyczny, słaby angielski",
+    }
+    text = _format_candidate_answers(answers, _QUESTIONS)
+    assert text == "P: Ile lat pracowałeś z Kubernetes?\nO: 3 lata"
+    assert "miss" not in text
+    assert "angielski" not in text
+
+
+def test_candidate_answers_empty_and_malformed_inputs():
+    assert _format_candidate_answers(None, _QUESTIONS) == ""
+    assert _format_candidate_answers({}, _QUESTIONS) == ""
+    assert _format_candidate_answers({"answers": []}, _QUESTIONS) == ""
+    # A candidate answer with no question map at all still renders.
+    assert _format_candidate_answers({"answers": [{"response": "Java"}]}, None) == (
+        "O: Java"
+    )
+
+
+def test_has_candidate_answers_flag():
+    assert _has_candidate_answers({"answers": [{"response": "cokolwiek"}]}) is True
+    assert _has_candidate_answers({"answers": [{"response": "   "}]}) is False
+    assert _has_candidate_answers({"answers": []}) is False
+    assert _has_candidate_answers(None) is False
+    assert _has_candidate_answers("not-a-dict") is False
 
 
 # ── Filename sanitization ──────────────────────────────────────────────────
