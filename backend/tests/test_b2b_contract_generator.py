@@ -651,3 +651,117 @@ def test_injected_clause_paragraphs_have_no_left_indent(client_name, section):
             assert p.paragraph_format.left_indent is None
             checked += 1
     assert checked > 0, "nie znaleziono akapitów klauzul do weryfikacji wcięcia"
+
+
+# ── PATCH /generated/{id} — korekta nazwy Klienta (in-process, real DB) ───────
+
+
+async def _seed_generated_contract(created_by: int, client_name: str) -> int:
+    """Wstaw wiersz `b2b_generated_contracts` z zapisanym payloadem (jak render
+    DOCX) i zwróć jego id. `seq`/numer z UUID → brak kolizji z UNIQUE(year, seq)
+    przy powtórnym uruchomieniu testu na tej samej bazie."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    seq = 100000 + (uuid.uuid4().int % 800000)
+    async with AsyncSessionLocal() as db:
+        row = B2BGeneratedContract(
+            year=2026,
+            seq=seq,
+            contract_number=f"{seq}/2026",
+            partner_name="Jan Kowalski",
+            client_name=client_name,
+            language="pl",
+            created_by=created_by,
+            render_payload={
+                "language": "pl",
+                "client_name": client_name,
+                "currency": "PLN",
+            },
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row.id
+
+
+async def _admin_user_id(app_client) -> int:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    email = app_client.headers.get("X-Test-Admin-Email")
+    async with AsyncSessionLocal() as db:
+        uid = await db.scalar(select(User.id).where(User.email == email))
+    assert uid is not None, "app_client nie zaseedował admina"
+    return uid
+
+
+async def test_patch_generated_updates_client_name_and_payload(
+    app_client, app_auth_headers
+):
+    """PATCH poprawia nazwę Klienta w kolumnie *oraz* w `render_payload` — żeby
+    ponowne pobranie DOCX (i klauzule per-klient) używały już poprawnej nazwy."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    admin_id = await _admin_user_id(app_client)
+    rid = await _seed_generated_contract(admin_id, "Nordea Bank Abp")  # literówka
+
+    resp = await app_client.patch(
+        f"/api/b2b-generator/generated/{rid}",
+        headers=app_auth_headers,
+        json={"client_name": "Nordea Bank Abp S.A. Oddział w Polsce"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["client_name"] == "Nordea Bank Abp S.A. Oddział w Polsce"
+    assert body["can_edit"] is True
+
+    # Kolumna i render_payload zsynchronizowane w DB.
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, rid)
+        assert fresh.client_name == "Nordea Bank Abp S.A. Oddział w Polsce"
+        assert (
+            fresh.render_payload["client_name"]
+            == "Nordea Bank Abp S.A. Oddział w Polsce"
+        )
+
+
+async def test_patch_generated_trims_and_lists_corrected_name(
+    app_client, app_auth_headers
+):
+    """Whitespace jest przycinany, a lista `/generated` pokazuje poprawioną nazwę."""
+    admin_id = await _admin_user_id(app_client)
+    rid = await _seed_generated_contract(admin_id, "Aliior Bank")  # literówka
+
+    resp = await app_client.patch(
+        f"/api/b2b-generator/generated/{rid}",
+        headers=app_auth_headers,
+        json={"client_name": "  Alior Bank S.A.  "},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_name"] == "Alior Bank S.A."
+
+    listing = await app_client.get(
+        "/api/b2b-generator/generated",
+        headers=app_auth_headers,
+        params={"limit": 200},
+    )
+    assert listing.status_code == 200, listing.text
+    match = next((x for x in listing.json() if x["id"] == rid), None)
+    assert match is not None
+    assert match["client_name"] == "Alior Bank S.A."
+    assert match["can_edit"] is True
+
+
+async def test_patch_generated_missing_row_404(app_client, app_auth_headers):
+    resp = await app_client.patch(
+        "/api/b2b-generator/generated/999999999",
+        headers=app_auth_headers,
+        json={"client_name": "Cokolwiek"},
+    )
+    assert resp.status_code == 404

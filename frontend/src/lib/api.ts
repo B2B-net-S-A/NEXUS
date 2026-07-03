@@ -1771,6 +1771,13 @@ export const b2bGeneratorApi = {
         params: { limit },
       })
       .then((r) => r.data),
+  updateGenerated: (id: number, body: { client_name: string | null }) =>
+    api
+      .patch<B2BGeneratedContractRow>(
+        `/api/b2b-generator/generated/${id}`,
+        body,
+      )
+      .then((r) => r.data),
   deleteGenerated: (id: number) =>
     api.delete(`/api/b2b-generator/generated/${id}`).then((r) => r.data),
   downloadGenerated: (id: number) =>
@@ -1793,6 +1800,7 @@ export interface B2BGeneratedContractRow {
   created_at: string | null;
   created_by_name: string | null;
   can_delete: boolean;
+  can_edit: boolean;
   can_download: boolean;
 }
 
