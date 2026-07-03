@@ -253,6 +253,61 @@ def _format_screening_note(note: ScreeningNote) -> str:
     return "\n".join(parts)
 
 
+def _has_candidate_answers(screening_answers: Any) -> bool:
+    """True if the stage holds at least one non-empty candidate answer.
+
+    ``screening_answers`` is the JSONB payload of
+    ``CandidateStage.screening_answers`` (shape: :class:`ScreeningAnswers`).
+    Used for the readiness badge so a candidate screened purely through the
+    Q&A sheet is not reported as "no notes".
+    """
+    if not isinstance(screening_answers, dict):
+        return False
+    answers = screening_answers.get("answers")
+    if not isinstance(answers, list):
+        return False
+    return any(
+        isinstance(a, dict) and str(a.get("response") or "").strip() for a in answers
+    )
+
+
+def _format_candidate_answers(screening_answers: Any, screening_questions: Any) -> str:
+    """Render the recruiter-recorded candidate answers as a Q&A block.
+
+    The screening sheet stores what the candidate said to each Champion
+    screening question in ``CandidateStage.screening_answers`` (each item pairs
+    a ``question_id`` with the candidate's ``response``). The question text
+    lives on the job's Champion Profile (``screening_questions``), so we join by
+    id to give Claude the full question -> answer pair.
+
+    Only the candidate's own answers are emitted. The recruiter's ``overall_fit``
+    rating, deal-breaker flags and free-text ``notes`` are deliberately left out
+    — the prompt's confidentiality rules bar recruiter judgment from the CV.
+    """
+    if not _has_candidate_answers(screening_answers):
+        return ""
+
+    q_by_id: dict[str, str] = {}
+    if isinstance(screening_questions, list):
+        for q in screening_questions:
+            if not isinstance(q, dict):
+                continue
+            qid = str(q.get("id") or "").strip()
+            if qid:
+                q_by_id[qid] = str(q.get("question") or "").strip()
+
+    lines: list[str] = []
+    for a in screening_answers.get("answers") or []:
+        if not isinstance(a, dict):
+            continue
+        response = str(a.get("response") or "").strip()
+        if not response:
+            continue
+        question = q_by_id.get(str(a.get("question_id") or "").strip(), "")
+        lines.append(f"P: {question}\nO: {response}" if question else f"O: {response}")
+    return "\n\n".join(lines)
+
+
 # CV documents the pipeline can actually read. ``.doc`` (Word 97-2003) is
 # rejected with a clear message — python-docx cannot parse it and the old
 # behaviour was a raw 500.
@@ -1006,6 +1061,7 @@ async def list_recruitments_with_readiness(
             or has_general_note
             or has_call_in_window
             or bool(stage.notes and stage.notes.strip())
+            or _has_candidate_answers(stage.screening_answers)
         )
 
         result.append(
@@ -1161,6 +1217,19 @@ async def generate_cv_for_candidate(
         text = _format_screening_note(sn)
         if text:
             screening_parts.append(f"[Notatka ze screeningu]\n{text}")
+
+    # Candidate's own answers to the Champion screening questions, recorded by
+    # the recruiter in the screening sheet (CandidateStage.screening_answers).
+    # These are candidate-provided facts — the generator must weave them into
+    # the CV just like any other screening note.
+    answers_text = _format_candidate_answers(
+        stage.screening_answers,
+        (job.champion_profile or {}).get("screening_questions"),
+    )
+    if answers_text:
+        screening_parts.append(
+            f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
+        )
 
     if stage.notes and stage.notes.strip():
         screening_parts.append(f"[Notatka z procesu]\n{stage.notes.strip()}")
