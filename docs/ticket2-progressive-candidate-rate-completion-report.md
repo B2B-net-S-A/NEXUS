@@ -20,26 +20,44 @@
    - Rejestr per-klient (`ContractRegisterDialog`, start: Nordea) — dotąd bez
      żadnych pól stawki. Dodano sekcję od zera (tylko tryb tworzenia).
 2. **Pole „Obowiązuje do":** **auto-wyliczane** (read-only), = „Obowiązuje od"
-   kolejnego etapu minus 1 dzień; ostatni etap = „bezterminowo". Bez nowej
-   kolumny / migracji — zgodne z istniejącym schodkowym resolverem stawki.
+   kolejnego etapu minus 1 dzień; ostatni etap = „bezterminowo". Użytkownik nie
+   wpisuje go ręcznie — zgodne ze schodkowym resolverem stawki (kluczowanym po
+   `effective_from`).
+
+## Integracja z równolegle scalonym PR #644 (Ticket 1)
+
+W trakcie prac na `main` wylądował **PR #644** („Dodaj stawkę progresywną" w
+formularzu **Edycja kontraktu**), który:
+- dodał **realną, nullable kolumnę `effective_to`** (`contract_candidate_rates`,
+  migracja **0154**) + pola w `ContractCandidateRateInput`/`Entry` +
+  `ContractUpdate.candidate_rate_schedule`; `create_contract` już zapisuje
+  `effective_to`;
+- w formularzu Edycji zrobił „Obowiązuje do" **edytowalnym** (zapis do kolumny).
+
+Rekonciliacja (po scaleniu `main` do tej gałęzi): moje formularze **wysyłają**
+wyliczone `effective_to` (mimo że pole jest read-only), aby zapisany harmonogram
+był **spójny** z edytowalnym edytorem etapów z PR #644 — kontrakt utworzony tu
+pokazuje te same daty „do" po otwarciu w Edycji. Świadoma różnica UX: wpis „do"
+przy *tworzeniu* jest auto-wyliczany (wybór Artura), przy *edycji* — edytowalny.
+`effective_to` pozostaje doradcze (resolver liczy stawkę po `effective_from`).
 
 ## Zmiany
 
 | Plik | Rodzaj | Opis |
 |---|---|---|
-| `frontend/src/lib/contract-rate-schedule.ts` | nowy | Czysty helper: `isoMinusOneDay`, `formatEffectiveTo`, typ `RateScheduleRow`. |
+| `frontend/src/lib/contract-rate-schedule.ts` | nowy | Czysty helper: `isoMinusOneDay`, `effectiveTo`, `formatEffectiveTo`, `buildCandidateRateSchedule`, typy `RateScheduleRow`/`RateScheduleStep`. |
 | `frontend/src/components/contracts/CandidateRateScheduleFields.tsx` | nowy | Współdzielony komponent: etapy `{Stawka, Obowiązuje od, Obowiązuje do}` + przycisk „Dodaj stawkę progresywną". |
 | `frontend/src/app/contracts/new/page.tsx` | zmiana | Inline harmonogram zastąpiony współdzielonym komponentem (−97 linii). |
 | `frontend/src/components/contracts/ContractRegisterDialog.tsx` | zmiana | Sekcja progresywnej stawki (create-only), payload `candidate_rate_schedule`, walidacja unikalnych dat, reset-on-open. |
-| `frontend/src/lib/__tests__/contract-rate-schedule.test.ts` | nowy | 11 testów jednostkowych helpera. |
+| `frontend/src/lib/__tests__/contract-rate-schedule.test.ts` | nowy | 18 testów jednostkowych helpera. |
 
 ## Backend
 
-**Bez zmian.** `ContractCreate.candidate_rate_schedule` + endpoint `POST /api/contracts`
-już seedowały harmonogram (`ContractCandidateRate`) i wyliczały bieżące
-`rate_candidate`. Pole „Obowiązuje do" jest wyłącznie prezentacyjne (front),
-więc resolver stawki (`Contract._resolve_scheduled_rate`, kluczowany po
-`effective_from`) pozostaje nietknięty — brak migracji, niemożliwe luki/nakładki.
+**Bez zmian po mojej stronie** — cały backend `effective_to` przyszedł z PR #644
+(scalony do tej gałęzi): `ContractCreate.candidate_rate_schedule`,
+`ContractCandidateRateInput.effective_to`, migracja 0154 i zapis w
+`create_contract`. Front dosyła wyliczone `effective_to`; resolver stawki
+(`Contract._resolve_scheduled_rate`) liczy po `effective_from` — bez zmian.
 
 ## Semantyka „Obowiązuje do"
 
@@ -55,7 +73,7 @@ rozpoczęcia kontraktu.
 
 ## Weryfikacja
 
-- `vitest run` — 11/11 (helper) ✅
+- `vitest run` — 18/18 (helper) ✅
 - `npm run type-check` — ✅
 - `next lint` (touched) — ✅ (jedyny warning: pre-existing nieużywany `Loader2`
   w `new/page.tsx`, niezwiązany, pod capem `--max-warnings=300`)

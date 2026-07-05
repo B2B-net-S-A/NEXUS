@@ -5,9 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, Save, Search } from "lucide-react";
 import api, { contractsApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { cn, parseDecimalInput } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
-import type { RateScheduleRow } from "@/lib/contract-rate-schedule";
+import {
+  buildCandidateRateSchedule,
+  type RateScheduleRow,
+} from "@/lib/contract-rate-schedule";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -186,16 +189,9 @@ export function ContractRegisterDialog({
       if (isEdit && contract) {
         return contractsApi.update(contract.id, payload);
       }
-      // Etapy z wpisaną stawką → harmonogram; pusty „od" = data rozpoczęcia.
-      // Backend wylicza z niego bieżące `rate_candidate` (stawki przyjmują grosze).
-      const schedule = rateSchedule
-        .map((r) => ({
-          rate: parseDecimalInput(r.rate),
-          effective_from: r.effectiveFrom || startDate,
-        }))
-        .filter(
-          (r): r is { rate: number; effective_from: string } => r.rate !== null,
-        );
+      // Etapy z wpisaną stawką → harmonogram; pusty „od" = data rozpoczęcia,
+      // `effective_to` wyliczone (od–do). Backend wylicza bieżące `rate_candidate`.
+      const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
       return contractsApi.create({
         ...payload,
         client_id: clientId,

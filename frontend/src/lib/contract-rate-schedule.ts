@@ -2,15 +2,27 @@
  * Progresywna stawka kandydata — harmonogram etapów stawki wprowadzany już przy
  * tworzeniu kontraktu (formularz „Nowy kontrakt" oraz rejestr per-klient).
  *
- * Każdy etap to `{ rate, effectiveFrom }`. Data „Obowiązuje do" NIE jest osobno
- * przechowywana — to funkcja schodkowa: etap obowiązuje do dnia poprzedzającego
- * start kolejnego etapu, a ostatni etap „bezterminowo". Backend rozwiązuje
- * aktualną stawkę wyłącznie po `effective_from` (patrz
- * `Contract._resolve_scheduled_rate`), więc „do" liczymy tu tylko do wyświetlenia.
+ * Każdy etap to `{ rate, effectiveFrom }`. Data „Obowiązuje do" (`effective_to`)
+ * w tych formularzach jest wyliczana automatycznie i tylko do odczytu: etap
+ * obowiązuje do dnia poprzedzającego start kolejnego etapu, a ostatni etap
+ * „bezterminowo". Bieżąca stawka jest rozwiązywana przez backend wyłącznie po
+ * `effective_from` (`Contract._resolve_scheduled_rate`), więc `effective_to`
+ * jest doradcze — mimo to WYSYŁAMY je (kolumna dodana w migracji 0154), aby
+ * zapisany harmonogram był spójny z edytowalnym edytorem etapów w formularzu
+ * Edycji kontraktu (`/contracts/[id]`), który prefilluje „Obowiązuje do".
  */
+
+import { parseDecimalInput } from "@/lib/utils";
 
 /** Jeden etap harmonogramu w formularzu (surowe wartości z inputów). */
 export type RateScheduleRow = { rate: string; effectiveFrom: string };
+
+/** Etap gotowy do wysłania do API (`candidate_rate_schedule`). */
+export type RateScheduleStep = {
+  rate: number;
+  effective_from: string;
+  effective_to: string | null;
+};
 
 /** Etykieta wyświetlana zamiast daty, gdy etap nie ma końca. */
 export const OPEN_ENDED_LABEL = "bezterminowo";
@@ -46,22 +58,23 @@ export function isoMinusOneDay(iso: string): string {
 }
 
 /**
- * „Obowiązuje do" dla etapu `idx`: dzień poprzedzający start najbliższego
- * późniejszego etapu, albo `OPEN_ENDED_LABEL` gdy późniejszego etapu brak.
+ * Data „Obowiązuje do" etapu `idx` jako ISO (`YYYY-MM-DD`), albo `null` gdy etap
+ * jest ostatni/bezterminowy lub `idx` jest nieznane.
  *
- * Jako „etapy" liczą się tylko wiersze z wpisaną stawką (puste wiersze pomijamy),
- * a porównanie po ISO (`YYYY-MM-DD`) jest leksykograficznie = chronologicznie, więc
- * kolejność wpisywania wierszy nie ma znaczenia. Zwraca `""` dla nieznanego `idx`.
+ * Koniec etapu = dzień poprzedzający start najbliższego późniejszego etapu. Jako
+ * „etapy" liczą się tylko wiersze z wpisaną stawką (puste pomijamy), a porównanie
+ * ISO jest leksykograficznie = chronologicznie, więc kolejność wpisywania nie ma
+ * znaczenia.
  */
-export function formatEffectiveTo(
+export function effectiveTo(
   rows: RateScheduleRow[],
   startDate: string,
   idx: number,
-): string {
+): string | null {
   const current = rows[idx];
-  if (!current) return "";
+  if (!current) return null;
   const currentStart = resolveStart(current, startDate);
-  if (!currentStart) return OPEN_ENDED_LABEL;
+  if (!currentStart) return null;
 
   const nextStart = rows
     .filter((row, i) => i !== idx && row.rate.trim() !== "")
@@ -69,5 +82,40 @@ export function formatEffectiveTo(
     .filter((start) => start && start > currentStart)
     .sort()[0];
 
-  return nextStart ? isoMinusOneDay(nextStart) : OPEN_ENDED_LABEL;
+  return nextStart ? isoMinusOneDay(nextStart) || null : null;
+}
+
+/**
+ * „Obowiązuje do" do wyświetlenia w polu read-only: data ISO albo
+ * `OPEN_ENDED_LABEL`. Zwraca `""` dla nieznanego `idx` (brak wiersza).
+ */
+export function formatEffectiveTo(
+  rows: RateScheduleRow[],
+  startDate: string,
+  idx: number,
+): string {
+  if (!rows[idx]) return "";
+  return effectiveTo(rows, startDate, idx) ?? OPEN_ENDED_LABEL;
+}
+
+/**
+ * Buduje `candidate_rate_schedule` do wysyłki: tylko wiersze z poprawną stawką,
+ * pusty „od" ⇒ data rozpoczęcia, `effective_to` wyliczone (ISO lub `null` dla
+ * etapu bezterminowego). Stawki przyjmują grosze wpisane po polsku (przecinek).
+ */
+export function buildCandidateRateSchedule(
+  rows: RateScheduleRow[],
+  startDate: string,
+): RateScheduleStep[] {
+  return rows.flatMap((row, idx) => {
+    const rate = parseDecimalInput(row.rate);
+    if (rate === null) return [];
+    return [
+      {
+        rate,
+        effective_from: row.effectiveFrom || startDate,
+        effective_to: effectiveTo(rows, startDate, idx),
+      },
+    ];
+  });
 }

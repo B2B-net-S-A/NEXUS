@@ -45,7 +45,10 @@ import {
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
-import type { RateScheduleRow } from "@/lib/contract-rate-schedule";
+import {
+  buildCandidateRateSchedule,
+  type RateScheduleRow,
+} from "@/lib/contract-rate-schedule";
 
 type CandidateOption = {
   id: number;
@@ -161,16 +164,9 @@ function NewContractForm() {
   const createMutation = useMutation({
     mutationFn: () => {
       // Rows with a numeric rate become schedule steps; an empty effective_from
-      // defaults to the contract start date. Backend derives the current rate.
-      // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
-      const schedule = rateSchedule
-        .map((r) => ({
-          rate: parseDecimalInput(r.rate),
-          effective_from: r.effectiveFrom || startDate,
-        }))
-        .filter(
-          (r): r is { rate: number; effective_from: string } => r.rate !== null,
-        );
+      // defaults to the contract start date, effective_to is auto-derived (od–do).
+      // Backend derives the current rate from effective_from.
+      const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
       const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
         candidate_id: candidate!.id,
