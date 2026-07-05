@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
+import {
+  buildCandidateRateSchedule,
+  type RateScheduleRow,
+} from "@/lib/contract-rate-schedule";
 
 type CandidateOption = {
   id: number;
@@ -91,9 +96,9 @@ function NewContractForm() {
   const [billingHours, setBillingHours] = useState("160");
   // Effective-dated candidate-rate schedule. First row = stawka od startu
   // (effective_from puste ⇒ data rozpoczęcia). Kolejne wiersze = zmiany w czasie.
-  const [rateSchedule, setRateSchedule] = useState<
-    { rate: string; effectiveFrom: string }[]
-  >([{ rate: "", effectiveFrom: "" }]);
+  const [rateSchedule, setRateSchedule] = useState<RateScheduleRow[]>([
+    { rate: "", effectiveFrom: "" },
+  ]);
   const [rateClient, setRateClient] = useState("");
   const [frameworkRate, setFrameworkRate] = useState("");
   const [lineManager, setLineManager] = useState("");
@@ -159,16 +164,9 @@ function NewContractForm() {
   const createMutation = useMutation({
     mutationFn: () => {
       // Rows with a numeric rate become schedule steps; an empty effective_from
-      // defaults to the contract start date. Backend derives the current rate.
-      // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
-      const schedule = rateSchedule
-        .map((r) => ({
-          rate: parseDecimalInput(r.rate),
-          effective_from: r.effectiveFrom || startDate,
-        }))
-        .filter(
-          (r): r is { rate: number; effective_from: string } => r.rate !== null,
-        );
+      // defaults to the contract start date, effective_to is auto-derived (od–do).
+      // Backend derives the current rate from effective_from.
+      const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
       const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
         candidate_id: candidate!.id,
@@ -595,101 +593,12 @@ function NewContractForm() {
               </div>
             </div>
 
-            {/* Stawka kandydata — harmonogram (zmiany stawki w czasie) */}
-            <div className="space-y-2">
-              <div className="flex items-baseline justify-between">
-                <Label className="block">Stawka kandydata</Label>
-                <span className="text-xs text-muted-foreground">
-                  Możesz zaplanować zmiany stawki — system zastosuje aktualną
-                  od wskazanej daty.
-                </span>
-              </div>
-              <div className="space-y-2">
-                {rateSchedule.map((row, idx) => (
-                  <div key={idx} className="flex items-end gap-2">
-                    <div className="flex-1">
-                      {idx === 0 && (
-                        <span className="mb-1 block text-xs text-muted-foreground">
-                          Stawka
-                        </span>
-                      )}
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        value={row.rate}
-                        onChange={(e) =>
-                          setRateSchedule((rows) =>
-                            rows.map((r, i) =>
-                              i === idx
-                                ? { ...r, rate: sanitizeDecimalInput(e.target.value) }
-                                : r,
-                            ),
-                          )
-                        }
-                        placeholder="np. 215,60"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      {idx === 0 && (
-                        <span className="mb-1 block text-xs text-muted-foreground">
-                          Obowiązuje od
-                        </span>
-                      )}
-                      <Input
-                        type="date"
-                        value={row.effectiveFrom}
-                        onChange={(e) =>
-                          setRateSchedule((rows) =>
-                            rows.map((r, i) =>
-                              i === idx
-                                ? { ...r, effectiveFrom: e.target.value }
-                                : r,
-                            ),
-                          )
-                        }
-                        placeholder={idx === 0 ? "= data rozpoczęcia" : ""}
-                      />
-                    </div>
-                    {idx > 0 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        title="Usuń zmianę stawki"
-                        onClick={() =>
-                          setRateSchedule((rows) =>
-                            rows.filter((_, i) => i !== idx),
-                          )
-                        }
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <span className="w-9 shrink-0" aria-hidden />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setRateSchedule((rows) => [
-                    ...rows,
-                    { rate: "", effectiveFrom: "" },
-                  ])
-                }
-              >
-                + Dodaj zmianę stawki
-              </Button>
-              {rateSchedule[0]?.effectiveFrom === "" && (
-                <p className="text-xs text-muted-foreground">
-                  Pierwszy wiersz bez daty obowiązuje od daty rozpoczęcia
-                  kontraktu.
-                </p>
-              )}
-            </div>
+            {/* Stawka kandydata — progresja stawki w czasie (etapy od–do) */}
+            <CandidateRateScheduleFields
+              rows={rateSchedule}
+              onChange={setRateSchedule}
+              startDate={startDate}
+            />
 
             {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
             <div className="grid gap-4 sm:grid-cols-2">
