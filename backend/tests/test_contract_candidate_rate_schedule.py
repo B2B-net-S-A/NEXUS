@@ -69,6 +69,27 @@ def test_resolver_same_date_amendment_supersedes_baseline():
     assert c.effective_candidate_rate(date(2026, 7, 1)) == 165
 
 
+def test_effective_to_is_advisory_and_does_not_gate_resolution():
+    """`effective_to` ("Obowiązuje do") documents a planned window but must not
+    change resolution — the current rate stays keyed on `effective_from`, so a
+    step carries forward past its planned end until a later step supersedes it."""
+    c = Contract()
+    c.rate_candidate = None
+    c.candidate_rate_schedule = [
+        ContractCandidateRate(
+            rate=120,
+            effective_from=date(2026, 1, 1),
+            effective_to=date(2026, 6, 30),
+        )
+    ]
+    # Before the window — the earliest upcoming step is the baseline.
+    assert c.effective_candidate_rate(date(2025, 12, 1)) == 120
+    # Inside the window.
+    assert c.effective_candidate_rate(date(2026, 3, 1)) == 120
+    # Past the planned `effective_to`, with no later step → rate carries forward.
+    assert c.effective_candidate_rate(date(2026, 9, 1)) == 120
+
+
 def test_same_date_candidate_amendment_updates_margin():
     """End-to-end guard for the reported bug: client 205, candidate 150→165 on
     the same day → margin must be 205−165 = 40 (not 205−150 = 55)."""
@@ -176,5 +197,97 @@ async def test_create_with_schedule_derives_current_rate(
         assert len(after["candidate_rate_schedule"]) == 3
         # Still 100 today — the new step is future-dated.
         assert after["rate_candidate"] == 100
+    finally:
+        await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+
+async def test_patch_replaces_schedule_with_progressive_steps(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The "Edycja kontraktu" form sends `candidate_rate_schedule` on PATCH to
+    plan a progressive rate. The endpoint replaces the whole schedule (incl.
+    `effective_to`), re-derives the current `rate_candidate`, and — for an empty
+    list — clears the schedule and falls back to the plain `rate_candidate`."""
+    parties = await _pick_parties(app_client, app_auth_headers)
+    if parties is None:
+        return
+    candidate_id, client_id = parties
+    today = date.today()
+    past = (today - timedelta(days=30)).isoformat()
+    mid = (today - timedelta(days=1)).isoformat()
+    future = (today + timedelta(days=60)).isoformat()
+
+    # Plain single-rate contract (no schedule yet).
+    create = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": candidate_id,
+            "client_id": client_id,
+            "start_date": past,
+            "status": "draft",
+            "rate_client": 200,
+            "rate_candidate": 100,
+        },
+        headers=app_auth_headers,
+    )
+    assert create.status_code == 201, create.text
+    cid = create.json()["id"]
+    try:
+        # PATCH a progressive schedule: 100 (past→yesterday), 130 (future→…).
+        patch = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={
+                "candidate_rate_schedule": [
+                    {"rate": 100, "effective_from": past, "effective_to": mid},
+                    {"rate": 130, "effective_from": future},
+                ]
+            },
+            headers=app_auth_headers,
+        )
+        assert patch.status_code == 200, patch.text
+        body = patch.json()
+        sched = body["candidate_rate_schedule"]
+        assert [s["rate"] for s in sched] == [100, 130]
+        # "Obowiązuje do" persisted for the first step, null for the open one.
+        assert sched[0]["effective_to"] == mid
+        assert sched[1]["effective_to"] is None
+        # Current rate derived = the step in effect today (130 is future-dated).
+        assert body["rate_candidate"] == 100
+        assert body["margin"] == 100  # 200 - 100
+
+        # Re-PATCH REPLACES the schedule wholesale (single step now).
+        patch2 = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={
+                "candidate_rate_schedule": [{"rate": 150, "effective_from": past}]
+            },
+            headers=app_auth_headers,
+        )
+        assert patch2.status_code == 200, patch2.text
+        body2 = patch2.json()
+        assert len(body2["candidate_rate_schedule"]) == 1
+        assert body2["rate_candidate"] == 150
+        assert body2["margin"] == 50  # 200 - 150
+
+        # Empty list clears the schedule and defers to the plain rate_candidate.
+        patch3 = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"candidate_rate_schedule": [], "rate_candidate": 90},
+            headers=app_auth_headers,
+        )
+        assert patch3.status_code == 200, patch3.text
+        body3 = patch3.json()
+        assert body3["candidate_rate_schedule"] == []
+        assert body3["rate_candidate"] == 90
+        assert body3["margin"] == 110  # 200 - 90
+
+        # Omitting the key entirely leaves the (now empty) schedule untouched.
+        patch4 = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"line_manager": "Jan Testowy"},
+            headers=app_auth_headers,
+        )
+        assert patch4.status_code == 200, patch4.text
+        assert patch4.json()["rate_candidate"] == 90
     finally:
         await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
