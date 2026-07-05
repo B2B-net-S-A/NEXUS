@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, Save, Search } from "lucide-react";
 import api, { contractsApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { cn } from "@/lib/utils";
+import { cn, parseDecimalInput } from "@/lib/utils";
+import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
+import type { RateScheduleRow } from "@/lib/contract-rate-schedule";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -111,6 +113,11 @@ export function ContractRegisterDialog({
   const [prolongation, setProlongation] =
     useState<ProlongationStatus>("unknown");
   const [statusVal, setStatusVal] = useState("active");
+  // Progresywna stawka kandydata — etapy „od–do" seedowane przy tworzeniu.
+  // Tylko dla nowego kontraktu; edycja stawek istniejącego idzie przez aneksy.
+  const [rateSchedule, setRateSchedule] = useState<RateScheduleRow[]>([
+    { rate: "", effectiveFrom: "" },
+  ]);
   const [error, setError] = useState("");
 
   // Reset / hydrate na otwarcie.
@@ -134,6 +141,7 @@ export function ContractRegisterDialog({
       );
       setProlongation(contract.prolongation_status ?? "unknown");
       setStatusVal(contract.status ?? "active");
+      setRateSchedule([{ rate: "", effectiveFrom: "" }]);
     } else {
       setCandidate(null);
       setCandidateQuery("");
@@ -146,6 +154,7 @@ export function ContractRegisterDialog({
       setHoursConsumed("");
       setProlongation("unknown");
       setStatusVal("active");
+      setRateSchedule([{ rate: "", effectiveFrom: "" }]);
     }
   }, [open, contract]);
 
@@ -177,12 +186,23 @@ export function ContractRegisterDialog({
       if (isEdit && contract) {
         return contractsApi.update(contract.id, payload);
       }
+      // Etapy z wpisaną stawką → harmonogram; pusty „od" = data rozpoczęcia.
+      // Backend wylicza z niego bieżące `rate_candidate` (stawki przyjmują grosze).
+      const schedule = rateSchedule
+        .map((r) => ({
+          rate: parseDecimalInput(r.rate),
+          effective_from: r.effectiveFrom || startDate,
+        }))
+        .filter(
+          (r): r is { rate: number; effective_from: string } => r.rate !== null,
+        );
       return contractsApi.create({
         ...payload,
         client_id: clientId,
         candidate_id: candidate!.id,
         job_id: null,
         contract_type: "b2b",
+        candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
       });
     },
     onSuccess: () => {
@@ -212,6 +232,15 @@ export function ContractRegisterDialog({
     if (engagementModel === "hours_pool" && !hoursTotal) {
       setError("Dla puli godzin podaj budżet godzin.");
       return;
+    }
+    if (!isEdit) {
+      const steps = rateSchedule
+        .filter((r) => r.rate.trim() !== "")
+        .map((r) => r.effectiveFrom || startDate);
+      if (new Set(steps).size !== steps.length) {
+        setError("Każdy etap stawki musi mieć inną datę „Obowiązuje od”.");
+        return;
+      }
     }
     saveMutation.mutate();
   };
@@ -416,6 +445,16 @@ export function ContractRegisterDialog({
                   />
                 </div>
               </div>
+            )}
+
+            {/* Stawka kandydata — progresja stawki w czasie (tylko nowy kontrakt).
+                Edycja stawek istniejącego kontraktu idzie przez aneksy. */}
+            {!isEdit && (
+              <CandidateRateScheduleFields
+                rows={rateSchedule}
+                onChange={setRateSchedule}
+                startDate={startDate}
+              />
             )}
 
             {/* Statusy */}
