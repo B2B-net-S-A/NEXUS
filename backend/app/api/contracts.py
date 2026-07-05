@@ -398,6 +398,7 @@ async def create_contract(
             ContractCandidateRate(
                 rate=step["rate"],
                 effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
                 note=step.get("note"),
                 created_by=current_user.id,
             )
@@ -696,8 +697,30 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     updates = data.model_dump(exclude_unset=True)
+    # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
+    # scalar column — pull it out of the setattr loop and replace it explicitly.
+    # Presence of the key (even as []) is the intent to REPLACE; absence leaves
+    # the existing schedule untouched (partial PATCHes stay backward-compatible).
+    schedule_sent = "candidate_rate_schedule" in updates
+    schedule_input = updates.pop("candidate_rate_schedule", None)
     for k, v in updates.items():
         setattr(contract, k, v)
+    if schedule_sent:
+        contract.candidate_rate_schedule = [
+            ContractCandidateRate(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=step.get("note"),
+                created_by=current_user.id,
+            )
+            for step in (schedule_input or [])
+        ]
+        # A non-empty schedule is authoritative for the cached rate; an empty
+        # schedule clears history and defers to the plain `rate_candidate` field
+        # (set above by the setattr loop when present in this same PATCH).
+        if contract.candidate_rate_schedule:
+            contract.rate_candidate = contract.effective_candidate_rate(date.today())
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(
@@ -706,12 +729,35 @@ async def update_contract(
             action="updated",
             user_id=current_user.id,
             details={
-                k: (v.isoformat() if hasattr(v, "isoformat") else v)
-                for k, v in updates.items()
+                **{
+                    k: (v.isoformat() if hasattr(v, "isoformat") else v)
+                    for k, v in updates.items()
+                },
+                **(
+                    {"candidate_rate_schedule_steps": len(schedule_input or [])}
+                    if schedule_sent
+                    else {}
+                ),
             },
         )
     )
     await db.flush()
+    if schedule_sent:
+        # Reload with relations so the response carries the replaced schedule
+        # (+ ids/created_at) without risking an async lazy-load on the collection
+        # we just reassigned. Mirrors create_contract's re-select.
+        reloaded = await db.execute(
+            select(Contract)
+            .where(Contract.id == contract_id)
+            .options(
+                selectinload(Contract.candidate),
+                selectinload(Contract.client),
+                selectinload(Contract.job),
+                selectinload(Contract.candidate_rate_schedule),
+                selectinload(Contract.client_rate_schedule),
+            )
+        )
+        return _to_detail(reloaded.scalar_one())
     await db.refresh(contract)
     return _to_detail(contract)
 

@@ -16,10 +16,15 @@ from app.models.contract import (
 
 
 class ContractCandidateRateInput(BaseModel):
-    """One step in the candidate-rate schedule sent from the create form."""
+    """One step in the candidate-rate schedule sent from a create/edit form.
+
+    ``effective_to`` ("Obowiązuje do") is the optional planned end of the step,
+    used by the "stawka progresywna" editor; it is advisory (see the model).
+    """
 
     rate: float
     effective_from: date
+    effective_to: Optional[date] = None
     note: Optional[str] = None
 
 
@@ -29,6 +34,7 @@ class ContractCandidateRateEntry(BaseModel):
     id: int
     rate: float
     effective_from: date
+    effective_to: Optional[date] = None
     note: Optional[str] = None
     created_by: Optional[int] = None
     created_at: datetime
@@ -95,6 +101,11 @@ class ContractUpdate(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
+    # Effective-dated candidate-rate schedule ("stawka progresywna"). When the
+    # key is present the endpoint REPLACES the whole schedule with these steps
+    # and re-derives `rate_candidate` from them; omit the key to leave the
+    # existing schedule untouched (backward-compatible for partial PATCHes).
+    candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None
     framework_rate: Optional[int] = None
     target_rate_min: Optional[int] = None
     target_rate_max: Optional[int] = None
