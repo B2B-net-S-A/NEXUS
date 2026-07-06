@@ -188,6 +188,105 @@ async def test_api_health_autenti_healthy_when_fully_configured(
     assert body["checks"].get("autenti") == "healthy"
 
 
+# ── /api/health/deep — core-module (schema-vs-ORM) drift gate ───────────────
+# Probes each core business table with `SELECT ... LIMIT 1` so a migration
+# column that never landed on prod (the alembic multi-head + partial
+# entrypoint safety-net trap — e.g. 2026-07-06's `contract_candidate_rates.
+# effective_to`, PR #647) turns the deploy RED instead of shipping a module
+# that 503s for real users. See memory `entrypoint-safetynet-new-columns`.
+CORE_DEEP_CHECK_TABLES = {
+    "contracts",
+    "contract_candidate_rates",
+    "contract_client_rates",
+    "candidates",
+    "clients",
+    "jobs",
+}
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_returns_shape(env_with_metadata):
+    """Shape holds regardless of DB availability: status/version/checks, with
+    every core table present as a check key — including the contract_*_rates
+    children that slipped through the fast healthcheck on 2026-07-06."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        response = await ac.get("/api/health/deep")
+
+    body = response.json()
+    assert body["status"] in {"healthy", "unhealthy"}
+    assert body["version"] == "abc1234"
+    assert isinstance(body["checks"], dict)
+    assert CORE_DEEP_CHECK_TABLES.issubset(body["checks"].keys())
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_healthy_when_schema_matches(env_with_metadata):
+    """DB reachable + schema matches the ORM → 200 + all core probes healthy.
+
+    CI runs `alembic upgrade heads` on a fresh Postgres before pytest, so every
+    core table has the full ORM schema — this is the assertion that would have
+    gone RED on the 0154 drift. Gated on DB availability so it's a no-op locally
+    without Postgres (there every probe fails → 503 + unhealthy).
+    """
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        health = (await ac.get("/api/health")).json()
+        deep_resp = await ac.get("/api/health/deep")
+
+    deep = deep_resp.json()
+
+    if health["checks"].get("database") == "healthy":
+        assert deep_resp.status_code == 200, deep
+        assert deep["status"] == "healthy"
+        assert all(v == "healthy" for v in deep["checks"].values()), deep
+        assert "errors" not in deep
+    else:
+        assert deep_resp.status_code == 503
+        assert deep["status"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_returns_503_when_probe_errors(monkeypatch):
+    """When a core table probe raises (schema drift or DB error), the endpoint
+    degrades to 503 + status unhealthy and records the exception class per
+    failing table in `errors` — the exact signal the deploy smoke-test trips on.
+
+    Hermetic: swaps the session factory for one whose `execute` always raises,
+    so no DB and no ORM-metadata mutation is involved.
+    """
+    import app.core.database as db_module
+
+    class _BoomSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, *args, **kwargs):
+            raise RuntimeError("simulated schema drift")
+
+    # The endpoint does `from app.core.database import AsyncSessionLocal` at call
+    # time, so patching the module attribute is enough.
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: _BoomSession())
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        deep_resp = await ac.get("/api/health/deep")
+
+    deep = deep_resp.json()
+    assert deep_resp.status_code == 503
+    assert deep["status"] == "unhealthy"
+    # Every core table is reported unhealthy, each with its exception class.
+    assert set(deep["checks"].values()) == {"unhealthy"}
+    assert CORE_DEEP_CHECK_TABLES.issubset(deep["errors"].keys())
+    assert deep["errors"]["contract_candidate_rates"] == "RuntimeError"
+
+
 @pytest.mark.asyncio
 async def test_legacy_health_endpoint_still_works():
     """Backwards compat: /health zachowany jako alias przez 7 dni."""
