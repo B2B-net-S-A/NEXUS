@@ -6,9 +6,8 @@ import { CandidateTabsRail } from "@/components/v2/candidates/CandidateTabsRail"
 /**
  * Wraps the /candidates section so the recently-viewed-candidates rail can sit
  * to the left of the list and detail pages — the candidate counterpart to the
- * "Rekrutacje" rail in app/jobs/layout.tsx. Replaces the horizontal open-tabs
- * strip (OpenTabsV2 hides the whole strip on these routes, mirroring the job
- * detail pages) so recently opened items live in one place, not two.
+ * "Rekrutacje" rail in app/jobs/layout.tsx. It replaces the former horizontal
+ * open-tabs strip so recently opened candidates live in this rail.
  *
  * Scoped to the list page (/candidates) and detail pages (/candidates/<id>).
  * The special-purpose sub-tools (search, compare, bulk-import) render bare so
