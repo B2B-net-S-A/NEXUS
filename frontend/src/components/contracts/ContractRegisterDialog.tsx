@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
 import {
   buildCandidateRateSchedule,
+  scheduleHasBackwardsRange,
   type RateScheduleRow,
 } from "@/lib/contract-rate-schedule";
 import { Button } from "@/components/ui/button";
@@ -190,7 +191,8 @@ export function ContractRegisterDialog({
         return contractsApi.update(contract.id, payload);
       }
       // Etapy z wpisaną stawką → harmonogram; pusty „od" = data rozpoczęcia,
-      // `effective_to` wyliczone (od–do). Backend wylicza bieżące `rate_candidate`.
+      // `effective_to` = wpisana data lub wyliczona (od–do) gdy pusta. Backend
+      // wylicza bieżące `rate_candidate`.
       const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
       return contractsApi.create({
         ...payload,
@@ -235,6 +237,10 @@ export function ContractRegisterDialog({
         .map((r) => r.effectiveFrom || startDate);
       if (new Set(steps).size !== steps.length) {
         setError("Każdy etap stawki musi mieć inną datę „Obowiązuje od”.");
+        return;
+      }
+      if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
+        setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
         return;
       }
     }

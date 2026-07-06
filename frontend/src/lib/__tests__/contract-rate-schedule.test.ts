@@ -5,12 +5,18 @@ import {
   effectiveTo,
   formatEffectiveTo,
   buildCandidateRateSchedule,
+  scheduleHasBackwardsRange,
   type RateScheduleRow,
 } from "@/lib/contract-rate-schedule";
 
-const row = (rate: string, effectiveFrom: string): RateScheduleRow => ({
+const row = (
+  rate: string,
+  effectiveFrom: string,
+  effectiveTo?: string,
+): RateScheduleRow => ({
   rate,
   effectiveFrom,
+  ...(effectiveTo !== undefined ? { effectiveTo } : {}),
 });
 
 describe("isoMinusOneDay", () => {
@@ -127,5 +133,60 @@ describe("buildCandidateRateSchedule", () => {
     expect(
       buildCandidateRateSchedule([row("", ""), row("", "2026-07-01")], "2026-01-01"),
     ).toEqual([]);
+  });
+
+  it("honors a manually entered effective_to over the auto-derived value", () => {
+    const rows = [
+      row("150", "2026-01-01", "2026-03-31"),
+      row("165", "2026-07-01"),
+    ];
+    expect(buildCandidateRateSchedule(rows, "2026-01-01")).toEqual([
+      // Manual 2026-03-31 wins over the auto-derived 2026-06-30.
+      { rate: 150, effective_from: "2026-01-01", effective_to: "2026-03-31" },
+      { rate: 165, effective_from: "2026-07-01", effective_to: null },
+    ]);
+  });
+
+  it("lets the last stage carry an explicit end date instead of being open-ended", () => {
+    const rows = [row("150", "2026-01-01", "2026-12-31")];
+    expect(buildCandidateRateSchedule(rows, "2026-01-01")).toEqual([
+      { rate: 150, effective_from: "2026-01-01", effective_to: "2026-12-31" },
+    ]);
+  });
+
+  it("falls back to auto-derivation when effective_to is blank", () => {
+    const rows = [row("150", "2026-01-01", ""), row("165", "2026-07-01", "")];
+    expect(buildCandidateRateSchedule(rows, "2026-01-01")).toEqual([
+      { rate: 150, effective_from: "2026-01-01", effective_to: "2026-06-30" },
+      { rate: 165, effective_from: "2026-07-01", effective_to: null },
+    ]);
+  });
+});
+
+describe("scheduleHasBackwardsRange", () => {
+  it("is false for auto-derived schedules", () => {
+    const rows = [row("150", "2026-01-01"), row("165", "2026-07-01")];
+    expect(scheduleHasBackwardsRange(rows, "2026-01-01")).toBe(false);
+  });
+
+  it("is true when a manual 'do' precedes its 'od'", () => {
+    const rows = [row("150", "2026-06-01", "2026-03-01")];
+    expect(scheduleHasBackwardsRange(rows, "2026-01-01")).toBe(true);
+  });
+
+  it("treats a same-day 'do' as valid (not backwards)", () => {
+    const rows = [row("150", "2026-06-01", "2026-06-01")];
+    expect(scheduleHasBackwardsRange(rows, "2026-01-01")).toBe(false);
+  });
+
+  it("resolves a blank 'od' to the start date before comparing", () => {
+    // effective_from defaults to 2026-05-01; a 2026-04-01 'do' is backwards.
+    const rows = [row("150", "", "2026-04-01")];
+    expect(scheduleHasBackwardsRange(rows, "2026-05-01")).toBe(true);
+  });
+
+  it("ignores rows without a rate", () => {
+    const rows = [row("", "2026-06-01", "2026-03-01")];
+    expect(scheduleHasBackwardsRange(rows, "2026-01-01")).toBe(false);
   });
 });

@@ -2,20 +2,30 @@
  * Progresywna stawka kandydata — harmonogram etapów stawki wprowadzany już przy
  * tworzeniu kontraktu (formularz „Nowy kontrakt" oraz rejestr per-klient).
  *
- * Każdy etap to `{ rate, effectiveFrom }`. Data „Obowiązuje do" (`effective_to`)
- * w tych formularzach jest wyliczana automatycznie i tylko do odczytu: etap
- * obowiązuje do dnia poprzedzającego start kolejnego etapu, a ostatni etap
- * „bezterminowo". Bieżąca stawka jest rozwiązywana przez backend wyłącznie po
- * `effective_from` (`Contract._resolve_scheduled_rate`), więc `effective_to`
- * jest doradcze — mimo to WYSYŁAMY je (kolumna dodana w migracji 0154), aby
- * zapisany harmonogram był spójny z edytowalnym edytorem etapów w formularzu
- * Edycji kontraktu (`/contracts/[id]`), który prefilluje „Obowiązuje do".
+ * Każdy etap to `{ rate, effectiveFrom, effectiveTo? }`. Data „Obowiązuje do"
+ * (`effective_to`) jest edytowalna — użytkownik może wpisać konkretną datę
+ * końcową etapu. Pozostawiona pusta wylicza się automatycznie: etap obowiązuje
+ * do dnia poprzedzającego start kolejnego etapu, a ostatni etap „bezterminowo".
+ * Bieżąca stawka jest rozwiązywana przez backend wyłącznie po `effective_from`
+ * (`Contract._resolve_scheduled_rate`), więc `effective_to` jest doradcze —
+ * mimo to WYSYŁAMY je (kolumna dodana w migracji 0154), aby zapisany
+ * harmonogram był spójny z edytowalnym edytorem etapów w formularzu Edycji
+ * kontraktu (`/contracts/[id]`), który również prefilluje „Obowiązuje do".
  */
 
 import { parseDecimalInput } from "@/lib/utils";
 
-/** Jeden etap harmonogramu w formularzu (surowe wartości z inputów). */
-export type RateScheduleRow = { rate: string; effectiveFrom: string };
+/**
+ * Jeden etap harmonogramu w formularzu (surowe wartości z inputów). `effectiveTo`
+ * to ręcznie wpisana data końcowa (ISO `YYYY-MM-DD`); puste/nieobecne ⇒ wyliczane
+ * automatycznie. Opcjonalne dla zgodności wstecz z inicjalizatorami
+ * `{ rate, effectiveFrom }`.
+ */
+export type RateScheduleRow = {
+  rate: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+};
 
 /** Etap gotowy do wysłania do API (`candidate_rate_schedule`). */
 export type RateScheduleStep = {
@@ -100,8 +110,9 @@ export function formatEffectiveTo(
 
 /**
  * Buduje `candidate_rate_schedule` do wysyłki: tylko wiersze z poprawną stawką,
- * pusty „od" ⇒ data rozpoczęcia, `effective_to` wyliczone (ISO lub `null` dla
- * etapu bezterminowego). Stawki przyjmują grosze wpisane po polsku (przecinek).
+ * pusty „od" ⇒ data rozpoczęcia. `effective_to` = ręcznie wpisana data etapu,
+ * a gdy pusta — wartość wyliczona (ISO lub `null` dla etapu bezterminowego).
+ * Stawki przyjmują grosze wpisane po polsku (przecinek).
  */
 export function buildCandidateRateSchedule(
   rows: RateScheduleRow[],
@@ -110,12 +121,29 @@ export function buildCandidateRateSchedule(
   return rows.flatMap((row, idx) => {
     const rate = parseDecimalInput(row.rate);
     if (rate === null) return [];
+    const manualTo = row.effectiveTo?.trim();
     return [
       {
         rate,
         effective_from: row.effectiveFrom || startDate,
-        effective_to: effectiveTo(rows, startDate, idx),
+        effective_to: manualTo ? manualTo : effectiveTo(rows, startDate, idx),
       },
     ];
   });
+}
+
+/**
+ * True gdy któryś etap ma „Obowiązuje do" wcześniejsze niż jego „Obowiązuje od".
+ * Wartości wyliczane automatycznie nigdy nie są wsteczne, więc w praktyce
+ * dotyczy to wyłącznie dat wpisanych ręcznie. Współdzielone przez walidację
+ * formularzy „Nowy kontrakt" i rejestru per-klient.
+ */
+export function scheduleHasBackwardsRange(
+  rows: RateScheduleRow[],
+  startDate: string,
+): boolean {
+  return buildCandidateRateSchedule(rows, startDate).some(
+    (step) =>
+      step.effective_to !== null && step.effective_to < step.effective_from,
+  );
 }
