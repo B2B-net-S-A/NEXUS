@@ -11,7 +11,7 @@ const COLLAPSE_KEY = "nexus.candidateTabsRail.collapsed";
 /**
  * CandidateTabsRail — left-side vertical list of recently viewed candidate
  * "tabs", the candidate counterpart to {@link JobTabsRail}. It replaces the
- * horizontal open-tabs strip (OpenTabsV2) for candidates: instead of pills
+ * former horizontal open-tabs strip for candidates: instead of pills
  * across the top, recently opened candidates stack down the left edge of the
  * candidates list/detail pages, matching the "Rekrutacje" panel.
  *

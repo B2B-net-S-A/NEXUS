@@ -9,7 +9,6 @@ import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
-import { OpenTabsV2 } from "./OpenTabsV2";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { KidsMascot } from "./KidsMascot";
 import { KidsBackdrop } from "./KidsBackdrop";
@@ -18,7 +17,7 @@ import type { QuickActionModal } from "./QuickActionsV2";
 /**
  * AppShellV2 — Dynaminds redesign shell.
  *
- * Composition: SidebarV2 (plum chrome) + TopbarV2 + OpenTabsV2 + main content.
+ * Composition: SidebarV2 (plum chrome) + TopbarV2 + main content.
  * Bypasses: /login (bare form) and /share/* (public client-facing portal).
  *
  * Key behaviors replicated from v1 AppShell:
@@ -130,8 +129,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           onClearPendingModal={() => setPendingModal(null)}
           onOpenCommandPalette={() => setCommandOpen(true)}
         />
-
-        <OpenTabsV2 />
 
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
