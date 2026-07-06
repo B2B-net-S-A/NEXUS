@@ -839,6 +839,43 @@ _COLUMN_STATEMENTS = [
     "BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX IF NOT EXISTS ix_talent_pools_is_personal "
     "ON talent_pools (is_personal, created_by)",
+    # Progresywne stawki kontraktów (migracje 0151 + 0154). KAŻDE zapytanie o
+    # kontrakty (list/expiring/detail) robi selectinload OBU harmonogramów
+    # stawek, a selectinload SELECT-uje wszystkie mapowane kolumny modelu.
+    #
+    # `effective_to` (0154, PR #644) to nowa kolumna na ISTNIEJĄCEJ tabeli
+    # `contract_candidate_rates` (0144). Drugi safety-net poniżej
+    # (Base.metadata.create_all) tworzy tylko brakujące TABELE — nie dokłada
+    # kolumn do istniejących — więc gdy `alembic upgrade heads` pada na
+    # multi-head drift ta kolumna nigdy nie powstaje. Efekt na prod 2026-07-06
+    # po deployu #644: `SELECT ... effective_to ... FROM contract_candidate_rates`
+    # → UndefinedColumnError → request ginie jako non-CORS 503 (patrz
+    # app/core/database.py) → CAŁY moduł Kontrakty pokazuje 0 (`/api/candidates`
+    # i reszta działają, bo nie dotykają tego schematu). Ten ALTER to właściwa
+    # naprawa. Idempotentny.
+    "ALTER TABLE contract_candidate_rates ADD COLUMN IF NOT EXISTS effective_to DATE",
+    # `contract_client_rates` (0151) to NOWA tabela — create_all zwykle ją
+    # utworzy, ale trzymamy DDL tu dla kompletności feature'u i na wypadek gdyby
+    # create_all był wyłączony/padł. Bliźniacza do contract_candidate_rates,
+    # DDL 1:1 z migracją 0151. Idempotentne (CREATE TABLE/INDEX IF NOT EXISTS).
+    """CREATE TABLE IF NOT EXISTS contract_client_rates (
+        id              SERIAL PRIMARY KEY,
+        contract_id     INTEGER NOT NULL
+                            REFERENCES contracts(id) ON DELETE CASCADE,
+        rate            NUMERIC(12, 3) NOT NULL,
+        effective_from  DATE NOT NULL,
+        note            TEXT NULL,
+        created_by      INTEGER NULL
+                            REFERENCES users(id) ON DELETE SET NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_contract_id "
+    "ON contract_client_rates (contract_id)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_effective_from "
+    "ON contract_client_rates (effective_from)",
+    "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_id "
+    "ON contract_client_rates (id)",
 ]
 
 _DATA_STATEMENTS = [
