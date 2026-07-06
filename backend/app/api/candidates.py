@@ -122,7 +122,11 @@ _MATCH_STATS_JOB_CAP = 50
 _MATCH_STATS_DEFAULT_THRESHOLD = 50.0
 
 
-_NOTE_PREVIEW_MAX_CHARS = 120
+# Podgląd notatki w kolumnie „Ostatnia notatka" na liście kandydatów. Kolumna
+# renderuje 3 linie (compact) / 4 (cozy) w wierszu o stałej wysokości — przy
+# ~45 znakach na linię 120 znaków starczało ledwie na 2 linie i marnowało miejsce
+# pod notatką. Podnosimy cap, by zapełnić dostępny wiersz; pełna treść w profilu.
+_NOTE_PREVIEW_MAX_CHARS = 220
 # Powód odrzucenia pokazujemy w pełniejszej formie niż zwykłą notatkę — rekruter
 # chce widzieć CAŁĄ treść powodu od razu w kolumnie (nie tylko 120 znaków). Realne
 # wartości to krótkie kategorie ("Po CV", "Rezygnacja przez Kandydata", max ~37 zn.),
