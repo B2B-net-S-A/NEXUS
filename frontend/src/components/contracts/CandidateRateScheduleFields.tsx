@@ -5,10 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sanitizeDecimalInput } from "@/lib/utils";
-import {
-  formatEffectiveTo,
-  type RateScheduleRow,
-} from "@/lib/contract-rate-schedule";
+import { type RateScheduleRow } from "@/lib/contract-rate-schedule";
 
 interface Props {
   rows: RateScheduleRow[];
@@ -20,8 +17,10 @@ interface Props {
 /**
  * Progresywna stawka kandydata — lista etapów `{ Stawka, Obowiązuje od,
  * Obowiązuje do }` wprowadzana przy tworzeniu kontraktu. „Obowiązuje do" jest
- * read-only i wyliczane z daty startu kolejnego etapu (patrz
- * `formatEffectiveTo`). Współdzielone przez `/contracts/new` i rejestr per-klient.
+ * edytowalne (można wpisać konkretną datę końcową); pozostawione puste wylicza
+ * się automatycznie z początku kolejnego etapu, a ostatni etap „bezterminowo"
+ * (patrz `buildCandidateRateSchedule`). Współdzielone przez `/contracts/new` i
+ * rejestr per-klient.
  */
 export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props) {
   const patchRow = (idx: number, patch: Partial<RateScheduleRow>) =>
@@ -81,12 +80,11 @@ export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props
                 </span>
               )}
               <Input
-                type="text"
-                readOnly
-                tabIndex={-1}
-                value={formatEffectiveTo(rows, startDate, idx)}
-                className="bg-muted/40 text-muted-foreground"
-                aria-label="Obowiązuje do (wyliczane automatycznie)"
+                type="date"
+                value={row.effectiveTo ?? ""}
+                min={row.effectiveFrom || startDate || undefined}
+                onChange={(e) => patchRow(idx, { effectiveTo: e.target.value })}
+                aria-label="Obowiązuje do"
               />
             </div>
             {idx > 0 ? (
@@ -113,6 +111,12 @@ export function CandidateRateScheduleFields({ rows, onChange, startDate }: Props
       {rows[0]?.effectiveFrom === "" && (
         <p className="text-xs text-muted-foreground">
           Pierwszy etap bez daty obowiązuje od daty rozpoczęcia kontraktu.
+        </p>
+      )}
+      {rows.length > 1 && (
+        <p className="text-xs text-muted-foreground">
+          Puste „Obowiązuje do" wylicza się automatycznie: etap trwa do dnia
+          przed kolejnym etapem, a ostatni — bezterminowo.
         </p>
       )}
     </div>

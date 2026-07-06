@@ -47,6 +47,7 @@ import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
 import {
   buildCandidateRateSchedule,
+  scheduleHasBackwardsRange,
   type RateScheduleRow,
 } from "@/lib/contract-rate-schedule";
 
@@ -164,8 +165,9 @@ function NewContractForm() {
   const createMutation = useMutation({
     mutationFn: () => {
       // Rows with a numeric rate become schedule steps; an empty effective_from
-      // defaults to the contract start date, effective_to is auto-derived (od–do).
-      // Backend derives the current rate from effective_from.
+      // defaults to the contract start date; effective_to is the typed date, or
+      // auto-derived (od–do) when left blank. Backend derives the current rate
+      // from effective_from.
       const schedule = buildCandidateRateSchedule(rateSchedule, startDate);
       const orderConsumptionVal = parseDecimalInput(orderConsumption);
       const payload: Record<string, unknown> = {
@@ -223,6 +225,10 @@ function NewContractForm() {
       setError(
         "Każda zmiana stawki musi mieć inną datę „Obowiązuje od”.",
       );
+      return;
+    }
+    if (scheduleHasBackwardsRange(rateSchedule, startDate)) {
+      setError('„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”.');
       return;
     }
     createMutation.mutate();
