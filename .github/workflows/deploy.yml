@@ -120,3 +120,57 @@ jobs:
           done
           echo "::error::Smoke test failed after 24 attempts (6 min)"
           exit 1
+
+      - name: Deep healthcheck (core modules not 503)
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          # /api/health only pings `SELECT 1`, so a core module can 503 for real
+          # users while the deploy ships green (it never touched that endpoint).
+          # This probes /api/health/deep, which runs `SELECT ... LIMIT 1` per core
+          # table via the ORM — catching the recurring alembic multi-head + partial
+          # entrypoint safety-net trap where a migration column never lands on prod
+          # (e.g. 2026-07-06: 0154 `contract_candidate_rates.effective_to` 503'd all
+          # of /api/contracts for a day while every deploy stayed green — PR #647).
+          #
+          # No auth is needed (endpoint is public by design — avoids coupling the
+          # deploy gate to CI-side login/token config that could itself go stale).
+          # The previous step already confirmed the NEW build is live, so the
+          # container is up; we re-check version here so module health is asserted
+          # on the new build, not a stale container.
+          #
+          # NOTE: `curl` runs WITHOUT `-f` on purpose — a 503 is exactly the signal
+          # we want, and `-f` would discard the JSON body that names the failing
+          # table(s). A few retries absorb a transient DB blip; real schema drift is
+          # deterministic and exhausts the loop → red.
+          if [ -z "$APP_URL" ]; then
+            echo "::error::vars.APP_URL not set in repo settings"
+            exit 1
+          fi
+          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          for i in $(seq 1 6); do
+            response=$(curl -sSL --max-time 25 "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
+            if [ -n "$response" ]; then
+              status=$(echo "$response" | jq -r '.status // "missing"')
+              version=$(echo "$response" | jq -r '.version // "missing"')
+              version_short=$(echo "$version" | cut -c1-7)
+              if [ "$version_short" != "$EXPECTED_SHA" ]; then
+                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
+              elif [ "$status" = "healthy" ]; then
+                echo "✅ Pass: all core modules healthy on $version_short"
+                echo "$response" | jq -c '.checks'
+                exit 0
+              else
+                # Unhealthy on the NEW build → a core module is down. Surface the
+                # failing tables + exception classes so the cause is obvious in-log.
+                echo "Attempt $i: status=$status on $version_short — core module(s) failing:"
+                echo "$response" | jq -c '{checks: .checks, errors: .errors}'
+                echo "retrying in 15s..."
+              fi
+            else
+              echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
+            fi
+            sleep 15
+          done
+          echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above; a likely cause is a migration column that never landed on prod — mirror it into backend/entrypoint.sh _COLUMN_STATEMENTS (see memory entrypoint-safetynet-new-columns)."
+          exit 1

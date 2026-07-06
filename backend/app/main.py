@@ -1067,3 +1067,97 @@ async def api_health_check():
         if db_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
+
+
+@app.get("/api/health/deep")
+async def api_health_deep_check():
+    """Deep healthcheck — probes core business tables against the live ORM.
+
+    Motivation: /api/health only does `SELECT 1`, so it stays green even when
+    a core module is 503-ing for real users. NEXUS prod has chronic alembic
+    multi-head drift; the app boots anyway via entrypoint.sh's hand-maintained
+    `_COLUMN_STATEMENTS` safety-net + `Base.metadata.create_all` (tables only).
+    The trap: a migration that adds a COLUMN to an EXISTING table lands neither
+    (create_all skips existing tables, and the manual list is easy to forget) —
+    the ORM then `SELECT`s a column Postgres doesn't have → `UndefinedColumn` →
+    the whole module renders empty (non-CORS 503), while the deploy ships GREEN
+    because the smoke-test never touched that endpoint. This happened 2026-07-06:
+    migration 0154 added `contract_candidate_rates.effective_to`; every contract
+    query eager-loads that child table → all of /api/contracts 503'd for a day
+    (PR #647). See memory `entrypoint-safetynet-new-columns`.
+
+    This endpoint runs `SELECT <all mapped columns> ... LIMIT 1` for each core
+    table, forcing Postgres to resolve every column the ORM maps. A drifted
+    column makes the check (and, via the deploy smoke-test, the deploy) go RED
+    instead of shipping a broken module. Drift-prone CHILD tables (contract_*_rates)
+    are listed explicitly: a bare `SELECT Contract` would not touch them (their
+    relationships are lazy), yet the real endpoints eager-load them — which is
+    exactly how the 0154 incident slipped through.
+
+    Auth-free by design (no CI-side login/token coupling that could itself block
+    deploys). Response leaks only table names + the failing exception's class
+    name; full errors go to server logs / Sentry. HTTP 503 if any core table
+    fails; 200 when all pass.
+
+    When a NEW core table (or a drift-prone child) is added, extend `core_checks`
+    below in the same spirit as the entrypoint.sh safety-net checklist.
+    """
+    import asyncio
+    import os
+
+    from fastapi import status as http_status
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract
+    from app.models.contract_candidate_rate import ContractCandidateRate
+    from app.models.contract_client_rate import ContractClientRate
+    from app.models.job import Job
+
+    # (check_name, ORM model). Names are table-oriented so a red check in the
+    # deploy log points straight at the drifted table.
+    core_checks = [
+        ("contracts", Contract),
+        ("contract_candidate_rates", ContractCandidateRate),
+        ("contract_client_rates", ContractClientRate),
+        ("candidates", Candidate),
+        ("clients", Client),
+        ("jobs", Job),
+    ]
+
+    checks: dict[str, str] = {}
+    errors: dict[str, str] = {}
+
+    for name, model in core_checks:
+        # Fresh session per check so a failed query (which aborts the
+        # transaction) can't cascade "InFailedSqlTransaction" into the rest.
+        try:
+            async with AsyncSessionLocal() as session:
+                await asyncio.wait_for(
+                    session.execute(select(model).limit(1)), timeout=3.0
+                )
+            checks[name] = "healthy"
+        except Exception as exc:  # noqa: BLE001
+            checks[name] = "unhealthy"
+            errors[name] = type(exc).__name__
+            logger.warning("health/deep: %s probe failed: %r", name, exc)
+
+    all_healthy = all(v == "healthy" for v in checks.values())
+
+    body: dict = {
+        "status": "healthy" if all_healthy else "unhealthy",
+        "version": os.environ.get("GIT_SHA", "unknown"),
+        "checks": checks,
+    }
+    if errors:
+        body["errors"] = errors
+
+    return JSONResponse(
+        content=body,
+        status_code=http_status.HTTP_200_OK
+        if all_healthy
+        else http_status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
