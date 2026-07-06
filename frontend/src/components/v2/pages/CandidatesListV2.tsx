@@ -1010,7 +1010,15 @@ function CandidateCell({
  <div className="flex items-start gap-1.5 min-w-0">
  <MessageSquare className="h-3 w-3 shrink-0 text-sky-500 mt-0.5" />
  <span
- className="text-xs text-muted-foreground line-clamp-2"
+ className={cn(
+ "text-xs text-muted-foreground",
+ // Wiersz ma stałą wysokość (64px compact / 92px cozy) z treścią
+ // wyśrodkowaną w pionie — przy 2 liniach sporo miejsca pod notatką
+ // marnowało się. 3 linie (compact, 48px) / 4 (cozy, 64px) mieszczą
+ // się w wysokości wiersza, więc widać więcej treści bez rozpychania
+ // rzędu. Pełna notatka zostaje w tooltipie (`title`) i w profilu.
+ density === "compact" ? "line-clamp-3" : "line-clamp-4"
+ )}
  title={note}
  >
  {note}
