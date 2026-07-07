@@ -55,8 +55,11 @@ def test_clean_rich_text_malformed_json_falls_back_to_raw():
 
 def test_flatten_json_text_recurses_without_punctuation():
     exp = [
-        {"company": "Acme", "role": "Java Developer",
-         "highlights": ["Spring Boot", "REST API"]},
+        {
+            "company": "Acme",
+            "role": "Java Developer",
+            "highlights": ["Spring Boot", "REST API"],
+        },
     ]
     flat = flatten_json_text(exp)
     assert "{" not in flat and '"' not in flat and "[" not in flat
@@ -85,7 +88,7 @@ def test_extract_search_terms_dedupes_and_lowercases():
 def test_snippet_from_html_note_is_readable():
     note = (
         '<p class="MsoNormal"><strong>Preferencje:</strong>&nbsp;3 dni w tyg/'
-        "Warszawa</p>\n<p class=\"MsoNormal\"><strong>Narodowość:</strong>&nbsp;PL</p>"
+        'Warszawa</p>\n<p class="MsoNormal"><strong>Narodowość:</strong>&nbsp;PL</p>'
     )
     terms = extract_search_terms(None, ["Warszawa"], None)
     snip = extract_snippet(_cand(), terms, notes_contents=[note])
@@ -144,8 +147,13 @@ def test_snippet_covers_term_only_in_city_or_engagement_notes():
 
 
 def test_snippet_flattens_jsonb_experience_readably():
-    exp = [{"company": "Acme", "role": "Java Developer",
-            "description": "Built REST API on Spring Boot"}]
+    exp = [
+        {
+            "company": "Acme",
+            "role": "Java Developer",
+            "description": "Built REST API on Spring Boot",
+        }
+    ]
     terms = extract_search_terms(None, ["Spring Boot"], None)
     snip = extract_snippet(_cand(experience=exp), terms)
     assert snip is not None

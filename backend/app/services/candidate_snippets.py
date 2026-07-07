@@ -134,9 +134,7 @@ def _field_corpus(
             ("Email", clean_rich_text(candidate.email)),
             (
                 "Kandydat",
-                clean_rich_text(
-                    f"{candidate.name or ''} {candidate.lastname or ''}"
-                ),
+                clean_rich_text(f"{candidate.name or ''} {candidate.lastname or ''}"),
             ),
         ]
     )
