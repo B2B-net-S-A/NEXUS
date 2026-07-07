@@ -605,6 +605,12 @@ export default function ContractDetailPage() {
   const monthlyMult = monthlyMultiplier(contract.rate_unit, contract.billing_hours_per_month);
   const monthlyMargin = contract.margin !== null ? contract.margin * monthlyMult : null;
 
+  // Ostrzeżenie: stawka klienta przekracza stawkę z umowy ramowej (limit z ramówki).
+  const frameworkRateExceeded =
+    contract.framework_rate != null &&
+    contract.rate_client != null &&
+    contract.rate_client > contract.framework_rate;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1585,9 +1591,25 @@ export default function ContractDetailPage() {
                   </div>
                 )}
                 {contract.framework_rate != null && (
-                  <div className="flex justify-between pt-2 mt-1 border-t border-border dark:border-border text-xs text-muted-foreground dark:text-muted-foreground">
-                    <span>Z umowy ramowej</span>
-                    <span>
+                  <div
+                    className={
+                      frameworkRateExceeded
+                        ? "flex justify-between items-center gap-2 mt-2 rounded-lg bg-destructive/10 border border-destructive/20 px-2.5 py-2 text-xs text-destructive"
+                        : "flex justify-between pt-2 mt-1 border-t border-border dark:border-border text-xs text-muted-foreground dark:text-muted-foreground"
+                    }
+                    title={
+                      frameworkRateExceeded
+                        ? `Stawka klienta (${formatCurrency(contract.rate_client, contract.currency)}${unitSuffix}) przekracza stawkę z umowy ramowej`
+                        : undefined
+                    }
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {frameworkRateExceeded && (
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      )}
+                      Z umowy ramowej
+                    </span>
+                    <span className={frameworkRateExceeded ? "font-semibold whitespace-nowrap" : ""}>
                       {formatCurrency(contract.framework_rate, contract.currency)}
                       <span className="opacity-70">{unitSuffix}</span>
                     </span>
