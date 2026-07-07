@@ -235,7 +235,12 @@ export function B2BContractGeneratorV2() {
   const isAdmin = hasRole(user, "admin");
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    // max-w-6xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
+    // (7 kolumn + 3 akcje: Edytuj / Pobierz / Usuń). Przy 4xl kolumna akcji
+    // wychodziła poza wąski kontener i „Usuń" było ucięte poza ekranem —
+    // użytkownik nie widział opcji usunięcia. Szerszy kontener mieści wszystkie
+    // akcje w widocznym obszarze.
+    <div className="mx-auto max-w-6xl p-6">
       <div className="mb-6 flex items-center gap-3">
         <FileSignature className="h-7 w-7 text-primary" />
         <div>
@@ -290,8 +295,12 @@ function GeneratedContractsTab() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => b2bGeneratorApi.deleteGenerated(id),
     onSuccess: () => {
-      toast.showSuccess("Umowa usunięta z listy.");
+      toast.showSuccess("Umowa usunięta — numer zwolniony do ponownego użycia.");
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      // Numeracja to max(numer)+1 liczone na żywo z listy → skasowanie
+      // najnowszej umowy zwalnia jej numer. Odśwież podpowiedź „następny wolny
+      // numer" w generatorze, by od razu cofnęła się do zwolnionego numeru.
+      queryClient.invalidateQueries({ queryKey: ["b2b-next-number"] });
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
@@ -354,8 +363,9 @@ function GeneratedContractsTab() {
         <CardDescription>
           Numery dotąd wygenerowanych umów — sprawdź, czy sugerowany / wpisany
           numer nie powtarza istniejącego. Umowę można pobrać ponownie, a nazwę
-          Klienta poprawić („Edytuj"); wpis może edytować lub usunąć osoba, która
-          wygenerowała umowę, lub administrator.
+          Klienta poprawić („Edytuj"); wpis może edytować lub usunąć („Usuń")
+          osoba, która wygenerowała umowę, lub administrator. Usunięcie zwalnia
+          numer — najniższy wolny numer wraca do podpowiedzi w generatorze.
         </CardDescription>
       </CardHeader>
       <CardContent>
