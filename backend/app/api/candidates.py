@@ -90,6 +90,7 @@ from app.services.scoring_service import (
     summarize_match_stats,
 )
 from app.services.dedup_service import find_candidate_duplicates
+from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
     collect_traffit_user_ids,
@@ -132,74 +133,17 @@ _NOTE_PREVIEW_MAX_CHARS = 220
 # wartości to krótkie kategorie ("Po CV", "Rezygnacja przez Kandydata", max ~37 zn.),
 # ten cap jest tylko bezpiecznikiem na patologiczny free-text z natywnego flow.
 _REJECTION_REASON_MAX_CHARS = 400
-_HTML_TAG_RE = re.compile(r"<[^>]+>")
-_WHITESPACE_RE = re.compile(r"\s+")
-# Frontend stores @-mentions inside Tiptap notes as `$$user_NN$$` markers
-# (resolved client-side against the users cache). For the list preview we
-# strip them down to a plain "@user" placeholder so the recruiter sees text,
-# not internal ids.
-_USER_MENTION_RE = re.compile(r"\$\$user_\d+\$\$")
-_HTML_ENTITIES = {
-    "&nbsp;": " ",
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-    "&apos;": "'",
-}
 _RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
 
 
-def _extract_tiptap_text(node) -> str:
-    """Walk Tiptap doc JSON and concatenate all `text` nodes. Tiptap shapes:
-    {"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"..."}]}]}
-    Some richer notes wrap as {"content": [...]} or {"content": "raw text"} — we
-    handle both. Anything we can't parse falls back to the raw string.
-    """
-    if node is None:
-        return ""
-    if isinstance(node, str):
-        return node
-    if isinstance(node, list):
-        return " ".join(_extract_tiptap_text(item) for item in node if item is not None)
-    if isinstance(node, dict):
-        # Leaf text node
-        if node.get("type") == "text" and isinstance(node.get("text"), str):
-            return node["text"]
-        # Container — walk `content` recursively (Tiptap convention)
-        if "content" in node:
-            return _extract_tiptap_text(node["content"])
-        # Fallback: join any string-valued field — defensive for legacy shapes.
-        return " ".join(v for v in node.values() if isinstance(v, str) and v.strip())
-    return ""
-
-
 def _format_note_preview(raw: str, max_chars: int = _NOTE_PREVIEW_MAX_CHARS) -> str:
-    """Strip HTML / Tiptap JSON + collapse whitespace + truncate. Notatki w
-    NEXUS są zapisywane przez Tiptap editor — czasem jako HTML (legacy z
-    Word/Outlook paste), czasem jako serializowany JSON document. Podgląd w
-    liście kandydatów ma być czystym tekstem. `max_chars` pozwala podnieść cap
-    dla powodu odrzucenia (chcemy pełną treść, nie 120-znakowy podgląd).
+    """Flatten a note to clean plain text + truncate. Notatki w NEXUS są
+    zapisywane przez Tiptap editor — czasem jako HTML (legacy z Word/Outlook
+    paste), czasem jako serializowany JSON document. Podgląd w liście kandydatów
+    ma być czystym tekstem (patrz `clean_rich_text`). `max_chars` pozwala podnieść
+    cap dla powodu odrzucenia (chcemy pełną treść, nie 120-znakowy podgląd).
     """
-    if not raw:
-        return ""
-    raw = raw.strip()
-    # JSON-shaped (Tiptap doc) — `{"type":"doc",…}` or `{"content":…}`.
-    if raw.startswith("{") or raw.startswith("["):
-        try:
-            import json
-
-            text_only = _extract_tiptap_text(json.loads(raw))
-        except (ValueError, TypeError):
-            text_only = raw
-    else:
-        text_only = raw
-    text_only = _HTML_TAG_RE.sub(" ", text_only)
-    text_only = _USER_MENTION_RE.sub("@user", text_only)
-    for entity, replacement in _HTML_ENTITIES.items():
-        text_only = text_only.replace(entity, replacement)
-    text_only = _WHITESPACE_RE.sub(" ", text_only).strip()
+    text_only = clean_rich_text(raw)
     if len(text_only) <= max_chars:
         return text_only
     return text_only[: max_chars - 1].rstrip() + "…"
