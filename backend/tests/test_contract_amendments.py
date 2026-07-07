@@ -4,7 +4,8 @@ from datetime import date, timedelta
 
 from httpx import AsyncClient
 
-from app.api.contracts import _synced_client_order_end
+from app.api.contracts import _status_after_end_date_change, _synced_client_order_end
+from app.models.contract import ContractStatus
 
 
 # ── Pure unit tests for the client-order-end sync rule (no DB) ────────────────
@@ -20,6 +21,72 @@ def test_synced_client_order_end_follows_new_contract_end():
 def test_synced_client_order_end_stays_none_when_untracked():
     """A contract that never tracked an order end is left untracked."""
     assert _synced_client_order_end(None, date(2026, 9, 30)) is None
+
+
+# ── Pure unit tests for the status↔end-date coherence rule (no DB) ────────────
+
+_TODAY = date(2026, 7, 7)
+
+
+def test_ended_with_no_end_date_resets_to_active():
+    """Indefinite ("bezterminowo") contract can't read "Zakończony"."""
+    assert (
+        _status_after_end_date_change(ContractStatus.ended, None, _TODAY)
+        == ContractStatus.active
+    )
+
+
+def test_ended_with_future_end_date_resets_to_active():
+    """A future end date hasn't passed → not yet ended."""
+    future = _TODAY + timedelta(days=30)
+    assert (
+        _status_after_end_date_change(ContractStatus.ended, future, _TODAY)
+        == ContractStatus.active
+    )
+
+
+def test_ended_with_past_end_date_stays_ended():
+    """Once the end date has passed, "Zakończony" is correct and preserved."""
+    past = _TODAY - timedelta(days=1)
+    assert (
+        _status_after_end_date_change(ContractStatus.ended, past, _TODAY)
+        == ContractStatus.ended
+    )
+
+
+def test_ended_with_end_date_today_stays_ended():
+    """The end date has been reached (not in the future) → stays ended."""
+    assert (
+        _status_after_end_date_change(ContractStatus.ended, _TODAY, _TODAY)
+        == ContractStatus.ended
+    )
+
+
+def test_ending_with_no_end_date_resets_to_active():
+    """An indefinite contract can't be "Kończący się" either."""
+    assert (
+        _status_after_end_date_change(ContractStatus.ending, None, _TODAY)
+        == ContractStatus.active
+    )
+
+
+def test_ending_with_dated_contract_is_left_to_the_cron():
+    """A dated "ending" contract is the cron's domain — helper doesn't touch it."""
+    soon = _TODAY + timedelta(days=10)
+    assert (
+        _status_after_end_date_change(ContractStatus.ending, soon, _TODAY)
+        == ContractStatus.ending
+    )
+
+
+def test_active_and_draft_are_never_touched():
+    """Downgrade only — the helper never promotes or rewrites open statuses."""
+    for status in (ContractStatus.active, ContractStatus.draft):
+        assert _status_after_end_date_change(status, None, _TODAY) == status
+        assert (
+            _status_after_end_date_change(status, _TODAY - timedelta(days=5), _TODAY)
+            == status
+        )
 
 
 async def test_amendments_list_shape(app_client: AsyncClient, app_auth_headers: dict):

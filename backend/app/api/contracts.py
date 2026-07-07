@@ -166,6 +166,26 @@ def _synced_client_order_end(
     return new_end_date if current is not None else None
 
 
+def _status_after_end_date_change(
+    status: ContractStatus, end_date: Optional[date], today: date
+) -> ContractStatus:
+    """Keep the contract status coherent with its end date.
+
+    "Zakończony" (``ended``) must never outlive the end date: a contract that is
+    indefinite ("bezterminowo", ``end_date is None``) or still runs into the
+    future (``end_date > today``) has not ended yet, so a stored ``ended`` is
+    stale — reset it to ``active``. An indefinite contract can't be "Kończący
+    się" (``ending``) either. Downgrade only — promotion to ``ending``/``ended``
+    stays the daily ``_promote_statuses`` cron's job (mirrors the
+    extension-amendment flip-back in ``create_contract_amendment``).
+    """
+    if status == ContractStatus.ended and (end_date is None or end_date > today):
+        return ContractStatus.active
+    if status == ContractStatus.ending and end_date is None:
+        return ContractStatus.active
+    return status
+
+
 def _to_detail(contract: Contract) -> ContractDetailResponse:
     """Serialize a Contract (with eager-loaded relations) to the detail schema."""
     data = {
@@ -404,6 +424,11 @@ async def create_contract(
             )
             for step in schedule_input
         ]
+    # "Zakończony"/"Kończący się" only hold once the end date has passed; a fresh
+    # indefinite or future-dated contract stays active (see update_contract).
+    contract.status = _status_after_end_date_change(
+        contract.status, contract.end_date, date.today()
+    )
     db.add(contract)
     await db.flush()
     if schedule_input:
@@ -721,6 +746,16 @@ async def update_contract(
         # (set above by the setattr loop when present in this same PATCH).
         if contract.candidate_rate_schedule:
             contract.rate_candidate = contract.effective_candidate_rate(date.today())
+    # Coherence guard: a PATCH that leaves the contract indefinite or with a
+    # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
+    # active so editing only the end date to "bezterminowo" heals a contract
+    # wrongly marked ended; the daily cron re-derives "ending" within 30 days.
+    coerced_status = _status_after_end_date_change(
+        contract.status, contract.end_date, date.today()
+    )
+    if coerced_status != contract.status:
+        contract.status = coerced_status
+        updates["status"] = coerced_status.value  # reflect the outcome in audit
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(
