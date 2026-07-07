@@ -108,7 +108,8 @@ def flatten_json_text(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, dict):
-        return " ".join(flatten_json_text(v) for v in value.values())
+        # Drop empty leaves (None / bool / "") so they don't leave stray spaces.
+        return " ".join(s for s in (flatten_json_text(v) for v in value.values()) if s)
     if isinstance(value, list):
-        return " ".join(flatten_json_text(item) for item in value)
+        return " ".join(s for s in (flatten_json_text(item) for item in value) if s)
     return str(value)
