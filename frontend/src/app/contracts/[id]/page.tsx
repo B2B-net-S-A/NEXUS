@@ -605,8 +605,11 @@ export default function ContractDetailPage() {
   const monthlyMult = monthlyMultiplier(contract.rate_unit, contract.billing_hours_per_month);
   const monthlyMargin = contract.margin !== null ? contract.margin * monthlyMult : null;
 
-  // Ostrzeżenie: stawka klienta przekracza stawkę z umowy ramowej (limit z ramówki).
+  // Ostrzeżenie o przekroczeniu stawki z umowy ramowej — tylko dla klienta Nordea
+  // (u innych klientów świeciłoby się wszędzie; sygnalizujemy wyłącznie dla Nordei).
+  const isNordeaClient = (contract.client_name ?? "").toLowerCase().includes("nordea");
   const frameworkRateExceeded =
+    isNordeaClient &&
     contract.framework_rate != null &&
     contract.rate_client != null &&
     contract.rate_client > contract.framework_rate;
