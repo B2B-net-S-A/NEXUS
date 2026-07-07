@@ -1,39 +1,53 @@
 """Snippet extraction for the candidates list (Traffit parity).
 
-Given a candidate row and the recruiter's search phrases, return a short
-fragment of text around the first matching term — so the row can show
-"why this candidate matched" without the user opening the drawer.
+Given a candidate row and the recruiter's search phrases, return a short,
+**readable** fragment that explains *why this candidate matched* — so the row
+can show the match reason without the user opening the drawer.
 
-Resolution order mirrors `_SEARCHABLE_COLUMNS` priority:
-    1. raw_cv_text (longest, most likely to contain context)
-    2. ai_summary
-    3. competence_category
-    4. experience JSONB (cast to str — companies, roles, descriptions)
-    5. skills JSONB
-    6. tags JSONB
-    7. education JSONB
-    8. notes (looked up separately — passed in by the API layer)
-    9. linkedin_current_title / linkedin_current_company
-   10. name / lastname / email — last resort (identity matched via trigram
-       rather than direct ILIKE; show the email as the explainer)
+Two guarantees drive the design (both requested by recruiters):
 
-The function is intentionally cheap: pure-Python string ops, no DB I/O.
-The API caller fetches notes in a single batched query for the page and
-passes them in via `notes_by_candidate`.
+1. **Readable.** The source text is cleaned first (`clean_rich_text`): notes are
+   stored as Tiptap HTML/JSON (legacy Word paste → `<p class="MsoNormal">`,
+   `&nbsp;`, `$$user_NN$$` markers) and JSONB columns are structured — raw, both
+   render as unreadable markup. We flatten to plain text before slicing.
+
+2. **Every searched word is present.** With `q_all` (all phrases must match) the
+   matched terms can live in *different* fields (e.g. "Warszawa" in `location`,
+   "Java"/"Spring Boot" in `raw_cv_text`, "Oracle" in `skills`). Instead of a
+   single window around the *first* match, we scan fields in priority order and
+   accumulate a compact window around every not-yet-covered term until all of
+   them are covered. Nearby hits in the same field coalesce into one window, so
+   a CV listing several requirements collapses to one clean fragment.
+
+The corpus mirrors the DB search scope (``search_doc`` columns + ``raw_cv_text``
++ ``notes.content``, see `advanced_candidate_search`) so any term that matched
+in the DB is findable here.
+
+The function is intentionally cheap: pure-Python string ops, no DB I/O. The API
+caller fetches notes in a single batched query for the page and passes them in
+via ``notes_contents``.
 """
 
 from __future__ import annotations
 
-import json
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 from app.models.candidate import Candidate
+from app.services.text_cleaning import clean_rich_text, flatten_json_text
 
-# Total window around the matched term (chars on each side). 60 + match + 60
-# ≈ 130-160 chars is what fits comfortably on one line in the candidates
-# list row.
-_SNIPPET_WINDOW = 60
-_MAX_SNIPPET_LEN = 200
+# Context kept on each side of a matched span. term + 2×_CONTEXT ≈ 90-110 chars
+# per window — enough to read the surrounding phrase, short enough that several
+# windows fit under the 3-line clamp in the candidates list row.
+_CONTEXT = 42
+# Two matched terms in the same field whose gap is ≤ this many chars collapse
+# into a single window spanning both (with shared context) instead of two
+# near-duplicate fragments.
+_MERGE_GAP = 90
+# Hard cap on a single field's rendered window.
+_MAX_WINDOW_LEN = 220
+# Overall cap on the assembled snippet. Generous so a multi-term (q_all) match
+# keeps every word; the row clamps the display visually.
+_MAX_SNIPPET_LEN = 400
 
 
 def _normalize_terms(terms: Iterable[Optional[str]]) -> list[str]:
@@ -51,53 +65,82 @@ def _normalize_terms(terms: Iterable[Optional[str]]) -> list[str]:
     return out
 
 
-def _slice_around(haystack: str, idx: int, term_len: int) -> str:
-    """Return a substring centered on `idx` with `_SNIPPET_WINDOW` chars
-    of surrounding context, prefixed/suffixed with ellipsis when truncated."""
-    start = max(0, idx - _SNIPPET_WINDOW)
-    end = min(len(haystack), idx + term_len + _SNIPPET_WINDOW)
-    snippet = haystack[start:end].strip()
+def _coalesce(spans: list[tuple[int, int]], gap: int) -> list[tuple[int, int]]:
+    """Merge overlapping / near-adjacent ``(start, end)`` spans (≤ ``gap`` apart)
+    into minimal covering spans. ``spans`` must be sorted by start."""
+    merged: list[tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start - merged[-1][1] <= gap:
+            prev_start, prev_end = merged[-1]
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _render_window(text: str, span_start: int, span_end: int) -> str:
+    """Return ``text`` around ``[span_start, span_end)`` with ``_CONTEXT`` chars
+    of surrounding context, ellipsis-marked when truncated and whitespace-
+    collapsed. The matched span sits near the centre, so it always survives the
+    per-window length cap."""
+    start = max(0, span_start - _CONTEXT)
+    end = min(len(text), span_end + _CONTEXT)
+    fragment = text[start:end].strip()
     if start > 0:
-        snippet = "…" + snippet
-    if end < len(haystack):
-        snippet = snippet + "…"
-    # Collapse internal whitespace runs — JSON-cast fields often contain
-    # newlines and tabs that bloat the display without adding value.
-    snippet = " ".join(snippet.split())
-    if len(snippet) > _MAX_SNIPPET_LEN:
-        snippet = snippet[: _MAX_SNIPPET_LEN - 1] + "…"
-    return snippet
+        fragment = "…" + fragment
+    if end < len(text):
+        fragment = fragment + "…"
+    fragment = " ".join(fragment.split())
+    if len(fragment) > _MAX_WINDOW_LEN:
+        fragment = fragment[: _MAX_WINDOW_LEN - 1].rstrip() + "…"
+    return fragment
 
 
-def _find_term(haystack: Optional[str], terms: list[str]) -> Optional[tuple[int, int]]:
-    """Find the FIRST term occurrence in `haystack`. Returns (index, term_len)
-    or None. Lowercase compare so terms match regardless of original casing."""
-    if not haystack:
-        return None
-    lower = haystack.lower()
-    best: Optional[tuple[int, int]] = None
-    for term in terms:
-        idx = lower.find(term)
-        if idx < 0:
-            continue
-        if best is None or idx < best[0]:
-            best = (idx, len(term))
-    return best
+def _field_corpus(
+    candidate: Candidate,
+    notes_contents: Optional[list[str]],
+) -> list[tuple[str, str]]:
+    """Priority-ordered ``(label, cleaned_text)`` blocks to scan.
 
-
-def _stringify(value: Any) -> Optional[str]:
-    """Coerce JSONB / dict / list payloads to a flat string for ILIKE-style
-    matching. Returns None for empty values so the caller can short-circuit."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    if isinstance(value, (list, dict)):
-        try:
-            return json.dumps(value, ensure_ascii=False)
-        except (TypeError, ValueError):
-            return str(value)
-    return str(value)
+    Label prefixes the window so the recruiter knows where the match came from
+    ("CV: …", "Umiejętności: …"). Content-rich fields come first; bare identity
+    fields (phone / email / name) are last-resort explainers. The set covers the
+    same columns the DB search matches on, so every ``q_all`` term is findable.
+    """
+    blocks: list[tuple[str, str]] = [
+        ("CV", clean_rich_text(candidate.raw_cv_text)),
+        ("AI", clean_rich_text(candidate.ai_summary)),
+        ("Kategoria", clean_rich_text(candidate.competence_category)),
+        ("Uwagi", clean_rich_text(candidate.engagement_notes)),
+        ("Doświadczenie", clean_rich_text(flatten_json_text(candidate.experience))),
+        ("Umiejętności", clean_rich_text(flatten_json_text(candidate.skills))),
+        ("Tagi", clean_rich_text(flatten_json_text(candidate.tags))),
+        ("Wykształcenie", clean_rich_text(flatten_json_text(candidate.education))),
+        ("Języki", clean_rich_text(flatten_json_text(candidate.languages))),
+        ("Stanowisko LinkedIn", clean_rich_text(candidate.linkedin_current_title)),
+        ("Firma LinkedIn", clean_rich_text(candidate.linkedin_current_company)),
+        ("Lokalizacja", clean_rich_text(candidate.location)),
+        ("Miasto", clean_rich_text(candidate.city)),
+    ]
+    # Notes sit in a separate table — the API layer batches them and passes the
+    # raw content list in. Each cleaned note is its own scannable block.
+    if notes_contents:
+        for note in notes_contents:
+            blocks.append(("Notatka", clean_rich_text(note)))
+    # Identity fields last: only surfaced when nothing richer explains the match.
+    blocks.extend(
+        [
+            ("Telefon", clean_rich_text(candidate.phone)),
+            ("Email", clean_rich_text(candidate.email)),
+            (
+                "Kandydat",
+                clean_rich_text(
+                    f"{candidate.name or ''} {candidate.lastname or ''}"
+                ),
+            ),
+        ]
+    )
+    return blocks
 
 
 def extract_snippet(
@@ -105,56 +148,58 @@ def extract_snippet(
     terms: list[str],
     notes_contents: Optional[list[str]] = None,
 ) -> Optional[str]:
-    """Return a snippet for the candidate or None if no field matched.
+    """Return a readable snippet covering every matched search term, or None.
 
-    `terms` should already be normalized (lowercase, deduped) — call
-    `_normalize_terms` once at the API layer and pass the result.
+    ``terms`` should already be normalized (lowercase, deduped) — call
+    ``_normalize_terms`` once at the API layer and pass the result.
 
-    `notes_contents` is the list of `Note.content` strings for this
-    candidate; the API batches these in a single query for the whole
-    page so we avoid N+1 here.
+    ``notes_contents`` is the list of ``Note.content`` strings for this
+    candidate; the API batches these in a single query for the whole page so we
+    avoid N+1 here.
     """
     if not terms:
         return None
 
-    # Priority-ordered list of (field_label_prefix, value) pairs. The
-    # label appears in the snippet so the recruiter knows where the match
-    # came from ("Notatka: ...", "CV: ..."). Empty prefix = no label.
-    candidates_to_scan: list[tuple[str, Optional[str]]] = [
-        ("CV", candidate.raw_cv_text),
-        ("AI", candidate.ai_summary),
-        ("Kategoria", candidate.competence_category),
-        ("Doświadczenie", _stringify(candidate.experience)),
-        ("Skills", _stringify(candidate.skills)),
-        ("Tagi", _stringify(candidate.tags)),
-        ("Wykształcenie", _stringify(candidate.education)),
-        ("Języki", _stringify(candidate.languages)),
-        ("Stanowisko LinkedIn", candidate.linkedin_current_title),
-        ("Firma LinkedIn", candidate.linkedin_current_company),
-        ("Lokalizacja", candidate.location),
-        ("Telefon", candidate.phone),
-        ("Email", candidate.email),
-    ]
+    covered: set[str] = set()
+    rendered: list[str] = []
 
-    for label, value in candidates_to_scan:
-        match = _find_term(value, terms)
-        if match is None:
+    for label, text in _field_corpus(candidate, notes_contents):
+        if covered.issuperset(terms):
+            break
+        if not text:
             continue
-        idx, term_len = match
-        body = _slice_around(value or "", idx, term_len)
-        return f"{label}: {body}" if label else body
+        want = [t for t in terms if t not in covered]
+        lower = text.lower()
+        hits: list[tuple[int, int, str]] = []
+        for term in want:
+            idx = lower.find(term)
+            if idx >= 0:
+                hits.append((idx, idx + len(term), term))
+        if not hits:
+            continue
+        hits.sort(key=lambda h: h[0])
+        spans = _coalesce([(s, e) for s, e, _ in hits], _MERGE_GAP)
+        for i, (span_start, span_end) in enumerate(spans):
+            window = _render_window(text, span_start, span_end)
+            rendered.append(f"{label}: {window}" if label and i == 0 else window)
+        covered.update(term for _, _, term in hits)
 
-    # Notes last — they sit in a separate table, so the API layer fetches
-    # them and passes the raw content list in. Use the first matching note.
-    if notes_contents:
-        for note_content in notes_contents:
-            match = _find_term(note_content, terms)
-            if match is None:
-                continue
-            idx, term_len = match
-            return "Notatka: " + _slice_around(note_content, idx, term_len)
+    if not rendered:
+        return None
 
-    return None
+    snippet = " · ".join(rendered)
+    if len(snippet) > _MAX_SNIPPET_LEN:
+        snippet = snippet[: _MAX_SNIPPET_LEN - 1].rstrip() + "…"
+
+    # Coverage safety net: if the length cap truncated away a term we located,
+    # re-append the bare word(s) so the invariant "every searched word appears
+    # in the snippet" holds regardless of where the match landed.
+    lowered = snippet.lower()
+    missing = [t for t in terms if t in covered and t not in lowered]
+    if missing:
+        snippet = snippet.rstrip("… ").rstrip() + " · " + ", ".join(missing)
+
+    return snippet
 
 
 def extract_search_terms(

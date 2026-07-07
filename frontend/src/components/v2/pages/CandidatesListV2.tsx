@@ -1611,8 +1611,10 @@ export function CandidatesListV2() {
  // Gdy wyszukiwanie jest aktywne i kandydat ma dopasowany fragment CV
  // (`match_snippet`), wiersz rośnie o SNIPPET_AREA, by zmieścić snippet pod
  // danymi — recruiter od razu widzi, z czego wynika dopasowanie (parytet Traffit).
+ // Snippet pokrywa WSZYSTKIE frazy z search (q_all), więc bywa dłuższy niż jedna
+ // fraza — 3 linie (line-clamp-3 niżej) mieszczą kilka okien „pole: …fragment…".
  const rowHeight = density === "compact" ? 64 : 92;
- const SNIPPET_AREA = 36;
+ const SNIPPET_AREA = 54;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
@@ -2967,9 +2969,9 @@ export function CandidatesListV2() {
  </button>
  </div>
  </div>
- {/* Snippet CV: dlaczego kandydat trafił w wyniki. Wcięty pod nazwisko
-     (32px checkbox + 16px gap), pełna szerokość, max 2 linie. Klik otwiera
-     szczegóły — tak jak reszta wiersza. */}
+ {/* Snippet CV: dlaczego kandydat trafił w wyniki — pokrywa wszystkie
+     frazy z search. Wcięty pod nazwisko (32px checkbox + 16px gap), pełna
+     szerokość, max 3 linie. Klik otwiera szczegóły — jak reszta wiersza. */}
  {snippet && (
  <button
  type="button"
@@ -2979,7 +2981,7 @@ export function CandidatesListV2() {
  <MatchSnippet
  snippet={snippet}
  terms={searchTerms}
- className="block pl-12 line-clamp-2"
+ className="block pl-12 line-clamp-3"
  />
  </button>
  )}
