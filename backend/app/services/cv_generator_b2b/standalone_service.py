@@ -392,23 +392,139 @@ def _str_list(value: Any) -> list[str]:
     return [str(x).strip() for x in value if x is not None and str(x).strip()]
 
 
-def _loads_cv_json(text: str) -> Any:
-    """Parse Claude's JSON, tolerating a leading/trailing prose wrapper.
+def _drop_empty_commas(text: str) -> str:
+    """Remove commas that don't sit between two values — a common LLM defect.
 
-    Claude 5 occasionally emits a sentence around the JSON ("Oto dane: {...}")
-    despite the "return only JSON" instruction. Fall back to the outermost
-    ``{...}`` slice before giving up, so a chatty response doesn't fail the
-    whole generation. Raises ``json.JSONDecodeError`` when no parseable JSON
-    object is present.
+    Strips trailing (``,]`` / ``,}``), leading (``[,`` / ``{,``) and doubled
+    (``,,``) commas, each of which makes ``json.loads`` fail with the exact
+    "Expecting value" error we see in production. String-aware: a comma inside
+    a string literal is never touched, so this is a *no-op on well-formed JSON*
+    (valid JSON can't contain an empty-value comma) — the fast path above is
+    never perturbed.
+    """
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    prev_significant = ""  # last non-whitespace char emitted outside a string
+    n = len(text)
+    for i, ch in enumerate(text):
+        if in_string:
+            out.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            prev_significant = '"'
+            continue
+        if ch in " \t\r\n":
+            out.append(ch)
+            continue
+        if ch == ",":
+            if prev_significant in ("", "[", "{", ","):
+                continue  # leading or doubled comma → drop
+            nxt = i + 1
+            while nxt < n and text[nxt] in " \t\r\n":
+                nxt += 1
+            if nxt < n and text[nxt] in "}],":
+                continue  # trailing (or pre-comma) comma → drop
+            out.append(ch)
+            prev_significant = ","
+            continue
+        out.append(ch)
+        prev_significant = ch
+    return "".join(out)
+
+
+def _close_truncated_json(text: str) -> str:
+    """Best-effort close of an unterminated JSON string / array / object.
+
+    Walks the text tracking string state and the bracket stack, then appends a
+    closing quote (if a string is still open) and the missing ``]``/``}`` in
+    reverse order. Only a safety net for a response cut mid-structure — it can't
+    invent a missing value, so a dangling ``"key":`` stays unparseable. A no-op
+    on balanced input.
+    """
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+    repaired = text
+    if in_string:
+        repaired += '"'
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+    return repaired
+
+
+def _json_error_context(text: str, err: json.JSONDecodeError, radius: int = 180) -> str:
+    """One-line diagnostic around a JSON parse failure.
+
+    The defect is often deep in the document (e.g. char 8416), so logging just
+    the head is useless. Surface length, position and a window around the
+    failing offset so the actual malformation is visible in Grafana/Loki.
+    """
+    pos = getattr(err, "pos", 0) or 0
+    lo = max(0, pos - radius)
+    hi = min(len(text), pos + radius)
+    return (
+        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} "
+        f"head={text[:100]!r} tail={text[-100:]!r} window={text[lo:hi]!r}"
+    )
+
+
+def _loads_cv_json(text: str) -> Any:
+    """Parse Claude's JSON, tolerating a prose wrapper and common LLM defects.
+
+    Strict-first, so a well-formed response is never altered:
+      1. ``json.loads(text)`` — fast path.
+      2. Slice to the outermost ``{...}`` — drops "Oto dane: {...}" prose.
+      3. Conservative repair on that slice — drop empty-value commas (the usual
+         "Expecting value" culprit), then close a truncated tail — re-parsing
+         after each step.
+
+    Re-raises the ORIGINAL ``json.JSONDecodeError`` when nothing parses, so the
+    caller logs the real defect rather than a repair artefact.
     """
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            return json.loads(text[start : end + 1])  # may raise → caller handles
-        raise
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    candidate = text[start : end + 1] if start != -1 and end > start else text
+
+    decomma = _drop_empty_commas(candidate)
+    first_err: json.JSONDecodeError | None = None
+    for attempt in (candidate, decomma, _close_truncated_json(decomma)):
+        try:
+            return json.loads(attempt)
+        except json.JSONDecodeError as err:
+            if first_err is None:
+                first_err = err
+    # first_err is always set here (every attempt failed), but guard for mypy.
+    raise first_err if first_err is not None else json.JSONDecodeError("", text, 0)
 
 
 def _normalize_candidate_data(data: Any, fallback_name: str | None) -> dict[str, Any]:
@@ -902,10 +1018,13 @@ def _run_generation_pipeline(
     try:
         raw_data = _loads_cv_json(cleaned)
     except json.JSONDecodeError as err:
+        # The defect is often deep in the document (e.g. char 8416), so a
+        # head-only log hides it — dump length/position and a window around the
+        # failing offset instead. See _json_error_context.
         logger.error(
-            "[cv_b2b][%s] Claude returned non-JSON (first 200 chars): %r",
+            "[cv_b2b][%s] Claude returned unparseable JSON: %s",
             request_id,
-            cleaned[:200],
+            _json_error_context(cleaned, err),
         )
         raise StandaloneGenerationError(
             code="ai_failed",
