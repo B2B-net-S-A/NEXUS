@@ -25,6 +25,8 @@ from app.services.cv_generator_b2b.docx_renderer import (
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     _build_download_filename,
+    _close_truncated_json,
+    _drop_empty_commas,
     _fabrication_warnings,
     _format_candidate_answers,
     _has_candidate_answers,
@@ -55,6 +57,65 @@ def test_loads_cv_json_strips_prose_preamble():
 def test_loads_cv_json_raises_when_no_object():
     with pytest.raises(json.JSONDecodeError):
         _loads_cv_json("przepraszam, nie mogę tego zrobić")
+
+
+# ── Empty-value comma repair (the production "Expecting value" failure) ──────
+
+
+def test_loads_cv_json_trailing_comma_in_array():
+    # Reproduces the reported bug: a trailing comma before ``]`` inside an
+    # experience[].technologies line → json.loads "Expecting value", now
+    # repaired instead of hard-failing the whole generation.
+    raw = '{"experience": [{"technologies": ["Java", "Spring", "Docker",]}]}'
+    assert _loads_cv_json(raw) == {
+        "experience": [{"technologies": ["Java", "Spring", "Docker"]}]
+    }
+
+
+def test_loads_cv_json_trailing_comma_in_object():
+    assert _loads_cv_json('{"name": "Ada", "position": "Dev",}') == {
+        "name": "Ada",
+        "position": "Dev",
+    }
+
+
+def test_loads_cv_json_doubled_and_leading_commas():
+    raw = '{"why_points": [,"A",, "B"]}'
+    assert _loads_cv_json(raw) == {"why_points": ["A", "B"]}
+
+
+def test_loads_cv_json_repairs_prose_wrapped_trailing_comma():
+    # Both defects at once: chatty preamble AND a trailing comma.
+    raw = 'Oto JSON:\n{"skills": ["Python", "SQL",]}\nGotowe.'
+    assert _loads_cv_json(raw) == {"skills": ["Python", "SQL"]}
+
+
+def test_loads_cv_json_closes_truncated_tail():
+    # Response cut mid-array (best-effort close). Keeps the complete items.
+    raw = '{"experience": [{"company": "ACME", "responsibilities": ["Wdrożenie'
+    parsed = _loads_cv_json(raw)
+    assert parsed["experience"][0]["company"] == "ACME"
+    assert parsed["experience"][0]["responsibilities"] == ["Wdrożenie"]
+
+
+def test_drop_empty_commas_is_noop_on_valid_json():
+    # A comma *between* values, and a comma inside a string literal, must both
+    # survive untouched — repair only removes empty-value commas.
+    valid = '{"a": [1, 2], "note": "Zrobił X, Y oraz Z"}'
+    assert _drop_empty_commas(valid) == valid
+    assert json.loads(_drop_empty_commas(valid)) == json.loads(valid)
+
+
+def test_drop_empty_commas_keeps_comma_inside_string():
+    # A trailing-comma pattern that lives INSIDE a string ("...,]") must NOT be
+    # stripped — only structural commas count.
+    raw = '{"t": "list ends with a comma here ,] literally"}'
+    assert _drop_empty_commas(raw) == raw
+
+
+def test_close_truncated_json_is_noop_when_balanced():
+    balanced = '{"a": [1, 2], "b": {"c": "d"}}'
+    assert _close_truncated_json(balanced) == balanced
 
 
 # ── Keyword bolding ────────────────────────────────────────────────────────
