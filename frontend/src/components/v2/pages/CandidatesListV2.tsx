@@ -1613,8 +1613,10 @@ export function CandidatesListV2() {
  // danymi — recruiter od razu widzi, z czego wynika dopasowanie (parytet Traffit).
  // Snippet pokrywa WSZYSTKIE frazy z search (q_all), więc bywa dłuższy niż jedna
  // fraza — 3 linie (line-clamp-3 niżej) mieszczą kilka okien „pole: …fragment…".
+ // 66px = 3 linie text-xs/leading-normal (3×18=54) + hairline (border-t, 1px)
+ // + pt-1/pb-1.5 (10px) — czytelny snippet bez ucinania trzeciej linii.
  const rowHeight = density === "compact" ? 64 : 92;
- const SNIPPET_AREA = 54;
+ const SNIPPET_AREA = 66;
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
@@ -2916,7 +2918,7 @@ export function CandidatesListV2() {
  transform: `translateY(${virtualRow.start}px)`,
  }}
  className={cn(
- "flex flex-col overflow-hidden border-b border-border/50 transition-colors",
+ "flex flex-col overflow-hidden border-b border-border transition-colors",
  "border-l-4 border-l-transparent",
  // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
  virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
@@ -2976,7 +2978,7 @@ export function CandidatesListV2() {
  <button
  type="button"
  onClick={openDetail}
- className="flex-1 min-h-0 overflow-hidden px-4 pb-1.5 text-left"
+ className="flex-1 min-h-0 overflow-hidden border-t border-border/40 px-4 pt-1 pb-1.5 text-left"
  >
  <MatchSnippet
  snippet={snippet}

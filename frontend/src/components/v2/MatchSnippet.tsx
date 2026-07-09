@@ -32,7 +32,7 @@ export function MatchSnippet({
   return (
     <span
       className={cn(
-        "text-[11px] text-muted-foreground leading-snug",
+        "text-xs text-muted-foreground leading-normal",
         className,
       )}
     >
@@ -40,7 +40,7 @@ export function MatchSnippet({
         part.match ? (
           <mark
             key={i}
-            className="bg-amber-200/70 dark:bg-amber-700/40 text-foreground rounded-sm px-0.5"
+            className="bg-amber-200/70 dark:bg-amber-700/40 text-foreground font-medium rounded px-1 mx-px"
           >
             {part.text}
           </mark>
