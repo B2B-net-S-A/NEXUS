@@ -159,6 +159,7 @@ jobs:
                  tests/test_contract_client_rate_schedule.py \
                  tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
+                 tests/test_match_justification.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

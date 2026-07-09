@@ -24,6 +24,7 @@ from app.api import (
     auth,
     candidates,
     candidate_pins,
+    candidate_scoring,
     jobs,
     clients,
     clients_team,
@@ -478,6 +479,9 @@ app.include_router(
     candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"]
 )
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
+app.include_router(
+    candidate_scoring.router, prefix="/api/candidates", tags=["candidate-scoring"]
+)
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
 app.include_router(
     public_interview_confirmation.router,

@@ -402,6 +402,64 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
 )
 
 
+# ── Match scoring justification ("Dopasowanie" tab) ─────────────────────────
+
+MATCH_JUSTIFICATION = PromptTemplate(
+    name="match_justification",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT w polskiej agencji staffing. Wyjaśniasz, "
+        "DLACZEGO dany kandydat otrzymał konkretny wynik dopasowania (0-100) do "
+        "oferty. Wynik liczbowy JUŻ policzył deterministyczny silnik — Twoim "
+        "zadaniem jest UZASADNIENIE tej punktacji zrozumiałym językiem, nie jej "
+        "zmiana.\n\n"
+        "NAJWAŻNIEJSZE REGUŁY:\n"
+        "(1) Opieraj się WYŁĄCZNIE na dostarczonych danych (CV, wymagania, "
+        "rozbicie punktacji). NIGDY nie wymyślaj doświadczenia, technologii, "
+        "firm, certyfikatów ani lat pracy, których nie ma w źródle.\n"
+        "(2) Nie zawyżaj: jeśli czegoś brakuje lub jest niepewne — nazwij to w "
+        "`watchouts`, nie udawaj że jest spełnione.\n"
+        "(3) Bądź konkretny — cytuj realne fakty z CV (np. „5 lat w roli DevOps”, "
+        "„AWS + Terraform”), a nie ogólniki.\n"
+        "(4) Ton: rzeczowy, po polsku, bez marketingowego lania wody.\n"
+        "(5) Odpowiedź MUSI być czystym JSON — bez prose przed/po, bez code "
+        "fences."
+    ),
+    template=(
+        "OFERTA\n"
+        "  Stanowisko: {job_title}\n"
+        "  Wymagania (must-have / nice-to-have i opis):\n"
+        "  ---\n"
+        "  {job_requirements}\n"
+        "  ---\n"
+        "  Kontekst od klienta / Profil Championa:\n"
+        "  {champion_context}\n\n"
+        "KANDYDAT\n"
+        "  Kategoria kompetencji: {competence_category}\n"
+        "  Podsumowanie AI: {candidate_summary}\n"
+        "  Umiejętności (z profilu): {candidate_skills}\n"
+        "  Treść CV (skrócona):\n"
+        "  ---\n"
+        "  {candidate_cv}\n"
+        "  ---\n\n"
+        "ROZBICIE PUNKTACJI (deterministyczny silnik — to jest źródło prawdy "
+        "o wyniku {score}/100):\n"
+        "{score_breakdown}\n\n"
+        "Na tej podstawie zwróć JSON dokładnie w tej strukturze:\n"
+        "{{\n"
+        '  "summary": "2-4 zdania po polsku: ogólny werdykt — jak mocno kandydat '
+        'pasuje i dlaczego wynik jest taki a nie inny. Wspomnij zarówno mocne '
+        'strony jak i główne zastrzeżenia.",\n'
+        '  "pros": ["3-6 krótkich punktów: dlaczego może być dobrym wyborem — '
+        'każdy poparty konkretem z CV/wymagań"],\n'
+        '  "watchouts": ["1-5 punktów: luki, ryzyka i rzeczy do potwierdzenia na '
+        'screeningu. Pusta lista [] tylko gdy naprawdę brak zastrzeżeń"]\n'
+        "}}"
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -415,5 +473,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CHAMPION_PROFILE_ENRICH_FROM_CALL,
         CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
         CHAMPION_RECOMMENDED_SEARCHES,
+        MATCH_JUSTIFICATION,
     )
 }
