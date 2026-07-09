@@ -20,7 +20,6 @@ from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
@@ -1114,75 +1113,6 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
     return anchor_para
 
 
-def add_inflow_rodo(doc: Any, rodo_text: str) -> Any:
-    """Render the RODO clause in the normal flow (justified), after a divider.
-
-    Used when the CV body nearly fills the page, so there is no room to drop the
-    clause to the foot of the page without overlapping the last lines. The text
-    is justified either way — only the vertical placement differs from
-    :func:`add_bottom_pinned_rodo`.
-    """
-    divider = add_horizontal_line(doc)
-    divider.paragraph_format.space_before = Pt(2)
-    divider.paragraph_format.space_after = Pt(5)
-
-    rodo_para = doc.add_paragraph()
-    rodo_para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    run = rodo_para.add_run(rodo_text)
-    run.font.name = "Montserrat"
-    run.font.size = Pt(5)
-    run.font.color.rgb = COLOR_TEXT
-    return rodo_para
-
-
-def _estimate_body_height_pt(doc: Any) -> float:
-    """Roughly estimate the rendered height (pt) of the document body so far.
-
-    Deliberately *over*-estimates (generous line height, ceil'd wrap counts) so
-    the caller only pins the RODO clause to the page foot when the body is
-    comfortably short — biasing away from the one failure mode that looks
-    broken: a bottom-pinned clause overlapping the last content line.
-
-    Only an approximation of Word's line breaking — good enough for the
-    "is there a clear gap at the bottom?" decision, not for exact layout.
-    """
-    from math import ceil
-
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
-    section = doc.sections[-1]
-    content_w_pt = (
-        section.page_width - section.left_margin - section.right_margin
-    ) / 12700  # EMU → pt
-
-    def para_height(par: Paragraph) -> float:
-        sizes = [r.font.size.pt for r in par.runs if r.font.size is not None]
-        size_pt = max(sizes) if sizes else 10.0
-        pf = par.paragraph_format
-        before = pf.space_before.pt if pf.space_before is not None else 0.0
-        after = pf.space_after.pt if pf.space_after is not None else 0.0
-        text_len = len(par.text)
-        if text_len == 0:
-            # Divider / spacer paragraph: reserve a little vertical room.
-            lines = 1
-        else:
-            chars_per_line = max(1.0, content_w_pt / (size_pt * 0.48))
-            lines = max(1, ceil(text_len / chars_per_line))
-        return before + after + lines * size_pt * 1.3
-
-    total = 0.0
-    for child in doc.element.body:
-        tag = child.tag
-        if tag.endswith("}p"):
-            total += para_height(Paragraph(child, doc))
-        elif tag.endswith("}tbl"):
-            table = Table(child, doc)
-            # ~1 line of 10pt text plus cell padding per row.
-            total += len(table.rows) * 24.0
-    return total
-
-
 def add_section_header(doc: Any, text: str) -> Any:
     """Add a section header with divider above and Montserrat SemiBold title.
 
@@ -1573,23 +1503,24 @@ def render_cv_to_bytes(
             para.paragraph_format.space_after = Pt(2)
 
     # === KLAUZULA RODO / GDPR ===
-    # The consent clause is always justified. Where it lands vertically depends
-    # on how full the page is:
-    #   * body ends well short of the page → pin it to the foot of the last page
-    #     (add_bottom_pinned_rodo), so it reads as a footer instead of dangling
-    #     mid-page below a half-filled CV — the case recruiters complained about;
-    #   * body nearly fills the page → keep it in the flow (add_inflow_rodo), so
-    #     a bottom-pinned float can't overlap the final content lines.
-    # The threshold is conservative (only pin when the body uses well under the
-    # page) because the estimate over-counts and overlapping is the worst look.
-    section = doc.sections[-1]
-    usable_h_pt = (
-        section.page_height - section.top_margin - section.bottom_margin
-    ) / 12700  # EMU → pt
-    if _estimate_body_height_pt(doc) < 0.62 * usable_h_pt:
-        add_bottom_pinned_rodo(doc, t["rodo"])
-    else:
-        add_inflow_rodo(doc, t["rodo"])
+    # The consent clause is always justified and always pinned to the foot of the
+    # last page via a bottom-anchored float. A float pins to the bottom margin of
+    # whichever page its anchor lands on, so the clause reads as a footer at the
+    # bottom of the last page no matter how full the CV is.
+    #
+    # The earlier hybrid kept the clause in the normal flow when the body was
+    # estimated to nearly fill the page. In the paginated download (Word / PDF)
+    # that made it dangle at the TOP of the last page whenever the body spilled
+    # just past a page boundary — the "RODO na górze strony" report. Pinning is
+    # unconditional now: the height estimate could not reliably tell a nearly-full
+    # last page from one with room, and the float lands at the bottom either way.
+    #
+    # Trade-off: the in-app docx-preview ("Podgląd") cannot position a bottom-
+    # anchored floating box, so the clause shows only in the downloaded DOCX/PDF
+    # (the file sent to the client), not in that preview. A page footer would be
+    # visible in both but would repeat the clause on every page of a multi-page
+    # CV, so the float — which lands once, on the last page only — is preferred.
+    add_bottom_pinned_rodo(doc, t["rodo"])
 
     out = io.BytesIO()
     doc.save(out)
