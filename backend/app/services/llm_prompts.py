@@ -449,7 +449,7 @@ MATCH_JUSTIFICATION = PromptTemplate(
         "Na tej podstawie zwróć JSON dokładnie w tej strukturze:\n"
         "{{\n"
         '  "summary": "2-4 zdania po polsku: ogólny werdykt — jak mocno kandydat '
-        'pasuje i dlaczego wynik jest taki a nie inny. Wspomnij zarówno mocne '
+        "pasuje i dlaczego wynik jest taki a nie inny. Wspomnij zarówno mocne "
         'strony jak i główne zastrzeżenia.",\n'
         '  "pros": ["3-6 krótkich punktów: dlaczego może być dobrym wyborem — '
         'każdy poparty konkretem z CV/wymagań"],\n'

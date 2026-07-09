@@ -43,7 +43,10 @@ def make_job(**overrides) -> SimpleNamespace:
                 "responsibilities": "IaC, monitoring",
                 "selling_points": "Nowoczesny stack",
             },
-            "basics": {"candidate_location_pref": "Warszawa", "onsite_days_per_week": 2},
+            "basics": {
+                "candidate_location_pref": "Warszawa",
+                "onsite_days_per_week": 2,
+            },
         },
     )
     defaults.update(overrides)
@@ -103,7 +106,11 @@ def test_input_hash_changes_when_gaps_change():
 
 def test_sanitize_output_happy_path():
     out = mjs._sanitize_llm_output(
-        {"summary": " Dobry match. ", "pros": ["AWS", "Terraform"], "watchouts": ["K8s?"]}
+        {
+            "summary": " Dobry match. ",
+            "pros": ["AWS", "Terraform"],
+            "watchouts": ["K8s?"],
+        }
     )
     assert out == {
         "summary": "Dobry match.",
