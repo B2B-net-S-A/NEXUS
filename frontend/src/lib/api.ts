@@ -452,6 +452,46 @@ export const matchingApi = {
     }>(`/api/jobs/${jobId}/pipeline-scores`),
 };
 
+// ── AI scoring justification ("Dopasowanie" tab) ────────────────────────────
+export interface MatchJustification {
+  candidate_id: number;
+  job_id: number;
+  job_title: string | null;
+  /** Hybrid composite score, 0-100 (same number the kanban ring shows). */
+  score: number;
+  /** "Podsumowanie" — prose verdict. */
+  summary: string;
+  /** "Może być dobrym wyborem, ponieważ" — positive bullets. */
+  pros: string[];
+  /** "Do weryfikacji / luki" — gaps and things to confirm. */
+  watchouts: string[];
+  model: string | null;
+  /** "Oceń ten scoring": -1 (down) / +1 (up) / null (not rated). */
+  rating: number | null;
+  rating_comment: string | null;
+  generated_at: string | null;
+}
+
+export const matchScoringApi = {
+  // AI justification of a candidate↔job match score. Cached per pair server-side;
+  // `refresh: true` forces a fresh (paid) LLM generation.
+  get: (candidateId: number, jobId: number, opts?: { refresh?: boolean }) =>
+    api.get<MatchJustification>(
+      `/api/candidates/${candidateId}/scoring/${jobId}`,
+      { params: { refresh: opts?.refresh ? true : undefined } },
+    ),
+  // "Oceń ten scoring" feedback. rating: -1 | 0 (reset) | 1.
+  feedback: (
+    candidateId: number,
+    jobId: number,
+    body: { rating: number; comment?: string },
+  ) =>
+    api.post<MatchJustification>(
+      `/api/candidates/${candidateId}/scoring/${jobId}/feedback`,
+      body,
+    ),
+};
+
 // ── Talent Pools ──────────────────────────────────────────────────────────────
 export const talentPoolsApi = {
   list: () => api.get("/api/talent-pools"),

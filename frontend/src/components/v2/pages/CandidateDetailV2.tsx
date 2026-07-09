@@ -148,6 +148,7 @@ import { ActiveViewers } from"@/components/v2/presence/ActiveViewers";
 import { usePresence, type PresenceViewer } from"@/hooks/usePresence";
 import { useAuthStore, hasRole } from"@/store/auth";
 import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
+import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
 import { CandidateNav } from"@/components/v2/CandidateNav";
 import {
  useCandidateNavigation,
@@ -426,7 +427,8 @@ export function CandidateDetailV2({
  !!id &&
  (activeTab === "rekrutacje" ||
  activeTab === "notatki" ||
- activeTab === "podglad"),
+ activeTab === "podglad" ||
+ activeTab === "dopasowanie"),
  });
 
  // Phase 17 (migracja 0068): risk profile — pokazujemy badge w nagłówku.
@@ -948,6 +950,10 @@ export function CandidateDetailV2({
  </Badge>
  )}
  </TabsTrigger>
+ <TabsTrigger value="dopasowanie">
+ <Sparkles className="h-3.5 w-3.5" />
+ Dopasowanie
+ </TabsTrigger>
  <TabsTrigger value="notatki">
  <MessageSquare className="h-3.5 w-3.5" />
  Notatki
@@ -1012,6 +1018,13 @@ export function CandidateDetailV2({
  />
  </div>
  </div>
+ </TabsContent>
+ <TabsContent value="dopasowanie" className="mt-0">
+ <DopasowanieTab
+ candidateId={Number(id)}
+ recruitments={history}
+ defaultJobId={backJobId}
+ />
  </TabsContent>
  <TabsContent value="notatki" className="mt-0">
  <NotatkiTab
