@@ -13,11 +13,20 @@ from app.models.b2b_contract_role import B2BContractRole
 from app.services.b2b_contract_generator.formatting import format_rate, start_clause
 from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.number_words import rate_in_words
+from app.services.b2b_contract_generator.rate_clause import (
+    RateStage,
+    build_rate_clause,
+)
 
 
 def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
     """Zbuduj kontekst szablonu z pól `B2BRenderRequest` + wybranej roli."""
     lang = "en" if (req.language or "pl").lower().startswith("en") else "pl"
+
+    # Znormalizowany adres do korespondencji — szablon renderuje etykietę pod
+    # `{% if %}`, więc wartość whitespace-only musi zejść do None (inaczej w
+    # umowie wyląduje etykieta z pustym adresem).
+    correspondence = (req.partner_correspondence_address or "").strip() or None
 
     if role is not None:
         area_label = role.area_label_en if lang == "en" else role.area_label_pl
@@ -32,6 +41,22 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
         req.rate_candidate, lang, req.currency or "PLN"
     )
 
+    # Zdanie o stawce (§5): pojedyncza kwota lub „stawka progresywna" z okresami
+    # obowiązywania. Stare payloady bez `rate_stages` → jeden etap z
+    # `rate_candidate` (render identyczny z historycznym).
+    stages = [
+        RateStage(
+            rate=s.rate, effective_from=s.effective_from, effective_to=s.effective_to
+        )
+        for s in (getattr(req, "rate_stages", None) or [])
+    ] or [RateStage(rate=req.rate_candidate)]
+    rate_clause = build_rate_clause(
+        stages,
+        language=lang,
+        currency=req.currency or "PLN",
+        words_override=req.rate_in_words if len(stages) == 1 else None,
+    )
+
     return {
         "candidate": {
             "id": None,
@@ -40,8 +65,7 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "full_name": req.partner_name,
             "email": req.partner_email,
             "phone": req.partner_phone,
-            "address": req.partner_correspondence_address
-            or req.partner_business_address,
+            "address": correspondence or req.partner_business_address,
             "legal_name": req.partner_legal_name,
             "nip": req.partner_nip,
             "regon": req.partner_regon,
@@ -81,8 +105,9 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "signing_date": req.signing_date,
             "project_city": req.project_city,
             "project_description": req.project_description,
-            "correspondence_address": req.partner_correspondence_address,
+            "correspondence_address": correspondence,
             "rate_in_words": words,
+            "rate_clause": rate_clause,
             "language": lang,
             "area_label": area_label,
             "role_name": role_name,

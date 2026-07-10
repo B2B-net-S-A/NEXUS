@@ -876,6 +876,18 @@ _COLUMN_STATEMENTS = [
     "ON contract_client_rates (effective_from)",
     "CREATE INDEX IF NOT EXISTS ix_contract_client_rates_id "
     "ON contract_client_rates (id)",
+    # Stawka ramowa + widełki docelowe z groszami (0157): INTEGER → NUMERIC(12,2)
+    # na ISTNIEJĄCYCH kolumnach `contracts`. Gdy alembic padnie na multi-head,
+    # model już mapuje Decimal — zapis 215,60 w INTEGER kończy się DataError
+    # (asyncpg nie rzutuje float→int). Zmiana typu NUMERIC→NUMERIC przy kolejnych
+    # startach to no-op semantyczny (tabela mała), więc statement jest bezpiecznie
+    # re-runowalny.
+    "ALTER TABLE contracts ALTER COLUMN framework_rate TYPE NUMERIC(12, 2) "
+    "USING framework_rate::numeric",
+    "ALTER TABLE contracts ALTER COLUMN target_rate_min TYPE NUMERIC(12, 2) "
+    "USING target_rate_min::numeric",
+    "ALTER TABLE contracts ALTER COLUMN target_rate_max TYPE NUMERIC(12, 2) "
+    "USING target_rate_max::numeric",
 ]
 
 _DATA_STATEMENTS = [

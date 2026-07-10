@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -18,6 +18,7 @@ from jinja2 import TemplateError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
@@ -33,6 +34,7 @@ from app.models.contract import (
     ContractType,
     RateUnit,
 )
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_template import ContractTemplate
 from app.models.job import Job
 from app.models.user import User, UserRole
@@ -225,7 +227,13 @@ async def generate(
 
     # 1. Utwórz lub wczytaj draft Contract (typ b2b).
     if payload.contract_id is not None:
-        contract = await db.get(Contract, payload.contract_id)
+        # selectinload harmonogramu: replace relacji niżej musi znać stan
+        # bieżący (delete-orphan) — lazy-load w async wywala MissingGreenlet.
+        contract = await db.scalar(
+            select(Contract)
+            .where(Contract.id == payload.contract_id)
+            .options(selectinload(Contract.candidate_rate_schedule))
+        )
         if not contract:
             raise HTTPException(status_code=404, detail="Umowa nie znaleziona")
         if contract.contract_type != ContractType.b2b:
@@ -259,6 +267,25 @@ async def generate(
     contract.rate_candidate = payload.rate_candidate
     contract.currency = payload.currency
     contract.rate_unit = RateUnit.hourly
+    # Stawka progresywna → harmonogram `candidate_rate_schedule`. Formularz
+    # generatora wysyła zawsze PEŁNY stan, więc replace bezwarunkowy: brak
+    # `rate_stages` czyści harmonogram z poprzedniej generacji (inaczej stary
+    # rozkład dalej sterowałby zdaniem o stawce w umowie). Reassignment =
+    # replace (delete-orphan). Etap startowy bez „Obowiązuje od" dziedziczy
+    # datę rozpoczęcia usług.
+    contract.candidate_rate_schedule = [
+        ContractCandidateRate(
+            rate=s.rate,
+            effective_from=s.effective_from or payload.start_date,
+            effective_to=s.effective_to,
+            created_by=current_user.id,
+        )
+        for s in (payload.rate_stages or [])
+    ]
+    if contract.candidate_rate_schedule:
+        # Cache spójny z harmonogramem — etap obowiązujący dziś (wzorzec z
+        # PATCH /api/contracts).
+        contract.rate_candidate = contract.effective_candidate_rate(date.today())
 
     # 3. Upsert B2BContractDetail.
     detail = await db.scalar(

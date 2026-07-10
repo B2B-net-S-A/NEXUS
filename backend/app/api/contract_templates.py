@@ -72,6 +72,12 @@ from app.services.b2b_contract_generator.formatting import (  # noqa: E402
 from app.services.b2b_contract_generator.gender import (  # noqa: E402
     gender_forms as _gender_forms,
 )
+from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
+    RateStage as _RateStage,
+)
+from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
+    build_rate_clause as _build_rate_clause,
+)
 
 _jinja_env.filters["pl_date"] = _pl_date
 
@@ -93,6 +99,30 @@ def _contract_vars(contract: Contract) -> dict:
         _area_label = _role_name = None
         _role_scope = []
     _scope_items = (detail.role_scope_override if detail else None) or _role_scope or []
+    # Zdanie o stawce (§5 szablonu B2B). Harmonogram z ≥2 etapami („stawka
+    # progresywna", np. z generatora /generate) → wyliczenie okresów; inaczej
+    # pojedyncza kwota z `rate_candidate` (render jak dotychczas). Wymaga
+    # eager-load `candidate_rate_schedule` (jak client_rate_schedule wszędzie).
+    _schedule = list(contract.candidate_rate_schedule or [])
+    if len(_schedule) >= 2:
+        _rate_stages = [
+            _RateStage(
+                rate=e.rate,
+                effective_from=e.effective_from,
+                effective_to=e.effective_to,
+            )
+            for e in _schedule
+        ]
+        _words_override = None
+    else:
+        _rate_stages = [_RateStage(rate=contract.rate_candidate)]
+        _words_override = detail.rate_in_words if detail else None
+    _rate_clause = _build_rate_clause(
+        _rate_stages,
+        language=lang,
+        currency=contract.currency,
+        words_override=_words_override,
+    )
     return {
         "contract": {
             "id": contract.id,
@@ -152,10 +182,15 @@ def _contract_vars(contract: Contract) -> dict:
             "signing_date": detail.signing_date if detail else None,
             "project_city": detail.project_city if detail else None,
             "project_description": detail.project_description if detail else None,
+            # Whitespace-only → None; szablon renderuje etykietę „adres do
+            # korespondencji" pod `{% if %}` — pusta wartość nie może jej włączyć.
             "correspondence_address": (
-                detail.correspondence_address if detail else None
+                ((detail.correspondence_address or "").strip() or None)
+                if detail
+                else None
             ),
             "rate_in_words": detail.rate_in_words if detail else None,
+            "rate_clause": _rate_clause,
             "language": lang,
             "area_label": _area_label,
             "role_name": _role_name,
@@ -284,6 +319,9 @@ async def render_template_for_contract(
             selectinload(Contract.candidate),
             selectinload(Contract.client),
             selectinload(Contract.job),
+            # `_contract_vars` czyta harmonogram stawek (rate_clause) — bez
+            # eager-load async lazy-load wywala MissingGreenlet.
+            selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.b2b_detail).selectinload(B2BContractDetail.role),
         )
     )

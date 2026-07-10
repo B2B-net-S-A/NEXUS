@@ -291,3 +291,52 @@ async def test_patch_replaces_schedule_with_progressive_steps(
         assert patch4.json()["rate_candidate"] == 90
     finally:
         await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+
+# ── Fractional framework/target rates (fix „Request failed with 422") ────────
+# „Stawka z umowy ramowej" 215,60 wywalała PATCH 422-ką: schematy miały
+# `Optional[int]`, a Pydantic odrzuca float z częścią ułamkową (nie zaokrągla).
+# Kolumny są teraz NUMERIC(12,2) (migracja 0157), schematy — float.
+
+
+def test_contract_update_accepts_fractional_framework_and_target_rates():
+    from app.schemas.contract import ContractUpdate
+
+    upd = ContractUpdate(
+        framework_rate=215.60, target_rate_min=180.50, target_rate_max=220.75
+    )
+    assert upd.framework_rate == 215.60
+    assert upd.target_rate_min == 180.50
+    assert upd.target_rate_max == 220.75
+
+
+def test_contract_create_and_response_accept_fractional_framework_rate():
+    from app.schemas.contract import ContractCreate, ContractResponse
+
+    created = ContractCreate(
+        candidate_id=1, client_id=1, start_date=date(2026, 7, 1), framework_rate=215.6
+    )
+    assert created.framework_rate == 215.6
+
+    # Response path: kolumna NUMERIC czyta się jako Decimal — float schema nie
+    # może jej uciąć ani odrzucić.
+    resp = ContractResponse(
+        id=1,
+        candidate_id=1,
+        client_id=1,
+        job_id=None,
+        end_date=None,
+        rate_candidate=None,
+        rate_client=None,
+        framework_rate=Decimal("215.60"),
+        currency="PLN",
+        rate_unit=RateUnit.hourly,
+        billing_hours_per_month=160,
+        margin=None,
+        contract_type="b2b",
+        status="active",
+        documents=None,
+        created_at="2026-07-10T00:00:00Z",
+        updated_at="2026-07-10T00:00:00Z",
+    )
+    assert resp.framework_rate == 215.60

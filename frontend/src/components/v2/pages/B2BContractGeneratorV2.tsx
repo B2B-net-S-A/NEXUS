@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   Pencil,
+  Plus,
   Printer,
   Save,
   Search,
@@ -102,6 +103,21 @@ type JobDetail = {
 
 type Lang = "pl" | "en";
 type LookupStatus = "idle" | "loading" | "ok" | "none";
+
+/** Jeden etap stawki w „Warunkach umowy" — kwota + „Obowiązuje od/do". */
+type RateStageForm = { rate: string; from: string; to: string };
+
+const MAX_RATE_STAGES = 6;
+
+const emptyRateStage = (): RateStageForm => ({ rate: "", from: "", to: "" });
+
+/** Stawka bywa ułamkowa wpisana po polsku (135,5) — przecinek→kropka. */
+function parseRate(raw: string): number | null {
+  const v = raw.trim();
+  if (!v) return null;
+  const n = Number(v.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -576,8 +592,25 @@ function GeneratorForm() {
   const [startDateMode, setStartDateMode] = useState<
     "exact" | "not_earlier" | "not_later"
   >("exact");
-  const [rateCandidate, setRateCandidate] = useState("");
+  // Stawka godzinowa — jeden lub kilka etapów („stawka progresywna": kwota +
+  // „Obowiązuje od/do"). Pierwszy wiersz to dotychczasowa pojedyncza stawka.
+  const [rateStages, setRateStages] = useState<RateStageForm[]>([
+    emptyRateStage(),
+  ]);
   const [currency, setCurrency] = useState("PLN");
+
+  const setRateStage = (index: number, patch: Partial<RateStageForm>) =>
+    setRateStages((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    );
+  const addRateStage = () =>
+    setRateStages((prev) =>
+      prev.length >= MAX_RATE_STAGES ? prev : [...prev, emptyRateStage()],
+    );
+  const removeRateStage = (index: number) =>
+    setRateStages((prev) =>
+      prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
+    );
 
   // AI-sprawdzenie opisu pod kątem znamion umowy o pracę (#3).
   const [uop, setUop] = useState<B2BUopCheckResult | null>(null);
@@ -812,9 +845,17 @@ function GeneratorForm() {
     start_date_mode: startDateMode,
     // Stawka bywa ułamkowa (135,5); normalizuj przecinek→kropka. Backend
     // przyjmuje float i formatuje do „135,50" w umowie.
-    rate_candidate: rateCandidate.trim()
-      ? Number(rateCandidate.replace(",", "."))
-      : null,
+    rate_candidate: parseRate(rateStages[0]?.rate ?? ""),
+    // Stawka progresywna: wysyłana tylko przy >1 etapach; pojedyncza stawka
+    // idzie starym polem `rate_candidate` (pełna zgodność wstecz).
+    rate_stages:
+      rateStages.length > 1
+        ? rateStages.map((s) => ({
+            rate: parseRate(s.rate) ?? 0,
+            effective_from: s.from || null,
+            effective_to: s.to || null,
+          }))
+        : null,
     currency: currency.trim() || "PLN",
   });
 
@@ -835,10 +876,28 @@ function GeneratorForm() {
     if (!contractNumber.trim()) missing.push("Numer umowy");
     if (!signingDate) missing.push("Data podpisania");
     if (!startDate) missing.push("Data rozpoczęcia");
-    if (!rateCandidate.trim() || !(Number(rateCandidate.replace(",", ".")) > 0))
-      missing.push("Stawka godzinowa");
+    if (rateStages.length === 1) {
+      const rate = parseRate(rateStages[0]?.rate ?? "");
+      if (!rate || rate <= 0) missing.push("Stawka godzinowa");
+    } else {
+      // Stawka progresywna: każdy etap z kwotą; etapy 2+ muszą mieć
+      // „Obowiązuje od" (inaczej okresy w umowie są nierozstrzygalne).
+      rateStages.forEach((s, i) => {
+        const rate = parseRate(s.rate);
+        if (!rate || rate <= 0) missing.push(`Stawka godzinowa (etap ${i + 1})`);
+        if (i > 0 && !s.from) missing.push(`„Obowiązuje od” (etap ${i + 1})`);
+      });
+    }
     if (missing.length) {
       toast.showError(`Uzupełnij wymagane pola: ${missing.join(", ")}.`);
+      return false;
+    }
+    // Daty ISO (yyyy-mm-dd) porównują się leksykograficznie.
+    const backwards = rateStages.find((s) => s.from && s.to && s.to < s.from);
+    if (backwards) {
+      toast.showError(
+        "„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od” etapu stawki.",
+      );
       return false;
     }
     if (!/^\d+\/\d{4}$/.test(contractNumber.trim())) {
@@ -920,9 +979,17 @@ function GeneratorForm() {
       project_city: projectCity.trim() || null,
       project_description: projectDescription.trim() || null,
       correspondence_address: partnerCorrespondenceAddress.trim() || null,
-      rate_candidate: rateCandidate.trim()
-        ? Number(rateCandidate.replace(",", "."))
-        : null,
+      rate_candidate: parseRate(rateStages[0]?.rate ?? ""),
+      // Etapy stawki trafiają też do harmonogramu kontraktu
+      // (candidate_rate_schedule) przy promocji draftu.
+      rate_stages:
+        rateStages.length > 1
+          ? rateStages.map((s) => ({
+              rate: parseRate(s.rate) ?? 0,
+              effective_from: s.from || null,
+              effective_to: s.to || null,
+            }))
+          : null,
       currency: currency.trim() || "PLN",
     };
   };
@@ -1526,21 +1593,91 @@ function GeneratorForm() {
               />
             </div>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Stawka godz. (netto)" required>
-              <Input
-                type="number"
-                value={rateCandidate}
-                onChange={(e) => setRateCandidate(e.target.value)}
-                placeholder="np. 150"
-              />
-            </Field>
-            <Field label="Waluta">
-              <Input value={currency} onChange={(e) => setCurrency(e.target.value)} />
-            </Field>
+          <div className="space-y-3 sm:col-span-2">
+            {rateStages.length === 1 ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Stawka godz. (netto)" required>
+                  <Input
+                    type="number"
+                    value={rateStages[0]?.rate ?? ""}
+                    onChange={(e) => setRateStage(0, { rate: e.target.value })}
+                    placeholder="np. 150"
+                  />
+                </Field>
+                <Field label="Waluta">
+                  <Input
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                  />
+                </Field>
+              </div>
+            ) : (
+              <>
+                {rateStages.map((stage, i) => (
+                  <div key={i} className="flex items-end gap-2">
+                    <div className="grid flex-1 grid-cols-3 gap-3">
+                      <Field label={`Stawka godz. (netto) — etap ${i + 1}`} required>
+                        <Input
+                          type="number"
+                          value={stage.rate}
+                          onChange={(e) => setRateStage(i, { rate: e.target.value })}
+                          placeholder="np. 150"
+                        />
+                      </Field>
+                      {/* Pierwszy etap bez „od" obowiązuje od rozpoczęcia usług. */}
+                      <Field label="Obowiązuje od" required={i > 0}>
+                        <Input
+                          type="date"
+                          value={stage.from}
+                          onChange={(e) => setRateStage(i, { from: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Obowiązuje do">
+                        <Input
+                          type="date"
+                          value={stage.to}
+                          onChange={(e) => setRateStage(i, { to: e.target.value })}
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeRateStage(i)}
+                      title="Usuń etap stawki"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label="Waluta">
+                    <Input
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addRateStage}
+              disabled={rateStages.length >= MAX_RATE_STAGES}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              Dodaj etap stawki
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground sm:col-span-2">
             „Stawka słownie" liczy się automatycznie z kwoty.
+            {rateStages.length > 1
+              ? " Stawka progresywna: umowa wypisze każdy etap z okresem obowiązywania; etap 1 bez „od” obowiązuje od rozpoczęcia usług."
+              : ""}
           </p>
         </CardContent>
       </Card>
