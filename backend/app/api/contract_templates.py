@@ -107,7 +107,9 @@ def _contract_vars(contract: Contract) -> dict:
     if len(_schedule) >= 2:
         _rate_stages = [
             _RateStage(
-                rate=e.rate, effective_from=e.effective_from, effective_to=e.effective_to
+                rate=e.rate,
+                effective_from=e.effective_from,
+                effective_to=e.effective_to,
             )
             for e in _schedule
         ]
