@@ -1,7 +1,10 @@
 """Extract raw text from PDF/DOCX CV files for Claude analysis.
 
 Ports `extractTextFromFile()` from `lib/cv-shared.ts`:
-  - PDF: external `pdftotext` first, fall back to `pdfplumber` if not installed.
+  - PDF: external `pdftotext` first, fall back to `pdfplumber` if not installed;
+    scanned / image-only PDFs (no text layer) go through a tesseract OCR
+    fallback — the same pipeline `app.services.cv_text_extractor` uses for
+    candidate uploads.
   - DOCX/DOC: `python-docx` (paragraphs + tables) — matches `mammoth.extractRawText` semantics.
 """
 
@@ -54,6 +57,35 @@ def _extract_pdf_pdfplumber(data: bytes) -> str:
     return "\n".join(text_parts)
 
 
+# Native extraction below this many characters means the PDF is most likely a
+# scan / image-only export — retry via OCR (same threshold as
+# app.services.cv_text_extractor; real CV text starts at >1KB).
+_OCR_FALLBACK_THRESHOLD_CHARS = 100
+
+
+def _extract_pdf_ocr(data: bytes) -> str | None:
+    """Render PDF pages to images and OCR them via tesseract.
+
+    Fallback for scanned / image-only PDFs where neither pdftotext nor
+    pdfplumber find a text layer. Heavy (~2-5s per page) — capped to the
+    first 10 pages; CVs are short. Returns None when OCR is unavailable.
+    """
+    try:
+        import pytesseract  # type: ignore[import-untyped]
+        from pdf2image import convert_from_bytes  # type: ignore[import-untyped]
+
+        pages = convert_from_bytes(data, dpi=200, last_page=10)
+        out: list[str] = []
+        for img in pages:
+            txt = pytesseract.image_to_string(img, lang="pol+eng")
+            if txt:
+                out.append(txt)
+        return "\n\n".join(out) if out else ""
+    except Exception as err:  # pragma: no cover — system tesseract may be missing
+        logger.warning("[cv_b2b] OCR fallback failed: %s", err)
+        return None
+
+
 def _extract_docx(data: bytes) -> str:
     """Pull paragraphs and table cells from a DOCX."""
     from docx import Document
@@ -89,13 +121,35 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
     if ext == ".pdf":
         text = _extract_pdf_pdftotext(data)
         if text is None or not text.strip():
-            text = _extract_pdf_pdfplumber(data)
+            try:
+                text = _extract_pdf_pdfplumber(data)
+            except Exception as err:  # corrupt-ish PDF — OCR may still read it
+                logger.warning(
+                    "[cv_b2b] pdfplumber failed on %s: %s — trying OCR",
+                    file_name,
+                    err,
+                )
+                text = ""
+        # Scanned / image-only PDFs yield (near-)empty text from both native
+        # extractors — OCR is the only way to read them.
+        if len((text or "").strip()) < _OCR_FALLBACK_THRESHOLD_CHARS:
+            ocr = _extract_pdf_ocr(data)
+            if ocr and len(ocr.strip()) > len((text or "").strip()):
+                logger.info(
+                    "[cv_b2b] %s: native PDF extraction near-empty, using OCR",
+                    file_name,
+                )
+                text = ocr
     elif ext in (".docx", ".doc"):
         text = _extract_docx(data)
     else:
         raise CVTextExtractionError(f"Unsupported CV format: {ext}")
 
     if not text or not text.strip():
-        raise CVTextExtractionError(f"Empty text extracted from {file_name}")
+        raise CVTextExtractionError(
+            f"Empty text extracted from {file_name} — plik wygląda na skan bez "
+            "czytelnej warstwy tekstowej (OCR też nie odczytał tekstu). "
+            "Spróbuj wgrać tekstową wersję PDF lub DOCX."
+        )
 
     return text

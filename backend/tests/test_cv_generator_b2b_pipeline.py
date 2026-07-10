@@ -1181,3 +1181,80 @@ def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
     ), "RODO not pinned to the bottom margin"
     assert 'w:val="both"' in body, "RODO clause not justified"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
+
+
+# ── PDF text extraction — OCR fallback for scanned CVs ─────────────────────
+#
+# A scanned / image-only PDF has no text layer, so pdftotext and pdfplumber
+# both return nothing. Before the fallback the generator hard-failed with
+# "Empty text extracted from <file>.pdf" even though the rest of the app
+# (app.services.cv_text_extractor) already OCRs such files via tesseract.
+
+
+def _patch_native_extractors(monkeypatch, pdftotext=None, pdfplumber=""):
+    from app.services.cv_generator_b2b import text_extractor as te
+
+    monkeypatch.setattr(te, "_extract_pdf_pdftotext", lambda data: pdftotext)
+    if isinstance(pdfplumber, Exception):
+
+        def _raise(data):
+            raise pdfplumber
+
+        monkeypatch.setattr(te, "_extract_pdf_pdfplumber", _raise)
+    else:
+        monkeypatch.setattr(te, "_extract_pdf_pdfplumber", lambda data: pdfplumber)
+    return te
+
+
+def test_scanned_pdf_falls_back_to_ocr(monkeypatch):
+    te = _patch_native_extractors(monkeypatch, pdftotext=None, pdfplumber="")
+    ocr_text = "Adam Drazkowski\nCheck Point CCSE / CCSA\n" + "x" * 200
+    monkeypatch.setattr(te, "_extract_pdf_ocr", lambda data: ocr_text)
+
+    assert te.extract_text_from_file(b"%PDF-fake", "skan.pdf") == ocr_text
+
+
+def test_near_empty_native_text_prefers_ocr(monkeypatch):
+    # Native extraction returning just page furniture (< threshold) must not
+    # win over a real OCR read.
+    te = _patch_native_extractors(monkeypatch, pdftotext="1/2", pdfplumber="")
+    ocr_text = "Doświadczenie zawodowe\n" + "y" * 300
+    monkeypatch.setattr(te, "_extract_pdf_ocr", lambda data: ocr_text)
+
+    assert te.extract_text_from_file(b"%PDF-fake", "skan.pdf") == ocr_text
+
+
+def test_good_native_text_skips_ocr(monkeypatch):
+    native = "Solidne CV z pełną warstwą tekstową. " * 10
+    te = _patch_native_extractors(monkeypatch, pdftotext=native)
+
+    def _boom(data):
+        raise AssertionError("OCR must not run when native text is good")
+
+    monkeypatch.setattr(te, "_extract_pdf_ocr", _boom)
+
+    assert te.extract_text_from_file(b"%PDF-fake", "cv.pdf") == native
+
+
+def test_unreadable_pdf_raises_with_scan_hint(monkeypatch):
+    from app.services.cv_generator_b2b.text_extractor import CVTextExtractionError
+
+    te = _patch_native_extractors(monkeypatch, pdftotext=None, pdfplumber="")
+    monkeypatch.setattr(te, "_extract_pdf_ocr", lambda data: None)
+
+    with pytest.raises(CVTextExtractionError) as exc:
+        te.extract_text_from_file(b"%PDF-fake", "skan.pdf")
+    assert "Empty text extracted from skan.pdf" in str(exc.value)
+    assert "skan" in str(exc.value)  # actionable hint for the recruiter
+
+
+def test_corrupt_pdf_still_tries_ocr(monkeypatch):
+    # pdfplumber blowing up on a malformed PDF must not crash the job —
+    # poppler (pdf2image) can often still rasterize it for OCR.
+    te = _patch_native_extractors(
+        monkeypatch, pdftotext=None, pdfplumber=ValueError("No /Root object")
+    )
+    ocr_text = "Treść odzyskana przez OCR. " + "z" * 200
+    monkeypatch.setattr(te, "_extract_pdf_ocr", lambda data: ocr_text)
+
+    assert te.extract_text_from_file(b"%PDF-broken", "cv.pdf") == ocr_text
