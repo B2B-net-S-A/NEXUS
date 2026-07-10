@@ -864,9 +864,7 @@ class TestCorrespondenceAddress:
 class TestRateClause:
     def test_single_rate_matches_legacy_wording(self):
         assert (
-            build_rate_clause(
-                [RateStage(rate=150)], language="pl", currency="PLN"
-            )
+            build_rate_clause([RateStage(rate=150)], language="pl", currency="PLN")
             == "150 PLN (słownie: sto pięćdziesiąt złotych)"
         )
 
@@ -1021,8 +1019,7 @@ class TestRateStagesValidation:
         from app.schemas.b2b_contract_generator import B2BRenderRequest
 
         stages = [
-            {"rate": 100 + i, "effective_from": f"2026-0{i + 1}-01"}
-            for i in range(7)
+            {"rate": 100 + i, "effective_from": f"2026-0{i + 1}-01"} for i in range(7)
         ]
         with pytest.raises(ValidationError, match="Maksymalnie"):
             B2BRenderRequest(language="pl", rate_stages=stages)
