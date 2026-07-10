@@ -1107,8 +1107,9 @@ def test_rerender_does_not_mutate_saved_payload():
 
 
 def _full_page_payload() -> dict:
-    # Enough experience to (over-)fill the page, so the RODO clause is rendered
-    # in-flow rather than pinned to the foot of the page.
+    # Enough experience to (over-)fill the page and spill across several pages —
+    # the case where the old hybrid switched the RODO clause to an in-flow render
+    # that dangled at the top of the last page in the paginated download.
     payload = _sample_payload()
     payload["experience"] = [
         {
@@ -1154,26 +1155,29 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
 
 
-def test_rodo_clause_stays_in_flow_and_justified_when_page_is_full():
-    # A content-heavy CV has no room to drop the clause to the foot of the page
-    # without overlapping the last lines, so it stays in the normal flow: the red
-    # VML divider (fillcolor #e14f4f) closes the body after the last role and the
-    # justified clause follows it. No bottom-anchored float here.
+def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
+    # A content-heavy CV that spills across pages pins the RODO consent clause to
+    # the foot of the LAST page via the SAME floating text box as a short CV —
+    # never in the normal flow. The old hybrid switched a content-heavy CV to an
+    # in-flow clause; in the paginated download that dangled at the TOP of the
+    # last page whenever the body spilled just past a page boundary ("RODO na
+    # górze strony"). A bottom-anchored float lands at the foot of whichever page
+    # its anchor sits on, so the clause is always at the bottom of the last page.
     import io
+    import re
     import zipfile
 
     data = rerender_docx_from_payload(_full_page_payload())
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         body = z.read("word/document.xml").decode("utf-8")
 
-    last_experience_text = body.rfind("Spring Boot")  # last role's last technology
-    last_divider = body.rfind('fillcolor="#e14f4f"')
-    rodo = body.find("Wyrażam zgodę na przetwarzanie")
-
-    assert last_experience_text != -1
-    assert rodo != -1, "RODO clause missing"
-    assert 'name="RodoClause"' not in body, "full-page CV should not float the clause"
-    assert last_divider > last_experience_text, "closing divider not after last role"
-    assert rodo > last_divider, "RODO clause not after the closing divider"
-    assert 'w:val="both"' in body, "in-flow RODO clause not justified"
+    assert "Wyrażam zgodę na przetwarzanie" in body, "RODO clause missing"
+    # Same single bottom-anchored floating box as the short-CV case: no in-flow
+    # fallback, so the clause never dangles at the top of the last page.
+    assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
+    assert "wrapNone" in body, "RODO box not floating (would add in-flow height)"
+    assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
+        r"<[\w:]*align>bottom<", body
+    ), "RODO not pinned to the bottom margin"
+    assert 'w:val="both"' in body, "RODO clause not justified"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
