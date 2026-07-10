@@ -128,7 +128,9 @@ class Contract(Base, TimestampMixin):
     rate_client: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 3))
     # Stawka z umowy ramowej (MSA) — wartość referencyjna uzgodniona w umowie
     # ramowej z klientem. NIE wchodzi do liczenia marży (to baseline/ceiling).
-    framework_rate: Mapped[Optional[int]] = mapped_column(Integer)
+    # Numeric(12,2): stawki ramowe bywają z groszami (np. 215,60) — Integer
+    # odrzucał je 422-ką na schemacie (migracja 0157).
+    framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     currency: Mapped[str] = mapped_column(String(3), default="PLN")
 
     # Jednostka stawki (godz. / dzień / mies.) + liczba godzin billingowych (dla stawki godzinowej).
@@ -191,9 +193,14 @@ class Contract(Base, TimestampMixin):
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     # Desired rate range we want to achieve on this contract (used by benchmark
-    # comparison and by sales during renegotiation).
-    target_rate_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    target_rate_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # comparison and by sales during renegotiation). Numeric(12,2) — grosze jak
+    # w framework_rate (migracja 0157).
+    target_rate_min: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    target_rate_max: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
 
     # End of the client's purchase order — often earlier than our contract with
     # the consultant. Drives proactive reminders so we can react before the

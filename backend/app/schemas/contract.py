@@ -64,9 +64,11 @@ class ContractCreate(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float] = None
     rate_client: Optional[float] = None
-    framework_rate: Optional[int] = None
-    target_rate_min: Optional[int] = None
-    target_rate_max: Optional[int] = None
+    # `float`, NIE `int` — stawki ramowe/widełki bywają z groszami (np. 215,60);
+    # Pydantic `int` odrzuca część ułamkową 422-ką zamiast zaokrąglić.
+    framework_rate: Optional[float] = None
+    target_rate_min: Optional[float] = None
+    target_rate_max: Optional[float] = None
     currency: str = "PLN"
     rate_unit: RateUnit = RateUnit.monthly
     billing_hours_per_month: int = 160
@@ -106,9 +108,10 @@ class ContractUpdate(BaseModel):
     # and re-derives `rate_candidate` from them; omit the key to leave the
     # existing schedule untouched (backward-compatible for partial PATCHes).
     candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None
-    framework_rate: Optional[int] = None
-    target_rate_min: Optional[int] = None
-    target_rate_max: Optional[int] = None
+    # `float`, NIE `int` — grosze (215,60) w stawce ramowej/widełkach (jak wyżej).
+    framework_rate: Optional[float] = None
+    target_rate_min: Optional[float] = None
+    target_rate_max: Optional[float] = None
     currency: Optional[str] = None
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = None
@@ -147,9 +150,9 @@ class ContractResponse(BaseModel):
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float]
     rate_client: Optional[float]
-    framework_rate: Optional[int] = None
-    target_rate_min: Optional[int] = None
-    target_rate_max: Optional[int] = None
+    framework_rate: Optional[float] = None
+    target_rate_min: Optional[float] = None
+    target_rate_max: Optional[float] = None
     currency: str
     rate_unit: RateUnit
     billing_hours_per_month: int

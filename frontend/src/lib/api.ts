@@ -1643,6 +1643,13 @@ export interface B2BRole {
   is_active: boolean;
 }
 
+/** Jeden etap „stawki progresywnej" (kwota + „Obowiązuje od/do"). */
+export interface B2BRateStage {
+  rate: number;
+  effective_from?: string | null;
+  effective_to?: string | null;
+}
+
 export interface B2BGeneratePayload {
   candidate_id?: number;
   client_id?: number;
@@ -1659,6 +1666,8 @@ export interface B2BGeneratePayload {
   rate_candidate?: number | null;
   currency: string;
   rate_in_words?: string | null;
+  // Stawka progresywna — null/brak = pojedyncza stawka z `rate_candidate`.
+  rate_stages?: B2BRateStage[] | null;
   scope_items_override?: string[] | null;
 }
 
@@ -1745,6 +1754,8 @@ export interface B2BRenderPayload {
   start_date?: string | null;
   start_date_mode?: string;
   rate_candidate?: number | null;
+  // Stawka progresywna — null/brak = pojedyncza stawka z `rate_candidate`.
+  rate_stages?: B2BRateStage[] | null;
   currency: string;
   scope_items_override?: string[] | null;
 }

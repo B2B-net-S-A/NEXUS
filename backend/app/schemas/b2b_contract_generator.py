@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class B2BRoleResponse(BaseModel):
@@ -50,6 +50,62 @@ class B2BRoleUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class B2BRateStageInput(BaseModel):
+    """Jeden etap stawki („stawka progresywna") w sekcji „Warunki umowy".
+
+    ``effective_from``/``effective_to`` = „Obowiązuje od/do". Pierwszy etap może
+    iść bez „od" (obowiązuje od rozpoczęcia świadczenia Usług), ostatni bez „do"
+    (bezterminowo do końca umowy).
+    """
+
+    # Stawka bywa ułamkowa (np. 83,5 PLN/h) — `float`, NIE `int` (jak
+    # `rate_candidate` niżej; Pydantic `int` odrzuca ułamek 422-ką).
+    rate: float = Field(gt=0)
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _dates_ordered(self) -> "B2BRateStageInput":
+        if (
+            self.effective_from
+            and self.effective_to
+            and self.effective_to < self.effective_from
+        ):
+            raise ValueError(
+                "„Obowiązuje do” nie może być wcześniejsze niż „Obowiązuje od”"
+            )
+        return self
+
+
+_MAX_RATE_STAGES = 6
+
+
+def _normalize_rate_stages(
+    stages: Optional[list[B2BRateStageInput]],
+) -> Optional[list[B2BRateStageInput]]:
+    """Wspólna walidacja etapów stawki (render + generate).
+
+    Sortuje chronologicznie (etap bez „od" jako pierwszy — startowy); przy
+    kilku etapach każdy poza pierwszym musi mieć „Obowiązuje od", inaczej
+    okresy w umowie byłyby nierozstrzygalne.
+    """
+    if not stages:
+        return stages
+    if len(stages) > _MAX_RATE_STAGES:
+        raise ValueError(f"Maksymalnie {_MAX_RATE_STAGES} etapów stawki")
+    ordered = sorted(
+        stages,
+        key=lambda s: (s.effective_from is not None, s.effective_from or date.min),
+    )
+    if len(ordered) > 1:
+        for i, stage in enumerate(ordered[1:], start=2):
+            if stage.effective_from is None:
+                raise ValueError(
+                    f"Etap {i} stawki progresywnej wymaga daty „Obowiązuje od”"
+                )
+    return ordered
+
+
 class B2BGenerateRequest(BaseModel):
     # Strony — wymagane przy tworzeniu nowej umowy (gdy brak contract_id).
     candidate_id: Optional[int] = None
@@ -76,8 +132,19 @@ class B2BGenerateRequest(BaseModel):
     rate_candidate: Optional[float] = None
     currency: str = "PLN"
     rate_in_words: Optional[str] = None
+    # Stawka progresywna — kilka etapów (kwota + „Obowiązuje od/do") w ramach
+    # jednej umowy. Brak/1 pozycja = zwykła pojedyncza stawka. Etapy trafiają
+    # też do harmonogramu `Contract.candidate_rate_schedule`.
+    rate_stages: Optional[list[B2BRateStageInput]] = None
     # Nadpisanie zakresu roli na poziomie tej umowy (None = użyj domyślnego).
     scope_items_override: Optional[list[str]] = None
+
+    @field_validator("rate_stages")
+    @classmethod
+    def _sort_rate_stages(
+        cls, v: Optional[list[B2BRateStageInput]]
+    ) -> Optional[list[B2BRateStageInput]]:
+        return _normalize_rate_stages(v)
 
 
 class B2BGenerateResponse(BaseModel):
@@ -146,7 +213,17 @@ class B2BRenderRequest(BaseModel):
     rate_candidate: Optional[float] = None
     currency: str = "PLN"
     rate_in_words: Optional[str] = None
+    # Stawka progresywna (kwota + „Obowiązuje od/do" per etap); brak/1 pozycja =
+    # dotychczasowa pojedyncza stawka — stare payloady renderują się bez zmian.
+    rate_stages: Optional[list[B2BRateStageInput]] = None
     scope_items_override: Optional[list[str]] = None
+
+    @field_validator("rate_stages")
+    @classmethod
+    def _sort_rate_stages(
+        cls, v: Optional[list[B2BRateStageInput]]
+    ) -> Optional[list[B2BRateStageInput]]:
+        return _normalize_rate_stages(v)
 
 
 class B2BRenderHtmlResponse(BaseModel):

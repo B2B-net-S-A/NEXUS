@@ -24,6 +24,10 @@ from app.api.contract_templates import _jinja_env
 from app.data.b2b_roles import B2B_ROLES, CATEGORY_LABELS
 from app.services.b2b_contract_generator.formatting import pl_date
 from app.services.b2b_contract_generator.gender import gender_forms
+from app.services.b2b_contract_generator.rate_clause import (
+    RateStage,
+    build_rate_clause,
+)
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "app" / "templates" / "contract"
 
@@ -41,9 +45,21 @@ _EMPLOYMENT_DENYLIST = [
 ]
 
 
-def _sample_context(lang: str = "pl", gender: str = "m") -> dict:
+def _sample_context(
+    lang: str = "pl",
+    gender: str = "m",
+    correspondence_address: str | None = None,
+    rate_stages: list[RateStage] | None = None,
+) -> dict:
     # rola Backend (indeks 5) — 6 bulletów (4 merytoryczne + 2 niezależność).
     scope = B2B_ROLES[5]["scope_pl"] if lang == "pl" else B2B_ROLES[5]["scope_en"]
+    # Zdanie o stawce (§5) budowane realnym builderem — testy renderu pokrywają
+    # zarówno pojedynczą stawkę, jak i progresję z okresami obowiązywania.
+    rate_clause = build_rate_clause(
+        rate_stages if rate_stages is not None else [RateStage(rate=150)],
+        language=lang,
+        currency="PLN",
+    )
     return {
         "candidate": {
             "full_name": "Jan Kowalski & Co",
@@ -83,8 +99,9 @@ def _sample_context(lang: str = "pl", gender: str = "m") -> dict:
             "signing_date": date(2026, 6, 5),
             "project_city": "Kraków",
             "project_description": "Rozwój platformy bankowej.",
-            "correspondence_address": None,
+            "correspondence_address": correspondence_address,
             "rate_in_words": "sto pięćdziesiąt",
+            "rate_clause": rate_clause,
             "area_label": "Backend Software Development",
             "role_name": "Backend Software Development",
             "language": lang,
@@ -765,3 +782,247 @@ async def test_patch_generated_missing_row_404(app_client, app_auth_headers):
         json={"client_name": "Cokolwiek"},
     )
     assert resp.status_code == 404
+
+
+# ── Adres do korespondencji w komparycji (DOCX + HTML) ───────────────────────
+# Zgłoszenie: pole „Adres do korespondencji" z „Dane Partnera" było ignorowane
+# przy generowaniu — szablony nie miały placeholdera. Fragment jest warunkowy:
+# bez adresu komparycja wygląda jak dotychczas.
+
+_CORR_LABEL = {"pl": "adres do korespondencji", "en": "correspondence address"}
+_CORR_VALUE = "ul. Pocztowa 7, 00-950 Warszawa"
+
+
+def _render_docx_text(lang: str, ctx: dict, tmp_path) -> str:
+    env = Environment(autoescape=True)
+    env.filters["pl_date"] = pl_date
+    tpl = DocxTemplate(str(TEMPLATE_DIR / f"umowa_b2b_{lang}.docx"))
+    tpl.render(ctx, jinja_env=env)
+    out = tmp_path / f"corr_{lang}.docx"
+    tpl.save(str(out))
+    d = _docx.Document(str(out))
+    return (
+        "\n".join(p.text for p in d.paragraphs)
+        + "\n"
+        + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
+    )
+
+
+@pytest.mark.parametrize("lang", ["pl", "en"])
+class TestCorrespondenceAddress:
+    def test_docx_includes_address_once_after_regon(self, lang, tmp_path):
+        text = _render_docx_text(
+            lang, _sample_context(lang, correspondence_address=_CORR_VALUE), tmp_path
+        )
+        # Dokładnie RAZ — tylko główna komparycja (nie DPA/Umowa powierzenia).
+        assert text.count(_CORR_LABEL[lang]) == 1
+        assert f"REGON: 123456789, {_CORR_LABEL[lang]}: {_CORR_VALUE}," in text
+
+    def test_docx_omits_label_without_address(self, lang, tmp_path):
+        text = _render_docx_text(lang, _sample_context(lang), tmp_path)
+        assert _CORR_LABEL[lang] not in text
+
+    def test_html_conditional(self, lang):
+        tpl = _jinja_env.from_string(
+            (TEMPLATE_DIR / f"umowa_b2b_{lang}.html").read_text(encoding="utf-8")
+        )
+        with_addr = tpl.render(
+            **_sample_context(lang, correspondence_address=_CORR_VALUE)
+        )
+        assert with_addr.count(_CORR_LABEL[lang]) == 1
+        assert _CORR_VALUE in with_addr
+        without = tpl.render(**_sample_context(lang))
+        assert _CORR_LABEL[lang] not in without
+
+    def test_render_context_strips_whitespace_only_address(self, lang):
+        """Whitespace-only nie może włączyć etykiety w `{% if %}` szablonu."""
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+        from app.services.b2b_contract_generator.render_context import (
+            build_render_context,
+        )
+
+        req = B2BRenderRequest(
+            language=lang, partner_correspondence_address="   ", rate_candidate=150
+        )
+        ctx = build_render_context(req, None)
+        assert ctx["b2b"]["correspondence_address"] is None
+
+        req2 = B2BRenderRequest(
+            language=lang,
+            partner_correspondence_address=f"  {_CORR_VALUE}  ",
+            rate_candidate=150,
+        )
+        assert (
+            build_render_context(req2, None)["b2b"]["correspondence_address"]
+            == _CORR_VALUE
+        )
+
+
+# ── Stawka progresywna (rate_clause + walidacja etapów) ──────────────────────
+
+
+class TestRateClause:
+    def test_single_rate_matches_legacy_wording(self):
+        assert (
+            build_rate_clause(
+                [RateStage(rate=150)], language="pl", currency="PLN"
+            )
+            == "150 PLN (słownie: sto pięćdziesiąt złotych)"
+        )
+
+    def test_single_rate_words_override(self):
+        assert (
+            build_rate_clause(
+                [RateStage(rate=150)],
+                language="pl",
+                currency="PLN",
+                words_override="sto pięćdziesiąt",
+            )
+            == "150 PLN (słownie: sto pięćdziesiąt)"
+        )
+
+    def test_single_fractional_rate_includes_grosze(self):
+        assert (
+            build_rate_clause([RateStage(rate=83.5)], language="pl", currency="PLN")
+            == "83,50 PLN (słownie: osiemdziesiąt trzy złote pięćdziesiąt groszy)"
+        )
+
+    def test_progressive_pl(self):
+        clause = build_rate_clause(
+            [
+                RateStage(
+                    rate=150,
+                    effective_from=date(2026, 7, 1),
+                    effective_to=date(2026, 12, 31),
+                ),
+                RateStage(rate=160, effective_from=date(2027, 1, 1)),
+            ],
+            language="pl",
+            currency="PLN",
+        )
+        assert clause == (
+            "150 PLN (słownie: sto pięćdziesiąt złotych) w okresie od dnia "
+            "01.07.2026 do dnia 31.12.2026, a 160 PLN (słownie: sto "
+            "sześćdziesiąt złotych) od dnia 01.01.2027"
+        )
+
+    def test_progressive_en_first_stage_until_only(self):
+        clause = build_rate_clause(
+            [
+                RateStage(rate=150, effective_to=date(2026, 12, 31)),
+                RateStage(rate=160, effective_from=date(2027, 1, 1)),
+            ],
+            language="en",
+            currency="PLN",
+        )
+        assert clause == (
+            "150 PLN (in words: one hundred fifty zlotys) until 31.12.2026, "
+            "and 160 PLN (in words: one hundred sixty zlotys) from 01.01.2027"
+        )
+
+    def test_progressive_words_override_ignored(self):
+        """Ręczne „słownie" dotyczy jednej kwoty — przy progresji każda kwota
+        dostaje własne słownie automatycznie."""
+        clause = build_rate_clause(
+            [
+                RateStage(rate=150, effective_to=date(2026, 12, 31)),
+                RateStage(rate=160, effective_from=date(2027, 1, 1)),
+            ],
+            language="pl",
+            currency="PLN",
+            words_override="sto pięćdziesiąt",
+        )
+        assert "sto pięćdziesiąt złotych" in clause
+        assert "sto sześćdziesiąt złotych" in clause
+
+    def test_empty_stages_render_placeholders(self):
+        assert (
+            build_rate_clause([], language="pl", currency=None)
+            == "… PLN (słownie: ………)"
+        )
+
+    def test_docx_renders_progressive_clause(self, tmp_path):
+        stages = [
+            RateStage(
+                rate=150,
+                effective_from=date(2026, 7, 1),
+                effective_to=date(2026, 12, 31),
+            ),
+            RateStage(rate=160, effective_from=date(2027, 1, 1)),
+        ]
+        text = _render_docx_text(
+            "pl", _sample_context("pl", rate_stages=stages), tmp_path
+        )
+        assert "{{" not in text and "{%" not in text
+        assert (
+            "stawki godzinowej w wysokości 150 PLN (słownie: sto pięćdziesiąt "
+            "złotych) w okresie od dnia 01.07.2026 do dnia 31.12.2026, a 160 PLN "
+            "(słownie: sto sześćdziesiąt złotych) od dnia 01.01.2027 netto + VAT"
+        ) in text
+
+
+class TestRateStagesValidation:
+    def test_stages_sorted_chronologically(self):
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+        req = B2BRenderRequest(
+            language="pl",
+            rate_stages=[
+                {"rate": 170, "effective_from": "2027-06-01"},
+                {"rate": 150, "effective_to": "2026-12-31"},
+                {"rate": 160, "effective_from": "2027-01-01"},
+            ],
+        )
+        assert [s.rate for s in req.rate_stages] == [150, 160, 170]
+
+    def test_later_stage_requires_effective_from(self):
+        from pydantic import ValidationError
+
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+        with pytest.raises(ValidationError, match="Obowiązuje od"):
+            B2BRenderRequest(
+                language="pl",
+                rate_stages=[{"rate": 150}, {"rate": 160}],
+            )
+
+    def test_stage_dates_must_be_ordered(self):
+        from pydantic import ValidationError
+
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+        with pytest.raises(ValidationError, match="wcześniejsze"):
+            B2BRenderRequest(
+                language="pl",
+                rate_stages=[
+                    {
+                        "rate": 150,
+                        "effective_from": "2027-01-01",
+                        "effective_to": "2026-12-31",
+                    }
+                ],
+            )
+
+    def test_rate_must_be_positive_and_fractional_ok(self):
+        from pydantic import ValidationError
+
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+        req = B2BRenderRequest(
+            language="pl", rate_stages=[{"rate": 83.5, "effective_to": "2026-12-31"}]
+        )
+        assert req.rate_stages[0].rate == 83.5
+        with pytest.raises(ValidationError):
+            B2BRenderRequest(language="pl", rate_stages=[{"rate": 0}])
+
+    def test_max_six_stages(self):
+        from pydantic import ValidationError
+
+        from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+        stages = [
+            {"rate": 100 + i, "effective_from": f"2026-0{i + 1}-01"}
+            for i in range(7)
+        ]
+        with pytest.raises(ValidationError, match="Maksymalnie"):
+            B2BRenderRequest(language="pl", rate_stages=stages)
