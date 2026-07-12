@@ -40,7 +40,9 @@ export function CoveragePanel() {
 }
 
 const UNMATCHED_COLUMNS: DataTableColumn<CortexUnmatchedTerm>[] = [
-  { key: "term", header: "Termin" },
+  // DS DataTable nie ma domyślnego renderera komórki — bez `render` kolumna
+  // jest pusta ("Falls back to nothing when omitted").
+  { key: "term", header: "Termin", render: (row) => row.term },
   {
     key: "occurrences",
     header: "Wystąpienia",
