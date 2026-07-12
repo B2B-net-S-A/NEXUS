@@ -40,6 +40,12 @@ const PROTECTED_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
   { prefix: "/settings/clients-overview", roles: ["admin", "head_of_recruitment"] },
   { prefix: "/settings/hiring-managers", roles: ["admin", "head_of_recruitment"] },
+  // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
+  // CortexUser i zakładką Insights → Klienci & Delivery).
+  {
+    prefix: "/cortex",
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+  },
   // Wszystkie pozostałe chronione trasy — tylko „musisz być zalogowany":
   { prefix: "/candidates", roles: null },
   { prefix: "/jobs", roles: null },

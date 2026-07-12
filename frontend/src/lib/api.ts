@@ -1185,6 +1185,93 @@ export const contractAnalyticsExpansionApi = {
     ),
 };
 
+// ── Cortex (central intelligence — skill-fact store) ─────────────────────────
+
+export interface CortexTechMapCell {
+  skill: string;
+  seniority: "junior" | "mid" | "senior" | "unknown";
+  count: number;
+}
+
+export interface CortexTechMap {
+  cells: CortexTechMapCell[];
+  skills: string[];
+  seniorities: string[];
+  candidates_covered: number;
+  candidates_total: number;
+  fill_rate_pct: number;
+  sources: Record<string, number>;
+  min_count: number;
+}
+
+export interface CortexCoverage {
+  candidates: {
+    total: number;
+    with_cv_file: number;
+    with_cv_file_pct: number;
+    with_raw_cv_text: number;
+    with_raw_cv_text_pct: number;
+    with_traffit_tech: number;
+    with_traffit_tech_pct: number;
+    with_any_fact: number;
+    with_any_fact_pct: number;
+    availability_known: number;
+    availability_known_pct: number;
+  };
+  facts: {
+    by_source: Record<string, { facts: number; candidates: number }>;
+    freshness: Record<"lt_1y" | "y1_3" | "gt_3y" | "unknown", number>;
+  };
+  processes: {
+    jobs_closed: number;
+    jobs_closed_with_reason: number;
+    jobs_close_reason_pct: number;
+    contracts_ended: number;
+    contracts_ended_with_reason: number;
+    contracts_natural_expiry: number;
+  };
+  unmatched_terms: CortexUnmatchedTerm[];
+}
+
+export interface CortexUnmatchedTerm {
+  term: string;
+  occurrences: number;
+  status: "new" | "mapped" | "ignored";
+  last_seen_at: string | null;
+}
+
+export interface CortexBackfillStatus {
+  running: boolean;
+  total: number;
+  processed: number;
+  facts_upserted: number;
+  unmatched_tokens: number;
+  errors: number;
+  started_at: string | null;
+  finished_at: string | null;
+  limit: number | null;
+  last_error: string | null;
+}
+
+export const cortexApi = {
+  techMap: (params: {
+    source?: string;
+    employment?: string;
+    min_count?: number;
+  }) => api.get<CortexTechMap>("/api/cortex/tech-map", { params }),
+  coverage: () => api.get<CortexCoverage>("/api/cortex/coverage"),
+  unmatchedTerms: (limit = 100) =>
+    api.get<CortexUnmatchedTerm[]>("/api/cortex/unmatched-terms", {
+      params: { limit },
+    }),
+  triggerTraffitBackfill: (limit?: number) =>
+    api.post("/api/cortex/admin/backfill-traffit", null, {
+      params: limit ? { limit } : {},
+    }),
+  traffitBackfillStatus: () =>
+    api.get<CortexBackfillStatus>("/api/cortex/admin/backfill-traffit/status"),
+};
+
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────
 export interface PipelineTemplateSummary {
   id: number;
