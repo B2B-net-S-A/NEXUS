@@ -84,20 +84,31 @@ async def load_taxonomy(db: AsyncSession) -> Taxonomy:
     )
 
 
+def _lookup(taxonomy: Taxonomy, token: str) -> Optional[int]:
+    canonical = taxonomy.alias_to_canonical.get(token, token)
+    return taxonomy.canonical_to_id.get(canonical)
+
+
 def normalize_token(taxonomy: Taxonomy, raw: str) -> tuple[Optional[int], str]:
     """Zwróć ``(skill_id | None, znormalizowany_token)`` dla surowego tokenu.
 
-    Exact match po lowercase/trim (+ ścięcie końcowego nawiasu). Brak
-    dopasowania → ``(None, token)`` — wołający rejestruje unmatched term.
+    Exact match po lowercase/trim. Najpierw token AS-IS (chroni nazwy z
+    interpunkcją: ".net", "node.js"); dopiero przy pudle fallback z odciętym
+    końcowym nawiasem ("Python (3 lata)") i kropką zdaniową. Brak dopasowania
+    → ``(None, token)`` — wołający rejestruje unmatched term.
     """
-    token = raw.strip().lower().strip(".")
-    stripped = _TRAILING_PARENTHETICAL_RE.sub("", token).strip()
-    if stripped:
-        token = stripped
+    token = raw.strip().lower()
     if not token:
         return None, token
-    canonical = taxonomy.alias_to_canonical.get(token, token)
-    return taxonomy.canonical_to_id.get(canonical), token
+
+    skill_id = _lookup(taxonomy, token)
+    if skill_id is not None:
+        return skill_id, token
+
+    cleaned = _TRAILING_PARENTHETICAL_RE.sub("", token).rstrip(".").strip()
+    if not cleaned or cleaned == token:
+        return None, token
+    return _lookup(taxonomy, cleaned), cleaned
 
 
 def clamp_level(level: Optional[str]) -> Optional[str]:
