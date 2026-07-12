@@ -13,6 +13,7 @@ import {
   Calendar,
   UserCog,
   BarChart3,
+  Brain,
   GitBranch,
   Handshake,
   Heart,
@@ -138,6 +139,12 @@ const NAV_SECTIONS: NavSection[] = [
     icon: Lightbulb,
     items: [
       { href: "/insights", label: "Insights", icon: Lightbulb },
+      {
+        href: "/cortex",
+        label: "Cortex",
+        icon: Brain,
+        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+      },
     ],
   },
   // ── HIDDEN 2026-05-22: cała sekcja "Raporty KPI" schowana z sidebara

@@ -160,6 +160,9 @@ jobs:
                  tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
                  tests/test_match_justification.py \
+                 tests/test_cortex_fact_store.py \
+                 tests/test_cortex_traffit_extract.py \
+                 tests/test_cortex_api.py \
                  -v --tb=short \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing
       - name: Upload backend coverage to Codecov

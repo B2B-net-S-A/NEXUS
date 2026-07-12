@@ -34,6 +34,7 @@ from app.api import (
     contractors,
     contract_analytics,
     contract_templates,
+    cortex,
     fx,
     invoices,
     rate_cards,
@@ -546,6 +547,7 @@ app.include_router(
     prefix="/api/contract-analytics",
     tags=["contract-analytics"],
 )
+app.include_router(cortex.router, prefix="/api/cortex", tags=["cortex"])
 app.include_router(
     contract_templates.router,
     prefix="/api/contract-templates",
