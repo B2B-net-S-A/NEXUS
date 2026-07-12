@@ -888,6 +888,39 @@ _COLUMN_STATEMENTS = [
     "USING target_rate_min::numeric",
     "ALTER TABLE contracts ALTER COLUMN target_rate_max TYPE NUMERIC(12, 2) "
     "USING target_rate_max::numeric",
+    # Cortex fact store (0158): na prod `Base.metadata.create_all` potrafi
+    # cicho paść (failure-tolerant echo), a alembic bywa multi-head — nowe
+    # TABELE też wymagają mirrora tutaj (precedens: saved_search_alert_log).
+    # Bez nich /api/cortex/* 500-tkuje UndefinedTableError mimo zielonego
+    # deployu (incident 2026-07-12).
+    """CREATE TABLE IF NOT EXISTS cortex_skill_facts (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+        source VARCHAR(20) NOT NULL,
+        level VARCHAR(20) NULL,
+        years INTEGER NULL,
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+        evidence TEXT NULL,
+        observed_at TIMESTAMPTZ NULL,
+        extracted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_cortex_fact_cand_skill_source
+            UNIQUE (candidate_id, skill_id, source)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_skill_facts_candidate_id "
+    "ON cortex_skill_facts (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_skill_facts_skill_id "
+    "ON cortex_skill_facts (skill_id)",
+    "CREATE INDEX IF NOT EXISTS ix_cortex_facts_skill_source "
+    "ON cortex_skill_facts (skill_id, source)",
+    """CREATE TABLE IF NOT EXISTS cortex_unmatched_terms (
+        id SERIAL PRIMARY KEY,
+        term TEXT NOT NULL,
+        occurrences INTEGER NOT NULL DEFAULT 1,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status VARCHAR(12) NOT NULL DEFAULT 'new',
+        CONSTRAINT uq_cortex_unmatched_term UNIQUE (term)
+    )""",
 ]
 
 _DATA_STATEMENTS = [
