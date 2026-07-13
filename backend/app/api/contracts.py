@@ -15,7 +15,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -248,6 +248,105 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
     return ContractDetailResponse(**data)
 
 
+def _apply_contract_list_filters(
+    query,
+    *,
+    q: Optional[str],
+    status: Optional[list[ContractStatus]],
+    client_id: Optional[int],
+    candidate_id: Optional[int],
+    contract_type: Optional[list[str]],
+    start_from: Optional[date],
+    start_to: Optional[date],
+    end_from: Optional[date],
+    end_to: Optional[date],
+    rate_client_min: Optional[int],
+    rate_client_max: Optional[int],
+    margin_min: Optional[int],
+    expiring_in_days: Optional[int],
+):
+    """Apply the shared contract list/export filters to ``query`` and return it.
+
+    Single source of truth for the WHERE clauses so ``list_contracts`` and
+    ``export_contracts`` never drift. ILIKE is case-insensitive and Unicode-aware,
+    so "grądzki" matches "Grądzki"; names are stored NFC, so the query is
+    normalised to NFC before matching (decomposed input would otherwise match
+    nothing). Job is outer-joined (job_id is nullable) so contracts without a job
+    still match on candidate/client — these relationships are many-to-one, so the
+    joins never multiply rows (no DISTINCT needed). Multi-selects are OR-combined.
+    """
+    if q and q.strip():
+        pattern = f"%{unicodedata.normalize('NFC', q.strip())}%"
+        query = (
+            query.join(Contract.candidate)
+            .join(Contract.client)
+            .outerjoin(Contract.job)
+            .where(
+                or_(
+                    Candidate.name.ilike(pattern),
+                    Candidate.lastname.ilike(pattern),
+                    func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
+                    Client.name.ilike(pattern),
+                    Job.title.ilike(pattern),
+                )
+            )
+        )
+    if status:
+        query = query.where(Contract.status.in_(status))
+    if client_id:
+        query = query.where(Contract.client_id == client_id)
+    if candidate_id:
+        query = query.where(Contract.candidate_id == candidate_id)
+    if contract_type:
+        query = query.where(Contract.contract_type.in_(contract_type))
+    if start_from:
+        query = query.where(Contract.start_date >= start_from)
+    if start_to:
+        query = query.where(Contract.start_date <= start_to)
+    if end_from:
+        query = query.where(Contract.end_date >= end_from)
+    if end_to:
+        query = query.where(Contract.end_date <= end_to)
+    if rate_client_min is not None:
+        query = query.where(Contract.rate_client >= rate_client_min)
+    if rate_client_max is not None:
+        query = query.where(Contract.rate_client <= rate_client_max)
+    if margin_min is not None:
+        query = query.where(Contract.margin >= margin_min)
+    if expiring_in_days is not None:
+        today = date.today()
+        cutoff = today + timedelta(days=expiring_in_days)
+        query = query.where(
+            Contract.end_date.isnot(None),
+            Contract.end_date <= cutoff,
+            Contract.end_date >= today,
+        )
+    return query
+
+
+async def _latest_order_end_dates(
+    db: AsyncSession, contract_ids: list[int]
+) -> dict[int, date]:
+    """Latest ``ClientOrder.end_date`` per contract, in a single grouped query.
+
+    Powers the "Zamówienie do" column on the list + export (one Contract has N
+    orders over time — the current order is the one ending latest). Avoids N+1.
+    """
+    from app.models.client_order import ClientOrder
+
+    if not contract_ids:
+        return {}
+    rows = await db.execute(
+        select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
+        .where(
+            ClientOrder.contract_id.in_(contract_ids),
+            ClientOrder.end_date.is_not(None),
+        )
+        .group_by(ClientOrder.contract_id)
+    )
+    return {row[0]: row[1] for row in rows.all()}
+
+
 @router.get("", response_model=ContractList)
 async def list_contracts(
     current_user: CurrentUser,
@@ -294,82 +393,29 @@ async def list_contracts(
         selectinload(Contract.candidate_rate_schedule),
         selectinload(Contract.client_rate_schedule),
     )
-    if q and q.strip():
-        # Free-text search across the joined candidate/client/job. ILIKE is
-        # case-insensitive and Unicode-aware, so "grądzki" matches "Grądzki".
-        # Names are stored NFC (precomposed "ą" = U+0105), but some keyboards
-        # and pasted text emit NFD ("a" + combining ogonek); without folding,
-        # those decomposed queries silently match nothing. Normalise the query
-        # to NFC so it lines up with the stored form.
-        # Job is outer-joined (job_id is nullable) so contracts without a job
-        # still match on candidate/client. These relationships are many-to-one,
-        # so the joins never multiply rows — no DISTINCT needed.
-        pattern = f"%{unicodedata.normalize('NFC', q.strip())}%"
-        query = (
-            query.join(Contract.candidate)
-            .join(Contract.client)
-            .outerjoin(Contract.job)
-            .where(
-                or_(
-                    Candidate.name.ilike(pattern),
-                    Candidate.lastname.ilike(pattern),
-                    func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
-                    Client.name.ilike(pattern),
-                    Job.title.ilike(pattern),
-                )
-            )
-        )
-    if status:
-        query = query.where(Contract.status.in_(status))
-    if client_id:
-        query = query.where(Contract.client_id == client_id)
-    if candidate_id:
-        query = query.where(Contract.candidate_id == candidate_id)
-    if contract_type:
-        query = query.where(Contract.contract_type.in_(contract_type))
-    if start_from:
-        query = query.where(Contract.start_date >= start_from)
-    if start_to:
-        query = query.where(Contract.start_date <= start_to)
-    if end_from:
-        query = query.where(Contract.end_date >= end_from)
-    if end_to:
-        query = query.where(Contract.end_date <= end_to)
-    if rate_client_min is not None:
-        query = query.where(Contract.rate_client >= rate_client_min)
-    if rate_client_max is not None:
-        query = query.where(Contract.rate_client <= rate_client_max)
-    if margin_min is not None:
-        query = query.where(Contract.margin >= margin_min)
-    if expiring_in_days is not None:
-        today = date.today()
-        cutoff = today + timedelta(days=expiring_in_days)
-        query = query.where(
-            Contract.end_date.isnot(None),
-            Contract.end_date <= cutoff,
-            Contract.end_date >= today,
-        )
+    query = _apply_contract_list_filters(
+        query,
+        q=q,
+        status=status,
+        client_id=client_id,
+        candidate_id=candidate_id,
+        contract_type=contract_type,
+        start_from=start_from,
+        start_to=start_to,
+        end_from=end_from,
+        end_to=end_to,
+        rate_client_min=rate_client_min,
+        rate_client_max=rate_client_max,
+        margin_min=margin_min,
+        expiring_in_days=expiring_in_days,
+    )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
-    # Pre-compute latest order end_date per Contract dla kolumny "Zamówienie do".
-    # Single query zamiast N+1 — group by contract_id, max(end_date).
-    from app.models.client_order import ClientOrder
-
-    contract_ids = [c.id for c in contracts]
-    latest_order_dates: dict[int, date] = {}
-    if contract_ids:
-        latest_rows = await db.execute(
-            select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
-            .where(
-                ClientOrder.contract_id.in_(contract_ids),
-                ClientOrder.end_date.is_not(None),
-            )
-            .group_by(ClientOrder.contract_id)
-        )
-        latest_order_dates = {row[0]: row[1] for row in latest_rows.all()}
+    # Latest order end_date per Contract for the "Zamówienie do" column.
+    latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
 
     _today = date.today()
     items = [
@@ -403,6 +449,225 @@ async def list_contracts(
         for c in contracts
     ]
     return ContractList(items=items, total=total, page=page, page_size=page_size)
+
+
+# ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
+# Business-facing labels for the enum columns — the export goes to delivery /
+# finance, so we render Polish labels instead of the raw enum values.
+_CONTRACT_TYPE_LABELS = {
+    "b2b": "B2B",
+    "uop": "Umowa o pracę",
+    "uzlecenie": "Umowa zlecenie",
+}
+_CONTRACT_STATUS_LABELS = {
+    "draft": "Szkic",
+    "active": "Aktywny",
+    "ending": "Kończący się",
+    "ended": "Zakończony",
+}
+_RATE_UNIT_LABELS = {
+    "hourly": "godzinowa",
+    "daily": "dzienna",
+    "monthly": "miesięczna",
+}
+_WORK_MODE_LABELS = {
+    "remote": "zdalnie",
+    "hybrid": "hybrydowo",
+    "onsite": "stacjonarnie",
+}
+_PROLONGATION_LABELS = {
+    "unknown": "nieznany",
+    "yes": "tak",
+    "no": "nie",
+    "negotiate": "negocjacje",
+}
+
+_CONTRACT_EXPORT_COLUMNS = [
+    "ID",
+    "Kandydat",
+    "Klient",
+    "Stanowisko / Oferta",
+    "Typ",
+    "Status",
+    "Data rozpoczęcia",
+    "Data zakończenia",
+    "Koniec zamówienia u klienta",
+    "Najnowsze zamówienie do",
+    "Stawka kandydata",
+    "Stawka klienta",
+    "Marża",
+    "Jednostka stawki",
+    "Waluta",
+    "Stawka mies. kandydata",
+    "Stawka mies. klienta",
+    "Marża mies.",
+    "Stawka ramowa (MSA)",
+    "Numer projektu/zamówienia",
+    "Nazwa projektu",
+    "PM klienta",
+    "Line manager",
+    "Tryb pracy",
+    "Status przedłużenia",
+    "Data utworzenia",
+]
+
+
+def _enum_label(value, labels: dict) -> str:
+    """Polish label for an enum value; falls back to the raw value, "" for None."""
+    if value is None:
+        return ""
+    raw = value.value if hasattr(value, "value") else str(value)
+    return labels.get(raw, raw)
+
+
+def _num_cell(value) -> object:
+    """Numeric cell: ``float`` so Excel treats it as a number (sortable/summable),
+    "" for None. ``float`` also renders cleanly in CSV. Rates are ``Decimal`` in
+    the DB (up to 3 dp) — float64 represents those exactly for display."""
+    if value is None:
+        return ""
+    return float(value)
+
+
+def _date_cell(value) -> str:
+    return value.isoformat() if value else ""
+
+
+def _contract_export_row(
+    c: Contract, latest_order_end: Optional[date], today: date
+) -> list:
+    """One export row. Rates/margin come from the effective-dated schedules
+    (today's step), matching the list + detail views — not the raw columns."""
+    eff = _effective_rate_fields(c, today)
+    return [
+        c.id,
+        f"{c.candidate.name} {c.candidate.lastname}".strip() if c.candidate else "",
+        c.client.name if c.client else "",
+        c.job.title if c.job else "",
+        _enum_label(c.contract_type, _CONTRACT_TYPE_LABELS),
+        _enum_label(c.status, _CONTRACT_STATUS_LABELS),
+        _date_cell(c.start_date),
+        _date_cell(c.end_date),
+        _date_cell(c.client_order_end_date),
+        _date_cell(latest_order_end),
+        _num_cell(eff["rate_candidate"]),
+        _num_cell(eff["rate_client"]),
+        _num_cell(eff["margin"]),
+        _enum_label(c.rate_unit, _RATE_UNIT_LABELS),
+        c.currency or "",
+        _num_cell(eff["monthly_rate_candidate"]),
+        _num_cell(eff["monthly_rate_client"]),
+        _num_cell(eff["monthly_margin"]),
+        _num_cell(c.framework_rate),
+        c.project_code or "",
+        c.project_name or "",
+        c.client_pm_name or "",
+        c.line_manager or "",
+        _enum_label(c.work_mode, _WORK_MODE_LABELS),
+        _enum_label(c.prolongation_status, _PROLONGATION_LABELS),
+        _date_cell(c.created_at),
+    ]
+
+
+@router.get("/export")
+async def export_contracts(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    format: str = Query("xlsx", regex="^(csv|xlsx)$"),
+    q: Optional[str] = Query(None),
+    status: Optional[list[ContractStatus]] = Query(None),
+    client_id: Optional[int] = None,
+    candidate_id: Optional[int] = None,
+    contract_type: Optional[list[str]] = Query(None),
+    start_from: Optional[date] = Query(None),
+    start_to: Optional[date] = Query(None),
+    end_from: Optional[date] = Query(None),
+    end_to: Optional[date] = Query(None),
+    rate_client_min: Optional[int] = Query(None, ge=0),
+    rate_client_max: Optional[int] = Query(None, ge=0),
+    margin_min: Optional[int] = Query(None),
+    expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+    limit: int = Query(10000, ge=1, le=50000),
+):
+    """Export contracts to CSV or Excel — client, rates, order dates and more.
+
+    Honours every filter the list endpoint accepts (so "export what I see" holds)
+    but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
+    """
+    query = select(Contract).options(
+        selectinload(Contract.candidate),
+        selectinload(Contract.client),
+        selectinload(Contract.job),
+        selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
+    )
+    query = _apply_contract_list_filters(
+        query,
+        q=q,
+        status=status,
+        client_id=client_id,
+        candidate_id=candidate_id,
+        contract_type=contract_type,
+        start_from=start_from,
+        start_to=start_to,
+        end_from=end_from,
+        end_to=end_to,
+        rate_client_min=rate_client_min,
+        rate_client_max=rate_client_max,
+        margin_min=margin_min,
+        expiring_in_days=expiring_in_days,
+    )
+    query = query.order_by(Contract.id).limit(limit)
+    result = await db.execute(query)
+    contracts = list(result.scalars().all())
+    latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
+
+    today = date.today()
+    rows = [
+        _contract_export_row(c, latest_order_dates.get(c.id), today) for c in contracts
+    ]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Kontrakty"
+        ws.append(_CONTRACT_EXPORT_COLUMNS)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "A2"  # keep the header row visible while scrolling
+        for row in rows:
+            ws.append(row)
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"kontrakty_{ts}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    # CSV (default charset UTF-8). Prepend a BOM so Excel on Windows renders the
+    # Polish diacritics correctly instead of mojibake.
+    import csv
+    from io import StringIO
+
+    buf = StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(_CONTRACT_EXPORT_COLUMNS)
+    for row in rows:
+        writer.writerow(row)
+    filename = f"kontrakty_{ts}.csv"
+    return StreamingResponse(
+        iter(["\ufeff" + buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
