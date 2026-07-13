@@ -441,6 +441,56 @@ def _drop_empty_commas(text: str) -> str:
     return "".join(out)
 
 
+def _escape_stray_quotes(text: str) -> str:
+    """Escape unescaped double-quotes that appear INSIDE a string value.
+
+    Claude sometimes writes prose containing a literal quote — an inch mark
+    (``15"``), a quoted project name (``system "Alpha"``), a cited job title —
+    without escaping it, which makes ``json.loads`` fail with the exact
+    "Expecting ',' delimiter" error we see in production. A ``"`` encountered
+    while inside a string is a genuine close only when the next significant
+    char is structural (``:`` ``,`` ``}`` ``]``) or the input ends; anything
+    else means the quote is stray content, so it is rewritten to ``\\"``.
+
+    Closing on ``,`` is deliberate: array-of-string elements (``why_points``)
+    are separated by ``",`` and must still terminate — the price is that a
+    quoted term sitting immediately before a prose comma can't be recovered,
+    but the strict-first caller only *uses* this output if it re-parses, so the
+    worst case is the same hard failure as before. No-op on valid JSON, where
+    every in-string quote is already escaped.
+    """
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    n = len(text)
+    for i, ch in enumerate(text):
+        if not in_string:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+            continue
+        if escaped:
+            out.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            nxt = i + 1
+            while nxt < n and text[nxt] in " \t\r\n":
+                nxt += 1
+            if nxt >= n or text[nxt] in ":,}]":
+                out.append(ch)  # legitimate close
+                in_string = False
+            else:
+                out.append('\\"')  # stray content quote → escape
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 def _close_truncated_json(text: str) -> str:
     """Best-effort close of an unterminated JSON string / array / object.
 
@@ -499,9 +549,13 @@ def _loads_cv_json(text: str) -> Any:
     Strict-first, so a well-formed response is never altered:
       1. ``json.loads(text)`` — fast path.
       2. Slice to the outermost ``{...}`` — drops "Oto dane: {...}" prose.
-      3. Conservative repair on that slice — drop empty-value commas (the usual
-         "Expecting value" culprit), then close a truncated tail — re-parsing
-         after each step.
+      3. Conservative repair on that slice, re-parsing after each step:
+         - drop empty-value commas (the usual "Expecting value" culprit),
+         - escape stray in-string quotes (the "Expecting ',' delimiter"
+           culprit — an unescaped ``"`` inside prose),
+         - close a truncated tail.
+         Each repair is a no-op on well-formed JSON and they compose, so a
+         response with several defects at once still parses.
 
     Re-raises the ORIGINAL ``json.JSONDecodeError`` when nothing parses, so the
     caller logs the real defect rather than a repair artefact.
@@ -516,8 +570,16 @@ def _loads_cv_json(text: str) -> Any:
     candidate = text[start : end + 1] if start != -1 and end > start else text
 
     decomma = _drop_empty_commas(candidate)
+    requote = _escape_stray_quotes(candidate)
+    requote_decomma = _drop_empty_commas(requote)
     first_err: json.JSONDecodeError | None = None
-    for attempt in (candidate, decomma, _close_truncated_json(decomma)):
+    for attempt in (
+        candidate,
+        decomma,
+        requote,
+        requote_decomma,
+        _close_truncated_json(requote_decomma),
+    ):
         try:
             return json.loads(attempt)
         except json.JSONDecodeError as err:

@@ -27,6 +27,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     _build_download_filename,
     _close_truncated_json,
     _drop_empty_commas,
+    _escape_stray_quotes,
     _fabrication_warnings,
     _format_candidate_answers,
     _has_candidate_answers,
@@ -116,6 +117,56 @@ def test_drop_empty_commas_keeps_comma_inside_string():
 def test_close_truncated_json_is_noop_when_balanced():
     balanced = '{"a": [1, 2], "b": {"c": "d"}}'
     assert _close_truncated_json(balanced) == balanced
+
+
+# ── Stray in-string quote repair (the "Expecting ',' delimiter" failure) ─────
+
+
+def test_loads_cv_json_unescaped_quote_in_prose():
+    # The reported production bug: Claude embeds a quoted term inside a string
+    # value without escaping it → json.loads "Expecting ',' delimiter". Now the
+    # stray quotes are escaped and the value is preserved verbatim.
+    raw = '{"why_points": ["Wdrożył system "Alpha" w firmie ACME"], "name": "Jan"}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ['Wdrożył system "Alpha" w firmie ACME'],
+        "name": "Jan",
+    }
+
+
+def test_loads_cv_json_unescaped_inch_mark():
+    # An inch mark ("15\"") is the same defect with a single stray quote.
+    raw = '{"summary": "Laptop z ekranem 15" i klawiaturą", "name": "Ada"}'
+    assert _loads_cv_json(raw) == {
+        "summary": 'Laptop z ekranem 15" i klawiaturą',
+        "name": "Ada",
+    }
+
+
+def test_loads_cv_json_stray_quote_with_trailing_comma():
+    # Both defects at once: a stray in-string quote AND a trailing comma —
+    # the composed repair chain (escape + drop-comma) must handle it.
+    raw = '{"why_points": ["Ekran 15" laptopa",], "name": "Ola"}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ['Ekran 15" laptopa'],
+        "name": "Ola",
+    }
+
+
+def test_escape_stray_quotes_is_noop_on_valid_json():
+    # Every in-string quote in valid JSON is already escaped, so the repair
+    # must not alter a single character (protects the strict-first fast path).
+    valid = '{"a": "b", "c": ["d", "e"], "f": {"g": "h\\"i"}, "empty": ""}'
+    assert _escape_stray_quotes(valid) == valid
+    assert json.loads(_escape_stray_quotes(valid)) == json.loads(valid)
+
+
+def test_escape_stray_quotes_keeps_array_elements_separate():
+    # A ``",`` between array elements is a real separator and must terminate
+    # each string — the repair must NOT merge adjacent bullets into one.
+    raw = '{"why_points": ["punkt jeden", "punkt dwa", "punkt trzy"]}'
+    assert _loads_cv_json(raw) == {
+        "why_points": ["punkt jeden", "punkt dwa", "punkt trzy"]
+    }
 
 
 # ── Keyword bolding ────────────────────────────────────────────────────────
