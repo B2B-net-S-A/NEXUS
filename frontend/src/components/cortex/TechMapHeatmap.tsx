@@ -28,9 +28,25 @@ export function TechMapHeatmap({
     matrix[cell.skill][cell.seniority] = cell.count;
   }
 
+  // GLOBAL color scale: one max across every cell (not per-row) so a cell's
+  // shade is comparable between skills. Intensity maps 0→light, max→dark on the
+  // theme `--primary` token (theme-aware, follows the active accent palette).
+  const globalMax = Math.max(1, ...data.cells.map((c) => c.count));
+  const fillFor = (count: number) =>
+    count > 0
+      ? `hsl(var(--primary) / ${0.12 + (count / globalMax) * 0.55})`
+      : undefined;
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-xs">
+        <caption className="sr-only">
+          Mapa kompetencji: liczba kandydatów wg technologii (wiersze) i poziomu
+          doświadczenia / seniority (kolumny). Intensywność koloru komórki
+          odpowiada liczbie kandydatów w skali globalnej (jaśniej = mniej,
+          ciemniej = więcej). Kolumna Σ to prawdziwa łączna liczba kandydatów
+          znających daną technologię.
+        </caption>
         <thead className="text-left text-muted-foreground">
           <tr>
             <th className="px-2 py-1 sticky left-0 bg-card dark:bg-muted">
@@ -51,41 +67,59 @@ export function TechMapHeatmap({
               (acc, s) => acc + (row[s] ?? 0),
               0
             );
-            const rowMax = Math.max(
-              1,
-              ...data.seniorities.map((s) => row[s] ?? 0)
-            );
+            // TRUE per-skill total (distinct candidates), not filtered by
+            // min_count and not the sum of visible cells. Fall back to the
+            // visible-cell sum only if the backend omits this skill.
+            const skillTotal = data.skill_totals[skill] ?? rowSum;
             return (
               <tr key={skill} className="border-t border-border">
-                <td className="px-2 py-1 font-medium sticky left-0 bg-card dark:bg-muted whitespace-nowrap">
+                <th
+                  scope="row"
+                  className="px-2 py-1 font-medium text-left sticky left-0 bg-card dark:bg-muted whitespace-nowrap"
+                >
                   {skill}
-                </td>
+                </th>
                 {data.seniorities.map((s) => {
                   const cnt = row[s] ?? 0;
-                  const intensity = cnt / rowMax;
+                  const seniorityLabel = SENIORITY_LABELS[s] ?? s;
                   return (
                     <td
                       key={s}
-                      className="px-2 py-1 text-center tabular-nums"
-                      style={{
-                        backgroundColor:
-                          cnt > 0
-                            ? `rgba(37, 99, 235, ${0.1 + intensity * 0.4})`
-                            : undefined,
-                      }}
+                      tabIndex={0}
+                      title={`${skill} · ${seniorityLabel}: ${cnt}`}
+                      className="px-2 py-1 text-center tabular-nums cursor-default"
+                      style={{ backgroundColor: fillFor(cnt) }}
                     >
                       {cnt || "·"}
                     </td>
                   );
                 })}
                 <td className="px-2 py-1 text-center font-medium tabular-nums">
-                  {rowSum}
+                  {skillTotal}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {/* Global color-scale legend: light → dark = few → many candidates. */}
+      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <span>mniej</span>
+        <span
+          className="h-2.5 w-28 rounded-full border border-border"
+          style={{
+            backgroundImage:
+              "linear-gradient(to right, hsl(var(--primary) / 0.12), hsl(var(--primary) / 0.67))",
+          }}
+          aria-hidden="true"
+        />
+        <span>więcej</span>
+        <span className="ml-1 tabular-nums">
+          (max {globalMax.toLocaleString("pl-PL")} kandydatów / komórkę)
+        </span>
+      </div>
+
       {data.skills.length > maxSkills ? (
         <p className="mt-2 text-xs text-muted-foreground">
           Pokazano top {maxSkills} z {data.skills.length} technologii (sort wg

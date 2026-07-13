@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play } from "lucide-react";
+import { AlertTriangle, Loader2, Play, RefreshCw } from "lucide-react";
 import {
   cortexApi,
   extractErrorMsg,
@@ -15,10 +16,31 @@ import { CoverageView } from "@/components/cortex/CoverageView";
 import type { CortexUnmatchedTerm } from "@/lib/api";
 
 export function CoveragePanel() {
-  const { data, isLoading } = useQuery<CortexCoverage>({
+  const { data, isLoading, isError, error, refetch } = useQuery<CortexCoverage>({
     queryKey: ["cortex-coverage"],
     queryFn: async () => (await cortexApi.coverage()).data,
   });
+
+  // Error branch first — on failure `data` stays undefined, so a bare `!data`
+  // guard would spin forever instead of showing the problem + a retry.
+  if (isError) {
+    return (
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+        <p className="flex items-center gap-2 text-sm text-destructive">
+          <AlertTriangle className="w-4 h-4" />
+          Nie udało się załadować jakości danych.
+        </p>
+        <p className="text-xs text-muted-foreground">{extractErrorMsg(error)}</p>
+        <button
+          onClick={() => refetch()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Spróbuj ponownie
+        </button>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (
@@ -31,6 +53,11 @@ export function CoveragePanel() {
 
   return (
     <div className="space-y-6">
+      {data.data_as_of ? (
+        <p className="text-xs text-muted-foreground">
+          Dane na: {new Date(data.data_as_of).toLocaleString("pl-PL")}
+        </p>
+      ) : null}
       <CoverageView data={data} />
       <RequireRole roles={["admin"]}>
         <AdminBackfillCard unmatched={data.unmatched_terms} />
@@ -68,6 +95,19 @@ function AdminBackfillCard({ unmatched }: { unmatched: CortexUnmatchedTerm[] }) 
     queryFn: async () => (await cortexApi.traffitBackfillStatus()).data,
     refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
   });
+
+  // When the backfill finishes (running: true → false) the coverage + tech-map
+  // aggregates are stale — refresh both. Prefix-match invalidation catches
+  // every tech-map filter variant (["cortex-tech-map", source, ...]).
+  const prevRunningRef = useRef<boolean>(false);
+  useEffect(() => {
+    const running = status?.running ?? false;
+    if (prevRunningRef.current && !running) {
+      queryClient.invalidateQueries({ queryKey: ["cortex-coverage"] });
+      queryClient.invalidateQueries({ queryKey: ["cortex-tech-map"] });
+    }
+    prevRunningRef.current = running;
+  }, [status?.running, queryClient]);
 
   const trigger = useMutation({
     mutationFn: (limit?: number) => cortexApi.triggerTraffitBackfill(limit),

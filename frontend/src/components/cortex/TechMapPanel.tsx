@@ -2,8 +2,15 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Database, Loader2, Percent, Users } from "lucide-react";
-import { cortexApi, type CortexTechMap } from "@/lib/api";
+import {
+  AlertTriangle,
+  Database,
+  Loader2,
+  Percent,
+  RefreshCw,
+  Users,
+} from "lucide-react";
+import { cortexApi, extractErrorMsg, type CortexTechMap } from "@/lib/api";
 import { StatCard, StatCardGrid } from "@/components/ds/StatCard";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { TechMapHeatmap } from "@/components/cortex/TechMapHeatmap";
@@ -20,7 +27,7 @@ export function TechMapPanel() {
   const [atClientOnly, setAtClientOnly] = useState(false);
   const [minCount, setMinCount] = useState(2);
 
-  const { data, isLoading } = useQuery<CortexTechMap>({
+  const { data, isLoading, isError, error, refetch } = useQuery<CortexTechMap>({
     queryKey: ["cortex-tech-map", source, atClientOnly, minCount],
     queryFn: async () =>
       (
@@ -32,6 +39,27 @@ export function TechMapPanel() {
       ).data,
   });
 
+  // Error branch first — on failure react-query leaves `data` undefined, so a
+  // plain `!data` guard would spin forever instead of surfacing the problem.
+  if (isError) {
+    return (
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 space-y-3">
+        <p className="flex items-center gap-2 text-sm text-destructive">
+          <AlertTriangle className="w-4 h-4" />
+          Nie udało się załadować mapy technologicznej.
+        </p>
+        <p className="text-xs text-muted-foreground">{extractErrorMsg(error)}</p>
+        <button
+          onClick={() => refetch()}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Spróbuj ponownie
+        </button>
+      </div>
+    );
+  }
+
   if (isLoading || !data) {
     return (
       <div className="bg-card dark:bg-muted rounded-2xl shadow-sm p-6 text-sm text-muted-foreground">
@@ -41,7 +69,9 @@ export function TechMapPanel() {
     );
   }
 
-  const totalFacts = Object.values(data.sources).reduce((a, b) => a + b, 0);
+  const sourceBreakdown = Object.entries(data.sources)
+    .map(([src, cnt]) => `${src}: ${cnt.toLocaleString("pl-PL")}`)
+    .join(" · ");
 
   return (
     <div className="space-y-6">
@@ -60,10 +90,12 @@ export function TechMapPanel() {
         />
         <StatCard
           label="Kandydaci wg źródła"
-          value={totalFacts.toLocaleString("pl-PL")}
-          sub={Object.entries(data.sources)
-            .map(([src, cnt]) => `${src}: ${cnt.toLocaleString("pl-PL")}`)
-            .join(" · ")}
+          value={data.candidates_covered.toLocaleString("pl-PL")}
+          sub={
+            sourceBreakdown
+              ? `bez dublowania · źródła się nakładają (nie sumuj): ${sourceBreakdown}`
+              : "brak źródeł"
+          }
           icon={Database}
         />
       </StatCardGrid>
@@ -85,14 +117,17 @@ export function TechMapPanel() {
                 </option>
               ))}
             </select>
-            <label className="inline-flex items-center gap-1.5">
+            <label
+              className="inline-flex items-center gap-1.5"
+              title="Heurystyka, nie pewny stan: aktywny kontrakt LUB aktywne zatrudnienie LUB ostatni etap „hired”. Szeroki warunek OR — traktuj jako „prawdopodobnie”, nie fakt."
+            >
               <input
                 type="checkbox"
                 checked={atClientOnly}
                 onChange={(e) => setAtClientOnly(e.target.checked)}
                 className="rounded border-border"
               />
-              Tylko u klientów
+              Prawdopodobnie u klienta
             </label>
             <label className="inline-flex items-center gap-1.5">
               Min. kandydatów
@@ -129,6 +164,13 @@ export function TechMapPanel() {
           Seniority wyprowadzane: lata IT (≥7 senior, ≥3 mid) → bucket Traffita
           → nieznane. Ta mapa stoi na {data.fill_rate_pct}% bazy — traktuj
           braki jako „nie wiemy”, nie „nie zna”.
+          {data.data_as_of ? (
+            <>
+              {" "}
+              Dane na:{" "}
+              {new Date(data.data_as_of).toLocaleDateString("pl-PL")}.
+            </>
+          ) : null}
         </p>
       </div>
     </div>

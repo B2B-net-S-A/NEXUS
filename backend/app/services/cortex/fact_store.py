@@ -10,17 +10,24 @@ Zasady (docs/cortex/00-discovery.md §4):
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, literal_column, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.cortex import CortexSkillFact, CortexUnmatchedTerm
+from app.models.cortex import (
+    CortexSkillFact,
+    CortexUnmatchedObservation,
+    CortexUnmatchedTerm,
+)
 from app.models.skill import Skill, SkillAlias
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_LEVELS = {"junior", "mid", "senior"}
 
@@ -61,9 +68,29 @@ class FactStats:
 
 
 async def load_taxonomy(db: AsyncSession) -> Taxonomy:
-    """Zbuduj mapy alias→canonical(lower) i canonical(lower)→skill_id."""
-    canonical_rows = (await db.execute(select(Skill.id, Skill.canonical_name))).all()
-    canonical_to_id = {name.lower(): sid for sid, name in canonical_rows}
+    """Zbuduj mapy alias→canonical(lower) i canonical(lower)→skill_id.
+
+    ``order_by(Skill.id)`` czyni mapowanie deterministycznym: po dedupie
+    (migracja 0160 + funkcyjny unique ``lower(canonical_name)``) kolizji nie ma,
+    ale gdyby jakiś duplikat przetrwał, logujemy go głośno zamiast po cichu
+    nadpisywać ``skill_id`` (dawny bug last-wins).
+    """
+    canonical_rows = (
+        await db.execute(select(Skill.id, Skill.canonical_name).order_by(Skill.id))
+    ).all()
+    canonical_to_id: dict[str, int] = {}
+    for sid, name in canonical_rows:
+        key = name.lower()
+        if key in canonical_to_id and canonical_to_id[key] != sid:
+            logger.warning(
+                "cortex taxonomy collision on %r: skill_id %s vs %s — "
+                "run dedup migration 0160",
+                key,
+                canonical_to_id[key],
+                sid,
+            )
+            continue  # zachowaj pierwszy (najniższe id) — deterministycznie
+        canonical_to_id[key] = sid
 
     alias_rows = (
         await db.execute(
@@ -145,6 +172,10 @@ async def upsert_fact(
     confidence: float,
     evidence: Optional[str],
     observed_at: Optional[datetime],
+    run_id: Optional[int] = None,
+    extractor_version: Optional[str] = None,
+    content_hash: Optional[str] = None,
+    source_ref: Optional[str] = None,
 ) -> None:
     """Idempotentny upsert faktu — re-run tego samego źródła to pełny refresh."""
     stmt = pg_insert(CortexSkillFact).values(
@@ -156,6 +187,10 @@ async def upsert_fact(
         confidence=clamp_confidence(confidence),
         evidence=(evidence or None) and evidence[:300],
         observed_at=observed_at,
+        run_id=run_id,
+        extractor_version=extractor_version,
+        content_hash=content_hash,
+        source_ref=source_ref,
     )
     stmt = stmt.on_conflict_do_update(
         constraint="uq_cortex_fact_cand_skill_source",
@@ -166,25 +201,59 @@ async def upsert_fact(
             "evidence": stmt.excluded.evidence,
             "observed_at": stmt.excluded.observed_at,
             "extracted_at": func.now(),
+            "run_id": stmt.excluded.run_id,
+            "extractor_version": stmt.excluded.extractor_version,
+            "content_hash": stmt.excluded.content_hash,
+            "source_ref": stmt.excluded.source_ref,
         },
     )
     await db.execute(stmt)
 
 
-async def record_unmatched(db: AsyncSession, term: str, count: int = 1) -> None:
-    """Zlicz token spoza taksonomii (wejście pętli kuracji słownika)."""
+async def record_unmatched(
+    db: AsyncSession,
+    term: str,
+    *,
+    candidate_id: int,
+    source: str = "traffit",
+) -> None:
+    """Zarejestruj token spoza taksonomii (wejście pętli kuracji słownika).
+
+    Idempotentne: ``occurrences`` liczy UNIKALNYCH kandydatów. Licznik rośnie
+    tylko przy PIERWSZEJ obserwacji danego ``(term, candidate, source)`` — dzięki
+    tabeli ``cortex_unmatched_observations``. Ponowny backfill niezmienionych
+    danych odświeża tylko ``last_seen_at`` i NIE zawyża licznika (dawny bug).
+    """
     term = term.strip().lower()[:200]
     if not term:
         return
-    stmt = pg_insert(CortexUnmatchedTerm).values(term=term, occurrences=count)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_cortex_unmatched_term",
-        set_={
-            "occurrences": CortexUnmatchedTerm.occurrences + count,
-            "last_seen_at": func.now(),
-        },
+
+    # Upsert obserwacji; ``xmax = 0`` ⇒ świeży INSERT (nowy unikalny kandydat).
+    obs = pg_insert(CortexUnmatchedObservation).values(
+        term=term, candidate_id=candidate_id, source=source
     )
-    await db.execute(stmt)
+    obs = obs.on_conflict_do_update(
+        constraint="uq_cortex_unmatched_obs",
+        set_={"last_seen_at": func.now()},
+    ).returning(literal_column("(xmax = 0)"))
+    is_new = bool((await db.execute(obs)).scalar())
+
+    # Wiersz kolejki kuracji: inkrementuj occurrences tylko dla nowego kandydata.
+    term_stmt = pg_insert(CortexUnmatchedTerm).values(term=term, occurrences=1)
+    if is_new:
+        term_stmt = term_stmt.on_conflict_do_update(
+            constraint="uq_cortex_unmatched_term",
+            set_={
+                "occurrences": CortexUnmatchedTerm.occurrences + 1,
+                "last_seen_at": func.now(),
+            },
+        )
+    else:
+        term_stmt = term_stmt.on_conflict_do_update(
+            constraint="uq_cortex_unmatched_term",
+            set_={"last_seen_at": func.now()},
+        )
+    await db.execute(term_stmt)
 
 
 async def normalize_and_upsert(
@@ -194,27 +263,37 @@ async def normalize_and_upsert(
     tokens: list[RawSkillToken],
     source: str,
     taxonomy: Taxonomy,
-    unmatched_counter: Optional[dict[str, int]] = None,
+    reconcile: bool = False,
+    run_id: Optional[int] = None,
+    extractor_version: Optional[str] = None,
+    content_hash: Optional[str] = None,
+    source_ref: Optional[str] = None,
 ) -> FactStats:
-    """Wspólna ścieżka obu ekstraktorów: normalizuj tokeny i upsertuj fakty.
+    """Wspólna ścieżka ekstraktorów: normalizuj tokeny i upsertuj fakty.
 
-    Dwa aliasy tego samego skilla w jednym CV → jeden fakt (wygrywa pierwszy
-    token; kolejne duplikaty w obrębie wywołania są pomijane). Unmatched
-    trafiają do ``unmatched_counter`` (jeśli podany — batchowanie zapisów)
-    albo od razu do tabeli.
+    Dwa aliasy tego samego skilla w jednym źródle → jeden fakt (wygrywa pierwszy
+    token; duplikaty w obrębie wywołania pomijane). Unmatched → idempotentna
+    rejestracja per kandydat.
+
+    ``reconcile=True``: po upsercie usuń fakty tego samego ``(candidate, source)``,
+    których NIE ma już w źródle — dzięki temu skill usunięty u kandydata znika z
+    fact store (bez tego zostawał na zawsze). Idempotentne: podwójny run na
+    niezmienionych danych daje ten sam zestaw faktów.
     """
     stats = FactStats()
     seen_skill_ids: set[int] = set()
+    seen_unmatched: set[str] = set()
     for token in tokens:
         skill_id, normalized = normalize_token(taxonomy, token.name)
         if not normalized:
             continue
         if skill_id is None:
             stats.unmatched += 1
-            if unmatched_counter is not None:
-                unmatched_counter[normalized] = unmatched_counter.get(normalized, 0) + 1
-            else:
-                await record_unmatched(db, normalized)
+            if normalized not in seen_unmatched:
+                seen_unmatched.add(normalized)
+                await record_unmatched(
+                    db, normalized, candidate_id=candidate_id, source=source
+                )
             continue
         if skill_id in seen_skill_ids:
             continue
@@ -229,6 +308,21 @@ async def normalize_and_upsert(
             confidence=token.confidence,
             evidence=token.evidence,
             observed_at=token.observed_at,
+            run_id=run_id,
+            extractor_version=extractor_version,
+            content_hash=content_hash,
+            source_ref=source_ref,
         )
         stats.matched += 1
+
+    if reconcile:
+        stale = delete(CortexSkillFact).where(
+            CortexSkillFact.candidate_id == candidate_id,
+            CortexSkillFact.source == source,
+        )
+        if seen_skill_ids:
+            # Zostaw tylko fakty dla skilli obecnych w tym źródle teraz.
+            stale = stale.where(CortexSkillFact.skill_id.notin_(seen_skill_ids))
+        await db.execute(stale)
+
     return stats

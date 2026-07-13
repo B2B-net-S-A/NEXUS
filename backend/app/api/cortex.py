@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,8 +24,9 @@ from app.api.deps import AdminUser, get_db, require_roles
 from app.core.database import AsyncSessionLocal
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.user import User, UserRole
+from app.services.cortex import runs
 from app.services.cortex.coverage import compute_coverage
-from app.services.cortex.extractor_traffit import run_traffit_backfill
+from app.services.cortex.extractor_traffit import execute_run
 from app.services.cortex.tech_map import compute_tech_map
 
 logger = logging.getLogger(__name__)
@@ -45,44 +45,23 @@ CortexUser = Annotated[
     ),
 ]
 
-# Single-flight, in-memory (wzorzec admin_candidates._JOB): backfill jest
-# idempotentny, więc po restarcie kontenera wystarczy odpalić ponownie.
-_TRAFFIT_JOB: dict[str, Any] = {
-    "running": False,
-    "total": 0,
-    "processed": 0,
-    "facts_upserted": 0,
-    "unmatched_tokens": 0,
-    "errors": 0,
-    "started_at": None,
-    "finished_at": None,
-    "limit": None,
-    "last_error": None,
-}
+# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC).
+_bg_tasks: set[asyncio.Task] = set()
 
 
-async def _run_traffit_job(limit: Optional[int]) -> None:
-    _TRAFFIT_JOB.update(
-        running=True,
-        total=0,
-        processed=0,
-        facts_upserted=0,
-        unmatched_tokens=0,
-        errors=0,
-        started_at=datetime.now(timezone.utc).isoformat(),
-        finished_at=None,
-        limit=limit,
-        last_error=None,
-    )
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+async def _run_backfill_task(run_id: int, limit: Optional[int]) -> None:
+    """Wykonaj zarezerwowany run w osobnej sesji (przeżywa zamknięcie requestu)."""
     try:
-        async with AsyncSessionLocal() as db:
-            await run_traffit_backfill(db, limit=limit, progress=_TRAFFIT_JOB)
-    except Exception as e:  # noqa: BLE001 — never crash the background task
-        _TRAFFIT_JOB["last_error"] = repr(e)
-        logger.exception("[cortex] traffit backfill job crashed")
-    finally:
-        _TRAFFIT_JOB["running"] = False
-        _TRAFFIT_JOB["finished_at"] = datetime.now(timezone.utc).isoformat()
+        async with AsyncSessionLocal() as task_db:
+            await execute_run(task_db, run_id, limit=limit)
+    except Exception:  # noqa: BLE001 — run już oznaczony `failed` w execute_run
+        logger.exception("[cortex] backfill task crashed (run_id=%s)", run_id)
 
 
 @router.get("/tech-map")
@@ -139,6 +118,9 @@ async def unmatched_terms(
             "term": row.term,
             "occurrences": row.occurrences,
             "status": row.status,
+            "first_seen_at": (
+                row.first_seen_at.isoformat() if row.first_seen_at else None
+            ),
             "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         }
         for row in rows
@@ -148,6 +130,7 @@ async def unmatched_terms(
 @router.post("/admin/backfill-traffit")
 async def trigger_traffit_backfill(
     _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
     limit: Optional[int] = Query(
         default=None,
         ge=1,
@@ -155,17 +138,59 @@ async def trigger_traffit_backfill(
         "Bez limitu = cała baza z niepustym traffit_technologie.",
     ),
 ) -> dict[str, Any]:
-    """Odpal backfill faktów z Traffita w tle. Admin only."""
-    if _TRAFFIT_JOB["running"]:
+    """Odpal backfill faktów z Traffita w tle. Admin only.
+
+    Single-flight jest atomowy: ``runs.create_run`` rezerwuje slot przez partial
+    unique ``status='running'`` — zwraca ``None`` gdy inny run trwa (koniec
+    TOCTOU z dawnej flagi in-memory). Sprzątamy najpierw osierocone runy.
+    """
+    await runs.reap_orphans(db)
+    run_id = await runs.create_run(
+        db, run_type="manual", triggered_by=getattr(_admin, "email", None)
+    )
+    if run_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Backfill już trwa",
         )
-    asyncio.create_task(_run_traffit_job(limit))
-    return {"status": "started", "limit": limit}
+    _spawn(_run_backfill_task(run_id, limit))
+    return {"status": "started", "run_id": run_id, "limit": limit}
 
 
 @router.get("/admin/backfill-traffit/status")
-async def traffit_backfill_status(_admin: AdminUser) -> dict[str, Any]:
-    """Postęp backfillu (in-memory; znika po restarcie kontenera)."""
-    return dict(_TRAFFIT_JOB)
+async def traffit_backfill_status(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Postęp ostatniego backfillu — z trwałego ``cortex_extraction_runs``
+    (przeżywa restart kontenera, w przeciwieństwie do dawnego in-memory dict)."""
+    run = await runs.latest_run(db)
+    if run is None:
+        return {
+            "running": False,
+            "status": "idle",
+            "total": 0,
+            "processed": 0,
+            "facts_upserted": 0,
+            "unmatched_tokens": 0,
+            "errors": 0,
+            "started_at": None,
+            "finished_at": None,
+            "last_error": None,
+        }
+    stats = run.stats or {}
+    return {
+        "running": run.status == "running",
+        "status": run.status,
+        "run_id": run.id,
+        "run_type": run.run_type,
+        "triggered_by": run.triggered_by,
+        "total": stats.get("total", 0),
+        "processed": stats.get("processed", 0),
+        "facts_upserted": stats.get("facts_upserted", 0),
+        "unmatched_tokens": stats.get("unmatched_tokens", 0),
+        "errors": stats.get("errors", 0),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "heartbeat_at": run.heartbeat_at.isoformat() if run.heartbeat_at else None,
+        "last_error": run.last_error,
+    }

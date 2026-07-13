@@ -141,10 +141,16 @@ async def compute_coverage(db: AsyncSession) -> dict:
         )
     ).all()
 
+    # „Dane na dzień" — najświeższy fakt (discovery: nie udawaj bieżących liczb).
+    data_as_of = (
+        await db.execute(select(func.max(CortexSkillFact.extracted_at)))
+    ).scalar()
+
     def pct(part: int, whole: int) -> float:
         return round(part / whole * 100, 1) if whole else 0.0
 
     return {
+        "data_as_of": data_as_of.isoformat() if data_as_of else None,
         "candidates": {
             "total": candidates_total,
             "with_cv_file": with_cv_file,

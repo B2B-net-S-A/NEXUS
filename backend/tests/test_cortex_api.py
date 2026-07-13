@@ -8,9 +8,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete
 
-from app.api.cortex import _TRAFFIT_JOB
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.cortex import CortexExtractionRun
 from app.models.user import User, UserRole
 
 
@@ -22,11 +22,13 @@ async def test_tech_map_shape(app_client: AsyncClient, app_auth_headers):
     for key in (
         "cells",
         "skills",
+        "skill_totals",
         "seniorities",
         "candidates_covered",
         "candidates_total",
         "fill_rate_pct",
         "sources",
+        "data_as_of",
     ):
         assert key in data
     assert data["seniorities"] == ["junior", "mid", "senior", "unknown"]
@@ -38,6 +40,7 @@ async def test_coverage_shape(app_client: AsyncClient, app_auth_headers):
     assert resp.status_code == 200
     data = resp.json()
     assert "candidates" in data and "facts" in data and "processes" in data
+    assert "data_as_of" in data
     assert "with_any_fact_pct" in data["candidates"]
     assert set(data["facts"]["freshness"]) == {"lt_1y", "y1_3", "gt_3y", "unknown"}
 
@@ -80,16 +83,27 @@ async def test_tech_map_rejects_recruiter(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_backfill_double_start_guard(app_client: AsyncClient, app_auth_headers):
-    # Deterministycznie: symulujemy trwający run zamiast wyścigu z prawdziwym.
-    assert _TRAFFIT_JOB["running"] is False
-    _TRAFFIT_JOB["running"] = True
+    # Single-flight jest teraz trwały (partial unique `status='running'` na
+    # cortex_extraction_runs): wstaw aktywny run i sprawdź że POST → 409.
+    # started_at=now() (server_default) → orphan reaper go nie sprzątnie.
+    async with AsyncSessionLocal() as db:
+        run = CortexExtractionRun(
+            run_type="manual", source="traffit", status="running"
+        )
+        db.add(run)
+        await db.commit()
+        run_id = run.id
     try:
         resp = await app_client.post(
             "/api/cortex/admin/backfill-traffit", headers=app_auth_headers
         )
         assert resp.status_code == 409
     finally:
-        _TRAFFIT_JOB["running"] = False
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CortexExtractionRun).where(CortexExtractionRun.id == run_id)
+            )
+            await db.commit()
 
 
 @pytest.mark.asyncio

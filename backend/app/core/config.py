@@ -541,6 +541,11 @@ class Settings(BaseSettings):
     # everything changed in Traffit since the one-time migration. After that,
     # the watermark drives the cutoff.
     TRAFFIT_SYNC_INITIAL_BACKFILL_DAYS: int = 45
+    # Cortex extraction phase within the Traffit sync — keeps skill facts fresh
+    # (delta re-extraction of just-changed candidates + weekly full reconcile).
+    # Runs only when TRAFFIT_SYNC_ENABLED is also True; idempotent + reconciled,
+    # so safe. Set False to disable the phase without disabling the whole sync.
+    CORTEX_SYNC_ENABLED: bool = True
 
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but

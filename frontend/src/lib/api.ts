@@ -1200,7 +1200,16 @@ export interface CortexTechMap {
   candidates_covered: number;
   candidates_total: number;
   fill_rate_pct: number;
+  /** Per-source distinct-candidate counts that MAY OVERLAP (a candidate present
+   *  in two sources counts in both) — never sum these for a headline. */
   sources: Record<string, number>;
+  /** TRUE per-skill total (distinct candidates), NOT filtered by min_count and
+   *  NOT the sum of visible cells — use for the "Σ" column. */
+  skill_totals: Record<string, number>;
+  /** Active employment filter echoed back by the backend (null = all). */
+  employment: string | null;
+  /** ISO timestamp of the freshest underlying fact (null = unknown). */
+  data_as_of: string | null;
   min_count: number;
 }
 
@@ -1231,6 +1240,8 @@ export interface CortexCoverage {
     contracts_natural_expiry: number;
   };
   unmatched_terms: CortexUnmatchedTerm[];
+  /** ISO timestamp of the freshest underlying fact (null = unknown). */
+  data_as_of: string | null;
 }
 
 export interface CortexUnmatchedTerm {

@@ -32,6 +32,16 @@ const MOCK_TECH_MAP: CortexTechMap = {
   candidates_total: 53430,
   fill_rate_pct: 54.9,
   sources: { traffit: 29350 },
+  skill_totals: {
+    java: 1570,
+    python: 1110,
+    react: 690,
+    aws: 405,
+    kubernetes: 60,
+    sql: 640,
+  },
+  employment: null,
+  data_as_of: "2026-07-12T10:00:00Z",
   min_count: 2,
 };
 
@@ -75,6 +85,7 @@ const MOCK_COVERAGE: CortexCoverage = {
       last_seen_at: "2026-07-12T10:00:00Z",
     },
   ],
+  data_as_of: "2026-07-12T10:00:00Z",
 };
 
 export default function CortexPreviewPage() {

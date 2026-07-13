@@ -89,7 +89,7 @@ function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
  */
 function decodeJwtPayload(
   token: string
-): { role?: UserRole; exp?: number; fpc?: boolean } | null {
+): { role?: UserRole; roles?: string[]; exp?: number; fpc?: boolean } | null {
   try {
     const parts = token.split(".")
     if (parts.length !== 3) return null
@@ -144,9 +144,18 @@ export function middleware(request: NextRequest) {
     return response
   }
 
-  // Rola OK? (null = zalogowany wystarczy)
-  if (allowedRoles && !allowedRoles.includes(payload.role)) {
-    return NextResponse.redirect(new URL("/403", request.url))
+  // Rola OK? (null = zalogowany wystarczy). Sprawdzamy UNIĘ ról (primary +
+  // secondary z claim `roles`) — spójnie z Sidebar/RequireRole, które używają
+  // roles[]. Fallback na sam `role` dla starych tokenów (sprzed deploya) bez
+  // claim `roles`, żeby nie wyrzucać zalogowanych na /403 w okresie przejściowym.
+  if (allowedRoles) {
+    const userRoles = new Set<string>([
+      payload.role as string,
+      ...(payload.roles ?? []),
+    ])
+    if (!allowedRoles.some((r) => userRoles.has(r as string))) {
+      return NextResponse.redirect(new URL("/403", request.url))
+    }
   }
 
   // Force-change-password gate: jeśli admin zresetował user'owi hasło,

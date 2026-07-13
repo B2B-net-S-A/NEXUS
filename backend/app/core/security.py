@@ -26,6 +26,7 @@ def create_access_token(
     role: str,
     expires_delta: Optional[timedelta] = None,
     force_password_change: bool = False,
+    roles: Optional[list[str]] = None,
 ) -> str:
     """Create a JWT access token.
 
@@ -33,6 +34,12 @@ def create_access_token(
     dla starych tokenów (sprzed deploya) middleware traktuje brak claim
     jako False (default). Frontend middleware czyta ``fpc`` żeby
     przekierować usera do /profile po admin-resecie hasła.
+
+    Claim ``roles`` (unia primary + secondary) pozwala middleware'owi frontu
+    sprawdzać RBAC po PEŁNYM zestawie ról — dotąd JWT niósł tylko ``role``
+    (primary), więc user primary=recruiter + secondary=tac widział link (Sidebar
+    czyta roles[]) i przechodził backend guard, ale middleware rzucał /403.
+    Dodawany tylko gdy podany (stare tokeny bez ``roles`` → fallback na ``role``).
     """
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -44,6 +51,8 @@ def create_access_token(
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
+    if roles:
+        payload["roles"] = roles
     if force_password_change:
         payload["fpc"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
