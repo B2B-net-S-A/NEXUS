@@ -1,4 +1,5 @@
 """Tests for auth API — runs against live backend."""
+
 from httpx import AsyncClient
 
 
@@ -15,18 +16,24 @@ async def test_login_success(
 async def test_login_wrong_password(
     client: AsyncClient, live_auth_credentials: dict[str, str]
 ):
-    resp = await client.post("/api/auth/login", json={
-        "email": live_auth_credentials["email"],
-        "password": "wrong",
-    })
+    resp = await client.post(
+        "/api/auth/login",
+        json={
+            "email": live_auth_credentials["email"],
+            "password": "wrong",
+        },
+    )
     assert resp.status_code == 401
 
 
 async def test_login_nonexistent_user(client: AsyncClient):
-    resp = await client.post("/api/auth/login", json={
-        "email": "nobody@test.pl",
-        "password": "test123",
-    })
+    resp = await client.post(
+        "/api/auth/login",
+        json={
+            "email": "nobody@test.pl",
+            "password": "test123",
+        },
+    )
     assert resp.status_code == 401
 
 

@@ -47,6 +47,15 @@ def test_production_entrypoint_has_no_unconditional_user_seed() -> None:
     assert "NEXUS_DEMO_ADMIN_PASSWORD" in entrypoint[:database_wait]
     assert "NEXUS_DEMO_STAFF_PASSWORD" in entrypoint[:database_wait]
 
+    # Production startup may migrate schema, but it must never create,
+    # reactivate, demote, or otherwise mutate login identities. Demo users are
+    # created only inside seed.py after the explicit development-only guard.
+    user_dml = re.compile(
+        r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+users\b",
+        re.IGNORECASE,
+    )
+    assert not user_dml.search(entrypoint)
+
 
 def test_entrypoint_rejects_production_seed_before_database_access() -> None:
     if os.geteuid() == 0:
@@ -131,9 +140,7 @@ def test_gitleaks_detects_literal_demo_seed_password() -> None:
 def test_gitleaks_detects_literal_bootstrap_password() -> None:
     config = _gitleaks_config()
     rule = next(
-        item
-        for item in config["rules"]
-        if item["id"] == "hardcoded-bootstrap-password"
+        item for item in config["rules"] if item["id"] == "hardcoded-bootstrap-password"
     )
     variable_name = "_DEFAULT_" + "BOOTSTRAP_PASSWORD"
     synthetic_value = "SyntheticCommittedPassword-123"
@@ -162,7 +169,11 @@ def test_gitleaks_history_baseline_is_exact_and_limited() -> None:
         r"^[0-9a-f]{40}:[^:]+:(?:hardcoded-bootstrap-password|"
         r"demo-seed-literal-password):[0-9]+$"
     )
-    assert len(entries) == 6
+    assert entries == [
+        "4714a91b55bb03c69b649ad547656fe05416d904:"
+        "backend/scripts/ensure_claude_admin.py:"
+        "hardcoded-bootstrap-password:36"
+    ]
     assert all(fingerprint.fullmatch(entry) for entry in entries)
 
 
