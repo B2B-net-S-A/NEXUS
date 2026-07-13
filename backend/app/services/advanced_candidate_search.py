@@ -50,10 +50,24 @@ trigram-substring path above. Semantics shift for the FTS path only: matching is
 word-PREFIX (token-aware) rather than arbitrary substring — ``jav`` → ``java``
 and ``java`` → ``javascript`` still match; only rare mid-word substrings
 (``ava`` → ``java``) are dropped.
+
+Diacritic-insensitivity (2026-07-13): both routes above are diacritic-SENSITIVE
+— ``search_fts @@ to_tsquery('simple', 'lukasz:*')`` and ``search_doc ILIKE
+'%lukasz%'`` never reach a stored ``Łukasz`` (``ł`` is a distinct letter; the
+``simple`` config doesn't fold accents), so recruiters typing a Polish name
+without diacritics got 0 results. Fix: ``candidates.search_doc_unaccented``
+(migration 0159), a STORED ``lower(translate(search_doc, 'ąćęłńóśźż…',
+'acelnoszz…'))`` mirror, GIN-trigram indexed. Every phrase match also unions a
+``search_doc_unaccented ILIKE '%<fold_polish(phrase)>%'`` branch, folding the
+query with the SAME map — so ``?q=lukasz gradzki`` and ``?q=Łukasz Grądzki``
+resolve to the same candidates. No extension needed (``unaccent`` isn't
+installed); ``translate``/``lower`` are IMMUTABLE so the fold lives in a
+generated column. Additive — the exact branches stay, so nothing regresses.
 """
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Optional
 
 from sqlalchemy import Text, and_, column, func, not_, or_, select, union
@@ -93,6 +107,39 @@ _SEARCH_DOC = column("search_doc", Text)
 # does — that detoast was the 3-27s seen for common terms. Bare column (not ORM-
 # mapped) so `select(Candidate)` never ships the tsvector in list responses.
 _SEARCH_FTS = column("search_fts", TSVECTOR)
+
+# candidates.search_doc_unaccented — STORED generated column (migration 0159): the
+# diacritic-folded, lowercased mirror of search_doc, backed by
+# ix_candidates_search_doc_unaccent_trgm (GIN pg_trgm). Lets a query typed WITHOUT
+# Polish diacritics (`lukasz gradzki`) match a stored „Łukasz Grądzki": the phrase
+# is folded with the SAME map (`fold_polish`) and matched as an ILIKE substring
+# against this column. Bare column (not ORM-mapped), referenced in WHERE only.
+_SEARCH_DOC_UNACCENT = column("search_doc_unaccented", Text)
+
+# Polish diacritic → ASCII fold, both cases. MUST stay byte-for-byte in sync with
+# migration 0159 (_FOLD_SRC/_FOLD_DST) and the entrypoint.sh safety-net copy, so
+# the Python-folded query and the SQL-folded column always agree. All 9 letters
+# are single precomposed (NFC) codepoints, so the map is a 1:1, length-preserving
+# translate — which means substring relationships survive folding (X ⊆ Y ⟹
+# fold(X) ⊆ fold(Y)), so the folded branch is a strict superset of the exact one.
+_POLISH_FOLD_SRC = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+_POLISH_FOLD_DST = "acelnoszzACELNOSZZ"
+_POLISH_FOLD_MAP = str.maketrans(_POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+
+
+def fold_polish(phrase: str) -> str:
+    """Fold Polish diacritics to ASCII and lowercase, matching the DB expression
+    of ``candidates.search_doc_unaccented`` (migration 0159:
+    ``lower(translate(doc, src, dst))``).
+
+    NFC-normalize first: normal keyboards emit NFC, but paste / some IMEs /
+    automated input (computer-use ``type``) emit NFD (decomposed base + combining
+    ogonek/acute), which would not match the precomposed keys in the map. After
+    NFC the Polish letters are single codepoints, so ``translate`` folds them 1:1
+    and ``lower`` mirrors the SQL ``lower()``. Characters outside the map are left
+    untouched on both sides, so the fold is symmetric between Python and Postgres.
+    """
+    return unicodedata.normalize("NFC", phrase).translate(_POLISH_FOLD_MAP).lower()
 
 
 def _escape_like(value: str) -> str:
@@ -155,6 +202,16 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
       • ``raw_cv_text ILIKE``   → ix_candidates_cv_trgm,
       • ``notes.content ILIKE`` → ix_notes_content_trgm.
 
+    BOTH routes also union a diacritic-insensitive branch:
+      • ``search_doc_unaccented ILIKE '%<fold_polish(phrase)>%'`` →
+        ix_candidates_search_doc_unaccent_trgm (migration 0159). The phrase is
+        folded (``ł→l``, ``ą→a``, …) with the SAME map the DB used to build the
+        column, so an un-accented query (``lukasz gradzki``) reaches an accented
+        name (``Łukasz Grądzki``). The FTS tsquery and the exact ``search_doc``
+        ILIKE are both diacritic-sensitive and miss this on their own. Folding is
+        a length-preserving 1:1 map, so this branch is a strict superset of the
+        exact ``search_doc`` branch — purely additive, no diacritic-present regression.
+
     The ``notes.candidate_id NOT NULL`` guard keeps the ``NOT IN`` form used by
     the NONE bucket off the NULL trap.
 
@@ -165,6 +222,15 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     ``list_candidates``); the other branches are unaffected by that GUC.
     """
     pattern = f"%{_escape_like(phrase)}%"
+    # Diacritic-insensitive branch: fold the phrase the same way the DB folded
+    # search_doc_unaccented, then substring-match. This is what makes `?q=lukasz`
+    # find „Łukasz" (migration 0159). Added to BOTH routes below — the FTS tsquery
+    # and the exact search_doc ILIKE are both diacritic-sensitive, so neither
+    # reaches an accented name from an un-accented query on its own.
+    folded_pattern = f"%{_escape_like(fold_polish(phrase))}%"
+    folded_branch = select(Candidate.id).where(
+        _SEARCH_DOC_UNACCENT.ilike(folded_pattern, escape="\\")
+    )
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.ilike(pattern, escape="\\"),
@@ -175,11 +241,13 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
         tsquery = func.to_tsquery(_FTS_CONFIG, phrase + ":*")
         branches = [
             select(Candidate.id).where(_SEARCH_FTS.op("@@")(tsquery)),
+            folded_branch,
             notes_branch,
         ]
     else:
         branches = [
             select(Candidate.id).where(_SEARCH_DOC.ilike(pattern, escape="\\")),
+            folded_branch,
             select(Candidate.id).where(
                 Candidate.raw_cv_text.ilike(pattern, escape="\\")
             ),

@@ -442,6 +442,34 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_saved_search_id ON saved_search_alert_log (saved_search_id)",
     "CREATE INDEX IF NOT EXISTS ix_saved_search_alert_log_candidate_id ON saved_search_alert_log (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidates_updated_at ON candidates (updated_at)",
+    # candidates.search_doc_unaccented (migration 0159) — diacritic-folded mirror
+    # of search_doc so `?q=lukasz gradzki` matches „Łukasz Grądzki".
+    # advanced_candidate_search references it in the search UNION; without the
+    # column the candidates list 500s (UndefinedColumn) on prod's chronic alembic
+    # multi-head drift. GENERATED so it self-maintains. Fold map + field list MUST
+    # match migration 0159 / advanced_candidate_search._POLISH_FOLD_SRC/_DST.
+    # Non-CONCURRENT here (startup, one-shot via IF NOT EXISTS); index failure is
+    # non-fatal (per-statement try/except) — the column is what prevents the 500.
+    """ALTER TABLE candidates ADD COLUMN IF NOT EXISTS search_doc_unaccented text
+        GENERATED ALWAYS AS (lower(translate(
+            coalesce(name, '') || ' ' ||
+            coalesce(lastname, '') || ' ' ||
+            coalesce(email, '') || ' ' ||
+            coalesce(phone, '') || ' ' ||
+            coalesce(location, '') || ' ' ||
+            coalesce(city, '') || ' ' ||
+            coalesce(linkedin_current_title, '') || ' ' ||
+            coalesce(linkedin_current_company, '') || ' ' ||
+            coalesce(ai_summary, '') || ' ' ||
+            coalesce(competence_category, '') || ' ' ||
+            coalesce(engagement_notes, '') || ' ' ||
+            coalesce(experience::text, '') || ' ' ||
+            coalesce(skills::text, '') || ' ' ||
+            coalesce(tags::text, '') || ' ' ||
+            coalesce(education::text, '') || ' ' ||
+            coalesce(languages::text, ''),
+            'ąćęłńóśźżĄĆĘŁŃÓŚŹŻ', 'acelnoszzACELNOSZZ'))) STORED""",
+    "CREATE INDEX IF NOT EXISTS ix_candidates_search_doc_unaccent_trgm ON candidates USING GIN (search_doc_unaccented gin_trgm_ops)",
     # users (migration 0035_onboarding_and_job_sourcing)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ",
