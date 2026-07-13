@@ -15,8 +15,13 @@ import api, { cloudtalkApi, type CloudTalkAgent } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { cn } from "@/lib/utils";
 
+interface HealthCheck {
+  status: "healthy" | "degraded" | "unhealthy";
+  state?: "unconfigured";
+}
+
 interface HealthChecks {
-  cloudtalk?: "healthy" | "degraded" | "unconfigured" | "unhealthy";
+  cloudtalk?: HealthCheck;
 }
 
 interface UserOption {
@@ -38,7 +43,8 @@ function statusBadgeClass(s?: string): string {
   }
 }
 
-function statusLabel(s?: string): string {
+function statusLabel(s?: string, state?: string): string {
+  if (state === "unconfigured") return "Wyłączony";
   switch (s) {
     case "healthy":
       return "Połączony";
@@ -46,8 +52,6 @@ function statusLabel(s?: string): string {
       return "Wolne / timeout";
     case "unhealthy":
       return "Błąd autoryzacji";
-    case "unconfigured":
-      return "Wyłączony";
     default:
       return "Sprawdzanie...";
   }
@@ -56,7 +60,7 @@ function statusLabel(s?: string): string {
 /**
  * Settings card for CloudTalk: health status, agent ↔ user mapping table,
  * sync button. Hides itself entirely when `/api/health.checks.cloudtalk`
- * reports `unconfigured` for the very first time (until the admin flips
+ * reports state `unconfigured` for the very first time (until the admin flips
  * `CLOUDTALK_ENABLED=true` in Coolify), so the page stays clean.
  */
 export default function CloudTalkSettingsCard() {
@@ -64,15 +68,20 @@ export default function CloudTalkSettingsCard() {
   const { showSuccess, showError } = useToast();
   const [busyAgent, setBusyAgent] = useState<number | null>(null);
 
-  const { data: health, isLoading: healthLoading } = useQuery({
+  const {
+    data: health,
+    isLoading: healthLoading,
+    isError: healthError,
+  } = useQuery({
     queryKey: ["cloudtalk-health"],
     queryFn: async () =>
       api.get<{ checks?: HealthChecks }>("/api/health").then((r) => r.data),
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
-  const status = health?.checks?.cloudtalk;
-  const isEnabled = status && status !== "unconfigured";
+  const cloudtalkCheck = health?.checks?.cloudtalk;
+  const status = cloudtalkCheck?.status;
+  const isEnabled = !!cloudtalkCheck && cloudtalkCheck.state !== "unconfigured";
 
   const { data: agents = [], isFetching: agentsLoading } = useQuery({
     queryKey: ["cloudtalk-agents"],
@@ -128,10 +137,16 @@ export default function CloudTalkSettingsCard() {
             <span
               className={cn(
                 "text-xs px-2 py-0.5 rounded-full font-medium",
-                statusBadgeClass(status),
+                healthError
+                  ? "bg-destructive/15 text-destructive"
+                  : statusBadgeClass(status),
               )}
             >
-              {healthLoading ? "Sprawdzanie..." : statusLabel(status)}
+              {healthLoading
+                ? "Sprawdzanie..."
+                : healthError
+                  ? "Status niedostępny"
+                  : statusLabel(status, cloudtalkCheck?.state)}
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -149,7 +164,17 @@ export default function CloudTalkSettingsCard() {
         </a>
       </div>
 
-      {!isEnabled && (
+      {healthError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5" />
+          <div>
+            Nie można sprawdzić stanu systemu. Integracja pozostaje zablokowana
+            do czasu poprawnej odpowiedzi healthchecku.
+          </div>
+        </div>
+      )}
+
+      {!healthError && !isEnabled && (
         <div className="rounded-lg border border-border bg-background/40 p-4 text-sm text-muted-foreground">
           Integracja CloudTalk jest wyłączona. Aby aktywować, ustaw{" "}
           <code className="px-1 py-0.5 rounded bg-muted text-foreground">

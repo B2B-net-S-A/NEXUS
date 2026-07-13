@@ -33,8 +33,8 @@ const nextConfig: NextConfig = {
 };
 
 // Sentry webpack wrap. Source-maps upload runs only when SENTRY_AUTH_TOKEN is
-// provided at build time (Coolify env vault, is_buildtime=true). Without the
-// token the wrapper is still applied for runtime hooks but the upload step
+// provided through the BuildKit secret declared in docker-compose.yml. Without
+// the token the wrapper is still applied for runtime hooks but the upload step
 // is skipped — safe to deploy on PR previews / locally.
 export default withSentryConfig(nextConfig, {
   org: "b2bnet-sa",

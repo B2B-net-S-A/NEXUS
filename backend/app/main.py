@@ -863,6 +863,73 @@ app.include_router(dictionaries_api.router, prefix="/api", tags=["dictionaries"]
 app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields"])
 
 
+def _build_version() -> str:
+    """Return the immutable build identity exposed by health endpoints."""
+    return os.environ.get("GIT_SHA", "unknown").strip() or "unknown"
+
+
+def _build_metadata_is_valid(version: str, deployed_at: str) -> bool:
+    """Validate metadata without exposing configuration details in readiness."""
+    import re
+    from datetime import datetime
+
+    if re.fullmatch(r"[0-9a-f]{40}", version) is None:
+        return False
+    try:
+        parsed = datetime.fromisoformat(deployed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+def _health_check(
+    check_status: str,
+    *,
+    critical: bool = False,
+    latency_ms: int | None = None,
+    state: str | None = None,
+) -> dict[str, object]:
+    """Build one non-sensitive readiness check payload."""
+    result: dict[str, object] = {"status": check_status}
+    if critical:
+        result["critical"] = True
+    if latency_ms is not None:
+        result["latencyMs"] = max(0, latency_ms)
+    if state:
+        result["state"] = state
+    return result
+
+
+def _readiness_status(checks: dict[str, dict[str, object]]) -> str:
+    failed = [name for name, check in checks.items() if check["status"] != "healthy"]
+    if any(
+        name == "database" or checks[name].get("critical") is True for name in failed
+    ):
+        return "unhealthy"
+    return "degraded" if failed else "healthy"
+
+
+async def _probe_qdrant() -> None:
+    """Bounded Qdrant probe kept separate so tests can replace external I/O."""
+    import asyncio
+
+    def _ping() -> None:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            api_key=settings.QDRANT_API_KEY or None,
+            timeout=2,
+        )
+        try:
+            client.get_collections()
+        finally:
+            client.close()
+
+    await asyncio.to_thread(_ping)
+
+
 @app.get("/health")
 async def health_check():
     """Legacy healthcheck. Alias for /api/health on shape transition (7 days).
@@ -871,7 +938,23 @@ async def health_check():
     monitor that grepped `.status == "ok"` shape. Prefer /api/health which
     follows the standard shape from ~/.claude/rules/deployment.md.
     """
-    return {"status": "ok", "app": "Nexus ATS", "version": "0.3.0"}
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        content={"status": "ok", "app": "Nexus ATS", "version": "0.3.0"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/livez")
+async def api_livez():
+    """Process-only liveness. Never calls a database or remote dependency."""
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        content={"status": "alive", "version": _build_version()},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _resolve_deployed_at() -> str:
@@ -898,7 +981,9 @@ def _resolve_deployed_at() -> str:
     if explicit and explicit != "unknown":
         try:
             parsed = datetime.fromisoformat(explicit.replace("Z", "+00:00"))
-            candidates.append((parsed, explicit))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc)
+                candidates.append((parsed, parsed.strftime("%Y-%m-%dT%H:%M:%SZ")))
         except ValueError:
             pass
 
@@ -919,15 +1004,10 @@ def _resolve_deployed_at() -> str:
 
 @app.get("/api/health")
 async def api_health_check():
-    """Standard healthcheck per ~/.claude/rules/deployment.md.
-
-    Shape: {status, version, deployedAt, checks: {database, m365, cloudtalk, autenti}}.
-    HTTP 503 only when `database` is unhealthy (uptime-probe contract);
-    `m365` is informational and does not affect the gate.
-    Database ping is bounded to 2s; M365 connection count to 1s.
-    """
+    """Fail-closed readiness for the database, Qdrant and integrations."""
     import asyncio
     import os
+    import time
 
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
@@ -936,20 +1016,51 @@ async def api_health_check():
     from app.core.config import settings
     from app.core.database import AsyncSessionLocal
 
-    checks: dict[str, str] = {}
+    checks: dict[str, dict[str, object]] = {}
 
+    version = _build_version()
+    deployed_at = _resolve_deployed_at()
+    checks["build"] = _health_check(
+        "healthy" if _build_metadata_is_valid(version, deployed_at) else "unhealthy",
+        critical=True,
+    )
+
+    started = time.perf_counter()
     try:
         async with AsyncSessionLocal() as session:
             await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
-        checks["database"] = "healthy"
+        checks["database"] = _health_check(
+            "healthy",
+            critical=True,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
     except Exception:
-        checks["database"] = "unhealthy"
+        checks["database"] = _health_check(
+            "unhealthy",
+            critical=True,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+
+    started = time.perf_counter()
+    try:
+        await asyncio.wait_for(_probe_qdrant(), timeout=2.5)
+        checks["qdrant"] = _health_check(
+            "healthy",
+            critical=True,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+    except Exception:
+        checks["qdrant"] = _health_check(
+            "unhealthy",
+            critical=True,
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
 
     # M365 status — informational only (does not affect HTTP 503 gate).
     if not settings.M365_INTEGRATION_ENABLED:
-        checks["m365"] = "disabled"
+        checks["m365"] = _health_check("healthy", state="disabled")
     elif not settings.M365_SYNC_LOOP_ENABLED:
-        checks["m365"] = "degraded"
+        checks["m365"] = _health_check("degraded", state="sync_disabled")
     else:
         try:
             from app.models.m365 import M365Connection
@@ -963,9 +1074,11 @@ async def api_health_check():
                     ),
                     timeout=1.0,
                 )
-            checks["m365"] = "healthy" if (count or 0) >= 1 else "degraded"
+            checks["m365"] = _health_check(
+                "healthy" if (count or 0) >= 1 else "degraded"
+            )
         except Exception:
-            checks["m365"] = "degraded"
+            checks["m365"] = _health_check("degraded")
 
     # M365 encryption — separate from `m365` because a misconfigured key
     # silently breaks every refresh (see Sentry NEXUS-BE-1, 2026-05). Round-trip
@@ -979,18 +1092,18 @@ async def api_health_check():
 
             cipher = get_token_cipher()
             if cipher.decrypt(cipher.encrypt("ping")) == "ping":
-                checks["m365_encryption"] = "healthy"
+                checks["m365_encryption"] = _health_check("healthy")
             else:
-                checks["m365_encryption"] = "unhealthy"
+                checks["m365_encryption"] = _health_check("degraded")
         except TokenCipherNotConfigured:
-            checks["m365_encryption"] = "unhealthy"
+            checks["m365_encryption"] = _health_check("degraded")
         except Exception:
-            checks["m365_encryption"] = "unhealthy"
+            checks["m365_encryption"] = _health_check("degraded")
 
     # CloudTalk status — informational only. `unconfigured` while kill-switch
     # is off OR API key id is empty (default state pre-provisioning).
     if not settings.CLOUDTALK_ENABLED or not settings.CLOUDTALK_API_KEY_ID:
-        checks["cloudtalk"] = "unconfigured"
+        checks["cloudtalk"] = _health_check("healthy", state="unconfigured")
     else:
         try:
             from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig
@@ -998,32 +1111,32 @@ async def api_health_check():
             cfg = CloudTalkConfig.from_settings()
             async with CloudTalkClient(cfg) as ct:
                 await asyncio.wait_for(ct.ping(), timeout=2.0)
-            checks["cloudtalk"] = "healthy"
+            checks["cloudtalk"] = _health_check("healthy")
         except asyncio.TimeoutError:
-            checks["cloudtalk"] = "degraded"
+            checks["cloudtalk"] = _health_check("degraded")
         except Exception:
-            checks["cloudtalk"] = "unhealthy"
+            checks["cloudtalk"] = _health_check("degraded")
 
     # Autenti status — informational only. Config-only probe (no network call
     # to keep uptime-probe latency low — full ping lives at /api/autenti/health
     # which is auth-protected).
     if not settings.AUTENTI_ENABLED:
-        checks["autenti"] = "unconfigured"
+        checks["autenti"] = _health_check("healthy", state="unconfigured")
     elif not settings.AUTENTI_CLIENT_ID or not settings.AUTENTI_CLIENT_SECRET:
-        checks["autenti"] = "misconfigured"
+        checks["autenti"] = _health_check("degraded", state="misconfigured")
     else:
-        checks["autenti"] = "healthy"
+        checks["autenti"] = _health_check("healthy")
 
     # Traffit daily sync — informational. Reads the persisted watermark so the
     # check reflects whether the scheduled import is actually running, not just
     # whether the flag is on. `unconfigured` (off) / `misconfigured` (no creds)
     # / `degraded` (enabled but no fresh successful run) / `healthy`.
     if not settings.TRAFFIT_SYNC_ENABLED:
-        checks["traffit"] = "unconfigured"
+        checks["traffit"] = _health_check("healthy", state="unconfigured")
     elif not (
         os.environ.get("TRAFFIT_CLIENT_SECRET") and os.environ.get("TRAFFIT_TENANT")
     ):
-        checks["traffit"] = "misconfigured"
+        checks["traffit"] = _health_check("degraded", state="misconfigured")
     else:
         try:
             from datetime import datetime as _dt
@@ -1042,35 +1155,38 @@ async def api_health_check():
                 )
             r = row.fetchone()
             if r is None or r[0] is None:
-                checks["traffit"] = "degraded"  # enabled, no successful run yet
+                checks["traffit"] = _health_check("degraded")
             elif (_dt.now(_tz.utc) - r[0]) > _td(hours=36) or r[1] not in (
                 "ok",
                 None,
             ):
-                checks["traffit"] = "degraded"
+                checks["traffit"] = _health_check("degraded")
             else:
-                checks["traffit"] = "healthy"
+                checks["traffit"] = _health_check("healthy")
         except Exception:
-            checks["traffit"] = "degraded"
+            checks["traffit"] = _health_check("degraded")
 
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
     anthropic_key = settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
-    checks["anthropic"] = "configured" if anthropic_key else "unconfigured"
+    checks["anthropic"] = _health_check(
+        "healthy" if anthropic_key else "degraded",
+        state="configured" if anthropic_key else "unconfigured",
+    )
 
-    db_healthy = checks.get("database") == "healthy"
-    overall = "healthy" if db_healthy else "unhealthy"
+    overall = _readiness_status(checks)
 
     return JSONResponse(
         content={
             "status": overall,
-            "version": os.environ.get("GIT_SHA", "unknown"),
-            "deployedAt": _resolve_deployed_at(),
+            "version": version,
+            "deployedAt": deployed_at,
             "checks": checks,
         },
+        headers={"Cache-Control": "no-store"},
         status_code=http_status.HTTP_200_OK
-        if db_healthy
+        if overall != "unhealthy"
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 
@@ -1109,8 +1225,6 @@ async def api_health_deep_check():
     below in the same spirit as the entrypoint.sh safety-net checklist.
     """
     import asyncio
-    import os
-
     from fastapi import status as http_status
     from fastapi.responses import JSONResponse
     from sqlalchemy import select
@@ -1155,7 +1269,7 @@ async def api_health_deep_check():
 
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
-        "version": os.environ.get("GIT_SHA", "unknown"),
+        "version": _build_version(),
         "checks": checks,
     }
     if errors:
@@ -1163,6 +1277,7 @@ async def api_health_deep_check():
 
     return JSONResponse(
         content=body,
+        headers={"Cache-Control": "no-store"},
         status_code=http_status.HTTP_200_OK
         if all_healthy
         else http_status.HTTP_503_SERVICE_UNAVAILABLE,

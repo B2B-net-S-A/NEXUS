@@ -1,4 +1,4 @@
-fastapi==0.115.6
+fastapi==0.139.0
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 asyncpg==0.30.0
@@ -13,8 +13,8 @@ httpx==0.28.1
 voyageai==0.3.2
 qdrant-client==1.12.1
 anthropic>=0.40,<1.0
-pdfminer.six==20231228
-pdfplumber==0.11.4
+pdfminer.six==20260107
+pdfplumber==0.11.10
 pytesseract==0.3.13
 pdf2image==1.17.0
 python-docx==1.1.2
@@ -50,6 +50,9 @@ weasyprint==68.0
 # signxml, lxml). Authoritative QES verdict via EU DSS sidecar; pyHanko is the
 # local integrity pre-check. See docs/in-house-qes-signature-plan.md.
 pyhanko[etsi]==0.34.1
+# Transitive through the signing stack; pin the first release that contains
+# the recursion DoS fix instead of accepting the vulnerable 0.4.8 floor.
+pyasn1==0.6.4
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
 boto3==1.35.0

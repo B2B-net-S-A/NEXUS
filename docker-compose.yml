@@ -79,11 +79,12 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         # Sentry build-time args. DSN is public (browser bundle); auth token is
-        # build-only (stripped from runtime image). Both come from Coolify env
-        # vault with is_buildtime=true.
+        # public and safe to inline. The private auth token is supplied below
+        # as a BuildKit secret and never becomes a Docker ARG/ENV.
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}
-        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
+      secrets:
+        - sentry_auth_token
     restart: unless-stopped
     env_file:
       - .env
@@ -133,3 +134,7 @@ volumes:
   postgres_data:
   qdrant_data:
   uploads_data:
+
+secrets:
+  sentry_auth_token:
+    environment: SENTRY_AUTH_TOKEN

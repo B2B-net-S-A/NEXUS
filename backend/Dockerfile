@@ -8,7 +8,7 @@ WORKDIR /app
 # `app/services/autenti/pdf_renderer.py` which converts the contract draft
 # HTML to PDF before uploading to Autenti. fonts-dejavu is a fallback for
 # Polish diacritics that liberation-fonts doesn't fully cover.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     curl \

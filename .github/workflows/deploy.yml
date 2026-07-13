@@ -15,8 +15,6 @@ name: Deploy
 #   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,8 +25,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-freeze:
+    name: Legacy release blocked
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the exact-SHA staging release path
+        run: |
+          echo "::error::Legacy branch-based deployment is frozen. Rebase on NEXUS P0 PR #684, clear the image/migration blockers, provision staging, and use the exact-SHA release workflow."
+          exit 1
+
   deploy:
     name: Trigger Coolify deploy
+    needs: release-freeze
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

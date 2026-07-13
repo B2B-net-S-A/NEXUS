@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 
 ROLES = [
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
