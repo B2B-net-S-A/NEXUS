@@ -65,6 +65,18 @@ def test_enum_label_maps_known_falls_back_and_handles_none():
     assert _enum_label(SimpleNamespace(value="mystery"), {}) == "mystery"
 
 
+def _stub_relations(c: Contract, **relations) -> None:
+    """Inject eager-loaded relationship values without a DB session.
+
+    SQLAlchemy stores relationship values in ``instance.__dict__[key]``, so
+    writing there is exactly how a loaded relation looks — and it sidesteps the
+    instrumented setter, which rejects a plain ``SimpleNamespace`` (no
+    ``_sa_instance_state``). The row builder only reads ``.name/.lastname/.title``
+    and iterates the schedules, so lightweight stand-ins are enough.
+    """
+    c.__dict__.update(relations)
+
+
 def _in_memory_contract() -> Contract:
     """Build a fully populated Contract without a DB session (hourly rate)."""
     c = Contract(
@@ -89,11 +101,14 @@ def _in_memory_contract() -> Contract:
         work_mode=ContractWorkMode.remote,
         prolongation_status=ProlongationStatus.yes,
     )
-    c.candidate = SimpleNamespace(name="Jan", lastname="Kowalski")
-    c.client = SimpleNamespace(name="Nordea")
-    c.job = SimpleNamespace(title="Senior Dev")
-    c.candidate_rate_schedule = []
-    c.client_rate_schedule = []
+    _stub_relations(
+        c,
+        candidate=SimpleNamespace(name="Jan", lastname="Kowalski"),
+        client=SimpleNamespace(name="Nordea"),
+        job=SimpleNamespace(title="Senior Dev"),
+        candidate_rate_schedule=[],
+        client_rate_schedule=[],
+    )
     c.created_at = datetime(2026, 1, 2, 12, 0, 0)
     return c
 
@@ -130,15 +145,16 @@ def test_contract_export_row_shape_and_values():
 
 def test_contract_export_row_effective_rate_uses_current_schedule_step():
     """A past rate step overrides the legacy column; a future step does not."""
-    from app.models.contract_candidate_rate import ContractCandidateRate
-
     c = _in_memory_contract()
     c.rate_candidate = Decimal("150")  # legacy baseline
-    c.candidate_rate_schedule = [
-        ContractCandidateRate(rate=Decimal("150"), effective_from=date(2026, 1, 1)),
-        ContractCandidateRate(rate=Decimal("165"), effective_from=date(2026, 3, 1)),
-        ContractCandidateRate(rate=Decimal("180"), effective_from=date(2027, 1, 1)),
-    ]
+    _stub_relations(
+        c,
+        candidate_rate_schedule=[
+            SimpleNamespace(rate=Decimal("150"), effective_from=date(2026, 1, 1)),
+            SimpleNamespace(rate=Decimal("165"), effective_from=date(2026, 3, 1)),
+            SimpleNamespace(rate=Decimal("180"), effective_from=date(2027, 1, 1)),
+        ],
+    )
     row = _contract_export_row(c, None, date(2026, 6, 1))
     by = dict(zip(_CONTRACT_EXPORT_COLUMNS, row))
     # On 2026-06-01 the 165 step is in effect (180 is future-dated).
