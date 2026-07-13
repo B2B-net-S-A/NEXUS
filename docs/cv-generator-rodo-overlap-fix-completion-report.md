@@ -95,3 +95,19 @@ istniejącej ostatniej strony. Tylko CV wypełniające ostatnie ~13% strony (daw
 `ruff check` + `ruff format --check` na `docx_renderer.py` — zielone.
 Asercje obu testów RODO przeszły na świeżo wyrenderowanym DOCX (short + full CV).
 Pełny pytest — w CI (`Backend (ruff + pytest)`).
+
+## Aktualizacja 2026-07-13 — usunięcie czerwonej linii nad klauzulą RODO
+
+Kolejne zgłoszenie: **usuń czerwoną linię nad klauzulą RODO**. Linia to była
+górna krawędź akapitu (`<w:pBdr><w:top … w:color="E14F4F">`) wewnątrz pływającej
+ramki klauzuli. Usunięto ten jeden element — klauzula zostaje na dole, wyjustowana,
+bez linijki nad nią.
+
+- `add_bottom_pinned_rodo`: usunięto `<w:pBdr>` + zaktualizowany docstring.
+- Czerwone dividery **między sekcjami/stanowiskami zostają** (to osobne elementy
+  `<v:rect fillcolor="#e14f4f">` w `add_horizontal_line`, nie ruszone).
+- `<w:pBdr>` był jedynym w całym dokumencie → test: asercja „red rule present"
+  (`E14F4F in body` — myląca, bo E14F4F ma też czerwony tekst nagłówków) zastąpiona
+  regresyjnym guardem `assert "<w:pBdr" not in body`.
+- Weryfikacja wizualna (LibreOffice PDF): brak linii nad klauzulą na CV krótkim
+  (1 str.) i granicznym (`j5_r4`, 2 str.); dividery między stanowiskami nadal są.
