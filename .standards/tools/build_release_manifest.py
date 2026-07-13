@@ -34,6 +34,7 @@ def build_manifest(
     outcome: str = "succeeded",
     rollback_to_sha: str | None = None,
     rollback_deployment_id: str | None = None,
+    rollback_already_safe: bool = False,
     released_at: str | None = None,
 ) -> dict[str, object]:
     if not APPLICATION_RE.fullmatch(application):
@@ -62,17 +63,29 @@ def build_manifest(
     ):
         if value is not None and not pattern.fullmatch(value):
             raise ValidationError(f"{field} contains invalid characters")
-    if outcome in {"succeeded", "rolled_back"} and not deployment_id:
-        raise ValidationError(f"{outcome} outcome requires deployment_id")
+    if not isinstance(rollback_already_safe, bool):
+        raise ValidationError("rollback_already_safe must be boolean")
+    if outcome == "succeeded" and not deployment_id:
+        raise ValidationError("succeeded outcome requires deployment_id")
     if outcome in {"succeeded", "rolled_back"} and not snapshot_reference:
         raise ValidationError(f"{outcome} outcome requires snapshot_reference")
     if outcome == "rolled_back":
-        if not rollback_to_sha or not rollback_deployment_id:
-            raise ValidationError("rolled_back outcome requires rollback target and deployment ID")
-    if outcome == "succeeded" and (rollback_to_sha or rollback_deployment_id):
+        if not rollback_to_sha:
+            raise ValidationError("rolled_back outcome requires rollback target")
+        if bool(rollback_deployment_id) == rollback_already_safe:
+            raise ValidationError(
+                "rolled_back outcome requires exactly one rollback evidence: deployment ID or already-safe state"
+            )
+    if outcome == "succeeded" and (
+        rollback_to_sha or rollback_deployment_id or rollback_already_safe
+    ):
         raise ValidationError("succeeded outcome cannot contain rollback fields")
     if rollback_deployment_id and not rollback_to_sha:
         raise ValidationError("rollback_deployment_id requires rollback_to_sha")
+    if rollback_already_safe and not rollback_to_sha:
+        raise ValidationError("rollback_already_safe requires rollback_to_sha")
+    if rollback_already_safe and rollback_deployment_id:
+        raise ValidationError("already-safe rollback cannot contain a rollback deployment ID")
     if rollback_to_sha:
         if not previous_sha:
             raise ValidationError("rollback_to_sha requires previous_sha")
@@ -83,7 +96,7 @@ def build_manifest(
 
     manifest: dict[str, object] = {
         "$schema": "https://standards.dynaminds.pl/schemas/release-manifest.schema.json",
-        "schema_version": 2,
+        "schema_version": 3,
         "application": application,
         "environment": environment,
         "sha": sha,
@@ -98,6 +111,7 @@ def build_manifest(
         "outcome": outcome,
         "rollback_to_sha": rollback_to_sha,
         "rollback_deployment_id": rollback_deployment_id,
+        "rollback_already_safe": rollback_already_safe,
     }
     if coolify_application_uuid:
         manifest["coolify_application_uuid"] = coolify_application_uuid
@@ -120,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--outcome", choices=("succeeded", "rolled_back", "failed"), default="succeeded")
     parser.add_argument("--rollback-to-sha")
     parser.add_argument("--rollback-deployment-id")
+    parser.add_argument("--rollback-already-safe", action="store_true")
     parser.add_argument("--output", type=Path, default=Path("release-manifest.json"))
     args = parser.parse_args(argv)
     try:
@@ -138,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
             outcome=args.outcome,
             rollback_to_sha=args.rollback_to_sha,
             rollback_deployment_id=args.rollback_deployment_id,
+            rollback_already_safe=args.rollback_already_safe,
         )
         write_json(args.output, manifest)
     except ValidationError as exc:

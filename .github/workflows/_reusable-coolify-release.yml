@@ -288,12 +288,12 @@ jobs:
       - name: Automatic rollback after two consecutive critical failures
         id: rollback
         if: >-
-          always() && steps.deploy.outputs.previous_sha != '' && steps.deploy.outputs.previous_sha != github.sha &&
+          always() && steps.current.outputs.current_sha != '' && steps.current.outputs.current_sha != github.sha &&
           (steps.deploy.outcome == 'failure' || steps.readiness.outcome == 'failure' || steps.monitor.outcome == 'failure')
         continue-on-error: true
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          PREVIOUS_SHA: ${{ steps.deploy.outputs.previous_sha }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
           CANDIDATE_SHA: ${{ github.sha }}
           COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
           APPLICATION_UUID: ${{ inputs.production_application_uuid }}
@@ -304,13 +304,14 @@ jobs:
           --application-uuid "$APPLICATION_UUID"
           --sha "$PREVIOUS_SHA"
           --expected-previous-sha "$CANDIDATE_SHA"
+          --allow-already-target
           --deploy-method "$DEPLOY_METHOD"
       - name: Verify rollback readiness
         id: rollback-readiness
         if: steps.rollback.outcome == 'success'
         continue-on-error: true
         env:
-          PREVIOUS_SHA: ${{ steps.deploy.outputs.previous_sha }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
           HEALTH_URL: ${{ inputs.production_health_url }}
         run: >-
           python3 app/.standards/tools/validate_health.py
@@ -338,6 +339,7 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
           SNAPSHOT_REFERENCE: ${{ steps.snapshot.outputs.snapshot_reference }}
           ROLLBACK_DEPLOYMENT_ID: ${{ steps.rollback.outputs.deployment_id }}
+          ROLLBACK_ALREADY_SAFE: ${{ steps.rollback.outputs.already_target }}
           APPLICATION: ${{ inputs.application }}
           CANDIDATE_SHA: ${{ github.sha }}
           STANDARDS_REF: ${{ inputs.standards_ref }}
@@ -365,6 +367,9 @@ jobs:
             rollback_args=(--rollback-to-sha "$PREVIOUS_SHA")
             if test -n "$ROLLBACK_DEPLOYMENT_ID"; then
               rollback_args+=(--rollback-deployment-id "$ROLLBACK_DEPLOYMENT_ID")
+            fi
+            if test "$ROLLBACK_ALREADY_SAFE" = true; then
+              rollback_args+=(--rollback-already-safe)
             fi
           fi
           if test "$ROLLBACK_OUTCOME" = success && test "$ROLLBACK_READINESS_OUTCOME" = success; then

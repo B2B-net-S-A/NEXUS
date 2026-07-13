@@ -29,6 +29,7 @@ class DeploymentResult:
     requested_sha: str
     previous_sha: str | None
     deployment_id: str
+    already_target: bool = False
 
 
 class CoolifyClient:
@@ -176,11 +177,17 @@ def deploy_exact_sha(
     deployment_timeout: float = 1800,
     poll_interval: float = 5,
     on_started: Callable[[DeploymentResult], None] | None = None,
+    allow_already_target: bool = False,
 ) -> DeploymentResult:
     require_sha(sha)
     if not application_uuid.strip():
         raise ValidationError("application UUID cannot be empty")
     previous_sha = _read_application_sha(client.get_application(application_uuid), allow_missing=True)
+    if allow_already_target and previous_sha == sha:
+        result = DeploymentResult(application_uuid, sha, previous_sha, "", True)
+        if on_started:
+            on_started(result)
+        return result
     if expected_previous_sha:
         require_sha(expected_previous_sha, "expected_previous_sha")
         if previous_sha != expected_previous_sha:
@@ -207,6 +214,7 @@ def write_github_output(path: Path, result: DeploymentResult) -> None:
         handle.write(f"deployment_id={result.deployment_id}\n")
         handle.write(f"previous_sha={result.previous_sha or ''}\n")
         handle.write(f"requested_sha={result.requested_sha}\n")
+        handle.write(f"already_target={'true' if result.already_target else 'false'}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--application-uuid", required=True)
     parser.add_argument("--sha")
     parser.add_argument("--expected-previous-sha")
+    parser.add_argument("--allow-already-target", action="store_true")
     parser.add_argument("--inspect-only", action="store_true")
     parser.add_argument("--deploy-method", choices=("GET", "POST"), default="GET")
     parser.add_argument("--deployment-timeout", type=float, default=1800)
@@ -245,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
                         "requested_sha": started.requested_sha,
                         "previous_sha": started.previous_sha,
                         "deployment_id": started.deployment_id,
+                        "already_target": started.already_target,
                     },
                 )
             if github_output:
@@ -259,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
             deployment_timeout=args.deployment_timeout,
             poll_interval=args.poll_interval,
             on_started=record_started,
+            allow_already_target=args.allow_already_target,
         )
     except ValidationError as exc:
         print(f"exact-SHA deploy failed: {exc}", file=sys.stderr)

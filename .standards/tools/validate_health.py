@@ -102,6 +102,7 @@ def validate_payload(
             raise ValidationError("critical dependency failure must make top-level status unhealthy")
         if status_code is not None and status_code != 503:
             raise ValidationError("critical dependency failure must return HTTP 503")
+        raise ValidationError("readiness reports a critical dependency failure")
     elif failed_checks:
         if payload["status"] != "degraded":
             raise ValidationError("noncritical dependency failure must make top-level status degraded")
