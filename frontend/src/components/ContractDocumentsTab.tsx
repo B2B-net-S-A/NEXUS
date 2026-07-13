@@ -13,6 +13,7 @@ import {
   FileCheck,
   FileSignature,
   FileWarning,
+  ClipboardList,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -25,6 +26,7 @@ const DOC_TYPES: { value: string; label: string }[] = [
   { value: "nip", label: "NIP" },
   { value: "zus_certificate", label: "Zaświadczenie ZUS" },
   { value: "oc_policy", label: "Polisa OC" },
+  { value: "order", label: "Zamówienie" },
   { value: "other", label: "Inne" },
 ];
 
@@ -39,6 +41,7 @@ const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   nip: FileText,
   zus_certificate: FileCheck,
   oc_policy: FileWarning,
+  order: ClipboardList,
   other: FileText,
 };
 

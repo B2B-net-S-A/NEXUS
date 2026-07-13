@@ -18,6 +18,7 @@ class ContractDocumentType(str, enum.Enum):
     nip = "nip"
     zus_certificate = "zus_certificate"
     oc_policy = "oc_policy"
+    order = "order"
     other = "other"
 
 

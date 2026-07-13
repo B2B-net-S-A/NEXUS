@@ -417,6 +417,11 @@ _ENUM_STATEMENTS = [
     # wartości w DB enum insert crashuje (InvalidTextRepresentationError),
     # ten sam failure mode co kpi_coach incident.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_match'",
+    # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
+    # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
+    # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
+    # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
 ]
 
 _COLUMN_STATEMENTS = [
