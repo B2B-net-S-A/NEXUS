@@ -31,7 +31,6 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from jose import JWTError
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +39,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
+from app.core.jwt import JWTError
 from app.core.rate_limit import limiter
 from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User

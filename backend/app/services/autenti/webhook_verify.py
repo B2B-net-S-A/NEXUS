@@ -24,10 +24,9 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
-from jose import jwt
-from jose.exceptions import JWTError
 
 from app.core.config import settings
+from app.core.jwt import JWTError, jwt, key_from_jwk
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +144,7 @@ async def verify_jwt(token: str) -> dict[str, Any]:
     try:
         claims = jwt.decode(
             token,
-            cache[kid],
+            key_from_jwk(cache[kid]),
             algorithms=["RS256"],
             options={"verify_aud": False},
         )

@@ -13,10 +13,10 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from jose import JWTError
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.jwt import JWTError
 from app.core.security import decode_token
 from app.models.user import User
 

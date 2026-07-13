@@ -7,9 +7,9 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from jose import JWTError, jwt
 
 from app.core.config import settings
+from app.core.jwt import JWTError, jwt
 from app.services.m365 import oauth as m365_oauth
 
 

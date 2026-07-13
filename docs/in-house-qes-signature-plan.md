@@ -91,7 +91,7 @@ Implementacje: `SzafirSdkProvider` (pas 1 — odbiera PDF podpisany client-side 
 | **pyHanko** | Walidacja PAdES + (Faza 5) archival timestamp B-LTA | Nowa zależność `requirements.txt`. **NIE podpisuje** (podpis robi Szafir/mSzafir); rola = `validate` + LTV/LTA |
 | **EU DSS `dss-validation-rest`** | Autorytatywny „is QES" (Trusted List) | Nowy sidecar Java (Coolify). My: serwis REST + mapowanie raportu → `validation_report` |
 | **WeasyPrint** (`63.0`, już jest) | HTML → PDF przed podpisem | reuse 1:1 `render_contract_pdf` (provider-agnostic) |
-| **python-jose** (`3.3.0`, już jest) | Purpose-scoped JWT public link | reuse wzorca `actionable_messages` (`purpose=qes_signing`) |
+| **PyJWT** (centralny wrapper `app.core.jwt`) | Purpose-scoped JWT public link | reuse wzorca `actionable_messages` (`purpose=qes_signing`) |
 | **httpx** (`0.28.1`, już jest) | Klient mSzafir API + DSS | reuse |
 
 > **Certum/EuroCert/CenCert — świadomie poza zakresem.** To alternatywni QTSP; nie są nam potrzebni, bo Szafir SDK czyta certyfikat **dowolnego** QTSP z karty (jeśli reprezentant ma cert Certum — Szafir i tak go obsłuży, bez integracji). Byliby kandydatami tylko gdyby kiedyś trzeba było **serwerowego auto-podpisu** firmy (odłożone).

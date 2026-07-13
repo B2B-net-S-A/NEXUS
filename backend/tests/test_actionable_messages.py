@@ -20,10 +20,10 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from jose import jwt
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.jwt import jwt
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.services.m365.actionable_messages import (
