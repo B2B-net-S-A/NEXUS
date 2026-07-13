@@ -523,6 +523,19 @@ async def callback(
             user.roles = role_strs
         user.is_active = True
 
+    # SSO-only users (``password_hash IS NULL``) authenticate via Microsoft and
+    # have no password to rotate. A stray ``force_password_change`` flag — e.g.
+    # left over from an admin reset-password before the account moved to SSO, or
+    # from an admin-provisioned temp password never used — would trap them on the
+    # "set new password" screen with the rest of the app locked, unable to clear
+    # it (change-password needs the old password they don't have). A successful
+    # SSO login re-verifies identity via Microsoft, which satisfies the flag's
+    # intent, so clear it. Password-backed users are untouched — they still clear
+    # it through the normal change-password / reset flow.
+    if user.password_hash is None and user.force_password_change:
+        user.force_password_change = False
+        user.force_password_change_at = None
+
     await db.flush()
     user_id = user.id
 
