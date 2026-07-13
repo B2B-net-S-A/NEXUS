@@ -372,6 +372,33 @@ class Settings(BaseSettings):
     # Example: '{"<uuid-admins>": "admin", "<uuid-recruiters>": "recruiter"}'.
     AAD_GROUP_ROLE_MAP_JSON: str = ""
 
+    @field_validator("AAD_GROUP_RBAC_ENABLED")
+    @classmethod
+    def _force_aad_group_rbac_disabled(cls, v: bool) -> bool:
+        """HARD-DISABLED 2026-07-13 — Microsoft is login-only; NEXUS roles live
+        in the admin panel.
+
+        Background: the Coolify env vault still carries
+        ``AAD_GROUP_RBAC_ENABLED=true``. With RBAC on, the SSO callback
+        (``app.api.auth_microsoft.callback``) re-derives every user's
+        ``role``/``roles``/``is_active`` from Azure AD group membership on
+        EVERY Microsoft login. That silently overwrites admin roles set in the
+        NEXUS admin panel and blocks (deactivates) anyone not in a mapped AAD
+        group — which is exactly what stopped teammates from logging in as
+        admin. Per product decision, NEXUS role management is decoupled from
+        Azure AD: Microsoft SSO authenticates identity only.
+
+        The Coolify env var is not reachable to change directly from here, so
+        this validator neutralizes the stale value in code — it always wins,
+        regardless of what the env says. Tests that exercise the RBAC path set
+        the flag with ``monkeypatch.setattr`` on the live settings object,
+        which bypasses this validator, so they are unaffected.
+
+        To fully re-enable AAD-group RBAC later: (1) remove this validator, and
+        (2) set ``AAD_GROUP_RBAC_ENABLED=true`` in the Coolify env vault.
+        """
+        return False
+
     # ── Autenti e-signature integration (Phase Autenti.1) ───────────────────
     # Kill-switch: when False, /api/autenti/* router is not mounted, send/webhook
     # endpoints return 503, sweeper loop exits immediately. Default OFF until
