@@ -1048,8 +1048,8 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
     The clause lives inside a floating text box anchored to the bottom page
     margin, so — no matter where the CV body ends — it always lands at the foot
     of the final page (once, just above the footer) instead of dangling in the
-    middle of a half-filled page. The text is justified and a thin red rule on
-    top mirrors the branded divider that used to precede the clause in the flow.
+    middle of a half-filled page. The text is justified, with no divider above
+    it (the earlier thin red top rule was removed on request).
 
     The box wraps ``topAndBottom``, so it *reserves* its band at the foot of the
     page and body text is pushed above it — never through it. The earlier
@@ -1104,7 +1104,6 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
             f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{content_w_emu}" cy="{box_h_emu}"/></a:xfrm>',
             '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>',
             "</wps:spPr><wps:txbx><w:txbxContent><w:p><w:pPr>",
-            '<w:pBdr><w:top w:val="single" w:sz="12" w:space="4" w:color="E14F4F"/></w:pBdr>',
             '<w:spacing w:before="40" w:after="0"/><w:jc w:val="both"/></w:pPr>',
             '<w:r><w:rPr><w:rFonts w:ascii="Montserrat" w:hAnsi="Montserrat"/>',
             '<w:color w:val="373535"/><w:sz w:val="10"/><w:szCs w:val="10"/></w:rPr>',

@@ -1129,7 +1129,7 @@ def _full_page_payload() -> dict:
 
 def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     # When the CV ends well short of the page, the RODO consent clause is pinned
-    # to the foot of the last page — justified, once, set off by a thin red rule
+    # to the foot of the last page — justified, once, with no divider above it
     # — so it reads as a footer instead of dangling mid-page below the last role.
     # It rides in a floating DrawingML text box that wraps top-and-bottom (so it
     # reserves its band and body text can never run underneath it), anchored to
@@ -1154,9 +1154,10 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
     ), "RODO not pinned to the bottom margin"
-    # Justified, with the branded red rule above the clause.
+    # Justified, with no red top rule above the clause (removed on request). The
+    # RODO paragraph was the only <w:pBdr> in the doc; section dividers use v:rect.
     assert 'w:val="both"' in body, "RODO clause not justified"
-    assert "E14F4F" in body, "red rule above the RODO clause missing"
+    assert "<w:pBdr" not in body, "RODO red top rule must be gone (removed on request)"
     assert "<w:framePr" not in body, "frame anchoring reintroduced (causes blank page)"
 
 
