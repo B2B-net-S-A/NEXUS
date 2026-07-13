@@ -18,10 +18,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Optional in local/CI builds. Production Compose exposes the token only to
-# this instruction, so it never becomes an ARG/ENV or image-history value.
-RUN --mount=type=secret,id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
-    npm run build
+# Optional in local/CI builds. Production Compose exposes the token as a
+# temporary file only to this instruction, so it never becomes an ARG/ENV or
+# image-history value. The file-based mount works with Dockerfile frontend 1.7.
+RUN --mount=type=secret,id=sentry_auth_token \
+    if [ -s /run/secrets/sentry_auth_token ]; then \
+      SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token)" npm run build; \
+    else \
+      npm run build; \
+    fi
 
 # Runtime stage: minimal image with the standalone server.
 FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS runner
