@@ -1131,8 +1131,9 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     # When the CV ends well short of the page, the RODO consent clause is pinned
     # to the foot of the last page — justified, once, set off by a thin red rule
     # — so it reads as a footer instead of dangling mid-page below the last role.
-    # It rides in a floating DrawingML text box (zero in-flow height, anchored to
-    # the bottom margin), NOT a w:framePr (the frame approach spilled the clause
+    # It rides in a floating DrawingML text box that wraps top-and-bottom (so it
+    # reserves its band and body text can never run underneath it), anchored to
+    # the bottom margin, NOT a w:framePr (the frame approach spilled the clause
     # onto a blank second page on content-heavy CVs).
     import io
     import re
@@ -1145,7 +1146,11 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     assert "Wyrażam zgodę na przetwarzanie" in body, "RODO clause missing"
     # A single floating text box, pinned to the bottom page margin.
     assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
-    assert "wrapNone" in body, "RODO box not floating (would add in-flow height)"
+    # The box must RESERVE its band (top-and-bottom wrap), not float free
+    # (wrapNone). wrapNone reserved no in-flow space, so a full-page body ran
+    # under the pinned box and overlapped the clause — the reported bug.
+    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
     ), "RODO not pinned to the bottom margin"
@@ -1163,6 +1168,8 @@ def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
     # last page whenever the body spilled just past a page boundary ("RODO na
     # górze strony"). A bottom-anchored float lands at the foot of whichever page
     # its anchor sits on, so the clause is always at the bottom of the last page.
+    # The top-and-bottom wrap reserves its band, so on a body that fills the page
+    # the last lines are pushed above the clause instead of overlapping it.
     import io
     import re
     import zipfile
@@ -1173,9 +1180,12 @@ def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
 
     assert "Wyrażam zgodę na przetwarzanie" in body, "RODO clause missing"
     # Same single bottom-anchored floating box as the short-CV case: no in-flow
-    # fallback, so the clause never dangles at the top of the last page.
+    # fallback, so the clause never dangles at the top of the last page. It wraps
+    # top-and-bottom (reserves its band), so a full-page body is pushed above it
+    # rather than overlapping it (the reported "tekst nachodzi na siebie").
     assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
-    assert "wrapNone" in body, "RODO box not floating (would add in-flow height)"
+    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
     ), "RODO not pinned to the bottom margin"
