@@ -11,8 +11,8 @@ Why WeasyPrint (plan §1):
   simple ``table``, ``@media print``) is fully covered.
 - No subprocess / browser pool.
 
-Polish characters: ``fonts-liberation`` + ``fonts-dejavu`` apt packages
-cover Latin Extended-A. Verified by ``test_autenti_pdf_renderer.py``.
+Polish characters: the runtime ``font-liberation`` + ``font-dejavu`` Alpine
+packages cover Latin Extended-A. Verified by ``test_autenti_pdf_renderer.py``.
 """
 
 from __future__ import annotations

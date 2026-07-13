@@ -1,38 +1,58 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim@sha256:9d3abd9fc11d06998ccdbdd93b4dd49b5ad7d67fcbbc11c016eb0eb2c2194891
+
+# Pin the multi-architecture index so CI/production resolve the same audited
+# Python 3.12.13 + Alpine 3.24 base. The arm64 manifest is selected by the
+# deployment platform (and by the explicit ARM smoke build in CI).
+FROM python:3.12-alpine@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df AS builder
+
+WORKDIR /build
+
+# Native toolchain is isolated in the builder and never copied to production.
+# PostgreSQL headers cover asyncpg/psycopg2 source builds; Rust is a fallback
+# for cryptography/pydantic wheels on musl/arm64.
+RUN apk add --no-cache \
+    build-base \
+    cargo \
+    libffi-dev \
+    linux-headers \
+    openssl-dev \
+    postgresql18-dev
+
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m venv /opt/venv \
+    && /opt/venv/bin/python -m pip install --upgrade pip==26.1.2 \
+    && /opt/venv/bin/python -m pip install -r requirements.txt
+
+
+FROM python:3.12-alpine@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df AS runtime
 
 WORKDIR /app
 
-# System dependencies
-# weasyprint runtime libs (libpango/cairo/gdk-pixbuf + fonts) are needed for
-# `app/services/autenti/pdf_renderer.py` which converts the contract draft
-# HTML to PDF before uploading to Autenti. fonts-dejavu is a fallback for
-# Polish diacritics that liberation-fonts doesn't fully cover.
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    curl \
-    libpango-1.0-0 \
-    libpangoft2-1.0-0 \
-    libcairo2 \
-    libgdk-pixbuf-2.0-0 \
-    fonts-liberation \
-    fonts-dejavu \
-    tesseract-ocr \
-    tesseract-ocr-pol \
-    tesseract-ocr-eng \
-    poppler-utils \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+# Upgrade packages already present in the pinned base, then install only the
+# runtime libraries. Pango/Cairo + both font families render Polish PDFs;
+# Tesseract pol+eng and Poppler preserve the CV OCR/extraction pipeline.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
+        curl \
+        font-dejavu \
+        font-liberation \
+        gdk-pixbuf \
+        libffi \
+        libpq \
+        libstdc++ \
+        pango \
+        poppler-utils \
+        shared-mime-info \
+        su-exec \
+        tesseract-ocr \
+        tesseract-ocr-data-eng \
+        tesseract-ocr-data-pol \
+        tzdata \
+    && python -m pip install --no-cache-dir --upgrade pip==26.1.2
 
-# Install Python dependencies
-# BuildKit cache mount keeps downloaded wheels out of the image layer while
-# preserving them between builds. Pin pip itself so the runtime image does not
-# retain the vulnerable version shipped by the base image.
-COPY requirements.txt .
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --upgrade pip==26.1.2 \
-    && python -m pip install -r requirements.txt
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Build metadata for /api/health endpoint (see ~/.claude/rules/deployment.md).
 # Defaults to "unknown" so local docker build works without explicit args.
@@ -41,34 +61,17 @@ ARG BUILT_AT=unknown
 ENV GIT_SHA=$GIT_SHA
 ENV BUILT_AT=$BUILT_AT
 
-# Copy application code
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p /tmp/nexus/uploads
+RUN mkdir -p /tmp/nexus/uploads \
+    && chmod +x /app/entrypoint.sh \
+    && addgroup -S -g 10001 appgroup \
+    && adduser -S -D -H -u 10001 -G appgroup appuser \
+    && chown -R appuser:appgroup /app /tmp/nexus
 
-# Make entrypoint executable
-RUN chmod +x /app/entrypoint.sh
-
-# Security: drop root. If any dependency has an RCE / path-traversal bug,
-# the attacker lands as `appuser` (UID 10001) instead of root, limiting
-# blast radius on the candidate-CV upload directory and other writable
-# paths. The uploads + app dir are chowned so the entrypoint can write logs
-# and Alembic can apply migrations at boot.
-#
-# We intentionally keep the runtime user as root at the ENTRYPOINT level
-# (no `USER appuser` here): the entrypoint script must run a privileged
-# `chown -R appuser:appgroup /tmp/nexus/uploads` first, then self-re-exec
-# via `gosu appuser:appgroup`. This is required because Docker named
-# volumes (e.g. `uploads_data` mounted at /tmp/nexus/uploads) created
-# under earlier images that ran as root retain root ownership on first
-# mount, and `appuser` cannot create subdirectories there. The actual
-# Python process still runs as appuser thanks to the gosu drop in
-# entrypoint.sh — see that file for the privilege handoff.
-RUN groupadd --system --gid 10001 appgroup \
- && useradd  --system --uid 10001 --gid appgroup --no-create-home --shell /usr/sbin/nologin appuser \
- && chown -R appuser:appgroup /app /tmp/nexus
-
+# The entrypoint starts as root only to repair ownership on named volumes left
+# by legacy images. It immediately re-execs itself through su-exec as UID 10001;
+# the Python application never runs with root privileges.
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # Privilege handoff (root → appuser). The Dockerfile leaves ENTRYPOINT as
@@ -10,7 +10,7 @@ set -e
 # 2026-05-25 with `PermissionError: '/tmp/nexus/uploads/client_framework_contracts'`
 # because the volume from before commit 2b465d6 (P0/P1 security review,
 # which introduced the non-root user) was still root-owned. We chown the
-# entire `/tmp/nexus` tree as root, then `exec gosu appuser:appgroup` to
+# entire `/tmp/nexus` tree as root, then `exec su-exec appuser:appgroup` to
 # re-execute this same script as the unprivileged user — meaning the
 # Python process below still runs with the privilege drop intended by the
 # security hardening, just with writable uploads.
@@ -34,7 +34,7 @@ if [ "$(id -u)" = "0" ]; then
     else
         echo "WARN: chown /tmp/nexus failed (volume read-only?); appuser may not be able to upload"
     fi
-    exec gosu appuser:appgroup "$0" "$@"
+    exec su-exec appuser:appgroup "$0" "$@"
 fi
 
 export PYTHONPATH=/app:${PYTHONPATH}
