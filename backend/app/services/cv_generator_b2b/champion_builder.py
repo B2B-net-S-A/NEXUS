@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
+from app.services.skill_normalize import iter_skill_names
 
 
 @dataclass
@@ -42,12 +42,6 @@ class ChampionProfileForPrompt:
         )
 
 
-def _skill_name(item: Any) -> str:
-    if isinstance(item, dict):
-        return str(item.get("name") or "").strip()
-    return str(item).strip()
-
-
 def from_nexus_job(
     must_skills: list[dict] | None,
     nice_skills: list[dict] | None,
@@ -63,8 +57,12 @@ def from_nexus_job(
         requirements: Optional fallback for ``responsibilities`` when the
             champion profile lacks ``project_context.responsibilities``.
     """
-    must = [s for s in (_skill_name(x) for x in (must_skills or [])) if s]
-    nice = [s for s in (_skill_name(x) for x in (nice_skills or [])) if s]
+    # iter_skill_names handles every legacy JSONB shape the column may hold —
+    # list[dict], list[str], dict {"technologies": [...]}, a JSON-encoded
+    # string, or a comma list — so a dict/string column no longer collapses to
+    # the literal key "technologies" or gets iterated character-by-character.
+    must = iter_skill_names(must_skills)
+    nice = iter_skill_names(nice_skills)
 
     cp = champion_profile or {}
     proj = cp.get("project_context") or {}
@@ -200,13 +198,32 @@ _ONLY_BULLET_RE = re.compile(r"^[\s\-•·*]+$")
 def _split_skills(raw: str) -> list[str]:
     r"""Split MUST-HAVE / NICE-TO-HAVE blob into discrete tech names.
 
-    Splits on newline / comma / semicolon, trims bullets/whitespace, drops
-    empty and pure-bullet fragments. Matches the JS implementation:
-        text.split(/[\n,;]/).map(trim).filter(s => s && !/^[\s\-•]+$/.test(s))
+    Splits on newline, and on comma/semicolon only OUTSIDE parentheses, so a
+    chip like ``Java (Spring, Hibernate)`` or ``WCAG 2.1/2.2 (AA, AAA)`` stays
+    whole instead of shattering at the inner comma. Trims bullets/whitespace,
+    drops empty and pure-bullet fragments.
+
+    (Deliberately diverges from the JS 1:1 port ``text.split(/[\n,;]/)`` in
+    ``lib/cv-shared.ts``, which broke parenthesised list items.)
     """
     if not raw:
         return []
-    parts = re.split(r"[\n,;]", raw)
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in raw:
+        if ch in "([{":
+            depth += 1
+            buf.append(ch)
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+        elif ch == "\n" or (ch in ",;" and depth == 0):
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf))
     out: list[str] = []
     for p in parts:
         s = _BULLET_STRIP_RE.sub("", p).strip()
