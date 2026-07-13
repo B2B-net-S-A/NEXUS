@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import CurrentUser, DocumentReader, DlAssignedOrAdmin
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -28,6 +28,7 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.schemas.client_contract_amendment import ClientContractAmendmentRead
 from app.services import storage_service
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -191,7 +192,7 @@ async def download_amendment(
     client_id: int,
     fc_id: int,
     amendment_id: int,
-    _user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_fc(db, client_id, fc_id)
@@ -204,6 +205,14 @@ async def download_amendment(
     if a is None or a.file_path is None:
         raise HTTPException(404, detail="File not found")
     abs_path = storage_service.get_client_contract_amendment_path(a.file_path)
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="client_contract_amendment",
+        entity_id=a.id,
+        action="document_downloaded",
+        details={"client_id": client_id, "framework_contract_id": fc_id},
+    )
     return FileResponse(
         path=str(abs_path),
         filename=a.filename or "amendment.pdf",

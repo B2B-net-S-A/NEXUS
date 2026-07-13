@@ -1,3 +1,4 @@
+import re
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -33,7 +34,73 @@ IMPERSONATION_HEADER = "X-Impersonate-User-Id"
 _IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Read-only POST-y (wyszukiwarki) — muszą działać w trybie podglądu, bo część
 # list (np. kandydaci) ładuje się przez POST /api/search/*.
-_IMPERSONATION_POST_ALLOW_PREFIXES = ("/api/search",)
+_IMPERSONATION_POST_ALLOW_ROUTES = frozenset(
+    {"/api/search/candidates", "/api/search/semantic"}
+)
+
+# ``user`` is the deliberately read-only viewer role.  Route-level guards are
+# still the primary authorization mechanism, but this policy is a fail-closed
+# backstop for legacy endpoints that accidentally kept ``CurrentUser`` on a
+# state-changing method.  A small, explicit allowlist preserves only personal
+# account state and request shapes that are semantically reads.
+_VIEWER_SELF_SERVICE_ROUTES = frozenset(
+    {
+        ("POST", "/api/auth/change-password"),
+        ("POST", "/api/onboarding/me/onboarding"),
+        ("PUT", "/api/notifications/read-all"),
+        ("PATCH", "/api/notifications/read-all"),
+        ("PATCH", "/api/users/me/preferences"),
+    }
+)
+_VIEWER_READ_ONLY_POST_ROUTES = frozenset(
+    {
+        "/api/emails/preview",
+        "/api/search/candidates",
+        "/api/search/semantic",
+        "/api/recommendations/send-candidate-shortlist-email",
+        "/api/recommendations/prepare-client-proposal",
+    }
+)
+
+
+def is_read_only_viewer(user: User) -> bool:
+    """Return whether ``user`` has no capability beyond the viewer role."""
+    return user.get_all_roles() == {UserRole.user}
+
+
+def _viewer_request_is_allowed(user: User, method: str, path: str) -> bool:
+    """Return whether an effective user may perform this HTTP request.
+
+    Any valid secondary role makes a multi-role account non-viewer.  Unknown
+    strings in ``users.roles`` are ignored by ``get_all_roles()``, so stale DB
+    data can never turn a viewer into a writer.
+    """
+    if not is_read_only_viewer(user):
+        return True
+
+    normalized_method = method.upper()
+    if normalized_method in _IMPERSONATION_SAFE_METHODS:
+        return True
+    if (normalized_method, path) in _VIEWER_SELF_SERVICE_ROUTES:
+        return True
+    if normalized_method == "POST" and path in _VIEWER_READ_ONLY_POST_ROUTES:
+        return True
+    if normalized_method == "POST" and (
+        re.fullmatch(r"/api/email-templates/[0-9]+/preview", path)
+        or re.fullmatch(r"/api/user-email-templates/[0-9]+/render", path)
+    ):
+        return True
+    if path.startswith("/api/notifications/") and path.endswith("/read"):
+        return normalized_method in {"PUT", "PATCH"}
+    return False
+
+
+def _enforce_viewer_read_only(request: Request, user: User) -> None:
+    if not _viewer_request_is_allowed(user, request.method, request.url.path):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Read-only accounts cannot modify, export, or download data",
+        )
 
 
 async def _resolve_impersonation(
@@ -52,7 +119,7 @@ async def _resolve_impersonation(
     method = request.method.upper()
     path = request.url.path
     is_read_only = method in _IMPERSONATION_SAFE_METHODS or (
-        method == "POST" and path.startswith(_IMPERSONATION_POST_ALLOW_PREFIXES)
+        method == "POST" and path in _IMPERSONATION_POST_ALLOW_ROUTES
     )
     if not is_read_only:
         raise HTTPException(
@@ -82,6 +149,11 @@ async def _resolve_impersonation(
     # Ślad dla downstream (audyt/logi) — kto kogo podgląda w tym requeście.
     request.state.impersonator_id = admin.id
     request.state.impersonated_user_id = target.id
+    # Sensitive-read helpers receive the effective user object, not Request.
+    # Preserve the real actor on this request-scoped ORM instance so an admin
+    # cannot make an export/download audit row look as if the target performed
+    # it.  This is a transient Python attribute; it is never persisted to users.
+    setattr(target, "_security_audit_actor_id", admin.id)
     return target
 
 
@@ -127,9 +199,11 @@ async def get_current_user(
         raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
+    effective_user = user
     if impersonate_raw:
-        return await _resolve_impersonation(request, user, impersonate_raw, db)
-    return user
+        effective_user = await _resolve_impersonation(request, user, impersonate_raw, db)
+    _enforce_viewer_read_only(request, effective_user)
+    return effective_user
 
 
 def require_roles(*roles: UserRole):
@@ -196,6 +270,48 @@ RecruiterPlus = Annotated[
         )
     ),
 ]
+
+# Explicit resource guards used by the P1 security hardening.  Keeping these
+# names at the endpoints makes future review much clearer than a generic
+# ``CurrentUser`` and prevents the read-only ``user`` role from receiving
+# files or bulk datasets.
+ContactReader = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+            UserRole.user,
+        )
+    ),
+]
+
+ContactEditor = TacPlus
+
+CloudTalkAdmin = AdminUser
+
+CloudTalkCaller = RecruiterPlus
+
+SensitiveDataReader = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.recruiter,
+            UserRole.sourcer,
+        )
+    ),
+]
+
+ExportUser = SensitiveDataReader
+DocumentReader = SensitiveDataReader
 
 # Pending verification approval (migracja 0056) — admin + delivery_lead +
 # head_of_recruitment mogą akceptować / odrzucać kandydatów na stage `verified`

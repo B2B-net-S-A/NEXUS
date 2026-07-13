@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from app.models.candidate import Candidate
     from app.models.job import Job
 
+from app.services.cv_html_security import GENERATED_CV_MARKER
+
 
 LABELS = {
     "pl": {
@@ -272,6 +274,7 @@ def _generate_cv_html(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{L["cv_title"]} — {name}</title>
+{GENERATED_CV_MARKER}
 <style>
   *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
@@ -468,7 +471,7 @@ def _generate_cv_html(
     </div>
     <div class="cv-header-date">{today}</div>
     <div class="cv-name">{name}</div>
-    {f'<div class="cv-category">{candidate.competence_category}</div>' if candidate.competence_category else ""}
+    {f'<div class="cv-category">{_esc(candidate.competence_category)}</div>' if candidate.competence_category else ""}
     {blind_badge}
   </div>
 

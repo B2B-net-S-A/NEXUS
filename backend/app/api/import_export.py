@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
-from app.api.deps import CurrentUser
+from app.api.deps import ExportUser, RecruiterPlus
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -52,7 +53,7 @@ def _safe_int(val: str) -> Optional[int]:
 
 @router.post("/import/candidates")
 async def import_candidates(
-    current_user: CurrentUser,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -262,7 +263,7 @@ def _build_candidates_csv(candidates) -> bytes:
 
 @router.get("/export/candidates")
 async def export_candidates(
-    current_user: CurrentUser,
+    current_user: ExportUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -272,6 +273,14 @@ async def export_candidates(
     candidates = result.scalars().all()
 
     csv_bytes = await run_in_threadpool(_build_candidates_csv, candidates)
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate",
+        entity_id=0,
+        action="data_exported",
+        details={"format": "csv", "row_count": len(candidates)},
+    )
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
     filename = f"kandydaci_{timestamp}.csv"

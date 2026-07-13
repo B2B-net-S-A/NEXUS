@@ -25,6 +25,7 @@ from app.models.user import User, UserRole
 
 ROLES = [
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
@@ -121,16 +122,47 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
-    ("GET", "/api/reports/recruitment"),
+    ("POST", "/api/b2b-generator/render"),
     ("GET", "/api/reports/sales"),
     ("GET", "/api/reports/board"),
 ]
+
+RECRUITMENT_REPORT_ENDPOINTS = [("GET", "/api/reports/recruitment")]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
 RECRUITER_PLUS_ENDPOINTS = [
     ("POST", "/api/candidates"),
     ("POST", "/api/pipeline/move"),
     ("POST", "/api/pipeline/bulk-move"),
+]
+
+# P1 explicit resource guards.
+CONTACT_EDITOR_ENDPOINTS = [
+    ("POST", "/api/contacts"),
+    ("PUT", "/api/contacts/99999"),
+    ("DELETE", "/api/contacts/99999"),
+]
+
+CLOUDTALK_ADMIN_ENDPOINTS = [
+    ("GET", "/api/cloudtalk/agents"),
+    ("POST", "/api/cloudtalk/agents/99999/assign"),
+    ("DELETE", "/api/cloudtalk/agents/99999/assign"),
+    ("POST", "/api/cloudtalk/sync-agents"),
+]
+
+CLOUDTALK_CALLER_ENDPOINTS = [
+    ("POST", "/api/cloudtalk/initiate-call"),
+]
+
+SENSITIVE_READ_ENDPOINTS = [
+    ("GET", "/api/candidates/export?format=csv&limit=1"),
+    ("GET", "/api/contracts/export?format=csv&limit=1"),
+    ("GET", "/api/invoices/export.csv"),
+    ("GET", "/api/candidates/99999/cv-download"),
+    ("GET", "/api/contracts/99999/documents/99999/download"),
+    ("GET", "/api/contract-templates/99999/render?contract_id=99999"),
+    ("GET", "/api/clients/99999/required-documents/99999/download"),
+    ("GET", "/api/jobs/99999/champion-profile/briefing/audio-url"),
 ]
 
 # Endpointy wymagające DeliveryLeadPlus (admin + delivery_lead):
@@ -157,6 +189,22 @@ ROLE_SETS = {
     "tac_plus": {UserRole.admin, UserRole.delivery_lead, UserRole.tac},
     "recruiter_plus": {
         UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    },
+    "sensitive_reader": {
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    },
+    "recruitment_report_reader": {
+        UserRole.admin,
+        UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.tac,
         UserRole.recruiter,
@@ -281,6 +329,86 @@ async def test_recruiter_plus_endpoints_reject_viewer(
         assert resp.status_code == 403, (
             f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", RECRUITMENT_REPORT_ENDPOINTS)
+async def test_recruitment_report_matches_dashboard_role_matrix(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["recruitment_report_reader"]:
+        assert resp.status_code != 403
+    else:
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CONTACT_EDITOR_ENDPOINTS)
+async def test_contact_writes_require_tac_plus(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role in ROLE_SETS["tac_plus"]:
+        assert resp.status_code != 403
+    else:
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CLOUDTALK_ADMIN_ENDPOINTS)
+async def test_cloudtalk_configuration_is_admin_only(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role is UserRole.admin:
+        assert resp.status_code != 403
+    else:
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CLOUDTALK_CALLER_ENDPOINTS)
+async def test_cloudtalk_calls_require_operational_role(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role in ROLE_SETS["recruiter_plus"]:
+        assert resp.status_code != 403
+    else:
+        assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", SENSITIVE_READ_ENDPOINTS)
+async def test_exports_and_downloads_reject_read_only_user(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["sensitive_reader"]:
+        assert resp.status_code != 403
+    else:
+        assert resp.status_code == 403
 
 
 @pytest.mark.asyncio

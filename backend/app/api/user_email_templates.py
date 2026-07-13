@@ -35,6 +35,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.user_email_template import UserEmailTemplate
+from app.services.m365.html_sanitize import sanitize_html
 
 router = APIRouter()
 
@@ -42,7 +43,7 @@ router = APIRouter()
 # Sandboxed so user-supplied template source can't reach Python internals.
 # autoescape=True since rendered output is injected as HTML into Tiptap.
 _jinja_env = SandboxedEnvironment(
-    autoescape=select_autoescape(["html", "xml"]),
+    autoescape=select_autoescape(["html", "xml"], default_for_string=True),
     trim_blocks=True,
     lstrip_blocks=True,
 )
@@ -374,7 +375,7 @@ async def render_template(
 
     try:
         body_tmpl = _jinja_env.from_string(t.body_html)
-        rendered_body = body_tmpl.render(**ctx)
+        rendered_body = sanitize_html(body_tmpl.render(**ctx))
     except TemplateError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

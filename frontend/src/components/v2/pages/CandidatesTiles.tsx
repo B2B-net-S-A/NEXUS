@@ -28,9 +28,10 @@ interface TileCandidate {
 interface CandidatesTilesProps {
  items: TileCandidate[];
  selectedIds: Set<number>;
- onToggleSelect: (id: number) => void;
- onOpenDetail: (id: number) => void;
- onQuickAssign: (candidate: { id: number; name: string }) => void;
+  onToggleSelect: (id: number) => void;
+  onOpenDetail: (id: number) => void;
+  onQuickAssign: (candidate: { id: number; name: string }) => void;
+  canMutate: boolean;
 }
 
 const TILE_MIN_WIDTH = 240;
@@ -50,8 +51,9 @@ export function CandidatesTiles({
  items,
  selectedIds,
  onToggleSelect,
- onOpenDetail,
- onQuickAssign,
+  onOpenDetail,
+  onQuickAssign,
+  canMutate,
 }: CandidatesTilesProps) {
  const parentRef = useRef<HTMLDivElement>(null);
  const [lanes, setLanes] = useState(3);
@@ -153,7 +155,7 @@ export function CandidatesTiles({
  aria-label={`Zaznacz ${fullName}`}
  />
  </div>
- <button
+ {canMutate && <button
  onClick={(e) => {
  e.stopPropagation();
  onQuickAssign({ id: candidate.id, name: fullName });
@@ -162,7 +164,7 @@ export function CandidatesTiles({
  className="absolute right-2 top-2 h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
  >
  <Briefcase className="h-3.5 w-3.5" />
- </button>
+ </button>}
  <button
  type="button"
  onClick={() => onOpenDetail(candidate.id)}

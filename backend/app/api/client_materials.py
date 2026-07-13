@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_roles
+from app.api.deps import DocumentReader, get_current_user, require_roles
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -34,6 +34,7 @@ from app.schemas.client_materials import (
     ClientOnePagerResponse,
 )
 from app.services import storage_service
+from app.services.security_audit import record_sensitive_read
 
 
 _tac_plus = require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)
@@ -217,8 +218,8 @@ async def upload_one_pager(
 async def download_one_pager(
     client_id: int,
     one_pager_id: int,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     await _assert_client(db, client_id)
     result = await db.execute(
@@ -235,6 +236,15 @@ async def download_one_pager(
         abs_path = storage_service.get_client_one_pager_path(op.file_path)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="File missing on disk") from exc
+
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="client_one_pager",
+        entity_id=op.id,
+        action="document_downloaded",
+        details={"client_id": client_id},
+    )
 
     return FileResponse(
         path=str(abs_path),

@@ -11,11 +11,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser, ExportUser, TacPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -186,12 +187,20 @@ async def dso_by_client(
 
 @router.get("/export.csv")
 async def export_invoices_csv(
-    current_user: CurrentUser,
+    current_user: ExportUser,
     db: AsyncSession = Depends(get_db),
 ):
     """CSV export in a format compatible with Fakturownia/iFirma."""
     res = await db.execute(select(Invoice).order_by(Invoice.issue_date.desc()))
     rows = list(res.scalars().all())
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="invoice",
+        entity_id=0,
+        action="data_exported",
+        details={"format": "csv", "row_count": len(rows)},
+    )
     buf = StringIO()
     writer = csv.writer(buf, delimiter=";")
     writer.writerow(

@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import logging
 import re
+from html import escape
 from typing import Optional
+
+from app.services.m365.html_sanitize import sanitize_html
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +50,11 @@ def _wrap_for_pdf(body_html: str, title: str) -> str:
     so the visual output matches what the recruiter sees in the print
     preview.
     """
+    safe_title = escape(title)
+    safe_body = sanitize_html(body_html)
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{title}</title>"
+        f"<title>{safe_title}</title>"
         "<style>"
         "@page{size:A4;margin:18mm 16mm}"
         "body{font-family:'DejaVu Sans','Liberation Sans',Helvetica,Arial,"
@@ -59,7 +64,7 @@ def _wrap_for_pdf(body_html: str, title: str) -> str:
         "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;"
         "vertical-align:top}"
         "</style></head><body>"
-        f"{body_html}"
+        f"{safe_body}"
         "</body></html>"
     )
 

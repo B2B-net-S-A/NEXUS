@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
-from app.api.deps import CurrentUser
+from app.api.deps import ContactEditor, ContactReader
 
 router = APIRouter()
 
@@ -102,7 +102,7 @@ class ContactWithClientResponse(BaseModel):
 
 @router.get("/contacts", response_model=list[ContactWithClientResponse])
 async def list_all_contacts(
-    current_user: CurrentUser,
+    current_user: ContactReader,
     db: AsyncSession = Depends(get_db),
     search: Optional[str] = Query(None, alias="search"),
 ):
@@ -151,7 +151,7 @@ async def list_all_contacts(
 @router.get("/clients/{client_id}/contacts", response_model=list[ContactResponse])
 async def list_client_contacts(
     client_id: int,
-    current_user: CurrentUser,
+    current_user: ContactReader,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Client).where(Client.id == client_id))
@@ -171,7 +171,7 @@ async def list_client_contacts(
 )
 async def create_contact(
     data: ContactCreate,
-    current_user: CurrentUser,
+    current_user: ContactEditor,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Client).where(Client.id == data.client_id))
@@ -189,7 +189,7 @@ async def create_contact(
 async def update_contact(
     contact_id: int,
     data: ContactUpdate,
-    current_user: CurrentUser,
+    current_user: ContactEditor,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Contact).where(Contact.id == contact_id))
@@ -208,7 +208,7 @@ async def update_contact(
 @router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(
     contact_id: int,
-    current_user: CurrentUser,
+    current_user: ContactEditor,
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(Contact).where(Contact.id == contact_id))

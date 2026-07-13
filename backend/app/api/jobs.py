@@ -40,7 +40,13 @@ from app.schemas.job import (
     UserBrief,
 )
 from app.api.clients_team import TAC_ASSIGNABLE_ROLES
-from app.api.deps import CurrentUser, DeliveryLeadPlus, TacPlus
+from app.api.deps import (
+    CurrentUser,
+    DeliveryLeadPlus,
+    DocumentReader,
+    TacPlus,
+    is_read_only_viewer,
+)
 from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.ws import manager as ws_manager
@@ -54,6 +60,7 @@ from app.services.marketplace_service import (
     run_marketplace_scan_safe,
 )
 from app.services.similar_job_notify import run_similar_job_notify_safe
+from app.services.security_audit import record_sensitive_read
 from app.tasks.compute_proposals import (
     compute_proposal_for_job,
     create_pending_snapshot,
@@ -1116,18 +1123,20 @@ async def get_champion_profile(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    await db.execute(
-        sql_update(Notification)
-        .where(
-            Notification.user_id == current_user.id,
-            Notification.notification_type == NotificationType.champion_profile_updated,
-            Notification.related_entity_type == "job",
-            Notification.related_entity_id == job_id,
-            Notification.is_read.is_(False),
+    if not is_read_only_viewer(current_user):
+        await db.execute(
+            sql_update(Notification)
+            .where(
+                Notification.user_id == current_user.id,
+                Notification.notification_type
+                == NotificationType.champion_profile_updated,
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job_id,
+                Notification.is_read.is_(False),
+            )
+            .values(is_read=True)
         )
-        .values(is_read=True)
-    )
-    await db.commit()
+        await db.commit()
 
     return {
         "job_id": job.id,
@@ -1715,7 +1724,7 @@ async def clear_champion_briefing(
 @router.get("/{job_id}/champion-profile/briefing/audio-url")
 async def champion_briefing_audio_url(
     job_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Short-lived presigned URL for the briefing audio.
@@ -1735,6 +1744,14 @@ async def champion_briefing_audio_url(
         raise HTTPException(status_code=503, detail="Object storage niedostępny.")
     url = object_storage.get_presigned_download_url(
         key, expires_in=600, filename="briefing.mp3", disposition="inline"
+    )
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="job",
+        entity_id=job.id,
+        action="document_downloaded",
+        details={"document_type": "champion_briefing_audio", "access": "url_issued"},
     )
     return {"url": url}
 

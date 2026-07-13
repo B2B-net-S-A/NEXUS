@@ -29,6 +29,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.signature_link import SignatureLink
+from app.services.security_audit import record_sensitive_read
 from app.services.signing.sender import finalize_signed_pdf, render_unsigned_pdf
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,18 @@ async def get_sign_page(
     """Data for the public signing page (no PII beyond signer name)."""
     link = await _load_valid_link(db, token, require_unused=False)
     sig = await _load_signature(db, link.signature_id)
+    await record_sensitive_read(
+        db,
+        user=None,
+        entity_type="document_signature",
+        entity_id=sig.id,
+        action="public_data_viewed",
+        details={
+            "contract_id": sig.contract_id,
+            "party": link.party,
+            "access": "public_signing_page",
+        },
+    )
     return {
         "contract_id": sig.contract_id,
         "signer_name": f"{sig.signer_first_name} {sig.signer_last_name}",
@@ -109,6 +122,18 @@ async def get_unsigned_pdf(
         raise HTTPException(
             status_code=500, detail="Nie udało się wygenerować PDF"
         ) from exc
+    await record_sensitive_read(
+        db,
+        user=None,
+        entity_type="document_signature",
+        entity_id=sig.id,
+        action="document_downloaded",
+        details={
+            "contract_id": sig.contract_id,
+            "party": link.party,
+            "access": "public_signing_link",
+        },
+    )
     return Response(
         content=pdf,
         media_type="application/pdf",

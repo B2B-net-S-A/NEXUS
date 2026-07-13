@@ -67,6 +67,7 @@ import api, {
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
+import { sanitizeRichHtml } from "@/lib/sanitize-html";
 
 type CandidateOption = {
   id: number;
@@ -215,7 +216,7 @@ function printHtml(bodyHtml: string, title: string) {
       "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}" +
       "@media print{body{margin:0;padding:0}}</style>" +
       "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300))</script>" +
-      `</head><body>${bodyHtml}</body></html>`,
+      `</head><body>${sanitizeRichHtml(bodyHtml)}</body></html>`,
   );
   w.document.close();
 }
@@ -940,7 +941,7 @@ function GeneratorForm() {
 
   const previewMut = useMutation({
     mutationFn: () => b2bGeneratorApi.renderHtml(buildPayload(language)),
-    onSuccess: (d) => setPreviewHtml(d.html),
+    onSuccess: (d) => setPreviewHtml(sanitizeRichHtml(d.html)),
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
@@ -1832,6 +1833,7 @@ function GeneratorForm() {
             <iframe
               title="Podgląd umowy"
               className="h-[520px] w-full rounded-lg border bg-white"
+              sandbox="allow-same-origin"
               srcDoc={`<style>${PREVIEW_STYLE}</style>${previewHtml}`}
             />
           </CardContent>

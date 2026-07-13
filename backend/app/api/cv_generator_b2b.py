@@ -46,8 +46,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, DocumentReader
 from app.core.database import AsyncSessionLocal, get_db
+from app.services.security_audit import record_sensitive_read
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -671,7 +672,7 @@ async def list_generated_cvs(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_cv(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Re-render a previously generated CV from its saved payload and return it.
@@ -700,6 +701,14 @@ async def download_generated_cv(
         raise HTTPException(
             status_code=500, detail=f"Nie udało się odtworzyć DOCX: {err}"
         ) from err
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="cv_generated_document",
+        entity_id=row.id,
+        action="document_downloaded",
+        details={"document_type": "generated_cv"},
+    )
     return _build_docx_response(
         docx_bytes=docx_bytes,
         filename=row.filename,

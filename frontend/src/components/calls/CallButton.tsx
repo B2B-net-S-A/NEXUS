@@ -5,6 +5,7 @@ import { Phone, Loader2 } from "lucide-react";
 
 import { cloudtalkApi } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 interface CallButtonProps {
   candidateId: number;
@@ -34,10 +35,16 @@ export default function CallButton({
   compact = false,
   className = "",
 }: CallButtonProps) {
+  const user = useAuthStore((state) => state.user);
   const { showSuccess, showError } = useToast();
   const [isLoading, setLoading] = useState(false);
 
-  if (!phone) return null;
+  if (
+    !phone ||
+    !hasRole(user, "admin", "delivery_lead", "tac", "recruiter", "sourcer")
+  ) {
+    return null;
+  }
 
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Copy, Mail, X } from "lucide-react";
+
+import { sanitizeRichHtml } from "@/lib/sanitize-html";
 
 interface Props {
   title: string;
@@ -29,6 +31,10 @@ export function EmailDraftDialog({
   onClose,
 }: Props) {
   const [copied, setCopied] = useState<"text" | "html" | "subject" | null>(null);
+  const safeHtmlBody = useMemo(
+    () => sanitizeRichHtml(htmlBody ?? ""),
+    [htmlBody],
+  );
 
   const copy = async (kind: "text" | "html" | "subject", value: string) => {
     try {
@@ -97,12 +103,11 @@ export function EmailDraftDialog({
             </div>
           </Field>
 
-          {htmlBody && (
+          {safeHtmlBody && (
             <Field label="Podgląd (HTML)">
               <div
                 className="bg-muted dark:bg-muted border border-border dark:border-border rounded p-3 max-h-72 overflow-y-auto"
-                // eslint-disable-next-line react/no-danger
-                dangerouslySetInnerHTML={{ __html: htmlBody }}
+                dangerouslySetInnerHTML={{ __html: safeHtmlBody }}
               />
             </Field>
           )}

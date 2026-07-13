@@ -96,8 +96,15 @@ from app.services.note_mention_render import (
     collect_traffit_user_ids,
     render_traffit_mentions,
 )
-from app.api.deps import CurrentUser, RecruiterPlus, DeliveryLeadPlus
+from app.api.deps import (
+    CurrentUser,
+    DeliveryLeadPlus,
+    DocumentReader,
+    ExportUser,
+    RecruiterPlus,
+)
 from app.api import ws as ws_manager
+from app.services.security_audit import record_sensitive_read
 
 logger = logging.getLogger(__name__)
 
@@ -1845,7 +1852,7 @@ def _row_for_export(c: Candidate) -> list:
 
 @router.get("/export")
 async def export_candidates(
-    current_user: CurrentUser,
+    current_user: ExportUser,
     db: AsyncSession = Depends(get_db),
     format: str = Query("csv", regex="^(csv|xlsx)$"),
     status_: Optional[CandidateStatus] = Query(None, alias="status"),
@@ -1870,6 +1877,14 @@ async def export_candidates(
     query = query.order_by(Candidate.id).limit(limit)
     result = await db.execute(query)
     rows = list(result.scalars().all())
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate",
+        entity_id=0,
+        action="data_exported",
+        details={"format": format, "row_count": len(rows)},
+    )
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -3053,7 +3068,7 @@ async def list_candidate_documents(
 async def download_candidate_document(
     candidate_id: int,
     doc_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
         "attachment",
@@ -3078,6 +3093,14 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate_document",
+        entity_id=doc.id,
+        action="document_downloaded",
+        details={"candidate_id": candidate_id, "disposition": disposition},
+    )
 
     # Po migracji do Hetzner Object Storage (audit-2026-05-07 Faza 3): plik
     # leży w buckecie pod `storage_key`. PROXY MODE — backend pobiera bytes
@@ -3128,7 +3151,7 @@ async def download_candidate_document(
 async def get_candidate_document_url(
     candidate_id: int,
     doc_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
     disposition: Literal["attachment", "inline"] = Query(
         "attachment",
@@ -3162,6 +3185,18 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate_document",
+        entity_id=doc.id,
+        action="document_downloaded",
+        details={
+            "candidate_id": candidate_id,
+            "disposition": disposition,
+            "access": "url_issued",
+        },
+    )
 
     if doc.storage_key:
         from app.services.object_storage import (
@@ -3762,7 +3797,7 @@ async def upload_cv(
 @router.get("/{candidate_id}/cv-download")
 async def download_cv(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Download CV file for a candidate."""
@@ -3777,6 +3812,14 @@ async def download_cv(
     )
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate",
+        entity_id=candidate.id,
+        action="document_downloaded",
+        details={"document_type": "cv"},
+    )
     return FileResponse(
         path=file_path,
         filename=candidate.cv_filename,
@@ -3800,7 +3843,7 @@ def _sanitize_zip_component(value: str) -> str:
 @router.post("/bulk-cv-download")
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CurrentUser,
+    current_user: ExportUser,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.
@@ -3902,6 +3945,19 @@ async def bulk_cv_download(
         "X-Skipped-Count": str(skipped),
         "Access-Control-Expose-Headers": "Content-Disposition, X-Included-Count, X-Skipped-Count",
     }
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate",
+        entity_id=0,
+        action="data_exported",
+        details={
+            "format": "zip_cv",
+            "requested_count": len(requested_ids),
+            "included_count": included,
+            "skipped_count": skipped,
+        },
+    )
     return Response(
         content=buffer.getvalue(),
         media_type="application/zip",

@@ -21,11 +21,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user
+from app.api.deps import CurrentUser, DocumentReader, get_current_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate import Candidate
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -34,6 +34,7 @@ from app.models.m365 import (
 )
 from app.services.m365 import sender as m365_sender
 from app.services.m365.attachment_handler import STORAGE_ROOT
+from app.services.security_audit import record_sensitive_read
 
 logger = logging.getLogger(__name__)
 
@@ -298,14 +299,14 @@ async def get_email(
 async def download_attachment(
     email_id: int,
     attachment_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     email = await db.get(Email, email_id)
     att = await db.get(EmailAttachment, attachment_id)
     if email is None or att is None or att.email_id != email.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attachment not found")
-    privileged = current_user.role.value in {"admin", "delivery_lead"}
+    privileged = current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
     if not _can_access_email(email, current_user, privileged):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
     if not att.storage_path:
@@ -318,6 +319,14 @@ async def download_attachment(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid path")
     if not abs_path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "file missing on disk")
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="email_attachment",
+        entity_id=att.id,
+        action="document_downloaded",
+        details={"email_id": email.id},
+    )
     return FileResponse(abs_path, media_type=att.content_type, filename=att.filename)
 
 

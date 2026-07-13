@@ -1363,6 +1363,23 @@ export function CandidatesListV2() {
  // Filter drawer (boczny panel ze wszystkimi filtrami) — tylko open/close.
  const [filtersOpen, setFiltersOpen] = useState(false);
  const currentUser = useAuthStore((s) => s.user);
+ const canExportSensitiveData = hasRole(
+ currentUser,
+ "admin",
+ "head_of_recruitment",
+ "delivery_lead",
+ "tac",
+ "recruiter",
+ "sourcer",
+ );
+ const canMutateCandidates = hasRole(
+ currentUser,
+ "admin",
+ "delivery_lead",
+ "tac",
+ "recruiter",
+ "sourcer",
+ );
 
  // Saved-search alerty — aktywny zapisany search (z menu „Zapisane” lub z
  // linku powiadomienia `?ss=`) + znacznik czasu sprzed bieżącego otwarcia
@@ -1984,6 +2001,7 @@ export function CandidatesListV2() {
  </div>
 
  <div className="flex items-center gap-2">
+ {canMutateCandidates && <>
  <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
  <Upload className="h-4 w-4" /> Import CSV
  </Button>
@@ -2000,10 +2018,11 @@ export function CandidatesListV2() {
  >
  <FileArchive className="h-4 w-4" /> Bulk CV
  </Link>
+ </>}
  {/* „Wyszukaj manualnie" usunięte — dublowało panel „Filtry" (ten sam
  AdvancedSearchPopover + CC + skills). Boolean/semantyczne wyszukiwanie
  pozostaje w /candidates/search (zakładka w profilu rekrutacji). */}
- <Popover>
+ {canExportSensitiveData && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline">
  <Download className="h-4 w-4" /> Eksport
@@ -2023,13 +2042,13 @@ export function CandidatesListV2() {
  Excel (.xlsx)
  </button>
  </PopoverContent>
- </Popover>
- <Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>
+ </Popover>}
+ {canMutateCandidates && <Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>
  <LinkIcon className="h-4 w-4" /> Wygeneruj link
- </Button>
- <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
+ </Button>}
+ {canMutateCandidates && <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" /> Dodaj
- </Button>
+ </Button>}
  </div>
  </div>
 
@@ -2823,7 +2842,8 @@ export function CandidatesListV2() {
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{""}
+ Brak wyników. Zmień filtry{canMutateCandidates ? " lub " : "."}
+ {canMutateCandidates && <>
  <button
  className="text-primary hover:underline"
  onClick={() => setShowAdd(true)}
@@ -2831,6 +2851,7 @@ export function CandidatesListV2() {
  dodaj nowego kandydata
  </button>
  .
+ </>}
  </div>
  ) : (
  <CandidatesTiles
@@ -2845,6 +2866,7 @@ export function CandidatesListV2() {
  }
  }}
  onQuickAssign={(c) => setAssignFor(c)}
+ canMutate={canMutateCandidates}
  />
  )
  ) : (
@@ -2861,7 +2883,8 @@ export function CandidatesListV2() {
  <div className="py-16 text-center text-sm text-muted-foreground">
  <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
  <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{""}
+ Brak wyników. Zmień filtry{canMutateCandidates ? " lub " : "."}
+ {canMutateCandidates && <>
  <button
  className="text-primary hover:underline"
  onClick={() => setShowAdd(true)}
@@ -2869,6 +2892,7 @@ export function CandidatesListV2() {
  dodaj nowego kandydata
  </button>
  .
+ </>}
  </div>
  ) : (
  <div
@@ -2959,7 +2983,7 @@ export function CandidatesListV2() {
  />
  </div>
  ))}
- <div className="flex justify-end">
+ {canMutateCandidates && <div className="flex justify-end">
  <button
  onClick={(e) => {
  e.stopPropagation();
@@ -2970,7 +2994,7 @@ export function CandidatesListV2() {
  >
  <Briefcase className="h-3.5 w-3.5" />
  </button>
- </div>
+ </div>}
  </div>
  {/* Snippet CV: dlaczego kandydat trafił w wyniki — pokrywa wszystkie
      frazy z search. Wcięty pod nazwisko (32px checkbox + 16px gap), pełna
@@ -3049,10 +3073,10 @@ export function CandidatesListV2() {
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
  </Button>
- <Button size="sm" variant="ghost" onClick={() => doExport("csv")}>
+ {canExportSensitiveData && <Button size="sm" variant="ghost" onClick={() => doExport("csv")}>
  <Download className="h-3.5 w-3.5" /> Eksportuj
- </Button>
- <Button
+ </Button>}
+ {canExportSensitiveData && <Button
  size="sm"
  variant="ghost"
  onClick={doBulkDownloadCvs}
@@ -3064,8 +3088,8 @@ export function CandidatesListV2() {
  <FileArchive className="h-3.5 w-3.5" />
  )}{""}
  Pobierz CV (ZIP)
- </Button>
- <Button
+ </Button>}
+ {canMutateCandidates && <Button
  size="sm"
  variant="ghost"
  onClick={() => setShowBulkPool(true)}
@@ -3073,7 +3097,7 @@ export function CandidatesListV2() {
  title="Dodaj zaznaczonych do puli talentów"
  >
  <Users className="h-3.5 w-3.5" /> Dodaj do puli
- </Button>
+ </Button>}
  <button
  onClick={clearSelection}
  className="text-xs text-foreground/70 hover:text-foreground ml-1"
@@ -3098,9 +3122,9 @@ export function CandidatesListV2() {
  <span>
  <Kbd>⌘</Kbd> <Kbd>K</Kbd> — szybkie wyszukiwanie
  </span>
- <span>
+ {canMutateCandidates && <span>
  <Kbd>N</Kbd> — nowy kandydat
- </span>
+ </span>}
  <span>
  <Kbd>Enter</Kbd> — dodaj umiejętność w filtrze
  </span>
