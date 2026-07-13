@@ -160,6 +160,7 @@ jobs:
                  tests/test_contract_client_rate_schedule.py \
                  tests/test_contract_amendments.py \
                  tests/test_contracts_expiring.py \
+                 tests/test_contracts_export.py \
                  tests/test_match_justification.py \
                  tests/test_cortex_fact_store.py \
                  tests/test_cortex_traffit_extract.py \
