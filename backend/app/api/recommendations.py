@@ -703,7 +703,12 @@ async def recommend_jobs_for_candidate(
 
 async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
     """Call local Ollama (if configured) to extract must/nice from description."""
-    ollama_host = getattr(settings, "OLLAMA_HOST", None)
+    # Config only defines OLLAMA_BASE_URL; the legacy OLLAMA_HOST is never set,
+    # so checking OLLAMA_HOST alone left this path permanently dead (always
+    # falling through to the heuristic). Resolve both, mirroring cv_parser.
+    ollama_host = getattr(settings, "OLLAMA_HOST", None) or getattr(
+        settings, "OLLAMA_BASE_URL", None
+    )
     if not ollama_host:
         return None
     model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
@@ -735,9 +740,17 @@ async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
             data = json.loads(payload)
             if not isinstance(data, dict):
                 return None
+            # Stamp the source so refresh/preview can report "ollama" vs
+            # "heuristic" (the endpoints key on ``"_source" in criteria``).
+            # It is a top-level key, not part of must/nice, so it never leaks
+            # into the persisted skill lists.
             return {
                 "must_skills": data.get("must_skills") or [],
                 "nice_skills": data.get("nice_skills") or [],
+                "_source": (
+                    f"ollama:{JOB_CRITERIA_FROM_DESCRIPTION.name}"
+                    f":v{JOB_CRITERIA_FROM_DESCRIPTION.version}"
+                ),
             }
     except Exception as e:
         logger.warning(
@@ -752,7 +765,14 @@ async def _generate_criteria_with_ollama(job: Job) -> Optional[dict]:
 def _fallback_criteria_from_text(job: Job) -> dict:
     """
     Very light heuristic fallback when Ollama is unavailable.
-    Splits requirements/description into bullet-ish lines and picks tech-ish keywords.
+
+    Extracts only recognised technology tokens from title/description/
+    requirements. It deliberately does NOT persist arbitrary requirement prose
+    (e.g. "Bardzo dobra znajomość angielskiego") as a skill — the previous
+    implementation dumped any ≤50-char non-tech line into ``nice_skills``,
+    which polluted matching and downstream CV bolding. Tokens are de-duplicated
+    in first-seen order (deterministic — the old ``set`` was not): the first 8
+    become must-have, the next 6 nice-to-have.
     """
     TECH_PATTERN = re.compile(
         r"\b(Python|Java|JavaScript|TypeScript|React|Angular|Vue|Node|Go|Rust|C\+\+|C#|Kotlin|"
@@ -762,16 +782,16 @@ def _fallback_criteria_from_text(job: Job) -> dict:
         re.I,
     )
     text = " ".join(filter(None, [job.title, job.description, job.requirements]))
-    found = {m.group(0) for m in TECH_PATTERN.finditer(text)}
-    must = [{"name": n, "level": None} for n in list(found)[:8]]
-    # Read additional bullet lines for nice-to-have
-    nice: list[dict] = []
-    for line in (job.requirements or "").splitlines():
-        line = line.strip().lstrip("•-–*·").strip()
-        if 3 <= len(line) <= 50 and not TECH_PATTERN.search(line):
-            nice.append({"name": line, "level": None})
-        if len(nice) >= 6:
-            break
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for m in TECH_PATTERN.finditer(text):
+        tok = m.group(0)
+        key = tok.lower()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(tok)
+    must = [{"name": n, "level": None} for n in ordered[:8]]
+    nice = [{"name": n, "level": None} for n in ordered[8:14]]
     return {"must_skills": must, "nice_skills": nice}
 
 
