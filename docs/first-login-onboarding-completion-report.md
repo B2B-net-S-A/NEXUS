@@ -100,4 +100,4 @@ docker compose up -d
 # lub test-rec-onboarding@example.com / OnbTest!234
 ```
 
-Admin bypass: `artur@b2bnet.pl` / `admin123` → direct `/`.
+Admin bypass: lokalne konto demo z hasłem dostarczonym przez env → direct `/`.

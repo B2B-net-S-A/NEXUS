@@ -99,7 +99,7 @@ Wszystkie best-effort (try/except wraps, log only) — nigdy nie blokują zapisu
 4. ✅ 4 nowe `notificationtype` values w DB enum
 5. ✅ `calendar_events.needs_attention` column + partial index
 6. ✅ Backend POST 201 z pełnym obiektem (`curl` test, event 12, feedback id=1)
-7. ✅ Chrome MCP: zalogowanie claude-admin, dropdown, click notyfikacji → modal otwiera się z tel: linkiem, 2 tabami, ratingami 1-5, selektami
+7. ✅ Historyczny Chrome MCP na wycofanym koncie syntetycznym: dropdown, click notyfikacji → modal otwiera się z tel: linkiem, 2 tabami, ratingami 1-5, selektami
 8. ✅ `run_all_triggers()` ręczne wywołanie: `post_interview_t15: 2` emitted (event 11+12)
 9. ✅ Dedupe: 2. run wraca `0` (daily dedup index aktywny)
 10. ✅ `stage_stuck_7d: 12` — istniejący trigger Phase 13 zaczął działać (naprawiony bug w lifespan)
@@ -130,7 +130,7 @@ Wszystkie best-effort (try/except wraps, log only) — nigdy nie blokują zapisu
 2. Coolify auto-deploy
 3. Monitor logów: `docker compose logs backend | grep "notification_triggers_loop"` — powinno pokazać start
 4. Weryfikacja DB: `alembic heads` (powinno być 1 po cleanup), tabela `interview_feedback` istnieje
-5. Chrome MCP smoke: login claude-admin → bell → klik `post_interview_*` → modal → fill → submit → DB row + needs_attention=false
+5. Staging Chrome MCP smoke: jednorazowe konto testowe → bell → klik `post_interview_*` → modal → fill → submit → DB row + needs_attention=false. Nie uruchamiać mutującego flow na produkcji.
 6. Rollback: migracja 0043 ma `downgrade()` droppujący tabelę + enumy + kolumnę (enum values zostają — PG limitation)
 
 ## Decyzje architektoniczne

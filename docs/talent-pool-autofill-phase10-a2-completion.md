@@ -48,7 +48,7 @@ Feature "Talentpool - autofill" (kandydat po wejściu w stage "CV wysłane do kl
 
 ## Weryfikacja — prod (https://nexus.dynaminds.pl)
 
-### UI smoke (Chrome MCP, zalogowany jako `claude-admin@b2bnet.pl`)
+### UI smoke (historyczny; wycofane konto syntetyczne, nie używać ponownie)
 
 | Test | Wynik |
 |------|-------|

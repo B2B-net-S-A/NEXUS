@@ -6,38 +6,10 @@ title = "Nexus ATS gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Intentional placeholders and docs"
-paths = [
-  '''frontend/tsconfig\.tsbuildinfo''',
-  '''frontend/package-lock\.json''',
-  '''NEXUS_AUDIT_AND_PLAN\.md''',
-  '''REQUIREMENTS_V[0-9]+\.md''',
-  '''QA_STRATEGY\.md''',
-  '''\.github/workflows/ci\.yml''',
-  '''\.github/workflows/backup-drill\.yml''',
-  # Build artefacts + per-developer scratch files. These are gitignored on
-  # disk; the path entry is a belt-and-suspenders for the CI scanner which
-  # walks the checked-out tree, not just ``git log``.
-  '''__pycache__/''',
-  '''\.pyc$''',
-  '''\.claude/''',
-  # Local dev default DSN (``postgresql+asyncpg://nexus:nexus@``) appears
-  # in seed scripts, entrypoint.sh, and the Settings() Pydantic default.
-  # Production DATABASE_URL is injected by Coolify env vault — it never
-  # matches the local default. Allowlisting paths instead of regexes
-  # because gitleaks' per-rule regex allowlist did not pick up the match
-  # in CI.
-  '''\.env\.example''',
-  '''backend/app/core/config\.py''',
-  '''backend/embed_all\.py''',
-  '''backend/scripts/.+\.py''',
-  '''backend/seed.*\.py''',
-  '''backend/entrypoint\.sh''',
-]
+description = "Non-secret placeholders only; source paths are never globally exempted"
 regexes = [
-  '''change-me''',
-  '''your-[a-z-]+-key-here''',
-  '''change-me-to-a-strong-password''',
+  '''change-me(?:-to-a-(?:long-random-string-min-48-chars|strong-password))?''',
+  '''your-(?:voyage|service)-api-key-here''',
   # CI-only test creds (clearly marked, no prod secret value)
   '''nexus:nexus-ci-password''',
   '''drill:drill-password''',
@@ -57,37 +29,46 @@ tags = ["voyage", "api-key"]
 
 [[rules]]
 id = "fireflies-api-key"
-description = "Fireflies API key (UUID format used for bearer tokens)"
-regex = '''[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'''
+description = "Fireflies API key (UUID bearer token with configuration context)"
+regex = '''(?i)FIREFLIES_API_KEY[^\r\n]{0,20}[=:][ \t]*["']?([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})'''
+secretGroup = 1
 tags = ["fireflies", "api-key"]
-# Office Add-in manifests carry a stable GUID in `<Id>` that's public by
-# design (Microsoft 365 Admin Center looks it up). Allowlist the file so
-# the UUID-shape doesn't trip the Fireflies bearer-token rule.
-# Plus M365/Phase-7.5 docs that record Azure AD tenant id, app client id, OAM
-# provider id — all public Microsoft identifiers, NOT secrets (the secrets
-# would be client_secret / refresh_token / state_signing_key, none of which
-# appear in these files).
-[rules.allowlist]
-paths = [
-  '''frontend/public/outlook-addin/manifest\.xml''',
-  '''docs/ops/actionable-messages-setup\.md''',
-  '''docs/m365-phase-7\.5-actionable-messages-completion-report\.md''',
-]
+
+[[rules]]
+id = "hardcoded-bootstrap-password"
+description = "Hard-coded password assigned to a production/bootstrap credential"
+regex = '''(?i)(?:_?DEFAULT_BOOTSTRAP_(?:PWD|PASSWORD)|[A-Z0-9_]*BOOTSTRAP_(?:PWD|PASSWORD))[ \t]*=[ \t]*["']([^"'$\r\n]{12,})["']'''
+secretGroup = 1
+keywords = ["BOOTSTRAP", "bootstrap"]
+tags = ["bootstrap", "password"]
+
+[[rules]]
+id = "demo-seed-literal-password"
+description = "Literal login password in a backend demo seed"
+path = '''(^|/)backend/seed[^/]*\.py$'''
+regex = '''(?i)["']password["'][ \t]*:[ \t]*["']([^"'$\r\n]{8,})["']'''
+secretGroup = 1
+keywords = ["password"]
+tags = ["seed", "password"]
 
 [[rules]]
 id = "hardcoded-db-password"
 description = "Postgres URL with password embedded"
-regex = '''postgresql(\+asyncpg)?://[a-zA-Z0-9_]+:[^@:/\s"]+@'''
+regex = '''postgresql(?:\+asyncpg)?://[a-zA-Z0-9_]+:[^@:/\s"]+@'''
 tags = ["db", "password"]
-# Per-rule allowlist OVERRIDES the top-level [allowlist] for this rule —
-# every legitimate placeholder must appear here too.
-[rules.allowlist]
+# Narrow per-rule allowlist for explicit local/CI placeholder DSNs. No source
+# path is exempted, so a real credential elsewhere in the same file still fails.
+[[rules.allowlists]]
+regexTarget = "match"
 regexes = [
   '''postgresql\+asyncpg://nexus:change-me-to-a-strong-password@''',
   '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
+  '''postgresql\+asyncpg://nexus:nexus-ci-password@''',
+  '''postgresql\+asyncpg://drill:drill-password@''',
   # Local dev default — used by seed scripts, entrypoint.sh, and the
   # ``Settings()`` Pydantic default in backend/app/core/config.py. Never
   # used in production: Coolify env vault overrides DATABASE_URL on every
   # deploy. Documented in backend/CLAUDE.md "Local dev" section.
   '''postgresql\+asyncpg://nexus:nexus@''',
+  '''postgresql://nexus:nexus@''',
 ]

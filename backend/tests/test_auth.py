@@ -1,22 +1,22 @@
 """Tests for auth API — runs against live backend."""
-import pytest
 from httpx import AsyncClient
 
 
-async def test_login_success(client: AsyncClient):
-    resp = await client.post("/api/auth/login", json={
-        "email": "artur@b2bnet.pl",
-        "password": "admin123",
-    })
+async def test_login_success(
+    client: AsyncClient, live_auth_credentials: dict[str, str]
+):
+    resp = await client.post("/api/auth/login", json=live_auth_credentials)
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
 
 
-async def test_login_wrong_password(client: AsyncClient):
+async def test_login_wrong_password(
+    client: AsyncClient, live_auth_credentials: dict[str, str]
+):
     resp = await client.post("/api/auth/login", json={
-        "email": "artur@b2bnet.pl",
+        "email": live_auth_credentials["email"],
         "password": "wrong",
     })
     assert resp.status_code == 401
@@ -30,12 +30,16 @@ async def test_login_nonexistent_user(client: AsyncClient):
     assert resp.status_code == 401
 
 
-async def test_me_authenticated(client: AsyncClient, auth_headers: dict):
+async def test_me_authenticated(
+    client: AsyncClient,
+    auth_headers: dict,
+    live_auth_credentials: dict[str, str],
+):
     resp = await client.get("/api/auth/me", headers=auth_headers)
     assert resp.status_code == 200
     data = resp.json()
-    assert data["email"] == "artur@b2bnet.pl"
-    assert data["role"] == "admin"
+    assert data["email"] == live_auth_credentials["email"]
+    assert "role" in data
 
 
 async def test_me_unauthenticated(client: AsyncClient):

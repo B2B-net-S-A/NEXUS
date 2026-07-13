@@ -46,7 +46,7 @@ Wszystkie filtry AND między różnymi parametrami, OR wewnątrz listy wartości
 - ✅ `docker compose exec backend alembic -c alembic/alembic.ini heads` → single head `0044_experience_search_indexes`
 - ✅ `docker compose exec backend pytest tests/test_candidates_position_filters.py -v` → **13 passed**
 - ✅ GIN indeksy zainstalowane bezpośrednio na dev DB (alembic upgrade ma pre-existing blokadę w innych migracjach, nie związane)
-- ✅ cURL smoke (z tokenem claude-admin):
+- ✅ Historyczny cURL smoke (token wycofanego konta syntetycznego; nie używać ponownie):
   - `GET /api/candidates/companies/suggest?q=&limit=5` → `[{name:"abb",count:1}, {name:"accenture",...}, ...]`
   - `GET /api/candidates?current_company=allegro` → 1 kandydat (Tomasz Dąbrowski)
   - `GET /api/candidates?current_title=senior` → 2 kandydatów
@@ -100,4 +100,5 @@ feat(candidates): LinkedIn-Recruiter-style filters — current/past company, tit
 - 13 backend tests (pytest), 1 nowy frontend test (vitest)
 ```
 
-Po commicie + push: Coolify auto-deploy → Chrome MCP smoke-test na `https://nexus.dynaminds.pl/candidates` (claude-admin@b2bnet.pl).
+Po commicie + push: produkcja tylko health/snapshot smoke. Interaktywny Chrome
+smoke wykonaj na staging jednorazowym, imiennym kontem testowym.

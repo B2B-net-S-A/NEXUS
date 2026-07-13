@@ -63,9 +63,13 @@ docker compose logs --tail=200 backend | grep -iE "rejection_email"
 # → co 30 s SELECT z scheduled_rejection_emails
 
 # Endpoint działa
-TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"artur@b2bnet.pl","password":"admin123"}' | jq -r .access_token)
+: "${NEXUS_DEV_ADMIN_EMAIL:?Set a local demo email}"
+: "${NEXUS_DEV_ADMIN_PASSWORD:?Set a local demo password}"
+TOKEN=$(jq -n --arg email "$NEXUS_DEV_ADMIN_EMAIL" \
+  --arg password "$NEXUS_DEV_ADMIN_PASSWORD" \
+  '{email:$email,password:$password}' | \
+  curl -s -X POST http://localhost:8000/api/auth/login \
+    -H 'Content-Type: application/json' -d @- | jq -r .access_token)
 curl -s "http://localhost:8000/api/rejection-emails/999999" \
   -H "Authorization: Bearer $TOKEN"
 # → {"detail":"Scheduled rejection email not found"}

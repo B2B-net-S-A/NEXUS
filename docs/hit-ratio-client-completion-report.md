@@ -52,7 +52,7 @@ Alembic multi-head issue (pre-existing — nie moja) → backend używa `Base.me
 ### Smoke test live (localhost)
 - `GET /api/reports/clients?period=year&min_closed=0` → 200 z poprawnym shape'em (wymagane auth).
 - `GET /api/reports/clients` bez tokena → 403 (expected, `_ClientsReportViewer` guard).
-- Login `artur@b2bnet.pl / admin123` działa, token ważny.
+- Login lokalnym kontem demo skonfigurowanym wyłącznie przez env działa, token ważny.
 
 ### Chrome MCP smoke test (localhost)
 - Login flow działa

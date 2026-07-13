@@ -111,7 +111,8 @@ If `m365` is `"disabled"` — `M365_INTEGRATION_ENABLED` is false. If `"degraded
 
 ### 4.2 Connect first mailbox
 
-1. Sign in to NEXUS as your existing admin (`artur@b2bnet.pl` or `claude-admin@b2bnet.pl`).
+1. Sign in through Microsoft SSO as an individually assigned administrator.
+   Never use a shared or synthetic production admin account.
 2. **Settings → Microsoft 365** → click **Połącz Microsoft 365**.
 3. Microsoft consent screen → choose your `@b2bnetwork.pl` account → Approve.
 4. You return to NEXUS with **Połączony** badge.

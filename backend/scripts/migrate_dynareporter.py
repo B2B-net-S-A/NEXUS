@@ -29,7 +29,7 @@ Użycie:
     python scripts/migrate_dynareporter.py \\
         --source-dump /tmp/render-dump.sql \\
         --apply \\
-        --target-db "postgresql://nexus:...@postgres:5432/nexus"
+        --target-db "$TARGET_DATABASE_URL"
 
     # Tylko users (etap 1)
     python scripts/migrate_dynareporter.py --source-dump dump.sql --users-only --apply

@@ -36,8 +36,16 @@ def event_loop():
     loop.close()
 
 BASE_URL = "http://localhost:8000"
-TEST_EMAIL = "artur@b2bnet.pl"
-TEST_PASSWORD = "admin123"
+
+
+@pytest.fixture
+def live_auth_credentials() -> dict[str, str]:
+    """Credentials for an explicitly enabled local live-server test account."""
+    email = os.environ.get("NEXUS_TEST_EMAIL", "")
+    password = os.environ.get("NEXUS_TEST_PASSWORD", "")
+    if not email or not password:
+        pytest.skip("Set NEXUS_TEST_EMAIL and NEXUS_TEST_PASSWORD for live tests")
+    return {"email": email, "password": password}
 
 
 # ── Legacy live-server fixtures ─────────────────────────────────────────────
@@ -50,11 +58,13 @@ async def client() -> AsyncIterator[AsyncClient]:
 
 
 @pytest_asyncio.fixture
-async def auth_headers(client: AsyncClient) -> dict[str, str]:
+async def auth_headers(
+    client: AsyncClient, live_auth_credentials: dict[str, str]
+) -> dict[str, str]:
     """Login and return auth headers (legacy live-server)."""
     resp = await client.post(
         "/api/auth/login",
-        json={"email": TEST_EMAIL, "password": TEST_PASSWORD},
+        json=live_auth_credentials,
     )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     token = resp.json()["access_token"]
