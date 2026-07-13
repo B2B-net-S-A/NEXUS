@@ -13,14 +13,21 @@ const SENIORITY_LABELS: Record<string, string> = {
  * Czysto prezentacyjna heatmapa skill × seniority (wzorzec rgba-table z
  * contracts/analytics). Osobny komponent, żeby /preview/cortex mógł ją
  * renderować na mockach bez react-query.
+ *
+ * `onCellClick` (opcjonalny) domyka pętlę do akcji: klik/Enter na komórce
+ * otwiera drill-down dla danego skilla (z preselekcją seniority); klik w nazwę
+ * technologii (nagłówek wiersza) woła go bez seniority (drill-down bez filtra).
  */
 export function TechMapHeatmap({
   data,
   maxSkills = 40,
+  onCellClick,
 }: {
   data: CortexTechMap;
   maxSkills?: number;
+  onCellClick?: (skillName: string, seniority?: string) => void;
 }) {
+  const interactive = typeof onCellClick === "function";
   const skills = data.skills.slice(0, maxSkills);
   const matrix: Record<string, Record<string, number>> = {};
   for (const cell of data.cells) {
@@ -77,17 +84,53 @@ export function TechMapHeatmap({
                   scope="row"
                   className="px-2 py-1 font-medium text-left sticky left-0 bg-card dark:bg-muted whitespace-nowrap"
                 >
-                  {skill}
+                  {interactive ? (
+                    <button
+                      type="button"
+                      onClick={() => onCellClick?.(skill)}
+                      className="text-left hover:text-primary hover:underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      title={`${skill}: pokaż wszystkich (${skillTotal})`}
+                    >
+                      {skill}
+                    </button>
+                  ) : (
+                    skill
+                  )}
                 </th>
                 {data.seniorities.map((s) => {
                   const cnt = row[s] ?? 0;
                   const seniorityLabel = SENIORITY_LABELS[s] ?? s;
+                  const cellInteractive = interactive && cnt > 0;
                   return (
                     <td
                       key={s}
                       tabIndex={0}
-                      title={`${skill} · ${seniorityLabel}: ${cnt}`}
-                      className="px-2 py-1 text-center tabular-nums cursor-default"
+                      role={cellInteractive ? "button" : undefined}
+                      onClick={
+                        cellInteractive
+                          ? () => onCellClick?.(skill, s)
+                          : undefined
+                      }
+                      onKeyDown={
+                        cellInteractive
+                          ? (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                onCellClick?.(skill, s);
+                              }
+                            }
+                          : undefined
+                      }
+                      title={
+                        cellInteractive
+                          ? `${skill} · ${seniorityLabel}: ${cnt} — kliknij, by zobaczyć osoby`
+                          : `${skill} · ${seniorityLabel}: ${cnt}`
+                      }
+                      className={
+                        cellInteractive
+                          ? "px-2 py-1 text-center tabular-nums cursor-pointer hover:ring-2 hover:ring-inset hover:ring-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          : "px-2 py-1 text-center tabular-nums cursor-default"
+                      }
                       style={{ backgroundColor: fillFor(cnt) }}
                     >
                       {cnt || "·"}

@@ -6,11 +6,12 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
-from app.models.cortex import CortexExtractionRun
+from app.models.cortex import CortexExtractionRun, CortexUnmatchedTerm
+from app.models.skill import Skill, SkillAlias
 from app.models.user import User, UserRole
 
 
@@ -113,3 +114,120 @@ async def test_unmatched_terms_admin_only(app_client: AsyncClient, app_auth_head
     )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+# ── Etap 1: Action Layer ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cortex_skills_shape(app_client: AsyncClient, app_auth_headers):
+    resp = await app_client.get("/api/cortex/skills", headers=app_auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    for key in ("skills", "total", "limit", "offset"):
+        assert key in data
+    assert isinstance(data["skills"], list)
+
+
+@pytest.mark.asyncio
+async def test_cortex_client_stack_and_successors_shape(
+    app_client: AsyncClient, app_auth_headers
+):
+    cs = await app_client.get("/api/cortex/client-stack", headers=app_auth_headers)
+    assert cs.status_code == 200
+    assert {"cells", "clients", "min_count"} <= set(cs.json())
+
+    su = await app_client.get(
+        "/api/cortex/successors?days=30", headers=app_auth_headers
+    )
+    assert su.status_code == 200
+    assert "ending_contracts" in su.json()
+
+
+@pytest.mark.asyncio
+async def test_cortex_drilldown_rejects_recruiter(app_client: AsyncClient):
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-recruiter-dd-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="Pytest Recruiter DD",
+                role=UserRole.recruiter,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    try:
+        login = await app_client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        # Drill-down (nazwiska) i kuracja niedostępne dla recruitera.
+        assert (
+            await app_client.get("/api/cortex/skill/1/candidates", headers=headers)
+        ).status_code == 403
+        assert (
+            await app_client.post(
+                "/api/cortex/skills",
+                headers=headers,
+                json={"canonical_name": "x"},
+            )
+        ).status_code == 403
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(User).where(User.email == email))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_cortex_curation_create_skill_from_term(
+    app_client: AsyncClient, app_auth_headers
+):
+    unique = uuid.uuid4().hex[:8]
+    term_text = f"kurtest-{unique}"
+    canonical = f"KurTest-{unique}"
+    async with AsyncSessionLocal() as db:
+        t = CortexUnmatchedTerm(term=term_text, occurrences=3)
+        db.add(t)
+        await db.commit()
+        term_id = t.id
+
+    skill_id = None
+    try:
+        resp = await app_client.post(
+            "/api/cortex/skills",
+            headers=app_auth_headers,
+            json={"canonical_name": canonical, "from_term_id": term_id},
+        )
+        assert resp.status_code == 200
+        skill_id = resp.json()["id"]
+
+        async with AsyncSessionLocal() as db:
+            term = await db.get(CortexUnmatchedTerm, term_id)
+            assert term.status == "mapped"
+            alias = await db.scalar(
+                select(SkillAlias).where(SkillAlias.alias == term_text)
+            )
+            assert alias is not None and alias.skill_id == skill_id
+
+        # Idempotencja tworzenia: duplikat (case-insensitive) → 400.
+        dup = await app_client.post(
+            "/api/cortex/skills",
+            headers=app_auth_headers,
+            json={"canonical_name": canonical.lower()},
+        )
+        assert dup.status_code == 400
+    finally:
+        async with AsyncSessionLocal() as db:
+            if skill_id:
+                await db.execute(
+                    delete(SkillAlias).where(SkillAlias.skill_id == skill_id)
+                )
+                await db.execute(delete(Skill).where(Skill.id == skill_id))
+            await db.execute(
+                delete(CortexUnmatchedTerm).where(CortexUnmatchedTerm.id == term_id)
+            )
+            await db.commit()

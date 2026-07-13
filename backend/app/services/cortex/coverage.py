@@ -130,6 +130,7 @@ async def compute_coverage(db: AsyncSession) -> dict:
     unmatched_rows = (
         await db.execute(
             select(
+                CortexUnmatchedTerm.id,
                 CortexUnmatchedTerm.term,
                 CortexUnmatchedTerm.occurrences,
                 CortexUnmatchedTerm.status,
@@ -178,11 +179,12 @@ async def compute_coverage(db: AsyncSession) -> dict:
         },
         "unmatched_terms": [
             {
+                "id": tid,
                 "term": term,
                 "occurrences": occurrences,
                 "status": status,
                 "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
             }
-            for term, occurrences, status, last_seen_at in unmatched_rows
+            for tid, term, occurrences, status, last_seen_at in unmatched_rows
         ],
     }

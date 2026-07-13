@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -14,6 +15,7 @@ import { cortexApi, extractErrorMsg, type CortexTechMap } from "@/lib/api";
 import { StatCard, StatCardGrid } from "@/components/ds/StatCard";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { TechMapHeatmap } from "@/components/cortex/TechMapHeatmap";
+import { SkillCandidatesDrawer } from "@/components/cortex/SkillCandidatesDrawer";
 
 const SOURCE_OPTIONS = [
   { value: "", label: "Wszystkie źródła" },
@@ -22,10 +24,47 @@ const SOURCE_OPTIONS = [
   { value: "screening", label: "Screening" },
 ];
 
+const MIN_COUNT_OPTIONS = [1, 2, 3, 5, 10] as const;
+const DEFAULT_MIN_COUNT = 2;
+
+type DrawerTarget = {
+  skillId: number;
+  skillName: string;
+  seniority?: string;
+};
+
+function isSource(v: string): boolean {
+  return v === "traffit" || v === "cv_llm" || v === "screening";
+}
+
 export function TechMapPanel() {
-  const [source, setSource] = useState("");
-  const [atClientOnly, setAtClientOnly] = useState(false);
-  const [minCount, setMinCount] = useState(2);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [drawer, setDrawer] = useState<DrawerTarget | null>(null);
+
+  // URL is the source of truth for the heatmap filters (survives reload / share).
+  const source = useMemo(() => {
+    const raw = searchParams.get("src") ?? "";
+    return isSource(raw) ? raw : "";
+  }, [searchParams]);
+  const atClientOnly = searchParams.get("atc") === "1";
+  const minCount = useMemo(() => {
+    const raw = Number(searchParams.get("min"));
+    return (MIN_COUNT_OPTIONS as readonly number[]).includes(raw)
+      ? raw
+      : DEFAULT_MIN_COUNT;
+  }, [searchParams]);
+
+  // Merge a filter patch into the current query string (keeps `tab`). `replace`
+  // avoids polluting history on every dropdown twiddle.
+  const patchParams = (patch: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) params.delete(key);
+      else params.set(key, value);
+    }
+    router.replace(`/cortex?${params.toString()}`, { scroll: false });
+  };
 
   const { data, isLoading, isError, error, refetch } = useQuery<CortexTechMap>({
     queryKey: ["cortex-tech-map", source, atClientOnly, minCount],
@@ -38,6 +77,13 @@ export function TechMapPanel() {
         })
       ).data,
   });
+
+  // Resolve canonical name → skill id (from the map response) and open drill-down.
+  const openDrawerForSkill = (skillName: string, seniority?: string) => {
+    const skillId = data?.skill_ids[skillName];
+    if (skillId == null) return;
+    setDrawer({ skillId, skillName, seniority });
+  };
 
   // Error branch first — on failure react-query leaves `data` undefined, so a
   // plain `!data` guard would spin forever instead of surfacing the problem.
@@ -108,7 +154,9 @@ export function TechMapPanel() {
           <div className="flex flex-wrap items-center gap-3 text-xs ml-auto">
             <select
               value={source}
-              onChange={(e) => setSource(e.target.value)}
+              onChange={(e) =>
+                patchParams({ src: e.target.value || null })
+              }
               className="border border-border rounded-md bg-background px-2 py-1.5"
             >
               {SOURCE_OPTIONS.map((o) => (
@@ -124,7 +172,9 @@ export function TechMapPanel() {
               <input
                 type="checkbox"
                 checked={atClientOnly}
-                onChange={(e) => setAtClientOnly(e.target.checked)}
+                onChange={(e) =>
+                  patchParams({ atc: e.target.checked ? "1" : null })
+                }
                 className="rounded border-border"
               />
               Prawdopodobnie u klienta
@@ -133,10 +183,17 @@ export function TechMapPanel() {
               Min. kandydatów
               <select
                 value={minCount}
-                onChange={(e) => setMinCount(Number(e.target.value))}
+                onChange={(e) =>
+                  patchParams({
+                    min:
+                      Number(e.target.value) === DEFAULT_MIN_COUNT
+                        ? null
+                        : e.target.value,
+                  })
+                }
                 className="border border-border rounded-md bg-background px-2 py-1.5"
               >
-                {[1, 2, 3, 5, 10].map((n) => (
+                {MIN_COUNT_OPTIONS.map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>
@@ -157,13 +214,14 @@ export function TechMapPanel() {
             }
           />
         ) : (
-          <TechMapHeatmap data={data} />
+          <TechMapHeatmap data={data} onCellClick={openDrawerForSkill} />
         )}
 
         <p className="text-xs text-muted-foreground">
           Seniority wyprowadzane: lata IT (≥7 senior, ≥3 mid) → bucket Traffita
           → nieznane. Ta mapa stoi na {data.fill_rate_pct}% bazy — traktuj
-          braki jako „nie wiemy”, nie „nie zna”.
+          braki jako „nie wiemy”, nie „nie zna”. Kliknij komórkę lub nazwę
+          technologii, by zobaczyć konkretnych kandydatów.
           {data.data_as_of ? (
             <>
               {" "}
@@ -173,6 +231,15 @@ export function TechMapPanel() {
           ) : null}
         </p>
       </div>
+
+      {drawer ? (
+        <SkillCandidatesDrawer
+          skillId={drawer.skillId}
+          skillName={drawer.skillName}
+          preselectedSeniority={drawer.seniority}
+          onClose={() => setDrawer(null)}
+        />
+      ) : null}
     </div>
   );
 }

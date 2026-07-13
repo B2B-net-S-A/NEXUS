@@ -2,12 +2,23 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Gauge, Grid3x3 } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Building2,
+  Gauge,
+  Grid3x3,
+  Layers,
+  ListChecks,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RequireRole } from "@/components/RequireRole";
 import { CoveragePanel } from "@/components/cortex/CoveragePanel";
 import { TechMapPanel } from "@/components/cortex/TechMapPanel";
-import type { UserRole } from "@/store/auth";
+import { SkillSearchPanel } from "@/components/cortex/SkillSearchPanel";
+import { ClientStackPanel } from "@/components/cortex/ClientStackPanel";
+import { SuccessorsPanel } from "@/components/cortex/SuccessorsPanel";
+import { CurationPanel } from "@/components/cortex/CurationPanel";
+import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
 
 // RODO gate: widoki agregują dane kompetencyjne kandydatów — ten sam zestaw
 // ról co zakładka "Klienci & Delivery" w Insights i backendowy CortexUser.
@@ -18,28 +29,48 @@ export const CORTEX_ROLES: UserRole[] = [
   "tac",
 ];
 
-type TabId = "tech" | "coverage";
+type TabId =
+  | "tech"
+  | "skills"
+  | "clients"
+  | "successors"
+  | "coverage"
+  | "curation";
 
 type TabDef = {
   id: TabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Only rendered (and reachable via the nav) for admins. */
+  adminOnly?: boolean;
 };
 
 const TABS: TabDef[] = [
   { id: "tech", label: "Mapa technologiczna", icon: Grid3x3 },
+  { id: "skills", label: "Technologie", icon: Layers },
+  { id: "clients", label: "Klienci", icon: Building2 },
+  { id: "successors", label: "Następcy", icon: ArrowLeftRight },
   { id: "coverage", label: "Jakość danych", icon: Gauge },
+  { id: "curation", label: "Kuracja", icon: ListChecks, adminOnly: true },
 ];
 
+const TAB_IDS = new Set<string>(TABS.map((t) => t.id));
 const DEFAULT_TAB: TabId = "tech";
 
 function isTabId(v: string | null): v is TabId {
-  return v === "tech" || v === "coverage";
+  return v !== null && TAB_IDS.has(v);
 }
 
 export function CortexView() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = hasRole(user, "admin");
+
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => !t.adminOnly || isAdmin),
+    [isAdmin]
+  );
 
   const rawTab = searchParams.get("tab");
   const activeTab: TabId = useMemo(
@@ -73,8 +104,8 @@ export function CortexView() {
         </div>
 
         <div className="border-b border-border">
-          <nav className="flex gap-6" aria-label="Tabs">
-            {TABS.map((tab) => {
+          <nav className="flex gap-6 overflow-x-auto" aria-label="Tabs">
+            {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
@@ -98,7 +129,11 @@ export function CortexView() {
 
         <div>
           {activeTab === "tech" && <TechMapPanel />}
+          {activeTab === "skills" && <SkillSearchPanel />}
+          {activeTab === "clients" && <ClientStackPanel />}
+          {activeTab === "successors" && <SuccessorsPanel />}
           {activeTab === "coverage" && <CoveragePanel />}
+          {activeTab === "curation" && <CurationPanel />}
         </div>
       </div>
     </RequireRole>

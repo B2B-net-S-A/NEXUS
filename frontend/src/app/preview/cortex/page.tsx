@@ -40,6 +40,14 @@ const MOCK_TECH_MAP: CortexTechMap = {
     kubernetes: 60,
     sql: 640,
   },
+  skill_ids: {
+    java: 1,
+    python: 2,
+    react: 3,
+    aws: 4,
+    kubernetes: 5,
+    sql: 6,
+  },
   employment: null,
   data_as_of: "2026-07-12T10:00:00Z",
   min_count: 2,
@@ -73,12 +81,14 @@ const MOCK_COVERAGE: CortexCoverage = {
   },
   unmatched_terms: [
     {
+      id: 1,
       term: "sap ewm-mfs",
       occurrences: 214,
       status: "new",
       last_seen_at: "2026-07-12T10:00:00Z",
     },
     {
+      id: 2,
       term: "murex",
       occurrences: 96,
       status: "new",

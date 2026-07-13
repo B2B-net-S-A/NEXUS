@@ -162,9 +162,26 @@ async def compute_tech_map(
         if skill in visible
     ]
 
+    # Mapa nazwa→skill_id dla widocznych skilli — umożliwia drill-down z komórki
+    # (heatmapa operuje na nazwach kanonicznych).
+    skill_ids: dict[str, int] = {}
+    if skills_axis:
+        skill_ids = {
+            name: sid
+            for name, sid in (
+                await db.execute(
+                    select(Skill.canonical_name, Skill.id).where(
+                        Skill.canonical_name.in_(skills_axis)
+                    )
+                )
+            ).all()
+        }
+
     return {
         "cells": cells,
         "skills": skills_axis,
+        # Nazwa→id dla drill-downu z komórki.
+        "skill_ids": skill_ids,
         # Prawdziwy total per skill (dla „Σ" w UI — nie sumować komórek).
         "skill_totals": {skill: skill_totals[skill] for skill in skills_axis},
         "seniorities": SENIORITY_ORDER,

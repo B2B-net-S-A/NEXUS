@@ -1206,6 +1206,9 @@ export interface CortexTechMap {
   /** TRUE per-skill total (distinct candidates), NOT filtered by min_count and
    *  NOT the sum of visible cells — use for the "Σ" column. */
   skill_totals: Record<string, number>;
+  /** Canonical skill name → skill id for the visible skills — enables drill-down
+   *  from a heatmap cell (the heatmap works on names, drill-down needs the id). */
+  skill_ids: Record<string, number>;
   /** Active employment filter echoed back by the backend (null = all). */
   employment: string | null;
   /** ISO timestamp of the freshest underlying fact (null = unknown). */
@@ -1245,11 +1248,108 @@ export interface CortexCoverage {
 }
 
 export interface CortexUnmatchedTerm {
+  /** Row id — needed by the admin curation actions (map/ignore). Both
+   *  `/unmatched-terms` and `coverage.unmatched_terms` serialize it. */
+  id: number;
   term: string;
   occurrences: number;
   status: "new" | "mapped" | "ignored";
   last_seen_at: string | null;
 }
+
+// ── Cortex Action Layer (Etap 1): drill-down, search, client×stack, successors ──
+
+export interface CortexSkillListItem {
+  id: number;
+  canonical_name: string;
+  category: string | null;
+  candidates: number;
+}
+
+export interface CortexSkillList {
+  skills: CortexSkillListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CortexSkillCandidate {
+  id: number;
+  name: string;
+  lastname: string;
+  availability_status: string | null;
+  seniority: string;
+  confidence: number;
+  level: string | null;
+  years: number | null;
+  evidence: string | null;
+  sources: string[];
+  at_client: boolean;
+  observed_at: string | null;
+  /** Freshness bucket of the strongest fact: lt_1y | y1_3 | gt_3y | unknown. */
+  freshness: string;
+}
+
+export interface CortexSkillCandidates {
+  candidates: CortexSkillCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CortexClientStackCell {
+  client_id: number;
+  client: string;
+  skill: string;
+  count: number;
+}
+
+export interface CortexClientStackClient {
+  id: number;
+  name: string;
+  consultants: number;
+}
+
+export interface CortexClientStack {
+  cells: CortexClientStackCell[];
+  clients: CortexClientStackClient[];
+  min_count: number;
+}
+
+export interface CortexSuccessorCandidate {
+  id: number;
+  name: string;
+  lastname: string;
+  availability_status: string | null;
+  /** Number of overlapping skills with the departing consultant. */
+  overlap: number;
+}
+
+export interface CortexEndingContract {
+  contract_id: number;
+  candidate_id: number;
+  candidate_name: string | null;
+  candidate_lastname: string | null;
+  client_id: number;
+  client_name: string | null;
+  end_date: string | null;
+  skill_count: number;
+  successors: CortexSuccessorCandidate[];
+}
+
+export interface CortexSuccessors {
+  days: number;
+  ending_contracts: CortexEndingContract[];
+}
+
+export interface CortexCreatedSkill {
+  id: number;
+  canonical_name: string;
+  mapped_term: string | null;
+}
+
+/** Multi-value seniority filter for the drill-down. */
+export type CortexSeniority = "junior" | "mid" | "senior" | "unknown";
 
 export interface CortexBackfillStatus {
   running: boolean;
@@ -1271,9 +1371,12 @@ export const cortexApi = {
     min_count?: number;
   }) => api.get<CortexTechMap>("/api/cortex/tech-map", { params }),
   coverage: () => api.get<CortexCoverage>("/api/cortex/coverage"),
-  unmatchedTerms: (limit = 100) =>
+  unmatchedTerms: (params?: {
+    status?: "new" | "mapped" | "ignored" | "all";
+    limit?: number;
+  }) =>
     api.get<CortexUnmatchedTerm[]>("/api/cortex/unmatched-terms", {
-      params: { limit },
+      params: { status: params?.status ?? "new", limit: params?.limit ?? 100 },
     }),
   triggerTraffitBackfill: (limit?: number) =>
     api.post("/api/cortex/admin/backfill-traffit", null, {
@@ -1281,6 +1384,55 @@ export const cortexApi = {
     }),
   traffitBackfillStatus: () =>
     api.get<CortexBackfillStatus>("/api/cortex/admin/backfill-traffit/status"),
+
+  // ── Action Layer (Etap 1) ──────────────────────────────────────────────────
+  /** Full, searchable, paginated skill list (replaces the top-40 heatmap cap). */
+  skills: (params?: {
+    q?: string;
+    source?: string;
+    limit?: number;
+    offset?: number;
+  }) => api.get<CortexSkillList>("/api/cortex/skills", { params }),
+  /** Drill-down: concrete candidates who have a fact for `skillId`. */
+  skillCandidates: (
+    skillId: number,
+    params?: {
+      seniority?: string[];
+      source?: string;
+      employment?: "at_client" | "available";
+      min_confidence?: number;
+      limit?: number;
+      offset?: number;
+    },
+  ) =>
+    api.get<CortexSkillCandidates>(`/api/cortex/skill/${skillId}/candidates`, {
+      params,
+      // FastAPI `Query(list)` needs repeated `seniority=a&seniority=b` — the
+      // axios default bracket form (`seniority[]=a`) is NOT parsed as a list.
+      paramsSerializer: { indexes: null },
+    }),
+  /** Matrix client × skill × #consultants embedded at the client. */
+  clientStack: (params?: { client_id?: number; min_count?: number }) =>
+    api.get<CortexClientStack>("/api/cortex/client-stack", { params }),
+  /** Ending contracts within `days` and their available successors. */
+  successors: (days = 30) =>
+    api.get<CortexSuccessors>("/api/cortex/successors", { params: { days } }),
+
+  // ── Curation (admin-only) ──────────────────────────────────────────────────
+  mapTerm: (termId: number, skillId: number) =>
+    api.post(`/api/cortex/unmatched-terms/${termId}/map`, {
+      skill_id: skillId,
+    }),
+  ignoreTerm: (termId: number) =>
+    api.post(`/api/cortex/unmatched-terms/${termId}/ignore`),
+  createSkill: (payload: {
+    canonical_name: string;
+    category?: string;
+    aliases?: string[];
+    from_term_id?: number;
+  }) => api.post<CortexCreatedSkill>("/api/cortex/skills", payload),
+  addAlias: (skillId: number, alias: string) =>
+    api.post(`/api/cortex/skills/${skillId}/aliases`, { alias }),
 };
 
 // ── Pipeline Templates (Phase 1) ─────────────────────────────────────────────

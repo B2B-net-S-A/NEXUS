@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +26,9 @@ from app.api.deps import AdminUser, get_db, require_roles
 from app.core.database import AsyncSessionLocal
 from app.models.cortex import CortexUnmatchedTerm
 from app.models.user import User, UserRole
+from app.services.cortex import client_stack as client_stack_svc
+from app.services.cortex import curation as curation_svc
+from app.services.cortex import drill_down as drill_down_svc
 from app.services.cortex import runs
 from app.services.cortex.coverage import compute_coverage
 from app.services.cortex.extractor_traffit import execute_run
@@ -115,9 +120,12 @@ async def unmatched_terms(
     rows = (await db.execute(q.limit(limit))).scalars().all()
     return [
         {
+            "id": row.id,
             "term": row.term,
             "occurrences": row.occurrences,
             "status": row.status,
+            "curated_by": row.curated_by,
+            "curated_at": row.curated_at.isoformat() if row.curated_at else None,
             "first_seen_at": (
                 row.first_seen_at.isoformat() if row.first_seen_at else None
             ),
@@ -125,6 +133,161 @@ async def unmatched_terms(
         }
         for row in rows
     ]
+
+
+# ── Etap 1: Action Layer (drill-down, search, client×stack, następcy) ─────────
+
+
+@router.get("/skills")
+async def cortex_skills(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(default=None, description="Szukaj po canonical/alias."),
+    source: Optional[str] = Query(default=None, pattern="^(traffit|cv_llm|screening)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Pełna, przeszukiwalna, paginowana lista skilli z faktami (koniec top-40)."""
+    return await drill_down_svc.list_skills(
+        db, q=q, source=source, limit=limit, offset=offset
+    )
+
+
+@router.get("/skill/{skill_id}/candidates")
+async def cortex_skill_candidates(
+    skill_id: int,
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    seniority: Optional[list[str]] = Query(default=None),
+    source: Optional[str] = Query(default=None, pattern="^(traffit|cv_llm|screening)$"),
+    employment: Optional[str] = Query(default=None, pattern="^(at_client|available)$"),
+    min_confidence: Optional[float] = Query(default=None, ge=0, le=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Drill-down: konkretni kandydaci z danym skillem (evidence/confidence/świeżość).
+
+    Widok nazwiskowy — RODO gate do ról Cortex (te same, co lista kandydatów)."""
+    return await drill_down_svc.skill_candidates(
+        db,
+        skill_id,
+        seniorities=seniority,
+        source=source,
+        employment=employment,
+        min_confidence=min_confidence,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/client-stack")
+async def cortex_client_stack(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    client_id: Optional[int] = Query(default=None),
+    min_count: int = Query(default=1, ge=1, le=100),
+) -> dict[str, Any]:
+    """Macierz klient × stack × konsultanci (kto siedzi u klienta i z jakim stackiem)."""
+    return await client_stack_svc.client_stack(
+        db, client_id=client_id, min_count=min_count
+    )
+
+
+@router.get("/successors")
+async def cortex_successors(
+    _user: CortexUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(default=30, ge=1, le=365),
+) -> dict[str, Any]:
+    """Następcy dla kontraktów kończących się w ``days`` dni (dostępni, wspólny stack)."""
+    return await client_stack_svc.contract_successors(
+        db, now=datetime.now(timezone.utc).date(), days=days
+    )
+
+
+# ── Etap 1: kuracja taksonomii (admin-only, z audytem) ────────────────────────
+
+
+class MapTermRequest(BaseModel):
+    skill_id: int
+
+
+class CreateSkillRequest(BaseModel):
+    canonical_name: str = Field(min_length=1, max_length=255)
+    category: Optional[str] = Field(default=None, max_length=64)
+    aliases: Optional[list[str]] = None
+    from_term_id: Optional[int] = None
+
+
+class AddAliasRequest(BaseModel):
+    alias: str = Field(min_length=1, max_length=255)
+
+
+@router.post("/unmatched-terms/{term_id}/map")
+async def cortex_map_term(
+    term_id: int,
+    payload: MapTermRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zmapuj unmatched term na istniejący skill (dodaje alias). Admin only."""
+    try:
+        return await curation_svc.map_term_to_skill(
+            db, term_id, payload.skill_id, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/unmatched-terms/{term_id}/ignore")
+async def cortex_ignore_term(
+    term_id: int,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Oznacz unmatched term jako ignored. Admin only."""
+    try:
+        return await curation_svc.ignore_term(
+            db, term_id, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/skills")
+async def cortex_create_skill(
+    payload: CreateSkillRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Utwórz nowy canonical skill (+ opcjonalne aliasy / z unmatched termu). Admin only."""
+    try:
+        return await curation_svc.create_skill(
+            db,
+            canonical_name=payload.canonical_name,
+            category=payload.category,
+            aliases=payload.aliases,
+            from_term_id=payload.from_term_id,
+            curated_by=getattr(admin, "email", None),
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/skills/{skill_id}/aliases")
+async def cortex_add_alias(
+    skill_id: int,
+    payload: AddAliasRequest,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dodaj alias do istniejącego skilla. Admin only."""
+    try:
+        return await curation_svc.add_alias(
+            db, skill_id, payload.alias, curated_by=getattr(admin, "email", None)
+        )
+    except curation_svc.CurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/admin/backfill-traffit")

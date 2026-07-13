@@ -160,6 +160,9 @@ class CortexUnmatchedTerm(Base):
     status: Mapped[str] = mapped_column(
         String(12), nullable=False, default="new", server_default="new"
     )
+    # Audyt decyzji kuracji (kto zmapował/zignorował i kiedy) — migracja 0161.
+    curated_by: Mapped[Optional[str]] = mapped_column(String(120))
+    curated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"<CortexUnmatchedTerm term={self.term!r} n={self.occurrences}>"
