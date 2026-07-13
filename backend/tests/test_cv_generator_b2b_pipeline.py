@@ -641,7 +641,9 @@ def test_candidate_answers_skips_blank_responses():
     }
     text = _format_candidate_answers(answers, _QUESTIONS)
     assert "Kubernetes" not in text  # blank answer dropped along with its question
-    assert text == "P: Czy prowadziłeś migracje do chmury?\nO: Tak, dwie migracje do AWS"
+    assert (
+        text == "P: Czy prowadziłeś migracje do chmury?\nO: Tak, dwie migracje do AWS"
+    )
 
 
 def test_candidate_answers_answer_only_when_question_missing():
@@ -1157,7 +1159,9 @@ def test_rodo_clause_pinned_to_page_bottom_on_short_cv():
     # The box must RESERVE its band (top-and-bottom wrap), not float free
     # (wrapNone). wrapNone reserved no in-flow space, so a full-page body ran
     # under the pinned box and overlapped the clause — the reported bug.
-    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapTopAndBottom" in body, (
+        "RODO box must reserve its band (top-and-bottom wrap)"
+    )
     assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
@@ -1193,7 +1197,9 @@ def test_rodo_clause_pinned_to_page_bottom_on_full_cv():
     # top-and-bottom (reserves its band), so a full-page body is pushed above it
     # rather than overlapping it (the reported "tekst nachodzi na siebie").
     assert body.count('name="RodoClause"') == 1, "RODO not in one floating box"
-    assert "wrapTopAndBottom" in body, "RODO box must reserve its band (top-and-bottom wrap)"
+    assert "wrapTopAndBottom" in body, (
+        "RODO box must reserve its band (top-and-bottom wrap)"
+    )
     assert "wrapNone" not in body, "wrapNone lets a full-page body overlap the clause"
     assert re.search(r'positionV[^>]*relativeFrom="margin"', body) and re.search(
         r"<[\w:]*align>bottom<", body
@@ -1291,14 +1297,28 @@ def tech_taxonomy():
     """Inject a small prod-like technology taxonomy for the duration of a test,
     then reset it so the taxonomy-free tests (and other modules) are unaffected."""
     tech = {
-        "react", "kubernetes", "postgresql", "python", "docker", "jest",
-        "selenium", "c", "r", "azure", "java", "spring boot", "sql", "git",
+        "react",
+        "kubernetes",
+        "postgresql",
+        "python",
+        "docker",
+        "jest",
+        "selenium",
+        "c",
+        "r",
+        "azure",
+        "java",
+        "spring boot",
+        "sql",
+        "git",
     }
     alias_to_canonical = {t: t for t in tech}
     alias_to_canonical.update(
         {
-            "reactjs": "react", "react.js": "react",
-            "k8s": "kubernetes", "postgres": "postgresql",
+            "reactjs": "react",
+            "react.js": "react",
+            "k8s": "kubernetes",
+            "postgres": "postgresql",
             "microsoft azure": "azure",
         }
     )
@@ -1314,7 +1334,9 @@ def tech_taxonomy():
         canonical_to_aliases=canonical_to_aliases,
     )
     yield
-    set_tech_taxonomy(tech_canonicals=set(), alias_to_canonical={}, canonical_to_aliases={})
+    set_tech_taxonomy(
+        tech_canonicals=set(), alias_to_canonical={}, canonical_to_aliases={}
+    )
 
 
 def _render_bold_texts(payload: dict) -> set[str]:

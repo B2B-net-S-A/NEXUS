@@ -371,9 +371,27 @@ def _extract_keyword_terms(keyword: str) -> list[str]:
 # token is a real taxonomy technology it still bolds.
 _NEVER_TECH_TOKENS = frozenset(
     {
-        "a1", "a2", "b1", "b2", "c1", "c2",  # CEFR language levels
-        "b2b", "b2c", "ux", "ui", "qa", "hr", "pm", "po", "cv",
-        "kpi", "roi", "sla", "nda", "eu", "usa",
+        "a1",
+        "a2",
+        "b1",
+        "b2",
+        "c1",
+        "c2",  # CEFR language levels
+        "b2b",
+        "b2c",
+        "ux",
+        "ui",
+        "qa",
+        "hr",
+        "pm",
+        "po",
+        "cv",
+        "kpi",
+        "roi",
+        "sla",
+        "nda",
+        "eu",
+        "usa",
     }
 )
 

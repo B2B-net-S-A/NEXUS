@@ -123,11 +123,17 @@ def set_tech_taxonomy(
     TECH_CANONICALS.update(c.strip().lower() for c in tech_canonicals if c)
     ALIAS_TO_CANONICAL.clear()
     ALIAS_TO_CANONICAL.update(
-        {a.strip().lower(): c.strip().lower() for a, c in alias_to_canonical.items() if a and c}
+        {
+            a.strip().lower(): c.strip().lower()
+            for a, c in alias_to_canonical.items()
+            if a and c
+        }
     )
     CANONICAL_TO_ALIASES.clear()
     for canon, aliases in (canonical_to_aliases or {}).items():
-        CANONICAL_TO_ALIASES[canon.strip().lower()] = [a.strip().lower() for a in aliases if a]
+        CANONICAL_TO_ALIASES[canon.strip().lower()] = [
+            a.strip().lower() for a in aliases if a
+        ]
 
 
 def canonical_of(name: str) -> str:
