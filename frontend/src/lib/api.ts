@@ -842,8 +842,6 @@ export const contractsApi = {
     }),
   deleteDocument: (contractId: number, documentId: number) =>
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
-  documentDownloadUrl: (contractId: number, documentId: number) =>
-    `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
   activate: (id: number) => api.post(`/api/contracts/${id}/activate`, {}),

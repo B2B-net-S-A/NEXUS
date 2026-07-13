@@ -55,6 +55,7 @@ import api, {
  type CVOriginalSnapshot,
  type CVBrandedState,
 } from"@/lib/api";
+import { downloadContractDocument } from"@/lib/contract-documents";
 import { celebrate } from"@/lib/celebrate";
 import CallButton from"@/components/calls/CallButton";
 import { useToast } from"@/components/Toast";
@@ -1491,11 +1492,20 @@ function CurrentContractCard({
  candidateName: string;
  candidatePhone: string | null;
 }) {
+ const { showError } = useToast();
  const { data: docs } = useQuery<any[]>({
  queryKey: ["contract-docs", contract.id],
  queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
  });
  const documents = docs ?? [];
+
+ const handleDownload = async (d: any) => {
+ try {
+ await downloadContractDocument(contract.id, d);
+ } catch {
+ showError(`Nie udało się pobrać pliku "${d.filename}".`);
+ }
+ };
 
  return (
  <Card variant="default" size="md">
@@ -1578,14 +1588,13 @@ function CurrentContractCard({
  {d.doc_type}
  </Badge>
  </span>
- <a
- href={contractsApi.documentDownloadUrl(contract.id, d.id)}
- target="_blank"
- rel="noopener noreferrer"
+ <button
+ type="button"
+ onClick={() => handleDownload(d)}
  className="text-xs text-primary inline-flex items-center gap-1"
  >
  <Download className="h-3 w-3" /> pobierz
- </a>
+ </button>
  </li>
  ))}
  </ul>
