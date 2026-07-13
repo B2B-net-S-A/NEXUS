@@ -58,8 +58,8 @@ Zgodnie z zatwierdzonym planem — autosave już istniał, dodajemy powiadomieni
 
 Jeśli chcesz zobaczyć feature na żywo:
 
-1. Zaloguj się jako Olaf (`olaf@b2bnet.pl` / `recruiter123`, delivery_lead) w jednej przeglądarce.
-2. Zaloguj się jako Marta (`marta@b2bnet.pl` / `recruiter123`, recruiter Job #3) w drugiej przeglądarce / incognito.
+1. Na lokalnym/staging środowisku zaloguj się jako testowy delivery lead, używając jednorazowego hasła z env, w jednej przeglądarce.
+2. Zaloguj się jako testowy recruiter w drugiej przeglądarce/incognito. Nie wykonuj tego scenariusza na produkcji.
 3. Oboje otwierają `/jobs/3` → tab "Profil Championa".
 4. Olaf edytuje dowolne pole → klika "Zapisz". W oknie Marty:
    - Bell icon w top-right dostaje badge.

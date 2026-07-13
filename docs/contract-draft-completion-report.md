@@ -98,7 +98,8 @@ Regression test pozostałych contract testów (`test_contract_templates`,
 
 ### Smoke test E2E (produkcja, Chrome MCP)
 
-Konto: `claude-admin@b2bnet.pl` (memory `reference_claude_admin_nexus.md`).
+Historycznie użyto wycofanego konta syntetycznego. Konto i bootstrap zostały
+usunięte w ramach P0; nie należy ich odtwarzać.
 
 1. ✅ Login → dashboard z badge „5 Aktywnych Kontraktów" (sesja zachowana).
 2. ✅ Profil kandydata `Michał Wiśniewski` (id=3) → zakładka **„Profil"** →
@@ -111,7 +112,7 @@ Konto: `claude-admin@b2bnet.pl` (memory `reference_claude_admin_nexus.md`).
      20 000 / 26 000 PLN, marża 6 000.
    - „Draft do edycji" → kontrakt #12 (utworzony przez API w trakcie smoke),
      dropdown z domyślnym szablonem, label „zapisano przed chwilą przez
-     claude-admin@b2bnet.pl".
+     wycofane konto syntetyczne" (wartość historyczna w danych testowych).
    - Tiptap edytor z lazy-renderowaną treścią szablonu, gdzie merge fields
      wstrzyknięte poprawnie:
      - **Wykonawca:** „Michał Wiśniewski prowadzący działalność pod nazwą

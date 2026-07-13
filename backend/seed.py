@@ -8,7 +8,6 @@ import asyncio
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
-from typing import List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -16,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # Add the app directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from app.core.demo_seed_policy import require_demo_seed_configuration
 from app.core.security import hash_password
 from app.models.user import User, UserRole
 from app.models.candidate import Candidate, CandidateStatus
@@ -51,6 +51,7 @@ def hours_ago(n: int) -> datetime:
 
 
 async def seed():
+    admin_password, staff_password = require_demo_seed_configuration()
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -74,31 +75,31 @@ async def seed():
                 "email": "artur@b2bnet.pl",
                 "name": "Artur Twardowski",
                 "role": UserRole.admin,
-                "password": "admin123",
+                "password": admin_password,
             },
             {
                 "email": "olaf@b2bnet.pl",
                 "name": "Olaf Moczydłowski",
                 "role": UserRole.delivery_lead,
-                "password": "recruiter123",
+                "password": staff_password,
             },
             {
                 "email": "marta@b2bnet.pl",
                 "name": "Marta Kowalska",
                 "role": UserRole.recruiter,
-                "password": "recruiter123",
+                "password": staff_password,
             },
             {
                 "email": "tomasz@b2bnet.pl",
                 "name": "Tomasz Wierzbicki",
                 "role": UserRole.sourcer,
-                "password": "recruiter123",
+                "password": staff_password,
             },
             {
                 "email": "dominik@b2bnet.pl",
                 "name": "Dominik Zwierzchowski",
                 "role": UserRole.user,
-                "password": "recruiter123",
+                "password": staff_password,
             },
         ]
         users = []
@@ -2087,10 +2088,7 @@ async def seed():
 
         await db.commit()
         print("\n✅ Seed v4 completed successfully!")
-        print(f"   Admin login: artur@b2bnet.pl / admin123")
-        print(f"   DL login:    olaf@b2bnet.pl / recruiter123 (Delivery Lead)")
-        print(f"   Recruiter:   marta@b2bnet.pl / recruiter123")
-        print(f"   Sourcer:     tomasz@b2bnet.pl / recruiter123")
+        print("   Demo user passwords were read from environment variables and are not printed.")
         print(f"   Users: {len(users)}, Clients: {len(clients)}, Jobs: {len(jobs)}, Candidates: {len(candidates)}")
         print(f"   Pipeline stages: {len(stages_to_create)}, Contracts: {len(contracts_data)}")
         print(f"   User activities: {len(user_activities_data)}, System activities: {len(activities_list)}")
@@ -2108,6 +2106,8 @@ async def seed_extended():
     5 contracts, 50 activities, and 10 calendar events.
     Idempotent: checks by email before creating candidates.
     """
+    require_demo_seed_configuration()
+
     from app.models.calendar_event import CalendarEvent, EventType, EventStatus
 
     engine = create_async_engine(DATABASE_URL, echo=False)

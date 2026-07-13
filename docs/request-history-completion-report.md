@@ -52,7 +52,7 @@ Phase 15 (Champion historical_jobs) miał własny side-panel ograniczony do job�
 - `meta`: `sql_count=2, voyage_count=0, total=2` — fast path działa, brak ruchu do Qdrant.
 - Health: `https://api.nexus.dynaminds.pl/health` → `{"status":"ok","version":"0.3.0"}`.
 
-### UI (Chrome MCP, claude-admin@b2bnet.pl)
+### UI (historyczny Chrome MCP; wycofane konto syntetyczne)
 - **/jobs/3 → klik "Historia"** → renderuje sekcję z bucket tabs Zamknięte (0) | W toku (2). Empty state w "Zamknięte" widoczny.
 - **W toku (2)** → 2 wiersze z metadanymi: tytuł + similarity badge 100% (green-emerald), status pill "W toku", N kand., 3 CTA (Otwórz / Skopiuj jako template / Dodaj championa).
 - "Dodaj championa" automatycznie wyszarzony dla wierszy bez `champion_candidate_id` (oba testowe joby są open / brak hired stage'u — zgodne z planem).

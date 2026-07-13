@@ -78,7 +78,7 @@
 - `test_contract_analytics_expansion.py` — shape check 3 endpointów
 - `test_contract_alerts_expansion.py` — 90d w thresholds + stats keys
 
-## Weryfikacja E2E (Chrome MCP, zalogowany jako `claude-admin@b2bnet.pl`)
+## Weryfikacja E2E (historyczna; wycofane konto syntetyczne, nie używać ponownie)
 
 | Test | Wynik |
 |---|---|

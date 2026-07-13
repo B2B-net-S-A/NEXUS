@@ -41,6 +41,33 @@ export PYTHONPATH=/app:${PYTHONPATH}
 
 echo "=== Nexus ATS Backend Starting (as $(id -un)) ==="
 
+# Validate demo-seed policy before waiting for or mutating the database. The
+# Python seed repeats these checks so manual invocation cannot bypass them.
+DEMO_SEED_ENABLED=false
+case "${NEXUS_ENABLE_DEMO_SEED:-false}" in
+    1|true|TRUE|yes|YES)
+        case "${DEBUG:-false}" in
+            1|true|TRUE|yes|YES)
+                if [ -z "${NEXUS_DEMO_ADMIN_PASSWORD:-}" ] || [ -z "${NEXUS_DEMO_STAFF_PASSWORD:-}" ]; then
+                    echo "ERROR: demo seed requires NEXUS_DEMO_ADMIN_PASSWORD and NEXUS_DEMO_STAFF_PASSWORD." >&2
+                    exit 64
+                fi
+                DEMO_SEED_ENABLED=true
+                ;;
+            *)
+                echo "ERROR: NEXUS_ENABLE_DEMO_SEED is enabled while DEBUG is false; refusing to seed a production database." >&2
+                exit 64
+                ;;
+        esac
+        ;;
+    0|false|FALSE|no|NO|"")
+        ;;
+    *)
+        echo "ERROR: NEXUS_ENABLE_DEMO_SEED must be a boolean value." >&2
+        exit 64
+        ;;
+esac
+
 # Wait for postgres to be ready
 echo "Waiting for database..."
 until python -c "
@@ -1075,15 +1102,14 @@ async def reset():
 asyncio.run(reset())
 PY
 
-# Run seed (idempotent - skips if already seeded)
-echo "Running seed data..."
-python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
-
-# Ensure the dedicated Claude E2E admin account exists on every startup.
-# Idempotent upsert — rotates password to the bootstrap value each boot unless
-# CLAUDE_ADMIN_BOOTSTRAP_PWD is set in env. Non-fatal.
-echo "Ensuring Claude admin account..."
-python scripts/ensure_claude_admin.py || echo "ensure_claude_admin failed; continuing"
+# Demo data is never created by default. The policy was validated before any
+# database operation at the top of this script.
+if [ "$DEMO_SEED_ENABLED" = true ]; then
+    echo "Running explicitly enabled development demo seed..."
+    python seed.py
+else
+    echo "Demo seed disabled."
+fi
 
 # Start the application
 echo "Starting uvicorn..."

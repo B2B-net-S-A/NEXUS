@@ -166,10 +166,8 @@ Po Coolify deploy (~2 min od push):
 
 ```bash
 # API smoke test
-TOKEN=$(curl -sS -X POST "https://api.nexus.dynaminds.pl/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"claude-admin@b2bnet.pl","password":"..."}' \
-  | jq -r .access_token)
+: "${NEXUS_STAGING_TOKEN:?Set a one-time least-privilege staging token}"
+TOKEN="$NEXUS_STAGING_TOKEN"
 
 # Happy path
 curl -F "file=@/path/to/test.pdf" \
@@ -232,7 +230,7 @@ Po tym jak parallel agent dopchnął safety-net do `entrypoint.sh` (commit
 
 ### Test 1: Happy path
 ```
-POST /api/candidates/from-cv (file=test-cv-smoke.txt, claude-admin token)
+POST /api/candidates/from-cv (staging only; file=test-cv-smoke.txt, one-time token)
 → HTTP 201
 → candidate {
     id: 38403,

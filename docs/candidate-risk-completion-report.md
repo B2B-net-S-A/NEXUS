@@ -123,7 +123,7 @@ Pure SQL DDL, idempotentne, single-head po `0067_merge_phase16_heads`:
 | `GET /api/candidates/1/recommendations` | 503 ❌ | **403** ✅ |
 | `GET /api/pipeline/pending-verifications` | 503 ❌ | **403** ✅ |
 
-Wszystkie 3 endpointy zwracają normalne 403 zamiast 503 — backend stabilny. RiskBadge renderuje się po prawidłowym login flow użytkownika (smoke test E2E w Chrome z claude-admin failed bo hasło na prodzie różni się od defaultu — Artur może dotestować z własnym kontem).
+Wszystkie 3 endpointy zwracają normalne 403 zamiast 503 — backend stabilny. RiskBadge renderuje się po prawidłowym login flow użytkownika. Historyczny test używał wycofanego konta syntetycznego; nie wolno go odtwarzać ani używać na produkcji.
 
 21/21 unit testów dalej zielone — logika kategoryzacji + level mapping niezmienna, tylko wrap w defensive fallback.
 
@@ -132,7 +132,8 @@ Wszystkie 3 endpointy zwracają normalne 403 zamiast 503 — backend stabilny. R
 - **Kolumna risk badge w listach kandydatów** (`CandidatesListV2.tsx`) — wymagałoby albo per-row N+1 fetch, albo augmenty `/api/candidates` żeby zwracał `risk_level`. W MVP bardziej szumi niż pomaga (większość kandydatów to `low`). Kontekst zostaje w detail view + alert przy assign.
 ### ✅ Smoke test E2E na prodzie 2026-04-28 (pełny, zielony)
 
-Login: `claude-admin@b2bnet.pl` z bootstrap password z `scripts/ensure_claude_admin.py`.
+Historyczny smoke użył wycofanego konta bootstrap. Skrypt i konto zostały
+usunięte w ramach P0; ten opis nie jest instrukcją logowania.
 
 **API smoke (curl + JWT):**
 | Test | Endpoint | Rezultat |
@@ -219,7 +220,7 @@ Razem: ~1300 LOC dodanych, 20 deleted (commit cf3310f stat).
 
 Funkcjonalność deployowana do prod, ale **wymaga fix 503 backend** zanim flow można w pełni zweryfikować. Po fix infry, smoke test:
 
-1. Login jako `claude-admin@b2bnet.pl` / `admin123` na nexus.dynaminds.pl
+1. Na staging zaloguj się jednorazowym, imiennym kontem testowym o minimalnej roli; na produkcji wykonaj wyłącznie niemutujący health/snapshot smoke.
 2. Otwórz dowolnego kandydata → sprawdź zielony badge "Niskie ryzyko" w nagłówku (dla nowych kandydatów bez historii)
 3. Otwórz Quick Assign dla kandydata z high risk → sprawdź alert
 4. Drag kandydata na "withdrawn" w kanban → modal RejectionV2 wymaga `rejection_reason_id` (dropdown 6 powodów)

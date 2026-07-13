@@ -91,14 +91,14 @@ curl -fsSL -A "$UA" "https://api.nexus.dynaminds.pl/api/auth/microsoft/authorize
 # Expect: scope=openid+profile+email+User.Read+GroupMember.Read.All+offline_access
 ```
 
-Then log in as a known user (e.g. `claude-admin@b2bnet.pl` if you placed
-them in `NEXUS-Admins`):
+Then log in on staging as a named test user placed in `NEXUS-Admins` (set its
+address as `AAD_TEST_ADMIN_EMAIL`; do not create a shared production admin):
 
 ```sql
 -- On the prod DB after their first SSO login post-flip:
 SELECT email, role, is_active, aad_group_ids
 FROM users
-WHERE email = 'claude-admin@b2bnet.pl';
+WHERE email = '<named-aad-test-admin@example.com>';
 -- Expect: role=admin, is_active=true,
 -- aad_group_ids contains {"id":"<uuid-admins>","displayName":"NEXUS-Admins"}
 ```
