@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from"react";
-import { useEffect, useState } from"react";
+import { useCallback, useEffect, useState } from"react";
 import { ArrowDown, ArrowUp, Plus, Save, Sparkles, X } from"lucide-react";
 import api, { recommendationsApi } from"@/lib/api";
 import {
@@ -35,6 +35,19 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  const [nice, setNice] = useState<Skill[]>([]);
  const [newMust, setNewMust] = useState("");
  const [newNice, setNewNice] = useState("");
+ // name -> true iff the chip will be bolded as a technology in the generated CV
+ const [techMap, setTechMap] = useState<Record<string, boolean>>({});
+
+ const classify = useCallback(async (names: string[]) => {
+ const uniq = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
+ if (uniq.length === 0) return;
+ try {
+ const r = await recommendationsApi.classifyTechnologies(uniq);
+ setTechMap((prev) => ({ ...prev, ...r.data.technologies }));
+ } catch {
+ // best-effort preview — leave chips unmarked on failure
+ }
+ }, []);
 
  useEffect(() => {
  if (!open) return;
@@ -42,12 +55,16 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  (async () => {
  setLoading(true);
  setError(null);
+ setTechMap({});
  try {
  const r = await recommendationsApi.previewCriteria(jobId);
  if (cancel) return;
- setMust([...(r.data.must_skills ?? [])]);
- setNice([...(r.data.nice_skills ?? [])]);
+ const m = [...(r.data.must_skills ?? [])];
+ const n = [...(r.data.nice_skills ?? [])];
+ setMust(m);
+ setNice(n);
  setSource(r.data.source);
+ void classify([...m, ...n].map((s) => s.name));
  } catch (e: any) {
  if (!cancel) {
  setError(e?.response?.data?.detail ??"Błąd generowania kryteriów.");
@@ -59,7 +76,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  return () => {
  cancel = true;
  };
- }, [open, jobId]);
+ }, [open, jobId, classify]);
 
  const addSkill = (list: "must" |"nice", input: string) => {
  const n = input.trim();
@@ -68,6 +85,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  const arr = list === "must" ? must : nice;
  if (arr.some((s) => s.name.toLowerCase() === n.toLowerCase())) return;
  setter([...arr, { name: n }]);
+ void classify([n]);
  if (list === "must") setNewMust("");
  else setNewNice("");
  };
@@ -131,11 +149,13 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  {error}
  </div>
  ) : (
+ <div className="space-y-3">
  <div className="grid md:grid-cols-2 gap-4">
  <SkillColumn
  title="Must-have"
  color="burgundy"
  skills={must}
+ techMap={techMap}
  input={newMust}
  onInputChange={setNewMust}
  onAdd={() => addSkill("must", newMust)}
@@ -147,6 +167,7 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  title="Nice-to-have"
  color="soft"
  skills={nice}
+ techMap={techMap}
  input={newNice}
  onInputChange={setNewNice}
  onAdd={() => addSkill("nice", newNice)}
@@ -154,6 +175,13 @@ export function CriteriaPreviewV2({ open, onOpenChange, jobId, onSaved }: Props)
  onMove={(i) => move("nice", i)}
  moveLabel="↑ do must-have"
  />
+ </div>
+ <p className="text-xs text-muted-foreground">
+ <span className="font-semibold text-foreground">Pogrubione</span> chipy zostaną
+ wyróżnione (bold) w wygenerowanym CV jako technologie. Wyszarzone (np.
+ metodyki, kompetencje, języki) — nie. Zmiana kryteriów wymaga{" "}
+ <span className="font-semibold text-foreground">ponownego wygenerowania CV</span>.
+ </p>
  </div>
  )}
  </DialogBody>
@@ -176,6 +204,7 @@ function SkillColumn({
  title,
  color,
  skills,
+ techMap,
  input,
  onInputChange,
  onAdd,
@@ -186,6 +215,7 @@ function SkillColumn({
  title: string;
  color: "burgundy" |"soft";
  skills: Skill[];
+ techMap: Record<string, boolean>;
  input: string;
  onInputChange: (v: string) => void;
  onAdd: () => void;
@@ -205,10 +235,21 @@ function SkillColumn({
  {skills.length === 0 ? (
  <span className="text-xs text-muted-foreground italic">Brak</span>
  ) : (
- skills.map((s, i) => (
+ skills.map((s, i) => {
+ const willBold = techMap[s.name.trim()];
+ return (
  <span
  key={s.name}
- className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
+ title={
+ willBold === false
+ ? "Nie zostanie pogrubione w CV (nie rozpoznano jako technologia)"
+ : willBold
+ ? "Zostanie pogrubione w CV jako technologia"
+ : undefined
+ }
+ className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary ${
+ willBold === false ? "opacity-50" : willBold ? "font-semibold" : ""
+ }`}
  >
  {s.name}
  <button
@@ -226,7 +267,8 @@ function SkillColumn({
  <X className="h-3 w-3" />
  </button>
  </span>
- ))
+ );
+ })
  )}
  </div>
  <div className="flex gap-2">
