@@ -3048,8 +3048,6 @@ export const microsoft365Api = {
       `/api/candidates/${candidateId}/emails/reply`,
       payload,
     ),
-  downloadAttachmentUrl: (emailId: number, attachmentId: number) =>
-    `${API_BASE}/api/emails/${emailId}/attachments/${attachmentId}/download`,
   createInvite: (payload: {
     candidate_id: number;
     title: string;
@@ -3567,8 +3565,6 @@ export const candidateStageCvApi = {
       api.get<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original`,
       ),
-    downloadUrl: (stageId: number) =>
-      `${API_BASE}/api/candidates/stages/${stageId}/cv/original/download`,
     refresh: (stageId: number) =>
       api.post<CVOriginalSnapshot>(
         `/api/candidates/stages/${stageId}/cv/original/refresh`,
