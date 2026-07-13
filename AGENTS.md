@@ -20,4 +20,5 @@
 - Existing startup DDL and `Base.metadata.create_all` are unresolved migration debt, not an approved deviation. Exact-SHA release v2 remains disabled until they are removed and a one-head Alembic replay is proven from an empty database.
 - Production rollback must never select an image containing the removed bootstrap-administrator path.
 - The legacy branch-based deployment workflow is intentionally blocked. It must not be re-enabled instead of the staged exact-SHA release path.
+- When exact-SHA release is enabled, staging and production use explicit, independent Coolify control-plane URLs. The legacy production-only `COOLIFY_URL` must not be reused as an implicit shared endpoint.
 - Release-gate work must include NEXUS P0 PR #684 (or its equivalent) before merge; otherwise the old broad Gitleaks exclusions for `backend/scripts` and `entrypoint.sh` remain in force.

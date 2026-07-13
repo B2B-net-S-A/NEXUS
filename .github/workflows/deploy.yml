@@ -1,15 +1,18 @@
 name: Deploy
 
-# Unified deployment workflow per ~/.claude/rules/deployment.md.
-# Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
+# Legacy production-only deployment workflow. It remains fail-closed below and
+# is not a caller of the exact-SHA release workflow.
 #
 # Push do main → trigger Coolify deploy via API → wait → smoke test /api/health.
 # Coolify samo buduje + restart kontenerów (z compose `build:` block lub GHCR pull).
 #
 # Required GH secrets:
-#   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
+#   PRODUCTION_COOLIFY_URL       production Coolify control-plane URL
 #   COOLIFY_TOKEN     Bearer token (Sanctum personal_access_tokens)
-#   COOLIFY_APP_UUID  Application UUID (from Coolify panel resource URL)
+#   PRODUCTION_COOLIFY_APP_UUID  production application UUID
+#
+# The replacement exact-SHA caller must provide separate staging and production
+# Coolify URLs. A single shared `COOLIFY_URL` is not the release contract.
 #
 # Required GH variables:
 #   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
@@ -54,7 +57,7 @@ jobs:
             raw=$(curl -sS -X GET \
               -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
               -w $'\nHTTP_CODE:%{http_code}' \
-              "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false" \
+              "${{ secrets.PRODUCTION_COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.PRODUCTION_COOLIFY_APP_UUID }}&force=false" \
               2>&1 || true)
             http_code=$(echo "$raw" | grep -oE 'HTTP_CODE:[0-9]+' | tail -1 | cut -d: -f2)
             response=$(echo "$raw" | sed -E 's/HTTP_CODE:[0-9]+$//')

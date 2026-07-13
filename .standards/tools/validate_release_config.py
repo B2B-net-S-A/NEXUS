@@ -23,7 +23,8 @@ def validate_release_config(
     candidate_sha: str,
     standards_ref: str,
     rollback_floor_sha: str,
-    coolify_base_url: str,
+    staging_coolify_base_url: str,
+    production_coolify_base_url: str,
     staging_base_url: str,
     staging_health_url: str,
     production_health_url: str,
@@ -45,7 +46,8 @@ def validate_release_config(
     require_sha(standards_ref, "standards_ref")
     require_sha(rollback_floor_sha, "rollback_floor_sha")
     for field, value in {
-        "coolify_base_url": coolify_base_url,
+        "staging_coolify_base_url": staging_coolify_base_url,
+        "production_coolify_base_url": production_coolify_base_url,
         "staging_base_url": staging_base_url,
         "staging_health_url": staging_health_url,
         "production_health_url": production_health_url,
@@ -73,7 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--standards-ref", required=True)
     parser.add_argument("--rollback-floor-sha", required=True)
-    parser.add_argument("--coolify-base-url", required=True)
+    parser.add_argument("--staging-coolify-base-url", required=True)
+    parser.add_argument("--production-coolify-base-url", required=True)
     parser.add_argument("--staging-base-url", required=True)
     parser.add_argument("--staging-health-url", required=True)
     parser.add_argument("--production-health-url", required=True)
@@ -88,7 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             candidate_sha=args.candidate_sha,
             standards_ref=args.standards_ref,
             rollback_floor_sha=args.rollback_floor_sha,
-            coolify_base_url=args.coolify_base_url,
+            staging_coolify_base_url=args.staging_coolify_base_url,
+            production_coolify_base_url=args.production_coolify_base_url,
             staging_base_url=args.staging_base_url,
             staging_health_url=args.staging_health_url,
             production_health_url=args.production_health_url,

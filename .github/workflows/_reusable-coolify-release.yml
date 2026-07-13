@@ -9,7 +9,10 @@ on:
       application:
         required: true
         type: string
-      coolify_base_url:
+      staging_coolify_base_url:
+        required: true
+        type: string
+      production_coolify_base_url:
         required: true
         type: string
       coolify_deploy_method:
@@ -102,7 +105,8 @@ jobs:
           CANDIDATE_SHA: ${{ github.sha }}
           STANDARDS_REF: ${{ inputs.standards_ref }}
           ROLLBACK_FLOOR_SHA: ${{ inputs.rollback_floor_sha }}
-          COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
+          STAGING_COOLIFY_BASE_URL: ${{ inputs.staging_coolify_base_url }}
+          PRODUCTION_COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
           STAGING_BASE_URL: ${{ inputs.staging_base_url }}
           STAGING_HEALTH_URL: ${{ inputs.staging_health_url }}
           PRODUCTION_HEALTH_URL: ${{ inputs.production_health_url }}
@@ -116,7 +120,8 @@ jobs:
           --candidate-sha "$CANDIDATE_SHA"
           --standards-ref "$STANDARDS_REF"
           --rollback-floor-sha "$ROLLBACK_FLOOR_SHA"
-          --coolify-base-url "$COOLIFY_BASE_URL"
+          --staging-coolify-base-url "$STAGING_COOLIFY_BASE_URL"
+          --production-coolify-base-url "$PRODUCTION_COOLIFY_BASE_URL"
           --staging-base-url "$STAGING_BASE_URL"
           --staging-health-url "$STAGING_HEALTH_URL"
           --production-health-url "$PRODUCTION_HEALTH_URL"
@@ -124,7 +129,7 @@ jobs:
       - name: Deploy exact SHA to staging
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
+          COOLIFY_BASE_URL: ${{ inputs.staging_coolify_base_url }}
           APPLICATION_UUID: ${{ inputs.staging_application_uuid }}
           CANDIDATE_SHA: ${{ github.sha }}
           DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
@@ -191,7 +196,7 @@ jobs:
         continue-on-error: true
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
           APPLICATION_UUID: ${{ inputs.production_application_uuid }}
         run: >-
           python3 app/.standards/tools/coolify_exact_sha.py
@@ -242,7 +247,7 @@ jobs:
         env:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
-          COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
           APPLICATION_UUID: ${{ inputs.production_application_uuid }}
           CANDIDATE_SHA: ${{ github.sha }}
           DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
@@ -295,7 +300,7 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
           CANDIDATE_SHA: ${{ github.sha }}
-          COOLIFY_BASE_URL: ${{ inputs.coolify_base_url }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
           APPLICATION_UUID: ${{ inputs.production_application_uuid }}
           DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
         run: >-

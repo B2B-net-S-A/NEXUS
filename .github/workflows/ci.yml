@@ -75,9 +75,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate locked engineering standard
-        uses: artur-t-96/engineering-standards/.github/actions/validate-consumer@d925213a976472fe16cce84802bba7085661f190
+        uses: artur-t-96/engineering-standards/.github/actions/validate-consumer@713eea21c2c390b8829c5be7ef5559d98bab2746
         with:
-          expected-ref: d925213a976472fe16cce84802bba7085661f190
+          expected-ref: 713eea21c2c390b8829c5be7ef5559d98bab2746
           consumer-root: .
 
   backend-lint-test:
@@ -166,7 +166,7 @@ jobs:
           sed -n '1,120p' /tmp/nexus-ci-livez.log
           exit 1
       - name: Validate livez against the locked shared contract
-        uses: artur-t-96/engineering-standards/.github/actions/validate-health@d925213a976472fe16cce84802bba7085661f190
+        uses: artur-t-96/engineering-standards/.github/actions/validate-health@713eea21c2c390b8829c5be7ef5559d98bab2746
         with:
           url: http://127.0.0.1:18000/api/livez
           kind: livez
