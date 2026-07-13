@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CloudTalkAdmin, CloudTalkCaller
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call, CallDirection, CallStatus
@@ -122,7 +122,7 @@ async def _build_agent_list(
 
 @router.get("/agents", response_model=list[CloudTalkAgent])
 async def list_cloudtalk_agents(
-    current_user: CurrentUser,  # noqa: ARG001 — auth gate only
+    current_user: CloudTalkAdmin,  # noqa: ARG001 — auth gate only
     db: AsyncSession = Depends(get_db),
 ):
     """List CloudTalk agents with linked-user annotation."""
@@ -158,7 +158,7 @@ async def list_cloudtalk_agents(
 async def assign_agent_to_user(
     agent_id: int,
     payload: AgentAssignRequest,
-    current_user: CurrentUser,  # noqa: ARG001 — auth gate only
+    current_user: CloudTalkAdmin,  # noqa: ARG001 — auth gate only
     db: AsyncSession = Depends(get_db),
 ):
     """Bind a CloudTalk agent to a Nexus user.
@@ -193,7 +193,7 @@ async def assign_agent_to_user(
 @router.delete("/agents/{agent_id}/assign")
 async def unassign_agent(
     agent_id: int,
-    current_user: CurrentUser,  # noqa: ARG001 — auth gate only
+    current_user: CloudTalkAdmin,  # noqa: ARG001 — auth gate only
     db: AsyncSession = Depends(get_db),
 ):
     """Remove the mapping for a CloudTalk agent."""
@@ -208,7 +208,7 @@ async def unassign_agent(
 
 @router.post("/sync-agents", response_model=SyncAgentsResponse)
 async def sync_agents(
-    current_user: CurrentUser,  # noqa: ARG001 — auth gate only
+    current_user: CloudTalkAdmin,  # noqa: ARG001 — auth gate only
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch CloudTalk agents and auto-link them to users by email match.
@@ -291,7 +291,7 @@ async def sync_agents(
 @router.post("/initiate-call", response_model=InitiateCallResponse)
 async def initiate_call(
     payload: InitiateCallRequest,
-    current_user: CurrentUser,
+    current_user: CloudTalkCaller,
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger CloudTalk to ring the current user's softphone, then dial

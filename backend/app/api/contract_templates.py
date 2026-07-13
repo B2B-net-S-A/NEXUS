@@ -5,21 +5,25 @@ print-to-PDF dialog for actual document generation — no weasyprint/pango
 in the Coolify image.
 """
 
+from html import escape
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, StrictUndefined, TemplateError, select_autoescape
+from jinja2 import StrictUndefined, TemplateError, select_autoescape
+from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser, CurrentUser, DocumentReader
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
+from app.services.m365.html_sanitize import sanitize_html
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -54,8 +58,8 @@ class TemplateResponse(TemplateBase):
 
 # ── Jinja sandbox ────────────────────────────────────────────────────────────
 
-_jinja_env = Environment(
-    autoescape=select_autoescape(["html", "xml"]),
+_jinja_env = SandboxedEnvironment(
+    autoescape=select_autoescape(["html", "xml"], default_for_string=True),
     undefined=StrictUndefined,
     trim_blocks=True,
     lstrip_blocks=True,
@@ -302,7 +306,7 @@ async def delete_template(
 @router.get("/{template_id}/render", response_class=HTMLResponse)
 async def render_template_for_contract(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
     contract_id: int = Query(...),
 ):
@@ -333,18 +337,31 @@ async def render_template_for_contract(
         )
     except TemplateError as e:
         raise HTTPException(status_code=422, detail=f"Render error: {e}")
+    # Template authors control literal HTML as well as Jinja expressions.
+    # Sanitizing the rendered fragment closes the stored-XSS path while
+    # autoescape protects every value supplied through the render context.
+    rendered = sanitize_html(rendered)
+    safe_template_name = escape(tpl.name)
     # Wrap in a minimal printable skeleton.
     html = (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{tpl.name} — kontrakt #{contract.id}</title>"
+        f"<title>{safe_template_name} — kontrakt #{contract.id}</title>"
         "<style>"
         "body{font-family:'Helvetica',sans-serif;max-width:780px;margin:40px auto;line-height:1.55;color:#222;}"
         "h1,h2,h3{color:#111}"
         ".meta{color:#666;font-size:0.9em;margin-bottom:2em}"
         "@media print{body{margin:0}}"
         "</style></head><body>"
-        f'<div class="meta">Wygenerowano z szablonu: {tpl.name}</div>'
+        f'<div class="meta">Wygenerowano z szablonu: {safe_template_name}</div>'
         f"{rendered}"
         "</body></html>"
+    )
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="contract",
+        entity_id=contract.id,
+        action="document_downloaded",
+        details={"document_type": "template_render", "template_id": tpl.id},
     )
     return HTMLResponse(content=html)

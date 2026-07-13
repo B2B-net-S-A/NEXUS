@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.deps import CurrentUser, DocumentReader, DlAssignedOrAdmin
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -50,6 +50,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -463,7 +464,7 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    _user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -475,6 +476,14 @@ async def download_order_po(
     if order is None or order.file_path is None:
         raise HTTPException(404, detail="File not found")
     abs_path = storage_service.get_client_order_po_path(order.file_path)
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="client_order",
+        entity_id=order.id,
+        action="document_downloaded",
+        details={"client_id": client_id, "document_type": "purchase_order"},
+    )
     return FileResponse(
         path=str(abs_path),
         filename=order.filename or "po.pdf",

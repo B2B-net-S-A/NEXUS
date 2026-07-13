@@ -23,6 +23,7 @@ import logging
 import mimetypes
 import secrets
 from datetime import datetime, timedelta, timezone
+from html import escape
 from io import BytesIO
 from typing import Optional
 
@@ -34,7 +35,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.cv_html_renderer import _generate_cv_html
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import (
+    CurrentUser,
+    DocumentReader,
+    RecruiterPlus,
+    is_read_only_viewer,
+)
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -51,6 +57,9 @@ from app.schemas.candidate_stage_cv import (
     CVShareTokenResponse,
 )
 from app.services import storage_service
+from app.services.security_audit import record_sensitive_read
+from app.services.cv_html_security import sanitize_branded_cv_html
+from app.services.m365.html_sanitize import sanitize_html
 from app.services.candidate_stage_cv_service import (
     refresh_original_cv_snapshot,
 )
@@ -124,7 +133,7 @@ async def get_original_cv(
 @router.get("/candidates/stages/{stage_id}/cv/original/download")
 async def download_original_cv(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id)
@@ -138,6 +147,15 @@ async def download_original_cv(
     media_type, _ = mimetypes.guess_type(filename)
     if not media_type:
         media_type = "application/octet-stream"
+
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        action="document_downloaded",
+        details={"candidate_stage_id": stage_id, "document_type": "original_cv"},
+    )
 
     return StreamingResponse(
         BytesIO(csv.original_cv_content),
@@ -185,13 +203,15 @@ def _wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> s
     finalize i render-pdf chcemy upewnić się, że ma `window.print()` script.
     Dla CV body zawiera już `<style>` więc dorzucamy tylko script + tytuł.
     """
+    safe_label = escape(candidate_label)
+    safe_body = sanitize_branded_cv_html(body_html)
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>CV — {candidate_label} (rekrutacja #{stage_id})</title>"
+        f"<title>CV — {safe_label} (rekrutacja #{stage_id})</title>"
         "<script>window.addEventListener('load',()=>setTimeout("
         "()=>window.print(),300));</script>"
         "</head><body>"
-        f"{body_html}"
+        f"{safe_body}"
         "</body></html>"
     )
 
@@ -214,13 +234,24 @@ def _build_branded_response(
     updated_by_name: Optional[str] = None,
     finalized_by_name: Optional[str] = None,
     rendered_from_default: bool = False,
+    content_html_override: Optional[str] = None,
+    status_override: Optional[str] = None,
+    template_override: Optional[str] = None,
+    language_override: Optional[str] = None,
 ) -> CVBrandedResponse:
+    content_html = (
+        content_html_override
+        if content_html_override is not None
+        else csv.branded_draft_html
+    )
     return CVBrandedResponse(
         candidate_stage_id=csv.candidate_stage_id,
-        status=csv.branded_status,  # type: ignore[arg-type]
-        content_html=csv.branded_draft_html,
-        template=csv.branded_template,
-        language=csv.branded_language,
+        status=status_override or csv.branded_status,  # type: ignore[arg-type]
+        content_html=(
+            sanitize_branded_cv_html(content_html) if content_html is not None else None
+        ),
+        template=template_override or csv.branded_template,
+        language=language_override or csv.branded_language,
         updated_at=csv.branded_updated_at,
         updated_by=csv.branded_updated_by,
         updated_by_name=updated_by_name,
@@ -249,6 +280,17 @@ async def get_branded_cv(
     if csv.branded_status == "none":
         candidate, job = await _load_candidate_and_job(db, csv)
         html = _generate_cv_html(candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job)
+        if is_read_only_viewer(current_user):
+            # A viewer may inspect the generated preview, but a GET from a
+            # read-only principal must never initialize or update DB state.
+            return _build_branded_response(
+                csv,
+                rendered_from_default=True,
+                content_html_override=html,
+                status_override="draft",
+                template_override=_DEFAULT_TEMPLATE,
+                language_override=_DEFAULT_LANGUAGE,
+            )
         csv.branded_draft_html = html
         csv.branded_template = _DEFAULT_TEMPLATE
         csv.branded_language = _DEFAULT_LANGUAGE
@@ -318,9 +360,9 @@ async def update_branded_cv(
     action: str
     details: dict
     if payload.content_html is not None:
-        csv.branded_draft_html = payload.content_html
+        csv.branded_draft_html = sanitize_html(payload.content_html)
         action = "branded_cv_edited"
-        details = {"length": len(payload.content_html)}
+        details = {"length": len(csv.branded_draft_html)}
     else:
         # Re-render branch — wymaga template+language (jeden lub oba mogą być
         # podane; brakujące biorą wartość obecną).
@@ -363,7 +405,7 @@ async def update_branded_cv(
 )
 async def render_branded_cv_for_print(
     stage_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ) -> HTMLResponse:
     """Wrap brandowane CV w printable HTML z auto window.print() — FE otwiera w
@@ -379,6 +421,14 @@ async def render_branded_cv_for_print(
     )
     label = (
         f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
+    )
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        action="document_downloaded",
+        details={"candidate_stage_id": stage_id, "document_type": "branded_cv"},
     )
     return HTMLResponse(
         content=_wrap_printable_cv(csv.branded_draft_html, stage_id, label)

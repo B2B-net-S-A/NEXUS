@@ -12,6 +12,7 @@ import bleach
 ALLOWED_TAGS = [
     "a",
     "abbr",
+    "aside",
     "b",
     "blockquote",
     "br",
@@ -28,9 +29,11 @@ ALLOWED_TAGS = [
     "i",
     "img",
     "li",
+    "main",
     "ol",
     "p",
     "pre",
+    "section",
     "span",
     "strong",
     "sub",
@@ -48,7 +51,7 @@ ALLOWED_TAGS = [
 
 ALLOWED_ATTRS = {
     "*": ["class", "id", "title"],
-    "a": ["href", "target", "rel"],
+    "a": ["href", "rel"],
     "img": ["src", "alt", "width", "height"],
     "td": ["colspan", "rowspan"],
     "th": ["colspan", "rowspan"],

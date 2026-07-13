@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import DOMPurify from "dompurify";
 import {
   ChevronDown,
   ChevronRight,
@@ -28,6 +27,7 @@ import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/Toast";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { sanitizeRichHtml } from "@/lib/sanitize-html";
 import {
   buildThreadTree,
   flattenThread,
@@ -97,10 +97,7 @@ function ThreadMessageCard({
   const bodyHtml = useMemo(() => {
     const raw = fullMessage?.body_html ?? email.body_html ?? "";
     if (!raw) return "";
-    return DOMPurify.sanitize(raw, {
-      ADD_ATTR: ["target"],
-      FORBID_TAGS: ["style", "script"],
-    });
+    return sanitizeRichHtml(raw);
   }, [fullMessage?.body_html, email.body_html]);
 
   const senderLabel = email.from_name

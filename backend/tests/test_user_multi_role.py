@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.api.deps import require_roles
+from app.api.deps import _viewer_request_is_allowed, require_roles
 from app.models.user import User, UserRole
 
 
@@ -141,3 +141,53 @@ async def test_require_roles_rejects_user_without_required_role():
     with pytest.raises(HTTPException) as exc:
         await dep(current_user=u)
     assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("role", list(UserRole))
+def test_viewer_write_backstop_covers_all_seven_roles(role: UserRole):
+    user = _make_user(role)
+
+    allowed = _viewer_request_is_allowed(user, "POST", "/api/contacts")
+
+    assert allowed is (role is not UserRole.user)
+
+
+def test_viewer_write_backstop_honours_valid_secondary_role():
+    user = _make_user(UserRole.user, ["user", "recruiter"])
+
+    assert _viewer_request_is_allowed(user, "POST", "/api/contacts") is True
+
+
+def test_unknown_secondary_role_never_upgrades_viewer():
+    user = _make_user(UserRole.user, ["user", "removed_role"])
+
+    assert _viewer_request_is_allowed(user, "POST", "/api/contacts") is False
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+def test_viewer_rejects_every_unsafe_method_by_default(method: str):
+    user = _make_user(UserRole.user)
+
+    assert _viewer_request_is_allowed(user, method, "/api/legacy-unclassified") is False
+
+
+def test_viewer_can_only_mutate_explicit_personal_state():
+    user = _make_user(UserRole.user)
+
+    assert (
+        _viewer_request_is_allowed(user, "POST", "/api/auth/change-password")
+        is True
+    )
+    assert (
+        _viewer_request_is_allowed(user, "PATCH", "/api/users/me/preferences")
+        is True
+    )
+    assert _viewer_request_is_allowed(user, "POST", "/api/candidates") is False
+
+
+def test_viewer_search_allowlist_is_exact_and_future_mutators_fail_closed():
+    user = _make_user(UserRole.user)
+
+    assert _viewer_request_is_allowed(user, "POST", "/api/search/candidates") is True
+    assert _viewer_request_is_allowed(user, "POST", "/api/search/semantic") is True
+    assert _viewer_request_is_allowed(user, "POST", "/api/search/reindex") is False

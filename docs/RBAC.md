@@ -10,12 +10,13 @@
 
 ## 1. Model ról
 
-Jedna hierarchia, sześć wartości. Każdy user ma dokładnie jedną rolę
-(nie ma już dwóch pól jak w poprzednim `UserRole` + `RecruiterRole`).
+Jedna hierarchia, siedem wartości. Primary role jest w `role`, a opcjonalne
+role dodatkowe w `roles`; każdy guard ocenia sumę obu pól.
 
 | Role | Ranga | Kto | Kluczowe uprawnienia |
 |---|:---:|---|---|
 | `admin` | 5 | Właściciel, CTO | Zarządzanie userami, systemem, wszystkie dane |
+| `head_of_recruitment` | 4.5 | Head of Recruitment | Struktura zespołu i agregaty HR; bez operacyjnych mutacji ATS |
 | `delivery_lead` | 4 | DL procesu | Rate cards, konflikty, pipeline templates, pełne raporty, zespół |
 | `tac` | 3 | Talent Acquisition Consultant | CRUD ofert/kontraktów, reject/offer, prep kit, pełne raporty |
 | `recruiter` | 2 | Rekruter (100% LinkedIn) | Dodawanie kandydatów, ruchy w pipeline, własne raporty |
@@ -79,6 +80,11 @@ Zdefiniowane w `backend/app/api/deps.py`:
 | `DeliveryLeadPlus` | `admin`, `delivery_lead` |
 | `TacPlus` | `admin`, `delivery_lead`, `tac` |
 | `RecruiterPlus` | `admin`, `delivery_lead`, `tac`, `recruiter`, `sourcer` (wszyscy poza `user`) |
+| `ContactReader` | wszystkie 7 ról (jawny read contract) |
+| `ContactEditor` | `admin`, `delivery_lead`, `tac` |
+| `CloudTalkAdmin` | `admin` |
+| `CloudTalkCaller` | `admin`, `delivery_lead`, `tac`, `recruiter`, `sourcer` |
+| `ExportUser` / `DocumentReader` | wszystkie role poza read-only `user` |
 | `ManagerOrAdmin` | alias do `DeliveryLeadPlus` (backward compat) |
 
 ---
@@ -130,11 +136,11 @@ domyślnie używają `CurrentUser`.
 | Endpoint | Guard |
 |---|---|
 | `GET /api/candidates` | CurrentUser |
-| `GET /api/candidates/export` | CurrentUser |
+| `GET /api/candidates/export` | ExportUser |
 | `GET /api/candidates/{id}` | CurrentUser |
 | `GET /api/candidates/{id}/timeline` | CurrentUser |
 | `GET /api/candidates/{id}/history` | CurrentUser |
-| `GET /api/candidates/{id}/cv-download` | CurrentUser |
+| `GET /api/candidates/{id}/cv-download` | DocumentReader |
 | `POST /api/candidates` | RecruiterPlus |
 | `POST /api/candidates/bulk-import` | RecruiterPlus |
 | `POST /api/candidates/{id}/cv` | RecruiterPlus |
@@ -152,11 +158,11 @@ domyślnie używają `CurrentUser`.
 | `POST /api/pipeline/move` | RecruiterPlus |
 | `POST /api/pipeline/bulk-move` | RecruiterPlus |
 
-### 4.6 `/api/reports/*` — Tac+
+### 4.6 `/api/reports/*`
 
 | Endpoint | Guard |
 |---|---|
-| `GET /api/reports/recruitment` | TacPlus |
+| `GET /api/reports/recruitment` | `admin`, `head_of_recruitment`, `delivery_lead`, `tac`, `recruiter`, `sourcer` |
 | `GET /api/reports/sales` | TacPlus |
 | `GET /api/reports/delivery-leads` | TacPlus |
 | `GET /api/reports/tenders` | TacPlus |
@@ -180,7 +186,27 @@ alias `ManagerOrAdmin` = `DeliveryLeadPlus`).
 Dodane w PR #17 — poprzednio wszystko pod `CurrentUser` (brak guarda na
 business-critical CRUD, niespójne z jobs/contracts).
 
-### 4.9 `/api/auth/*` — mix
+### 4.9 Kontakty, CloudTalk, eksporty i dokumenty
+
+- Kontakty pozostają czytelne dla wszystkich zalogowanych, ale create/update/
+  delete wymagają `ContactEditor` (`TacPlus`).
+- Lista i mapowanie agentów CloudTalk są admin-only; click-to-call wymaga
+  operacyjnej roli `CloudTalkCaller`.
+- Wszystkie wewnętrzne eksporty i downloady używają `ExportUser` albo
+  `DocumentReader`, więc rola `user` nie pobiera danych ani plików.
+- Eksport zapisuje i commituje `Activity(action="data_exported")` przed
+  wydaniem odpowiedzi; download lub wydanie signed URL analogicznie zapisuje
+  `Activity(action="document_downloaded")`. Tokenowe publiczne widoki CV,
+  Champion Card i podpisu też mają audyt (`public_data_viewed` lub download).
+  Przy podglądzie jako użytkownik aktorem audytu pozostaje administrator, a ID
+  efektywnego użytkownika trafia do `details.effective_user_id`.
+- `get_current_user` ma dodatkowy fail-closed backstop: primary `user` bez
+  poprawnej roli dodatkowej nie wykona niebezpiecznej metody HTTP poza jawną
+  listą operacji self-service i read-only POST.
+- Starsze lazy-init w GET (draft umowy, branded CV, marketplace) nie zapisują
+  niczego dla roli `user`; podgląd jest generowany wyłącznie w pamięci.
+
+### 4.10 `/api/auth/*` — mix
 
 | Endpoint | Guard | Uwagi |
 |---|---|---|

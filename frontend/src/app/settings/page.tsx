@@ -422,7 +422,7 @@ export default function SettingsPage() {
         <div className="space-y-4">
           <Microsoft365Card />
           <FirefliesCard />
-          <CloudTalkSettingsCard />
+          {hasRole(user, "admin") && <CloudTalkSettingsCard />}
           <TeamsNotificationsCard />
 
           <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">

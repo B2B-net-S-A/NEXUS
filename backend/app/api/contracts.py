@@ -2,6 +2,7 @@ import asyncio
 import logging
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from html import escape
 from io import BytesIO
 from typing import List, Optional
 
@@ -84,8 +85,17 @@ from app.schemas.contract_onboarding import (
 )
 from app.services import storage_service
 from app.services.contract_service import validate_ready_for_activation
+from app.services.m365.html_sanitize import sanitize_html
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, CurrentUser, TacPlus
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DocumentReader,
+    ExportUser,
+    TacPlus,
+    is_read_only_viewer,
+)
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -571,7 +581,7 @@ def _contract_export_row(
 
 @router.get("/export")
 async def export_contracts(
-    current_user: CurrentUser,
+    current_user: ExportUser,
     db: AsyncSession = Depends(get_db),
     format: str = Query("xlsx", regex="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
@@ -626,6 +636,14 @@ async def export_contracts(
     rows = [
         _contract_export_row(c, latest_order_dates.get(c.id), today) for c in contracts
     ]
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="contract",
+        entity_id=0,
+        action="data_exported",
+        details={"format": format, "row_count": len(rows)},
+    )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     if format == "xlsx":
@@ -1175,18 +1193,21 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
     """Render Jinja template against contract context. Returns raw HTML body
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
-        return _jinja_env.from_string(template.content_jinja).render(
+        rendered = _jinja_env.from_string(template.content_jinja).render(
             **_contract_vars(contract)
         )
+        return sanitize_html(rendered)
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
 def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
     """Wrap raw body HTML with print-friendly stylesheet + auto-print script."""
+    safe_title = escape(title)
+    safe_body = sanitize_html(body_html)
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{title} — kontrakt #{contract_id}</title>"
+        f"<title>{safe_title} — kontrakt #{contract_id}</title>"
         "<style>"
         "body{font-family:'Helvetica',Arial,sans-serif;max-width:780px;"
         "margin:40px auto;line-height:1.55;color:#222;padding:0 20px;}"
@@ -1198,7 +1219,7 @@ def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
         "<script>window.addEventListener('load',()=>setTimeout("
         "()=>window.print(),300));</script>"
         "</head><body>"
-        f"{body_html}"
+        f"{safe_body}"
         "</body></html>"
     )
 
@@ -1208,11 +1229,20 @@ def _draft_response(
     available_templates: list[ContractTemplate],
     updated_by_name: Optional[str],
     rendered_from_default: bool,
+    content_html_override: Optional[str] = None,
+    template_id_override: Optional[int] = None,
 ) -> ContractDraftResponse:
+    content_html = (
+        content_html_override
+        if content_html_override is not None
+        else contract.draft_content_html
+    )
     return ContractDraftResponse(
         contract_id=contract.id,
-        content_html=contract.draft_content_html,
-        template_id=contract.draft_template_id,
+        content_html=(
+            sanitize_html(content_html) if content_html is not None else None
+        ),
+        template_id=template_id_override or contract.draft_template_id,
         updated_at=contract.draft_updated_at,
         updated_by=contract.draft_updated_by,
         updated_by_name=updated_by_name,
@@ -1245,24 +1275,35 @@ async def get_contract_draft(
     available = await _list_templates_for_contract_type(db, contract_type_value)
 
     rendered_from_default = False
+    preview_content: Optional[str] = None
+    preview_template_id: Optional[int] = None
     if contract.draft_content_html is None:
         default = next((t for t in available if t.is_default), None)
         if default is not None:
-            contract.draft_content_html = _render_draft_body(default, contract)
-            contract.draft_template_id = default.id
-            contract.draft_updated_at = datetime.now(timezone.utc)
-            contract.draft_updated_by = current_user.id
             rendered_from_default = True
-            db.add(
-                Activity(
-                    entity_type="contract",
-                    entity_id=contract.id,
-                    action="draft_initialized",
-                    user_id=current_user.id,
-                    details={"template_id": default.id, "template_name": default.name},
+            if is_read_only_viewer(current_user):
+                # Preserve viewer access without letting a GET initialize the
+                # persisted draft or produce an audit mutation on their behalf.
+                preview_content = _render_draft_body(default, contract)
+                preview_template_id = default.id
+            else:
+                contract.draft_content_html = _render_draft_body(default, contract)
+                contract.draft_template_id = default.id
+                contract.draft_updated_at = datetime.now(timezone.utc)
+                contract.draft_updated_by = current_user.id
+                db.add(
+                    Activity(
+                        entity_type="contract",
+                        entity_id=contract.id,
+                        action="draft_initialized",
+                        user_id=current_user.id,
+                        details={
+                            "template_id": default.id,
+                            "template_name": default.name,
+                        },
+                    )
                 )
-            )
-            await db.flush()
+                await db.flush()
 
     updated_by_name: Optional[str] = None
     if contract.draft_updated_by:
@@ -1270,7 +1311,14 @@ async def get_contract_draft(
             select(User.email).where(User.id == contract.draft_updated_by)
         )
 
-    return _draft_response(contract, available, updated_by_name, rendered_from_default)
+    return _draft_response(
+        contract,
+        available,
+        updated_by_name,
+        rendered_from_default,
+        content_html_override=preview_content,
+        template_id_override=preview_template_id,
+    )
 
 
 @router.patch("/{contract_id}/draft", response_model=ContractDraftResponse)
@@ -1312,9 +1360,9 @@ async def update_contract_draft(
         action = "draft_template_changed"
         details = {"template_id": tpl.id, "template_name": tpl.name}
     else:
-        contract.draft_content_html = payload.content_html
+        contract.draft_content_html = sanitize_html(payload.content_html or "")
         action = "draft_edited"
-        details = {"length": len(payload.content_html or "")}
+        details = {"length": len(contract.draft_content_html)}
 
     contract.draft_updated_at = datetime.now(timezone.utc)
     contract.draft_updated_by = current_user.id
@@ -1345,7 +1393,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -1365,6 +1413,14 @@ async def render_draft_for_print(
         contract.candidate
         and f"{contract.candidate.name} {contract.candidate.lastname}"
     ) or "Umowa"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="contract",
+        entity_id=contract.id,
+        action="document_downloaded",
+        details={"document_type": "draft_print"},
+    )
     return HTMLResponse(content=_wrap_printable(body, contract.id, title))
 
 
@@ -1632,7 +1688,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id)
@@ -1649,6 +1705,21 @@ async def download_contract_document(
         abs_path = storage_service.get_contract_document_path(doc.file_path)
     except FileNotFoundError:
         raise HTTPException(status_code=410, detail="File no longer on storage")
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="contract_document",
+        entity_id=doc.id,
+        action="document_downloaded",
+        details={
+            "contract_id": contract_id,
+            "document_type": (
+                doc.doc_type.value
+                if hasattr(doc.doc_type, "value")
+                else str(doc.doc_type)
+            ),
+        },
+    )
     return FileResponse(
         path=str(abs_path),
         filename=doc.filename,

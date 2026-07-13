@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     CurrentUser,
+    DocumentReader,
     DlAssignedOrAdmin,
 )
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
@@ -46,6 +47,7 @@ from app.schemas.client_framework_contract import (
     ClientFrameworkContractUpdate,
 )
 from app.services import storage_service
+from app.services.security_audit import record_sensitive_read
 
 router = APIRouter()
 
@@ -416,7 +418,7 @@ async def send_framework_contract_to_autenti(
 async def download_framework_contract(
     client_id: int,
     fc_id: int,
-    _user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -429,6 +431,14 @@ async def download_framework_contract(
     if fc is None or fc.file_path is None:
         raise HTTPException(404, detail="File not found")
     abs_path = storage_service.get_client_framework_contract_path(fc.file_path)
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="client_framework_contract",
+        entity_id=fc.id,
+        action="document_downloaded",
+        details={"client_id": client_id},
+    )
     return FileResponse(
         path=str(abs_path),
         filename=fc.filename or "msa.pdf",

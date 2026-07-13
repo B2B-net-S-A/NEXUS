@@ -4,6 +4,7 @@ import { hasRole, hasMinRole, ROLE_RANK, UserRole } from "./auth"
 
 const ALL_ROLES: UserRole[] = [
   "admin",
+  "head_of_recruitment",
   "delivery_lead",
   "tac",
   "recruiter",
@@ -28,6 +29,12 @@ describe("hasRole", () => {
     const user = mkUser("tac")
     expect(hasRole(user, "admin", "delivery_lead", "tac")).toBe(true)
     expect(hasRole(user, "admin", "delivery_lead")).toBe(false)
+  })
+
+  it("matches secondary roles for a hybrid account", () => {
+    const user = { role: "user" as const, roles: ["user", "recruiter"] as UserRole[] }
+    expect(hasRole(user, "recruiter")).toBe(true)
+    expect(hasRole(user, "admin")).toBe(false)
   })
 
   it("is not hierarchical — higher role does NOT match lower", () => {
@@ -67,14 +74,21 @@ describe("hasMinRole", () => {
     expect(hasMinRole(user, "admin")).toBe(false)
   })
 
-  it("delivery_lead spełnia wszystko poza admin", () => {
+  it("delivery_lead spełnia role operacyjne, ale nie admin/HoR", () => {
     const user = mkUser("delivery_lead")
     expect(hasMinRole(user, "admin")).toBe(false)
+    expect(hasMinRole(user, "head_of_recruitment")).toBe(false)
     expect(hasMinRole(user, "delivery_lead")).toBe(true)
     expect(hasMinRole(user, "tac")).toBe(true)
     expect(hasMinRole(user, "recruiter")).toBe(true)
     expect(hasMinRole(user, "sourcer")).toBe(true)
     expect(hasMinRole(user, "user")).toBe(true)
+  })
+
+  it("multi-role bierze najwyższą z posiadanych ról", () => {
+    const user = { role: "user" as const, roles: ["user", "tac"] as UserRole[] }
+    expect(hasMinRole(user, "tac")).toBe(true)
+    expect(hasMinRole(user, "delivery_lead")).toBe(false)
   })
 })
 
@@ -89,8 +103,9 @@ describe("ROLE_RANK invariants", () => {
     expect(ROLE_RANK.user).toBe(minRank)
   })
 
-  it("hierarchia: admin > delivery_lead > tac > recruiter = sourcer > user", () => {
-    expect(ROLE_RANK.admin).toBeGreaterThan(ROLE_RANK.delivery_lead)
+  it("hierarchia: admin > HoR > delivery_lead > tac > recruiter = sourcer > user", () => {
+    expect(ROLE_RANK.admin).toBeGreaterThan(ROLE_RANK.head_of_recruitment)
+    expect(ROLE_RANK.head_of_recruitment).toBeGreaterThan(ROLE_RANK.delivery_lead)
     expect(ROLE_RANK.delivery_lead).toBeGreaterThan(ROLE_RANK.tac)
     expect(ROLE_RANK.tac).toBeGreaterThan(ROLE_RANK.recruiter)
     expect(ROLE_RANK.recruiter).toBe(ROLE_RANK.sourcer)

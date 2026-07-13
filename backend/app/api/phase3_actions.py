@@ -16,6 +16,7 @@ need for a scheduled-send queue in v1.
 
 import logging
 from datetime import date as _date
+from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -31,6 +32,7 @@ from app.schemas.shortlist_actions import (
     CandidateShortlistEmailRequest,
     ClientProposalRequest,
 )
+from app.services.m365.html_sanitize import sanitize_html
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,14 +48,14 @@ def _format_jobs_html(jobs: list[Job]) -> str:
     for j in jobs:
         bits: list[str] = []
         if j.location:
-            bits.append(f"📍 {j.location}")
+            bits.append(f"📍 {escape(j.location)}")
         if j.salary_min and j.salary_max:
             bits.append(f"💰 {j.salary_min:,} – {j.salary_max:,} PLN")
         if j.seniority:
             bits.append(f"🎯 {j.seniority.value}")
         meta = " · ".join(bits)
         items.append(
-            f"<li><strong>{j.title}</strong>"
+            f"<li><strong>{escape(j.title or '')}</strong>"
             + (
                 f"<br><span style='color:#666;font-size:90%'>{meta}</span>"
                 if meta
@@ -107,8 +109,8 @@ async def send_candidate_shortlist_email(
         f"- {j.title} ({j.location or 'brak lokalizacji'})" for j in jobs
     )
     text_body = intro + plain_jobs + "\n\nPozdrawiam,\nZespół B2B.net\n"
-    html_body = (
-        f"<p>Cześć {cand.name},</p>"
+    html_body = sanitize_html(
+        f"<p>Cześć {escape(cand.name)},</p>"
         f"<p>Mamy dla Ciebie <strong>{len(jobs)}</strong> aktualnie otwarte "
         "projekty, które wyglądają na dobre dopasowanie. Daj znać, czy "
         "któryś Cię interesuje — chętnie podeślę szczegóły.</p>"
@@ -171,17 +173,17 @@ def _build_client_proposal_email(
         "pełne CV.\n\n"
         "Pozdrawiam,\nZespół B2B.net\n"
     )
-    html = (
+    html = sanitize_html(
         "<p>Cześć,</p>"
         f"<p>Mamy konsultanta, który pasuje do otwartej u Was roli "
-        f'<strong>„{role}"</strong>.</p>'
+        f'<strong>„{escape(str(role))}"</strong>.</p>'
         "<p><strong>Profil (anonimowy):</strong></p>"
         "<ul>"
-        f"<li>Doświadczenie: <strong>{yrs} lat</strong></li>"
-        f"<li>Wykształcenie: {edu}</li>"
-        f"<li>Kompetencje: {cc}</li>"
-        f"<li>Kluczowe technologie: {skills}</li>"
-        f"<li>Języki: {languages}</li>"
+        f"<li>Doświadczenie: <strong>{escape(str(yrs))} lat</strong></li>"
+        f"<li>Wykształcenie: {escape(str(edu))}</li>"
+        f"<li>Kompetencje: {escape(str(cc))}</li>"
+        f"<li>Kluczowe technologie: {escape(str(skills))}</li>"
+        f"<li>Języki: {escape(str(languages))}</li>"
         "</ul>"
         "<p>Daj znać, czy chcecie umówić rozmowę — w odpowiedzi prześlemy "
         "pełne CV.</p>"

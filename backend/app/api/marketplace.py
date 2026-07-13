@@ -24,10 +24,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus, get_db
+from app.api.deps import CurrentUser, RecruiterPlus, get_db, is_read_only_viewer
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
     ensure_marketplace_pool,
+    find_marketplace_pool,
     list_marketplace_candidates,
     remove_candidate_from_marketplace,
     scan_candidate_for_top_jobs,
@@ -123,8 +124,13 @@ async def get_marketplace_pool(
     db: AsyncSession = Depends(get_db),
 ):
     """Metadata singletona targu (debug/admin)."""
-    pool = await ensure_marketplace_pool(db)
-    await db.commit()
+    if is_read_only_viewer(current_user):
+        pool = await find_marketplace_pool(db)
+        if pool is None:
+            raise HTTPException(status_code=404, detail="Marketplace not initialized")
+    else:
+        pool = await ensure_marketplace_pool(db)
+        await db.commit()
     # Policz członków (bez ładowania wszystkich)
     from sqlalchemy import func, select
     from app.models.talent_pool import TalentPoolMembership
@@ -164,9 +170,15 @@ async def list_candidates(
     limit = page_size
     offset = (page - 1) * page_size
     rows, total = await list_marketplace_candidates(
-        db, limit=limit, offset=offset, q=q, source_event=source_event
+        db,
+        limit=limit,
+        offset=offset,
+        q=q,
+        source_event=source_event,
+        create_pool_if_missing=not is_read_only_viewer(current_user),
     )
-    await db.commit()
+    if not is_read_only_viewer(current_user):
+        await db.commit()
 
     # Hydratacja ownerów
     from sqlalchemy import select

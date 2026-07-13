@@ -115,6 +115,14 @@ class TopMatch:
 # ───────────────────────────────────────────────────────────────────────────
 
 
+async def find_marketplace_pool(db: AsyncSession) -> Optional[TalentPool]:
+    """Read the marketplace singleton without creating application state."""
+    result = await db.execute(
+        select(TalentPool).where(TalentPool.is_marketplace.is_(True)).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def ensure_marketplace_pool(db: AsyncSession) -> TalentPool:
     """Return the singleton marketplace pool, creating it lazily if missing.
 
@@ -123,10 +131,7 @@ async def ensure_marketplace_pool(db: AsyncSession) -> TalentPool:
     drugi task dodaje w tym samym momencie, łapiemy IntegrityError i czytamy
     istniejący rekord.
     """
-    result = await db.execute(
-        select(TalentPool).where(TalentPool.is_marketplace.is_(True)).limit(1)
-    )
-    pool = result.scalar_one_or_none()
+    pool = await find_marketplace_pool(db)
     if pool is not None:
         return pool
 
@@ -710,6 +715,7 @@ async def list_marketplace_candidates(
     offset: int = 0,
     q: Optional[str] = None,
     source_event: Optional[str] = None,
+    create_pool_if_missing: bool = True,
 ) -> tuple[list[tuple[TalentPoolMembership, Candidate]], int]:
     """Paginated list kandydatów w targu.
 
@@ -718,7 +724,11 @@ async def list_marketplace_candidates(
     `source_event` zawęża do konkretnego źródła wpisu (np. "manual" pomija
     auto-include z availability_status). None = wszystkie wpisy.
     """
-    pool = await ensure_marketplace_pool(db)
+    pool = await find_marketplace_pool(db)
+    if pool is None:
+        if not create_pool_if_missing:
+            return [], 0
+        pool = await ensure_marketplace_pool(db)
 
     base_filters = [TalentPoolMembership.talent_pool_id == pool.id]
     if source_event:

@@ -35,6 +35,8 @@ from app.core.rate_limit import limiter
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
+from app.services.cv_html_security import sanitize_branded_cv_html
+from app.services.security_audit import record_sensitive_read
 from app.models.activity import Activity
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -55,8 +57,11 @@ router = APIRouter()
 
 
 @router.get("/champion-card/{token}")
+@limiter.limit("30/minute")
 async def get_public_champion_card(
-    token: str, db: AsyncSession = Depends(get_db)
+    token: str,
+    request: Request,  # required by slowapi limiter
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Client-facing read of a filled Champion card.
 
@@ -81,6 +86,15 @@ async def get_public_champion_card(
         select(Candidate).where(Candidate.id == stage.candidate_id)
     )
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+
+    await record_sensitive_read(
+        db,
+        user=None,
+        entity_type="candidate_stage",
+        entity_id=stage.id,
+        action="public_data_viewed",
+        details={"access": "champion_card_share", "share_id": row.id},
+    )
 
     return {
         "candidate": {
@@ -149,7 +163,15 @@ async def get_public_cv(
     # Source of truth: zapisany draft HTML (immutable po finalize). Storage
     # plik ma to samo, ale czytanie z DB jest szybsze i bezpieczniejsze
     # (brak ryzyka stale path traversal).
-    cv_html = csv.branded_draft_html or ""
+    cv_html = sanitize_branded_cv_html(csv.branded_draft_html or "")
+    await record_sensitive_read(
+        db,
+        user=None,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        action="document_downloaded",
+        details={"access": "public_share", "share_id": row.id},
+    )
 
     return {
         "candidate_first_name": candidate.name if candidate else None,

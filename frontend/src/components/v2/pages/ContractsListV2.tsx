@@ -49,6 +49,7 @@ import {
  type ContractStatusValue,
  type ContractTypeValue,
 } from"@/lib/filter-options";
+import { hasRole, useAuthStore } from"@/store/auth";
 
 interface ContractRow {
  id: number;
@@ -97,6 +98,16 @@ function expiringBannerText(n: number): string {
 }
 
 export function ContractsListV2() {
+ const currentUser = useAuthStore((state) => state.user);
+ const canExport = hasRole(
+  currentUser,
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+ );
  const [search, setSearch] = useState("");
  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
  const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>([]);
@@ -219,7 +230,7 @@ export function ContractsListV2() {
  <TrendingUp className="h-4 w-4" /> Analityka
  </Button>
  </Link>
- <Popover>
+ {canExport && <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline" disabled={exporting}>
  <Download className="h-4 w-4" /> {exporting ? "Eksportuję…" : "Eksport"}
@@ -239,7 +250,7 @@ export function ContractsListV2() {
  CSV
  </button>
  </PopoverContent>
- </Popover>
+ </Popover>}
  <RequireRole roles={["admin", "delivery_lead", "tac"]}>
  <Link href="/contracts/new">
  <Button size="sm" variant="primary">

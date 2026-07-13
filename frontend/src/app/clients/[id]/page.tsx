@@ -49,6 +49,7 @@ import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -414,6 +415,8 @@ function ContactForm({
 }
 
 function ContactsTab({ clientId }: { clientId: number }) {
+  const user = useAuthStore((state) => state.user);
+  const canEditContacts = hasRole(user, "admin", "delivery_lead", "tac");
   const [showAdd, setShowAdd] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [editingKeyRelationship, setEditingKeyRelationship] =
@@ -500,13 +503,15 @@ function ContactsTab({ clientId }: { clientId: number }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Osoby kontaktowe</p>
-        <button
-          onClick={() => { setShowAdd(true); setEditContact(null); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Dodaj kontakt
-        </button>
+        {canEditContacts && (
+          <button
+            onClick={() => { setShowAdd(true); setEditContact(null); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Dodaj kontakt
+          </button>
+        )}
       </div>
 
       {showAdd && !editContact && (
@@ -614,6 +619,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                         )}
                       </div>
                     </div>
+                    {canEditContacts && (
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
                         onClick={() => setEditingKeyRelationship(contact)}
@@ -640,6 +646,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       </button>
                       <DeleteButton onConfirm={() => deleteMutation.mutate(contact.id)} />
                     </div>
+                    )}
                   </div>
                   {contact.is_key_relationship && contact.relationship_notes && (
                     <div className="mt-3 pl-12 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-12">
@@ -653,7 +660,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
         </div>
       )}
 
-      {editingKeyRelationship && (
+      {canEditContacts && editingKeyRelationship && (
         <KeyRelationshipDialog
           contact={{
             id: editingKeyRelationship.id,

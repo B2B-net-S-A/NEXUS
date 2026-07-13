@@ -3,7 +3,8 @@ import { create } from "zustand"
 // ── Role model ──────────────────────────────────────────────────────────────
 //
 // Jedna, skonsolidowana hierarchia. Odpowiada `UserRole` po stronie backendu
-// (backend/app/models/user.py). Każdy user ma dokładnie jedną rolę.
+// (backend/app/models/user.py). User ma primary `role` i może mieć jawne role
+// dodatkowe w `roles`; wszystkie kontrole uprawnień uwzględniają oba pola.
 
 export type UserRole =
   | "admin"

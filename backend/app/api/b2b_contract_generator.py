@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser, CurrentUser, DocumentReader, TacPlus
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -69,6 +69,8 @@ from app.services.b2b_contract_generator.uop_check import (
     CVGeneratorAIError,
     check_employment_hallmarks,
 )
+from app.services.security_audit import record_sensitive_read
+from app.services.m365.html_sanitize import sanitize_html
 
 router = APIRouter()
 
@@ -360,7 +362,7 @@ async def get_detail(
 @router.get("/contracts/{contract_id}/docx")
 async def download_docx(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
@@ -372,6 +374,14 @@ async def download_docx(
     cand = contract.candidate
     label = f"{cand.name}_{cand.lastname}" if cand else f"contract_{contract.id}"
     filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="contract",
+        entity_id=contract.id,
+        action="document_downloaded",
+        details={"document_type": "generated_docx", "language": lang},
+    )
     return Response(
         content=data,
         media_type=_DOCX_MEDIA,
@@ -471,7 +481,7 @@ async def company_lookup(
 @router.post("/render")
 async def render_standalone(
     payload: B2BRenderRequest,
-    current_user: CurrentUser,
+    current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
 ):
@@ -496,7 +506,9 @@ async def render_standalone(
         ops = overrides_for_client(payload.client_name, lang)
         if ops:
             html = apply_ops_html(html, ops)
-        return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
+        return B2BRenderHtmlResponse(
+            html=sanitize_html(html), contract_number=payload.contract_number
+        )
 
     # format == docx → numer + log + plik
     default_year = (
@@ -526,20 +538,19 @@ async def render_standalone(
             ),
         )
 
-    db.add(
-        B2BGeneratedContract(
-            year=row_year,
-            seq=row_seq,
-            contract_number=number,
-            partner_name=payload.partner_name,
-            client_name=payload.client_name,
-            language=lang,
-            signing_date=payload.signing_date,
-            created_by=current_user.id,
-            # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
-            render_payload=payload.model_dump(mode="json"),
-        )
+    generated = B2BGeneratedContract(
+        year=row_year,
+        seq=row_seq,
+        contract_number=number,
+        partner_name=payload.partner_name,
+        client_name=payload.client_name,
+        language=lang,
+        signing_date=payload.signing_date,
+        created_by=current_user.id,
+        # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
+        render_payload=payload.model_dump(mode="json"),
     )
+    db.add(generated)
     try:
         await db.commit()
     except IntegrityError:
@@ -559,6 +570,14 @@ async def render_standalone(
     data = await run_in_threadpool(render_from_context, context, language=lang)
     label = _ascii_filename(payload.partner_name or number)
     filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="b2b_generated_contract",
+        entity_id=generated.id,
+        action="document_downloaded",
+        details={"document_type": "generated_contract", "access": "initial_render"},
+    )
     return Response(
         content=data,
         media_type=_DOCX_MEDIA,
@@ -611,7 +630,7 @@ async def list_generated_contracts(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_contract(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: DocumentReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
@@ -640,6 +659,14 @@ async def download_generated_contract(
     data = await run_in_threadpool(render_from_context, context, language=lang)
     label = _ascii_filename(row.partner_name or row.contract_number)
     filename = _ascii_filename(f"Umowa_B2B_{label}_{lang}") + ".docx"
+    await record_sensitive_read(
+        db,
+        user=current_user,
+        entity_type="b2b_generated_contract",
+        entity_id=row.id,
+        action="document_downloaded",
+        details={"document_type": "generated_docx", "language": lang},
+    )
     return Response(
         content=data,
         media_type=_DOCX_MEDIA,
