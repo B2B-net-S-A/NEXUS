@@ -26,11 +26,13 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-# BuildKit cache mount: wheels persist across deploys so subsequent builds
-# reuse them. --no-cache-dir on pip itself keeps the image layer clean.
+# BuildKit cache mount keeps downloaded wheels out of the image layer while
+# preserving them between builds. Pin pip itself so the runtime image does not
+# retain the vulnerable version shipped by the base image.
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    python -m pip install --upgrade pip==26.1.2 \
+    && python -m pip install -r requirements.txt
 
 # Build metadata for /api/health endpoint (see ~/.claude/rules/deployment.md).
 # Defaults to "unknown" so local docker build works without explicit args.
