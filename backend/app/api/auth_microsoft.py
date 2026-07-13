@@ -142,6 +142,16 @@ def _verify_login_state(token: str) -> str:
 
 
 def _require_sso_configured() -> None:
+    # Runtime kill-switch for interactive SSO login, checked FIRST so it wins
+    # over any config detail. The router is mounted alongside the M365
+    # integration (see main.py), so all three handlers gate on this flag at
+    # runtime — /authorize via this helper, /callback and /exchange inline.
+    # Default off → classic email+password only.
+    if not settings.MICROSOFT_SSO_LOGIN_ENABLED:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Microsoft SSO login is disabled. Use email and password.",
+        )
     if not settings.M365_INTEGRATION_ENABLED:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -289,6 +299,13 @@ async def callback(
     On success: redirect to ``/login/microsoft/callback?code=<uuid>`` (frontend
     POSTs that uuid to ``/exchange``). On error: redirect to ``/login?error=...``.
     """
+    # Runtime kill-switch — fail closed when SSO login is disabled. Redirect
+    # (not 503) because this is a browser landing page mid-OAuth.
+    if not settings.MICROSOFT_SSO_LOGIN_ENABLED:
+        return RedirectResponse(
+            _frontend_login_error_url("Microsoft SSO login is disabled"),
+            status_code=302,
+        )
     if error:
         logger.info("sso callback error: %s — %s", error, error_description)
         return RedirectResponse(
@@ -561,6 +578,12 @@ async def exchange(
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
+    # Runtime kill-switch — fail closed when SSO login is disabled.
+    if not settings.MICROSOFT_SSO_LOGIN_ENABLED:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Microsoft SSO login is disabled. Use email and password.",
+        )
     row = await db.scalar(
         select(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
     )

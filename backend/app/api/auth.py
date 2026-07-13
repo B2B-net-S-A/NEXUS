@@ -74,6 +74,29 @@ _EMAIL_NOT_VERIFIED_DETAIL = (
     "(oraz folder spam) — wysłaliśmy tam link aktywacyjny."
 )
 
+# 403 detail when an authenticated account's email domain is not on the
+# SSO_ALLOWED_DOMAINS whitelist. Only surfaced AFTER a correct password so it
+# never reveals whether an account exists.
+_DOMAIN_FORBIDDEN_DETAIL = (
+    "Twoja domena email nie jest dopuszczona do logowania. "
+    "Skontaktuj się z administratorem."
+)
+
+
+def _domain_allowed(email: str) -> bool:
+    """True if ``email``'s domain may log in.
+
+    Enforces the ``SSO_ALLOWED_DOMAINS`` whitelist on the classic email+password
+    path (previously only ``/register`` and the SSO callback checked it). Kept
+    FAIL-OPEN when the whitelist is empty: an unconfigured whitelist must not
+    lock every existing account out. When the whitelist IS set, only listed
+    domains pass (case-insensitive). Requirement: only @b2bnetwork.pl may log in.
+    """
+    allowed = settings.sso_allowed_domains_list
+    if not allowed:
+        return True
+    return email.rsplit("@", 1)[-1].lower() in allowed
+
 
 router = APIRouter()
 
@@ -122,6 +145,13 @@ async def login(
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+        )
+    # Domain whitelist — checked only after a correct password (no enumeration
+    # leak) and fail-open when SSO_ALLOWED_DOMAINS is empty. Enforces "only
+    # @b2bnetwork.pl may log in" on the classic path too, not just registration.
+    if not _domain_allowed(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=_DOMAIN_FORBIDDEN_DETAIL
         )
     if not user.is_active:
         raise HTTPException(

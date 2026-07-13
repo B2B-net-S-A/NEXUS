@@ -808,7 +808,14 @@ if settings.M365_INTEGRATION_ENABLED:
         microsoft365_api.router, prefix="/api/microsoft365", tags=["microsoft365"]
     )
     app.include_router(email_threads_api.router, prefix="/api", tags=["emails"])
-    # Faza B — "Sign in with Microsoft" SSO. Reuses M365 Azure AD app.
+    # Faza B — "Sign in with Microsoft" SSO LOGIN. Reuses the M365 Azure AD app,
+    # so it mounts alongside the integration, but its enable/disable is a SEPARATE
+    # runtime gate: every handler calls _require_sso_configured(), which fails
+    # closed with 503 when MICROSOFT_SSO_LOGIN_ENABLED is off. This lets us turn
+    # interactive SSO login off (classic email+password only) while the M365
+    # integration (calendar/Teams/mailbox) keeps running — same runtime-gate
+    # idiom as the Autenti router below (503, rollback-friendly, monkeypatchable
+    # in tests).
     app.include_router(
         auth_microsoft_api.router,
         prefix="/api/auth/microsoft",

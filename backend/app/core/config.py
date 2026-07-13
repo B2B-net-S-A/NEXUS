@@ -337,6 +337,20 @@ class Settings(BaseSettings):
     # Reuses M365 Azure AD app — same client_id/secret/tenant, different redirect.
     # Empty in dev → /api/auth/microsoft/* return 503.
     MICROSOFT_LOGIN_REDIRECT_URI: str = ""
+    # DEDICATED kill-switch for the "Sign in with Microsoft" LOGIN flow, kept
+    # SEPARATE from ``M365_INTEGRATION_ENABLED`` on purpose: the mailbox/calendar/
+    # Teams integration and the SSO login share one Azure AD app, but we must be
+    # able to turn OFF interactive SSO login (classic email+password only) while
+    # the integration keeps running. The auth_microsoft router is mounted
+    # alongside the integration (main.py, under M365_INTEGRATION_ENABLED), so
+    # when False all three SSO login handlers gate at RUNTIME:
+    #   * /authorize + /exchange → 503, and
+    #   * /callback → 302 redirect to /login (browser landing page).
+    # Default False = classic login only, out of the box. During a migration
+    # window operators may set it True (SSO endpoint alive as an emergency entry
+    # while the frontend button is already hidden), then flip back to False once
+    # every user has a password.
+    MICROSOFT_SSO_LOGIN_ENABLED: bool = False
     # Email-domain whitelist for auto-provisioning. CSV string ("b2bnetwork.pl,foo.com")
     # — kept as ``str`` instead of ``List[str]`` because pydantic-settings v2 forces
     # JSON parsing for List types from env vars, which broke a plain ``b2bnetwork.pl``
