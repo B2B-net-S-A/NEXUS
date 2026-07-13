@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import sys
@@ -124,10 +125,13 @@ def fetch_json(url: str, timeout: float) -> HealthSample:
         response = urllib.request.urlopen(request, timeout=timeout)
     except urllib.error.HTTPError as exc:
         response = exc
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
         raise ValidationError("health endpoint is unavailable") from exc
     try:
-        raw = response.read(256 * 1024 + 1)
+        try:
+            raw = response.read(256 * 1024 + 1)
+        except (OSError, http.client.HTTPException) as exc:
+            raise ValidationError("health endpoint connection failed while reading response") from exc
         if len(raw) > 256 * 1024:
             raise ValidationError("health response is unexpectedly large")
         try:
@@ -137,7 +141,12 @@ def fetch_json(url: str, timeout: float) -> HealthSample:
         headers = {key.lower(): value for key, value in response.headers.items()}
         return HealthSample(int(response.status), headers, payload)
     finally:
-        response.close()
+        try:
+            response.close()
+        except (OSError, http.client.HTTPException):
+            # The payload has already been read or rejected. A transport error
+            # during close must not bypass the bounded observation semantics.
+            pass
 
 
 def observe(

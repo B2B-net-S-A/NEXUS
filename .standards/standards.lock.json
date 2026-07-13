@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/artur-t-96/engineering-standards/713eea21c2c390b8829c5be7ef5559d98bab2746/schemas/standards-lock.schema.json",
+  "$schema": "https://raw.githubusercontent.com/artur-t-96/engineering-standards/5f5808c228b756024816850103b0436b765a80b3/schemas/standards-lock.schema.json",
   "central_files": {
     ".github/actions/validate-consumer/action.yml": "121c0157cf5a6113aab64b7217d0ed103ef0d8aeadf8c6f4d6e7983ec5947ae0",
     ".github/actions/validate-health/action.yml": "c4142e0bf7c369ed05be9b9d51f6ee6aebd8f982339123292bd2e12a7ac6965c",
@@ -20,7 +20,7 @@
     "scripts/check_standards_drift.py": "673164c187d0cc71ae885dbd49bb5b90cb42b3320333fd8fd0ea9bbeccfe898b",
     "scripts/coolify_exact_sha.py": "f2bb68cbef73c10a8cc1ff79ea184dab0997f7e9ffc0bc5222fb71ea5b571e6e",
     "scripts/render_integration.py": "79f4e3bb929d8c9d85a0a7e1a341cc046df4da3ed734274de5fb48bfeac09974",
-    "scripts/validate_health.py": "cc0ede661f438f95f68f7cb2882bbe29941622a077114aa90b5bf711c4e11c58",
+    "scripts/validate_health.py": "9d4fb70c6597855d994d9289b00526c603fc8cd19a2196fcbc109073784dc045",
     "scripts/validate_release_config.py": "b9af1823da5ea10b9f97cdd310f68806553da0160a16144cca276e10d4498225",
     "scripts/validate_repository.py": "9ea999088abb8545a2022a17bc80e85b9628d64085d40f673228428281b8ab9a",
     "scripts/validate_security_exceptions.py": "303d16ce619a99b6acd70d4c7a76f132c55b6969904e37ca45fcc26add213bb3",
@@ -43,12 +43,12 @@
     ".standards/tools/check_standards_drift.py": "673164c187d0cc71ae885dbd49bb5b90cb42b3320333fd8fd0ea9bbeccfe898b",
     ".standards/tools/coolify_exact_sha.py": "f2bb68cbef73c10a8cc1ff79ea184dab0997f7e9ffc0bc5222fb71ea5b571e6e",
     ".standards/tools/render_integration.py": "79f4e3bb929d8c9d85a0a7e1a341cc046df4da3ed734274de5fb48bfeac09974",
-    ".standards/tools/validate_health.py": "cc0ede661f438f95f68f7cb2882bbe29941622a077114aa90b5bf711c4e11c58",
+    ".standards/tools/validate_health.py": "9d4fb70c6597855d994d9289b00526c603fc8cd19a2196fcbc109073784dc045",
     ".standards/tools/validate_release_config.py": "b9af1823da5ea10b9f97cdd310f68806553da0160a16144cca276e10d4498225",
     ".standards/tools/validate_repository.py": "9ea999088abb8545a2022a17bc80e85b9628d64085d40f673228428281b8ab9a",
     ".standards/tools/validate_security_exceptions.py": "303d16ce619a99b6acd70d4c7a76f132c55b6969904e37ca45fcc26add213bb3"
   },
-  "ref": "713eea21c2c390b8829c5be7ef5559d98bab2746",
+  "ref": "5f5808c228b756024816850103b0436b765a80b3",
   "repository": "artur-t-96/engineering-standards",
   "schema_version": 1,
   "version": "2026.07.1"
