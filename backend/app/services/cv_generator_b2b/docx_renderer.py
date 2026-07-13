@@ -1051,14 +1051,22 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
     middle of a half-filled page. The text is justified and a thin red rule on
     top mirrors the branded divider that used to precede the clause in the flow.
 
-    The box floats (``wrapNone``) with zero in-flow height, so it never pushes a
-    one-page CV onto a second page. It is anchored in a trailing paragraph whose
-    mark is shrunk to ~2pt to keep that anchor line negligible.
+    The box wraps ``topAndBottom``, so it *reserves* its band at the foot of the
+    page and body text is pushed above it — never through it. The earlier
+    ``wrapNone`` reserved no in-flow space, so a body that filled the page ran
+    straight under the pinned box and the last line(s) overlapped the clause
+    (the reported "tekst nachodzi na siebie"). With top-and-bottom wrapping a
+    body that would reach the reserved band spills its overflow — and the
+    clause with it — onto the next page instead of colliding: the clause stays
+    at the foot of the (new) last page, still once, and never overlaps. It is
+    anchored in a trailing paragraph whose mark is shrunk to ~2pt to keep that
+    anchor line negligible.
     """
     section = doc.sections[-1]
     content_w_emu = int(section.page_width - section.left_margin - section.right_margin)
-    # ~4 lines of 5pt text; spAutoFit lets Word recompute while the bottom edge
-    # stays pinned to the margin, so an over/under-estimate is self-correcting.
+    # ~4 lines of 5pt text; spAutoFit lets Word recompute the reserved band while
+    # the bottom edge stays pinned to the margin, so an over/under-estimate is
+    # self-correcting.
     box_h_emu = 320040
 
     anchor_para = doc.add_paragraph()
@@ -1087,7 +1095,7 @@ def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
             '<wp:positionV relativeFrom="margin"><wp:align>bottom</wp:align></wp:positionV>',
             f'<wp:extent cx="{content_w_emu}" cy="{box_h_emu}"/>',
             '<wp:effectExtent l="0" t="0" r="0" b="0"/>',
-            "<wp:wrapNone/>",
+            "<wp:wrapTopAndBottom/>",
             '<wp:docPr id="101" name="RodoClause"/>',
             "<wp:cNvGraphicFramePr/>",
             "<a:graphic><a:graphicData"
@@ -1504,16 +1512,19 @@ def render_cv_to_bytes(
 
     # === KLAUZULA RODO / GDPR ===
     # The consent clause is always justified and always pinned to the foot of the
-    # last page via a bottom-anchored float. A float pins to the bottom margin of
-    # whichever page its anchor lands on, so the clause reads as a footer at the
-    # bottom of the last page no matter how full the CV is.
+    # last page via a bottom-anchored float that wraps top-and-bottom. Anchored to
+    # the bottom page margin, the clause reads as a footer at the bottom of the
+    # last page no matter how full the CV is; the top-and-bottom wrap reserves its
+    # band so body text is pushed above it and can never run underneath it.
     #
-    # The earlier hybrid kept the clause in the normal flow when the body was
-    # estimated to nearly fill the page. In the paginated download (Word / PDF)
-    # that made it dangle at the TOP of the last page whenever the body spilled
-    # just past a page boundary — the "RODO na górze strony" report. Pinning is
-    # unconditional now: the height estimate could not reliably tell a nearly-full
-    # last page from one with room, and the float lands at the bottom either way.
+    # The earlier float used wrapNone (reserved no in-flow space). On a body that
+    # filled the page the last line(s) ran straight under the pinned box and
+    # overlapped the clause — the reported "tekst nachodzi na siebie". With
+    # top-and-bottom wrapping a body that would reach the reserved band spills its
+    # overflow (and the clause) onto the next page instead, so the clause lands at
+    # the foot of the last page, once, and never overlaps. (An even earlier hybrid
+    # dropped the clause into the normal flow near-full pages, which dangled it at
+    # the TOP of the last page — "RODO na górze strony"; that is gone too.)
     #
     # Trade-off: the in-app docx-preview ("Podgląd") cannot position a bottom-
     # anchored floating box, so the clause shows only in the downloaded DOCX/PDF
