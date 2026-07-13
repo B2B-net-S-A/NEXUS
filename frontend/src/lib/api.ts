@@ -2170,6 +2170,11 @@ export const recommendationsApi = {
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
     }>(`/api/jobs/${jobId}/generate-criteria-preview`),
+  classifyTechnologies: (names: string[]) =>
+    api.post<{ technologies: Record<string, boolean> }>(
+      "/api/cv-generator/classify-technologies",
+      { names },
+    ),
   recomputeScores: (jobId: number, topK = 200) =>
     api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
   assignToJob: (candidateId: number, jobId: number) =>

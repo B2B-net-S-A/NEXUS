@@ -1521,3 +1521,18 @@ def test_parse_champion_from_docx_keeps_parenthesized_skills():
     assert "Java (Spring, Hibernate)" in cp.must_have
     assert "Python" in cp.must_have
     assert "Docker" in cp.nice_to_have
+
+
+def test_classify_technologies_matches_render_bolding(tech_taxonomy):
+    # The /cv-generator/classify-technologies endpoint mirrors the renderer: a
+    # chip "will bold" iff compile_keyword_patterns yields a pattern. The UI
+    # preview must never diverge from the actual generated CV.
+    def will_bold(name: str) -> bool:
+        return bool(compile_keyword_patterns([name]))
+
+    assert will_bold("React") and will_bold("Kubernetes") and will_bold("K8s")
+    assert will_bold("C") and will_bold("Jest")
+    assert not will_bold("Agile")
+    assert not will_bold("Leadership")
+    assert not will_bold("English")
+    assert not will_bold("UX")
