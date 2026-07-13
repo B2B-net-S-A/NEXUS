@@ -204,6 +204,9 @@ def _disable_rate_limits():
 @pytest.fixture(autouse=True)
 def _force_sso_config(monkeypatch):
     monkeypatch.setattr(settings, "M365_INTEGRATION_ENABLED", True)
+    # SSO login is now behind its own runtime kill-switch (default off). These
+    # tests exercise the SSO callback end-to-end, so turn it on explicitly.
+    monkeypatch.setattr(settings, "MICROSOFT_SSO_LOGIN_ENABLED", True)
     monkeypatch.setattr(settings, "M365_CLIENT_ID", "test-client-id")
     monkeypatch.setattr(settings, "M365_CLIENT_SECRET", "test-client-secret")
     monkeypatch.setattr(settings, "M365_TENANT_ID", "test-tenant-id")
