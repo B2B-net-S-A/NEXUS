@@ -4,9 +4,10 @@ Scanner: Gitleaks 8.21.2, 904 commits, `.gitleaks.toml` from the P0 patch.
 This report intentionally contains only commit, path, rule, and fingerprint. It
 contains no secret values.
 
-Six fixed bootstrap/demo-password findings are exact-fingerprint baselined in
-`.gitleaksignore`. The remaining 23 are **not** baselined and keep the incident at
-P0 until they are classified and any real credentials are confirmed rotated.
+Only the retired bootstrap-password finding is exact-fingerprint baselined in
+`.gitleaksignore`. The remaining 28 findings, including five committed demo-user
+passwords, are **not** baselined and keep the incident at P0 until they are
+classified and every corresponding credential/account is confirmed retired.
 
 | Commit | Path | Rule | Fingerprint |
 |---|---|---|---|

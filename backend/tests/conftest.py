@@ -35,6 +35,7 @@ def event_loop():
     yield loop
     loop.close()
 
+
 BASE_URL = "http://localhost:8000"
 
 

@@ -987,12 +987,6 @@ _DATA_STATEMENTS = [
     # Backfill closed_at for historical closed rows so reports sort by "real
     # close date" instead of NULL. Safe because only touches NULL rows.
     "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
-    # Pre-flag roles that don't need onboarding (mirrors migration 0035 step)
-    """UPDATE users
-          SET profile_completed = TRUE,
-              profile_completed_at = COALESCE(profile_completed_at, NOW())
-        WHERE profile_completed = FALSE
-          AND role::text NOT IN ('delivery_lead', 'recruiter')""",
     # Seed 5 Competence Categories (migration 0033_cc_entities). Idempotent:
     # ON CONFLICT (slug) pomija duplikaty. Nie re-update'uje, bo Head of
     # Recruitment mógł zmodyfikować opis/keywords w UI.

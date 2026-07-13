@@ -24,9 +24,10 @@ variables. Production opt-in fails startup.
 A full Gitleaks history scan also found committed environment backups, production
 secret material, and a deploy private key. The value-free inventory is in
 [`gitleaks-history-findings-2026-07-13.md`](gitleaks-history-findings-2026-07-13.md).
-Only the six fixed bootstrap/demo-password findings have exact fingerprint
-entries in `.gitleaksignore`; the other 23 findings are intentionally not
-baselined.
+Only the retired bootstrap-password finding has one exact fingerprint entry in
+`.gitleaksignore`. The five committed demo-account passwords and the other 23
+findings are intentionally not baselined, so the full-history scan remains red
+until their corresponding credentials and accounts are proved retired.
 
 ## Required containment and deployment sequence
 

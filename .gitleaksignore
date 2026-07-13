@@ -1,8 +1,5 @@
-# Exact historical findings only. These values remain compromised and must be
-# rotated/quarantined per docs/ops/security/p0-bootstrap-admin-incident.md.
+# The single exact historical bootstrap finding. The credential remains
+# compromised and the account must be quarantined per the incident runbook.
+# Demo-account passwords are deliberately not baselined: a full-history scan
+# must stay red until operators prove every corresponding login is retired.
 4714a91b55bb03c69b649ad547656fe05416d904:backend/scripts/ensure_claude_admin.py:hardcoded-bootstrap-password:36
-38bd32fa7fc9378f8d4968cdb364e3e0d5bf03fa:backend/seed.py:demo-seed-literal-password:79
-38bd32fa7fc9378f8d4968cdb364e3e0d5bf03fa:backend/seed.py:demo-seed-literal-password:86
-38bd32fa7fc9378f8d4968cdb364e3e0d5bf03fa:backend/seed.py:demo-seed-literal-password:93
-38bd32fa7fc9378f8d4968cdb364e3e0d5bf03fa:backend/seed.py:demo-seed-literal-password:100
-38bd32fa7fc9378f8d4968cdb364e3e0d5bf03fa:backend/seed.py:demo-seed-literal-password:107
