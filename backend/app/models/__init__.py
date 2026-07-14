@@ -386,4 +386,16 @@ from app.models.dr_sales import (
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
 from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
 from app.models.skill import Skill, SkillAlias  # noqa: F401
+
+# The API imports these relationship targets indirectly through routers. The
+# standalone worker has no router bootstrap, so keep the ORM registry complete
+# here instead of depending on import order.
+from app.models.auth_exchange_code import AuthExchangeCode  # noqa: F401
+from app.models.champion_share import ChampionCardShareToken  # noqa: F401
+from app.models.match_score import CandidateJobMatchScore  # noqa: F401
+from app.models.scoring_weight_profile import ScoringWeightProfile  # noqa: F401
+from app.models.stage_notification import (  # noqa: F401
+    ClientStageNotificationOverride,
+    StageNotificationRule,
+)
 from app.models.cortex import CortexSkillFact, CortexUnmatchedTerm  # noqa: F401

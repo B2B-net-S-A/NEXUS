@@ -19,6 +19,10 @@ services:
       - uploads_data:/tmp/nexus/uploads
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
+  worker:
+    volumes:
+      - ./backend:/app
+
   frontend:
     ports:
       - "3001:3000"

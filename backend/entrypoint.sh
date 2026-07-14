@@ -19,14 +19,15 @@ fi
 export PYTHONPATH="$APP_ROOT:${PYTHONPATH:-}"
 cd "$APP_ROOT"
 
-case "${1:-serve}" in
+PROCESS_ROLE="${1:-serve}"
+case "$PROCESS_ROLE" in
     migrate)
         exec "$APP_ROOT/migrate.sh"
         ;;
-    serve)
+    serve|worker)
         ;;
     *)
-        echo "ERROR: expected entrypoint mode 'serve' or 'migrate'." >&2
+        echo "ERROR: expected entrypoint mode 'serve', 'worker' or 'migrate'." >&2
         exit 64
         ;;
 esac
@@ -79,6 +80,10 @@ while ! python -m scripts.assert_migration_head; do
     attempt=$((attempt + 1))
     sleep 2
 done
+
+if [ "$PROCESS_ROLE" = worker ]; then
+    exec python -m app.background_worker run
+fi
 
 # Operational recovery only: a killed M365 sync leaves a data-state lease in
 # `running`. This script performs no DDL and is safe to skip; the sync worker

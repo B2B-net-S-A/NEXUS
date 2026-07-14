@@ -5,6 +5,7 @@ Shape contract:
   "health": {"status", "version", "deployedAt", "checks": {"database": ...}},
   "kpis": {"candidates": {...}, "jobs": {...}, "clients": {...}, ...},
   "background_tasks": {"running": int, "expected": int, "tasks": [str, ...]},
+  "background_worker": {"status", "reason", "heartbeat_at", ...},
   "alembic": {"head": str|None, "applied_at": None},
   "sentry_release": str,
   "generated_at": "<iso_timestamp>",
@@ -65,6 +66,7 @@ async def test_snapshot_accepts_valid_token_returns_shape(configured_token):
         "health",
         "kpis",
         "background_tasks",
+        "background_worker",
         "alembic",
         "sentry_release",
         "generated_at",
@@ -84,6 +86,10 @@ async def test_snapshot_accepts_valid_token_returns_shape(configured_token):
     assert isinstance(bg["running"], int)
     assert isinstance(bg["expected"], int)
     assert isinstance(bg["tasks"], list)
+
+    worker = body["background_worker"]
+    assert worker["status"] in {"healthy", "unhealthy", "disabled"}
+    assert "reason" in worker
 
     # Alembic shape
     assert "head" in body["alembic"]

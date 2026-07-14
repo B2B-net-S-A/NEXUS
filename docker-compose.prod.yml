@@ -62,6 +62,18 @@ services:
         reservations:
           memory: 128M
 
+  worker:
+    environment:
+      DEBUG: "false"
+      SENTRY_ENVIRONMENT: production
+      BACKGROUND_WORKER_ENABLED: ${BACKGROUND_WORKER_ENABLED:-false}
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   frontend:
     ports: []
     environment:

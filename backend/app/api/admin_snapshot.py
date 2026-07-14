@@ -89,6 +89,12 @@ async def _query_alembic_head() -> dict[str, str | None]:
         return {"head": None, "applied_at": None}
 
 
+async def _background_worker_status() -> dict[str, object]:
+    from app.background_worker import get_background_worker_health
+
+    return (await get_background_worker_health()).as_dict()
+
+
 def _background_tasks_status(request: Request) -> dict[str, Any]:
     """Inspect app.state.background_tasks dict (populated by lifespan)."""
     tasks = getattr(request.app.state, "background_tasks", None)
@@ -128,16 +134,22 @@ async def admin_snapshot(
     db_check = await _check_database()
     kpis = await compute_kpi_snapshot(db) if db_check == "healthy" else {}
     alembic = await _query_alembic_head()
+    background_worker = await _background_worker_status()
+    snapshot_ready = db_check == "healthy" and background_worker["status"] == "healthy"
 
     snapshot = {
         "health": {
-            "status": "healthy" if db_check == "healthy" else "unhealthy",
+            "status": "healthy" if snapshot_ready else "unhealthy",
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
-            "checks": {"database": db_check},
+            "checks": {
+                "database": db_check,
+                "background_worker": background_worker["status"],
+            },
         },
         "kpis": kpis,
         "background_tasks": _background_tasks_status(request),
+        "background_worker": background_worker,
         "alembic": alembic,
         "sentry_release": os.environ.get("GIT_SHA", "unknown"),
         "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

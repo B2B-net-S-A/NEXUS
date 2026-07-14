@@ -10,14 +10,17 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from unittest.mock import AsyncMock
 
+from app import background_worker
+from app.background_worker import WorkerHealth
 import app.main as main_module
 from app.main import app
 
 
 FULL_SHA = "a" * 40
 INSTANCE_STARTED_AT = datetime(2026, 7, 14, 10, 11, 12, tzinfo=timezone.utc)
-REQUIRED_CHECKS = {"build", "database", "schema", "qdrant"}
+REQUIRED_CHECKS = {"build", "database", "schema", "qdrant", "background_worker"}
 _REAL_DATABASE_PROBE = main_module._probe_database
 _REAL_SCHEMA_PROBE = main_module._probe_required_schema
 
@@ -35,6 +38,11 @@ def deterministic_health(monkeypatch):
     monkeypatch.setattr(main_module, "_probe_database", _healthy)
     monkeypatch.setattr(main_module, "_probe_required_schema", _healthy)
     monkeypatch.setattr(main_module, "_probe_qdrant", _healthy)
+    monkeypatch.setattr(
+        background_worker,
+        "get_background_worker_health",
+        AsyncMock(return_value=WorkerHealth("healthy", "ok")),
+    )
 
     # Optional integrations must be deterministic and healthy/unconfigured.
     monkeypatch.setattr(main_module.settings, "M365_INTEGRATION_ENABLED", False)

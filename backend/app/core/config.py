@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # no longer creates them; flip false after existing browser sessions expire.
     JWT_ALLOW_LEGACY_WS_QUERY_TOKEN: bool = True
 
+    # Dedicated singleton scheduler. It is deliberately disabled by default:
+    # staging and a newly deployed production image must opt in only after the
+    # migration, worker healthcheck and rollback procedure have been verified.
+    # The web process never owns periodic loops once this code is deployed.
+    BACKGROUND_WORKER_ENABLED: bool = False
+    BACKGROUND_WORKER_HEARTBEAT_SECONDS: int = 15
+    BACKGROUND_WORKER_STALE_AFTER_SECONDS: int = 60
+    BACKGROUND_WORKER_LOCK_RETRY_SECONDS: int = 10
+
     # Database (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
 

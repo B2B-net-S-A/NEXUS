@@ -369,64 +369,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("CV generator reaper skipped: %s", e)
 
-    # Start calendar reminder background task
-    from app.api.calendar import calendar_reminder_loop
-    from app.tasks.match_history_ttl import match_history_ttl_loop
-    from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
-    from app.tasks.contract_alerts import contract_alerts_loop
-    from app.tasks.competition_autofreeze import competition_autofreeze_loop
-    from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
-    from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
-    from app.tasks.triggers_loop import notification_triggers_loop
-    from app.tasks.rejection_email_loop import rejection_email_loop
-    from app.tasks.linkedin_sync import linkedin_sync_loop
-    from app.tasks.microsoft365_sync import (
-        graph_subscription_renewal_loop,
-        meeting_recording_discovery_loop,
-        microsoft365_sync_loop,
-        rematch_unlinked_emails_loop,
-    )
-    from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
-    from app.tasks.saved_search_alerts import saved_search_alerts_loop
-    from app.tasks.chat_email_fallback import chat_email_fallback_loop
-    from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
-    from app.tasks.signing_sweeper import signing_sweeper_loop
-    from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
-    from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
-    from app.tasks.traffit_sync import traffit_daily_sync_loop
-    from app.services.fx_service import fx_refresh_loop
-
-    # Background tasks registry — exposed via app.state so /api/admin/snapshot
-    # can introspect running/expected counts. Order matches shutdown order.
-    # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
-    # spawn unconditionally (mirrors LinkedIn/M365 patterns).
-    app.state.background_tasks = {
-        "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
-        "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
-        "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
-        "contract_alerts": asyncio.create_task(contract_alerts_loop()),
-        "fx_refresh": asyncio.create_task(fx_refresh_loop()),
-        "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
-        "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
-        "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
-        "notification_triggers": asyncio.create_task(notification_triggers_loop()),
-        "rejection_email": asyncio.create_task(rejection_email_loop()),
-        "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
-        "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
-        "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
-        "m365_webhook_renewal": asyncio.create_task(graph_subscription_renewal_loop()),
-        "m365_recording_discovery": asyncio.create_task(
-            meeting_recording_discovery_loop()
-        ),
-        "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
-        "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
-        "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
-        "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
-        "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),
-        "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
-        "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
-        "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
-    }
+    # Periodic work belongs exclusively to app.background_worker. Keeping an
+    # empty registry preserves the admin snapshot contract while proving that
+    # scaling the web process cannot duplicate scheduler side effects.
+    app.state.background_tasks = {}
 
     yield
 
@@ -896,7 +842,9 @@ def _build_metadata_is_valid(version: str, deployed_at: str) -> bool:
     return parsed.tzinfo is not None
 
 
-_REQUIRED_READINESS_CHECKS = frozenset({"build", "database", "schema", "qdrant"})
+_REQUIRED_READINESS_CHECKS = frozenset(
+    {"build", "database", "schema", "qdrant", "background_worker"}
+)
 
 
 def _health_check(
@@ -1104,6 +1052,18 @@ async def api_health_check():
         checks["schema"] = _health_check(
             "unhealthy", critical=True, state="unavailable"
         )
+
+    # The scheduler is required. The default-off switch is a safe rollout and
+    # incident state, but readiness must remain red while scheduled work is
+    # paused; otherwise a disabled scheduler would be a false green.
+    from app.background_worker import get_background_worker_health
+
+    worker_health = await get_background_worker_health()
+    checks["background_worker"] = _health_check(
+        "unhealthy" if worker_health.status == "disabled" else worker_health.status,
+        critical=True,
+        state="disabled" if worker_health.status == "disabled" else None,
+    )
 
     started = time.perf_counter()
     try:

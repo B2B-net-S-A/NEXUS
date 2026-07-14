@@ -82,6 +82,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
       QDRANT_HOST: qdrant
       QDRANT_PORT: "6333"
+      BACKGROUND_WORKER_ENABLED: ${BACKGROUND_WORKER_ENABLED:-false}
     expose:
       - "8000"
     # Docker liveness is process-only.  Release promotion separately validates
@@ -100,6 +101,37 @@ services:
         condition: service_completed_successfully
     volumes:
       - uploads_data:/tmp/nexus/uploads
+    logging: *default-logging
+
+  # The only process allowed to run periodic loops. A PostgreSQL session
+  # advisory lock plus a monotonic fencing token makes accidental replicas
+  # safe. The feature is default-off until staging verification is complete.
+  worker:
+    build: *backend-build
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      BACKGROUND_WORKER_ENABLED: ${BACKGROUND_WORKER_ENABLED:-false}
+    command: ["worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - uploads_data:/tmp/nexus/uploads
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.background_worker", "health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+      start_interval: 5s
     logging: *default-logging
 
   frontend:
