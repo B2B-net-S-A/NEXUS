@@ -78,6 +78,15 @@ services:
       QDRANT_PORT: "6333"
     expose:
       - "8000"
+    # Docker liveness is process-only.  Release promotion separately validates
+    # `/api/health` readiness and therefore never restarts a live process just
+    # because PostgreSQL/Qdrant has a transient dependency incident.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/livez"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy

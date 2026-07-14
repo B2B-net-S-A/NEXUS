@@ -1,253 +1,176 @@
-"""Tests for /api/health (standard healthcheck shape).
+"""Contract and negative tests for NEXUS liveness/readiness endpoints."""
 
-Shape contract per ~/.claude/rules/deployment.md:
-{
-  "status": "healthy" | "degraded" | "unhealthy",
-  "version": "<40-character-sha>",
-  "deployedAt": "<iso_timestamp>",
-  "checks": {"database": {"status": "healthy" | "unhealthy"}}
-}
-HTTP 200 for healthy/degraded, 503 for unhealthy.
-"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+import app.main as main_module
 from app.main import app
 
 
+FULL_SHA = "a" * 40
+INSTANCE_STARTED_AT = datetime(2026, 7, 14, 10, 11, 12, tzinfo=timezone.utc)
+REQUIRED_CHECKS = {"build", "database", "schema", "qdrant"}
+_REAL_DATABASE_PROBE = main_module._probe_database
+_REAL_SCHEMA_PROBE = main_module._probe_required_schema
+
+
 @pytest.fixture(autouse=True)
-def qdrant_healthy(monkeypatch):
-    async def _qdrant_ok():
+def deterministic_health(monkeypatch):
+    """Keep contract tests hermetic; one test exercises the fresh CI DB."""
+
+    async def _healthy() -> None:
         return None
 
-    monkeypatch.setattr("app.main._probe_qdrant", _qdrant_ok)
+    monkeypatch.setenv("GIT_SHA", FULL_SHA)
+    monkeypatch.setenv("BUILT_AT", "2020-01-01T00:00:00Z")
+    monkeypatch.setattr(main_module, "_PROCESS_STARTED_AT", INSTANCE_STARTED_AT)
+    monkeypatch.setattr(main_module, "_probe_database", _healthy)
+    monkeypatch.setattr(main_module, "_probe_required_schema", _healthy)
+    monkeypatch.setattr(main_module, "_probe_qdrant", _healthy)
+
+    # Optional integrations must be deterministic and healthy/unconfigured.
+    monkeypatch.setattr(main_module.settings, "M365_INTEGRATION_ENABLED", False)
+    monkeypatch.setattr(main_module.settings, "CLOUDTALK_ENABLED", False)
+    monkeypatch.setattr(main_module.settings, "AUTENTI_ENABLED", False)
+    monkeypatch.setattr(main_module.settings, "TRAFFIT_SYNC_ENABLED", False)
+    monkeypatch.setattr(main_module.settings, "ANTHROPIC_API_KEY", "configured")
 
 
-@pytest.fixture
-def env_with_metadata(monkeypatch):
-    monkeypatch.setenv("GIT_SHA", "a" * 40)
-    # Future-dated BUILT_AT — po PR13 _resolve_deployed_at() używa max(env, mtime),
-    # więc env musi być świeższy niż __file__ mtime żeby wygrać.
-    monkeypatch.setenv("BUILT_AT", "2099-12-31T12:00:00Z")
+async def _get(path: str):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        return await client.get(path)
 
 
 @pytest.mark.asyncio
-async def test_api_health_returns_standard_shape(env_with_metadata):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
-
-    body = response.json()
-    assert "status" in body
-    assert body["status"] in {"healthy", "degraded", "unhealthy"}
-    assert "version" in body
-    assert "deployedAt" in body
-    assert "checks" in body
-    assert isinstance(body["checks"], dict)
-    assert response.headers["cache-control"] == "no-store"
-    assert body["checks"]["build"] == {"status": "healthy", "critical": True}
-    assert body["checks"]["database"]["critical"] is True
-    assert body["checks"]["qdrant"]["critical"] is True
-
-
-@pytest.mark.asyncio
-async def test_api_livez_is_process_only_and_no_store(env_with_metadata):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/livez")
+async def test_api_livez_is_process_only_full_sha_and_no_store():
+    response = await _get("/api/livez")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert response.json() == {"status": "alive", "version": "a" * 40}
+    assert response.json() == {"status": "alive", "version": FULL_SHA}
 
 
 @pytest.mark.asyncio
-async def test_api_health_returns_metadata_from_env(env_with_metadata):
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+async def test_api_livez_never_echoes_malformed_build_metadata(monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "token=do-not-echo")
 
-    body = response.json()
-    assert body["version"] == "a" * 40
-    assert body["deployedAt"] == "2099-12-31T12:00:00Z"
+    response = await _get("/api/livez")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "alive", "version": "unknown"}
+    assert "do-not-echo" not in response.text
 
 
 @pytest.mark.asyncio
-async def test_api_health_falls_back_to_filesystem_mtime_without_env(monkeypatch):
-    """Bez BUILT_AT env, deployedAt fallback na file mtime ISO (audit-2026-05-07
-    fix P1-D — statyczny BUILT_AT przed fix'em pokazywał 6 dni stary timestamp
-    mimo że kontener był freshly deployed)."""
-    import re
+async def test_api_health_returns_complete_standard_contract():
+    response = await _get("/api/health")
 
-    monkeypatch.delenv("GIT_SHA", raising=False)
-    monkeypatch.delenv("BUILT_AT", raising=False)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["status"] == "healthy"
+    assert body["version"] == FULL_SHA
+    assert body["deployedAt"] == "2026-07-14T10:11:12Z"
+    assert REQUIRED_CHECKS.issubset(body["checks"])
+    for name in REQUIRED_CHECKS:
+        assert body["checks"][name]["status"] == "healthy"
+        assert body["checks"][name]["critical"] is True
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+
+@pytest.mark.asyncio
+async def test_deployed_at_is_instance_start_not_mutable_env(monkeypatch):
+    monkeypatch.setenv("BUILT_AT", "2099-12-31T23:59:59Z")
+
+    first = await _get("/api/health")
+    second = await _get("/api/health")
+
+    assert first.json()["deployedAt"] == "2026-07-14T10:11:12Z"
+    assert second.json()["deployedAt"] == first.json()["deployedAt"]
+
+
+@pytest.mark.asyncio
+async def test_missing_exact_sha_fails_readiness_closed(monkeypatch):
+    monkeypatch.delenv("GIT_SHA")
+
+    response = await _get("/api/health")
 
     body = response.json()
-    assert body["version"] == "unknown"
-    # Fallback: ISO 8601 z fileystem mtime, lub "unknown" gdy mtime nie odczytany
-    iso_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
-    assert body["deployedAt"] == "unknown" or re.match(
-        iso_pattern, body["deployedAt"]
-    ), f"Expected 'unknown' or ISO timestamp, got {body['deployedAt']!r}"
     assert response.status_code == 503
     assert body["status"] == "unhealthy"
+    assert body["version"] == "unknown"
     assert body["checks"]["build"] == {"status": "unhealthy", "critical": True}
 
 
 @pytest.mark.asyncio
-async def test_api_health_ignores_naive_built_at(env_with_metadata, monkeypatch):
-    """A timestamp without a timezone must not crash the readiness endpoint."""
-    monkeypatch.setenv("BUILT_AT", "2099-12-31T12:00:00")
+async def test_database_failure_is_503_and_skips_schema_io(monkeypatch):
+    schema_called = False
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+    async def _database_down() -> None:
+        raise RuntimeError("SELECT password FROM private_users token=secret")
 
-    body = response.json()
-    assert response.status_code in {200, 503}
-    assert body["deployedAt"].endswith("Z")
-    assert body["checks"]["build"] == {"status": "healthy", "critical": True}
+    async def _schema_must_not_run() -> None:
+        nonlocal schema_called
+        schema_called = True
 
+    monkeypatch.setattr(main_module, "_probe_database", _database_down)
+    monkeypatch.setattr(main_module, "_probe_required_schema", _schema_must_not_run)
 
-@pytest.mark.asyncio
-async def test_api_health_prefers_mtime_over_stale_built_at(monkeypatch):
-    """Gdy BUILT_AT env jest STARSZY od __file__ mtime, mtime wygrywa.
-
-    QA 2026-05-27: Coolify env vault miał static BUILT_AT=2026-05-01 mimo
-    że kontener był rebuilt 2026-05-27. Stale env nie powinien dominować
-    nad świeżym mtime. PR13 zmienia logic z 'prefer env' na 'max(env, mtime)'.
-    """
-    import re
-
-    monkeypatch.setenv("BUILT_AT", "2020-01-01T00:00:00Z")  # bardzo stary
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+    response = await _get("/api/health")
 
     body = response.json()
-    # mtime (recent) > BUILT_AT (2020) → mtime wygrywa.
-    # __file__ jest świeży (modyfikowany w tym PR), więc deployedAt > 2020.
-    assert body["deployedAt"] != "2020-01-01T00:00:00Z", (
-        "Stale BUILT_AT env shouldn't dominate over fresh mtime"
-    )
-    iso_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
-    assert re.match(iso_pattern, body["deployedAt"]), (
-        f"Expected ISO timestamp, got {body['deployedAt']!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_api_health_uses_future_built_at_when_set(monkeypatch):
-    """Gdy BUILT_AT env jest NEWER niż mtime (np. CI sets explicit deploy
-    time), env wygrywa."""
-    future_built_at = "2099-12-31T23:59:59Z"
-    monkeypatch.setenv("BUILT_AT", future_built_at)
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
-
-    body = response.json()
-    assert body["deployedAt"] == future_built_at, (
-        "Future-dated BUILT_AT env should win over mtime"
-    )
-
-
-@pytest.mark.asyncio
-async def test_api_health_includes_database_check(env_with_metadata):
-    """W CI postgres service jest dostępny → expect database == healthy.
-    Lokalnie bez DB → expect database == unhealthy + HTTP 503.
-    """
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
-
-    body = response.json()
-    assert "database" in body["checks"]
-    database_status = body["checks"]["database"]["status"]
-    assert database_status in {"healthy", "unhealthy"}
-
-    if database_status == "healthy":
-        assert response.status_code == 200
-        assert body["status"] in {"healthy", "degraded"}
-    else:
-        assert response.status_code == 503
-        assert body["status"] == "unhealthy"
-
-
-@pytest.mark.asyncio
-async def test_api_health_autenti_unconfigured_by_default(
-    env_with_metadata, monkeypatch
-):
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", False)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
-    body = response.json()
-    assert body["checks"]["autenti"] == {
-        "status": "healthy",
-        "state": "unconfigured",
+    assert response.status_code == 503
+    assert body["status"] == "unhealthy"
+    assert body["checks"]["database"]["status"] == "unhealthy"
+    assert body["checks"]["schema"] == {
+        "status": "unhealthy",
+        "critical": True,
+        "state": "unavailable",
     }
+    assert schema_called is False
+    assert "private_users" not in response.text
+    assert "password" not in response.text.lower()
+    assert "secret" not in response.text.lower()
 
 
 @pytest.mark.asyncio
-async def test_api_health_autenti_misconfigured_when_enabled_without_creds(
-    env_with_metadata, monkeypatch
-):
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", True)
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_ID", "")
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_SECRET", "")
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+async def test_schema_failure_is_required_503_without_internal_details(monkeypatch):
+    async def _schema_down() -> None:
+        raise RuntimeError(
+            "SELECT * FROM contract_candidate_rates WHERE password='secret'"
+        )
+
+    monkeypatch.setattr(main_module, "_probe_required_schema", _schema_down)
+
+    response = await _get("/api/health")
+
     body = response.json()
-    assert body["checks"]["autenti"] == {
-        "status": "degraded",
-        "state": "misconfigured",
-    }
+    assert response.status_code == 503
+    assert body["status"] == "unhealthy"
+    assert body["checks"]["schema"]["status"] == "unhealthy"
+    assert body["checks"]["schema"]["critical"] is True
+    assert "contract_candidate_rates" not in response.text
+    assert "select" not in response.text.lower()
+    assert "password" not in response.text.lower()
 
 
 @pytest.mark.asyncio
-async def test_api_health_autenti_healthy_when_fully_configured(
-    env_with_metadata, monkeypatch
-):
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_ENABLED", True)
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_ID", "test-id")
-    monkeypatch.setattr("app.core.config.settings.AUTENTI_CLIENT_SECRET", "test-secret")
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
-    body = response.json()
-    assert body["checks"]["autenti"] == {"status": "healthy"}
-
-
-@pytest.mark.asyncio
-async def test_api_health_qdrant_failure_is_critical(env_with_metadata, monkeypatch):
-    async def _qdrant_down():
+async def test_qdrant_failure_is_required_503(monkeypatch):
+    async def _qdrant_down() -> None:
         raise RuntimeError("not exposed")
 
-    monkeypatch.setattr("app.main._probe_qdrant", _qdrant_down)
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health")
+    monkeypatch.setattr(main_module, "_probe_qdrant", _qdrant_down)
+
+    response = await _get("/api/health")
 
     body = response.json()
     assert response.status_code == 503
@@ -256,113 +179,156 @@ async def test_api_health_qdrant_failure_is_critical(env_with_metadata, monkeypa
     assert body["checks"]["qdrant"]["critical"] is True
 
 
-# ── /api/health/deep — core-module (schema-vs-ORM) drift gate ───────────────
-# Probes each core business table with `SELECT ... LIMIT 1` so a migration
-# column that never landed on prod (historical Alembic drift — e.g.
-# 2026-07-06's `contract_candidate_rates.
-# effective_to`, PR #647) turns the deploy RED instead of shipping a module
-# that 503s for real users. See memory `entrypoint-safetynet-new-columns`.
-CORE_DEEP_CHECK_TABLES = {
-    "contracts",
-    "contract_candidate_rates",
-    "contract_client_rates",
-    "candidates",
-    "clients",
-    "jobs",
-}
+def test_status_calculation_cannot_omit_or_degrade_required_component():
+    checks = {
+        name: main_module._health_check("healthy", critical=True)
+        for name in REQUIRED_CHECKS
+    }
+    assert main_module._readiness_status(checks) == "healthy"
+
+    missing = dict(checks)
+    missing.pop("schema")
+    assert main_module._readiness_status(missing) == "unhealthy"
+
+    required_degraded = dict(checks)
+    required_degraded["qdrant"] = main_module._health_check("degraded")
+    assert main_module._readiness_status(required_degraded) == "unhealthy"
+
+
+def test_only_optional_failure_can_be_degraded():
+    checks = {
+        name: main_module._health_check("healthy", critical=True)
+        for name in REQUIRED_CHECKS
+    }
+    checks["optional_integration"] = main_module._health_check("degraded")
+
+    assert main_module._readiness_status(checks) == "degraded"
 
 
 @pytest.mark.asyncio
-async def test_api_health_deep_returns_shape(env_with_metadata):
-    """Shape holds regardless of DB availability: status/version/checks, with
-    every core table present as a check key — including the contract_*_rates
-    children that slipped through the fast healthcheck on 2026-07-06."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health/deep")
+async def test_autenti_unconfigured_is_noncritical(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "AUTENTI_ENABLED", False)
+
+    response = await _get("/api/health")
+
+    assert response.json()["checks"]["autenti"] == {
+        "status": "healthy",
+        "state": "unconfigured",
+    }
+
+
+@pytest.mark.asyncio
+async def test_autenti_misconfigured_degrades_but_does_not_503(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "AUTENTI_ENABLED", True)
+    monkeypatch.setattr(main_module.settings, "AUTENTI_CLIENT_ID", "")
+    monkeypatch.setattr(main_module.settings, "AUTENTI_CLIENT_SECRET", "")
+
+    response = await _get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["checks"]["autenti"] == {
+        "status": "degraded",
+        "state": "misconfigured",
+    }
+
+
+@pytest.mark.asyncio
+async def test_autenti_configured_is_healthy(monkeypatch):
+    monkeypatch.setattr(main_module.settings, "AUTENTI_ENABLED", True)
+    monkeypatch.setattr(main_module.settings, "AUTENTI_CLIENT_ID", "test-id")
+    monkeypatch.setattr(main_module.settings, "AUTENTI_CLIENT_SECRET", "test-secret")
+
+    response = await _get("/api/health")
+
+    assert response.json()["checks"]["autenti"] == {"status": "healthy"}
+
+
+@pytest.mark.asyncio
+async def test_deep_endpoint_is_sanitized_readiness_alias():
+    response = await _get("/api/health/deep")
 
     body = response.json()
-    assert body["status"] in {"healthy", "unhealthy"}
-    assert body["version"] == "a" * 40
-    assert isinstance(body["checks"], dict)
-    assert CORE_DEEP_CHECK_TABLES.issubset(body["checks"].keys())
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert set(body) == {"status", "version", "deployedAt", "checks"}
+    assert REQUIRED_CHECKS.issubset(body["checks"])
+    assert not {
+        "contracts",
+        "contract_candidate_rates",
+        "contract_client_rates",
+        "candidates",
+        "clients",
+        "jobs",
+    }.intersection(body["checks"])
 
 
 @pytest.mark.asyncio
-async def test_api_health_deep_healthy_when_schema_matches(env_with_metadata):
-    """DB reachable + schema matches the ORM → 200 + all core probes healthy.
+async def test_shared_release_validator_accepts_real_readiness_payload(tmp_path):
+    response = await _get("/api/health")
+    payload_file = tmp_path / "readiness.json"
+    payload_file.write_text(json.dumps(response.json()), encoding="utf-8")
+    validator = (
+        Path(__file__).resolve().parents[2]
+        / ".standards"
+        / "tools"
+        / "validate_health.py"
+    )
 
-    CI runs `alembic upgrade head` on a fresh Postgres before pytest, so every
-    core table has the full ORM schema — this is the assertion that would have
-    gone RED on the 0154 drift. Gated on DB availability so it's a no-op locally
-    without Postgres (there every probe fails → 503 + unhealthy).
-    """
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        health = (await ac.get("/api/health")).json()
-        deep_resp = await ac.get("/api/health/deep")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(validator),
+            "--file",
+            str(payload_file),
+            "--kind",
+            "readiness",
+            "--expected-sha",
+            FULL_SHA,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
-    deep = deep_resp.json()
+    assert completed.returncode == 0, completed.stderr
+    assert "health validation passed: readiness" in completed.stdout
 
-    if health["checks"]["database"]["status"] == "healthy":
-        assert deep_resp.status_code == 200, deep
-        assert deep["status"] == "healthy"
-        assert all(v == "healthy" for v in deep["checks"].values()), deep
-        assert "errors" not in deep
-    else:
-        assert deep_resp.status_code == 503
-        assert deep["status"] == "unhealthy"
+
+def test_release_pipeline_validates_readiness_not_liveness():
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/_reusable-coolify-release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert workflow.count("--kind readiness") == 4
+    assert "--kind livez" not in workflow
+
+
+def test_docker_backend_healthcheck_is_process_liveness():
+    root = Path(__file__).resolve().parents[2]
+    compose = (root / "docker-compose.yml").read_text(encoding="utf-8")
+    backend = compose.split("\n  backend:\n", maxsplit=1)[1].split(
+        "\n  frontend:\n", maxsplit=1
+    )[0]
+    assert "http://localhost:8000/api/livez" in backend
+    assert "http://localhost:8000/api/health" not in backend
 
 
 @pytest.mark.asyncio
-async def test_api_health_deep_returns_503_when_probe_errors(monkeypatch):
-    """When a core table probe raises (schema drift or DB error), the endpoint
-    degrades to 503 + status unhealthy and records the exception class per
-    failing table in `errors` — the exact signal the deploy smoke-test trips on.
+async def test_fresh_migrated_database_resolves_required_schema():
+    """CI applies Alembic head before pytest; local runs without DB may skip."""
+    try:
+        await _REAL_DATABASE_PROBE()
+    except Exception:
+        pytest.skip("fresh PostgreSQL test database is not available")
 
-    Hermetic: swaps the session factory for one whose `execute` always raises,
-    so no DB and no ORM-metadata mutation is involved.
-    """
-    import app.core.database as db_module
-
-    class _BoomSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        async def execute(self, *args, **kwargs):
-            raise RuntimeError("simulated schema drift")
-
-    # The endpoint does `from app.core.database import AsyncSessionLocal` at call
-    # time, so patching the module attribute is enough.
-    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: _BoomSession())
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        deep_resp = await ac.get("/api/health/deep")
-
-    deep = deep_resp.json()
-    assert deep_resp.status_code == 503
-    assert deep["status"] == "unhealthy"
-    # Every core table is reported unhealthy, each with its exception class.
-    assert set(deep["checks"].values()) == {"unhealthy"}
-    assert CORE_DEEP_CHECK_TABLES.issubset(deep["errors"].keys())
-    assert deep["errors"]["contract_candidate_rates"] == "RuntimeError"
+    await _REAL_SCHEMA_PROBE()
 
 
 @pytest.mark.asyncio
 async def test_legacy_health_endpoint_still_works():
-    """Backwards compat: /health zachowany jako alias przez 7 dni."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/health")
+    response = await _get("/health")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["status"] == "ok"

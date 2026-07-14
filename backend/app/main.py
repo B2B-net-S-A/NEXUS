@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -155,6 +156,13 @@ from app.api import teams_channels as teams_channels_api
 import app.models as _models  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+# `deployedAt` identifies the running backend instance, not a mutable Coolify
+# environment value or a source-file mtime.  Production uses one Uvicorn
+# process per container, so recording this once at import gives the actual
+# start time of the instance serving the health response.  A restart therefore
+# cannot keep reporting the stale BUILT_AT value that caused the May incident.
+_PROCESS_STARTED_AT = datetime.now(timezone.utc).replace(microsecond=0)
 
 
 # ── Sentry (optional) ──────────────────────────────────────────────────────
@@ -859,8 +867,16 @@ app.include_router(entity_fields_api.router, prefix="/api", tags=["entity-fields
 
 
 def _build_version() -> str:
-    """Return the immutable build identity exposed by health endpoints."""
-    return os.environ.get("GIT_SHA", "unknown").strip() or "unknown"
+    """Return a safe immutable build identity for public health payloads.
+
+    Never echo an arbitrary environment value: a malformed value makes the
+    readiness check fail closed as ``unknown`` while liveness remains strictly
+    process-only.  The shared release validator still requires the exact SHA.
+    """
+    import re
+
+    version = os.environ.get("GIT_SHA", "").strip().lower()
+    return version if re.fullmatch(r"[0-9a-f]{40}", version) else "unknown"
 
 
 def _build_metadata_is_valid(version: str, deployed_at: str) -> bool:
@@ -875,6 +891,9 @@ def _build_metadata_is_valid(version: str, deployed_at: str) -> bool:
     except ValueError:
         return False
     return parsed.tzinfo is not None
+
+
+_REQUIRED_READINESS_CHECKS = frozenset({"build", "database", "schema", "qdrant"})
 
 
 def _health_check(
@@ -896,12 +915,67 @@ def _health_check(
 
 
 def _readiness_status(checks: dict[str, dict[str, object]]) -> str:
-    failed = [name for name, check in checks.items() if check["status"] != "healthy"]
+    """Calculate status without permitting a required check to disappear.
+
+    Required components are named explicitly in addition to carrying the
+    ``critical`` marker.  This prevents an accidental code change that omits a
+    Qdrant/schema probe (or drops its marker) from turning a broken deployment
+    green.  Only optional integration failures may be ``degraded``.
+    """
+    if not _REQUIRED_READINESS_CHECKS.issubset(checks):
+        return "unhealthy"
+
+    failed = [
+        name for name, check in checks.items() if check.get("status") != "healthy"
+    ]
     if any(
-        name == "database" or checks[name].get("critical") is True for name in failed
+        name in _REQUIRED_READINESS_CHECKS or checks[name].get("critical") is True
+        for name in failed
     ):
         return "unhealthy"
     return "degraded" if failed else "healthy"
+
+
+async def _probe_database() -> None:
+    """Bounded caller-owned database probe, isolated for contract tests."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("SELECT 1"))
+
+
+async def _probe_required_schema() -> None:
+    """Resolve mapped columns for every drift-prone core model, without rows.
+
+    The public response exposes one generic ``schema`` check.  Model/table
+    details and database exceptions stay server-side, so readiness cannot leak
+    schema names, raw SQL, credentials or exception strings.
+    """
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract
+    from app.models.contract_candidate_rate import ContractCandidateRate
+    from app.models.contract_client_rate import ContractClientRate
+    from app.models.job import Job
+
+    required_models = (
+        Contract,
+        ContractCandidateRate,
+        ContractClientRate,
+        Candidate,
+        Client,
+        Job,
+    )
+    async with AsyncSessionLocal() as session:
+        for model in required_models:
+            # LIMIT 0 still makes PostgreSQL resolve all ORM-mapped columns but
+            # does not read or return any candidate/client data.
+            await session.execute(select(model).limit(0))
 
 
 async def _probe_qdrant() -> None:
@@ -953,53 +1027,19 @@ async def api_livez():
 
 
 def _resolve_deployed_at() -> str:
-    """Return ISO-8601 deployedAt string.
+    """Return the real UTC start time of the instance serving this response.
 
-    Strategy: return MAX(BUILT_AT env, __file__ mtime). Bo:
-    - Coolify env vault często ma BUILT_AT jako static value (last manual
-      set), które nie aktualizuje się per deploy → stale info (QA
-      2026-05-27: prod pokazywał 27-dniowy timestamp mimo świeżego deployu)
-    - Filesystem mtime __file__ ZAWSZE świeży po Docker rebuild (Coolify
-      buduje od scratch przy każdym deploy)
-    - Max() z obu daje "best available freshness" — env wygrywa tylko
-      gdy ktoś świadomie ustawił go w przyszłości (np. test fixture)
-
-    QA 2026-05-27: deployedAt 2026-05-01 dla deployu z 2026-05-27. Fix:
-    fall through to mtime gdy env jest starszy od mtime.
+    ``BUILT_AT`` in the Coolify vault was static and source mtimes describe a
+    checkout, not a running deployment.  The process timestamp is immutable
+    for this container and changes on every deploy/restart, so it cannot report
+    a stale release time.
     """
-    import os
-    from datetime import datetime, timezone
-
-    candidates: list[tuple[datetime, str]] = []
-
-    explicit = os.environ.get("BUILT_AT", "").strip()
-    if explicit and explicit != "unknown":
-        try:
-            parsed = datetime.fromisoformat(explicit.replace("Z", "+00:00"))
-            if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(timezone.utc)
-                candidates.append((parsed, parsed.strftime("%Y-%m-%dT%H:%M:%SZ")))
-        except ValueError:
-            pass
-
-    try:
-        mtime = os.path.getmtime(__file__)
-        mtime_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
-        mtime_str = mtime_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        candidates.append((mtime_dt, mtime_str))
-    except OSError:
-        pass
-
-    if not candidates:
-        return "unknown"
-    # Pick most-recent timestamp — fresher beats stale.
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+    return _PROCESS_STARTED_AT.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @app.get("/api/health")
 async def api_health_check():
-    """Fail-closed readiness for the database, Qdrant and integrations."""
+    """Fail-closed readiness for every required runtime component."""
     import asyncio
     import os
     import time
@@ -1021,9 +1061,10 @@ async def api_health_check():
     )
 
     started = time.perf_counter()
+    database_healthy = False
     try:
-        async with AsyncSessionLocal() as session:
-            await asyncio.wait_for(session.execute(text("SELECT 1")), timeout=2.0)
+        await asyncio.wait_for(_probe_database(), timeout=2.0)
+        database_healthy = True
         checks["database"] = _health_check(
             "healthy",
             critical=True,
@@ -1034,6 +1075,31 @@ async def api_health_check():
             "unhealthy",
             critical=True,
             latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+
+    started = time.perf_counter()
+    if database_healthy:
+        try:
+            await asyncio.wait_for(_probe_required_schema(), timeout=2.5)
+            checks["schema"] = _health_check(
+                "healthy",
+                critical=True,
+                latency_ms=round((time.perf_counter() - started) * 1000),
+            )
+        except Exception as exc:
+            # Keep the public payload generic.  The exception class is enough
+            # to correlate internally without logging raw SQL or row values.
+            logger.warning(
+                "Required schema readiness probe failed (%s)", type(exc).__name__
+            )
+            checks["schema"] = _health_check(
+                "unhealthy",
+                critical=True,
+                latency_ms=round((time.perf_counter() - started) * 1000),
+            )
+    else:
+        checks["schema"] = _health_check(
+            "unhealthy", critical=True, state="unavailable"
         )
 
     started = time.perf_counter()
@@ -1188,85 +1254,11 @@ async def api_health_check():
 
 @app.get("/api/health/deep")
 async def api_health_deep_check():
-    """Deep healthcheck — probes core business tables against the live ORM.
+    """One-release compatibility alias for the canonical readiness endpoint.
 
-    Compatibility alias for the former deep schema probe. The application now
-    refuses to serve unless the database is at the repository's single Alembic
-    head, while CI replays migrations from an empty PostgreSQL database and
-    checks ORM/schema drift. The table probes remain for one release as an
-    additional operational signal.
-
-    This endpoint runs `SELECT <all mapped columns> ... LIMIT 1` for each core
-    table, forcing Postgres to resolve every column the ORM maps. A drifted
-    column makes the check (and, via the deploy smoke-test, the deploy) go RED
-    instead of shipping a broken module. Drift-prone CHILD tables (contract_*_rates)
-    are listed explicitly: a bare `SELECT Contract` would not touch them (their
-    relationships are lazy), yet the real endpoints eager-load them — which is
-    exactly how the 0154 incident slipped through.
-
-    Auth-free by design (no CI-side login/token coupling that could itself block
-    deploys). Response leaks only table names + the failing exception's class
-    name; full errors go to server logs / Sentry. HTTP 503 if any core table
-    fails; 200 when all pass.
-
-    When a NEW core table (or a drift-prone child) is added, extend `core_checks`
-    below in the same spirit as the entrypoint.sh safety-net checklist.
+    Core schema resolution now runs inside ``/api/health`` as the required,
+    generic ``schema`` check, so the exact-SHA release validator cannot miss a
+    broken module.  Returning the same sanitized contract also removes the old
+    public list of internal table names and exception classes.
     """
-    import asyncio
-    from fastapi import status as http_status
-    from fastapi.responses import JSONResponse
-    from sqlalchemy import select
-
-    from app.core.database import AsyncSessionLocal
-    from app.models.candidate import Candidate
-    from app.models.client import Client
-    from app.models.contract import Contract
-    from app.models.contract_candidate_rate import ContractCandidateRate
-    from app.models.contract_client_rate import ContractClientRate
-    from app.models.job import Job
-
-    # (check_name, ORM model). Names are table-oriented so a red check in the
-    # deploy log points straight at the drifted table.
-    core_checks = [
-        ("contracts", Contract),
-        ("contract_candidate_rates", ContractCandidateRate),
-        ("contract_client_rates", ContractClientRate),
-        ("candidates", Candidate),
-        ("clients", Client),
-        ("jobs", Job),
-    ]
-
-    checks: dict[str, str] = {}
-    errors: dict[str, str] = {}
-
-    for name, model in core_checks:
-        # Fresh session per check so a failed query (which aborts the
-        # transaction) can't cascade "InFailedSqlTransaction" into the rest.
-        try:
-            async with AsyncSessionLocal() as session:
-                await asyncio.wait_for(
-                    session.execute(select(model).limit(1)), timeout=3.0
-                )
-            checks[name] = "healthy"
-        except Exception as exc:  # noqa: BLE001
-            checks[name] = "unhealthy"
-            errors[name] = type(exc).__name__
-            logger.warning("health/deep: %s probe failed: %r", name, exc)
-
-    all_healthy = all(v == "healthy" for v in checks.values())
-
-    body: dict = {
-        "status": "healthy" if all_healthy else "unhealthy",
-        "version": _build_version(),
-        "checks": checks,
-    }
-    if errors:
-        body["errors"] = errors
-
-    return JSONResponse(
-        content=body,
-        headers={"Cache-Control": "no-store"},
-        status_code=http_status.HTTP_200_OK
-        if all_healthy
-        else http_status.HTTP_503_SERVICE_UNAVAILABLE,
-    )
+    return await api_health_check()
