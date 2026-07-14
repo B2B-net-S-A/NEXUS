@@ -3846,6 +3846,17 @@ def _candidate_cv_disk_path(candidate_id: int, stored_filename: str) -> str:
     return os.path.join(settings.UPLOAD_DIR, f"candidate_{candidate_id}_{basename}")
 
 
+_ALLOWED_CV_ZIP_SUFFIXES = {".pdf", ".doc", ".docx"}
+
+
+def _safe_cv_zip_suffix(stored_filename: str) -> str:
+    """Return an allowlisted suffix derived only from a sanitized basename."""
+    basename = os.path.basename(stored_filename.replace("\\", "/"))
+    basename = "".join(ch for ch in basename if ch.isprintable() and ch not in "/\\")
+    suffix = os.path.splitext(basename)[1].lower()
+    return suffix if suffix in _ALLOWED_CV_ZIP_SUFFIXES else ".pdf"
+
+
 @router.post("/bulk-cv-download")
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
@@ -3926,7 +3937,7 @@ async def bulk_cv_download(
                 skipped += 1
                 continue
 
-            ext = os.path.splitext(candidate.cv_filename)[1] or ".pdf"
+            ext = _safe_cv_zip_suffix(candidate.cv_filename)
             entry_name = (
                 f"{_sanitize_zip_component(candidate.lastname)}_"
                 f"{_sanitize_zip_component(candidate.name)}_"

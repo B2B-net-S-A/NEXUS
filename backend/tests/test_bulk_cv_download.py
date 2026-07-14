@@ -10,6 +10,13 @@ import zipfile
 from httpx import AsyncClient
 
 
+def _legacy_disk_path(candidate_id: int, basename: str) -> str:
+    """Arrange legacy storage independently of the production path helper."""
+    from app.core.config import settings
+
+    return os.path.join(settings.UPLOAD_DIR, f"candidate_{candidate_id}_{basename}")
+
+
 async def _seed_candidate(
     *,
     first: str,
@@ -17,6 +24,7 @@ async def _seed_candidate(
     cv_filename: str | None = None,
     cv_on_disk: bytes | None = None,
     cv_in_db: bytes | None = None,
+    disk_basename: str | None = None,
 ) -> int:
     """Insert a candidate directly and optionally place a CV file on disk."""
     from app.core.database import AsyncSessionLocal
@@ -36,17 +44,17 @@ async def _seed_candidate(
         cid = cand.id
 
     if cv_on_disk is not None and cv_filename:
-        from app.api.candidates import _candidate_cv_disk_path
         from app.core.config import settings
 
+        basename = disk_basename or cv_filename
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-        with open(_candidate_cv_disk_path(cid, cv_filename), "wb") as f:
+        with open(_legacy_disk_path(cid, basename), "wb") as f:
             f.write(cv_on_disk)
 
     return cid
 
 
-async def _delete_candidate(candidate_id: int, cv_filename: str | None) -> None:
+async def _delete_candidate(candidate_id: int, disk_basename: str | None) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
 
@@ -56,10 +64,8 @@ async def _delete_candidate(candidate_id: int, cv_filename: str | None) -> None:
             await db.delete(cand)
             await db.commit()
 
-    if cv_filename:
-        from app.api.candidates import _candidate_cv_disk_path
-
-        path = _candidate_cv_disk_path(candidate_id, cv_filename)
+    if disk_basename:
+        path = _legacy_disk_path(candidate_id, disk_basename)
         if os.path.exists(path):
             os.remove(path)
 
@@ -194,13 +200,14 @@ async def test_bulk_cv_download_mixed_sources_and_missing(
 async def test_bulk_cv_download_sanitizes_filenames(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    # Path-traversal attempt in cv_filename; entry name must be sanitized.
+    # Path-traversal attempt in cv_filename; DB bytes avoid coupling test setup
+    # to the production disk-path sanitizer.
     hostile = "../../etc/passwd.pdf"
     cid = await _seed_candidate(
         first="Evil/../X",
         last="Hack\\er",
         cv_filename=hostile,
-        cv_on_disk=b"%PDF-evil",
+        cv_in_db=b"%PDF-evil",
     )
     try:
         r = await app_client.post(
@@ -218,4 +225,48 @@ async def test_bulk_cv_download_sanitizes_filenames(
             assert "\\" not in entry
             assert entry.endswith(".pdf")
     finally:
-        await _delete_candidate(cid, hostile)
+        await _delete_candidate(cid, None)
+
+
+async def test_bulk_cv_download_sanitizes_windows_suffix(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    hostile = "..\\..\\resume.docx"
+    cid = await _seed_candidate(
+        first="Windows", last="Path", cv_filename=hostile, cv_in_db=b"docx"
+    )
+    try:
+        r = await app_client.post(
+            "/api/candidates/bulk-cv-download",
+            headers=app_auth_headers,
+            json={"candidate_ids": [cid]},
+        )
+        assert r.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(r.content), "r") as zf:
+            entry = next(n for n in zf.namelist() if n != "_manifest.txt")
+            assert entry.endswith(".docx")
+            assert "/" not in entry and "\\" not in entry
+    finally:
+        await _delete_candidate(cid, None)
+
+
+async def test_bulk_cv_download_rejects_control_character_suffix(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    hostile = "resume\x01.PDF"
+    cid = await _seed_candidate(
+        first="Control", last="Character", cv_filename=hostile, cv_in_db=b"pdf"
+    )
+    try:
+        r = await app_client.post(
+            "/api/candidates/bulk-cv-download",
+            headers=app_auth_headers,
+            json={"candidate_ids": [cid]},
+        )
+        assert r.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(r.content), "r") as zf:
+            entry = next(n for n in zf.namelist() if n != "_manifest.txt")
+            assert entry.endswith(".pdf")
+            assert all(ch.isprintable() for ch in entry)
+    finally:
+        await _delete_candidate(cid, None)

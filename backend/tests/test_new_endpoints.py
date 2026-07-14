@@ -5,6 +5,8 @@ Uses `app_client` + `app_auth_headers` fixtures from conftest.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -187,9 +189,9 @@ async def test_candidates_include_last_activity_adds_triage_fields(
             assert value is None or (isinstance(value, str) and len(value) > 0), (
                 f"{key} must be None or non-empty str, got {value!r}"
             )
-        # Preview length cap is 120 chars + optional ellipsis
+        # Production default is exactly 220 characters, including ellipsis.
         if isinstance(it["last_note_preview"], str):
-            assert len(it["last_note_preview"]) <= 121
+            assert len(it["last_note_preview"]) <= 220
 
 
 @pytest.mark.asyncio
@@ -213,6 +215,64 @@ async def test_candidates_default_omits_last_activity(
         assert it.get("last_rate") is None
 
 
+@pytest.mark.asyncio
+async def test_candidates_note_preview_default_boundary_on_seeded_rows(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """The API uses the production 220-char default, not a test-only cap."""
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.note import Note
+
+    marker = uuid.uuid4().hex[:10]
+    async with AsyncSessionLocal() as db:
+        exact = Candidate(
+            name="Preview",
+            lastname=f"Boundary-{marker}-exact",
+            email=f"preview-exact-{marker}@example.com",
+        )
+        truncated = Candidate(
+            name="Preview",
+            lastname=f"Boundary-{marker}-truncated",
+            email=f"preview-truncated-{marker}@example.com",
+        )
+        db.add_all([exact, truncated])
+        await db.flush()
+        exact_id, truncated_id = exact.id, truncated.id
+        db.add_all(
+            [
+                Note(candidate_id=exact_id, content="a" * 220),
+                Note(candidate_id=truncated_id, content="b" * 221),
+            ]
+        )
+        await db.commit()
+        candidate_ids = [exact_id, truncated_id]
+
+    try:
+        response = await app_client.get(
+            "/api/candidates",
+            params={
+                "q": marker,
+                "include_last_activity": "true",
+                "page_size": 10,
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        previews = {
+            item["id"]: item["last_note_preview"] for item in response.json()["items"]
+        }
+        assert previews[exact_id] == "a" * 220
+        assert previews[truncated_id] == "b" * 219 + "…"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Note).where(Note.candidate_id.in_(candidate_ids)))
+            await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
+            await db.commit()
+
+
 def test_format_helpers_strip_html_truncate_and_format_rate():
     """Unit-test the 3 pure helpers — they don't touch DB so we don't need a
     DB fixture. Keeps regression coverage cheap."""
@@ -228,11 +288,10 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
         )
         == "Świetny Python dev. Idzie do klienta."
     )
-    long_note = "a" * 200
-    # Pin truncation mechanics independently of the product's wider UI default.
-    preview = _format_note_preview(long_note, max_chars=120)
+    assert _format_note_preview("a" * 220) == "a" * 220
+    preview = _format_note_preview("a" * 221)
     assert preview.endswith("…")
-    assert len(preview) <= 121
+    assert len(preview) == 220
 
     # Tiptap JSON doc — should extract just the text leaves.
     tiptap_doc = (

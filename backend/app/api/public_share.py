@@ -7,6 +7,7 @@ exposed on these endpoints.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -170,9 +171,13 @@ async def get_public_cv(
         entity_type="candidate_stage_cv",
         entity_id=csv.id,
         action="document_downloaded",
-        # The bearer token is the row's primary key.  Do not copy that secret
-        # into audit data; entity_id already identifies the accessed snapshot.
-        details={"access": "public_share"},
+        # Correlate accesses to the same public share without persisting the
+        # bearer token itself. Tokens are high-entropy, so a one-way SHA-256
+        # fingerprint is safe for incident-response grouping.
+        details={
+            "access": "public_share",
+            "share_token_fingerprint": hashlib.sha256(token.encode()).hexdigest(),
+        },
     )
 
     return {

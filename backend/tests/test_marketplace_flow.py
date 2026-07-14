@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -23,7 +23,7 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.notification import Notification, NotificationType
-from app.models.talent_pool import TalentPool, TalentPoolMembership
+from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User, UserRole
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
@@ -93,23 +93,28 @@ async def _cleanup_marketplace_data(db) -> None:
     test_job_ids = db.info.pop("marketplace_test_job_ids", [])
     test_client_ids = db.info.pop("marketplace_test_client_ids", [])
 
-    # Usuń wszystkie test-utworzone marketplace artefakty.
-    pool = (
-        await db.execute(select(TalentPool).where(TalentPool.is_marketplace.is_(True)))
-    ).scalar_one_or_none()
-    if pool is not None:
+    # Delete only rows owned by this test. The singleton marketplace pool and
+    # unrelated suite/seed data must survive this fixture.
+    if test_candidate_ids:
         await db.execute(
             delete(TalentPoolMembership).where(
-                TalentPoolMembership.talent_pool_id == pool.id
+                TalentPoolMembership.candidate_id.in_(test_candidate_ids)
             )
         )
-        await db.delete(pool)
-    await db.execute(delete(MarketplaceAlertLog))
-    await db.execute(
-        delete(Notification).where(
-            Notification.notification_type == NotificationType.marketplace_match
+    if test_candidate_ids or test_job_ids:
+        alert_scope = []
+        if test_candidate_ids:
+            alert_scope.append(MarketplaceAlertLog.candidate_id.in_(test_candidate_ids))
+        if test_job_ids:
+            alert_scope.append(MarketplaceAlertLog.job_id.in_(test_job_ids))
+        await db.execute(delete(MarketplaceAlertLog).where(or_(*alert_scope)))
+    if test_user_ids:
+        await db.execute(
+            delete(Notification).where(
+                Notification.notification_type == NotificationType.marketplace_match,
+                Notification.user_id.in_(test_user_ids),
+            )
         )
-    )
     if test_job_ids:
         await db.execute(delete(Job).where(Job.id.in_(test_job_ids)))
     if test_client_ids:
@@ -226,7 +231,7 @@ async def test_full_flow_creates_notifications_for_both_owners(monkeypatch, fres
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=85.0,
+            total=85.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )
@@ -300,7 +305,7 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=80.0,
+            total=80.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )
@@ -353,7 +358,7 @@ async def test_owner_equal_single_notification(monkeypatch, fresh_db):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=85.0,
+            total=85.0 if candidate.id == cand.id else 0.0,
             matching_must=["Python"],
             gap_must=[],
         )
@@ -478,13 +483,20 @@ async def test_skip_when_job_closed(fresh_db):
     assert "status" in result.skipped_reason
 
 
-async def test_skip_when_empty_pool(fresh_db):
+async def test_skip_when_empty_pool(monkeypatch, fresh_db):
+    from types import SimpleNamespace
+
     db = fresh_db
     owner = await _seed_user(db, name="EmptyPool")
     job = await _seed_job(db, recruiter=owner)
 
-    # Pool istnieje ale jest pusty — żaden kandydat z actively_looking.
+    async def empty_pool(_db):
+        return SimpleNamespace(id=-1)
+
+    monkeypatch.setattr(
+        "app.services.marketplace_service.ensure_marketplace_pool", empty_pool
+    )
     result = await scan_job_for_marketplace_matches(job.id, db)
-    # Może zwrócić empty_pool lub candidates_scored=0; oba OK.
+    assert result.skipped_reason == "empty_pool"
     assert result.new_alerts == 0
     assert result.matches_found == 0

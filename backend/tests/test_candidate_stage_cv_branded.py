@@ -38,7 +38,7 @@ Pokrycie:
 
 from __future__ import annotations
 
-import json
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -407,7 +407,7 @@ async def test_share_token_returns_url_suffix(
 
 @pytest.mark.asyncio
 async def test_public_cv_returns_html_no_pii_keys(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     """Response klucze są PII-safe: tylko candidate_first_name + job_title + cv_html + expires_at.
 
@@ -437,6 +437,15 @@ async def test_public_cv_returns_html_no_pii_keys(
         )
     ).json()["token"]
 
+    captured_audit: dict = {}
+
+    async def capture_sensitive_read(_db, **kwargs):
+        captured_audit.update(kwargs)
+
+    monkeypatch.setattr(
+        "app.api.public_share.record_sensitive_read", capture_sensitive_read
+    )
+
     pub = await app_client.get(f"/api/public/cv/{tok}")
     assert pub.status_code == 200, pub.text
     body = pub.json()
@@ -456,6 +465,11 @@ async def test_public_cv_returns_html_no_pii_keys(
     cv = body["cv_html"]
     assert "@example.com" not in cv  # _anonymize_text blind → [EMAIL]
     assert "PR2" not in cv  # lastname zanonimizowane do "Kandydat / Candidate"
+    details = captured_audit["details"]
+    assert tok not in repr(details)
+    assert (
+        details["share_token_fingerprint"] == hashlib.sha256(tok.encode()).hexdigest()
+    )
 
 
 @pytest.mark.asyncio
