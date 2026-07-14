@@ -48,6 +48,7 @@ class AIFeatureKey(str, enum.Enum):
     scoring = "scoring"
     job_description_generator = "job_description_generator"
     cv_parser = "cv_parser"
+    cv_parser_challenger = "cv_parser_challenger"
     candidate_summary = "candidate_summary"
     champion_draft = "champion_draft"
     embeddings = "embeddings"
@@ -68,6 +69,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.scoring: "Scoring kandydatów",
     AIFeatureKey.job_description_generator: "Generator ogłoszeń",
     AIFeatureKey.cv_parser: "Tworzenie kandydata z CV",
+    AIFeatureKey.cv_parser_challenger: "Challenger parsera CV",
     AIFeatureKey.candidate_summary: "Podsumowanie kandydata",
     AIFeatureKey.champion_draft: "Profil Championa AI",
     AIFeatureKey.embeddings: "Embeddings kandydatów i ofert",
@@ -98,6 +100,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.cv_parser: [
         "Treść CV kandydatów (PDF/DOCX → tekst)",
+    ],
+    AIFeatureKey.cv_parser_challenger: [
+        "Treść CV w kontrolowanej ewaluacji offline/shadow",
     ],
     AIFeatureKey.candidate_summary: [
         "Aktywności kandydata z timeline",

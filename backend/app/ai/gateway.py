@@ -134,7 +134,7 @@ class AIGateway:
                     compliance.dpa_approved
                     and compliance.zdr_approved
                     and compliance.subprocessors_reviewed
-                    and compliance.transfer_basis
+                    and compliance.transfer_basis in {"eea", "scc_tia"}
                 ):
                     raise AIError(
                         "evaluation_compliance_blocked",

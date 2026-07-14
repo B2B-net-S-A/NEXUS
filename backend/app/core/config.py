@@ -126,6 +126,10 @@ class Settings(BaseSettings):
 
     # Anthropic (Claude) — used by CV enrichment and AI job writer
     ANTHROPIC_API_KEY: str = ""
+    # OpenAI is restricted to the offline/shadow evaluator. Empty secrets keep
+    # the challenger fail-closed and do not affect production AI routes.
+    OPENAI_API_KEY: str = ""
+    AI_EVAL_ENCRYPTION_KEY: str = ""
     CLAUDE_MODEL_CV: str = "claude-sonnet-5"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
 

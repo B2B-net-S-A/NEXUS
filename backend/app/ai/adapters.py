@@ -144,6 +144,84 @@ class VoyageAdapter:
             raise _provider_error(exc) from exc
 
 
+class OpenAIResponsesAdapter:
+    """Responses API adapter used only by explicit evaluation routes.
+
+    Responses are stored by default by the provider, so ``store`` is pinned to
+    false here and cannot be overridden by request metadata. Batch execution is
+    deliberately rejected for candidate data.
+    """
+
+    @staticmethod
+    def _output_text(data: dict[str, Any]) -> str:
+        parts: list[str] = []
+        for item in data.get("output", []):
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if isinstance(content, dict) and content.get("type") == "output_text":
+                    parts.append(str(content.get("text", "")))
+        return "".join(parts)
+
+    async def call(
+        self, request: AIRequest, route: FeatureRoute, *, model: str
+    ) -> AdapterResponse:
+        import httpx
+
+        if route.operation != "responses":
+            raise AIError("unsupported_operation", "OpenAI wymaga Responses API")
+        if request.metadata.get("batch"):
+            raise AIError(
+                "batch_forbidden",
+                "Batch API jest zabronione dla danych kandydatów",
+                status_code=422,
+            )
+        if not request.metadata.get("evaluation"):
+            raise AIError(
+                "evaluation_only",
+                "OpenAI jest dostępny wyłącznie w kontrolowanej ewaluacji",
+                status_code=403,
+            )
+        if not settings.OPENAI_API_KEY:
+            raise AIError("provider_unconfigured", "OPENAI_API_KEY nie jest ustawiony")
+
+        body: dict[str, Any] = {
+            "model": model,
+            "input": request.messages,
+            "max_output_tokens": route.max_output_tokens,
+            "store": False,
+        }
+        response_format = request.metadata.get("response_format")
+        if isinstance(response_format, dict):
+            # Responses API structured outputs live under text.format.
+            body["text"] = {"format": response_format}
+        try:
+            async with httpx.AsyncClient(timeout=route.timeout_seconds) as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/responses",
+                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                    json=body,
+                )
+                response.raise_for_status()
+                data = response.json()
+            if data.get("status") != "completed":
+                raise AIError("incomplete_response", "OpenAI nie ukończył odpowiedzi")
+            usage = data.get("usage") or {}
+            return AdapterResponse(
+                content=self._output_text(data),
+                input_tokens=int(usage.get("input_tokens", 0) or 0),
+                output_tokens=int(usage.get("output_tokens", 0) or 0),
+                cache_read_tokens=int(
+                    (usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
+                    or 0
+                ),
+            )
+        except AIError:
+            raise
+        except Exception as exc:
+            raise _provider_error(exc) from exc
+
+
 class InternalAdapter:
     async def call(
         self, request: AIRequest, route: FeatureRoute, *, model: str
@@ -165,4 +243,5 @@ ADAPTERS: dict[str, ProviderAdapter] = {
     "anthropic": AnthropicAdapter(),
     "voyage": VoyageAdapter(),
     "internal": InternalAdapter(),
+    "openai": OpenAIResponsesAdapter(),
 }

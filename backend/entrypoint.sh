@@ -90,6 +90,7 @@ _ENUM_STATEMENTS = [
             "embeddings", "reranking", "matching", "job_writer",
             "champion_profile", "match_explanation", "mindy",
             "uop_analysis", "criteria_suggestions", "cv_b2b",
+            "cv_parser_challenger",
         )
     ],
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
@@ -1113,9 +1114,78 @@ _COLUMN_STATEMENTS = [
         status VARCHAR(12) NOT NULL DEFAULT 'new',
         CONSTRAINT uq_cortex_unmatched_term UNIQUE (term)
     )""",
+    # Blind AI evaluator (0168). Tables contain source references and encrypted
+    # short-lived outputs only; never copied CV text or plaintext responses.
+    """CREATE TABLE IF NOT EXISTS ai_eval_sets (
+        id BIGSERIAL PRIMARY KEY, name VARCHAR(160) NOT NULL,
+        feature VARCHAR(64) NOT NULL, description TEXT NULL,
+        frozen BOOLEAN NOT NULL DEFAULT false,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_eval_cases (
+        id BIGSERIAL PRIMARY KEY,
+        eval_set_id BIGINT NOT NULL REFERENCES ai_eval_sets(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        source_ref VARCHAR(128) NOT NULL DEFAULT 'candidate.raw_cv_text',
+        slice_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_ai_eval_case_ref UNIQUE (eval_set_id,candidate_id,source_ref)
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_eval_runs (
+        id BIGSERIAL PRIMARY KEY,
+        eval_set_id BIGINT NOT NULL REFERENCES ai_eval_sets(id) ON DELETE CASCADE,
+        feature VARCHAR(64) NOT NULL, mode VARCHAR(16) NOT NULL DEFAULT 'offline',
+        status VARCHAR(20) NOT NULL DEFAULT 'draft',
+        champion_provider VARCHAR(32) NOT NULL, champion_model VARCHAR(128) NOT NULL,
+        challenger_provider VARCHAR(32) NOT NULL, challenger_model VARCHAR(128) NOT NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), started_at TIMESTAMPTZ NULL,
+        completed_at TIMESTAMPTZ NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_eval_labels (
+        id BIGSERIAL PRIMARY KEY,
+        run_id BIGINT NOT NULL REFERENCES ai_eval_runs(id) ON DELETE CASCADE,
+        case_id BIGINT NOT NULL REFERENCES ai_eval_cases(id) ON DELETE CASCADE,
+        reviewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        preferred_variant VARCHAR(1) NULL, rating_a INTEGER NULL, rating_b INTEGER NULL,
+        metrics JSONB NOT NULL DEFAULT '{}'::jsonb, comment TEXT NULL,
+        submitted_at TIMESTAMPTZ NULL,
+        CONSTRAINT uq_ai_eval_reviewer_case UNIQUE (run_id,case_id,reviewer_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS ai_eval_outputs (
+        id BIGSERIAL PRIMARY KEY,
+        run_id BIGINT NOT NULL REFERENCES ai_eval_runs(id) ON DELETE CASCADE,
+        case_id BIGINT NOT NULL REFERENCES ai_eval_cases(id) ON DELETE CASCADE,
+        variant VARCHAR(16) NOT NULL, provider VARCHAR(32) NOT NULL,
+        model VARCHAR(128) NOT NULL, ciphertext BYTEA NOT NULL, nonce BYTEA NOT NULL,
+        output_hash VARCHAR(64) NOT NULL,
+        deterministic_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL,
+        CONSTRAINT uq_ai_eval_output UNIQUE (run_id,case_id,variant)
+    )""",
+    *[
+        f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"
+        for name, table, column in (
+            ("ix_ai_eval_sets_feature", "ai_eval_sets", "feature"),
+            ("ix_ai_eval_cases_eval_set_id", "ai_eval_cases", "eval_set_id"),
+            ("ix_ai_eval_cases_candidate_id", "ai_eval_cases", "candidate_id"),
+            ("ix_ai_eval_runs_eval_set_id", "ai_eval_runs", "eval_set_id"),
+            ("ix_ai_eval_labels_run_id", "ai_eval_labels", "run_id"),
+            ("ix_ai_eval_labels_case_id", "ai_eval_labels", "case_id"),
+            ("ix_ai_eval_labels_reviewer_id", "ai_eval_labels", "reviewer_id"),
+            ("ix_ai_eval_outputs_run_id", "ai_eval_outputs", "run_id"),
+            ("ix_ai_eval_outputs_case_id", "ai_eval_outputs", "case_id"),
+            ("ix_ai_eval_outputs_expires_at", "ai_eval_outputs", "expires_at"),
+        )
+    ],
 ]
 
 _DATA_STATEMENTS = [
+    """INSERT INTO ai_features
+       (feature, enabled, monthly_limit, monthly_budget_usd, created_at, updated_at)
+       VALUES ('cv_parser_challenger', false, 0, 0, now(), now())
+       ON CONFLICT (feature) DO NOTHING""",
     # Backfill closed_at for historical closed rows so reports sort by "real
     # close date" instead of NULL. Safe because only touches NULL rows.
     "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
