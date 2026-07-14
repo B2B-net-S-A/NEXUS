@@ -225,7 +225,7 @@ def _scrub_sentry_value(value: Any, *, key: str = "") -> Any:
 
 
 def _scrub_sentry_event(event: dict) -> dict:
-    """Return a privacy-safe copy of a Sentry event."""
+    """Scrub a Sentry event in place while preserving callback identity."""
     event_copy = dict(event)
     request = event_copy.get("request")
     if isinstance(request, dict):
@@ -244,14 +244,21 @@ def _scrub_sentry_event(event: dict) -> dict:
                 **value,
                 # SDK exceptions may echo a provider response or invalid input.
                 # Type + stacktrace retain grouping/debug value without payload.
-                "value": "[REDACTED_EXCEPTION_MESSAGE]",
+                **(
+                    {"value": "[REDACTED_EXCEPTION_MESSAGE]"}
+                    if "value" in value
+                    else {}
+                ),
             }
             if isinstance(value, dict)
             else value
             for value in exception["values"]
         ]
         event_copy["exception"] = exception_copy
-    return _scrub_sentry_value(event_copy)
+    scrubbed = _scrub_sentry_value(event_copy)
+    event.clear()
+    event.update(scrubbed)
+    return event
 
 
 def _is_transient_anthropic_exc(exc: BaseException) -> bool:
