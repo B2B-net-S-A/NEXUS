@@ -336,9 +336,7 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
     # roles grant view access but do not silently change a user's target.
     recruiters_rows = await db.execute(
         select(User.id, User.name).where(
-            User.role.in_(
-                [UserRole.recruiter, UserRole.sourcer, UserRole.tac]
-            ),
+            User.role.in_([UserRole.recruiter, UserRole.sourcer, UserRole.tac]),
             User.is_active.is_(True),
         )
     )

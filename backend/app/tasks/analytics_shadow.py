@@ -61,9 +61,7 @@ def _flatten_legacy(snapshot: dict) -> dict[str, Decimal]:
         "clients.total": Decimal(snapshot["clients"]["total"]),
         "clients.active": Decimal(snapshot["clients"]["active"]),
         "contracts.active": Decimal(snapshot["contracts"]["active"]),
-        "contracts.expiring_30_days": Decimal(
-            snapshot["contracts"]["expiring_soon"]
-        ),
+        "contracts.expiring_30_days": Decimal(snapshot["contracts"]["expiring_soon"]),
         "placements.period": Decimal(snapshot["pipeline"]["hired_this_month"]),
     }
 
@@ -77,9 +75,7 @@ def _flatten_v1(overview) -> dict[str, Decimal]:
         "clients.total": Decimal(overview.clients.total),
         "clients.active": Decimal(overview.clients.active),
         "contracts.active": Decimal(overview.contracts.active),
-        "contracts.expiring_30_days": Decimal(
-            overview.contracts.expiring_30_days
-        ),
+        "contracts.expiring_30_days": Decimal(overview.contracts.expiring_30_days),
         "placements.period": Decimal(overview.pipeline.placements),
     }
 
