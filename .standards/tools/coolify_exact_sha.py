@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,6 +22,7 @@ from _common import ValidationError, require_https_url, require_sha, write_json
 SUCCESS_STATES = {"finished", "succeeded", "success", "completed"}
 FAILURE_STATES = {"failed", "error", "cancelled", "canceled"}
 DEPLOYMENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+DEPLOYED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,31 @@ class CoolifyClient:
         if confirmed != sha:
             raise ValidationError("Coolify did not persist the requested exact git_commit_sha")
 
+    def set_release_metadata(self, application_uuid: str, sha: str, deployed_at: str) -> None:
+        require_sha(sha)
+        _require_deployed_at(deployed_at)
+        endpoint = f"/applications/{urllib.parse.quote(application_uuid, safe='')}/envs/bulk"
+        self.request(
+            "PATCH",
+            endpoint,
+            {
+                "data": [
+                    {
+                        "key": key,
+                        "value": value,
+                        "is_buildtime": True,
+                        "is_runtime": True,
+                        "is_preview": False,
+                    }
+                    for key, value in (
+                        ("GIT_SHA", sha),
+                        ("BUILT_AT", deployed_at),
+                        ("DEPLOYED_AT", deployed_at),
+                    )
+                ]
+            },
+        )
+
     def trigger_deploy(self, application_uuid: str, method: str = "GET") -> str:
         normalized_method = method.upper()
         if normalized_method not in {"GET", "POST"}:
@@ -136,6 +163,21 @@ def _require_deployment_id(value: str) -> str:
     return candidate
 
 
+def _require_deployed_at(value: str) -> str:
+    candidate = value.strip()
+    if not DEPLOYED_AT_RE.fullmatch(candidate):
+        raise ValidationError("deployed_at must be an ISO-8601 UTC timestamp without fractions")
+    try:
+        datetime.strptime(candidate, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise ValidationError("deployed_at is not a valid UTC timestamp") from exc
+    return candidate
+
+
+def _current_deployed_at() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _read_application_sha(value: dict[str, Any], *, allow_missing: bool) -> str | None:
     current = value.get("git_commit_sha")
     if current is None or current == "":
@@ -178,6 +220,7 @@ def deploy_exact_sha(
     poll_interval: float = 5,
     on_started: Callable[[DeploymentResult], None] | None = None,
     allow_already_target: bool = False,
+    deployed_at: str | None = None,
 ) -> DeploymentResult:
     require_sha(sha)
     if not application_uuid.strip():
@@ -192,6 +235,8 @@ def deploy_exact_sha(
         require_sha(expected_previous_sha, "expected_previous_sha")
         if previous_sha != expected_previous_sha:
             raise ValidationError("Coolify current SHA changed after preflight; refusing deployment")
+    release_time = _require_deployed_at(deployed_at) if deployed_at else _current_deployed_at()
+    client.set_release_metadata(application_uuid, sha, release_time)
     client.set_sha(application_uuid, sha)
     deployment_id = client.trigger_deploy(application_uuid, deploy_method)
     result = DeploymentResult(application_uuid, sha, previous_sha, deployment_id)
@@ -228,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--deploy-method", choices=("GET", "POST"), default="GET")
     parser.add_argument("--deployment-timeout", type=float, default=1800)
     parser.add_argument("--poll-interval", type=float, default=5)
+    parser.add_argument("--deployed-at")
     parser.add_argument("--state-output", type=Path)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args(argv)
@@ -270,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
             poll_interval=args.poll_interval,
             on_started=record_started,
             allow_already_target=args.allow_already_target,
+            deployed_at=args.deployed_at,
         )
     except ValidationError as exc:
         print(f"exact-SHA deploy failed: {exc}", file=sys.stderr)

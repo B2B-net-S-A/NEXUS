@@ -40,7 +40,7 @@ jobs:
     uses: ./.github/workflows/_reusable-coolify-release.yml
     secrets: inherit
     with:
-      standards_ref: 5f5808c228b756024816850103b0436b765a80b3
+      standards_ref: fa4bb1123a3ea1b444e8bd4d36fb180567960a13
       application: nexus
       coolify_deploy_method: GET
       staging_coolify_base_url: ${{ vars.STAGING_COOLIFY_BASE_URL }}

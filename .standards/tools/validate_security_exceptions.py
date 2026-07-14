@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from _common import ValidationError, parse_utc, read_json
+from check_coverage import parse_coverage_exception
 
 ID_RE = re.compile(r"^SEC-EX-[0-9]{4}-[0-9]{3,}$")
 CVE_RE = re.compile(r"^CVE-[0-9]{4}-[0-9]{4,}$")
@@ -98,12 +99,23 @@ def read_trivy_ignores(path: Path) -> set[str]:
     return ignored
 
 
-def validate_paths(paths: list[Path], trivy_ignore: Path | None = None) -> int:
+def validate_paths(
+    paths: list[Path],
+    trivy_ignore: Path | None = None,
+    *,
+    now: datetime | None = None,
+) -> int:
     active_cves: set[str] = set()
     identifiers: set[str] = set()
     for path in paths:
         document = read_json(path)
-        cve = validate_exception(document)
+        if path.name == "coverage.json":
+            coverage_exception = parse_coverage_exception(document, now=now)
+            if coverage_exception.identifier in identifiers:
+                raise ValidationError(f"duplicate exception id: {coverage_exception.identifier}")
+            identifiers.add(coverage_exception.identifier)
+            continue
+        cve = validate_exception(document, now=now)
         identifier = document["id"]
         if identifier in identifiers:
             raise ValidationError(f"duplicate exception id: {identifier}")
@@ -136,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValidationError as exc:
         print(f"security exception validation failed: {exc}", file=sys.stderr)
         return 1
-    print(f"security exceptions valid: {count}")
+    print(f"temporary exceptions valid: {count}")
     return 0
 
 
