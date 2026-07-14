@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Check, X } from "lucide-react"
+import { MatchScoreBadge } from "./MatchScoreBadge"
 
 export interface MatchReason {
   label: string
@@ -55,9 +56,7 @@ export const MatchCard = React.forwardRef<HTMLDivElement, MatchCardProps>(
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Dopasowanie</span>
-              <span className="font-semibold tabular-nums text-foreground">
-                {value}%
-              </span>
+              <MatchScoreBadge score={value} size="sm" />
             </div>
             <Progress value={value} aria-label={`Dopasowanie ${value}%`} />
           </div>

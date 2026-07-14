@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
@@ -18,6 +19,10 @@ vi.mock("@/lib/api", () => ({
     forCandidate: vi.fn(),
     assignToJob: vi.fn(),
   },
+}));
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
 }));
 
 describe("SuggestedJobsWidget degraded recommendations", () => {
@@ -46,12 +51,18 @@ describe("SuggestedJobsWidget degraded recommendations", () => {
       reason: "semantic_unavailable",
     };
 
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
     render(
-      <SuggestedJobsWidget
-        candidateId={0}
-        matches={[match]}
-        recommendationMeta={meta}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <SuggestedJobsWidget
+          candidateId={0}
+          matches={[match]}
+          recommendationMeta={meta}
+        />
+      </QueryClientProvider>,
     );
 
     expect(await screen.findByRole("status")).toHaveTextContent(

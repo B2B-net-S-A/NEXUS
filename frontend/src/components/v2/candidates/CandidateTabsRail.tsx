@@ -34,9 +34,12 @@ export function CandidateTabsRail({ className }: { className?: string }) {
   useEffect(() => {
     setMounted(true);
     try {
-      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+      const stored = localStorage.getItem(COLLAPSE_KEY);
+      setCollapsed(
+        stored === null ? window.innerWidth < 1600 : stored === "1",
+      );
     } catch {
-      /* localStorage unavailable — keep expanded */
+      setCollapsed(window.innerWidth < 1600);
     }
   }, []);
 
@@ -174,8 +177,8 @@ export function CandidateTabsRail({ className }: { className?: string }) {
                 className={cn(
                   "shrink-0 rounded p-0.5 transition-colors",
                   isActive
-                    ? "text-primary/70 hover:bg-primary/10 hover:text-primary"
-                    : "text-transparent group-hover:text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "text-primary/70 hover:bg-accent hover:text-primary"
+                    : "text-muted-foreground md:text-transparent md:group-hover:text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:text-foreground"
                 )}
               >
                 <X className="h-3.5 w-3.5" />
