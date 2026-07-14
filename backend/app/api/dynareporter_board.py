@@ -11,11 +11,19 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import (
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(require_dynareporter_section(DynaReporterSection.board))
+    ]
+)
 
 
 class BoardMonthlyResponse(BaseModel):

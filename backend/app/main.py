@@ -43,6 +43,7 @@ from app.api import (
 )
 from app.api import activities
 from app.api import admin
+from app.api import analytics_v1
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
 from app.api import postings
@@ -158,6 +159,28 @@ from app.api import teams_channels as teams_channels_api
 import app.models as _models  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+
+class LegacyAnalyticsDeprecationMiddleware(BaseHTTPMiddleware):
+    """Advertise the secured analytics v1 successor on legacy read APIs."""
+
+    _PREFIXES = (
+        "/api/dashboard",
+        "/api/reports",
+        "/api/kpis",
+        "/api/competitions",
+        "/api/dynareporter",
+    )
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(self._PREFIXES):
+            response.headers["Deprecation"] = "true"
+            response.headers["Sunset"] = "Wed, 30 Sep 2026 22:00:00 GMT"
+            response.headers["Link"] = (
+                '</api/analytics/v1/meta/metrics>; rel="successor-version"'
+            )
+        return response
 
 
 # ── Sentry (optional) ──────────────────────────────────────────────────────
@@ -451,6 +474,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(LegacyAnalyticsDeprecationMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -472,6 +496,12 @@ app.add_middleware(
 
 # Register routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+if settings.ANALYTICS_V1_MODE != "off":
+    app.include_router(
+        analytics_v1.router,
+        prefix="/api/analytics/v1",
+        tags=["analytics-v1"],
+    )
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its
 # `/pins` listing route matches before the catch-all `/{candidate_id}`
 # route in candidates.py — otherwise FastAPI would try to coerce "pins"

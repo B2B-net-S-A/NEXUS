@@ -9,6 +9,7 @@ Profile enrichment for transcripts.
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
@@ -23,6 +24,7 @@ from app.services.cloudtalk import verify_signature
 from app.services.dedup_service import _normalize_phone
 
 router = APIRouter()
+WARSAW = ZoneInfo("Europe/Warsaw")
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -119,15 +121,23 @@ async def call_stats(
     Statystyki rozmów na użytkownika.
     Zwraca: total calls, avg duration, calls this week, calls this month.
     """
-    now = datetime.now(timezone.utc)
-    start_of_week = now - timedelta(days=now.weekday())
-    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    now_local = datetime.now(WARSAW)
+    start_of_week = (
+        now_local - timedelta(days=now_local.weekday())
+    ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    start_of_month = now_local.replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    ).astimezone(timezone.utc)
+    call_time = func.coalesce(Call.started_at, Call.created_at)
+    completed = Call.status == CallStatus.completed
 
     # Total calls by this user
     total = (
         await db.execute(
-            select(func.count(Call.id)).where(Call.user_id == current_user.id)
+            select(func.count(Call.id)).where(
+                Call.user_id == current_user.id,
+                completed,
+            )
         )
     ).scalar() or 0
 
@@ -136,6 +146,7 @@ async def call_stats(
         await db.execute(
             select(func.avg(Call.duration_seconds)).where(
                 Call.user_id == current_user.id,
+                completed,
                 Call.duration_seconds.isnot(None),
             )
         )
@@ -146,7 +157,8 @@ async def call_stats(
         await db.execute(
             select(func.count(Call.id)).where(
                 Call.user_id == current_user.id,
-                Call.created_at >= start_of_week,
+                completed,
+                call_time >= start_of_week,
             )
         )
     ).scalar() or 0
@@ -156,7 +168,8 @@ async def call_stats(
         await db.execute(
             select(func.count(Call.id)).where(
                 Call.user_id == current_user.id,
-                Call.created_at >= start_of_month,
+                completed,
+                call_time >= start_of_month,
             )
         )
     ).scalar() or 0
@@ -164,14 +177,18 @@ async def call_stats(
     # Global stats (all users) — this week
     all_this_week = (
         await db.execute(
-            select(func.count(Call.id)).where(Call.created_at >= start_of_week)
+            select(func.count(Call.id)).where(
+                completed,
+                call_time >= start_of_week,
+            )
         )
     ).scalar() or 0
 
     all_avg_duration = (
         await db.execute(
             select(func.avg(Call.duration_seconds)).where(
-                Call.created_at >= start_of_week,
+                completed,
+                call_time >= start_of_week,
                 Call.duration_seconds.isnot(None),
             )
         )

@@ -5,19 +5,30 @@ Also provides a combined activity feed for the dashboard.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.user import User
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.activity import Activity
-from app.api.deps import CurrentUser
+from app.analytics.capabilities import AnalyticsCapability
+from app.analytics.periods import AnalyticsPeriodKind, resolve_period
+from app.api.deps import require_analytics_capabilities
+from app.core.config import settings
+from app.services.analytics_v1 import AnalyticsV1Service
 
 router = APIRouter()
+
+ActivityViewer = Annotated[
+    User,
+    Depends(
+        require_analytics_capabilities(AnalyticsCapability.view_recruitment_team)
+    ),
+]
 
 
 def _period_start(period: str) -> datetime:
@@ -36,7 +47,7 @@ def _period_start(period: str) -> datetime:
 
 @router.get("/stats")
 async def get_activity_stats(
-    current_user: CurrentUser,
+    current_user: ActivityViewer,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(None),
     period: str = Query("week", pattern="^(today|week|month|quarter)$"),
@@ -72,7 +83,7 @@ async def get_activity_stats(
 
 @router.get("/leaderboard")
 async def get_leaderboard(
-    current_user: CurrentUser,
+    current_user: ActivityViewer,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", pattern="^(today|week|month|quarter)$"),
     limit: int = Query(10, ge=1, le=50),
@@ -81,77 +92,55 @@ async def get_leaderboard(
     Top performers ranking based on activity counts.
     GET /api/activities/leaderboard?period=month
     """
-    since = _period_start(period)
-
-    # Aggregate per user and action type
-    subq = (
-        select(
-            UserActivity.user_id,
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.candidate_added, 1),
-                    else_=0,
-                )
-            ).label("candidates_added"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.screening_done, 1),
-                    else_=0,
-                )
-            ).label("screenings"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.interview_scheduled, 1),
-                    else_=0,
-                )
-            ).label("interviews"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.placement_closed, 1),
-                    else_=0,
-                )
-            ).label("placements"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.call_made, 1),
-                    else_=0,
-                )
-            ).label("calls"),
-            func.count(UserActivity.id).label("total_actions"),
+    kind = {
+        "today": AnalyticsPeriodKind.day,
+        "week": AnalyticsPeriodKind.week,
+        "month": AnalyticsPeriodKind.month,
+        "quarter": AnalyticsPeriodKind.quarter,
+    }[period]
+    analytics_period = resolve_period(kind)
+    calls_available = bool(
+        settings.CLOUDTALK_ENABLED
+        and settings.CLOUDTALK_API_KEY_ID
+        and settings.CLOUDTALK_API_KEY_SECRET
+        and settings.CLOUDTALK_WEBHOOK_SECRET
+    )
+    rows = (
+        await AnalyticsV1Service(db).team_kpis(
+            analytics_period, calls_available=calls_available
         )
-        .where(UserActivity.created_at >= since)
-        .group_by(UserActivity.user_id)
-        .subquery()
-    )
-
-    query = (
-        select(User.id, User.name, User.email, subq)
-        .join(subq, User.id == subq.c.user_id)
-        .order_by(subq.c.total_actions.desc())
-        .limit(limit)
-    )
-    result = await db.execute(query)
-    rows = result.all()
+    ).users
 
     leaderboard = []
-    for rank, row in enumerate(rows, start=1):
+    for rank, row in enumerate(rows[:limit], start=1):
+        total_actions = (
+            (row.calls_completed or 0)
+            + row.verifications
+            + row.candidates_added
+            + row.recommendations
+            + row.placements
+        )
         leaderboard.append(
             {
                 "rank": rank,
-                "user_id": row.id,
-                "user_name": row.name,
+                "user_id": row.user_id,
+                "user_name": row.user_name,
                 "candidates_added": row.candidates_added,
-                "screenings": row.screenings,
-                "interviews": row.interviews,
+                "screenings": row.verifications,
+                "recommendations": row.recommendations,
+                "interviews": None,
                 "placements": row.placements,
-                "calls": row.calls,
-                "total_actions": row.total_actions,
+                "calls": row.calls_completed,
+                "calls_available": row.calls_available,
+                "total_actions": total_actions,
             }
         )
 
     return {
         "period": period,
-        "since": since.isoformat(),
+        "since": analytics_period.start.isoformat(),
+        "until": analytics_period.end.isoformat(),
+        "metric_source": "analytics_v1",
         "leaderboard": leaderboard,
     }
 
@@ -202,7 +191,7 @@ def _entity_link(entity_type: str, entity_id: int) -> Optional[str]:
 
 @router.get("/feed")
 async def get_activity_feed(
-    current_user: CurrentUser,
+    current_user: ActivityViewer,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=100),
 ):

@@ -15,7 +15,7 @@ import CallStatsWidget from"@/components/dashboard/CallStatsWidget"
 import { RaceCard } from"@/components/v2/gamification/RaceCard"
 import { WidgetErrorBlock } from"@/components/v2/dashboard/WidgetState"
 import { MojeKpiPanel } from "@/components/v2/kpi/MojeKpiPanel"
-import { ROLE_LABELS, useAuthStore } from"@/store/auth"
+import { ROLE_LABELS, hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -53,20 +53,25 @@ interface PowerCallingResponse {
  iso_week: number
  iso_year: number
  target_per_day: number
+ verification_target_per_day: number
  workdays: number
  requirement_text: string
+ calls_available: boolean
  entries: Array<{
  user_id: number
  name: string
  role: string
  primary_category: { id: number; slug: string; name_pl: string } | null
+ calls_week: number | null
+ calls_per_day: number | null
  verifications_week: number
- per_day: number
+ verifications_per_day: number
  workdays: number
- meets_target: boolean
- progress_pct: number
+ meets_call_target: boolean | null
+ meets_verification_target: boolean
+ progress_pct: number | null
  }>
- meets_target_count: number
+ meets_target_count: number | null
  total_count: number
 }
 
@@ -143,10 +148,15 @@ export default function RecruiterDashboard() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
 
- const recruiterRoles = ["sourcer","tac","recruiter"] as const
- const isMeRecruiter = !!user && (recruiterRoles as readonly string[]).includes(user.role)
- const isAllowed =
- !!user && (isMeRecruiter || user.role === "admin" || user.role === "head_of_recruitment")
+ const isMeRecruiter = hasRole(user, "sourcer", "tac", "recruiter")
+ const isAllowed = hasRole(
+ user,
+ "sourcer",
+ "tac",
+ "recruiter",
+ "admin",
+ "head_of_recruitment",
+ )
 
  const {
  data: report,
@@ -332,7 +342,9 @@ export default function RecruiterDashboard() {
  Panel Rekrutacja · {ROLE_LABELS[user.role]}
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
- {isMeRecruiter ? `Cześć, ${user.name.split("")[0]}` :"Rekrutacja — widok zespołu"}
+ {isMeRecruiter
+ ? `Cześć, ${user.name.trim().split(/\s+/)[0] || "tam"}`
+ : "Rekrutacja — widok zespołu"}
  </h1>
  </div>
  <Button
@@ -493,13 +505,15 @@ export default function RecruiterDashboard() {
  </div>
  ) : null}
 
- {/* Power Calling — pomarańczowy gradient, weryfikacje/dzień w ubiegłym tygodniu */}
+ {/* Power Calling — completed CloudTalk calls + separate verification target. */}
  {powerCalling && (
  <PowerCallingSection
  weekLabel={powerCalling.week_label}
  requirementText={powerCalling.requirement_text}
+ callsAvailable={powerCalling.calls_available}
  entries={powerCalling.entries}
  targetPerDay={powerCalling.target_per_day}
+ verificationTargetPerDay={powerCalling.verification_target_per_day}
  meetsTargetCount={powerCalling.meets_target_count}
  totalCount={powerCalling.total_count}
  highlightUserId={isMeRecruiter ? user?.id : null}

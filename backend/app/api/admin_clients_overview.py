@@ -1,4 +1,4 @@
-"""Router `/api/admin/clients-overview` — przekrojowe widoki dla admin/HoR.
+"""Financial client overview restricted to admin and Delivery Lead.
 
 GET `/` — wszyscy klienci z agregatami (rank po revenue desc).
 GET `/by-dl` — KPI per DL (suma revenue z managed clients).
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import HeadOfRecruitmentPlus
+from app.api.deps import DeliveryLeadPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -30,7 +30,7 @@ router = APIRouter()
 
 @router.get("", response_model=list[OverviewRow])
 async def clients_overview(
-    _user: HeadOfRecruitmentPlus,
+    _user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     clients = list((await db.execute(select(Client).order_by(Client.name))).scalars())
@@ -185,7 +185,7 @@ async def clients_overview(
 
 @router.get("/by-dl", response_model=list[DlKpiRow])
 async def kpi_by_dl(
-    _user: HeadOfRecruitmentPlus,
+    _user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Leaderboard DL — agregaty po klientach gdzie DL ma assignment."""

@@ -10,6 +10,25 @@ const nextConfig: NextConfig = {
   // rebuilds stay fast. CI and IDE still run these.
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  async redirects() {
+    return [
+      {
+        source: "/dashboard/recruiter",
+        destination: "/dashboard?view=recruitment",
+        permanent: false,
+      },
+      {
+        source: "/dashboard/head-of-recruitment",
+        destination: "/dashboard?view=recruitment",
+        permanent: false,
+      },
+      {
+        source: "/dashboard/delivery-lead",
+        destination: "/dashboard?view=delivery",
+        permanent: false,
+      },
+    ];
+  },
   // Security headers — applied to every route. Mirrors what the FastAPI
   // SecurityHeadersMiddleware sets on the api.nexus host so the FE+BE pair
   // has consistent posture. HSTS is here too (CF token didn't have permission

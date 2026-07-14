@@ -11,7 +11,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import (
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_przetargi import (
     DrPrzetargiAllocation,
@@ -20,7 +24,11 @@ from app.models.dr_przetargi import (
     DrPrzetargiProjectCost,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(require_dynareporter_section(DynaReporterSection.przetargi))
+    ]
+)
 
 
 class ProjectResponse(BaseModel):

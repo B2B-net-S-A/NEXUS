@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
-from app.api.deps import AdminUser, CurrentUser
+from app.api.deps import AdminUser, CurrentUser, DeliveryLeadPlus
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -216,7 +216,7 @@ async def _b2b_template_for(db: AsyncSession, lang: str) -> ContractTemplate:
 @router.post("/generate", response_model=B2BGenerateResponse)
 async def generate(
     payload: B2BGenerateRequest,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     role = await db.get(B2BContractRole, payload.role_id)
@@ -332,7 +332,7 @@ async def generate(
 @router.get("/contracts/{contract_id}/detail", response_model=B2BContractDetailResponse)
 async def get_detail(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _load_contract_with_relations(db, contract_id)
@@ -360,7 +360,7 @@ async def get_detail(
 @router.get("/contracts/{contract_id}/docx")
 async def download_docx(
     contract_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
@@ -471,7 +471,7 @@ async def company_lookup(
 @router.post("/render")
 async def render_standalone(
     payload: B2BRenderRequest,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
 ):
@@ -572,7 +572,7 @@ async def render_standalone(
 
 @router.get("/generated", response_model=list[B2BGeneratedContractItem])
 async def list_generated_contracts(
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -611,7 +611,7 @@ async def list_generated_contracts(
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_contract(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
@@ -651,7 +651,7 @@ async def download_generated_contract(
 async def update_generated_contract(
     generated_id: int,
     payload: B2BGeneratedContractUpdate,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Popraw wpis na liście „Wygenerowane umowy" — obecnie tylko nazwę Klienta.
@@ -720,7 +720,7 @@ async def update_generated_contract(
 @router.delete("/generated/{generated_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_generated_contract(
     generated_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wpis z listy „Wygenerowane umowy".

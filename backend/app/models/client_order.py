@@ -17,12 +17,13 @@ przedłużenie z podwyżką).
 from __future__ import annotations
 
 import enum
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     Integer,
@@ -87,6 +88,15 @@ class ClientOrder(Base, TimestampMixin):
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     """``NULL`` = open-ended. Indeksowane — scheduler skanuje expiry."""
+
+    filled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    """Moment pierwszej aktywacji zamówienia.
+
+    Nie rekonstruujemy go z proxy. Historyczne rekordy bez wiarygodnego
+    zdarzenia pozostają ``NULL`` i raportują niepełną jakość danych.
+    """
 
     # Rate_client per Order — może różnić się od Contract.rate_client przy
     # przedłużeniach z podwyżką. rate_candidate trzymamy na Contract (typically

@@ -24,14 +24,27 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import (
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(
+            require_dynareporter_section(
+                DynaReporterSection.mindy,
+                enforce_write_mode=False,
+            )
+        )
+    ]
+)
 
 
 MINDY_SYSTEM_PROMPT = """Jesteś MINDY — AI asystentką w DynaReporter (system raportowania KPI

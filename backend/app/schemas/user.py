@@ -43,6 +43,10 @@ class UserResponse(BaseModel):
     # set — including any secondary roles granted via AAD RBAC or admin —
     # lives here. Frontend should prefer ``roles`` for permission checks.
     roles: list[UserRole] = []
+    # Backend-owned analytics permissions.  The frontend uses this list to
+    # avoid issuing requests the current account is not allowed to make; every
+    # endpoint still enforces the same capability independently.
+    analytics_capabilities: list[str] = Field(default_factory=list)
     is_active: bool
     # Email-verification gate (migracja 0139). True dla wszystkich kont poza
     # świeżo self-zarejestrowanymi, które nie kliknęły jeszcze linku.

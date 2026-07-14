@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { phase3Api } from "@/lib/api";
+import { StatsBoundary } from "@/components/v2/dashboard/StatsBoundary";
 
 interface TimeToHireRow {
   recruiter_id: number;
@@ -18,7 +19,7 @@ interface TTHResponse {
 }
 
 export function TimeToHireSection() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["insights-tth"],
     queryFn: () => phase3Api.timeToHire().then((r) => r.data as TTHResponse),
   });
@@ -36,15 +37,15 @@ export function TimeToHireSection() {
         </span>
       </h2>
 
-      {isLoading ? (
-        <div className="py-8 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4 text-center">
-          Brak zatrudnień w okresie — dane pojawią się po pierwszej zamkniętej rekrutacji ze stage „Zatrudniony".
-        </p>
-      ) : (
+      <StatsBoundary
+        isLoading={isLoading}
+        isFetching={isFetching && !isLoading}
+        isError={isError}
+        error={error}
+        isEmpty={!data || rows.length === 0}
+        emptyTitle="Brak zatrudnień w okresie"
+        onRetry={() => refetch()}
+      >
         <table className="w-full text-sm">
           <thead className="text-xs uppercase text-muted-foreground">
             <tr>
@@ -65,7 +66,7 @@ export function TimeToHireSection() {
             ))}
           </tbody>
         </table>
-      )}
+      </StatsBoundary>
     </section>
   );
 }

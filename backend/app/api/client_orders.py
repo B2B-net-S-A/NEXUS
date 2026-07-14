@@ -40,9 +40,12 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
 from app.schemas.client_order import (
+    ClientOrderOperationalRead,
     ClientOrderRead,
     ClientOrdersGroupedResponse,
+    ClientOrdersOperationalGroupedResponse,
     ClientOrderUpdate,
+    ContractWithOrdersOperationalRead,
     ContractWithOrdersRead,
 )
 from app.schemas.new_contractor_order import (
@@ -50,6 +53,8 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
+from app.analytics.scope import require_client_scope
+from app.api.financial_access import has_financial_access
 
 router = APIRouter()
 
@@ -106,7 +111,12 @@ def _compute_monthly_margin(
     return monthly_client - monthly_cand
 
 
-async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
+async def _order_to_read(
+    db: AsyncSession,
+    order: ClientOrder,
+    *,
+    include_financial: bool = True,
+) -> ClientOrderRead | ClientOrderOperationalRead:
     """Pełny widok Orderu z computed fields (candidate_name, monthly_margin, etc)."""
     contract = order.contract or await db.scalar(
         select(Contract).where(Contract.id == order.contract_id)
@@ -123,7 +133,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 
     monthly_margin = _compute_monthly_margin(order, contract) if contract else None
 
-    return ClientOrderRead(
+    response = ClientOrderRead(
         id=order.id,
         client_id=order.client_id,
         contract_id=order.contract_id,
@@ -134,6 +144,7 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
         status=order.status,
         start_date=order.start_date,
         end_date=order.end_date,
+        filled_at=order.filled_at,
         rate_client=order.rate_client,
         total_value=order.total_value,
         currency=order.currency,
@@ -152,21 +163,36 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
         monthly_margin=monthly_margin,
         days_to_end=_days_to(order.end_date),
     )
+    if include_financial:
+        return response
+    return ClientOrderOperationalRead.model_validate(response.model_dump())
 
 
 # ── Grouped list (main GET) ────────────────────────────────────────────────
 
 
-@router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
+@router.get(
+    "/{client_id}/orders",
+    response_model=(
+        ClientOrdersGroupedResponse | ClientOrdersOperationalGroupedResponse
+    ),
+)
 async def list_contractors_with_orders(
     client_id: int,
-    _user: CurrentUser,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
+    include_financial = has_financial_access(user)
+    await require_client_scope(
+        db,
+        user=user,
+        client_id=client_id,
+        finance=include_financial,
+    )
     await _assert_client(db, client_id)
 
     contracts = list(
@@ -200,29 +226,39 @@ async def list_contractors_with_orders(
 
         orders_read = [await _order_to_read(db, o) for o in orders_list]
 
-        items.append(
-            ContractWithOrdersRead(
-                contract_id=c.id,
-                candidate_id=c.candidate_id,
-                candidate_name=c.candidate.name if c.candidate else "",
-                contract_status=c.status.value,
-                contract_start_date=c.start_date,
-                contract_end_date=c.end_date,
-                rate_candidate=c.rate_candidate,
-                initial_job_id=c.job_id,
-                initial_job_title=c.job.title if c.job else None,
-                latest_order_id=latest.id if latest else None,
-                latest_order_end_date=latest_end,
-                latest_order_rate_client=(
-                    (latest.rate_client or c.rate_client) if latest else c.rate_client
-                ),
-                latest_order_monthly_margin=latest_margin,
-                days_to_latest_end=days_to_end,
-                orders=orders_read,
-            )
+        item = ContractWithOrdersRead(
+            contract_id=c.id,
+            candidate_id=c.candidate_id,
+            candidate_name=c.candidate.name if c.candidate else "",
+            contract_status=c.status.value,
+            contract_start_date=c.start_date,
+            contract_end_date=c.end_date,
+            rate_candidate=c.rate_candidate,
+            initial_job_id=c.job_id,
+            initial_job_title=c.job.title if c.job else None,
+            latest_order_id=latest.id if latest else None,
+            latest_order_end_date=latest_end,
+            latest_order_rate_client=(
+                (latest.rate_client or c.rate_client) if latest else c.rate_client
+            ),
+            latest_order_monthly_margin=latest_margin,
+            days_to_latest_end=days_to_end,
+            orders=orders_read,
         )
+        items.append(item)
 
-    return ClientOrdersGroupedResponse(contractors=items, total_contractors=len(items))
+    if include_financial:
+        return ClientOrdersGroupedResponse(
+            contractors=items, total_contractors=len(items)
+        )
+    operational_items = [
+        ContractWithOrdersOperationalRead.model_validate(item.model_dump())
+        for item in items
+    ]
+    return ClientOrdersOperationalGroupedResponse(
+        contractors=operational_items,
+        total_contractors=len(operational_items),
+    )
 
 
 # ── Autocomplete for "Dodaj przedłużenie" ──────────────────────────────────
@@ -230,18 +266,18 @@ async def list_contractors_with_orders(
 
 @router.get(
     "/{client_id}/contracts-with-orders",
-    response_model=list[ContractWithOrdersRead],
+    response_model=list[ContractWithOrdersRead | ContractWithOrdersOperationalRead],
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    _user: CurrentUser,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
     "Dodaj przedłużenie".
     """
     # Reuse main list, filter na active/ending tylko
-    resp = await list_contractors_with_orders(client_id, _user, db)
+    resp = await list_contractors_with_orders(client_id, user, db)
     return [
         c
         for c in resp.contractors
@@ -252,13 +288,23 @@ async def list_active_contracts_for_extension(
 # ── Single Order CRUD ──────────────────────────────────────────────────────
 
 
-@router.get("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
+@router.get(
+    "/{client_id}/orders/{order_id}",
+    response_model=ClientOrderRead | ClientOrderOperationalRead,
+)
 async def get_order(
     client_id: int,
     order_id: int,
-    _user: CurrentUser,
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    include_financial = has_financial_access(user)
+    await require_client_scope(
+        db,
+        user=user,
+        client_id=client_id,
+        finance=include_financial,
+    )
     await _assert_client(db, client_id)
     order = await db.scalar(
         select(ClientOrder)
@@ -270,7 +316,7 @@ async def get_order(
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
-    return await _order_to_read(db, order)
+    return await _order_to_read(db, order, include_financial=include_financial)
 
 
 @router.post(
@@ -352,6 +398,11 @@ async def create_order_extension(
         title=title,
         description=description,
         status=order_status,
+        filled_at=(
+            datetime.now(timezone.utc)
+            if order_status == ClientOrderStatus.active
+            else None
+        ),
         start_date=start_date,
         end_date=end_date,
         rate_client=rate_client,
@@ -403,6 +454,12 @@ async def update_order(
         raise HTTPException(404, detail="Order not found")
 
     data = payload.model_dump(exclude_unset=True)
+    if (
+        data.get("status") == ClientOrderStatus.active
+        and order.status != ClientOrderStatus.active
+        and order.filled_at is None
+    ):
+        order.filled_at = datetime.now(timezone.utc)
     for field, value in data.items():
         setattr(order, field, value)
 
@@ -557,6 +614,7 @@ async def create_contract_with_order(
         framework_contract_id=payload.framework_contract_id,
         title=payload.title,
         status=ClientOrderStatus.active,
+        filled_at=datetime.now(timezone.utc),
         start_date=payload.order_start_date,
         end_date=payload.order_end_date,
         rate_client=payload.rate_client,
