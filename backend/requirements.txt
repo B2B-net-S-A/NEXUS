@@ -42,7 +42,8 @@ rapidfuzz==3.10.1
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
 # before upload. PyJWT is pinned above (used by JWT auth + webhook JWKS
 # verification).
-weasyprint==68.0
+# 69.0 fixes CVE-2026-49452 (CSS injection through presentational hints).
+weasyprint==69.0
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # Pinned to 0.34.1 (requires cryptography>=43.0.3, compatible with our 48.0.1
 # pin — no upper bound). Newer pyHanko (0.35+) requires cryptography>=47 and is

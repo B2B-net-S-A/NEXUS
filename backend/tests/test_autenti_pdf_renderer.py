@@ -1,9 +1,11 @@
 """Unit tests for the WeasyPrint contract HTML→PDF renderer.
 
-These tests require the WeasyPrint native libs (libpango/libcairo/libgdk-pixbuf
-+ fonts) to be installed. CI Docker image already provisions them via the
-Dockerfile change in Phase 1.1. Locally: ``apt-get install libpango-1.0-0
-libcairo2 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 fonts-liberation fonts-dejavu``.
+These tests require the WeasyPrint native libs (Pango/Cairo/GDK Pixbuf + fonts)
+to be installed. The Alpine CI/runtime image provisions ``pango``,
+``gdk-pixbuf``, ``font-liberation`` and ``font-dejavu``. On Debian-based local
+machines the equivalents are ``libpango-1.0-0``, ``libcairo2``,
+``libpangoft2-1.0-0``, ``libgdk-pixbuf-2.0-0``, ``fonts-liberation`` and
+``fonts-dejavu``.
 
 Skipped automatically when WeasyPrint can't be imported — keeps fast unit
 suites green on developer machines without the native deps.
