@@ -6,6 +6,7 @@ Shape contract:
   "kpis": {"candidates": {...}, "jobs": {...}, "clients": {...}, ...},
   "background_tasks": {"running", "disabled", "completed", "crashed", ...},
   "alembic": {"head": str|None, "applied_at": None},
+  "analytics_shadow": {"mode", "quality", "observed_days", ...},
   "sentry_release": str,
   "generated_at": "<iso_timestamp>",
   "auth_mode": "token" | "jwt",
@@ -70,6 +71,7 @@ async def test_snapshot_accepts_valid_token_returns_shape(configured_token):
         "kpis",
         "background_tasks",
         "alembic",
+        "analytics_shadow",
         "sentry_release",
         "generated_at",
         "auth_mode",
@@ -94,6 +96,12 @@ async def test_snapshot_accepts_valid_token_returns_shape(configured_token):
 
     # Alembic shape
     assert "head" in body["alembic"]
+
+    # Persisted shadow parity evidence shape
+    shadow = body["analytics_shadow"]
+    assert shadow["mode"] in {"off", "shadow", "live"}
+    assert shadow["quality"] in {"disabled", "partial", "complete", "unavailable"}
+    assert isinstance(shadow["observed_days"], int)
 
     # Auth mode reflects token path
     assert body["auth_mode"] == "token"

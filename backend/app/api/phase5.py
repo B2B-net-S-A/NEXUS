@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.deps import CurrentUser, DeliveryLeadPlus, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -166,7 +166,7 @@ def _rate_to_dict(r: RateHistory) -> dict:
 @router.get("/candidates/{candidate_id}/rate-history")
 async def list_rate_history(
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))

@@ -178,6 +178,10 @@ async def test_sources_defensively_never_exceed_100_percent() -> None:
 
     assert data.sources[0].placed_by_period_end == 2
     assert data.sources[0].hire_rate_pct == 100.0
+    sql = str(db.statement)
+    assert "candidate_source_events earlier" in sql
+    assert "count(DISTINCT cohort.candidate_id)" in sql
+    assert "WHERE e.candidate_id = c.id" in sql
 
 
 @pytest.mark.asyncio

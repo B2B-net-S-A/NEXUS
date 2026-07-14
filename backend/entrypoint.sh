@@ -64,11 +64,18 @@ done
 # Run from /app so that 'alembic' dir is found correctly
 echo "Running database migrations..."
 cd /app
-# Tolerate alembic failures in dev: multiple in-flight feature branches can
-# produce duplicate-revision or multi-head states. In DEBUG mode the app
-# falls back to Base.metadata.create_all() on startup, so tables still exist.
-# Production should never hit this path (clean single-head chain on main).
-alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade failed (likely multi-head in dev); continuing via Base.metadata.create_all"
+# A production process must never start against a partially migrated schema.
+# The legacy fallback below cannot create views, triggers, constraints or every
+# additive analytics object, so continuing after an Alembic failure would turn
+# a deploy problem into runtime 500s and potentially inconsistent writes.
+if ! alembic -c alembic/alembic.ini upgrade heads 2>&1; then
+    if [ "${DEBUG:-false}" = "true" ]; then
+        echo "alembic upgrade failed in DEBUG; continuing via create_all/backfill"
+    else
+        echo "FATAL: alembic upgrade failed; refusing to start production"
+        exit 1
+    fi
+fi
 
 # Safety net: alembic upgrade sometimes bails halfway through the Phase 8
 # multi-head graph (see project_alembic_state memory). The ORM expects

@@ -146,12 +146,24 @@ _RECENT_HIRES_SQL = text(
 
 _SOURCES_SQL = text(
     """
-    WITH candidate_touch AS (
+    WITH first_events AS (
+      SELECT e.candidate_id, e.channel::text AS source, e.captured_at AS first_touch_at
+      FROM candidate_source_events e
+      WHERE e.captured_at >= :period_start
+        AND e.captured_at < :period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM candidate_source_events earlier
+          WHERE earlier.candidate_id = e.candidate_id
+            AND (
+              earlier.captured_at < e.captured_at
+              OR (earlier.captured_at = e.captured_at AND earlier.id < e.id)
+            )
+        )
+    ), candidate_fallback AS (
       SELECT
         c.id AS candidate_id,
         CASE
-          WHEN first_event.captured_at < c.created_at
-            THEN first_event.channel::text
           WHEN c.source_enum IS NOT NULL THEN c.source_enum::text
           WHEN lower(trim(c.source)) IN (
             'linkedin', 'pracuj', 'jjit', 'referral', 'database', 'manual'
@@ -159,27 +171,19 @@ _SOURCES_SQL = text(
           WHEN nullif(trim(c.source), '') IS NULL THEN 'unknown'
           ELSE 'other'
         END AS source,
-        least(
-          c.created_at,
-          coalesce(first_event.captured_at, c.created_at)
-        ) AS first_touch_at
+        c.created_at AS first_touch_at
       FROM candidates c
-      LEFT JOIN LATERAL (
-        SELECT e.channel, e.captured_at
-        FROM candidate_source_events e
-        WHERE e.candidate_id = c.id
-        ORDER BY e.captured_at ASC, e.id ASC
-        LIMIT 1
-      ) first_event ON TRUE
-      -- Candidate creation is itself a source observation, so a candidate
-      -- created before the requested period can never enter its first-touch
-      -- cohort. This bound avoids sorting the full imported candidate base.
       WHERE c.created_at >= :period_start
+        AND c.created_at < :period_end
+        AND NOT EXISTS (
+          SELECT 1
+          FROM candidate_source_events e
+          WHERE e.candidate_id = c.id
+        )
     ), cohort AS (
-      SELECT candidate_id, source, first_touch_at
-      FROM candidate_touch
-      WHERE first_touch_at >= :period_start
-        AND first_touch_at < :period_end
+      SELECT candidate_id, source, first_touch_at FROM first_events
+      UNION ALL
+      SELECT candidate_id, source, first_touch_at FROM candidate_fallback
     )
     SELECT
       cohort.source,

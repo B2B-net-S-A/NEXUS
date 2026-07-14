@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import DeliveryLeadPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contract import Contract
@@ -79,7 +79,7 @@ class DsoRow(BaseModel):
 
 @router.get("", response_model=List[InvoiceResponse])
 async def list_invoices(
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     contract_id: Optional[int] = Query(None),
     status_filter: Optional[InvoiceStatus] = Query(None, alias="status"),
@@ -108,7 +108,7 @@ async def list_invoices(
 @router.post("", response_model=InvoiceResponse, status_code=status.HTTP_201_CREATED)
 async def create_invoice(
     data: InvoiceCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await db.scalar(select(Contract).where(Contract.id == data.contract_id))
@@ -123,7 +123,7 @@ async def create_invoice(
 
 @router.get("/dso", response_model=List[DsoRow])
 async def dso_by_client(
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Per-client Days Sales Outstanding aggregates (client-facing invoices)."""
@@ -186,7 +186,7 @@ async def dso_by_client(
 
 @router.get("/export.csv")
 async def export_invoices_csv(
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """CSV export in a format compatible with Fakturownia/iFirma."""
@@ -239,7 +239,7 @@ async def export_invoices_csv(
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(
     invoice_id: int,
-    current_user: CurrentUser,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))
@@ -252,7 +252,7 @@ async def get_invoice(
 async def update_invoice(
     invoice_id: int,
     data: InvoiceUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))
@@ -268,7 +268,7 @@ async def update_invoice(
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice(
     invoice_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     inv = await db.scalar(select(Invoice).where(Invoice.id == invoice_id))

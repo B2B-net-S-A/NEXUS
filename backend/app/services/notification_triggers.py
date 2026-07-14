@@ -314,6 +314,14 @@ async def check_client_feedback_eobd(db: AsyncSession, now: datetime) -> int:
 
 async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
     """O 11:45 — per-recruiter alert o <15 calli + agregat do HR-ów."""
+    # Disabled/unconfigured CloudTalk is an unavailable data source, not zero
+    # completed calls. Failing closed here prevents false 0/15 alerts.
+    if not (
+        settings.CLOUDTALK_ENABLED
+        and settings.CLOUDTALK_API_KEY_ID
+        and settings.CLOUDTALK_API_KEY_SECRET
+    ):
+        return 0
     if not is_within_window(
         now,
         hour=settings.POWERCALLING_CHECK_HOUR,
@@ -324,10 +332,14 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
     day = local_day_bounds(now)
     target = settings.POWERCALLING_DAILY_TARGET
 
-    # Wszyscy aktywni rekruterzy.
+    # All primary operational recruitment roles share this KPI. Secondary
+    # roles grant view access but do not silently change a user's target.
     recruiters_rows = await db.execute(
         select(User.id, User.name).where(
-            User.role == UserRole.recruiter, User.is_active.is_(True)
+            User.role.in_(
+                [UserRole.recruiter, UserRole.sourcer, UserRole.tac]
+            ),
+            User.is_active.is_(True),
         )
     )
     recruiters = [(r.id, r.name) for r in recruiters_rows]
