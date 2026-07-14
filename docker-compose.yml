@@ -22,8 +22,11 @@ x-backend-build: &backend-build
   context: ./backend
   dockerfile: Dockerfile
   args:
-    GIT_SHA: ${GIT_SHA:-unknown}
-    BUILT_AT: ${BUILT_AT:-unknown}
+    # Release tooling writes GIT_SHA. Coolify's native SOURCE_COMMIT is the
+    # fail-closed fallback when this Compose file is rendered by Coolify.
+    # The Dockerfile validates the exact SHA and UTC timestamp again.
+    GIT_SHA: ${GIT_SHA:-${SOURCE_COMMIT:?GIT_SHA or SOURCE_COMMIT must be a full 40-character commit SHA}}
+    BUILT_AT: ${BUILT_AT:?BUILT_AT must be an ISO-8601 UTC timestamp}
 
 services:
   postgres:
@@ -107,7 +110,7 @@ services:
         # build-only (stripped from runtime image). Both come from Coolify env
         # vault with is_buildtime=true.
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
-        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}
+        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-${SOURCE_COMMIT:?GIT_SHA or SOURCE_COMMIT must be a full 40-character commit SHA}}
         SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: unless-stopped
     env_file:

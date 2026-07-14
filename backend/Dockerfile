@@ -54,12 +54,14 @@ RUN apk upgrade --no-cache \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Build metadata for /api/health endpoint (see ~/.claude/rules/deployment.md).
-# Defaults to "unknown" so local docker build works without explicit args.
-ARG GIT_SHA=unknown
-ARG BUILT_AT=unknown
+# Immutable build metadata for /api/health. Production builds fail closed when
+# release tooling does not provide an exact source SHA and real UTC timestamp.
+ARG GIT_SHA
+ARG BUILT_AT
 ENV GIT_SHA=$GIT_SHA
 ENV BUILT_AT=$BUILT_AT
+
+RUN python -c "import datetime, os, re; sha = os.environ.get('GIT_SHA', ''); built_at = os.environ.get('BUILT_AT', ''); datetime.datetime.strptime(built_at, '%Y-%m-%dT%H:%M:%SZ'); raise SystemExit(0 if re.fullmatch(r'[0-9a-f]{40}', sha) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', built_at) else 1)"
 
 COPY . .
 

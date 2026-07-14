@@ -24,6 +24,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+RUN node -e "if (!/^[0-9a-f]{40}$/.test(process.env.NEXT_PUBLIC_GIT_SHA ?? '')) process.exit(1)"
 RUN npm run build
 
 # Runtime stage: minimal image with the standalone server.
