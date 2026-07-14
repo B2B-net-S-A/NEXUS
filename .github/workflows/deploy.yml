@@ -141,7 +141,7 @@ jobs:
           # users while the deploy ships green (it never touched that endpoint).
           # This probes /api/health/deep, which runs `SELECT ... LIMIT 1` per core
           # table via the ORM — catching the recurring alembic multi-head + partial
-          # entrypoint safety-net trap where a migration column never lands on prod
+          # schema drift where a migration column never lands on prod
           # (e.g. 2026-07-06: 0154 `contract_candidate_rates.effective_to` 503'd all
           # of /api/contracts for a day while every deploy stayed green — PR #647).
           #
@@ -184,5 +184,5 @@ jobs:
             fi
             sleep 15
           done
-          echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above; a likely cause is a migration column that never landed on prod — mirror it into backend/entrypoint.sh _COLUMN_STATEMENTS (see memory entrypoint-safetynet-new-columns)."
+          echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above. Repair schema drift with a new forward-only Alembic migration; application startup must remain schema-read-only."
           exit 1

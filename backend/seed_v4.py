@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.core.database import Base
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -26,10 +25,6 @@ DATABASE_URL = os.environ.get(
 async def seed_v4():
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    # Create new tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as db:
         # Check if already seeded v4
@@ -115,7 +110,7 @@ async def seed_v4():
                 membership_count += 1
 
         await db.commit()
-        print(f"✅ V4 seed completed!")
+        print("✅ V4 seed completed!")
         print(f"   Created 3 talent pools with {membership_count} candidate memberships")
         for p in pools:
             print(f"   - {p.name}")

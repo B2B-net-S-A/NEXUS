@@ -19,6 +19,29 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_schema_contract_object(
+    object_, name: str | None, type_: str, reflected: bool, compare_to
+) -> bool:
+    """Make ``alembic check`` enforce the runtime compatibility contract.
+
+    The historical database contains intentionally unmanaged raw-SQL reporting
+    tables and many hand-tuned indexes that are not represented in SQLAlchemy
+    metadata. Treating those as removal candidates produces thousands of false
+    positives and can encourage destructive migrations. The deployment risk we
+    must block is the inverse: an ORM table or column used by the application
+    missing from the migrated database. Existing objects are therefore ignored
+    after their presence is established; metadata-only tables/columns remain
+    visible to autogenerate and make ``alembic check`` fail.
+    """
+
+    del object_, name
+    if type_ == "table":
+        return not (reflected and compare_to is None)
+    if type_ == "column":
+        return compare_to is None and not reflected
+    return False
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -26,13 +49,18 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_schema_contract_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection):
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_schema_contract_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

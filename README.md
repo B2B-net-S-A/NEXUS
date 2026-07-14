@@ -57,8 +57,8 @@ cp .env.example .env
 
 ```bash
 make build
-make up
 make migrate
+make up
 ```
 
 - Backend: http://localhost:8000
@@ -74,7 +74,8 @@ make install
 # Start PostgreSQL + Qdrant via Docker
 docker-compose up postgres qdrant -d
 
-# Run migrations
+# Run the one-shot migration job, then start the app. Uvicorn refuses to serve
+# when the database is not at the repository's single Alembic head.
 make migrate
 
 # Start backend + frontend

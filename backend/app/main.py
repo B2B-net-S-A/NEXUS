@@ -9,15 +9,13 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine
 from app.core.logging_config import configure_json_logging
+from app.core.migration_gate import require_current_migration_head
 from app.core.rate_limit import limiter
 
-# Eager-import the models package so every ORM class is registered in the
-# SQLAlchemy registry before lifespan's create_all / configure_mappers runs.
-# Without this, cross-file relationship("X", ...) strings (e.g. rejection_email
-# → Email from m365) fail to resolve when no imported router pulled in the
-# target class.
+# Eager-import the models package so every ORM class is registered before
+# configure_mappers resolves cross-file relationship("X", ...) strings.
 import app.models  # noqa: F401
 
 from app.api import (
@@ -152,9 +150,8 @@ from app.api import dictionaries as dictionaries_api
 from app.api import entity_fields as entity_fields_api
 from app.api import teams_channels as teams_channels_api
 
-# Force-load every SQLAlchemy model into Base.metadata so FKs across tables
-# (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
-# resolve during `Base.metadata.create_all()` in DEBUG lifespan.
+# Keep every model registered even when no imported router directly references
+# it. Schema creation is Alembic-only in every environment.
 import app.models as _models  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -297,12 +294,10 @@ async def lifespan(app: FastAPI):
     # so every subsequent log line uses structured JSON.
     configure_json_logging(debug=settings.DEBUG)
 
-    # Startup: create tables if not exists.
-    # Only in DEBUG — production deploys must run `alembic upgrade head` explicitly.
-    # See plan Faza 1.1 for the Alembic reset that replaces this shortcut entirely.
-    if settings.DEBUG:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # This is a read-only invariant, not a migration shortcut. It protects
+    # direct Uvicorn invocations as well as Docker Compose: no startup side
+    # effect or request handling occurs on an unapplied/ambiguous schema.
+    await require_current_migration_head()
 
     # Startup: ensure Qdrant collection exists
     import asyncio
@@ -1195,18 +1190,11 @@ async def api_health_check():
 async def api_health_deep_check():
     """Deep healthcheck — probes core business tables against the live ORM.
 
-    Motivation: /api/health only does `SELECT 1`, so it stays green even when
-    a core module is 503-ing for real users. NEXUS prod has chronic alembic
-    multi-head drift; the app boots anyway via entrypoint.sh's hand-maintained
-    `_COLUMN_STATEMENTS` safety-net + `Base.metadata.create_all` (tables only).
-    The trap: a migration that adds a COLUMN to an EXISTING table lands neither
-    (create_all skips existing tables, and the manual list is easy to forget) —
-    the ORM then `SELECT`s a column Postgres doesn't have → `UndefinedColumn` →
-    the whole module renders empty (non-CORS 503), while the deploy ships GREEN
-    because the smoke-test never touched that endpoint. This happened 2026-07-06:
-    migration 0154 added `contract_candidate_rates.effective_to`; every contract
-    query eager-loads that child table → all of /api/contracts 503'd for a day
-    (PR #647). See memory `entrypoint-safetynet-new-columns`.
+    Compatibility alias for the former deep schema probe. The application now
+    refuses to serve unless the database is at the repository's single Alembic
+    head, while CI replays migrations from an empty PostgreSQL database and
+    checks ORM/schema drift. The table probes remain for one release as an
+    additional operational signal.
 
     This endpoint runs `SELECT <all mapped columns> ... LIMIT 1` for each core
     table, forcing Postgres to resolve every column the ORM maps. A drifted

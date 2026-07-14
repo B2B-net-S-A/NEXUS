@@ -56,7 +56,7 @@ async def _bootstrap_if_needed(db: AsyncSession) -> None:
 
 async def cc_centroid_sync_loop() -> None:
     """Long-running loop: bootstrap once, then refresh every 24h."""
-    # Delay startup so Qdrant + DB are ready and DEBUG `create_all` has run.
+    # Delay startup so Qdrant and the already-migrated database are ready.
     try:
         await asyncio.sleep(BOOTSTRAP_DELAY_SECONDS)
     except asyncio.CancelledError:

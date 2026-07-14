@@ -14,12 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.core.database import Base
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.models.activity import Activity
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -53,9 +51,6 @@ async def seed_v6():
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     async with SessionLocal() as db:
         # Get existing users
         users_result = await db.execute(select(User))
@@ -65,7 +60,6 @@ async def seed_v6():
             await engine.dispose()
             return
         user_ids = [u.id for u in users]
-        admin_id = user_ids[0]
 
         # Get existing candidates and jobs
         cands_result = await db.execute(select(Candidate).order_by(Candidate.id))

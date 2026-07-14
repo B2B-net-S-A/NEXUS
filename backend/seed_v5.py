@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app.core.database import Base
 from app.models.user import User
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -37,10 +36,6 @@ def next_weekday(days_ahead: int) -> datetime:
 async def seed_v5():
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    # Ensure tables exist
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as db:
         # Check already seeded

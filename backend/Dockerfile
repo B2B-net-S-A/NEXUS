@@ -64,7 +64,7 @@ ENV BUILT_AT=$BUILT_AT
 COPY . .
 
 RUN mkdir -p /tmp/nexus/uploads \
-    && chmod +x /app/entrypoint.sh \
+    && chmod +x /app/entrypoint.sh /app/migrate.sh \
     && addgroup -S -g 10001 appgroup \
     && adduser -S -D -H -u 10001 -G appgroup appuser \
     && chown -R appuser:appgroup /app /tmp/nexus

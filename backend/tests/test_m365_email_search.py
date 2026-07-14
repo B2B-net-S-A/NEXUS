@@ -7,7 +7,7 @@ Exercises:
 - Limit clamping (>100 → 422 from Query validator).
 - Min q length (q="a" → 422).
 
-Runs in CI against the postgres service container after `alembic upgrade heads`,
+Runs in CI against the postgres service container after `alembic upgrade head`,
 which creates the generated `search_vector` column from migration 0103.
 """
 

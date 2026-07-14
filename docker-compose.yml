@@ -18,6 +18,13 @@ x-logging: &default-logging
     max-file: "5"
     tag: "{{.ImageName}}/{{.Name}}/{{.ID}}"
 
+x-backend-build: &backend-build
+  context: ./backend
+  dockerfile: Dockerfile
+  args:
+    GIT_SHA: ${GIT_SHA:-unknown}
+    BUILT_AT: ${BUILT_AT:-unknown}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -44,17 +51,23 @@ services:
       - qdrant_data:/qdrant/storage
     logging: *default-logging
 
+  # One-shot schema owner. A non-zero Alembic exit blocks `backend` through
+  # `service_completed_successfully`; the web process never runs DDL itself.
+  migrate:
+    build: *backend-build
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexus}
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
+
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      args:
-        # Build metadata for /api/health endpoint (~/.claude/rules/deployment.md).
-        # Coolify może ustawić te env vars w resource config (np. SOURCE_COMMIT
-        # webhook payload dla GIT_SHA, build-time stamp dla BUILT_AT).
-        # Defaultują do "unknown" gdy nie ustawione — endpoint nadal działa.
-        GIT_SHA: ${GIT_SHA:-unknown}
-        BUILT_AT: ${BUILT_AT:-unknown}
+    build: *backend-build
     restart: unless-stopped
     env_file:
       - .env
@@ -68,6 +81,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - uploads_data:/tmp/nexus/uploads
     logging: *default-logging
