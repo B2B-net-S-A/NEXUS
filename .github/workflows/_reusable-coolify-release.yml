@@ -1,0 +1,417 @@
+name: reusable-coolify-exact-sha-release
+
+on:
+  workflow_call:
+    inputs:
+      standards_ref:
+        required: true
+        type: string
+      application:
+        required: true
+        type: string
+      staging_coolify_base_url:
+        required: true
+        type: string
+      production_coolify_base_url:
+        required: true
+        type: string
+      coolify_deploy_method:
+        required: false
+        default: GET
+        type: string
+      staging_application_uuid:
+        required: true
+        type: string
+      production_application_uuid:
+        required: true
+        type: string
+      staging_base_url:
+        required: true
+        type: string
+      staging_health_url:
+        required: true
+        type: string
+      production_health_url:
+        required: true
+        type: string
+      production_snapshot_url:
+        required: true
+        type: string
+      staging_migration_command:
+        required: true
+        type: string
+      production_snapshot_command:
+        required: true
+        type: string
+      production_migration_command:
+        required: true
+        type: string
+      staging_e2e_command:
+        required: true
+        type: string
+      migration_head_command:
+        required: true
+        type: string
+      rollback_guard_command:
+        required: true
+        type: string
+      rollback_floor_sha:
+        required: true
+        type: string
+      staging_environment:
+        required: false
+        default: staging
+        type: string
+      production_environment:
+        required: false
+        default: production
+        type: string
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.production_application_uuid }}
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.staging_environment }}
+    outputs:
+      migration_head: ${{ steps.migration-head.outputs.migration_head }}
+    steps:
+      - name: Checkout exact application commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+      - name: Verify hash-locked local standards bundle
+        env:
+          STANDARDS_REF: ${{ inputs.standards_ref }}
+        run: >-
+          python3 app/.standards/tools/check_local_standards_bundle.py
+          --consumer-root app
+          --lock app/.standards/standards.lock.json
+          --expected-ref "$STANDARDS_REF"
+      - name: Validate release configuration
+        env:
+          APPLICATION: ${{ inputs.application }}
+          DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
+          STAGING_APPLICATION_UUID: ${{ inputs.staging_application_uuid }}
+          PRODUCTION_APPLICATION_UUID: ${{ inputs.production_application_uuid }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          STANDARDS_REF: ${{ inputs.standards_ref }}
+          ROLLBACK_FLOOR_SHA: ${{ inputs.rollback_floor_sha }}
+          STAGING_COOLIFY_BASE_URL: ${{ inputs.staging_coolify_base_url }}
+          PRODUCTION_COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
+          STAGING_BASE_URL: ${{ inputs.staging_base_url }}
+          STAGING_HEALTH_URL: ${{ inputs.staging_health_url }}
+          PRODUCTION_HEALTH_URL: ${{ inputs.production_health_url }}
+          PRODUCTION_SNAPSHOT_URL: ${{ inputs.production_snapshot_url }}
+        run: >-
+          python3 app/.standards/tools/validate_release_config.py
+          --application "$APPLICATION"
+          --deploy-method "$DEPLOY_METHOD"
+          --staging-application-uuid "$STAGING_APPLICATION_UUID"
+          --production-application-uuid "$PRODUCTION_APPLICATION_UUID"
+          --candidate-sha "$CANDIDATE_SHA"
+          --standards-ref "$STANDARDS_REF"
+          --rollback-floor-sha "$ROLLBACK_FLOOR_SHA"
+          --staging-coolify-base-url "$STAGING_COOLIFY_BASE_URL"
+          --production-coolify-base-url "$PRODUCTION_COOLIFY_BASE_URL"
+          --staging-base-url "$STAGING_BASE_URL"
+          --staging-health-url "$STAGING_HEALTH_URL"
+          --production-health-url "$PRODUCTION_HEALTH_URL"
+          --production-snapshot-url "$PRODUCTION_SNAPSHOT_URL"
+      - name: Deploy exact SHA to staging
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_BASE_URL: ${{ inputs.staging_coolify_base_url }}
+          APPLICATION_UUID: ${{ inputs.staging_application_uuid }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
+        run: >-
+          python3 app/.standards/tools/coolify_exact_sha.py
+          --base-url "$COOLIFY_BASE_URL"
+          --application-uuid "$APPLICATION_UUID"
+          --sha "$CANDIDATE_SHA"
+          --deploy-method "$DEPLOY_METHOD"
+      - name: Apply staging migrations
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.staging_migration_command }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: bash -euo pipefail -c "$CI_COMMAND"
+      - name: Three readiness successes
+        env:
+          HEALTH_URL: ${{ inputs.staging_health_url }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: >-
+          python3 app/.standards/tools/validate_health.py
+          --url "$HEALTH_URL"
+          --kind readiness
+          --expected-sha "$CANDIDATE_SHA"
+          --samples 3
+          --success-threshold 3
+          --failure-threshold 1
+          --interval 20
+      - name: Critical staging E2E
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.staging_e2e_command }}
+          STAGING_BASE_URL: ${{ inputs.staging_base_url }}
+          STAGING_E2E_SECRETS_JSON: ${{ secrets.STAGING_E2E_SECRETS_JSON }}
+        run: bash -euo pipefail -c "$CI_COMMAND"
+      - name: Resolve migration head
+        id: migration-head
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.migration_head_command }}
+        run: |
+          set -euo pipefail
+          migration_head="$(bash -euo pipefail -c "$CI_COMMAND")"
+          test -n "$migration_head"
+          test "$(printf '%s' "$migration_head" | wc -l)" -eq 0
+          [[ "$migration_head" =~ ^[A-Za-z0-9][A-Za-z0-9._:+/-]{0,255}$ ]]
+          printf 'migration_head=%s\n' "$migration_head" >> "$GITHUB_OUTPUT"
+
+  production:
+    name: production
+    needs: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    environment: ${{ inputs.production_environment }}
+    steps:
+      - name: Checkout exact application commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: app
+          persist-credentials: false
+      - name: Inspect current production SHA
+        id: current
+        continue-on-error: true
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
+          APPLICATION_UUID: ${{ inputs.production_application_uuid }}
+        run: >-
+          python3 app/.standards/tools/coolify_exact_sha.py
+          --base-url "$COOLIFY_BASE_URL"
+          --application-uuid "$APPLICATION_UUID"
+          --inspect-only
+      - name: Validate rollback target before mutation
+        id: rollback-guard
+        if: steps.current.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.rollback_guard_command }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
+          ROLLBACK_FLOOR_SHA: ${{ inputs.rollback_floor_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$PREVIOUS_SHA"
+          bash -euo pipefail -c "$CI_COMMAND"
+      - name: Snapshot production
+        id: snapshot
+        if: steps.rollback-guard.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.production_snapshot_command }}
+          SNAPSHOT_TOKEN: ${{ secrets.SNAPSHOT_TOKEN }}
+          SNAPSHOT_URL: ${{ inputs.production_snapshot_url }}
+        run: |
+          set -euo pipefail
+          test -n "$SNAPSHOT_TOKEN"
+          snapshot_reference="$(bash -euo pipefail -c "$CI_COMMAND")"
+          [[ "$snapshot_reference" =~ ^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,511}$ ]]
+          printf 'snapshot_reference=%s\n' "$snapshot_reference" >> "$GITHUB_OUTPUT"
+      - name: Apply production expand migration
+        id: production-migration
+        if: steps.snapshot.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        env:
+          CI_COMMAND: ${{ inputs.production_migration_command }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: bash -euo pipefail -c "$CI_COMMAND"
+      - name: Deploy exact SHA to production
+        id: deploy
+        if: steps.production-migration.outcome == 'success'
+        continue-on-error: true
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
+          APPLICATION_UUID: ${{ inputs.production_application_uuid }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
+        run: >-
+          python3 app/.standards/tools/coolify_exact_sha.py
+          --base-url "$COOLIFY_BASE_URL"
+          --application-uuid "$APPLICATION_UUID"
+          --sha "$CANDIDATE_SHA"
+          --expected-previous-sha "$PREVIOUS_SHA"
+          --deploy-method "$DEPLOY_METHOD"
+      - name: Three readiness successes
+        id: readiness
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        env:
+          HEALTH_URL: ${{ inputs.production_health_url }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: >-
+          python3 app/.standards/tools/validate_health.py
+          --url "$HEALTH_URL"
+          --kind readiness
+          --expected-sha "$CANDIDATE_SHA"
+          --samples 5
+          --success-threshold 3
+          --failure-threshold 2
+          --interval 20
+      - name: Five-minute production observation
+        id: monitor
+        if: steps.readiness.outcome == 'success'
+        continue-on-error: true
+        env:
+          HEALTH_URL: ${{ inputs.production_health_url }}
+          CANDIDATE_SHA: ${{ github.sha }}
+        run: >-
+          python3 app/.standards/tools/validate_health.py
+          --url "$HEALTH_URL"
+          --kind readiness
+          --expected-sha "$CANDIDATE_SHA"
+          --samples 11
+          --success-threshold 0
+          --failure-threshold 2
+          --interval 30
+      - name: Automatic rollback after two consecutive critical failures
+        id: rollback
+        if: >-
+          always() && steps.current.outputs.current_sha != '' && steps.current.outputs.current_sha != github.sha &&
+          (steps.deploy.outcome == 'failure' || steps.readiness.outcome == 'failure' || steps.monitor.outcome == 'failure')
+        continue-on-error: true
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          COOLIFY_BASE_URL: ${{ inputs.production_coolify_base_url }}
+          APPLICATION_UUID: ${{ inputs.production_application_uuid }}
+          DEPLOY_METHOD: ${{ inputs.coolify_deploy_method }}
+        run: >-
+          python3 app/.standards/tools/coolify_exact_sha.py
+          --base-url "$COOLIFY_BASE_URL"
+          --application-uuid "$APPLICATION_UUID"
+          --sha "$PREVIOUS_SHA"
+          --expected-previous-sha "$CANDIDATE_SHA"
+          --allow-already-target
+          --deploy-method "$DEPLOY_METHOD"
+      - name: Verify rollback readiness
+        id: rollback-readiness
+        if: steps.rollback.outcome == 'success'
+        continue-on-error: true
+        env:
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
+          HEALTH_URL: ${{ inputs.production_health_url }}
+        run: >-
+          python3 app/.standards/tools/validate_health.py
+          --url "$HEALTH_URL"
+          --kind readiness
+          --expected-sha "$PREVIOUS_SHA"
+          --samples 3
+          --success-threshold 3
+          --failure-threshold 1
+          --interval 20
+      - name: Build release manifest
+        id: manifest
+        if: always()
+        env:
+          CURRENT_OUTCOME: ${{ steps.current.outcome }}
+          GUARD_OUTCOME: ${{ steps.rollback-guard.outcome }}
+          SNAPSHOT_OUTCOME: ${{ steps.snapshot.outcome }}
+          MIGRATION_OUTCOME: ${{ steps.production-migration.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          READINESS_OUTCOME: ${{ steps.readiness.outcome }}
+          MONITOR_OUTCOME: ${{ steps.monitor.outcome }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          ROLLBACK_READINESS_OUTCOME: ${{ steps.rollback-readiness.outcome }}
+          PREVIOUS_SHA: ${{ steps.current.outputs.current_sha }}
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          SNAPSHOT_REFERENCE: ${{ steps.snapshot.outputs.snapshot_reference }}
+          ROLLBACK_DEPLOYMENT_ID: ${{ steps.rollback.outputs.deployment_id }}
+          ROLLBACK_ALREADY_SAFE: ${{ steps.rollback.outputs.already_target }}
+          APPLICATION: ${{ inputs.application }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          STANDARDS_REF: ${{ inputs.standards_ref }}
+          MIGRATION_HEAD: ${{ needs.staging.outputs.migration_head }}
+          ROLLBACK_FLOOR_SHA: ${{ inputs.rollback_floor_sha }}
+          PRODUCTION_APPLICATION_UUID: ${{ inputs.production_application_uuid }}
+          QUALITY_GATE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          outcome=failed
+          rollback_args=()
+          previous_args=()
+          deployment_args=()
+          snapshot_args=()
+          if test -n "$PREVIOUS_SHA"; then
+            previous_args=(--previous-sha "$PREVIOUS_SHA")
+          fi
+          if test -n "$DEPLOYMENT_ID"; then
+            deployment_args=(--deployment-id "$DEPLOYMENT_ID")
+          fi
+          if test -n "$SNAPSHOT_REFERENCE"; then
+            snapshot_args=(--snapshot-reference "$SNAPSHOT_REFERENCE")
+          fi
+          if test "$ROLLBACK_OUTCOME" != skipped && test -n "$PREVIOUS_SHA"; then
+            rollback_args=(--rollback-to-sha "$PREVIOUS_SHA")
+            if test -n "$ROLLBACK_DEPLOYMENT_ID"; then
+              rollback_args+=(--rollback-deployment-id "$ROLLBACK_DEPLOYMENT_ID")
+            fi
+            if test "$ROLLBACK_ALREADY_SAFE" = true; then
+              rollback_args+=(--rollback-already-safe)
+            fi
+          fi
+          if test "$ROLLBACK_OUTCOME" = success && test "$ROLLBACK_READINESS_OUTCOME" = success; then
+            outcome=rolled_back
+          elif test "$CURRENT_OUTCOME" = success && \
+               test "$GUARD_OUTCOME" = success && \
+               test "$SNAPSHOT_OUTCOME" = success && \
+               test "$MIGRATION_OUTCOME" = success && \
+               test "$DEPLOY_OUTCOME" = success && \
+               test "$READINESS_OUTCOME" = success && \
+               test "$MONITOR_OUTCOME" = success; then
+            outcome=succeeded
+          fi
+          python3 app/.standards/tools/build_release_manifest.py \
+            --application "$APPLICATION" \
+            --environment production \
+            --sha "$CANDIDATE_SHA" \
+            --standards-ref "$STANDARDS_REF" \
+            --migration-head "$MIGRATION_HEAD" \
+            "${previous_args[@]}" \
+            --rollback-floor-sha "$ROLLBACK_FLOOR_SHA" \
+            "${deployment_args[@]}" \
+            "${snapshot_args[@]}" \
+            --coolify-application-uuid "$PRODUCTION_APPLICATION_UUID" \
+            --quality-gate-run-id "$QUALITY_GATE_RUN_ID" \
+            --outcome "$outcome" \
+            "${rollback_args[@]}" \
+            --output release-manifest.json
+          printf 'outcome=%s\n' "$outcome" >> "$GITHUB_OUTPUT"
+      - name: Store release manifest
+        if: always() && hashFiles('release-manifest.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-manifest-${{ inputs.application }}-${{ github.sha }}
+          path: release-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Require successful production release
+        if: always() && steps.manifest.outputs.outcome != 'succeeded'
+        run: exit 1
