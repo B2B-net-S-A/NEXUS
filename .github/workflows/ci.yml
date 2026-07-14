@@ -294,12 +294,14 @@ jobs:
         uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
         with:
           dockerfile: backend/Dockerfile
-          failure-threshold: error
+          # Warnings are blocking: Dockerfile package pinning is part of the
+          # required supply-chain gate, not advisory output.
+          failure-threshold: warning
       - name: Hadolint (frontend)
         uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
         with:
           dockerfile: frontend/Dockerfile
-          failure-threshold: error
+          failure-threshold: warning
       - name: Build backend production image
         env:
           DOCKER_BUILDKIT: "1"
