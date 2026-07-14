@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwt
 
+from app.core.jwt import jwt
 from app.services.autenti.webhook_verify import (
     AutentiWebhookError,
     _reset_cache_for_tests,

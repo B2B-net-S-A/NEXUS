@@ -25,9 +25,9 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from jose import JWTError, jwt
 
 from app.core.config import settings
+from app.core.jwt import JWTError, jwt
 from app.services.m365.provider import TokenBundle
 
 logger = logging.getLogger(__name__)

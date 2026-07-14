@@ -6,7 +6,7 @@ alembic==1.14.0
 pydantic[email]==2.10.3
 pydantic-settings==2.7.0
 email-validator==2.1.0
-python-jose[cryptography]==3.4.0
+PyJWT==2.13.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 httpx==0.28.1
@@ -40,8 +40,8 @@ bleach==6.4.0
 # Proxycurl LinkedIn tracking — fuzzy company-name matching for diff detection.
 rapidfuzz==3.10.1
 # Autenti e-signature integration — server-side HTML→PDF for contract drafts
-# before upload. python-jose already pinned above (used by JWT auth + webhook
-# JWKS verification).
+# before upload. PyJWT is pinned above (used by JWT auth + webhook JWKS
+# verification).
 weasyprint==68.0
 # In-house QES rail — PAdES validation (Option B upload-and-validate, zero KIR).
 # Pinned to 0.34.1 (requires cryptography>=43.0.3, compatible with our 48.0.1

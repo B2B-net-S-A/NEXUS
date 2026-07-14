@@ -39,13 +39,13 @@ from fastapi import (
     status,
 )
 from fastapi.responses import RedirectResponse
-from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.jwt import JWTError, jwt
 from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,

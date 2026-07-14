@@ -31,9 +31,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
-from jose import JWTError, jwt
-
 from app.core.config import settings
+from app.core.jwt import JWTError, jwt
 
 
 _JWT_ALGORITHM = "HS256"

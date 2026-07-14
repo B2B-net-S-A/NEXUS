@@ -201,7 +201,9 @@ async def get_current_user(
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
     effective_user = user
     if impersonate_raw:
-        effective_user = await _resolve_impersonation(request, user, impersonate_raw, db)
+        effective_user = await _resolve_impersonation(
+            request, user, impersonate_raw, db
+        )
     _enforce_viewer_read_only(request, effective_user)
     return effective_user
 
