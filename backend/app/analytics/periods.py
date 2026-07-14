@@ -66,26 +66,26 @@ def resolve_period(
     if kind is AnalyticsPeriodKind.custom:
         if date_from is None or date_to is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Custom period requires both 'from' and 'to' dates",
             )
         start = _midnight(date_from)
         end = _midnight(date_to)
         if end <= start:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Custom period 'to' must be later than 'from'",
             )
         if (date_to - date_from).days > MAX_CUSTOM_PERIOD_DAYS:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Custom period cannot exceed {MAX_CUSTOM_PERIOD_DAYS} days",
             )
         return AnalyticsPeriod(kind=kind, start=start, end=end)
 
     if date_from is not None or date_to is not None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="'from' and 'to' are only valid with period=custom",
         )
 

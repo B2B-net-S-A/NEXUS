@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.activity import Activity
 from app.models.user import User, UserRole
 from app.api.deps import CurrentUser

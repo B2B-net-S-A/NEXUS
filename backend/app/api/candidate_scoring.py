@@ -10,8 +10,6 @@ gate) lives in ``match_justification_service``; this module is a thin transport
 layer that maps domain errors to HTTP status codes.
 """
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import Optional
 
