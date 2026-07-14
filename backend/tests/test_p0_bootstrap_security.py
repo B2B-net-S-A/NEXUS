@@ -65,6 +65,7 @@ def test_entrypoint_rejects_production_seed_before_database_access() -> None:
     env.update(
         {
             "DEBUG": "false",
+            "NEXUS_APP_ROOT": str(BACKEND_ROOT),
             "NEXUS_ENABLE_DEMO_SEED": "true",
             "NEXUS_DEMO_ADMIN_PASSWORD": "UniqueAdminPassword-123",
             "NEXUS_DEMO_STAFF_PASSWORD": "UniqueStaffPassword-456",
