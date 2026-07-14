@@ -39,6 +39,7 @@ from app.schemas.ai_settings import (
 )
 from app.ai.registry import public_registry
 from app.models.ai_platform import AICallLedger, AIProviderCompliance, AIRoutingState
+from app.models.ai_rollout import AIRolloutState
 from app.services.ai_quota import (
     _current_period_start,
     get_total_usage_for_period,
@@ -78,6 +79,7 @@ async def get_ai_settings(
     registry_version = routing.registry_version if routing else "v1_current"
     routing_lock_version = routing.lock_version if routing else 1
     compliance_rows = list((await db.scalars(select(AIProviderCompliance))).all())
+    rollout_rows = list((await db.scalars(select(AIRolloutState))).all())
 
     period_start = _current_period_start()
     period_end = _end_of_month(period_start)
@@ -154,6 +156,18 @@ async def get_ai_settings(
                 "transfer_basis": row.transfer_basis,
             }
             for row in compliance_rows
+        },
+        rollouts={
+            row.feature: {
+                "baseline_registry": row.baseline_registry,
+                "target_registry": row.target_registry,
+                "stage": row.stage,
+                "percentage": row.percentage,
+                "status": row.status,
+                "stage_started_at": row.stage_started_at.isoformat(),
+                "rollback_reason": row.rollback_reason,
+            }
+            for row in rollout_rows
         },
     )
 

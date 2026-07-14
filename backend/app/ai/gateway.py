@@ -25,6 +25,8 @@ from app.models.ai_platform import (
     AIProviderCompliance,
     AIRoutingState,
 )
+from app.models.ai_rollout import AIRolloutState
+from app.services.ai_rollout import assigned_registry
 from app.services.ai_quota import check_and_increment
 
 
@@ -92,6 +94,12 @@ class AIGateway:
                 select(AIRoutingState.registry_version).where(AIRoutingState.id == 1)
             )
         return value or "v1_current"
+
+    async def _registry_version_for_request(self, request: AIRequest) -> str:
+        global_registry = await self.active_registry_version()
+        async with AsyncSessionLocal() as db:
+            rollout = await db.get(AIRolloutState, request.feature.value)
+        return assigned_registry(rollout, request, global_registry=global_registry)
 
     async def _authorize_and_reserve(
         self, request: AIRequest, route: FeatureRoute, registry_version: str
@@ -267,7 +275,7 @@ class AIGateway:
         return request.structured_validator(parsed)
 
     async def call(self, request: AIRequest) -> AIResult:
-        route_version = await self.active_registry_version()
+        route_version = await self._registry_version_for_request(request)
         route = get_feature_route(route_version, request.feature, request.mode)
         if not route.enabled:
             raise AIError(
