@@ -36,8 +36,8 @@ seed:
 # ─── Database / Migrations ────────────────────────────────────────────────────
 
 migrate:
-	@echo "Running Alembic migrations..."
-	cd backend && alembic upgrade head
+	@echo "Running fail-closed one-shot Alembic migration job..."
+	docker compose run --rm migrate
 
 migrate-create:
 	@read -p "Migration name: " name; \

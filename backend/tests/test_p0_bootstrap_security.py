@@ -32,7 +32,7 @@ def test_production_entrypoint_has_no_unconditional_user_seed() -> None:
     entrypoint_path = BACKEND_ROOT / "entrypoint.sh"
     entrypoint = entrypoint_path.read_text()
 
-    subprocess.run(["bash", "-n", str(entrypoint_path)], check=True)
+    subprocess.run(["sh", "-n", str(entrypoint_path)], check=True)
     assert not (BACKEND_ROOT / "scripts" / "ensure_claude_admin.py").exists()
     assert "ensure_claude_admin" not in entrypoint
     assert "CLAUDE_ADMIN_BOOTSTRAP" not in entrypoint
@@ -40,16 +40,16 @@ def test_production_entrypoint_has_no_unconditional_user_seed() -> None:
 
     enable_guard = entrypoint.index('case "${NEXUS_ENABLE_DEMO_SEED:-false}"')
     production_guard = entrypoint.index('case "${DEBUG:-false}"', enable_guard)
-    database_wait = entrypoint.index('echo "Waiting for database..."')
+    migration_gate = entrypoint.index("python -m scripts.assert_migration_head")
     seed_call = entrypoint.index("python seed.py", production_guard)
-    assert enable_guard < production_guard < database_wait < seed_call
+    assert enable_guard < production_guard < migration_gate < seed_call
     assert "NEXUS_ENABLE_DEMO_SEED is enabled while DEBUG is false" in entrypoint
-    assert "NEXUS_DEMO_ADMIN_PASSWORD" in entrypoint[:database_wait]
-    assert "NEXUS_DEMO_STAFF_PASSWORD" in entrypoint[:database_wait]
+    assert "NEXUS_DEMO_ADMIN_PASSWORD" in entrypoint[:migration_gate]
+    assert "NEXUS_DEMO_STAFF_PASSWORD" in entrypoint[:migration_gate]
 
-    # Production startup may migrate schema, but it must never create,
-    # reactivate, demote, or otherwise mutate login identities. Demo users are
-    # created only inside seed.py after the explicit development-only guard.
+    # Application startup is schema-read-only and must never create, reactivate,
+    # demote, or otherwise mutate login identities. Demo users are created only
+    # inside seed.py after the explicit development-only guard.
     user_dml = re.compile(
         r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+users\b",
         re.IGNORECASE,
@@ -82,7 +82,7 @@ def test_entrypoint_rejects_production_seed_before_database_access() -> None:
     output = result.stdout + result.stderr
     assert result.returncode == 64
     assert "refusing to seed a production database" in output
-    assert "Waiting for database" not in output
+    assert "migration gate" not in output.lower()
 
 
 def test_demo_seed_rejects_production_even_when_opted_in(monkeypatch) -> None:

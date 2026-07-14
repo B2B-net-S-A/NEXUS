@@ -190,8 +190,8 @@ async def test_api_health_autenti_healthy_when_fully_configured(
 
 # ── /api/health/deep — core-module (schema-vs-ORM) drift gate ───────────────
 # Probes each core business table with `SELECT ... LIMIT 1` so a migration
-# column that never landed on prod (the alembic multi-head + partial
-# entrypoint safety-net trap — e.g. 2026-07-06's `contract_candidate_rates.
+# column that never landed on prod (historical Alembic drift — e.g.
+# 2026-07-06's `contract_candidate_rates.
 # effective_to`, PR #647) turns the deploy RED instead of shipping a module
 # that 503s for real users. See memory `entrypoint-safetynet-new-columns`.
 CORE_DEEP_CHECK_TABLES = {
@@ -225,7 +225,7 @@ async def test_api_health_deep_returns_shape(env_with_metadata):
 async def test_api_health_deep_healthy_when_schema_matches(env_with_metadata):
     """DB reachable + schema matches the ORM → 200 + all core probes healthy.
 
-    CI runs `alembic upgrade heads` on a fresh Postgres before pytest, so every
+    CI runs `alembic upgrade head` on a fresh Postgres before pytest, so every
     core table has the full ORM schema — this is the assertion that would have
     gone RED on the 0154 drift. Gated on DB availability so it's a no-op locally
     without Postgres (there every probe fails → 503 + unhealthy).

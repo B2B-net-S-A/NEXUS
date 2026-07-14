@@ -32,7 +32,6 @@ from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.screening_note import ScreeningNote, ScreeningType, MotivationType, CounterOfferRisk
 from app.models.contact import Contact
 from app.models.talent_pool import TalentPool, TalentPoolMembership
-from app.core.database import Base
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -54,10 +53,6 @@ async def seed():
     admin_password, staff_password = require_demo_seed_configuration()
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    # Create tables if not exist (safety net when no alembic migrations)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as db:
         # Check if already seeded
@@ -2112,9 +2107,6 @@ async def seed_extended():
 
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
     async with SessionLocal() as db:
         # Check if base seed ran

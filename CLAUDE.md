@@ -111,7 +111,7 @@ git push origin main
 ## Specyfika tej apki
 
 - **Vector search (Qdrant):** używamy do matching kandydat ↔ stanowisko. Score harness: `scripts/eval_matching.py` lokalnie (waliduj precision/recall przed/po zmianach scoringu).
-- **Migracje (Alembic):** `alembic upgrade head` na startup (Coolify entrypoint). Migracje testowane w CI (`alembic upgrade head` na test DB w `backend-lint-test` job).
+- **Migracje (Alembic):** osobny one-shot service `migrate` wykonuje dokładnie `alembic upgrade head`; web startup nie wykonuje DDL i odmawia startu poza pojedynczym headem. Pełny replay + `alembic check` blokują CI.
 - **Backup drill:** `.github/workflows/backup-drill.yml` — periodic test pg_dump → pg_restore. Działa, nie ruszamy w fazach 0-4.
 - **E2E:** Playwright lokalnie + osobny workflow `e2e.yml`.
 - **40+ feature branches:** historyczne, niektóre stale. Przed merge nowej feature branchy — sprawdź czy nie ma duplikatów.

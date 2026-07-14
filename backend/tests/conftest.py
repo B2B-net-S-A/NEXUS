@@ -11,7 +11,7 @@ Two fixture families:
    httpx.ASGITransport(app=main.app). No network, runs in CI against the
    postgres service container. Used by Phase 7d+ integration tests.
 
-Both share the DATABASE_URL env. In CI, alembic migrations run before pytest so
+Both share the DATABASE_URL env. In CI, `alembic upgrade head` runs before pytest so
 schema is ready.
 """
 
