@@ -17,6 +17,7 @@ cover Latin Extended-A. Verified by ``test_autenti_pdf_renderer.py``.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from html import escape
@@ -30,6 +31,37 @@ logger = logging.getLogger(__name__)
 # WeasyPrint (it ignores them silently), but stripping them keeps the source
 # clean and avoids confusing future readers who think client JS could run.
 _SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
+
+# A valid 1x1 transparent PNG.  Returning a harmless local response instead of
+# raising prevents WeasyPrint from logging the attacker-controlled source URL.
+_TRANSPARENT_PIXEL = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42Y"
+    "AAAAASUVORK5CYII="
+)
+
+
+def _deny_external_resource(url: str) -> object:
+    """Block every resource lookup initiated by contract HTML.
+
+    Contract drafts are user-editable and self-contained.  Letting WeasyPrint
+    use its default fetcher would therefore turn ``<img src=...>`` into a
+    server-side HTTP or file request.  We replace every lookup with one local,
+    transparent pixel so rendering can continue without network or filesystem
+    access.
+
+    The URL is deliberately omitted from the response: it can contain a
+    user-controlled query string and must not leak into application logs.  The
+    lazy import preserves this module's existing lightweight import behavior.
+    """
+    del url
+    from weasyprint.urls import URLFetcherResponse  # noqa: WPS433
+
+    return URLFetcherResponse(
+        "about:blank",
+        body=_TRANSPARENT_PIXEL,
+        headers={"Content-Type": "image/png"},
+        status=200,
+    )
 
 
 def _strip_print_script(html: str) -> str:
@@ -86,7 +118,8 @@ def render_contract_pdf(
         html: Raw body HTML from ``contracts.draft_content_html``.
         title: PDF document title (shown in viewer title bar).
         base_url: Optional base URL for resolving relative ``<img>`` /
-            ``<link>``. Usually ``None`` (drafts are self-contained).
+            ``<link>``. Drafts are self-contained, so a missing value is
+            replaced with the non-network ``about:blank/`` base.
 
     Returns:
         PDF byte stream starting with ``b"%PDF-"``.
@@ -101,7 +134,17 @@ def render_contract_pdf(
 
     cleaned = _strip_print_script(html or "")
     document = _wrap_for_pdf(cleaned, title=title)
-    pdf_bytes = HTML(string=document, base_url=base_url).write_pdf()
+    # WeasyPrint logs an unresolved relative URL before calling ``url_fetcher``
+    # when ``base_url`` is ``None``.  Supplying a constant, non-network base
+    # keeps it out of that warning path; depending on the WeasyPrint version,
+    # the deny fetcher receives either the relative value or an ``about:`` URL
+    # and discards both without performing any I/O.
+    effective_base_url = base_url or "about:blank/"
+    pdf_bytes = HTML(
+        string=document,
+        base_url=effective_base_url,
+        url_fetcher=_deny_external_resource,
+    ).write_pdf()
     if pdf_bytes is None:
         # WeasyPrint returns None when target=None and no output_path —
         # we always pass string-based input so this is defensive.

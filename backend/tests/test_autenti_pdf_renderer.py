@@ -17,6 +17,7 @@ import pytest
 weasyprint = pytest.importorskip("weasyprint")  # noqa: F841
 
 from app.services.autenti.pdf_renderer import (  # noqa: E402
+    _deny_external_resource,
     _strip_print_script,
     render_contract_pdf,
 )
@@ -97,3 +98,82 @@ def test_render_empty_body_still_produces_pdf():
     """Edge case: empty/None body gracefully renders a 1-page blank PDF."""
     pdf = render_contract_pdf("")
     assert pdf.startswith(b"%PDF-")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:8000/private",
+        "http://[::1]/private",
+        "http://169.254.169.254/latest/meta-data/",
+        "file:///etc/passwd",
+        "https://example.invalid/tracker.png?secret=do-not-log",
+    ],
+)
+def test_pdf_resource_fetcher_denies_every_url(url):
+    response = _deny_external_resource(url)
+
+    try:
+        assert response.url == "about:blank"
+        assert response.content_type == "image/png"
+        assert response.read().startswith(b"\x89PNG\r\n\x1a\n")
+        # User-controlled URLs (including query-string secrets) are never
+        # copied into the placeholder response.
+        assert url not in repr(response)
+    finally:
+        response.close()
+
+
+@pytest.mark.parametrize(
+    ("source", "base_url", "expected_url"),
+    [
+        (
+            "http://127.0.0.1:8000/private.png",
+            None,
+            "http://127.0.0.1:8000/private.png",
+        ),
+        (
+            "http://169.254.169.254/latest/meta-data/iam.png",
+            None,
+            "http://169.254.169.254/latest/meta-data/iam.png",
+        ),
+        (
+            "relative/private.png",
+            "http://[::1]/contracts/",
+            "http://[::1]/contracts/relative/private.png",
+        ),
+        (
+            "relative/private.png?secret=do-not-log",
+            None,
+            "relative/private.png?secret=do-not-log",
+        ),
+    ],
+)
+def test_render_routes_external_images_only_to_deny_fetcher(
+    caplog,
+    monkeypatch,
+    source,
+    base_url,
+    expected_url,
+):
+    """An SSRF payload reaches our deny hook, never a network fetcher."""
+    from app.services.autenti import pdf_renderer
+
+    denied: list[str] = []
+    real_deny = pdf_renderer._deny_external_resource
+
+    def deny_and_record(url: str):
+        denied.append(url)
+        return real_deny(url)
+
+    monkeypatch.setattr(pdf_renderer, "_deny_external_resource", deny_and_record)
+    caplog.set_level("WARNING", logger="weasyprint")
+
+    pdf = render_contract_pdf(
+        f'<p>Safe body</p><img src="{source}" alt="blocked">',
+        base_url=base_url,
+    )
+
+    assert pdf.startswith(b"%PDF-")
+    assert denied == [expected_url]
+    assert expected_url not in caplog.text
