@@ -7,7 +7,8 @@ Create executable, fail-closed scripts with these names before enabling workflow
 - `fresh-database` — empty DB → full migration → pgTAP/advisors or Alembic one-head checks.
 - `authz-matrix` — anonymous, every role, unknown role and cross-user/cross-tenant negative tests.
 - `dependency-audit` — block unexcepted HIGH/CRITICAL.
-- `changed-coverage` — changed lines >=80%; total cannot decrease.
+- `changed-coverage` — generate deterministic, complete LCOV at the repository-relative path passed as `coverage_lcov_path`. Include unimported in-scope source files with zero hits (`coverage.all`/`--cov=<package>`). The hash-locked central checker, not this script, enforces changed lines >=80% and the exact total ratchet.
+- `combine-lcov` — normalize backend and frontend LCOV source paths to the repository root, then combine both reports for the central coverage checker.
 - `docker-build` — build and tag `quality-gate:${GITHUB_SHA}` without production secrets.
 - `migrate-staging`, `migrate-production-expand` — build the exact candidate
   image and invoke its fail-closed one-shot `migrate` mode with
@@ -17,6 +18,8 @@ Create executable, fail-closed scripts with these names before enabling workflow
 - `migration-head` — print exactly one migration-head identifier; `assert-rollback-allowed` — reject forbidden or below-floor `PREVIOUS_SHA`.
 
 Scripts MUST use `set -euo pipefail` (or equivalent), bounded timeouts and redacted output. Replace template URLs/UUIDs before enabling release. Keep real values in repository variables or protected Environment secrets as appropriate.
+
+Initialize `.standards/coverage-ratchet.json` only from a complete green run. The checked-in ratio MUST match current total coverage exactly; improvements raise it, and it cannot be lowered. A temporary `.security/exceptions/coverage.json` follows the central coverage-exception schema, requires independent approval and expires within 30 days.
 
 ## NEXUS exact-SHA release activation
 

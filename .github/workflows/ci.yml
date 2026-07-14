@@ -199,7 +199,15 @@ jobs:
           -v --tb=short
           --cov=app
           --cov-report=xml:coverage.xml
+          --cov-report=lcov:coverage.lcov
           --cov-report=term-missing
+      - name: Upload backend LCOV evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-lcov
+          path: backend/coverage.lcov
+          if-no-files-found: error
+          retention-days: 1
       - name: Upload backend coverage to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
@@ -240,6 +248,13 @@ jobs:
       - run: npm run type-check
       - name: Vitest with coverage
         run: npm run test:coverage
+      - name: Upload frontend LCOV evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-lcov
+          path: frontend/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
       - name: Upload frontend coverage to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
@@ -341,6 +356,52 @@ jobs:
           trivyignores: .trivyignore
           exit-code: '1'
 
+  coverage-policy:
+    name: Changed-lines coverage and total ratchet
+    needs: [backend-lint-test, frontend-lint-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download backend LCOV evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-lcov
+          path: coverage-evidence/backend
+      - name: Download frontend LCOV evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-lcov
+          path: coverage-evidence/frontend
+      - name: Test the coverage gate integration
+        run: python3 -m unittest discover -s scripts/ci/tests -p 'test_*.py' -v
+      - name: Combine repository-relative LCOV evidence
+        run: >-
+          scripts/ci/combine-lcov
+          --backend coverage-evidence/backend/coverage.lcov
+          --frontend coverage-evidence/frontend/lcov.info
+          --output coverage/lcov.info
+      - name: Enforce changed-lines coverage and total ratchet
+        env:
+          COVERAGE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base_sha="$COVERAGE_BASE_SHA"
+          if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]] || [[ "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+          python3 .standards/tools/check_coverage.py \
+            --repo-root . \
+            --lcov coverage/lcov.info \
+            --ratchet .standards/coverage-ratchet.json \
+            --exception .security/exceptions/coverage.json \
+            --base-sha "$base_sha"
+
   quality-gate:
     name: quality-gate
     if: always()
@@ -351,6 +412,7 @@ jobs:
       - frontend-lint-build
       - dependency-audit
       - security-scan
+      - coverage-policy
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
@@ -362,8 +424,9 @@ jobs:
           FRONTEND: ${{ needs.frontend-lint-build.result }}
           DEPENDENCIES: ${{ needs.dependency-audit.result }}
           SECURITY: ${{ needs.security-scan.result }}
+          COVERAGE: ${{ needs.coverage-policy.result }}
         run: |
           set -euo pipefail
-          for result in "$SECRETS" "$STANDARDS" "$BACKEND" "$FRONTEND" "$DEPENDENCIES" "$SECURITY"; do
+          for result in "$SECRETS" "$STANDARDS" "$BACKEND" "$FRONTEND" "$DEPENDENCIES" "$SECURITY" "$COVERAGE"; do
             test "$result" = "success"
           done

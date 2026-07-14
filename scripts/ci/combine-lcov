@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Combine backend and frontend LCOV reports with repository-relative paths."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
+
+
+def normalize_source(raw: str, prefix: str) -> str:
+    source = raw.strip().replace("\\", "/")
+    if source.startswith("file://"):
+        source = unquote(urlsplit(source).path)
+
+    marker = f"/{prefix}/"
+    if source.startswith("/"):
+        if marker in source:
+            source = source.split(marker, 1)[1]
+        elif prefix == "backend" and source.startswith("/app/"):
+            source = source.removeprefix("/app/")
+        else:
+            raise ValueError(f"cannot make LCOV source repository-relative: {raw!r}")
+    elif source.startswith(f"{prefix}/"):
+        source = source.removeprefix(f"{prefix}/")
+
+    relative = PurePosixPath(source)
+    if not source or relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"unsafe LCOV source path: {raw!r}")
+    return (PurePosixPath(prefix) / relative).as_posix()
+
+
+def normalized_report(path: Path, prefix: str) -> str:
+    lines: list[str] = []
+    source_count = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("SF:"):
+            line = f"SF:{normalize_source(line[3:], prefix)}"
+            source_count += 1
+        lines.append(line)
+    if source_count == 0:
+        raise ValueError(f"LCOV report has no source records: {path}")
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", type=Path, required=True)
+    parser.add_argument("--frontend", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+
+    try:
+        combined = normalized_report(args.backend, "backend")
+        combined += normalized_report(args.frontend, "frontend")
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.output.with_suffix(args.output.suffix + ".tmp")
+        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(combined)
+        os.replace(temporary, args.output)
+    except (OSError, ValueError) as exc:
+        print(f"LCOV combination failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"combined LCOV written to {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

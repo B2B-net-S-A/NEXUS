@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/artur-t-96/engineering-standards/fa4bb1123a3ea1b444e8bd4d36fb180567960a13/schemas/coverage-ratchet.schema.json",
+  "schema_version": 1,
+  "minimum_changed_lines_percent": 80,
+  "total_lines": {
+    "covered": 28162,
+    "found": 133713
+  },
+  "source_extensions": [".js", ".jsx", ".py", ".ts", ".tsx"],
+  "exclude_globs": [
+    ".github/**",
+    ".standards/**",
+    "**/*.config.js",
+    "**/*.config.ts",
+    "**/*.d.ts",
+    "**/*.spec.js",
+    "**/*.spec.py",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.test.js",
+    "**/*.test.py",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "backend/alembic/**",
+    "backend/embed_all.py",
+    "backend/seed.py",
+    "backend/seed_v4.py",
+    "backend/seed_v5.py",
+    "backend/seed_v6_pipeline.py",
+    "backend/tests/**",
+    "extension/**",
+    "frontend/e2e/**",
+    "frontend/public/**",
+    "frontend/src/test/**",
+    "frontend/src/**/types/**",
+    "scripts/ci/tests/**"
+  ]
+}
