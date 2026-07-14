@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Qdrant (vector store for semantic search)
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
+    QDRANT_URL: str = ""
     QDRANT_API_KEY: str = ""
     # Keep the currently populated indexes active until the blue/green Voyage 4
     # rebuild is complete. A versioned name is accepted only when it matches the
@@ -30,6 +31,8 @@ class Settings(BaseSettings):
     # of silently creating/switching to an empty vector space.
     QDRANT_COLLECTION: str = "nexus_candidates"
     QDRANT_JOBS_COLLECTION: str = "nexus_jobs"
+    QDRANT_CC_CENTROIDS_COLLECTION: str = "nexus_cc_centroids"
+    QDRANT_POOL_CENTROIDS_COLLECTION: str = "nexus_pool_centroids"
 
     # Voyage AI (embeddings)
     VOYAGE_API_KEY: str = ""
@@ -47,6 +50,8 @@ class Settings(BaseSettings):
     # service returns identity ordering, never breaks retrieval).
     VOYAGE_RERANK_MODEL: str = "rerank-2.5"
     RERANKER_ENABLED: bool = True
+    EMBEDDING_INDEX_SYNC_ENABLED: bool = True
+    EMBEDDING_INDEX_SYNC_INTERVAL_SECONDS: int = 5
 
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz

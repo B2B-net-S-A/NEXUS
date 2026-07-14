@@ -172,9 +172,11 @@ from app.models.candidate_source_event import (
 from app.models.dictionary import Dictionary, DictionaryItem
 from app.models.entity_field import EntityFieldDef, EntityType, FieldType
 from app.models.match_justification import CandidateMatchJustification
+from app.models.embedding_index_queue import EmbeddingIndexQueue
 
 __all__ = [
     "CandidateMatchJustification",
+    "EmbeddingIndexQueue",
     "User",
     "Candidate",
     "Job",

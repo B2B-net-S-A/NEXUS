@@ -110,6 +110,7 @@ class WeightProfile:
     """
 
     id: int = 0  # 0 = built-in default; real profiles use their DB id
+    version: int = 1
     name: str = "default"
     semantic: float = SEMANTIC_MAX
     skills: float = SKILLS_MAX
@@ -126,12 +127,26 @@ class WeightProfile:
     def skills_nice(self) -> float:
         return self.skills * (1.0 / 3.0) if self.skills else 0.0
 
+    def as_dict(self) -> dict[str, float | int | str]:
+        return {
+            "id": self.id,
+            "version": self.version,
+            "name": self.name,
+            "semantic": self.semantic,
+            "skills": self.skills,
+            "salary": self.salary,
+            "location": self.location,
+            "availability": self.availability,
+            "champion_fit": self.champion_fit,
+        }
+
     @classmethod
     def from_record(cls, record) -> "WeightProfile":
         """Build from a `ScoringWeightProfile` ORM row."""
         w = record.weights or {}
         return cls(
             id=record.id,
+            version=int(getattr(record, "version", 1) or 1),
             name=record.name,
             semantic=float(w.get("semantic", SEMANTIC_MAX)),
             skills=float(w.get("skills", SKILLS_MAX)),
@@ -167,6 +182,10 @@ async def resolve_active_profile(
             _select(ScoringWeightProfile)
             .where(ScoringWeightProfile.active.is_(True))
             .where(where)
+            .order_by(
+                ScoringWeightProfile.updated_at.desc(),
+                ScoringWeightProfile.id.desc(),
+            )
             .limit(1)
         )
         return WeightProfile.from_record(row) if row else None

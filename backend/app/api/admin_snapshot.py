@@ -129,6 +129,7 @@ def _background_tasks_status(request: Request) -> dict[str, Any]:
         "signing_sweeper": settings.SIGNING_ENABLED,
         "cloudtalk_sync": settings.CLOUDTALK_ENABLED,
         "traffit_sync": settings.TRAFFIT_SYNC_ENABLED,
+        "embedding_index_sync": settings.EMBEDDING_INDEX_SYNC_ENABLED,
     }
 
     rows: list[dict[str, str | None]] = []
