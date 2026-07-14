@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { useToast } from "@/components/Toast";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { ScoreBreakdownTooltip } from "./ScoreBreakdownTooltip";
 
 interface Props {
@@ -97,16 +98,7 @@ export function SuggestedJobsWidget({
       recommendationsApi.assignToJob(candidateId, jobId),
     onSuccess: (_response, jobId) => {
       setAssignedIds((previous) => new Set(previous).add(jobId));
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.history(candidateId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["candidate-pipelines", candidateId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.recommendationsRoot(candidateId),
-      });
-      queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+      invalidateCandidateMutation(queryClient, candidateId, "assignment");
       onAssigned?.(jobId);
       showSuccess("Kandydat przypisany do rekrutacji");
     },

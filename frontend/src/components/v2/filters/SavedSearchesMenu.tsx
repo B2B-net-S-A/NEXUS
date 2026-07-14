@@ -4,11 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, BellRing, Bookmark, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
-import {
- decodeFilters,
- encodeFilterCriteria,
- filtersToApiCriteria,
-} from "@/lib/url-filters";
+import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
 import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,16 +31,6 @@ interface SavedSearchesMenuProps {
 /** filters payload zapisywany na saved search: klasyczny querystring (replay
  * do stanu UI) + parametry GET /api/candidates (replay przez skaner alertów
  * w tle — patrz backend app/tasks/saved_search_alerts.py). */
-function buildFiltersPayload(qs: string): Record<string, unknown> {
- const decoded = decodeFilters(new URLSearchParams(qs));
- const canonicalQs = encodeFilterCriteria(decoded).toString();
- return {
- version: 2,
- qs: canonicalQs,
- api: filtersToApiCriteria(decoded),
- };
-}
-
 export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps) {
  const [open, setOpen] = useState(false);
  const [newName, setNewName] = useState("");
@@ -67,7 +53,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  savedSearchesApi.create({
  name,
  entity: "candidates",
- filters: buildFiltersPayload(currentQs),
+ filters: buildCandidateSavedSearchPayload(currentQs),
  }),
  onSuccess: () => {
  invalidate();
@@ -89,7 +75,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  return savedSearchesApi.update(
  ss.id,
  enable
- ? { notify_new_matches: true, filters: buildFiltersPayload(qs) }
+ ? { notify_new_matches: true, filters: buildCandidateSavedSearchPayload(qs) }
  : { notify_new_matches: false },
  );
  },
@@ -127,7 +113,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const renderRow = (ss: SavedSearchRow, isMine: boolean) => (
  <div
  key={ss.id}
- className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-primary/10"
+ className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-accent"
  >
  <button
  type="button"

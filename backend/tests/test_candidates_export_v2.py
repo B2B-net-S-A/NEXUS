@@ -351,6 +351,30 @@ async def test_export_validation_and_filtered_limit(
     )
     assert filtered_with_ids.status_code == 422
 
+    too_many_unique = await app_client.post(
+        "/api/candidates/export",
+        json={
+            "scope": "selected",
+            "filters": {},
+            "candidate_ids": list(range(1, 10_002)),
+        },
+        headers=app_auth_headers,
+    )
+    assert too_many_unique.status_code == 422
+
+    deduplicated_before_limit = await app_client.post(
+        "/api/candidates/export",
+        json={
+            "format": "csv",
+            "scope": "selected",
+            "filters": {},
+            "candidate_ids": [9_999_999] * 10_001,
+        },
+        headers=app_auth_headers,
+    )
+    assert deduplicated_before_limit.status_code == 422
+    assert "do not exist" in deduplicated_before_limit.json()["detail"]
+
     cohort = f"ExportLimit{uuid.uuid4().hex[:12]}"
     first = await _seed_candidate(cohort, suffix="First")
     second = await _seed_candidate(cohort, suffix="Second")
