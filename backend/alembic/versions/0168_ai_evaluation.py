@@ -16,7 +16,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_parser_challenger'")
+    # PostgreSQL requires a newly added enum value to be committed before it
+    # can be used by the seed INSERT below.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_parser_challenger'"
+        )
     op.execute(
         """INSERT INTO ai_features
            (feature, enabled, monthly_limit, monthly_budget_usd, created_at, updated_at)
