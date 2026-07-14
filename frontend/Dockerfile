@@ -34,7 +34,15 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-RUN addgroup --system --gid 1001 nodejs \
+# The standalone server only needs the Node runtime. Patch the base OS and
+# remove npm/npx plus their global dependency tree from the final image.
+RUN apk add --no-cache --upgrade \
+        libcrypto3=3.5.7-r0 \
+        libssl3=3.5.7-r0 \
+ && rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx \
+ && addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
