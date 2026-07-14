@@ -70,7 +70,9 @@ async def _seed_published_job(
 
 async def _seed_client() -> int:
     async with AsyncSessionLocal() as db:
-        client = Client(name="Phase3Co")
+        import uuid
+
+        client = Client(name=f"Phase3Co-{uuid.uuid4().hex[:8]}")
         db.add(client)
         await db.commit()
         await db.refresh(client)
@@ -96,8 +98,9 @@ async def test_shortlist_email_happy_path(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_candidate()
-    j1 = await _seed_published_job("Python Eng A")
-    j2 = await _seed_published_job("Python Eng B")
+    client_id = await _seed_client()
+    j1 = await _seed_published_job("Python Eng A", client_id=client_id)
+    j2 = await _seed_published_job("Python Eng B", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/send-candidate-shortlist-email",
@@ -113,7 +116,9 @@ async def test_shortlist_email_happy_path(
         assert "Python Eng A" in body["text_body"]
         assert "Python Eng B" in body["html_body"]
     finally:
-        await _cleanup(candidate_ids=[cid], job_ids=[j1, j2], client_ids=[])
+        await _cleanup(
+            candidate_ids=[cid], job_ids=[j1, j2], client_ids=[client_id]
+        )
 
 
 @pytest.mark.asyncio
@@ -121,7 +126,8 @@ async def test_shortlist_email_400_when_no_email(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_candidate(email=None)
-    j1 = await _seed_published_job("Python Eng C")
+    client_id = await _seed_client()
+    j1 = await _seed_published_job("Python Eng C", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/send-candidate-shortlist-email",
@@ -131,7 +137,7 @@ async def test_shortlist_email_400_when_no_email(
         assert resp.status_code == 400
         assert "email" in resp.json()["detail"].lower()
     finally:
-        await _cleanup(candidate_ids=[cid], job_ids=[j1], client_ids=[])
+        await _cleanup(candidate_ids=[cid], job_ids=[j1], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
@@ -210,7 +216,8 @@ async def test_client_proposal_happy_path(
 async def test_client_proposal_404_when_candidate_missing(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    job_id = await _seed_published_job("Backend Eng")
+    client_id = await _seed_client()
+    job_id = await _seed_published_job("Backend Eng", client_id=client_id)
     try:
         resp = await app_client.post(
             "/api/recommendations/prepare-client-proposal",
@@ -219,7 +226,7 @@ async def test_client_proposal_404_when_candidate_missing(
         )
         assert resp.status_code == 404
     finally:
-        await _cleanup(candidate_ids=[], job_ids=[job_id], client_ids=[])
+        await _cleanup(candidate_ids=[], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio

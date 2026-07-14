@@ -25,10 +25,11 @@ import httpx
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.teams_channel import TeamsNotificationChannel
+from app.models.user import User
 from app.services import teams_notifications
 from app.services.teams_notifications import (
     NOTIFICATION_TYPES,
@@ -488,6 +489,8 @@ async def test_test_endpoint_reports_killswitch_off(
 
 @pytest.mark.asyncio
 async def test_notify_teams_fans_out_to_subscribed_channels(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
     cleanup_teams_channels: None,
     monkeypatch,
 ) -> None:
@@ -502,6 +505,9 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
     monkeypatch.setattr(settings, "TEAMS_NOTIFICATIONS_ENABLED", True, raising=False)
 
     async with AsyncSessionLocal() as db:
+        actor_email = app_client.headers.get("X-Test-Admin-Email")
+        actor_id = await db.scalar(select(User.id).where(User.email == actor_email))
+        assert actor_id is not None
         db.add(
             TeamsNotificationChannel(
                 workspace_label="Subscribed A",
@@ -509,7 +515,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-a",
                 notification_types=["candidate_added"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=actor_id,
             )
         )
         db.add(
@@ -519,7 +525,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-b",
                 notification_types=["candidate_added", "contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=actor_id,
             )
         )
         db.add(
@@ -529,7 +535,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-c",
                 notification_types=["contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=actor_id,
             )
         )
         db.add(
@@ -539,7 +545,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-d",
                 notification_types=["candidate_added"],
                 enabled=False,
-                created_by_user_id=1,
+                created_by_user_id=actor_id,
             )
         )
         await db.commit()

@@ -322,7 +322,9 @@ def test_token_set_ratio_is_order_insensitive():
 async def test_cloudtalk_webhook_dry_run_returns_ok(app_client, monkeypatch):
     """With `CLOUDTALK_WEBHOOK_ENABLED` unset, webhook runs in dry-run mode
     and returns 200 without touching the DB."""
-    monkeypatch.delenv("CLOUDTALK_WEBHOOK_ENABLED", raising=False)
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", False)
     resp = await app_client.post(
         "/api/calls/webhook",
         json={"call": {"id": "ct-1", "phone": "+48123456789"}},
@@ -335,8 +337,10 @@ async def test_cloudtalk_webhook_dry_run_returns_ok(app_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cloudtalk_webhook_rejects_invalid_hmac(app_client, monkeypatch):
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_ENABLED", "true")
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
+    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
     resp = await app_client.post(
         "/api/calls/webhook",
         headers={"X-CloudTalk-Signature": "totally-wrong"},
@@ -351,8 +355,10 @@ async def test_cloudtalk_webhook_accepts_valid_hmac(app_client, monkeypatch):
     import hmac
     import json
 
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_ENABLED", "true")
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
+    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
     body = json.dumps({"call": {"id": "ct-3", "phone": "+48000000000"}}).encode()
     sig = hmac.new(b"s3cr3t", body, hashlib.sha256).hexdigest()
     resp = await app_client.post(

@@ -357,5 +357,10 @@ class Candidate(Base, TimestampMixin):
         order_by="desc(CandidateLinkedinSnapshot.fetched_at)",
     )
 
+    @property
+    def full_name(self) -> str:
+        """Canonical display name used by templates and notifications."""
+        return " ".join(part for part in (self.name, self.lastname) if part).strip()
+
     def __repr__(self) -> str:
         return f"<Candidate id={self.id} name={self.name} {self.lastname}>"

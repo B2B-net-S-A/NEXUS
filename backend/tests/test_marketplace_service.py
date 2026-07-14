@@ -130,7 +130,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _cleanup_marketplace(db) -> None:
-    """Usuń singletona i wszystkie memberships — fresh start na każdy test."""
+    """Remove the singleton and candidates created by this test module."""
     from sqlalchemy import delete, select
 
     pool = (
@@ -145,7 +145,10 @@ async def _cleanup_marketplace(db) -> None:
             )
         )
         await db.delete(pool)
-        await db.commit()
+    await db.execute(
+        delete(Candidate).where(Candidate.email.like("mp_test_%@example.com"))
+    )
+    await db.commit()
 
 
 async def _seed_candidate(

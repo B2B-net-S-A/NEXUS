@@ -76,13 +76,16 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
     now = datetime(2026, 4, 21, 21, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
     results = await nt.run_all_triggers(empty_db, now)
     # Nie zakładamy że baza jest pusta (test może lecieć na shared instance),
-    # ale zwrócony słownik musi mieć wszystkie 5 kluczy z int values.
+    # ale zwrócony słownik musi mieć wszystkie klucze z int values.
     assert set(results.keys()) == {
         "dl_stage_stale_6h",
         "stage_stuck_7d",
         "candidate_feedback_1h",
         "powercalling_kpi",
         "client_feedback_eobd",
+        "post_interview_t15",
+        "post_interview_t45",
+        "post_interview_t2h_escalation",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated triggers muszą zwrócić 0 o 21:00.

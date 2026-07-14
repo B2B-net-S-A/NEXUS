@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,14 @@ from app.models.user import UserRole
 from app.api.deps import AdminUser, CurrentUser
 
 router = APIRouter()
+
+_PROCEDURE_SEARCH_MAX_LENGTH = 200
+_PROCEDURE_SEARCH_MAX_TERMS = 8
+
+
+def _escape_like_term(value: str) -> str:
+    """Escape user input so ``%`` and ``_`` remain literal search text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # ── Pydantic schemas ────────────────────────────────────────────────────────
@@ -110,7 +118,11 @@ def _is_admin(user) -> bool:
 async def list_procedures(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
-    q: Optional[str] = Query(default=None, description="Wyszukaj po tytule i treści"),
+    q: Optional[str] = Query(
+        default=None,
+        max_length=_PROCEDURE_SEARCH_MAX_LENGTH,
+        description="Wyszukaj po tytule i treści",
+    ),
     published_only: bool = Query(
         default=True,
         description="Domyślnie true; admin może przekazać false aby widzieć szkice",
@@ -124,10 +136,31 @@ async def list_procedures(
         stmt = stmt.where(Procedure.is_published.is_(True))
 
     if q:
-        pattern = f"%{q.strip()}%"
-        stmt = stmt.where(
-            or_(Procedure.title.ilike(pattern), Procedure.content.ilike(pattern))
-        )
+        # Match every whitespace-delimited term, while allowing each term to
+        # occur in either title or content. This makes queries such as
+        # "onboarding klient" useful even when another word sits between them.
+        raw_terms = [term for term in q.strip().split() if term]
+        if len(raw_terms) > _PROCEDURE_SEARCH_MAX_TERMS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Search query has too many terms "
+                    f"(max {_PROCEDURE_SEARCH_MAX_TERMS})"
+                ),
+            )
+        terms = [_escape_like_term(term) for term in raw_terms]
+        if terms:
+            stmt = stmt.where(
+                and_(
+                    *[
+                        or_(
+                            Procedure.title.ilike(f"%{term}%", escape="\\"),
+                            Procedure.content.ilike(f"%{term}%", escape="\\"),
+                        )
+                        for term in terms
+                    ]
+                )
+            )
 
     stmt = stmt.order_by(Procedure.sort_order.desc(), Procedure.updated_at.desc())
     result = await db.execute(stmt)

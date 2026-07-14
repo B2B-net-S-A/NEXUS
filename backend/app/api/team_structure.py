@@ -9,6 +9,7 @@ CUD wymaga `HeadOfRecruitmentPlus` (admin + head_of_recruitment).
 GET dostępne dla `CurrentUser` (wszyscy zalogowani).
 """
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -426,7 +427,8 @@ async def list_dl_clients(
     def _norm_name(name: str) -> str:
         # Strip "(DL)"/"(TAC)" suffix tags that some @inframinds.eu names carry
         # then case-fold so "Marlena Rosol" == "Marlena Rosół (DL)".
-        cleaned = name.split("(")[0].strip().lower()
+        cleaned = re.sub(r"\s*\((?:DL|TAC)\)\s*", " ", name, flags=re.I)
+        cleaned = " ".join(cleaned.lower().split())
         # Drop Polish diacritics so display variants merge (rosol == rosół).
         translate = str.maketrans("ąćęłńóśźż", "acelnoszz")
         return cleaned.translate(translate)

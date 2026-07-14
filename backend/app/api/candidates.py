@@ -117,6 +117,27 @@ def _build_response(data: dict) -> dict:
     return {"success": True, "data": data}
 
 
+def _safe_cv_basename(filename: str) -> str | None:
+    """Return a path-free CV filename, or ``None`` for an invalid value.
+
+    Imported legacy records predate upload-time sanitization, so every disk
+    read must treat ``cv_filename`` as hostile as well. Normalizing both slash
+    styles also keeps the invariant when data originated on Windows.
+    """
+    normalized = (filename or "").replace("\\", "/").replace("\x00", "")
+    basename = os.path.basename(normalized).strip()
+    if basename in {"", ".", ".."}:
+        return None
+    return basename
+
+
+def _candidate_cv_disk_path(candidate_id: int, filename: str) -> str | None:
+    safe_name = _safe_cv_basename(filename)
+    if safe_name is None:
+        return None
+    return os.path.join(settings.UPLOAD_DIR, f"candidate_{candidate_id}_{safe_name}")
+
+
 # Cap on how many open jobs we score per candidate when populating match stats.
 # Keeps worst-case latency bounded: page_size × _MATCH_STATS_JOB_CAP score computes.
 _MATCH_STATS_JOB_CAP = 50
@@ -3568,6 +3589,20 @@ async def create_candidate_from_cv(
 
     _apply_cv_enrichment(candidate, parsed)
 
+    # ``force`` bypasses the soft duplicate block, not the database's hard
+    # uniqueness invariant. If the parsed email already belongs to a matched
+    # candidate, retain it in ``cv_extracted_data``/the duplicate audit but do
+    # not copy it into the unique contact column of the forced record.
+    duplicate_email_suppressed = False
+    if force and candidate.email:
+        parsed_email = candidate.email.strip().casefold()
+        if any(
+            (match.email or "").strip().casefold() == parsed_email
+            for match in duplicates
+        ):
+            candidate.email = None
+            duplicate_email_suppressed = True
+
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -3576,6 +3611,8 @@ async def create_candidate_from_cv(
         details={
             "filename": file.filename,
             "source": parsed.get("_source"),
+            "force_duplicate_override": force,
+            "duplicate_email_suppressed": duplicate_email_suppressed,
         },
     )
     db.add(activity)
@@ -3643,7 +3680,6 @@ async def upload_cv(
     upload (`_validate_cv_file` in `public_share.py`).
     """
     import asyncio
-    import pathlib
 
     from app.services import cv_text_extractor
 
@@ -3680,9 +3716,8 @@ async def upload_cv(
             status_code=415,
             detail="Unsupported CV format. Use PDF, DOC, or DOCX.",
         )
-    # Strip directory components — pathlib.Path(...).name returns just the
-    # last segment, defeating `../../etc/passwd` and similar traversal.
-    safe_filename = pathlib.Path(raw_filename).name
+    # Strip directory components before persisting or opening the path.
+    safe_filename = _safe_cv_basename(raw_filename) or "upload.pdf"
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(
@@ -3772,10 +3807,8 @@ async def download_cv(
         raise HTTPException(status_code=404, detail="Candidate not found")
     if not candidate.cv_filename:
         raise HTTPException(status_code=404, detail="No CV uploaded for this candidate")
-    file_path = os.path.join(
-        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{candidate.cv_filename}"
-    )
-    if not os.path.exists(file_path):
+    file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
+    if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
     return FileResponse(
         path=file_path,
@@ -3832,12 +3865,9 @@ async def bulk_cv_download(
                 skipped += 1
                 continue
 
-            file_path = os.path.join(
-                settings.UPLOAD_DIR,
-                f"candidate_{candidate.id}_{candidate.cv_filename}",
-            )
+            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
             data: bytes | None = None
-            if os.path.exists(file_path):
+            if file_path is not None and os.path.exists(file_path):
                 try:
                     async with aiofiles.open(file_path, "rb") as f:
                         data = await f.read()

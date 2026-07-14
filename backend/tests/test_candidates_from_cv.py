@@ -12,10 +12,12 @@ from io import BytesIO
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
+from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.user_activity import UserActivity
 
 
 FAKE_PARSED = {
@@ -202,21 +204,49 @@ async def test_from_cv_force_bypasses_dedup(
             headers=app_auth_headers,
             files={"file": ("force2.pdf", _fake_pdf_bytes(), "application/pdf")},
         )
-        # email has UNIQUE constraint so the second insert will hit a DB
-        # violation — we accept either 201 (if DB lets it through because of
-        # a different email detection path) or 409/500 from the DB. What we
-        # assert is that the dedup-soft-block didn't swallow it.
-        assert second.status_code in (201, 409, 500), second.text
-        if second.status_code == 201:
-            created_ids.append(second.json()["candidate"]["id"])
-            assert len(second.json()["duplicates"]) >= 1
-    finally:
-        # Cleanup all candidates with the shared email.
+        assert second.status_code == 201, second.text
+        second_body = second.json()
+        second_id = second_body["candidate"]["id"]
+        created_ids.append(second_id)
+        assert second_body["candidate"]["email"] is None
+        assert any(
+            match["candidate_id"] == created_ids[0]
+            for match in second_body["duplicates"]
+        )
+
         async with AsyncSessionLocal() as db:
-            for cid in created_ids:
-                row = await db.scalar(
-                    select(Candidate).where(Candidate.id == cid)
+            persisted = await db.get(Candidate, second_id)
+            assert persisted is not None
+            assert persisted.email is None
+            activity = await db.scalar(
+                select(Activity).where(
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == second_id,
+                    Activity.action == "created_from_cv",
                 )
+            )
+            assert activity is not None
+            assert activity.details["force_duplicate_override"] is True
+            assert activity.details["duplicate_email_suppressed"] is True
+    finally:
+        # Cleanup both records; the forced candidate intentionally has no
+        # contact email, so email-only cleanup would leave it behind.
+        async with AsyncSessionLocal() as db:
+            if created_ids:
+                await db.execute(
+                    delete(Activity).where(
+                        Activity.entity_type == "candidate",
+                        Activity.entity_id.in_(created_ids),
+                    )
+                )
+                await db.execute(
+                    delete(UserActivity).where(
+                        UserActivity.entity_type == "candidate",
+                        UserActivity.entity_id.in_(created_ids),
+                    )
+                )
+            for cid in created_ids:
+                row = await db.get(Candidate, cid)
                 if row:
                     await db.delete(row)
             await db.commit()

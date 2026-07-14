@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -65,7 +67,7 @@ async def _new_client() -> int:
 async def _new_candidate() -> int:
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        cand = Candidate(name=f"Test Kontraktor {suffix}")
+        cand = Candidate(name="Test Kontraktor", lastname=suffix)
         db.add(cand)
         await db.flush()
         await db.commit()
@@ -137,6 +139,9 @@ async def _cleanup(
                 Candidate.__table__.delete().where(Candidate.id.in_(candidate_ids))
             )
         if user_ids:
+            await db.execute(
+                Activity.__table__.delete().where(Activity.user_id.in_(user_ids))
+            )
             await db.execute(User.__table__.delete().where(User.id.in_(user_ids)))
         await db.commit()
 
@@ -200,9 +205,9 @@ async def test_order_extension_create_under_existing_contract(
         body = resp.json()
         assert body["contract_id"] == contract_id
         assert body["candidate_id"] == cand_id
-        assert body["rate_client"] == 17000
+        assert Decimal(str(body["rate_client"])) == Decimal("17000")
         # Marża z Order.rate_client (17000) - Contract.rate_candidate (12000) = 5000
-        assert body["monthly_margin"] == 5000
+        assert Decimal(str(body["monthly_margin"])) == Decimal("5000")
     finally:
         await _cleanup([client_id], [], [cand_id])
 
@@ -261,7 +266,7 @@ async def test_contract_with_order_atomic_create(
         assert body["contract_id"] > 0
         assert body["order_id"] > 0
         # 18000 - 14000 = 4000 monthly margin
-        assert body["monthly_margin"] == 4000
+        assert Decimal(str(body["monthly_margin"])) == Decimal("4000")
     finally:
         await _cleanup([client_id], [], [cand_id])
 
@@ -312,7 +317,9 @@ async def test_grouped_response_shows_contract_with_orders(
         assert contractor["candidate_id"] == cand_id
         assert len(contractor["orders"]) == 2
         # Latest = order najwięcej rate_client (Q2 = 16k)
-        assert contractor["latest_order_rate_client"] == 16000
+        assert Decimal(str(contractor["latest_order_rate_client"])) == Decimal(
+            "16000"
+        )
     finally:
         await _cleanup([client_id], [], [cand_id])
 

@@ -7,7 +7,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, update, func
+from sqlalchemy import func, literal_column, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -188,30 +189,48 @@ async def create_notification(
     Note: caller is responsible for ``db.commit()``.
     """
     if dedupe_resurface and related_entity_id is not None:
-        from sqlalchemy import and_
-
-        existing = await db.scalar(
-            select(Notification)
-            .where(
-                and_(
-                    Notification.user_id == user_id,
-                    Notification.notification_type == notification_type,
-                    Notification.related_entity_id == related_entity_id,
-                    Notification.related_entity_type == related_entity_type,
-                    func.date_trunc("day", Notification.created_at)
-                    == func.date_trunc("day", func.now()),
-                )
-            )
-            .order_by(Notification.created_at.desc())
-            .limit(1)
+        # Match the expression and predicate of ``ix_notif_dedup_daily``
+        # exactly.  A PostgreSQL upsert is required here: select-then-insert
+        # races across the background scanner and sweeper, while comparing
+        # ``date_trunc`` in the session timezone disagrees with the index
+        # around midnight in Europe/Warsaw.
+        insert_stmt = pg_insert(Notification).values(
+            user_id=user_id,
+            title=title,
+            message=message,
+            link=link,
+            notification_type=notification_type,
+            is_read=False,
+            related_entity_type=related_entity_type,
+            related_entity_id=related_entity_id,
         )
-        if existing is not None:
-            existing.title = title
-            existing.message = message
-            existing.link = link
-            existing.is_read = False
-            existing.created_at = func.now()
-            return existing
+        warsaw_day = literal_column(
+            "date_trunc('day', created_at AT TIME ZONE 'Europe/Warsaw')"
+        )
+        upsert_stmt = (
+            insert_stmt.on_conflict_do_update(
+                index_elements=(
+                    Notification.user_id,
+                    Notification.notification_type,
+                    Notification.related_entity_id,
+                    warsaw_day,
+                ),
+                index_where=Notification.related_entity_id.is_not(None),
+                set_={
+                    "title": insert_stmt.excluded.title,
+                    "message": insert_stmt.excluded.message,
+                    "link": insert_stmt.excluded.link,
+                    "related_entity_type": insert_stmt.excluded.related_entity_type,
+                    "is_read": False,
+                    "created_at": func.now(),
+                    "updated_at": func.now(),
+                },
+            )
+            .returning(Notification)
+            .execution_options(populate_existing=True)
+        )
+        result = await db.execute(upsert_stmt)
+        return result.scalar_one()
 
     notif = Notification(
         user_id=user_id,

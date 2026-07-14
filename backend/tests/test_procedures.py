@@ -229,6 +229,52 @@ async def test_search_matches_title_and_content(proc_client, admin_headers):
     assert any(f"Procedura płatności {unique}" in t for t in titles2)
 
 
+@pytest.mark.asyncio
+async def test_search_limits_query_complexity(proc_client, admin_headers):
+    too_long = await proc_client.get(
+        "/api/procedures",
+        headers=admin_headers,
+        params={"q": "x" * 201},
+    )
+    assert too_long.status_code == 422
+
+    too_many_terms = await proc_client.get(
+        "/api/procedures",
+        headers=admin_headers,
+        params={"q": "one two three four five six seven eight nine"},
+    )
+    assert too_many_terms.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_search_treats_like_wildcards_as_literals(proc_client, admin_headers):
+    unique = uuid.uuid4().hex[:6]
+    literal_title = f"Literal abc%def_{unique}"
+    wildcard_title = f"Wildcard abcZZdefX{unique}"
+
+    first = await proc_client.post(
+        "/api/procedures",
+        headers=admin_headers,
+        json={"title": literal_title, "content": "literal wildcard markers"},
+    )
+    second = await proc_client.post(
+        "/api/procedures",
+        headers=admin_headers,
+        json={"title": wildcard_title, "content": "control row"},
+    )
+    assert first.status_code == 201 and second.status_code == 201
+
+    response = await proc_client.get(
+        "/api/procedures",
+        headers=admin_headers,
+        params={"q": f"abc%def_{unique}"},
+    )
+    assert response.status_code == 200
+    titles = {item["title"] for item in response.json()}
+    assert literal_title in titles
+    assert wildcard_title not in titles
+
+
 # ── published_only ──────────────────────────────────────────────────────────
 
 

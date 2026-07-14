@@ -119,13 +119,14 @@ def _salary_in_window(
     return True
 
 
-def _competence_category_matches(job: Job, targets: Sequence[str]) -> bool:
+def _competence_category_matches(job: Job, targets: Sequence[str] | str) -> bool:
     """Match job against any of the target categories (OR-combined, case-insensitive).
 
     Each target is matched against job.subcategory / job.industry / job.title.
     Empty `targets` (or empty strings only) → True (no filter).
     """
-    needles = [t.lower().strip() for t in targets if t and t.strip()]
+    target_values = [targets] if isinstance(targets, str) else targets
+    needles = [t.lower().strip() for t in target_values if t and t.strip()]
     if not needles:
         return True
     job_fields = [

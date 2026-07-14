@@ -84,7 +84,16 @@ def _email_domain(addr: str) -> Optional[str]:
 
 def _fold_diacritics(s: str) -> str:
     """Lowercase + strip Polish diacritics for robust name matching."""
-    folded = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    # Unicode decomposition does not split Polish L-with-stroke, so an ASCII
+    # encode with ``ignore`` used to drop the letter entirely (Łukasz ->
+    # ukasz). Translate that character explicitly before folding the remaining
+    # combining marks.
+    translated = s.translate(str.maketrans({"Ł": "L", "ł": "l"}))
+    folded = (
+        unicodedata.normalize("NFKD", translated)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
     return folded.lower()
 
 

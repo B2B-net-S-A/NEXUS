@@ -62,7 +62,7 @@ async def _create_job(client: AsyncClient, headers: dict) -> int:
     payload = {
         "title": f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
         "description": "Backend engineer with Python + FastAPI",
-        "must_skills": [{"name": "Python", "level": 4, "years": 3}],
+        "must_skills": [{"name": "Python", "level": "senior", "years": 3}],
         "client_id": cli_id,
     }
     resp = await client.post("/api/jobs", headers=headers, json=payload)
@@ -203,8 +203,10 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
     proposals_client: AsyncClient, app_auth_headers: dict
 ):
     """
-    If Qdrant returns no hits and DB has no candidates, the task must mark
-    the snapshot ready with zero candidates — not failed.
+    If both semantic search and fallback scoring return no matches, the task
+    must mark the snapshot ready with zero candidates — not failed.  Mock the
+    scorer as well as Qdrant so this test is independent of candidates left by
+    other integration modules in the shared test database.
     """
     from app.tasks.compute_proposals import (
         compute_proposal_for_job,
@@ -221,6 +223,9 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
     ), patch(
         "app.services.embedding_service.embed_job",
         new=AsyncMock(return_value=True),
+    ), patch(
+        "app.services.match_score_cache.bulk_get_or_compute",
+        new=AsyncMock(return_value=[]),
     ):
         await compute_proposal_for_job(snapshot_id, job_id, top_k=10)
 
@@ -229,8 +234,7 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
             select(ProposalSnapshot).where(ProposalSnapshot.id == snapshot_id)
         )
     assert snap is not None
-    # With no candidates in the fallback pool, we still finish cleanly.
-    assert snap.status in (STATUS_READY, STATUS_FAILED)
-    if snap.status == STATUS_READY:
-        assert snap.candidate_ids == []
-        assert snap.breakdowns == []
+    # With no candidates returned by either matching path, finish cleanly.
+    assert snap.status == STATUS_READY
+    assert snap.candidate_ids == []
+    assert snap.breakdowns == []

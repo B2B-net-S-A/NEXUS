@@ -122,10 +122,14 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
-    ("GET", "/api/reports/recruitment"),
     ("GET", "/api/reports/sales"),
     ("GET", "/api/reports/board"),
 ]
+
+# Recruitment funnel is a read-only team aggregate used by the recruiter
+# dashboard. It intentionally includes every recruitment role, but not the
+# read-only `user` role.
+RECRUITMENT_REPORT_ENDPOINTS = [("GET", "/api/reports/recruitment")]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
 RECRUITER_PLUS_ENDPOINTS = [
@@ -164,6 +168,7 @@ ROLE_SETS = {
         UserRole.sourcer,
     },
     "all": set(ROLES),
+    "recruitment_report": set(ROLES) - {UserRole.user},
 }
 
 
@@ -260,6 +265,23 @@ async def test_tac_plus_endpoints_reject_below_tac(
         assert resp.status_code == 403, (
             f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", RECRUITMENT_REPORT_ENDPOINTS)
+async def test_recruitment_report_roles(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    """Recruitment team roles may read the aggregate; viewer stays denied."""
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["recruitment_report"]:
+        assert resp.status_code == 200
+    else:
+        assert resp.status_code == 403
 
 
 @pytest.mark.asyncio

@@ -228,10 +228,10 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
         )
         == "Świetny Python dev. Idzie do klienta."
     )
-    long_note = "a" * 200
+    long_note = "a" * 300
     preview = _format_note_preview(long_note)
     assert preview.endswith("…")
-    assert len(preview) <= 121
+    assert len(preview) <= 220
 
     # Tiptap JSON doc — should extract just the text leaves.
     tiptap_doc = (

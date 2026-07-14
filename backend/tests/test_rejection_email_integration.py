@@ -30,6 +30,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.rejection_email import (
@@ -50,9 +51,8 @@ from app.services.rejection_email_scheduler import (
 async def seeded_entities():
     """Create a recruiter, a candidate (with email) and two jobs.
 
-    Uses raw SQL for the jobs insert because the ORM `Job` model has newer
-    columns (e.g. `closed_at`) not present on the local dev DB. This is a
-    pre-existing schema/model drift — unrelated to rejection-email work.
+    Uses raw SQL for the jobs insert to keep the fixture focused on the
+    columns used by rejection-email scheduling.
     Returns a dict of ids.
     """
     from sqlalchemy import text
@@ -78,18 +78,26 @@ async def seeded_entities():
         db.add(candidate)
         await db.flush()
 
+        client = Client(name=f"Rejection Client {suffix}")
+        db.add(client)
+        await db.flush()
+
         # Raw SQL for jobs — bypasses ORM drift. Only populate required columns.
         job_primary_id = (
             await db.execute(
                 text(
                     "INSERT INTO jobs "
                     "(title, status, priority, recruiter_id, "
-                    " recruitment_type, remote_policy) "
+                    " recruitment_type, remote_policy, client_id) "
                     "VALUES (:title, 'published', 'medium', :rec, "
-                    "        'body_leasing', 'hybrid') "
+                    "        'body_leasing', 'hybrid', :client_id) "
                     "RETURNING id"
                 ),
-                {"title": f"Primary Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Primary Role {suffix}",
+                    "rec": recruiter.id,
+                    "client_id": client.id,
+                },
             )
         ).scalar_one()
         job_other_id = (
@@ -97,12 +105,16 @@ async def seeded_entities():
                 text(
                     "INSERT INTO jobs "
                     "(title, status, priority, recruiter_id, "
-                    " recruitment_type, remote_policy) "
+                    " recruitment_type, remote_policy, client_id) "
                     "VALUES (:title, 'published', 'medium', :rec, "
-                    "        'body_leasing', 'hybrid') "
+                    "        'body_leasing', 'hybrid', :client_id) "
                     "RETURNING id"
                 ),
-                {"title": f"Other Active Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Other Active Role {suffix}",
+                    "rec": recruiter.id,
+                    "client_id": client.id,
+                },
             )
         ).scalar_one()
 
@@ -113,6 +125,7 @@ async def seeded_entities():
             "candidate_id": candidate.id,
             "job_primary_id": job_primary_id,
             "job_other_id": job_other_id,
+            "client_id": client.id,
             "recruiter_email": recruiter.email,
         }
 
@@ -159,6 +172,10 @@ async def seeded_entities():
         await db.execute(
             text("DELETE FROM jobs WHERE id = ANY(:ids)"),
             {"ids": [ids["job_primary_id"], ids["job_other_id"]]},
+        )
+        await db.execute(
+            text("DELETE FROM clients WHERE id = :client_id"),
+            {"client_id": ids["client_id"]},
         )
         await db.execute(
             text("DELETE FROM users WHERE id = :uid"),

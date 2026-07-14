@@ -8,6 +8,7 @@ scoringu.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -19,6 +20,7 @@ from sqlalchemy import delete, select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
+from app.models.client import Client
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.notification import Notification, NotificationType
@@ -85,6 +87,18 @@ class _FakeBreakdown:
 
 async def _cleanup_marketplace_data(db) -> None:
     # Usuń wszystkie test-utworzone marketplace artefakty.
+    # A failed flush leaves AsyncSession unusable until rollback; cleanup must
+    # still restore isolation so one failure does not cascade into an ERROR.
+    await db.rollback()
+    test_user_ids = select(User.id).where(
+        User.email.like("marketplace_%@example.com")
+    )
+    await db.execute(
+        delete(Notification).where(
+            Notification.notification_type == NotificationType.marketplace_match,
+            Notification.user_id.in_(test_user_ids),
+        )
+    )
     pool = (
         await db.execute(
             select(TalentPool).where(TalentPool.is_marketplace.is_(True))
@@ -98,6 +112,10 @@ async def _cleanup_marketplace_data(db) -> None:
         )
         await db.delete(pool)
     await db.execute(delete(MarketplaceAlertLog))
+    await db.execute(delete(Job).where(Job.created_by.in_(test_user_ids)))
+    await db.execute(delete(Candidate).where(Candidate.created_by.in_(test_user_ids)))
+    await db.execute(delete(Client).where(Client.name.like("MpClient-%")))
+    await db.execute(delete(User).where(User.id.in_(test_user_ids)))
     await db.commit()
 
 
@@ -298,6 +316,99 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
     assert len(logs) == 1
 
 
+async def test_alert_claim_loser_performs_no_notification_side_effect(
+    monkeypatch, fresh_db
+):
+    """A concurrent loser must stop after the pair claim returns no row."""
+    db = fresh_db
+    owner = await _seed_user(db, name="ClaimLoser")
+    cand = await _seed_candidate(db, owner=owner)
+    job = await _seed_job(db, recruiter=owner)
+    await auto_sync_marketplace_membership(db)
+    await db.commit()
+
+    async def fake_search_candidates(*args, **kwargs):
+        return [{"candidate_id": cand.id, "score": 0.92, "payload": {}}]
+
+    async def fake_score(candidate, job_obj, db_, *, semantic_similarity=None, profile=None):
+        return _FakeBreakdown(
+            candidate_id=candidate.id,
+            job_id=job_obj.id,
+            total=85.0,
+            matching_must=["Python"],
+            gap_must=[],
+        )
+
+    async def fake_claim(*args, **kwargs):
+        return None
+
+    async def fail_if_notified(*args, **kwargs):
+        raise AssertionError("claim loser attempted a notification side effect")
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic",
+        fake_search_candidates,
+    )
+    monkeypatch.setattr(
+        "app.services.scoring_service.score_candidate_job", fake_score
+    )
+    monkeypatch.setattr(
+        "app.services.marketplace_service._try_insert_alert_log", fake_claim
+    )
+    monkeypatch.setattr(
+        "app.services.marketplace_service._create_marketplace_notifications",
+        fail_if_notified,
+    )
+
+    result = await scan_job_for_marketplace_matches(job.id, db)
+    await db.commit()
+
+    assert result.matches_found == 1
+    assert result.new_alerts == 0
+
+
+async def test_notification_resurface_is_atomic_across_sessions(fresh_db):
+    """Concurrent writers converge on the Warsaw-day unique notification."""
+    from app.api.notifications import create_notification
+
+    db = fresh_db
+    owner = await _seed_user(db, name="AtomicNotification")
+    job = await _seed_job(db, recruiter=owner)
+
+    async def emit(message: str) -> int:
+        async with AsyncSessionLocal() as session:
+            notification = await create_notification(
+                session,
+                user_id=owner.id,
+                title="Atomic marketplace match",
+                message=message,
+                notification_type=NotificationType.marketplace_match,
+                link=f"/jobs/{job.id}",
+                related_entity_type="job",
+                related_entity_id=job.id,
+                dedupe_resurface=True,
+            )
+            notification_id = notification.id
+            await session.commit()
+            return notification_id
+
+    notification_ids = await asyncio.gather(emit("first"), emit("second"))
+    assert notification_ids[0] == notification_ids[1]
+
+    rows = (
+        await db.execute(
+            select(Notification).where(
+                Notification.user_id == owner.id,
+                Notification.notification_type == NotificationType.marketplace_match,
+                Notification.related_entity_id == job.id,
+            )
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].message in {"first", "second"}
+    assert rows[0].is_read is False
+
+
 async def test_owner_equal_single_notification(monkeypatch, fresh_db):
     """Gdy candidate.created_by == job.recruiter_id → jedna notyfikacja."""
     db = fresh_db
@@ -314,7 +425,7 @@ async def test_owner_equal_single_notification(monkeypatch, fresh_db):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
-            total=75.0,
+            total=85.0,
             matching_must=["Python"],
             gap_must=[],
         )

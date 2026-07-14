@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -306,7 +306,12 @@ async def _create_marketplace_notifications(
             link=candidate_for_link,
             related_entity_type="job",
             related_entity_id=job.id,
-            dedupe_resurface=False,
+            # The daily notification index is keyed by owner + type + job.
+            # A scan may yield several candidates for the same owner/job, so
+            # aggregate those into one resurfaced notification instead of
+            # aborting the whole transaction on a uniqueness collision. Pair
+            # level audit/dedup remains in marketplace_alert_log.
+            dedupe_resurface=True,
         )
         if uid == cand_owner:
             notified_cand = uid
@@ -322,13 +327,15 @@ async def _try_insert_alert_log(
     candidate_id: int,
     job_id: int,
     score: float,
-    notified_cand: Optional[int],
-    notified_job: Optional[int],
-) -> bool:
+    notified_cand: Optional[int] = None,
+    notified_job: Optional[int] = None,
+) -> Optional[int]:
     """INSERT ... ON CONFLICT (candidate_id, job_id) DO NOTHING.
 
-    Returns True if a new row was inserted (fresh alert), False if conflict
-    (alert already logged — never re-notify this pair).
+    Returns the new row id when this transaction claimed the pair, otherwise
+    ``None``.  Callers must claim before emitting any side effect; the unique
+    constraint is the concurrency boundary between the background scan and
+    the sweeper.
     """
     stmt = (
         pg_insert(MarketplaceAlertLog)
@@ -343,7 +350,7 @@ async def _try_insert_alert_log(
         .returning(MarketplaceAlertLog.id)
     )
     result = await db.execute(stmt)
-    return result.scalar_one_or_none() is not None
+    return result.scalar_one_or_none()
 
 
 async def _was_already_alerted(
@@ -465,20 +472,29 @@ async def scan_job_for_marketplace_matches(
             continue
         matches += 1
 
-        # Send notifications FIRST (inside same transaction as the log insert).
-        notified_cand, notified_job = await _create_marketplace_notifications(
-            db, candidate=cand, job=job, score=bd.total
-        )
-        inserted = await _try_insert_alert_log(
+        # Atomically claim the candidate/job pair before touching a
+        # notification. A concurrent loser must perform zero side effects.
+        alert_log_id = await _try_insert_alert_log(
             db,
             candidate_id=cand.id,
             job_id=job.id,
             score=bd.total,
-            notified_cand=notified_cand,
-            notified_job=notified_job,
         )
-        if inserted:
-            new_alerts += 1
+        if alert_log_id is None:
+            continue
+
+        notified_cand, notified_job = await _create_marketplace_notifications(
+            db, candidate=cand, job=job, score=bd.total
+        )
+        await db.execute(
+            update(MarketplaceAlertLog)
+            .where(MarketplaceAlertLog.id == alert_log_id)
+            .values(
+                notified_candidate_owner_id=notified_cand,
+                notified_job_owner_id=notified_job,
+            )
+        )
+        new_alerts += 1
 
     latency_ms = round((time.perf_counter() - t0) * 1000, 2)
     logger.info(
@@ -604,10 +620,10 @@ def _normalize_skills(bucket: Any) -> frozenset[str]:
 
 def _normalize_value(field: str, value: Any) -> Any:
     """Znormalizuj surowe wartości (enum.value itp.) do porównania starego/nowego."""
-    if value is None:
-        return None
     if field in ("must_skills", "nice_skills"):
         return _normalize_skills(value)
+    if value is None:
+        return None
     if hasattr(value, "value"):
         return value.value
     if isinstance(value, str):

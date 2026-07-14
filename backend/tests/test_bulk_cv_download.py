@@ -39,8 +39,12 @@ async def _seed_candidate(
 
     if cv_on_disk is not None and cv_filename:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        # Mirror the production write invariant while retaining the hostile
+        # value in the DB. The endpoint must sanitize again on read because
+        # imported legacy rows may not have gone through the upload handler.
+        disk_name = os.path.basename(cv_filename.replace("\\", "/"))
         with open(
-            os.path.join(settings.UPLOAD_DIR, f"candidate_{cid}_{cv_filename}"), "wb"
+            os.path.join(settings.UPLOAD_DIR, f"candidate_{cid}_{disk_name}"), "wb"
         ) as f:
             f.write(cv_on_disk)
 
@@ -59,8 +63,9 @@ async def _delete_candidate(candidate_id: int, cv_filename: str | None) -> None:
             await db.commit()
 
     if cv_filename:
+        disk_name = os.path.basename(cv_filename.replace("\\", "/"))
         path = os.path.join(
-            settings.UPLOAD_DIR, f"candidate_{candidate_id}_{cv_filename}"
+            settings.UPLOAD_DIR, f"candidate_{candidate_id}_{disk_name}"
         )
         if os.path.exists(path):
             os.remove(path)

@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.candidate import Candidate
+from app.models.skill import Skill, SkillAlias
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
 from app.models.competence_category import (
@@ -177,6 +178,8 @@ __all__ = [
     "CandidateMatchJustification",
     "User",
     "Candidate",
+    "Skill",
+    "SkillAlias",
     "Job",
     "JobCollaborator",
     "JobCollaboratorSource",

@@ -10,12 +10,14 @@ from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.contract import Contract, ContractStatus
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -56,18 +58,34 @@ async def _setup_dl_with_client() -> tuple[int, int, int]:
 
 async def _cleanup(client_id: int, user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
+        candidate_ids = list(
+            (
+                await db.execute(
+                    select(Contract.candidate_id).where(
+                        Contract.client_id == client_id
+                    )
+                )
+            ).scalars()
+        )
         for uid in user_ids:
             await db.execute(
                 Notification.__table__.delete().where(Notification.user_id == uid)
             )
+        await db.execute(
+            ClientOrder.__table__.delete().where(ClientOrder.client_id == client_id)
+        )
         await db.execute(
             ClientFrameworkContract.__table__.delete().where(
                 ClientFrameworkContract.client_id == client_id
             )
         )
         await db.execute(
-            ClientOrder.__table__.delete().where(ClientOrder.client_id == client_id)
+            Contract.__table__.delete().where(Contract.client_id == client_id)
         )
+        if candidate_ids:
+            await db.execute(
+                Candidate.__table__.delete().where(Candidate.id.in_(candidate_ids))
+            )
         await db.execute(
             DeliveryLeadClientAssignment.__table__.delete().where(
                 DeliveryLeadClientAssignment.client_id == client_id
@@ -198,6 +216,20 @@ async def test_order_alert_dispatched():
     admin_id, dl_id, client_id = await _setup_dl_with_client()
     try:
         async with AsyncSessionLocal() as db:
+            candidate = Candidate(
+                name="Scheduler",
+                lastname=f"Order-{uuid.uuid4().hex[:6]}",
+            )
+            db.add(candidate)
+            await db.flush()
+            contract = Contract(
+                client_id=client_id,
+                candidate_id=candidate.id,
+                start_date=date.today(),
+                status=ContractStatus.active,
+            )
+            db.add(contract)
+            await db.flush()
             fc = ClientFrameworkContract(
                 client_id=client_id,
                 name="MSA",
@@ -207,6 +239,7 @@ async def test_order_alert_dispatched():
             await db.flush()
             o = ClientOrder(
                 client_id=client_id,
+                contract_id=contract.id,
                 framework_contract_id=fc.id,
                 title="Order ending 7d",
                 status=ClientOrderStatus.active,
