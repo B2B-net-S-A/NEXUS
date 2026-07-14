@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${PREVIOUS_SHA:?PREVIOUS_SHA is required}"
+: "${ROLLBACK_FLOOR_SHA:?ROLLBACK_FLOOR_SHA is required}"
+
+if [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "PREVIOUS_SHA must be a full commit SHA" >&2
+  exit 64
+fi
+if [[ ! "$ROLLBACK_FLOOR_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ROLLBACK_FLOOR_SHA must be a full commit SHA" >&2
+  exit 64
+fi
+
+candidate_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Candidate SHA must be a full commit SHA" >&2
+  exit 64
+fi
+if [[ "$PREVIOUS_SHA" == "$candidate_sha" ]]; then
+  echo "Production already points at the candidate SHA" >&2
+  exit 1
+fi
+
+# With a full graph, prove both the security floor and ancestry. The locked
+# reusable workflow currently checks out one commit; in that fail-closed case
+# operations must approve the exact current production SHA as the release's
+# rollback floor. This also prevents selecting a legacy image containing the
+# removed bootstrap-administrator path.
+if git cat-file -e "${ROLLBACK_FLOOR_SHA}^{commit}" 2>/dev/null \
+  && git cat-file -e "${PREVIOUS_SHA}^{commit}" 2>/dev/null; then
+  git merge-base --is-ancestor "$ROLLBACK_FLOOR_SHA" "$PREVIOUS_SHA" || {
+    echo "Previous production SHA is below the approved security rollback floor" >&2
+    exit 1
+  }
+  git merge-base --is-ancestor "$PREVIOUS_SHA" "$candidate_sha" || {
+    echo "Previous production SHA is not an ancestor of the candidate" >&2
+    exit 1
+  }
+elif [[ "$PREVIOUS_SHA" != "$ROLLBACK_FLOOR_SHA" ]]; then
+  echo "Shallow release checkout requires ROLLBACK_FLOOR_SHA to equal PREVIOUS_SHA" >&2
+  exit 1
+fi

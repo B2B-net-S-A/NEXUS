@@ -1,19 +1,9 @@
-name: Deploy
+name: Exact SHA release
 
-# Unified deployment workflow per ~/.claude/rules/deployment.md.
-# Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
-#
-# Push do main → trigger Coolify deploy via API → wait → smoke test /api/health.
-# Coolify samo buduje + restart kontenerów (z compose `build:` block lub GHCR pull).
-#
-# Required GH secrets:
-#   COOLIFY_URL       e.g. https://coolify-compass.dynaminds.pl
-#   COOLIFY_TOKEN     Bearer token (Sanctum personal_access_tokens)
-#   COOLIFY_APP_UUID  Application UUID (from Coolify panel resource URL)
-#
-# Required GH variables:
-#   APP_URL           Production URL for smoke test (e.g. https://compass.dynaminds.pl)
-
+# The legacy branch/webhook deployment path is intentionally gone. This
+# workflow is fail-closed until the isolated staging inventory, protected
+# GitHub Environments, snapshot endpoint, rollback floor and production-clone
+# migration reconciliation have all been completed.
 on:
   push:
     branches: [main]
@@ -23,154 +13,50 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: nexus-production-release
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Trigger Coolify deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  release-disabled:
+    name: Release disabled until staging and reconciliation are ready
+    if: vars.NEXUS_RELEASE_PIPELINE_ENABLED != 'true' || github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
     steps:
-      - name: Trigger deployment
-        id: trigger
+      - name: Explain the fail-closed state
         run: |
-          # Retry: Coolify webhook bywa flaky (HTTP 500 przejściowe — patrz audit-2026-05-07
-          # — 2× failed deploy 2026-05-07 07:11+07:20 z dokładnie tego powodu, każdy
-          # następny retry przeszedł). Exponential backoff: 5s, 15s, 45s. 3 próby.
-          backoffs=(5 15 45)
-          response=""
-          http_code=""
-          for attempt in 1 2 3; do
-            raw=$(curl -sS -X GET \
-              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-              -w $'\nHTTP_CODE:%{http_code}' \
-              "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=false" \
-              2>&1 || true)
-            http_code=$(echo "$raw" | grep -oE 'HTTP_CODE:[0-9]+' | tail -1 | cut -d: -f2)
-            response=$(echo "$raw" | sed -E 's/HTTP_CODE:[0-9]+$//')
-            if [ "$http_code" = "200" ] || [ "$http_code" = "201" ]; then
-              echo "Coolify responded $http_code on attempt $attempt"
-              break
-            fi
-            echo "::warning::Attempt $attempt — Coolify HTTP $http_code, body: $response"
-            if [ $attempt -lt 3 ]; then
-              sleep "${backoffs[$((attempt - 1))]}"
-            fi
-          done
-          if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
-            echo "::error::Coolify deploy webhook failed after 3 attempts (last HTTP $http_code)"
-            exit 1
-          fi
-          echo "Response: $response"
-          deployment_uuid=$(echo "$response" | jq -r '.deployments[0].deployment_uuid')
-          if [ -z "$deployment_uuid" ] || [ "$deployment_uuid" = "null" ]; then
-            echo "::error::Failed to start deployment (no deployment_uuid in response)"
-            exit 1
-          fi
-          echo "Deployment queued: $deployment_uuid"
-          echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
+          echo "::notice::No deployment was attempted. Complete docs/ops/migration-reconciliation.md, configure the isolated NEXUS staging inventory, protected staging/production Environments, exact-SHA Coolify applications, backup endpoint and rollback floor; then set NEXUS_RELEASE_PIPELINE_ENABLED=true."
 
-  smoke-test:
-    name: Smoke test /api/health
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Wait for Coolify build + restart
-        # Bumped from 90s → 180s. Pierwszy build z WeasyPrint apt deps na
-        # ARM CAX21 może trwać 4-6 min (libpango+cairo+gdk-pixbuf+fonts).
-        # Subsequent builds są szybsze przez Docker layer cache.
-        run: sleep 180
+  quality-gate:
+    name: Revalidate the exact release SHA
+    if: vars.NEXUS_RELEASE_PIPELINE_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
-      - name: Healthcheck (standard shape + version match)
-        env:
-          APP_URL: ${{ vars.APP_URL }}
-        run: |
-          if [ -z "$APP_URL" ]; then
-            echo "::error::vars.APP_URL not set in repo settings"
-            exit 1
-          fi
-          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          # 24 attempts × 15s = 6 min total polling window. Combined with
-          # the 180s pre-sleep this gives Coolify up to 9 min to finish
-          # build+restart on ARM with new heavy native deps.
-          for i in $(seq 1 24); do
-            response=$(curl -fsSL "$APP_URL/api/health" 2>/tmp/curl_err || echo '')
-            if [ -n "$response" ]; then
-              status=$(echo "$response" | jq -r '.status // "missing"')
-              version=$(echo "$response" | jq -r '.version // "missing"')
-              version_short=$(echo "$version" | cut -c1-7)
-              if [ "$status" != "unhealthy" ] && [ "$status" != "missing" ]; then
-                if [ "$version_short" = "$EXPECTED_SHA" ]; then
-                  echo "✅ Pass: status=$status version=$version"
-                  exit 0
-                fi
-                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
-              else
-                echo "Attempt $i: status=$status, retrying in 15s..."
-              fi
-            else
-              # Surface curl's actual error so future silent failures are
-              # diagnosable in 1 attempt instead of 24 (e.g. Cloudflare WAF
-              # 403 on the runner IP, like Atlas hit — see Atlas PR #96).
-              echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
-            fi
-            sleep 15
-          done
-          echo "::error::Smoke test failed after 24 attempts (6 min)"
-          exit 1
-
-      - name: Deep healthcheck (core modules not 503)
-        env:
-          APP_URL: ${{ vars.APP_URL }}
-        run: |
-          # /api/health only pings `SELECT 1`, so a core module can 503 for real
-          # users while the deploy ships green (it never touched that endpoint).
-          # This probes /api/health/deep, which runs `SELECT ... LIMIT 1` per core
-          # table via the ORM — catching the recurring alembic multi-head + partial
-          # schema drift where a migration column never lands on prod
-          # (e.g. 2026-07-06: 0154 `contract_candidate_rates.effective_to` 503'd all
-          # of /api/contracts for a day while every deploy stayed green — PR #647).
-          #
-          # No auth is needed (endpoint is public by design — avoids coupling the
-          # deploy gate to CI-side login/token config that could itself go stale).
-          # The previous step already confirmed the NEW build is live, so the
-          # container is up; we re-check version here so module health is asserted
-          # on the new build, not a stale container.
-          #
-          # NOTE: `curl` runs WITHOUT `-f` on purpose — a 503 is exactly the signal
-          # we want, and `-f` would discard the JSON body that names the failing
-          # table(s). A few retries absorb a transient DB blip; real schema drift is
-          # deterministic and exhausts the loop → red.
-          if [ -z "$APP_URL" ]; then
-            echo "::error::vars.APP_URL not set in repo settings"
-            exit 1
-          fi
-          EXPECTED_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          for i in $(seq 1 6); do
-            response=$(curl -sSL --max-time 25 "$APP_URL/api/health/deep" 2>/tmp/curl_err || echo '')
-            if [ -n "$response" ]; then
-              status=$(echo "$response" | jq -r '.status // "missing"')
-              version=$(echo "$response" | jq -r '.version // "missing"')
-              version_short=$(echo "$version" | cut -c1-7)
-              if [ "$version_short" != "$EXPECTED_SHA" ]; then
-                echo "Attempt $i: stale version (got $version_short, expected $EXPECTED_SHA), retrying in 15s..."
-              elif [ "$status" = "healthy" ]; then
-                echo "✅ Pass: all core modules healthy on $version_short"
-                echo "$response" | jq -c '.checks'
-                exit 0
-              else
-                # Unhealthy on the NEW build → a core module is down. Surface the
-                # failing tables + exception classes so the cause is obvious in-log.
-                echo "Attempt $i: status=$status on $version_short — core module(s) failing:"
-                echo "$response" | jq -c '{checks: .checks, errors: .errors}'
-                echo "retrying in 15s..."
-              fi
-            else
-              echo "Attempt $i: no response — $(cat /tmp/curl_err 2>/dev/null | head -1), retrying in 15s..."
-            fi
-            sleep 15
-          done
-          echo "::error::Deep healthcheck failed after 6 attempts — a core module is 503-ing on the new build. See the {checks, errors} dump above. Repair schema drift with a new forward-only Alembic migration; application startup must remain schema-read-only."
-          exit 1
+  release:
+    name: Staging then approved production
+    if: vars.NEXUS_RELEASE_PIPELINE_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    needs: quality-gate
+    uses: ./.github/workflows/_reusable-coolify-release.yml
+    secrets: inherit
+    with:
+      standards_ref: 5f5808c228b756024816850103b0436b765a80b3
+      application: nexus
+      coolify_deploy_method: GET
+      staging_coolify_base_url: ${{ vars.STAGING_COOLIFY_BASE_URL }}
+      production_coolify_base_url: ${{ vars.PRODUCTION_COOLIFY_BASE_URL }}
+      staging_application_uuid: ${{ vars.NEXUS_STAGING_APPLICATION_UUID }}
+      production_application_uuid: ${{ vars.NEXUS_PRODUCTION_APPLICATION_UUID }}
+      staging_base_url: ${{ vars.NEXUS_STAGING_BASE_URL }}
+      staging_health_url: ${{ vars.NEXUS_STAGING_BASE_URL }}/api/health
+      production_health_url: https://api.nexus.dynaminds.pl/api/health
+      production_snapshot_url: ${{ vars.NEXUS_PRODUCTION_SNAPSHOT_URL }}
+      staging_migration_command: ./scripts/ci/migrate-staging
+      production_snapshot_command: ./scripts/ci/snapshot-production
+      production_migration_command: ./scripts/ci/migrate-production-expand
+      staging_e2e_command: ./scripts/ci/e2e-staging
+      migration_head_command: ./scripts/ci/migration-head
+      rollback_guard_command: ./scripts/ci/assert-rollback-allowed
+      rollback_floor_sha: ${{ vars.ROLLBACK_FLOOR_SHA }}
+      staging_environment: staging
+      production_environment: production

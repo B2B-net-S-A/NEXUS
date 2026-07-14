@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+candidate_sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+if [[ ! "$candidate_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Candidate SHA must be exactly 40 lowercase hex characters" >&2
+  exit 64
+fi
+
+image="nexus-migration:${candidate_sha}"
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "Exact candidate migration image is unavailable" >&2
+  exit 1
+fi
+
+heads="$(docker run --rm \
+  --user 10001:10001 \
+  --entrypoint alembic \
+  "$image" \
+  -c alembic/alembic.ini heads \
+  | awk '$NF == "(head)" {print $1}')"
+count="$(printf '%s\n' "$heads" | sed '/^$/d' | wc -l | tr -d ' ')"
+if [[ "$count" != "1" ]]; then
+  echo "NEXUS release requires exactly one Alembic head" >&2
+  exit 1
+fi
+printf '%s\n' "$heads"

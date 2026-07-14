@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${SNAPSHOT_URL:?SNAPSHOT_URL is required}"
+: "${SNAPSHOT_TOKEN:?SNAPSHOT_TOKEN is required}"
+
+if [[ ! "$SNAPSHOT_URL" =~ ^https://[^?]+$ ]]; then
+  echo "SNAPSHOT_URL must be HTTPS and contain no query string" >&2
+  exit 64
+fi
+
+response_file="$(mktemp)"
+trap 'rm -f "$response_file"' EXIT
+
+http_code="$(curl \
+  --silent \
+  --show-error \
+  --connect-timeout 10 \
+  --max-time 180 \
+  --request POST \
+  --header "Authorization: Bearer $SNAPSHOT_TOKEN" \
+  --header "Accept: application/json" \
+  --output "$response_file" \
+  --write-out '%{http_code}' \
+  "$SNAPSHOT_URL")" || {
+    echo "Production snapshot request failed" >&2
+    exit 1
+  }
+
+case "$http_code" in
+  200|201|202) ;;
+  *)
+    echo "Production snapshot endpoint returned HTTP $http_code" >&2
+    exit 1
+    ;;
+esac
+
+python3 - "$response_file" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    print("Production snapshot response was not valid JSON", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(payload, dict):
+    print("Production snapshot response must be an object", file=sys.stderr)
+    raise SystemExit(1)
+
+reference = next(
+    (
+        payload.get(key)
+        for key in (
+            "snapshotReference",
+            "snapshot_reference",
+            "backupReference",
+            "backup_reference",
+            "snapshotId",
+            "snapshot_id",
+            "id",
+        )
+        if payload.get(key) is not None
+    ),
+    None,
+)
+if not isinstance(reference, str) or not re.fullmatch(
+    r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,511}", reference
+):
+    print("Production snapshot response did not contain a safe reference", file=sys.stderr)
+    raise SystemExit(1)
+
+print(reference)
+PY

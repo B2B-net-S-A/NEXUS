@@ -17,3 +17,36 @@ Create executable, fail-closed scripts with these names before enabling workflow
 - `migration-head` — print exactly one migration-head identifier; `assert-rollback-allowed` — reject forbidden or below-floor `PREVIOUS_SHA`.
 
 Scripts MUST use `set -euo pipefail` (or equivalent), bounded timeouts and redacted output. Replace template URLs/UUIDs before enabling release. Keep real values in repository variables or protected Environment secrets as appropriate.
+
+## NEXUS exact-SHA release activation
+
+`.github/workflows/deploy.yml` is fail-closed while
+`NEXUS_RELEASE_PIPELINE_ENABLED` is not exactly `true`. Do not enable it until
+`docs/ops/migration-reconciliation.md` is complete and independently reviewed.
+
+Repository variables:
+
+- `NEXUS_RELEASE_PIPELINE_ENABLED`
+- `STAGING_COOLIFY_BASE_URL` and `PRODUCTION_COOLIFY_BASE_URL`
+- `NEXUS_STAGING_APPLICATION_UUID` and `NEXUS_PRODUCTION_APPLICATION_UUID`
+- `NEXUS_STAGING_BASE_URL` (the protected frontend application origin)
+- `NEXUS_PRODUCTION_SNAPSHOT_URL` (a real verified PostgreSQL/Qdrant backup
+  trigger, not `/api/admin/snapshot`)
+- `ROLLBACK_FLOOR_SHA` (never an image containing the removed bootstrap-admin
+  startup path)
+
+Protected `staging` Environment secrets:
+
+- `COOLIFY_TOKEN`, `MIGRATION_DATABASE_URL`
+- `STAGING_E2E_SECRETS_JSON` containing only synthetic
+  `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`, `CF_ACCESS_CLIENT_ID`,
+  `CF_ACCESS_CLIENT_SECRET` and optional `E2E_SESSION_COOKIE_PREFIX`
+
+Protected `production` Environment secrets:
+
+- `COOLIFY_TOKEN`, `MIGRATION_DATABASE_URL`, `SNAPSHOT_TOKEN`
+
+The staging frontend exposes a same-origin `/api/health` facade. It forwards
+the backend readiness response and fails with 503 when the backend cannot be
+validated, so the locked release workflow never treats a frontend-only process
+as ready.

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${STAGING_BASE_URL:?STAGING_BASE_URL is required}"
+: "${STAGING_E2E_SECRETS_JSON:?STAGING_E2E_SECRETS_JSON must come from the protected staging environment}"
+
+if [[ ! "$STAGING_BASE_URL" =~ ^https://[^/?]+/?$ ]]; then
+  echo "STAGING_BASE_URL must be an HTTPS application origin" >&2
+  exit 64
+fi
+case "${STAGING_BASE_URL%/}" in
+  https://nexus.dynaminds.pl|https://api.nexus.dynaminds.pl)
+    echo "Refusing to run staging E2E against a production origin" >&2
+    exit 64
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+
+cd "$REPO_ROOT/frontend"
+npm ci --no-audit --no-fund
+npx --no-install playwright install --with-deps chromium
+
+# Parse protected JSON in-process. Individual secrets are passed only through
+# the child environment and are never written to disk, command arguments or
+# logs. Cloudflare Access service-token headers are injected by Playwright.
+node <<'NODE'
+const { spawnSync } = require("node:child_process")
+
+let secrets
+try {
+  secrets = JSON.parse(process.env.STAGING_E2E_SECRETS_JSON ?? "")
+} catch {
+  console.error("STAGING_E2E_SECRETS_JSON must be valid JSON")
+  process.exit(1)
+}
+
+if (!secrets || Array.isArray(secrets) || typeof secrets !== "object") {
+  console.error("STAGING_E2E_SECRETS_JSON must be a JSON object")
+  process.exit(1)
+}
+
+const required = [
+  "E2E_USER_EMAIL",
+  "E2E_USER_PASSWORD",
+  "CF_ACCESS_CLIENT_ID",
+  "CF_ACCESS_CLIENT_SECRET",
+]
+const allowed = [...required, "E2E_SESSION_COOKIE_PREFIX"]
+for (const key of Object.keys(secrets)) {
+  if (!allowed.includes(key)) {
+    console.error(`STAGING_E2E_SECRETS_JSON contains unsupported key ${key}`)
+    process.exit(1)
+  }
+}
+for (const key of required) {
+  if (typeof secrets[key] !== "string" || secrets[key].length === 0) {
+    console.error(`STAGING_E2E_SECRETS_JSON is missing ${key}`)
+    process.exit(1)
+  }
+}
+if (
+  secrets.E2E_SESSION_COOKIE_PREFIX !== undefined &&
+  (typeof secrets.E2E_SESSION_COOKIE_PREFIX !== "string" ||
+    !/^[A-Za-z0-9_-]{1,32}$/.test(secrets.E2E_SESSION_COOKIE_PREFIX))
+) {
+  console.error("E2E_SESSION_COOKIE_PREFIX is invalid")
+  process.exit(1)
+}
+
+const childEnv = {
+  ...process.env,
+  E2E_BASE_URL: process.env.STAGING_BASE_URL,
+  E2E_USER_EMAIL: secrets.E2E_USER_EMAIL,
+  E2E_USER_PASSWORD: secrets.E2E_USER_PASSWORD,
+  CF_ACCESS_CLIENT_ID: secrets.CF_ACCESS_CLIENT_ID,
+  CF_ACCESS_CLIENT_SECRET: secrets.CF_ACCESS_CLIENT_SECRET,
+}
+if (secrets.E2E_SESSION_COOKIE_PREFIX !== undefined) {
+  childEnv.E2E_SESSION_COOKIE_PREFIX = secrets.E2E_SESSION_COOKIE_PREFIX
+}
+delete childEnv.STAGING_E2E_SECRETS_JSON
+
+const result = spawnSync("npm", ["run", "test:e2e"], {
+  env: childEnv,
+  stdio: "inherit",
+})
+if (result.error) {
+  console.error("Unable to start Playwright")
+  process.exit(1)
+}
+process.exit(result.status ?? 1)
+NODE
