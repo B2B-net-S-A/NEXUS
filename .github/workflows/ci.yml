@@ -199,6 +199,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
       - run: npm ci --legacy-peer-deps
+      - name: Semantic token guard
+        run: npm run lint:tokens
       - name: ESLint
         run: npm run lint
       - run: npm run type-check

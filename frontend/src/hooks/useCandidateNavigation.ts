@@ -13,11 +13,11 @@
  *    filters from URL, fetches the page that contains `pos`, and resolves
  *    the candidate at that position.
  *
- * In both modes we honor the same query semantics as `CandidatesListV2`,
- * including `include_match_stats` defaults, so react-query cache hits when
- * the user came from the list view.
+ * Navigation deliberately requests the light list payload — match stats,
+ * active pipelines and last-activity joins are presentation data and are not
+ * needed to resolve an adjacent candidate id.
  *
- * Keyboard: `[` = prev, `]` = next. Disabled while focus is in an
+ * Keyboard: `K` = prev, `J` = next. Disabled while focus is in an
  * input/textarea/contenteditable.
  */
 
@@ -31,12 +31,6 @@ import {
 import { isInputActive } from "@/components/KeyboardShortcuts";
 
 const DEFAULT_PAGE_SIZE = 20;
-
-// Same extras `CandidatesListV2` sends — ensures cache key parity.
-const LIST_VIEW_EXTRAS = {
-  include_match_stats: true,
-  match_threshold: 35,
-} as const;
 
 export interface CandidateLite {
   id: number;
@@ -86,8 +80,10 @@ export interface NavigationState {
   hasPrev: boolean;
   hasNext: boolean;
   isLoading: boolean;
+  error: string | null;
   goPrev: () => void;
   goNext: () => void;
+  retry: () => void;
 }
 
 const candidatesPageQueryKey = (filters: CandidateFilters, page: number) =>
@@ -102,11 +98,13 @@ const positionWithinPage = (position: number, pageSize: number) =>
 async function fetchCandidatesPage(
   filters: CandidateFilters,
   page: number,
+  signal?: AbortSignal,
 ): Promise<CandidatesPage> {
-  const params = filtersToApiParams(filters, page, LIST_VIEW_EXTRAS);
+  const params = filtersToApiParams(filters, page);
   const res = await api.get<CandidatesPage>("/api/candidates", {
     params,
     paramsSerializer: { indexes: null },
+    signal,
   });
   return res.data;
 }
@@ -122,6 +120,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
   const [trackedTotal, setTrackedTotal] = useState<number | null>(
     opts.mode === "embedded" ? opts.total : null,
   );
+  const [navigationError, setNavigationError] = useState<string | null>(null);
 
   const targetPage = positionToPage(position, pageSize);
   const parentPage = opts.mode === "embedded" ? opts.pageNumber : null;
@@ -138,7 +137,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
 
   const pageQuery = useQuery({
     queryKey: candidatesPageQueryKey(filters, targetPage),
-    queryFn: () => fetchCandidatesPage(filters, targetPage),
+    queryFn: ({ signal }) => fetchCandidatesPage(filters, targetPage, signal),
     enabled: needsFetch,
     staleTime: 30_000,
   });
@@ -183,6 +182,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
 
       // Different page → fetch it (react-query will cache by queryKey).
       try {
+        setNavigationError(null);
         const data = await fetchCandidatesPage(filters, nextPage);
         const target = data.items[idx];
         if (target) {
@@ -190,7 +190,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
           onNavigate({ candidateId: target.id, position: nextPosition });
         }
       } catch {
-        // Swallow — UI will still allow retry on next click.
+        setNavigationError("Nie udało się pobrać kolejnego kandydata");
       }
     },
     [effectiveItems, filters, onNavigate, pageSize, targetPage, total],
@@ -206,16 +206,16 @@ export function useCandidateNavigation(opts: Options): NavigationState {
     void navigateTo(position + 1);
   }, [hasNext, position, navigateTo]);
 
-  // Keyboard shortcuts: `[` and `]`.
+  // Keyboard shortcuts: K (previous) and J (next), mirroring list navigation.
   useEffect(() => {
     if (!enabled) return;
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
       if (isInputActive()) return;
-      if (e.key === "[") {
+      if (e.key.toLowerCase() === "k") {
         e.preventDefault();
         goPrev();
-      } else if (e.key === "]") {
+      } else if (e.key.toLowerCase() === "j") {
         e.preventDefault();
         goNext();
       }
@@ -224,13 +224,24 @@ export function useCandidateNavigation(opts: Options): NavigationState {
     return () => document.removeEventListener("keydown", handler);
   }, [enabled, goPrev, goNext]);
 
+  const retry = useCallback(() => {
+    setNavigationError(null);
+    void pageQuery.refetch();
+  }, [pageQuery]);
+
+  const queryError = pageQuery.error
+    ? "Nie udało się pobrać listy kandydatów"
+    : null;
+
   return {
     position,
     total,
     hasPrev,
     hasNext,
     isLoading,
+    error: navigationError ?? queryError,
     goPrev,
     goNext,
+    retry,
   };
 }
