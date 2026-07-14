@@ -38,6 +38,7 @@ from app.services.email_verification import (
     verify_and_consume_token as verify_and_consume_verification_token,
 )
 from app.api.deps import CurrentUser
+from app.analytics.capabilities import analytics_capability_values
 
 # Roles that must complete first-login onboarding before the frontend unlocks
 # the shell. Keep in sync with backend/app/api/onboarding.py.
@@ -385,7 +386,10 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: CurrentUser):
-    return current_user
+    response = UserResponse.model_validate(current_user)
+    return response.model_copy(
+        update={"analytics_capabilities": analytics_capability_values(current_user)}
+    )
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

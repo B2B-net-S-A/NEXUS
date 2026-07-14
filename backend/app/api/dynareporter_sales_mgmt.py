@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import (
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_sales import (
     DrSalesLead,
@@ -20,7 +24,11 @@ from app.models.dr_sales import (
     DrWeeklySalesActivity,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(require_dynareporter_section(DynaReporterSection.sales_mgmt))
+    ]
+)
 
 
 class SalesProjectResponse(BaseModel):

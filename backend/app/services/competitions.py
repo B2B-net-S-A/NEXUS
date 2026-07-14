@@ -18,16 +18,17 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.analytics.periods import WARSAW
 
 
 # ── Konfiguracja nagród ──────────────────────────────────────────────────
@@ -87,23 +88,23 @@ def quarter_bounds(year: int, quarter: int) -> tuple[datetime, datetime]:
     if not 1 <= quarter <= 4:
         raise ValueError(f"Invalid quarter: {quarter}")
     month_start = (quarter - 1) * 3 + 1
-    start = datetime(year, month_start, 1, tzinfo=timezone.utc)
+    start = datetime(year, month_start, 1, tzinfo=WARSAW)
     month_end = month_start + 3
     if month_end > 12:
-        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        end = datetime(year + 1, 1, 1, tzinfo=WARSAW)
     else:
-        end = datetime(year, month_end, 1, tzinfo=timezone.utc)
+        end = datetime(year, month_end, 1, tzinfo=WARSAW)
     return start, end
 
 
 def month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
     if not 1 <= month <= 12:
         raise ValueError(f"Invalid month: {month}")
-    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    start = datetime(year, month, 1, tzinfo=WARSAW)
     if month == 12:
-        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        end = datetime(year + 1, 1, 1, tzinfo=WARSAW)
     else:
-        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        end = datetime(year, month + 1, 1, tzinfo=WARSAW)
     return start, end
 
 
@@ -148,37 +149,47 @@ async def _rank_recruiters_by_stage(
     min_value: int = 0,
     limit: Optional[int] = None,
 ) -> list[RankedUser]:
-    """Ranking userów (sourcer+tac+recruiter) po liczbie przejść na `stage`
-    w przedziale [start, end).
+    """Rank operational recruiters by canonical first milestone.
+
+    Credit is resolved by ``analytics_first_candidate_milestones``: verifier
+    first, otherwise the mover of that milestone. Secondary roles participate.
     """
-    q = (
-        select(
-            User.id,
-            User.name,
-            User.role,
-            func.count(CandidateStage.id).label("cnt"),
+    limit_clause = "LIMIT :limit" if limit else ""
+    rows = (
+        await db.execute(
+            text(
+                f"""
+                SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
+                FROM analytics_first_candidate_milestones m
+                JOIN users u ON u.id = m.credited_user_id
+                WHERE m.stage = :stage
+                  AND m.reached_at >= :start AND m.reached_at < :end
+                  AND u.is_active IS TRUE
+                  AND (
+                    u.role::text IN ('sourcer', 'tac', 'recruiter')
+                    OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                  )
+                GROUP BY u.id, u.name, u.role
+                HAVING count(*) >= :minimum
+                ORDER BY count(*) DESC, u.name ASC
+                {limit_clause}
+                """
+            ),
+            {
+                "stage": stage.value,
+                "start": start,
+                "end": end,
+                "minimum": min_value,
+                "limit": limit,
+            },
         )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.stage == stage,
-            CandidateStage.moved_at >= start,
-            CandidateStage.moved_at < end,
-            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
-            User.is_active == True,  # noqa: E712
-        )
-        .group_by(User.id, User.name, User.role)
-        .having(func.count(CandidateStage.id) >= min_value)
-        .order_by(func.count(CandidateStage.id).desc())
-    )
-    if limit:
-        q = q.limit(limit)
-    rows = (await db.execute(q)).all()
+    ).mappings().all()
     return [
         RankedUser(
-            user_id=r.id,
-            name=r.name,
-            metric_value=int(r.cnt),
-            extras={"role": r.role.value if hasattr(r.role, "value") else str(r.role)},
+            user_id=int(r["id"]),
+            name=str(r["name"]),
+            metric_value=int(r["cnt"]),
+            extras={"role": str(r["role"])},
         )
         for r in rows
     ]
@@ -196,33 +207,36 @@ async def _rank_recruiters_by_points(
 
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role}."""
-    # Liczymy count per stage per user w okresie.
-    q = (
-        select(
-            User.id,
-            User.name,
-            User.role,
-            CandidateStage.stage,
-            func.count(CandidateStage.id).label("cnt"),
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT u.id, u.name, u.role::text AS role, m.stage, count(*) AS cnt
+                FROM analytics_first_candidate_milestones m
+                JOIN users u ON u.id = m.credited_user_id
+                WHERE m.reached_at >= :start AND m.reached_at < :end
+                  AND m.stage IN (
+                    'verified', 'cv_sent', 'client_interview', 'hired'
+                  )
+                  AND u.is_active IS TRUE
+                  AND (
+                    u.role::text IN ('sourcer', 'tac', 'recruiter')
+                    OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
+                  )
+                GROUP BY u.id, u.name, u.role, m.stage
+                """
+            ),
+            {"start": start, "end": end},
         )
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.moved_at >= start,
-            CandidateStage.moved_at < end,
-            User.role.in_([UserRole.sourcer, UserRole.tac, UserRole.recruiter]),
-            User.is_active == True,  # noqa: E712
-        )
-        .group_by(User.id, User.name, User.role, CandidateStage.stage)
-    )
-    rows = (await db.execute(q)).all()
+    ).mappings().all()
 
     per_user: dict[int, dict] = {}
     for r in rows:
         bucket = per_user.setdefault(
-            r.id,
+            int(r["id"]),
             {
-                "name": r.name,
-                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "name": str(r["name"]),
+                "role": str(r["role"]),
                 "placements": 0,
                 "interviews": 0,
                 "client_interviews": 0,
@@ -230,15 +244,15 @@ async def _rank_recruiters_by_points(
                 "verifications": 0,
             },
         )
-        cnt = int(r.cnt)
-        if r.stage == PipelineStage.hired:
+        cnt = int(r["cnt"])
+        stage_value = str(r["stage"])
+        if stage_value == PipelineStage.hired.value:
             bucket["placements"] += cnt
-        elif r.stage == PipelineStage.client_interview:
+        elif stage_value == PipelineStage.client_interview.value:
             bucket["client_interviews"] += cnt
-        elif r.stage == PipelineStage.interview:
-            # Nexus stage "interview" = rekomendacja w słowniku InfraReporter.
+        elif stage_value == PipelineStage.cv_sent.value:
             bucket["recommendations"] += cnt
-        elif r.stage in (PipelineStage.new, PipelineStage.screening):
+        elif stage_value == PipelineStage.verified.value:
             bucket["verifications"] += cnt
 
     ranked: list[RankedUser] = []
@@ -312,29 +326,29 @@ async def _rank_dls_by_placements(
     fallback = await _dl_head_fallback_map(db)
 
     # Placements per Job w okresie.
-    placements_q = (
-        select(
-            Job.id.label("job_id"),
-            Job.delivery_lead_id,
-            Job.client_id,
-            func.count(CandidateStage.id).label("cnt"),
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT j.id AS job_id, j.delivery_lead_id, j.client_id,
+                       count(*) AS cnt
+                FROM jobs j
+                JOIN analytics_first_candidate_milestones m ON m.job_id = j.id
+                WHERE m.stage = 'hired'
+                  AND m.reached_at >= :start AND m.reached_at < :end
+                  AND j.recruitment_type::text = 'body_leasing'
+                GROUP BY j.id, j.delivery_lead_id, j.client_id
+                """
+            ),
+            {"start": start, "end": end},
         )
-        .join(CandidateStage, CandidateStage.job_id == Job.id)
-        .where(
-            CandidateStage.stage == PipelineStage.hired,
-            CandidateStage.moved_at >= start,
-            CandidateStage.moved_at < end,
-            Job.recruitment_type == RecruitmentType.body_leasing,
-        )
-        .group_by(Job.id, Job.delivery_lead_id, Job.client_id)
-    )
-    rows = (await db.execute(placements_q)).all()
+    ).mappings().all()
     placements_by_dl: dict[int, int] = {}
     for r in rows:
-        dl_id = _resolve_dl_id(r.delivery_lead_id, r.client_id, fallback)
+        dl_id = _resolve_dl_id(r["delivery_lead_id"], r["client_id"], fallback)
         if dl_id is None:
             continue
-        placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
+        placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r["cnt"])
 
     # Requests per DL (dla hit_ratio).
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
@@ -358,12 +372,15 @@ async def _rank_dls_by_placements(
         await db.execute(
             select(User.id, User.name).where(
                 User.id.in_(dl_ids),
-                User.is_active == True,  # noqa: E712
-                User.role == UserRole.delivery_lead,
+                User.is_active.is_(True),
+                or_(
+                    User.role == UserRole.delivery_lead,
+                    User.roles.contains([UserRole.delivery_lead.value]),
+                ),
             )
         )
     ).all()
-    name_map = {u.id: u.name for u in users_rows}
+    name_map = {int(u.id): str(u.name) for u in users_rows}
 
     ranked: list[RankedUser] = []
     for dl_id, placements in placements_by_dl.items():
@@ -421,16 +438,40 @@ async def monthly_most_recommendations(
 ) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    # Mapowanie Nexus: "rekomendacja" = przejście do stage `interview`
-    # (internal OK → kandydat rekomendowany do klienta).
-    return await _rank_recruiters_by_stage(
-        db,
-        stage=PipelineStage.interview,
-        start=start,
-        end=end,
-        min_value=1,
-        limit=10,
+    metrics = await _rank_recruiters_by_points(
+        db, start=start, end=end, min_placements=0
     )
+    elapsed_end = min(end, datetime.now(WARSAW))
+    cursor = start.date()
+    elapsed_workdays = 0
+    while cursor < elapsed_end.date():
+        if cursor.weekday() < 5:
+            elapsed_workdays += 1
+        cursor += timedelta(days=1)
+    # Include the current working day in the pace denominator.
+    if elapsed_end.date() < end.date() and elapsed_end.weekday() < 5:
+        elapsed_workdays += 1
+    minimum_verifications = (
+        elapsed_workdays * MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY
+    )
+
+    ranked: list[RankedUser] = []
+    for row in metrics:
+        verified = int(row.extras.get("verifications", 0))
+        recommendations = int(row.extras.get("recommendations", 0))
+        precision = recommendations * 100 / verified if verified else 0.0
+        if verified < minimum_verifications or precision < MONTHLY_RACE_MIN_PRECISION_PCT:
+            continue
+        ranked.append(
+            RankedUser(
+                user_id=row.user_id,
+                name=row.name,
+                metric_value=recommendations,
+                extras={**row.extras, "precision_pct": round(precision, 1)},
+            )
+        )
+    ranked.sort(key=lambda r: (-r.metric_value, r.name))
+    return ranked[:10]
 
 
 async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
@@ -447,21 +488,29 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
 
 
 async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
-    # All-time top placerów (bez filtru daty).
-    q = (
-        select(User.id, User.name, func.count(CandidateStage.id).label("cnt"))
-        .join(CandidateStage, User.id == CandidateStage.moved_by)
-        .where(
-            CandidateStage.stage == PipelineStage.hired,
-            User.is_active == True,  # noqa: E712
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT u.id, u.name, count(*) AS cnt
+                FROM analytics_first_candidate_milestones m
+                JOIN users u ON u.id = m.credited_user_id
+                WHERE m.stage = 'hired' AND u.is_active IS TRUE
+                GROUP BY u.id, u.name
+                ORDER BY count(*) DESC, u.name ASC
+                LIMIT :limit
+                """
+            ),
+            {"limit": limit},
         )
-        .group_by(User.id, User.name)
-        .order_by(func.count(CandidateStage.id).desc())
-        .limit(limit)
-    )
-    rows = (await db.execute(q)).all()
+    ).mappings().all()
     return [
-        RankedUser(user_id=r.id, name=r.name, metric_value=int(r.cnt)) for r in rows
+        RankedUser(
+            user_id=int(r["id"]),
+            name=str(r["name"]),
+            metric_value=int(r["cnt"]),
+        )
+        for r in rows
     ]
 
 

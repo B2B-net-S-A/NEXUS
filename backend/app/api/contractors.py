@@ -11,7 +11,7 @@ the join and exposes it as a dedicated listing so backoffice can:
 Role scoping:
 - admin / delivery_lead / tac / head_of_recruitment → sees everyone
 - recruiter / sourcer → sees only candidates they added (Candidate.created_by)
-- user (read-only viewer) → sees everyone, but UI should gate the widget
+- user (read-only viewer) → no access (the payload contains PII and rates)
 
 The "incomplete drafts" subcount drives the dashboard widget
 ("Drafty do uzupełnienia (N)").
@@ -19,7 +19,7 @@ The "incomplete drafts" subcount drives the dashboard widget
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -33,8 +33,11 @@ from app.schemas.contract import (
     ContractorCandidateRef,
     ContractorList,
     ContractorListItem,
+    ContractorOperationalList,
+    ContractorOperationalListItem,
     ContractorStats,
 )
+from app.api.financial_access import has_financial_access
 from app.services.contract_service import validate_ready_for_activation
 
 router = APIRouter()
@@ -48,8 +51,16 @@ _FULL_VISIBILITY_ROLES = {
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.tac,
-    UserRole.user,  # passive viewer (QC / client)
 }
+
+_CONTRACTOR_ALLOWED_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+)
 
 
 _LIST_STATUSES = (
@@ -59,7 +70,18 @@ _LIST_STATUSES = (
 )
 
 
-def _to_item(contract: Contract) -> ContractorListItem:
+def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped-def]
+    """Fail closed for passive viewer accounts while preserving multi-role."""
+    if not current_user.has_any_role(*_CONTRACTOR_ALLOWED_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Contractor data requires an operational role",
+        )
+
+
+def _to_item(
+    contract: Contract, *, include_financial: bool
+) -> ContractorListItem | ContractorOperationalListItem:
     """Serialize a Contract (with eager-loaded relations) to the list row."""
     missing = (
         validate_ready_for_activation(contract)
@@ -73,25 +95,38 @@ def _to_item(contract: Contract) -> ContractorListItem:
         lastname=candidate.lastname if candidate else "",
         email=candidate.email if candidate else None,
     )
+    payload = {
+        "contract_id": contract.id,
+        "candidate": candidate_ref,
+        "client_name": contract.client.name if contract.client else None,
+        "job_title": contract.job.title if contract.job else None,
+        "status": contract.status,
+        "start_date": contract.start_date,
+        "end_date": contract.end_date,
+        "contract_type": contract.contract_type,
+        "work_mode": contract.work_mode,
+        "missing_fields": (
+            missing
+            if include_financial
+            else [
+                field
+                for field in missing
+                if field not in {"rate_candidate", "rate_client"}
+            ]
+        ),
+    }
+    if not include_financial:
+        return ContractorOperationalListItem(**payload)
     return ContractorListItem(
-        contract_id=contract.id,
-        candidate=candidate_ref,
-        client_name=contract.client.name if contract.client else None,
-        job_title=contract.job.title if contract.job else None,
-        status=contract.status,
-        start_date=contract.start_date,
-        end_date=contract.end_date,
+        **payload,
         rate_candidate=contract.rate_candidate,
         rate_client=contract.rate_client,
         rate_unit=contract.rate_unit,
         margin=contract.margin,
-        contract_type=contract.contract_type,
-        work_mode=contract.work_mode,
-        missing_fields=missing,
     )
 
 
-@router.get("", response_model=ContractorList)
+@router.get("", response_model=ContractorList | ContractorOperationalList)
 async def list_contractors(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -104,6 +139,8 @@ async def list_contractors(
     `status` query param narrows to a single status; default is all three.
     Role-scoped: non-privileged roles see only candidates they added.
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -115,7 +152,7 @@ async def list_contractors(
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if current_user.role not in _FULL_VISIBILITY_ROLES:
+    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
         # Join Candidate for ownership scoping. Using join (not selectinload
         # chain) so the WHERE can reference Candidate.created_by.
         query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
@@ -139,8 +176,13 @@ async def list_contractors(
 
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
-    items = [_to_item(c) for c in contracts]
-    return ContractorList(items=items, total=total, page=page, page_size=page_size)
+    include_financial = has_financial_access(current_user)
+    items = [_to_item(c, include_financial=include_financial) for c in contracts]
+    if include_financial:
+        return ContractorList(items=items, total=total, page=page, page_size=page_size)
+    return ContractorOperationalList(
+        items=items, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/stats", response_model=ContractorStats)
@@ -154,12 +196,14 @@ async def contractor_stats(
     fields. Computed in Python (not SQL) so it matches the validator
     exactly — one source of truth for "ready to activate".
     """
+    _require_contractor_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
     )
     query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if current_user.role not in _FULL_VISIBILITY_ROLES:
+    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
         query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
             Candidate.created_by == current_user.id
         )

@@ -21,13 +21,12 @@ from datetime import datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.user import User, UserRole
-from app.models.user_activity import UserActionType, UserActivity
+from app.core.config import settings
 from app.services.kpi_catalog import KPI_CATALOG, KpiDef, KpiPeriod
 
 WARSAW = ZoneInfo("Europe/Warsaw")
@@ -201,65 +200,135 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
 # ── DB helpers ──────────────────────────────────────────────────────────
 
 
+_CANONICAL_KPI_COUNT_SQL = {
+    # Legacy identifier retained for the two-release adapter.  Its metric is
+    # now the canonical Power Calling definition: completed CloudTalk calls.
+    "daily_activity_count": text(
+        """
+        SELECT count(*)
+        FROM calls
+        WHERE user_id = :user_id
+          AND status = 'completed'
+          AND coalesce(started_at, created_at) >= :since
+          AND coalesce(started_at, created_at) < :until
+        """
+    ),
+    "daily_new_candidates": text(
+        """
+        SELECT count(*)
+        FROM candidates
+        WHERE created_by = :user_id
+          AND created_at >= :since
+          AND created_at < :until
+        """
+    ),
+    "weekly_cvs_sent": text(
+        """
+        SELECT count(*)
+        FROM analytics_first_candidate_milestones
+        WHERE credited_user_id = :user_id
+          AND stage = 'cv_sent'
+          AND reached_at >= :since
+          AND reached_at < :until
+        """
+    ),
+    # Kept under its legacy id for response compatibility; this is no longer a
+    # UserActivity screening counter.  It is the first verified milestone.
+    "weekly_screenings": text(
+        """
+        SELECT count(*)
+        FROM analytics_first_candidate_milestones
+        WHERE credited_user_id = :user_id
+          AND stage = 'verified'
+          AND reached_at >= :since
+          AND reached_at < :until
+        """
+    ),
+    "monthly_placements": text(
+        """
+        SELECT count(*)
+        FROM analytics_first_candidate_milestones
+        WHERE credited_user_id = :user_id
+          AND stage = 'hired'
+          AND reached_at >= :since
+          AND reached_at < :until
+        """
+    ),
+}
+
+
 async def resolve_target(db: AsyncSession, *, user: User, kpi_def: KpiDef) -> int:
     """Zwraca efektywny target dla (user, kpi_def):
     user_kpi_targets → kpi_role_defaults → kpi_def.default_targets → 0.
     """
-    # 1) Per-user override
-    row = await db.scalar(
-        select(UserKpiTarget.target_value).where(
-            and_(
-                UserKpiTarget.user_id == user.id,
-                UserKpiTarget.kpi_id == kpi_def.kpi_id,
+    canonical_target_ids = {
+        "daily_activity_count": "calls_daily",
+        "daily_new_candidates": "cv_added_daily",
+        "weekly_screenings": "verifications_daily",
+        "monthly_placements": "placements_monthly",
+    }
+    canonical_id = canonical_target_ids.get(kpi_def.kpi_id, kpi_def.kpi_id)
+    # `weekly_screenings` used to be a weekly target.  Its metric is daily in
+    # KPI Coach v2, so treating an old override (for example 7/week) as 7/day
+    # would silently change expectations.  Only an explicit canonical daily
+    # override/default may win for this KPI.
+    target_ids = (
+        (canonical_id,)
+        if kpi_def.kpi_id == "weekly_screenings"
+        else tuple(dict.fromkeys((canonical_id, kpi_def.kpi_id)))
+    )
+
+    # 1) Per-user override. Canonical v2 key wins over a legacy alias.
+    for target_id in target_ids:
+        row = await db.scalar(
+            select(UserKpiTarget.target_value).where(
+                and_(
+                    UserKpiTarget.user_id == user.id,
+                    UserKpiTarget.kpi_id == target_id,
+                )
             )
         )
-    )
-    if row is not None:
-        return int(row)
+        if row is not None:
+            return int(row)
 
-    # 2) Role default w DB
-    row = await db.scalar(
-        select(KpiRoleDefault.target_value).where(
-            and_(
-                KpiRoleDefault.role == user.role,
-                KpiRoleDefault.kpi_id == kpi_def.kpi_id,
+    # 2) Primary-role default. Secondary roles grant views, not targets.
+    for target_id in target_ids:
+        row = await db.scalar(
+            select(KpiRoleDefault.target_value).where(
+                and_(
+                    KpiRoleDefault.role == user.role,
+                    KpiRoleDefault.kpi_id == target_id,
+                )
             )
         )
-    )
-    if row is not None:
-        return int(row)
+        if row is not None:
+            return int(row)
 
-    # 3) Code-level fallback z katalogu
+    # 3) Runtime-configurable canonical fallbacks, then code catalog.
+    if canonical_id == "calls_daily":
+        return settings.POWERCALLING_DAILY_TARGET
+    if canonical_id == "verifications_daily":
+        return settings.VERIFICATIONS_DAILY_TARGET
     return int(kpi_def.default_targets.get(user.role, 0))
 
 
-async def count_user_action_in_window(
+async def count_canonical_kpi_in_window(
     db: AsyncSession,
     *,
+    kpi_id: str,
     user_id: int,
-    action_types: tuple[UserActionType, ...],
     since: datetime,
     until: datetime,
-    details_filter: Optional[dict] = None,
 ) -> int:
-    """COUNT user_activities pasujących do kryteriów.
+    """Count a KPI from canonical ATS entities, never ``UserActivity``."""
 
-    - `action_types`: IN (...) po enumie.
-    - `details_filter`: JSONB containment `details @> :filter` (np.
-      `{"stage": "cv_sent"}`). Pomijane gdy None.
-    """
-    conds = [
-        UserActivity.user_id == user_id,
-        UserActivity.created_at >= since,
-        UserActivity.created_at < until,
-    ]
-    if action_types:
-        conds.append(UserActivity.action_type.in_(action_types))
-    if details_filter:
-        # JSONB @> operator — `details` zawiera filter jako sub-obiekt.
-        conds.append(UserActivity.details.cast(JSONB).contains(details_filter))
-
-    result = await db.scalar(select(func.count(UserActivity.id)).where(and_(*conds)))
+    query = _CANONICAL_KPI_COUNT_SQL.get(kpi_id)
+    if query is None:
+        return 0
+    result = await db.scalar(
+        query,
+        {"user_id": user_id, "since": since, "until": until},
+    )
     return int(result or 0)
 
 
@@ -303,14 +372,26 @@ async def evaluate_user_kpis(
     for kpi_def in KPI_CATALOG:
         target = await resolve_target(db, user=user, kpi_def=kpi_def)
         start, end = period_bounds(kpi_def.period, now)
-        current = await count_user_action_in_window(
-            db,
-            user_id=user.id,
-            action_types=kpi_def.action_types,
-            since=start,
-            until=end,
-            details_filter=kpi_def.details_filter,
+        calls_unavailable = kpi_def.kpi_id == "daily_activity_count" and not (
+            settings.CLOUDTALK_ENABLED
+            and settings.CLOUDTALK_API_KEY_ID
+            and settings.CLOUDTALK_API_KEY_SECRET
+            and settings.CLOUDTALK_WEBHOOK_SECRET
         )
+        # The legacy DTO cannot represent an unavailable numeric value.  A
+        # zero target hides this row and prevents a false "0 calls" nudge;
+        # analytics v1 exposes the explicit unavailable quality state.
+        if calls_unavailable:
+            target = 0
+            current = 0
+        else:
+            current = await count_canonical_kpi_in_window(
+                db,
+                kpi_id=kpi_def.kpi_id,
+                user_id=user.id,
+                since=start,
+                until=end,
+            )
         ratio = expected_progress_ratio(kpi_def.period, now)
         state = derive_state(current=current, target=target, expected_ratio=ratio)
         progress = (current / target * 100.0) if target > 0 else 0.0
@@ -337,7 +418,7 @@ __all__ = [
     "KpiResult",
     "KpiState",
     "WARSAW",
-    "count_user_action_in_window",
+    "count_canonical_kpi_in_window",
     "derive_state",
     "evaluate_user_kpis",
     "expected_progress_ratio",

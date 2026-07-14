@@ -34,6 +34,7 @@ _CACHE_KEY = "admin:snapshot"
 
 
 async def _snapshot_auth(
+    request: Request,
     x_snapshot_token: Annotated[str | None, Header(alias="X-Snapshot-Token")] = None,
     bearer: Annotated[
         HTTPAuthorizationCredentials | None,
@@ -51,10 +52,10 @@ async def _snapshot_auth(
         )
     if bearer is not None:
         try:
-            user = await get_current_user(bearer, db)
+            user = await get_current_user(request, bearer, db)
         except HTTPException:
             raise
-        if user.role == UserRole.admin:
+        if user.has_role(UserRole.admin):
             return "jwt"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -90,15 +91,71 @@ async def _query_alembic_head() -> dict[str, str | None]:
 
 
 def _background_tasks_status(request: Request) -> dict[str, Any]:
-    """Inspect app.state.background_tasks dict (populated by lifespan)."""
+    """Inspect lifespan jobs without treating a clean exit as a missing task."""
     tasks = getattr(request.app.state, "background_tasks", None)
     if not isinstance(tasks, dict):
-        return {"running": 0, "expected": 0, "tasks": []}
-    running = [name for name, task in tasks.items() if not task.done()]
+        return {
+            "running": 0,
+            "disabled": 0,
+            "completed": 0,
+            "crashed": 0,
+            "expected": 0,
+            "tasks": [],
+        }
+
+    enabled_by_config = {
+        "kpi_coach_nudger": (
+            settings.KPI_COACH_V2_NUDGE_MODE != "off"
+            or settings.KPI_COACH_V2_NUDGES_ENABLED
+        ),
+        "linkedin_sync": bool(
+            settings.PROXYCURL_ENABLED and settings.PROXYCURL_API_KEY
+        ),
+        "microsoft365_sync": bool(
+            settings.M365_INTEGRATION_ENABLED and settings.M365_SYNC_LOOP_ENABLED
+        ),
+        "m365_rematch": bool(
+            settings.M365_INTEGRATION_ENABLED and settings.M365_REMATCH_ENABLED
+        ),
+        "m365_webhook_renewal": bool(
+            settings.M365_INTEGRATION_ENABLED and settings.M365_WEBHOOKS_ENABLED
+        ),
+        "m365_recording_discovery": bool(
+            settings.M365_INTEGRATION_ENABLED
+            and settings.M365_RECORDING_DISCOVERY_ENABLED
+        ),
+        "marketplace_sweeper": settings.MARKETPLACE_ENABLED,
+        "autenti_sweeper": settings.AUTENTI_ENABLED,
+        "signing_sweeper": settings.SIGNING_ENABLED,
+        "cloudtalk_sync": settings.CLOUDTALK_ENABLED,
+        "traffit_sync": settings.TRAFFIT_SYNC_ENABLED,
+    }
+
+    rows: list[dict[str, str | None]] = []
+    counts = {"running": 0, "disabled": 0, "completed": 0, "crashed": 0}
+    for name, task in sorted(tasks.items()):
+        error: str | None = None
+        if enabled_by_config.get(name) is False:
+            task_status = "disabled"
+        elif not task.done():
+            task_status = "running"
+        elif task.cancelled():
+            task_status = "completed"
+        else:
+            exception = task.exception()
+            if exception is None:
+                task_status = "completed"
+            else:
+                task_status = "crashed"
+                error = f"{type(exception).__name__}: {exception}"[:300]
+        counts[task_status] += 1
+        rows.append({"name": name, "status": task_status, "error": error})
+
     return {
-        "running": len(running),
+        **counts,
         "expected": len(tasks),
-        "tasks": sorted(running),
+        "tasks": rows,
+        "running_tasks": [r["name"] for r in rows if r["status"] == "running"],
     }
 
 

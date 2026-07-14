@@ -209,6 +209,57 @@ class ContractResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ContractOperationalResponse(BaseModel):
+    """Contract DTO with every rate, margin and rate schedule omitted.
+
+    This is intentionally a separate schema rather than the financial schema
+    populated with ``None`` values: response serialization must not advertise
+    or accidentally re-introduce forbidden finance fields.
+    """
+
+    id: int
+    candidate_id: int
+    client_id: int
+    job_id: Optional[int]
+    start_date: Optional[date] = None
+    end_date: Optional[date]
+    client_order_end_date: Optional[date] = None
+    contract_type: ContractType
+    status: ContractStatus
+    documents: Optional[Any]
+    client_pm_name: Optional[str] = None
+    client_pm_email: Optional[str] = None
+    line_manager: Optional[str] = None
+    work_mode: Optional[ContractWorkMode] = None
+    office_location: Optional[str] = None
+    team_name: Optional[str] = None
+    project_name: Optional[str] = None
+    handover_notes: Optional[str] = None
+    termination_reason: Optional[ContractTerminationReason] = None
+    termination_lessons: Optional[str] = None
+    terminated_at: Optional[date] = None
+    project_code: Optional[str] = None
+    prolongation_status: ProlongationStatus = ProlongationStatus.unknown
+    engagement_model: EngagementModel = EngagementModel.time_based
+    hours_pool_total: Optional[int] = None
+    hours_pool_consumed: Optional[int] = None
+    order_consumption: Optional[float] = None
+    order_consumption_unit: Optional[OrderConsumptionUnit] = None
+    hours_pool_remaining: Optional[int] = None
+    hours_pool_usage_pct: Optional[float] = None
+    draft_template_id: Optional[int] = None
+    draft_updated_at: Optional[datetime] = None
+    draft_updated_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    candidate_name: Optional[str] = None
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    latest_order_end_date: Optional[date] = None
+
+    model_config = {"from_attributes": True}
+
+
 class ContractTerminateRequest(BaseModel):
     """Payload dla dedykowanego POST /{id}/terminate."""
 
@@ -257,6 +308,13 @@ class ContractList(BaseModel):
     page_size: int
 
 
+class ContractOperationalList(BaseModel):
+    items: list[ContractOperationalResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class ContractDetailResponse(ContractResponse):
     """Extended response for the contract detail page — includes denormalized names."""
 
@@ -266,6 +324,12 @@ class ContractDetailResponse(ContractResponse):
     monthly_rate_candidate: Optional[float] = None
     monthly_rate_client: Optional[float] = None
     monthly_margin: Optional[float] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ContractOperationalDetailResponse(ContractOperationalResponse):
+    """Operational contract detail; financial fields remain structurally absent."""
 
     model_config = {"from_attributes": True}
 
@@ -385,8 +449,30 @@ class ContractorListItem(BaseModel):
     missing_fields: list[str] = []
 
 
+class ContractorOperationalListItem(BaseModel):
+    """Contractor row without candidate/client rates or margin."""
+
+    contract_id: int
+    candidate: ContractorCandidateRef
+    client_name: Optional[str] = None
+    job_title: Optional[str] = None
+    status: ContractStatus
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    contract_type: ContractType
+    work_mode: Optional[ContractWorkMode] = None
+    missing_fields: list[str] = []
+
+
 class ContractorList(BaseModel):
     items: list[ContractorListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class ContractorOperationalList(BaseModel):
+    items: list[ContractorOperationalListItem]
     total: int
     page: int
     page_size: int

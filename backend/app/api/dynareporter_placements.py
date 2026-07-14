@@ -10,13 +10,23 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DynaReporterSection,
+    RecruiterPlus,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.dr_placement_details import DrPlacementDetail
 from app.models.user import User, UserRole
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(require_dynareporter_section(DynaReporterSection.placements))
+    ]
+)
 
 
 class PlacementCreate(BaseModel):
@@ -96,7 +106,7 @@ async def list_all_placements(
     from_date: Optional[date] = Query(default=None),
     to_date: Optional[date] = Query(default=None),
 ) -> list[PlacementResponse]:
-    is_priv = current_user.role in (
+    is_priv = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -182,11 +192,11 @@ async def stats_by_client(
 @router.post("", response_model=PlacementResponse, status_code=status.HTTP_201_CREATED)
 async def create_placement(
     payload: PlacementCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
     user_id: Optional[int] = Query(default=None),
 ) -> PlacementResponse:
-    is_admin = current_user.role in (
+    is_admin = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -211,7 +221,7 @@ async def create_placement(
 )
 async def create_placement_with_dl(
     payload: PlacementWithDlCreate,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> PlacementResponse:
     """Atomowo: tworzy `dr_placement_details` dla sourcera ORAZ inkrementuje
@@ -219,7 +229,7 @@ async def create_placement_with_dl(
     podpisania (tworzy wiersz DL jeśli go nie ma). Dzięki temu placement wpisany
     w panelu Rekrutacji od razu widać w panelu Delivery Lead. Tylko admin/DL/head.
     """
-    if current_user.role not in (
+    if not current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
@@ -264,7 +274,7 @@ async def create_placement_with_dl(
     "/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_placement(
-    entry_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    entry_id: int, current_user: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> None:
     row = (
         await db.execute(
@@ -273,7 +283,7 @@ async def delete_placement(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Placement nie znaleziony")
-    is_admin = current_user.role in (
+    is_admin = current_user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,

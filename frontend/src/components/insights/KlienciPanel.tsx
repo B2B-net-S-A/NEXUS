@@ -1,21 +1,20 @@
 "use client";
 
-import { useState } from "react";
-import { useAuthStore, hasRole } from "@/store/auth";
+import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { ClientsRanking } from "@/components/insights/sections/ClientsRanking";
-import { DLRevenueLeaderboard } from "@/components/insights/sections/DLRevenueLeaderboard";
 import { HiringManagersSection } from "@/components/insights/sections/HiringManagersSection";
-import { SalesOverview } from "@/components/insights/sections/SalesOverview";
 import { ClientsHitRatio } from "@/components/insights/sections/ClientsHitRatio";
-import { PeriodSelector, type Period } from "@/components/insights/sections/PeriodSelector";
+import { DeliveryLeadPerformanceSection } from "@/components/insights/sections/DeliveryLeadPerformanceSection";
+import { FinanceAnalyticsSection } from "@/components/insights/sections/FinanceAnalyticsSection";
+import { PeriodSelector } from "@/components/insights/sections/PeriodSelector";
+import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 
 export function KlienciPanel() {
   const user = useAuthStore((s) => s.user);
-  const [period, setPeriod] = useState<Period>("month");
+  const [period, setPeriod] = useInsightsPeriod("month");
 
-  const canSeeAdminClients = hasRole(user, "admin", "head_of_recruitment");
-  const canSeeSales = hasRole(user, "admin", "delivery_lead", "tac");
-  const canSeeHitRatio = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
+  const canSeeClientOperations = hasAnalyticsCapability(user, "view_client_operations");
+  const canSeeFinance = hasAnalyticsCapability(user, "view_finance");
 
   return (
     <div className="space-y-6">
@@ -23,14 +22,17 @@ export function KlienciPanel() {
         <p className="text-sm text-muted-foreground">
           Klienci, Delivery Leads, sprzedaż i hiring managers — pełna perspektywa biznesowa.
         </p>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Okres hit ratio</span>
+          <PeriodSelector value={period} onChange={setPeriod} />
+        </div>
       </div>
 
-      {canSeeAdminClients && <ClientsRanking />}
-      {canSeeAdminClients && <DLRevenueLeaderboard />}
-      {canSeeSales && <SalesOverview />}
-      {canSeeAdminClients && <HiringManagersSection />}
-      {canSeeHitRatio && <ClientsHitRatio period={period} />}
+      {canSeeFinance && <ClientsRanking />}
+      {canSeeClientOperations && <DeliveryLeadPerformanceSection period={period} />}
+      {canSeeFinance && <FinanceAnalyticsSection period={period} />}
+      {canSeeClientOperations && <HiringManagersSection />}
+      {canSeeClientOperations && <ClientsHitRatio period={period} />}
     </div>
   );
 }

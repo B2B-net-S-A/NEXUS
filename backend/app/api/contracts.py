@@ -57,6 +57,9 @@ from app.schemas.contract import (
     ContractDraftResponse,
     ContractDraftUpdate,
     ContractList,
+    ContractOperationalDetailResponse,
+    ContractOperationalList,
+    ContractOperationalResponse,
     ContractRateHistoryEntry,
     ContractResponse,
     ContractTemplateBrief,
@@ -86,6 +89,11 @@ from app.services import storage_service
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, CurrentUser, TacPlus
+from app.api.financial_access import (
+    has_financial_access,
+    redact_financial_fields,
+    require_financial_access,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -94,6 +102,48 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 EXPIRY_WARNING_DAYS = 30
+
+_FINANCIAL_CONTRACT_INPUT_FIELDS = frozenset(
+    {
+        "rate_candidate",
+        "rate_client",
+        "candidate_rate_schedule",
+        "framework_rate",
+        "target_rate_min",
+        "target_rate_max",
+        "currency",
+        "rate_unit",
+        "billing_hours_per_month",
+    }
+)
+
+
+def _require_financial_input_access(data, current_user) -> None:  # type: ignore[no-untyped-def]
+    """Reject explicit financial create/update fields before touching the DB."""
+
+    if _FINANCIAL_CONTRACT_INPUT_FIELDS.intersection(data.model_fields_set):
+        require_financial_access(current_user)
+
+
+def _contract_response_for_user(
+    response: ContractResponse | ContractDetailResponse,
+    current_user,
+    *,
+    detail: bool = False,
+) -> (
+    ContractResponse
+    | ContractDetailResponse
+    | ContractOperationalResponse
+    | ContractOperationalDetailResponse
+):
+    """Select a structurally redacted response schema for non-finance roles."""
+
+    if has_financial_access(current_user):
+        return response
+    schema = (
+        ContractOperationalDetailResponse if detail else ContractOperationalResponse
+    )
+    return schema.model_validate(response.model_dump())
 
 
 def _effective_rate_fields(contract: Contract, on: date) -> dict:
@@ -347,7 +397,7 @@ async def _latest_order_end_dates(
     return {row[0]: row[1] for row in rows.all()}
 
 
-@router.get("", response_model=ContractList)
+@router.get("", response_model=ContractList | ContractOperationalList)
 async def list_contracts(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -386,6 +436,11 @@ async def list_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
+    if any(
+        value is not None for value in (rate_client_min, rate_client_max, margin_min)
+    ):
+        require_financial_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -448,7 +503,17 @@ async def list_contracts(
         )
         for c in contracts
     ]
-    return ContractList(items=items, total=total, page=page, page_size=page_size)
+    if has_financial_access(current_user):
+        return ContractList(items=items, total=total, page=page, page_size=page_size)
+    return ContractOperationalList(
+        items=[
+            ContractOperationalResponse.model_validate(item.model_dump())
+            for item in items
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 # ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
@@ -594,6 +659,8 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    require_financial_access(current_user)
+
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -670,10 +737,15 @@ async def export_contracts(
     )
 
 
-@router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ContractResponse | ContractOperationalResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
+    _require_financial_input_access(data, current_user)
     payload = data.model_dump()
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     contract = Contract(**payload)
@@ -720,7 +792,8 @@ async def create_contract(
             selectinload(Contract.client_rate_schedule),
         )
     )
-    return _to_detail(result.scalar_one())
+    response = _to_detail(result.scalar_one())
+    return _contract_response_for_user(response, current_user)
 
 
 @router.post("/alerts/run", status_code=status.HTTP_200_OK)
@@ -819,7 +892,10 @@ async def bulk_mark_ended(
     return {"requested": len(contract_ids), "changed": changed}
 
 
-@router.get("/expiring", response_model=List[ContractResponse])
+@router.get(
+    "/expiring",
+    response_model=List[ContractResponse | ContractOperationalResponse],
+)
 async def expiring_contracts(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
@@ -849,7 +925,7 @@ async def expiring_contracts(
         )
     )
     today = date.today()
-    return [
+    responses = [
         ContractResponse.model_validate(
             {
                 **{
@@ -862,9 +938,18 @@ async def expiring_contracts(
         )
         for c in result.scalars().all()
     ]
+    if has_financial_access(current_user):
+        return responses
+    return [
+        ContractOperationalResponse.model_validate(response.model_dump())
+        for response in responses
+    ]
 
 
-@router.get("/{contract_id}", response_model=ContractDetailResponse)
+@router.get(
+    "/{contract_id}",
+    response_model=ContractDetailResponse | ContractOperationalDetailResponse,
+)
 async def get_contract(
     contract_id: int, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
@@ -883,7 +968,8 @@ async def get_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    return _to_detail(contract)
+    response = _to_detail(contract)
+    return _contract_response_for_user(response, current_user, detail=True)
 
 
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
@@ -913,7 +999,11 @@ async def contract_activities(
             ContractActivityEntry(
                 id=activity.id,
                 action=activity.action,
-                details=activity.details,
+                details=(
+                    activity.details
+                    if has_financial_access(current_user)
+                    else redact_financial_fields(activity.details)
+                ),
                 user_id=activity.user_id,
                 user_name=user_email,
                 created_at=activity.created_at,
@@ -931,6 +1021,7 @@ async def contract_rate_history(
     db: AsyncSession = Depends(get_db),
 ):
     """Return rate history for this contract's candidate+client combination."""
+    require_financial_access(current_user)
     contract_result = await db.execute(
         select(Contract).where(Contract.id == contract_id)
     )
@@ -965,13 +1056,17 @@ async def contract_rate_history(
     ]
 
 
-@router.patch("/{contract_id}", response_model=ContractDetailResponse)
+@router.patch(
+    "/{contract_id}",
+    response_model=ContractDetailResponse | ContractOperationalDetailResponse,
+)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    _require_financial_input_access(data, current_user)
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -1057,12 +1152,17 @@ async def update_contract(
                 selectinload(Contract.client_rate_schedule),
             )
         )
-        return _to_detail(reloaded.scalar_one())
+        response = _to_detail(reloaded.scalar_one())
+        return _contract_response_for_user(response, current_user, detail=True)
     await db.refresh(contract)
-    return _to_detail(contract)
+    response = _to_detail(contract)
+    return _contract_response_for_user(response, current_user, detail=True)
 
 
-@router.post("/{contract_id}/activate", response_model=ContractDetailResponse)
+@router.post(
+    "/{contract_id}/activate",
+    response_model=ContractDetailResponse | ContractOperationalDetailResponse,
+)
 async def activate_contract(
     contract_id: int,
     _: ContractActivateRequest,
@@ -1136,7 +1236,8 @@ async def activate_contract(
             "Teams notify (contract_signed via activate) scheduling failed: %s", exc
         )
 
-    return _to_detail(contract)
+    response = _to_detail(contract)
+    return _contract_response_for_user(response, current_user, detail=True)
 
 
 # ── Editable draft (migracja 0058) ───────────────────────────────────────────
@@ -1236,6 +1337,7 @@ async def get_contract_draft(
     the response carries an empty body and the FE prompts for template
     selection from `available_templates`.
     """
+    require_financial_access(current_user)
     contract = await _load_contract_with_relations(db, contract_id)
     contract_type_value = (
         contract.contract_type.value
@@ -1285,6 +1387,7 @@ async def update_contract_draft(
     - `template_id` only → re-render that template (overwrites content).
     - `content_html` only → save edited body verbatim.
     """
+    require_financial_access(current_user)
     if payload.template_id is None and payload.content_html is None:
         raise HTTPException(
             status_code=422,
@@ -1354,6 +1457,7 @@ async def render_draft_for_print(
     fires the OS print dialog where the user picks "Save as PDF". No
     server-side PDF dependency required.
     """
+    require_financial_access(current_user)
     contract = await _load_contract_with_relations(db, contract_id)
     body = contract.draft_content_html
     if not body:
@@ -1383,6 +1487,7 @@ async def finalize_contract_draft(
     Reuses the same field-validation rule as `/activate` so the UI can
     show a consistent missing-field list.
     """
+    require_financial_access(current_user)
     contract = await _load_contract_with_relations(db, contract_id)
 
     if contract.status != ContractStatus.draft:
@@ -1729,7 +1834,18 @@ async def list_contract_amendments(
         .order_by(ContractAmendment.created_at.desc())
     )
     amendments = list(result.scalars().all())
-    return [await _amendment_to_response(db, a) for a in amendments]
+    responses = [await _amendment_to_response(db, a) for a in amendments]
+    if has_financial_access(current_user):
+        return responses
+    return [
+        response.model_copy(
+            update={
+                "old_values": redact_financial_fields(response.old_values),
+                "new_values": redact_financial_fields(response.new_values),
+            }
+        )
+        for response in responses
+    ]
 
 
 @router.post(
@@ -1743,6 +1859,9 @@ async def create_contract_amendment(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    if data.amendment_type == ContractAmendmentType.rate_change:
+        require_financial_access(current_user)
+
     contract_res = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
@@ -1919,7 +2038,15 @@ async def create_contract_amendment(
     )
     await db.flush()
     await db.refresh(amendment)
-    return await _amendment_to_response(db, amendment)
+    response = await _amendment_to_response(db, amendment)
+    if has_financial_access(current_user):
+        return response
+    return response.model_copy(
+        update={
+            "old_values": redact_financial_fields(response.old_values),
+            "new_values": redact_financial_fields(response.new_values),
+        }
+    )
 
 
 # ── Onboarding checklist (Phase 9 B6) ────────────────────────────────────────
@@ -2156,7 +2283,7 @@ async def delete_contract_equipment(
 
 @router.post(
     "/{contract_id}/terminate",
-    response_model=ContractDetailResponse,
+    response_model=ContractDetailResponse | ContractOperationalDetailResponse,
 )
 async def terminate_contract(
     contract_id: int,
@@ -2231,7 +2358,8 @@ async def terminate_contract(
     )
     await db.flush()
     await db.refresh(contract)
-    return _to_detail(contract)
+    response = _to_detail(contract)
+    return _contract_response_for_user(response, current_user, detail=True)
 
 
 # ── Notes + Calls timeline per contract ──────────────────────────────────────
@@ -2348,6 +2476,7 @@ async def contract_benchmark(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    require_financial_access(current_user)
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)

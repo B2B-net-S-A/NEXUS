@@ -177,6 +177,92 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  analytics-contract:
+    name: Analytics contract (blocking)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus-ci-password
+          POSTGRES_DB: nexus_analytics_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Require exactly one Alembic head
+        run: |
+          mapfile -t heads < <(
+            alembic -c alembic/alembic.ini heads \
+              | awk '/\(head\)$/ { print $1 }'
+          )
+          if [ "${#heads[@]}" -ne 1 ]; then
+            echo "Expected exactly one Alembic head, found ${#heads[@]}: ${heads[*]}" >&2
+            exit 1
+          fi
+          echo "Alembic head: ${heads[0]}"
+      - name: Migrate an empty Postgres database to head
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_analytics_test
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+        run: alembic -c alembic/alembic.ini upgrade head
+      - name: Focused analytics, RBAC and OpenAPI tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_analytics_test
+          SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+          ANALYTICS_V1_MODE: shadow
+          RUN_LIVE_TESTS: "0"
+        run: |
+          pytest tests/test_analytics_v1_foundation.py \
+                 tests/test_analytics_v1_manager.py \
+                 tests/test_analytics_v1_cache_modules.py \
+                 tests/test_analytics_security.py \
+                 tests/test_analytics_contract_ci.py \
+                 tests/test_analytics_cutover.py \
+                 tests/test_kpi_engine_v2.py \
+                 tests/test_contract_finance_rbac.py \
+                 tests/test_admin_snapshot.py \
+                 tests/test_dynareporter_admin.py \
+                 -v --tb=short
+      # The committed analytics types are generated from app.openapi(). The
+      # blocking check below fails whenever backend schemas drift.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+      - name: Verify generated Analytics v1 OpenAPI types
+        working-directory: frontend
+        run: npm run analytics:types:check
+      - name: Verify frontend analytics types
+        working-directory: frontend
+        run: npm run type-check
+      - name: Verify frontend analytics contract tests
+        working-directory: frontend
+        run: npm run test -- src/lib/__tests__/analytics.test.ts
+
   frontend-lint-build:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest

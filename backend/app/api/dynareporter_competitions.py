@@ -12,14 +12,23 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DynaReporterSection,
+    require_dynareporter_section,
+)
 from app.core.database import get_db
 from app.models.dr_competition import DrCompetitionNotification, DrCompetitionWinner
 from app.models.user import User
 
 logger = logging.getLogger("dynareporter.competitions")
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(require_dynareporter_section(DynaReporterSection.competitions))
+    ]
+)
 
 
 class WinnerResponse(BaseModel):
@@ -126,7 +135,7 @@ async def my_notifications(
 )
 async def mark_read(
     notif_id: int,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     result = await db.execute(
