@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Optional
 
 import httpx
@@ -20,7 +21,8 @@ logger = logging.getLogger(__name__)
 VECTOR_SIZE = 1024
 VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
 
-JOBS_COLLECTION = "nexus_jobs"
+LEGACY_CANDIDATE_COLLECTION = "nexus_candidates"
+LEGACY_JOBS_COLLECTION = "nexus_jobs"
 
 
 def _voyage_model() -> str:
@@ -28,15 +30,46 @@ def _voyage_model() -> str:
     return getattr(settings, "VOYAGE_MODEL", None) or "voyage-3-large"
 
 
+def _safe_collection_name(entity: str) -> str:
+    """Build a physical collection name bound to the active vector space."""
+    model_slug = re.sub(r"[^a-z0-9]+", "_", _voyage_model().lower()).strip("_")
+    return f"nexus_{entity}_{model_slug}_{VECTOR_SIZE}_clean_v1"
+
+
+def _belongs_to_active_vector_space(name: str, entity: str) -> bool:
+    """Accept schema versions only when provider/model/dimension still match."""
+    active_prefix = _safe_collection_name(entity).removesuffix("clean_v1")
+    return name.startswith(active_prefix)
+
+
 def _collection() -> str:
-    """Return configured Qdrant collection name (default: nexus_candidates)."""
-    name = getattr(settings, "QDRANT_COLLECTION", "nexus_candidates")
-    return name or "nexus_candidates"
+    """Return the populated candidate index; reject mismatched versioned names."""
+    name = getattr(settings, "QDRANT_COLLECTION", None) or LEGACY_CANDIDATE_COLLECTION
+    if name != LEGACY_CANDIDATE_COLLECTION and not _belongs_to_active_vector_space(
+        name, "candidates"
+    ):
+        raise RuntimeError("candidate Qdrant collection does not match active model")
+    return name
 
 
 def _jobs_collection() -> str:
-    """Separate Qdrant collection for job embeddings (Phase 2)."""
-    return getattr(settings, "QDRANT_JOBS_COLLECTION", None) or JOBS_COLLECTION
+    """Return the populated job index; reject mismatched versioned names."""
+    name = getattr(settings, "QDRANT_JOBS_COLLECTION", None) or LEGACY_JOBS_COLLECTION
+    if name != LEGACY_JOBS_COLLECTION and not _belongs_to_active_vector_space(
+        name, "jobs"
+    ):
+        raise RuntimeError("job Qdrant collection does not match active model")
+    return name
+
+
+def candidate_collection_name() -> str:
+    """Public resolver used by every candidate-vector consumer."""
+    return _collection()
+
+
+def job_collection_name() -> str:
+    """Public resolver used by every job-vector consumer."""
+    return _jobs_collection()
 
 
 # ---------------------------------------------------------------------------
@@ -51,15 +84,13 @@ def _get_qdrant_client():
 
         return QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
     except Exception as e:
-        logger.error(f"[Qdrant] Failed to create client: {e}")
+        logger.error("[Qdrant] client creation failed error_type=%s", type(e).__name__)
         return None
 
 
 def init_qdrant_collection() -> None:
     """
-    Create Qdrant collections if missing:
-      - nexus_candidates (Phase 1)
-      - nexus_jobs       (Phase 2)
+    Create the configured, versioned Voyage-only Qdrant collections if missing.
 
     Called at application startup (synchronous, runs in thread via asyncio.to_thread).
     """
@@ -85,7 +116,9 @@ def init_qdrant_collection() -> None:
                 logger.info(f"[Qdrant] Collection '{coll}' already exists.")
     except Exception as e:
         logger.warning(
-            f"[Qdrant] init_qdrant_collection failed: {e} — semantic search will be unavailable."
+            "[Qdrant] collection init failed error_type=%s; "
+            "semantic search will be unavailable",
+            type(e).__name__,
         )
 
 
@@ -94,7 +127,18 @@ def init_qdrant_collection() -> None:
 # ---------------------------------------------------------------------------
 
 
-OLLAMA_EMBED_MODEL = "mxbai-embed-large"  # 1024-dim, compatible with Qdrant collection
+OLLAMA_EMBED_MODEL = "mxbai-embed-large"
+
+
+def _embedding_cache_model() -> str:
+    """Provider-qualified cache namespace for Voyage embeddings.
+
+    Older rows were keyed only by the configured model name.  Because the old
+    fallback path could store an Ollama vector under that Voyage key, those
+    rows cannot be trusted.  The provider-qualified namespace deliberately
+    makes them cold without requiring a destructive cache migration.
+    """
+    return f"voyage:{_voyage_model()}"
 
 
 async def _voyage_embed(
@@ -148,18 +192,23 @@ async def _voyage_embed_batch(
             return [by_idx.get(i) for i in range(len(texts))]
     except httpx.HTTPStatusError as e:
         logger.warning(
-            "[Voyage] HTTP %s — %s", e.response.status_code, e.response.text[:200]
+            "[Voyage] HTTP status=%s response_bytes=%s",
+            e.response.status_code,
+            len(e.response.content),
         )
         return None
     except Exception as e:
-        logger.warning("[Voyage] error: %s", e)
+        logger.warning("[Voyage] request failed error_type=%s", type(e).__name__)
         return None
 
 
 async def _ollama_embed(text: str) -> Optional[list[float]]:
     """
-    Local fallback using Ollama's `mxbai-embed-large` (1024-dim, same as Voyage).
-    Lets the stack run fully offline without any external API key.
+    Generate a local development embedding with Ollama.
+
+    This vector is *not* compatible with Voyage merely because both have 1024
+    dimensions.  It may only be requested explicitly in DEBUG mode and must
+    never be written to the Voyage cache.
     """
     host = getattr(settings, "OLLAMA_BASE_URL", None) or getattr(
         settings, "OLLAMA_HOST", None
@@ -184,16 +233,24 @@ async def _ollama_embed(text: str) -> Optional[list[float]]:
                 return None
             return emb
     except Exception as e:
-        logger.warning("[Ollama embed] error: %s", e)
+        logger.warning("[Ollama embed] request failed error_type=%s", type(e).__name__)
         return None
 
 
 async def generate_embedding(
-    text: str, *, input_type: str = "document", use_cache: bool = True
+    text: str,
+    *,
+    input_type: str = "document",
+    use_cache: bool = True,
+    allow_local_fallback: bool = False,
 ) -> Optional[list[float]]:
     """
-    Generate a 1024-dim embedding for *text*. Tries Voyage first (if key present),
-    falls back to local Ollama (mxbai-embed-large). Returns None only if both fail.
+    Generate a 1024-dim Voyage embedding for *text*.
+
+    Production calls fail closed when Voyage is unavailable.  A local Ollama
+    fallback is available only when the caller explicitly opts in *and* the
+    application runs with ``DEBUG=true``.  Local vectors are never cached under
+    a Voyage key.  Equal dimensions do not imply compatible vector spaces.
 
     `input_type` should be "document" when indexing entities (candidates, jobs)
     and "query" when embedding a search query — Voyage 3-large applies different
@@ -213,31 +270,48 @@ async def generate_embedding(
             from app.services.embedding_cache import get as _cache_get
 
             cached = await _cache_get(
-                text, model=_voyage_model(), input_type=input_type, dim=VECTOR_SIZE
+                text,
+                model=_embedding_cache_model(),
+                input_type=input_type,
+                dim=VECTOR_SIZE,
             )
             if cached is not None:
                 return cached
         except Exception as e:  # noqa: BLE001
-            logger.debug("[embedding] cache miss path error: %s", e)
+            logger.debug(
+                "[embedding] cache lookup failed error_type=%s", type(e).__name__
+            )
 
     emb = await _voyage_embed(text, input_type=input_type)
-    if emb is None:
+    is_voyage_embedding = emb is not None
+    if emb is None and allow_local_fallback and settings.DEBUG:
         emb = await _ollama_embed(text)
         if emb is not None:
-            logger.info("[embedding] using Ollama fallback (Voyage unavailable)")
+            logger.warning(
+                "[embedding] using explicit DEBUG-only Ollama embedding; "
+                "do not mix this vector with Voyage collections"
+            )
 
     if emb is None:
-        logger.warning("[embedding] both Voyage and Ollama unavailable")
+        logger.warning("[embedding] Voyage embedding unavailable")
         return None
 
-    # Best-effort cache write (only for Voyage results — Ollama may differ).
-    if cache_eligible:
+    # Best-effort cache write.  The explicit DEBUG-only local path is never
+    # cached because it belongs to a different vector space.
+    if cache_eligible and is_voyage_embedding:
         try:
             from app.services.embedding_cache import store as _cache_store
 
-            await _cache_store(text, emb, model=_voyage_model(), input_type=input_type)
+            await _cache_store(
+                text,
+                emb,
+                model=_embedding_cache_model(),
+                input_type=input_type,
+            )
         except Exception as e:  # noqa: BLE001
-            logger.debug("[embedding] cache store error: %s", e)
+            logger.debug(
+                "[embedding] cache store failed error_type=%s", type(e).__name__
+            )
 
     return emb
 
@@ -347,7 +421,7 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
             logger.warning(f"[Embed] Candidate {candidate_id} has no text to embed.")
             return False
 
-        embedding = await generate_embedding(text)
+        embedding = await generate_embedding(text, input_type="document")
         if embedding is None:
             return False
 
@@ -382,7 +456,11 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"[Embed] Failed to embed candidate {candidate_id}: {e}")
+        logger.error(
+            "[Embed] Candidate %s failed error_type=%s",
+            candidate_id,
+            type(e).__name__,
+        )
         return False
 
 
@@ -405,7 +483,11 @@ async def delete_candidate_embedding(candidate_id: int) -> bool:
         logger.info(f"[Embed] Deleted candidate {candidate_id} vector from Qdrant.")
         return True
     except Exception as e:  # pragma: no cover - network/Qdrant failure path
-        logger.warning(f"[Embed] Failed to delete candidate {candidate_id} vector: {e}")
+        logger.warning(
+            "[Embed] Candidate %s vector delete failed error_type=%s",
+            candidate_id,
+            type(e).__name__,
+        )
         return False
 
 
@@ -460,7 +542,10 @@ async def search_candidates_semantic(
             return await asyncio.to_thread(_search)
         except Exception as e:
             timer.failed = True
-            logger.error(f"[Search] Qdrant search error: {e}")
+            logger.error(
+                "[Search] Qdrant candidate search failed error_type=%s",
+                type(e).__name__,
+            )
             return []
 
 
@@ -505,7 +590,10 @@ async def similarity_for_candidate_ids(
     try:
         return await asyncio.to_thread(_search)
     except Exception as e:
-        logger.error(f"[Search] similarity_for_candidate_ids error: {e}")
+        logger.error(
+            "[Search] candidate similarity failed error_type=%s",
+            type(e).__name__,
+        )
         return {}
 
 
@@ -633,7 +721,7 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
             logger.warning(f"[Embed] Job {job_id} has no text to embed.")
             return False
 
-        embedding = await generate_embedding(text)
+        embedding = await generate_embedding(text, input_type="document")
         if embedding is None:
             return False
 
@@ -667,13 +755,13 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"[Embed] Failed to embed job {job_id}: {e}")
+        logger.error("[Embed] Job %s failed error_type=%s", job_id, type(e).__name__)
         return False
 
 
 async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
-    """Embed *query* and return top-k closest job ids from nexus_jobs."""
-    embedding = await generate_embedding(query)
+    """Embed *query* and return top-k closest job ids from the active index."""
+    embedding = await generate_embedding(query, input_type="query")
     if embedding is None:
         return []
 
@@ -699,7 +787,9 @@ async def search_jobs_semantic(query: str, top_k: int = 20) -> list[dict]:
     try:
         return await asyncio.to_thread(_search)
     except Exception as e:
-        logger.error(f"[Search] Qdrant jobs search error: {e}")
+        logger.error(
+            "[Search] Qdrant job search failed error_type=%s", type(e).__name__
+        )
         return []
 
 
@@ -709,7 +799,7 @@ async def search_similar_jobs_by_job_id(
     """Find jobs semantically similar to *job_id* using its stored vector.
 
     Flow:
-      1. Retrieve job vector from `nexus_jobs` collection.
+      1. Retrieve the job vector from the active versioned collection.
       2. Run vector search limit=top_k+1 (to drop self).
       3. Optionally exclude *job_id* itself from results.
 
@@ -730,7 +820,11 @@ async def search_similar_jobs_by_job_id(
                 with_vectors=True,
             )
         except Exception as e:
-            logger.debug("[Search] retrieve vector for job %s failed: %s", job_id, e)
+            logger.debug(
+                "[Search] Job %s vector retrieval failed error_type=%s",
+                job_id,
+                type(e).__name__,
+            )
             return []
 
         if not points:
@@ -753,7 +847,9 @@ async def search_similar_jobs_by_job_id(
             )
         except Exception as e:
             logger.error(
-                "[Search] similar-jobs search for job %s failed: %s", job_id, e
+                "[Search] Similar-job search for job %s failed error_type=%s",
+                job_id,
+                type(e).__name__,
             )
             return []
 
@@ -776,5 +872,7 @@ async def search_similar_jobs_by_job_id(
     try:
         return await asyncio.to_thread(_run)
     except Exception as e:
-        logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
+        logger.error(
+            "[Search] Similar-job dispatch failed error_type=%s", type(e).__name__
+        )
         return []

@@ -24,6 +24,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competence_category import CompetenceCategory
+from app.services.embedding_service import (
+    candidate_collection_name,
+    job_collection_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +173,7 @@ async def _fetch_job_embedding(job_id: int) -> Optional[list[float]]:
             client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
                 points = client.retrieve(
-                    collection_name="nexus_jobs",
+                    collection_name=job_collection_name(),
                     ids=[job_id],
                     with_vectors=True,
                 )
@@ -201,7 +205,7 @@ async def _fetch_candidate_embedding(candidate_id: int) -> Optional[list[float]]
             client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
                 points = client.retrieve(
-                    collection_name="nexus_candidates",
+                    collection_name=candidate_collection_name(),
                     ids=[candidate_id],
                     with_vectors=True,
                 )

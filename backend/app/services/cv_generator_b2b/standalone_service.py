@@ -14,6 +14,7 @@ synchronous and slow (30-60 s). All DB access happens in the async part of
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import re
@@ -527,19 +528,12 @@ def _close_truncated_json(text: str) -> str:
     return repaired
 
 
-def _json_error_context(text: str, err: json.JSONDecodeError, radius: int = 180) -> str:
-    """One-line diagnostic around a JSON parse failure.
-
-    The defect is often deep in the document (e.g. char 8416), so logging just
-    the head is useless. Surface length, position and a window around the
-    failing offset so the actual malformation is visible in Grafana/Loki.
-    """
+def _json_error_context(text: str, err: json.JSONDecodeError) -> str:
+    """Return useful parse metadata without logging provider output or PII."""
     pos = getattr(err, "pos", 0) or 0
-    lo = max(0, pos - radius)
-    hi = min(len(text), pos + radius)
+    digest = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
     return (
-        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} "
-        f"head={text[:100]!r} tail={text[-100:]!r} window={text[lo:hi]!r}"
+        f"len={len(text)} pos={pos} line={err.lineno} col={err.colno} sha256={digest}"
     )
 
 
@@ -1080,9 +1074,9 @@ def _run_generation_pipeline(
     try:
         raw_data = _loads_cv_json(cleaned)
     except json.JSONDecodeError as err:
-        # The defect is often deep in the document (e.g. char 8416), so a
-        # head-only log hides it — dump length/position and a window around the
-        # failing offset instead. See _json_error_context.
+        # Do not log any response fragment: Claude output contains CV and
+        # screening-note data. Position, length and a short hash are enough to
+        # correlate failures without copying PII into Loki/Sentry.
         logger.error(
             "[cv_b2b][%s] Claude returned unparseable JSON: %s",
             request_id,
@@ -1138,10 +1132,14 @@ def _run_generation_pipeline(
     try:
         docx_bytes = render_cv_to_bytes(candidate_data, TEMPLATE_PATH)
     except Exception as err:  # noqa: BLE001 — python-docx raises various types
-        logger.exception("[cv_b2b][%s] DOCX render failed: %s", request_id, err)
+        logger.error(
+            "[cv_b2b][%s] DOCX render failed error_type=%s",
+            request_id,
+            type(err).__name__,
+        )
         raise StandaloneGenerationError(
             code="render_failed",
-            message=f"Renderowanie DOCX nie powiodło się: {err}",
+            message="Renderowanie DOCX nie powiodło się.",
         ) from err
 
     candidate_name = str(candidate_data.get("name") or fallback_name or "Kandydat")
@@ -1152,10 +1150,8 @@ def _run_generation_pipeline(
     warnings.extend(guard_warnings)
 
     logger.info(
-        "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
-        "(guard=%d) duration_ms=%d",
+        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d (guard=%d) duration_ms=%d",
         request_id,
-        candidate_name,
         language,
         blind_cv,
         len(warnings),
@@ -1392,12 +1388,14 @@ async def generate_cv_for_candidate(
                 object_storage.download_cv, cv_doc.storage_key
             )
         except Exception as err:  # noqa: BLE001
-            logger.exception(
-                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
+            logger.error(
+                "[cv_b2b][%s] Object storage download failed error_type=%s",
+                request_id,
+                type(err).__name__,
             )
             raise StandaloneGenerationError(
                 code="extraction_failed",
-                message=f"Nie udało się pobrać CV z Object Storage: {err}",
+                message="Nie udało się pobrać CV z Object Storage.",
             ) from err
     elif cv_doc.file_content:
         cv_bytes = bytes(cv_doc.file_content)

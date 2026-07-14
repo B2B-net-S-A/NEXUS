@@ -4,6 +4,7 @@ Zarządzanie szablonami emaili i symulacja wysyłki.
 SMTP integration — TODO (currently console log only).
 """
 
+import hashlib
 import logging
 from typing import List, Optional
 
@@ -475,12 +476,18 @@ async def send_test_email(
         current_user.email if hasattr(current_user, "email") else "user@example.com"
     )
 
-    logger.info("=" * 60)
-    logger.info("[TEST EMAIL SIMULATION] — Email NIE został fizycznie wysłany")
-    logger.info(f"  Do:      {to_email}")
-    logger.info(f"  Temat:   {rendered_subject}")
-    logger.info(f"  Treść:\n{rendered_body}")
-    logger.info("=" * 60)
+    recipient_hash = hashlib.sha256(to_email.casefold().encode("utf-8")).hexdigest()[
+        :12
+    ]
+    logger.info(
+        "test_email_simulated template_id=%s user_id=%s recipient_hash=%s "
+        "subject_chars=%s body_chars=%s",
+        template_id,
+        current_user.id,
+        recipient_hash,
+        len(rendered_subject),
+        len(rendered_body),
+    )
 
     return {
         "status": "simulated",

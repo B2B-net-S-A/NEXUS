@@ -249,6 +249,35 @@ def test_non_retryable_4xx_does_not_fall_back(monkeypatch):
     assert calls == ["claude-sonnet-4-6"]
 
 
+def test_provider_response_body_is_redacted_from_logs_and_error(monkeypatch, caplog):
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-4-6")
+    monkeypatch.setenv("CV_B2B_FALLBACK_MODELS", "")
+    monkeypatch.setenv("CV_B2B_MAX_RETRIES", "0")
+    secret = "anna.private@example.com raw CV content"
+
+    class _SensitiveProviderError(Exception):
+        status_code = 400
+
+        def __init__(self) -> None:
+            super().__init__(f"provider echoed: {secret}")
+
+    def rejected():
+        raise _SensitiveProviderError()
+
+    _install_fake_client(
+        monkeypatch,
+        {"claude-sonnet-4-6": rejected},
+    )
+
+    with pytest.raises(CVGeneratorAIError) as exc:
+        analyze_with_ai("payload", "req-redaction")
+
+    assert secret not in caplog.text
+    assert secret not in str(exc.value)
+    assert "_SensitiveProviderError" in caplog.text
+    assert "status=400" in caplog.text
+
+
 def test_truncation_raises_immediately_without_fallback(monkeypatch):
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)

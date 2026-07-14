@@ -410,10 +410,16 @@ async def generate_job(
     # Try Claude first
     try:
         result = await _generate_with_claude(request)
-        logger.info(f"[AIJob] Generated with Claude for: {request.title}")
+        logger.info(
+            "[AIJob] generation succeeded provider=anthropic model=%s",
+            "claude-sonnet-5",
+        )
         return result
     except Exception as e:
-        logger.warning(f"[AIJob] Claude failed ({e}), using mock template")
+        logger.warning(
+            "[AIJob] generation failed provider=anthropic error_type=%s; using template",
+            type(e).__name__,
+        )
 
     # Fall back to template-based mock
     return _generate_mock(request)

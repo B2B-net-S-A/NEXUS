@@ -49,6 +49,7 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.location_utils import location_matches, location_tokens
+from app.services.hybrid_search import bm25_candidates, bm25_jobs
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -156,15 +157,29 @@ async def recommend_candidates_for_job(
     hits = await search_candidates_semantic(query_text, top_k=pool_size)
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
+    retrieval_mode = "dense"
+    retrieval_degraded = False
+    retrieval_reason: str | None = None
 
-    # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
+    # Qdrant/Voyage failure used to fall back to the first 200 database rows.
+    # That produced arbitrary candidates and then persisted apparently normal
+    # composite scores with a missing semantic layer.  Use lexical retrieval
+    # instead and keep the response explicitly degraded and unscored.
     if not candidate_ids:
-        fallback = await db.execute(
-            select(Candidate.id)
-            .where(Candidate.status != CandidateStatus.blacklisted)
-            .limit(200)
-        )
-        candidate_ids = [c for (c,) in fallback.all()]
+        retrieval_mode = "bm25"
+        retrieval_degraded = True
+        retrieval_reason = "semantic_unavailable"
+        try:
+            candidate_ids = await bm25_candidates(db, query_text, limit=pool_size)
+        except Exception as exc:  # pragma: no cover - DB/FTS infrastructure path
+            logger.warning(
+                "BM25 fallback failed for job=%s error_type=%s",
+                job_id,
+                type(exc).__name__,
+            )
+            candidate_ids = []
+            retrieval_mode = "unavailable"
+            retrieval_reason = "semantic_and_bm25_unavailable"
 
     if exclude_in_pipeline and candidate_ids:
         in_pipeline = await db.execute(
@@ -185,12 +200,26 @@ async def recommend_candidates_for_job(
             "search_type": "hybrid",
             "location_filter": requested_location if location_active else None,
             "matches": [],
+            "meta": {
+                "mode": retrieval_mode,
+                "degraded": retrieval_degraded,
+                "reason": retrieval_reason,
+            },
         }
 
     cand_res = await db.execute(
-        select(Candidate).where(Candidate.id.in_(candidate_ids))
+        select(Candidate).where(
+            Candidate.id.in_(candidate_ids),
+            Candidate.status != CandidateStatus.blacklisted,
+        )
     )
     candidates = list(cand_res.scalars().all())
+    candidate_order = {
+        candidate_id: rank for rank, candidate_id in enumerate(candidate_ids)
+    }
+    candidates.sort(
+        key=lambda candidate: candidate_order.get(candidate.id, len(candidate_order))
+    )
 
     # Location filter: drop candidates whose location doesn't match BEFORE
     # scoring, so only the matched subset bears the (cache-first) scoring cost.
@@ -207,7 +236,57 @@ async def recommend_candidates_for_job(
                 "search_type": "hybrid",
                 "location_filter": requested_location,
                 "matches": [],
+                "meta": {
+                    "mode": retrieval_mode,
+                    "degraded": retrieval_degraded,
+                    "reason": retrieval_reason,
+                },
             }
+
+    if retrieval_degraded:
+        matches = []
+        for candidate in candidates[:top_k]:
+            match = {
+                "candidate": {
+                    "id": candidate.id,
+                    "name": candidate.name,
+                    "lastname": candidate.lastname,
+                    "email": candidate.email,
+                    "phone": candidate.phone,
+                    "location": candidate.location,
+                    "status": candidate.status.value if candidate.status else None,
+                    "competence_category": candidate.competence_category,
+                    "salary_expectation": candidate.salary_expectation,
+                    "salary_currency": candidate.salary_currency,
+                    "years_it_experience": candidate.years_it_experience,
+                    "champion": candidate.champion,
+                    "avatar_url": candidate.avatar_url,
+                    "tags": candidate.tags,
+                    "skills": candidate.skills,
+                    "ai_summary": candidate.ai_summary,
+                },
+                # BM25 rank is useful for continuity, but it is not calibrated
+                # to the production 0-100 score and must never masquerade as it.
+                "total_score": None,
+            }
+            if include_breakdown:
+                match["breakdown"] = None
+            matches.append(match)
+
+        return {
+            "job_id": job_id,
+            "job_title": job.title,
+            "search_type": "hybrid",
+            "min_score": None,
+            "profile": {"id": profile.id, "name": profile.name},
+            "location_filter": requested_location if location_active else None,
+            "matches": matches,
+            "meta": {
+                "mode": retrieval_mode,
+                "degraded": True,
+                "reason": retrieval_reason,
+            },
+        }
 
     # Phase C1 + D1: cache-first scoring keyed by active profile.
     breakdowns = await bulk_get_or_compute(
@@ -280,6 +359,11 @@ async def recommend_candidates_for_job(
         "profile": {"id": profile.id, "name": profile.name},
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "meta": {
+            "mode": retrieval_mode,
+            "degraded": False,
+            "reason": None,
+        },
     }
 
 
@@ -620,19 +704,44 @@ async def recommend_jobs_for_candidate(
     hits = await search_jobs_semantic(query_text, top_k=top_k * 4)
     similarity_map = {h["job_id"]: h["score"] for h in hits}
     job_ids = list(similarity_map.keys())
+    retrieval_mode = "dense"
+    retrieval_degraded = False
+    retrieval_reason: str | None = None
 
-    # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
+    # Never score arbitrary first rows when the semantic index is unavailable.
+    # BM25 preserves useful lexical continuity, but its rank is not a calibrated
+    # 0-100 match score and therefore remains explicitly unscored/degraded.
     if not job_ids:
-        open_jobs = await db.execute(
-            select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES)).limit(100)
-        )
-        job_ids = [j for (j,) in open_jobs.all()]
+        retrieval_mode = "bm25"
+        retrieval_degraded = True
+        retrieval_reason = "semantic_unavailable"
+        try:
+            job_ids = await bm25_jobs(
+                db,
+                query_text,
+                limit=max(top_k * 4, 50),
+                status_filter="open" if only_open else "all",
+            )
+        except Exception as exc:  # pragma: no cover - infrastructure failure path
+            logger.warning(
+                "candidate recommendations BM25 failed candidate=%s error_type=%s",
+                candidate_id,
+                type(exc).__name__,
+            )
+            job_ids = []
+            retrieval_mode = "unavailable"
+            retrieval_reason = "semantic_and_bm25_unavailable"
 
     if not job_ids:
         return {
             "candidate_id": candidate_id,
             "candidate_name": f"{candidate.name} {candidate.lastname}",
             "matches": [],
+            "meta": {
+                "mode": retrieval_mode,
+                "degraded": retrieval_degraded,
+                "reason": retrieval_reason,
+            },
         }
 
     job_query = select(Job).where(Job.id.in_(job_ids))
@@ -640,7 +749,8 @@ async def recommend_jobs_for_candidate(
         # "Open" = draft + published (matches scan_candidate_for_top_jobs);
         # closed jobs are never recommended.
         job_query = job_query.where(Job.status.in_(_RECOMMENDABLE_STATUSES))
-    jobs = (await db.execute(job_query)).scalars().all()
+    jobs_by_id = {job.id: job for job in (await db.execute(job_query)).scalars().all()}
+    jobs = [jobs_by_id[job_id] for job_id in job_ids if job_id in jobs_by_id]
 
     # Skip jobs already in this candidate's pipeline
     in_pipeline = await db.execute(
@@ -653,6 +763,42 @@ async def recommend_jobs_for_candidate(
     )
     already = {jid for (jid,) in in_pipeline.all()}
     jobs = [j for j in jobs if j.id not in already]
+
+    if retrieval_degraded:
+        matches = []
+        for job in jobs[:top_k]:
+            match = {
+                "job": {
+                    "id": job.id,
+                    "title": job.title,
+                    "client_id": job.client_id,
+                    "location": job.location,
+                    "salary_min": job.salary_min,
+                    "salary_max": job.salary_max,
+                    "remote_policy": (
+                        job.remote_policy.value if job.remote_policy else None
+                    ),
+                    "status": job.status.value if job.status else None,
+                    "priority": job.priority.value if job.priority else None,
+                    "seniority": job.seniority.value if job.seniority else None,
+                    "industry": job.industry,
+                    "deadline": job.deadline.isoformat() if job.deadline else None,
+                },
+                "total_score": None,
+            }
+            if include_breakdown:
+                match["breakdown"] = None
+            matches.append(match)
+        return {
+            "candidate_id": candidate_id,
+            "candidate_name": f"{candidate.name} {candidate.lastname}",
+            "matches": matches,
+            "meta": {
+                "mode": retrieval_mode,
+                "degraded": True,
+                "reason": retrieval_reason,
+            },
+        }
 
     breakdowns = await rank_jobs_for_candidate(
         candidate, jobs, db, similarity_map=similarity_map
@@ -695,6 +841,7 @@ async def recommend_jobs_for_candidate(
         "candidate_id": candidate_id,
         "candidate_name": f"{candidate.name} {candidate.lastname}",
         "matches": matches,
+        "meta": {"mode": retrieval_mode, "degraded": False, "reason": None},
     }
 
 
@@ -1201,20 +1348,21 @@ async def seeking_contractors(
     )
 
     items: list[dict] = []
+    semantic_degraded = False
     for cand in candidates:
         # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
         query_text = _candidate_query_text(cand)
         hits = await search_jobs_semantic(query_text, top_k=min(top_k * 6, 100))
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
 
-        # Restrict scoring to (a) Qdrant hits ∩ open jobs OR (b) all open jobs
-        # when Qdrant is empty/offline. Either way keep a small pool.
+        # Score only real semantic hits. This dashboard has no nullable-score
+        # contract, so on outage it must fail closed instead of presenting the
+        # first 50 jobs as calibrated recommendations.
         if similarity_map:
             scoring_pool = [j for j in all_open_jobs if j.id in similarity_map]
         else:
-            # Fallback: rank against the full open-jobs set, capped to keep
-            # response time predictable for the dashboard.
-            scoring_pool = all_open_jobs[:50]
+            semantic_degraded = True
+            scoring_pool = []
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(
@@ -1272,4 +1420,9 @@ async def seeking_contractors(
         "horizon_days": horizon_days,
         "total": len(items),
         "items": items,
+        "meta": {
+            "mode": "unavailable" if semantic_degraded else "dense",
+            "degraded": semantic_degraded,
+            "reason": "semantic_unavailable" if semantic_degraded else None,
+        },
     }

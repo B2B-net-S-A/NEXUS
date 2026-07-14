@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.candidate import Candidate
+from app.services.embedding_service import candidate_collection_name
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +51,7 @@ class CopyProgress:
 
 
 def _collection_name() -> str:
-    return (
-        getattr(settings, "QDRANT_COLLECTION", "nexus_candidates") or "nexus_candidates"
-    )
+    return candidate_collection_name()
 
 
 class TalentRadarEmbeddingCopier:
@@ -131,6 +130,19 @@ class TalentRadarEmbeddingCopier:
 
     async def run(self) -> AsyncIterator[CopyProgress]:
         progress = CopyProgress()
+        source_model = settings.TALENT_RADAR_EMBEDDING_MODEL.strip()
+        source_dimension = settings.TALENT_RADAR_EMBEDDING_DIMENSION
+        if (
+            not settings.TALENT_RADAR_EMBEDDING_COPY_ENABLED
+            or source_model != settings.VOYAGE_MODEL
+            or source_dimension != settings.EMBEDDING_DIMENSION
+        ):
+            logger.warning(
+                "Talent Radar embedding copy blocked: exact source model/dimension "
+                "provenance is not approved"
+            )
+            yield progress
+            return
         conn: Optional[asyncpg.Connection] = None
         try:
             conn = await asyncpg.connect(self.source_dsn, statement_cache_size=0)
