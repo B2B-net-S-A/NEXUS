@@ -39,9 +39,7 @@ router = APIRouter()
 
 ClientOperationsViewer = Annotated[
     User,
-    Depends(
-        require_analytics_capabilities(AnalyticsCapability.view_client_operations)
-    ),
+    Depends(require_analytics_capabilities(AnalyticsCapability.view_client_operations)),
 ]
 
 
@@ -177,9 +175,7 @@ async def get_client_profile(
         raise HTTPException(status_code=404, detail="Client not found")
 
     today = date.today()
-    can_view_finance = current_user.has_any_role(
-        UserRole.admin, UserRole.delivery_lead
-    )
+    can_view_finance = current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
 
     # ── 1. Open jobs ──────────────────────────────────────────────────────
     # `published` jobs with a candidate-count subquery + recruiter join.

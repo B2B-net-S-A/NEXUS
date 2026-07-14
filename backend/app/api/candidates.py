@@ -104,13 +104,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
     """Return history with rate fields absent for non-finance roles."""
 
     if has_financial_access(current_user):
         return response
     return redact_financial_fields(response)
-
 
 
 class DuplicateCheckPayload(BaseModel):
@@ -2817,8 +2817,9 @@ async def get_candidate_history(
         "risk_summary": risk_summary,
     }
 
-
     return _candidate_history_response_for_user(response, current_user)
+
+
 @router.patch("/{candidate_id}/recruitments/{job_id}/client-rate")
 async def set_recruitment_client_rate(
     candidate_id: int,

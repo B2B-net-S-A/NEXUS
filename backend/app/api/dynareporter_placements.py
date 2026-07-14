@@ -23,9 +23,7 @@ from app.models.dr_placement_details import DrPlacementDetail
 from app.models.user import User, UserRole
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.placements))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.placements))]
 )
 
 

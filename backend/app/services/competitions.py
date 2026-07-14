@@ -156,9 +156,10 @@ async def _rank_recruiters_by_stage(
     """
     limit_clause = "LIMIT :limit" if limit else ""
     rows = (
-        await db.execute(
-            text(
-                f"""
+        (
+            await db.execute(
+                text(
+                    f"""
                 SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
                 FROM analytics_first_candidate_milestones m
                 JOIN users u ON u.id = m.credited_user_id
@@ -174,16 +175,19 @@ async def _rank_recruiters_by_stage(
                 ORDER BY count(*) DESC, u.name ASC
                 {limit_clause}
                 """
-            ),
-            {
-                "stage": stage.value,
-                "start": start,
-                "end": end,
-                "minimum": min_value,
-                "limit": limit,
-            },
+                ),
+                {
+                    "stage": stage.value,
+                    "start": start,
+                    "end": end,
+                    "minimum": min_value,
+                    "limit": limit,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [
         RankedUser(
             user_id=int(r["id"]),
@@ -208,9 +212,10 @@ async def _rank_recruiters_by_points(
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role}."""
     rows = (
-        await db.execute(
-            text(
-                """
+        (
+            await db.execute(
+                text(
+                    """
                 SELECT u.id, u.name, u.role::text AS role, m.stage, count(*) AS cnt
                 FROM analytics_first_candidate_milestones m
                 JOIN users u ON u.id = m.credited_user_id
@@ -225,10 +230,13 @@ async def _rank_recruiters_by_points(
                   )
                 GROUP BY u.id, u.name, u.role, m.stage
                 """
-            ),
-            {"start": start, "end": end},
+                ),
+                {"start": start, "end": end},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     per_user: dict[int, dict] = {}
     for r in rows:
@@ -327,9 +335,10 @@ async def _rank_dls_by_placements(
 
     # Placements per Job w okresie.
     rows = (
-        await db.execute(
-            text(
-                """
+        (
+            await db.execute(
+                text(
+                    """
                 SELECT j.id AS job_id, j.delivery_lead_id, j.client_id,
                        count(*) AS cnt
                 FROM jobs j
@@ -339,10 +348,13 @@ async def _rank_dls_by_placements(
                   AND j.recruitment_type::text = 'body_leasing'
                 GROUP BY j.id, j.delivery_lead_id, j.client_id
                 """
-            ),
-            {"start": start, "end": end},
+                ),
+                {"start": start, "end": end},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     placements_by_dl: dict[int, int] = {}
     for r in rows:
         dl_id = _resolve_dl_id(r["delivery_lead_id"], r["client_id"], fallback)
@@ -451,16 +463,17 @@ async def monthly_most_recommendations(
     # Include the current working day in the pace denominator.
     if elapsed_end.date() < end.date() and elapsed_end.weekday() < 5:
         elapsed_workdays += 1
-    minimum_verifications = (
-        elapsed_workdays * MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY
-    )
+    minimum_verifications = elapsed_workdays * MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY
 
     ranked: list[RankedUser] = []
     for row in metrics:
         verified = int(row.extras.get("verifications", 0))
         recommendations = int(row.extras.get("recommendations", 0))
         precision = recommendations * 100 / verified if verified else 0.0
-        if verified < minimum_verifications or precision < MONTHLY_RACE_MIN_PRECISION_PCT:
+        if (
+            verified < minimum_verifications
+            or precision < MONTHLY_RACE_MIN_PRECISION_PCT
+        ):
             continue
         ranked.append(
             RankedUser(
@@ -489,9 +502,10 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
 
 async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
     rows = (
-        await db.execute(
-            text(
-                """
+        (
+            await db.execute(
+                text(
+                    """
                 SELECT u.id, u.name, count(*) AS cnt
                 FROM analytics_first_candidate_milestones m
                 JOIN users u ON u.id = m.credited_user_id
@@ -500,10 +514,13 @@ async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
                 ORDER BY count(*) DESC, u.name ASC
                 LIMIT :limit
                 """
-            ),
-            {"limit": limit},
+                ),
+                {"limit": limit},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return [
         RankedUser(
             user_id=int(r["id"]),

@@ -27,9 +27,7 @@ from app.models.user import UserRole
 logger = logging.getLogger("dynareporter.admin_config")
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.admin))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.admin))]
 )
 
 

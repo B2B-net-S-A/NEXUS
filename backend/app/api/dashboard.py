@@ -127,18 +127,15 @@ async def pipeline_funnel(
     current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ):
     """Current pipeline snapshot: latest stage per candidate/job pair."""
-    ranked = (
-        select(
-            CandidateStage.stage.label("stage"),
-            func.row_number()
-            .over(
-                partition_by=(CandidateStage.candidate_id, CandidateStage.job_id),
-                order_by=(CandidateStage.moved_at.desc(), CandidateStage.id.desc()),
-            )
-            .label("stage_rank"),
+    ranked = select(
+        CandidateStage.stage.label("stage"),
+        func.row_number()
+        .over(
+            partition_by=(CandidateStage.candidate_id, CandidateStage.job_id),
+            order_by=(CandidateStage.moved_at.desc(), CandidateStage.id.desc()),
         )
-        .subquery()
-    )
+        .label("stage_rank"),
+    ).subquery()
     result = await db.execute(
         select(ranked.c.stage, func.count())
         .where(ranked.c.stage_rank == 1)

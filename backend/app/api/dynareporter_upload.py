@@ -32,10 +32,9 @@ from app.models.dr_upload import DrUploadHistory
 from app.models.user import User, UserRole
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.admin))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.admin))]
 )
+
 
 class UploadHistoryResponse(BaseModel):
     id: int

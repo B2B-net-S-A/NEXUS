@@ -25,9 +25,7 @@ from app.models.dr_sales import (
 )
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.sales_mgmt))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.sales_mgmt))]
 )
 
 

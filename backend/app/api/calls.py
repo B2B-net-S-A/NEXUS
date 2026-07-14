@@ -123,8 +123,10 @@ async def call_stats(
     """
     now_local = datetime.now(WARSAW)
     start_of_week = (
-        now_local - timedelta(days=now_local.weekday())
-    ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        (now_local - timedelta(days=now_local.weekday()))
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+    )
     start_of_month = now_local.replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     ).astimezone(timezone.utc)

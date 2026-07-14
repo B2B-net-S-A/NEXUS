@@ -27,9 +27,7 @@ from app.schemas.dr_kpi_sales import (
 )
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.sales))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.sales))]
 )
 
 

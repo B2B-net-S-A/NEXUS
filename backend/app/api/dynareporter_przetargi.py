@@ -25,9 +25,7 @@ from app.models.dr_przetargi import (
 )
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.przetargi))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.przetargi))]
 )
 
 

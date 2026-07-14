@@ -161,25 +161,22 @@ async def report_sources(
     # A candidate can have many source touches. Reports use the canonical
     # first-touch event only, so a single candidate cannot inflate a channel's
     # hired numerator above its distinct-candidate denominator.
-    ranked_sources = (
-        select(
-            CandidateSourceEvent.candidate_id.label("candidate_id"),
-            CandidateSourceEvent.channel.label("channel"),
-            CandidateSourceEvent.utm_source.label("utm_source"),
-            CandidateSourceEvent.utm_campaign.label("utm_campaign"),
-            CandidateSourceEvent.captured_at.label("captured_at"),
-            func.row_number()
-            .over(
-                partition_by=CandidateSourceEvent.candidate_id,
-                order_by=(
-                    CandidateSourceEvent.captured_at.asc(),
-                    CandidateSourceEvent.id.asc(),
-                ),
-            )
-            .label("source_rank"),
+    ranked_sources = select(
+        CandidateSourceEvent.candidate_id.label("candidate_id"),
+        CandidateSourceEvent.channel.label("channel"),
+        CandidateSourceEvent.utm_source.label("utm_source"),
+        CandidateSourceEvent.utm_campaign.label("utm_campaign"),
+        CandidateSourceEvent.captured_at.label("captured_at"),
+        func.row_number()
+        .over(
+            partition_by=CandidateSourceEvent.candidate_id,
+            order_by=(
+                CandidateSourceEvent.captured_at.asc(),
+                CandidateSourceEvent.id.asc(),
+            ),
         )
-        .subquery()
-    )
+        .label("source_rank"),
+    ).subquery()
 
     first_hire = (
         select(

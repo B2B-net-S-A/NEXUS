@@ -20,9 +20,7 @@ from app.core.database import get_db
 from app.models.dr_board import DrBoardMonthlyReport, DrBoardPlacementClient
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.board))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.board))]
 )
 
 

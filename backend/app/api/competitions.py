@@ -25,9 +25,7 @@ router = APIRouter()
 
 CompetitionViewer = Annotated[
     User,
-    Depends(
-        require_analytics_capabilities(AnalyticsCapability.view_recruitment_team)
-    ),
+    Depends(require_analytics_capabilities(AnalyticsCapability.view_recruitment_team)),
 ]
 
 

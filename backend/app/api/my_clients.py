@@ -264,7 +264,9 @@ async def client_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     if not _user.has_any_role(UserRole.admin, UserRole.delivery_lead):
-        raise HTTPException(403, detail="Client finance requires admin or delivery_lead")
+        raise HTTPException(
+            403, detail="Client finance requires admin or delivery_lead"
+        )
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
         raise HTTPException(404, detail="Client not found")
@@ -310,9 +312,7 @@ async def client_dashboard(
     today = date.today()
     contract_rows = list(
         (
-            await db.execute(
-                select(Contract).where(Contract.client_id == client_id)
-            )
+            await db.execute(select(Contract).where(Contract.client_id == client_id))
         ).scalars()
     )
     active_contract_rows = [
@@ -329,9 +329,7 @@ async def client_dashboard(
     for contract in active_contract_rows:
         m = contract.monthly_margin
         if m is not None:
-            monthly_margin_total += await _to_pln_strict(
-                db, m, contract.currency
-            )
+            monthly_margin_total += await _to_pln_strict(db, m, contract.currency)
             has_margin = True
         if contract.monthly_rate_client is not None:
             monthly_revenue_total += await _to_pln_strict(
@@ -390,14 +388,10 @@ async def client_dashboard(
         )
     ) or 0
     active_orders_count = sum(
-        int(r.order_count)
-        for r in rev_rows
-        if r.status == ClientOrderStatus.active
+        int(r.order_count) for r in rev_rows if r.status == ClientOrderStatus.active
     )
     completed_orders_count = sum(
-        int(r.order_count)
-        for r in rev_rows
-        if r.status == ClientOrderStatus.completed
+        int(r.order_count) for r in rev_rows if r.status == ClientOrderStatus.completed
     )
 
     # Alerts: framework contracts expiring 30/14/7 dni + ordery ending 30/14/7 dni

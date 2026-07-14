@@ -33,9 +33,7 @@ from app.schemas.dr_board_dashboard import (
 logger = logging.getLogger("dynareporter.board_dashboard")
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.board))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.board))]
 )
 
 # Earliest report_month brany pod uwagę dla widoku Rady Nadzorczej.

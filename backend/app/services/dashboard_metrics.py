@@ -78,9 +78,7 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
     if first_of_month.month == 12:
-        next_month = first_of_month.replace(
-            year=first_of_month.year + 1, month=1
-        )
+        next_month = first_of_month.replace(year=first_of_month.year + 1, month=1)
     else:
         next_month = first_of_month.replace(month=first_of_month.month + 1)
     first_hired_pairs = (

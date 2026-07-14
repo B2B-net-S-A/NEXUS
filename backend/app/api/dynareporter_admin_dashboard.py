@@ -32,9 +32,7 @@ from app.schemas.dr_admin_dashboard import (
 logger = logging.getLogger("dynareporter.admin_dashboard")
 
 router = APIRouter(
-    dependencies=[
-        Depends(require_dynareporter_section(DynaReporterSection.admin))
-    ]
+    dependencies=[Depends(require_dynareporter_section(DynaReporterSection.admin))]
 )
 
 
