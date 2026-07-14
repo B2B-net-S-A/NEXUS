@@ -609,10 +609,10 @@ def _normalize_skills(bucket: Any) -> frozenset[str]:
 
 def _normalize_value(field: str, value: Any) -> Any:
     """Znormalizuj surowe wartości (enum.value itp.) do porównania starego/nowego."""
+    if field in ("must_skills", "nice_skills"):
+        return _normalize_skills(value or [])
     if value is None:
         return None
-    if field in ("must_skills", "nice_skills"):
-        return _normalize_skills(value)
     if hasattr(value, "value"):
         return value.value
     if isinstance(value, str):

@@ -9,7 +9,7 @@ Two families:
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,9 +37,9 @@ def test_merge_basics_replaces_non_null_fields():
         "language": None,
     }
     proposed = {
-        "onsite_days_per_week": None,       # should not overwrite
+        "onsite_days_per_week": None,  # should not overwrite
         "candidate_location_pref": "Kraków",  # should overwrite
-        "language": "PL, EN B2+",           # should set
+        "language": "PL, EN B2+",  # should set
     }
     merged = _merge_basics(current, proposed)
     assert merged["onsite_days_per_week"] == 2
@@ -85,13 +85,9 @@ def test_merge_screening_questions_appends_with_dedup():
 
 def test_merge_section_dispatch_for_strings():
     # Non-empty proposed string replaces current.
-    assert (
-        _merge_section("historical_client_questions", "", "Nowy opis") == "Nowy opis"
-    )
+    assert _merge_section("historical_client_questions", "", "Nowy opis") == "Nowy opis"
     # Empty proposed keeps current.
-    assert (
-        _merge_section("historical_client_questions", "Obecny", "") == "Obecny"
-    )
+    assert _merge_section("historical_client_questions", "Obecny", "") == "Obecny"
 
 
 def test_payload_from_profile_builds_confidence_per_section():
@@ -266,7 +262,9 @@ async def test_apply_rejects_when_not_pending(
     resp = await app_client.post(
         f"/api/jobs/{job_id}/champion-profile/generate-from-jd",
         headers=app_auth_headers,
-        json={"raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."},
+        json={
+            "raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."
+        },
     )
     sid = resp.json()["id"]
 
@@ -297,15 +295,15 @@ class _FakeClient:
 
 
 class _FakeJob:
-    def __init__(self, id: int, title: str, client: _FakeClient | None, status="published"):
+    def __init__(
+        self, id: int, title: str, client: _FakeClient | None, status="published"
+    ):
         self.id = id
         self.title = title
         self.client = client
         from app.models.job import JobStatus
 
-        self.status = (
-            JobStatus.draft if status == "draft" else JobStatus.published
-        )
+        self.status = JobStatus.draft if status == "draft" else JobStatus.published
 
 
 def test_token_set_ratio_is_order_insensitive():
@@ -322,7 +320,9 @@ def test_token_set_ratio_is_order_insensitive():
 async def test_cloudtalk_webhook_dry_run_returns_ok(app_client, monkeypatch):
     """With `CLOUDTALK_WEBHOOK_ENABLED` unset, webhook runs in dry-run mode
     and returns 200 without touching the DB."""
-    monkeypatch.delenv("CLOUDTALK_WEBHOOK_ENABLED", raising=False)
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", False)
     resp = await app_client.post(
         "/api/calls/webhook",
         json={"call": {"id": "ct-1", "phone": "+48123456789"}},
@@ -335,8 +335,10 @@ async def test_cloudtalk_webhook_dry_run_returns_ok(app_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cloudtalk_webhook_rejects_invalid_hmac(app_client, monkeypatch):
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_ENABLED", "true")
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
+    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
     resp = await app_client.post(
         "/api/calls/webhook",
         headers={"X-CloudTalk-Signature": "totally-wrong"},
@@ -351,8 +353,10 @@ async def test_cloudtalk_webhook_accepts_valid_hmac(app_client, monkeypatch):
     import hmac
     import json
 
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_ENABLED", "true")
-    monkeypatch.setenv("CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", True)
+    monkeypatch.setattr(settings, "CLOUDTALK_WEBHOOK_SECRET", "s3cr3t")
     body = json.dumps({"call": {"id": "ct-3", "phone": "+48000000000"}}).encode()
     sig = hmac.new(b"s3cr3t", body, hashlib.sha256).hexdigest()
     resp = await app_client.post(
@@ -383,7 +387,9 @@ async def test_regenerate_supersedes_previous_pending(
     app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _create_job(app_client, app_auth_headers)
-    body = {"raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."}
+    body = {
+        "raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."
+    }
 
     r1 = await app_client.post(
         f"/api/jobs/{job_id}/champion-profile/generate-from-jd",

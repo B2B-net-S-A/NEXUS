@@ -229,7 +229,8 @@ def test_format_helpers_strip_html_truncate_and_format_rate():
         == "Świetny Python dev. Idzie do klienta."
     )
     long_note = "a" * 200
-    preview = _format_note_preview(long_note)
+    # Pin truncation mechanics independently of the product's wider UI default.
+    preview = _format_note_preview(long_note, max_chars=120)
     assert preview.endswith("…")
     assert len(preview) <= 121
 

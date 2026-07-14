@@ -133,10 +133,10 @@ async def _cleanup_marketplace(db) -> None:
     """Usuń singletona i wszystkie memberships — fresh start na każdy test."""
     from sqlalchemy import delete, select
 
+    await db.rollback()
+    candidate_ids = db.info.pop("marketplace_service_candidate_ids", [])
     pool = (
-        await db.execute(
-            select(TalentPool).where(TalentPool.is_marketplace.is_(True))
-        )
+        await db.execute(select(TalentPool).where(TalentPool.is_marketplace.is_(True)))
     ).scalar_one_or_none()
     if pool is not None:
         await db.execute(
@@ -145,7 +145,9 @@ async def _cleanup_marketplace(db) -> None:
             )
         )
         await db.delete(pool)
-        await db.commit()
+    if candidate_ids:
+        await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
+    await db.commit()
 
 
 async def _seed_candidate(
@@ -165,6 +167,7 @@ async def _seed_candidate(
     db.add(cand)
     await db.commit()
     await db.refresh(cand)
+    db.info.setdefault("marketplace_service_candidate_ids", []).append(cand.id)
     return cand
 
 
@@ -302,15 +305,11 @@ async def test_remove_candidate_from_marketplace(clean_db):
     await auto_sync_marketplace_membership(clean_db)
     await clean_db.commit()
 
-    removed = await remove_candidate_from_marketplace(
-        clean_db, candidate_id=cand.id
-    )
+    removed = await remove_candidate_from_marketplace(clean_db, candidate_id=cand.id)
     await clean_db.commit()
     assert removed is True
 
     # Drugi remove → False.
-    removed2 = await remove_candidate_from_marketplace(
-        clean_db, candidate_id=cand.id
-    )
+    removed2 = await remove_candidate_from_marketplace(clean_db, candidate_id=cand.id)
     await clean_db.commit()
     assert removed2 is False

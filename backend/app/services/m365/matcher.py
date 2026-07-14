@@ -84,6 +84,8 @@ def _email_domain(addr: str) -> Optional[str]:
 
 def _fold_diacritics(s: str) -> str:
     """Lowercase + strip Polish diacritics for robust name matching."""
+    # Unicode NFKD does not decompose Ł/ł, so map it before ASCII folding.
+    s = s.translate(str.maketrans({"Ł": "L", "ł": "l"}))
     folded = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     return folded.lower()
 

@@ -10,9 +10,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -232,12 +230,14 @@ async def test_create_job_invalid_tac_role_returns_400(
 ):
     """tac_id wskazujący na sourcera (poza dopuszczalnymi rolami) → 400."""
     sourcer_id = await _new_user(UserRole.sourcer)
+    client_id = await _new_client()
     try:
         resp = await app_client.post(
             "/api/jobs",
             headers=app_auth_headers,
             json={
                 "title": "Invalid role",
+                "client_id": client_id,
                 "tac_id": sourcer_id,
                 "auto_suggest_cc": False,
             },
@@ -245,7 +245,7 @@ async def test_create_job_invalid_tac_role_returns_400(
         assert resp.status_code == 400, resp.text
         assert "tac_id" in resp.text
     finally:
-        await _cleanup(0, [sourcer_id])
+        await _cleanup(client_id, [sourcer_id])
 
 
 @pytest.mark.integration
@@ -282,9 +282,7 @@ async def test_patch_job_updates_tac_id(
         assert patch.status_code == 200, patch.text
 
         # Verify via GET
-        get = await app_client.get(
-            f"/api/jobs/{job_id}", headers=app_auth_headers
-        )
+        get = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
         assert get.status_code == 200
         assert get.json()["tac_id"] == other_tac
 

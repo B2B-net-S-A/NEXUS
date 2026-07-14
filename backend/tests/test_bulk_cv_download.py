@@ -7,7 +7,6 @@ import os
 import uuid
 import zipfile
 
-import pytest
 from httpx import AsyncClient
 
 
@@ -20,7 +19,6 @@ async def _seed_candidate(
     cv_in_db: bytes | None = None,
 ) -> int:
     """Insert a candidate directly and optionally place a CV file on disk."""
-    from app.core.config import settings
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
 
@@ -38,17 +36,17 @@ async def _seed_candidate(
         cid = cand.id
 
     if cv_on_disk is not None and cv_filename:
+        from app.api.candidates import _candidate_cv_disk_path
+        from app.core.config import settings
+
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-        with open(
-            os.path.join(settings.UPLOAD_DIR, f"candidate_{cid}_{cv_filename}"), "wb"
-        ) as f:
+        with open(_candidate_cv_disk_path(cid, cv_filename), "wb") as f:
             f.write(cv_on_disk)
 
     return cid
 
 
 async def _delete_candidate(candidate_id: int, cv_filename: str | None) -> None:
-    from app.core.config import settings
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
 
@@ -59,9 +57,9 @@ async def _delete_candidate(candidate_id: int, cv_filename: str | None) -> None:
             await db.commit()
 
     if cv_filename:
-        path = os.path.join(
-            settings.UPLOAD_DIR, f"candidate_{candidate_id}_{cv_filename}"
-        )
+        from app.api.candidates import _candidate_cv_disk_path
+
+        path = _candidate_cv_disk_path(candidate_id, cv_filename)
         if os.path.exists(path):
             os.remove(path)
 
@@ -139,7 +137,9 @@ async def test_bulk_cv_download_happy_path(
             # 2 CVs + manifest
             assert len(names) == 3
             # Filenames follow Lastname_Firstname_ID.pdf
-            assert any(n.startswith("Kowalska_Anna_") and n.endswith(".pdf") for n in names)
+            assert any(
+                n.startswith("Kowalska_Anna_") and n.endswith(".pdf") for n in names
+            )
             assert any(n.startswith("Nowak_Jan_") and n.endswith(".pdf") for n in names)
             manifest = zf.read("_manifest.txt").decode("utf-8")
             assert manifest.count("\tincluded") == 2
@@ -183,9 +183,7 @@ async def test_bulk_cv_download_mixed_sources_and_missing(
             assert "skipped_not_found" in manifest
             assert manifest.count("\tincluded") == 2
             # DB-only content made it in
-            db_entry = next(
-                n for n in names if n.startswith("Candidate_DB_")
-            )
+            db_entry = next(n for n in names if n.startswith("Candidate_DB_"))
             assert zf.read(db_entry) == b"%PDF-db"
     finally:
         await _delete_candidate(disk_id, "on-disk.pdf")

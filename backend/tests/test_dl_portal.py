@@ -65,7 +65,7 @@ async def _new_client() -> int:
 async def _new_candidate() -> int:
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        cand = Candidate(name=f"Test Kontraktor {suffix}")
+        cand = Candidate(name="Test", lastname=f"Kontraktor {suffix}")
         db.add(cand)
         await db.flush()
         await db.commit()
@@ -113,6 +113,9 @@ async def _login(app_client: AsyncClient, email: str, password: str) -> dict[str
 async def _cleanup(
     client_ids: list[int], user_ids: list[int], candidate_ids: list[int] | None = None
 ) -> None:
+    from app.models.activity import Activity
+    from app.models.user_activity import UserActivity
+
     async with AsyncSessionLocal() as db:
         for cid in client_ids:
             await db.execute(
@@ -137,6 +140,14 @@ async def _cleanup(
                 Candidate.__table__.delete().where(Candidate.id.in_(candidate_ids))
             )
         if user_ids:
+            await db.execute(
+                Activity.__table__.delete().where(Activity.user_id.in_(user_ids))
+            )
+            await db.execute(
+                UserActivity.__table__.delete().where(
+                    UserActivity.user_id.in_(user_ids)
+                )
+            )
             await db.execute(User.__table__.delete().where(User.id.in_(user_ids)))
         await db.commit()
 
@@ -200,9 +211,9 @@ async def test_order_extension_create_under_existing_contract(
         body = resp.json()
         assert body["contract_id"] == contract_id
         assert body["candidate_id"] == cand_id
-        assert body["rate_client"] == 17000
+        assert body["rate_client"] == "17000.000"
         # Marża z Order.rate_client (17000) - Contract.rate_candidate (12000) = 5000
-        assert body["monthly_margin"] == 5000
+        assert body["monthly_margin"] == "5000.000"
     finally:
         await _cleanup([client_id], [], [cand_id])
 
@@ -261,7 +272,7 @@ async def test_contract_with_order_atomic_create(
         assert body["contract_id"] > 0
         assert body["order_id"] > 0
         # 18000 - 14000 = 4000 monthly margin
-        assert body["monthly_margin"] == 4000
+        assert body["monthly_margin"] == "4000.000"
     finally:
         await _cleanup([client_id], [], [cand_id])
 
@@ -312,7 +323,7 @@ async def test_grouped_response_shows_contract_with_orders(
         assert contractor["candidate_id"] == cand_id
         assert len(contractor["orders"]) == 2
         # Latest = order najwięcej rate_client (Q2 = 16k)
-        assert contractor["latest_order_rate_client"] == 16000
+        assert contractor["latest_order_rate_client"] == "16000.000"
     finally:
         await _cleanup([client_id], [], [cand_id])
 
@@ -497,9 +508,7 @@ async def test_hired_stage_auto_creates_contract_and_order_draft(
         # Cleanup: kasuj job + stage + contract + order
         async with AsyncSessionLocal() as db:
             await db.execute(
-                ClientOrder.__table__.delete().where(
-                    ClientOrder.client_id == client_id
-                )
+                ClientOrder.__table__.delete().where(ClientOrder.client_id == client_id)
             )
             await db.execute(
                 Contract.__table__.delete().where(Contract.client_id == client_id)
@@ -518,9 +527,7 @@ async def test_recruiter_forbidden_from_admin_overview(app_client: AsyncClient):
     rec_id, rec_email, rec_pwd = await _new_user(UserRole.recruiter)
     try:
         headers = await _login(app_client, rec_email, rec_pwd)
-        resp = await app_client.get(
-            "/api/admin/clients-overview", headers=headers
-        )
+        resp = await app_client.get("/api/admin/clients-overview", headers=headers)
         assert resp.status_code == 403
     finally:
         await _cleanup([], [rec_id])

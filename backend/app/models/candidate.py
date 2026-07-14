@@ -61,6 +61,11 @@ class Candidate(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
+    @property
+    def full_name(self) -> str:
+        """Compatibility accessor used by contract render contexts."""
+        return " ".join(part for part in (self.name, self.lastname) if part).strip()
+
     # Dane osobowe
     name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     lastname: Mapped[str] = mapped_column(String(100), nullable=False, index=True)

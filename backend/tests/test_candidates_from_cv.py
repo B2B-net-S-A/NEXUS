@@ -8,8 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-from io import BytesIO
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -32,9 +30,7 @@ FAKE_PARSED = {
         {"name": "Python", "level": "senior", "years": 6},
         {"name": "FastAPI", "level": "senior", "years": 4},
     ],
-    "education": [
-        {"degree": "MSc", "field": "CS", "school": "PW", "year": 2017}
-    ],
+    "education": [{"degree": "MSc", "field": "CS", "school": "PW", "year": 2017}],
     "languages": [{"name": "English", "level": "C1"}],
     "companies": ["Acme Corp", "Globex"],
     "career_summary": "6 lat Pythona w fintechu.",
@@ -78,9 +74,7 @@ def _patch_parser_and_extractor(monkeypatch, parsed: dict):
 
     monkeypatch.setattr(cv_text_extractor, "extract_text", _fake_extract)
     # Patch parse_cv at the call-site (it's imported inside the endpoint fn).
-    monkeypatch.setattr(
-        "app.services.cv_parser.parse_cv", _fake_parse, raising=True
-    )
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", _fake_parse, raising=True)
     monkeypatch.setattr(
         "app.services.embedding_service.embed_candidate",
         _fake_embed,
@@ -94,9 +88,7 @@ def _patch_parser_and_extractor(monkeypatch, parsed: dict):
 async def _cleanup_candidate(email: str) -> None:
     """Delete a candidate by email so re-runs stay green."""
     async with AsyncSessionLocal() as db:
-        row = await db.scalar(
-            select(Candidate).where(Candidate.email == email)
-        )
+        row = await db.scalar(select(Candidate).where(Candidate.email == email))
         if row:
             await db.delete(row)
             await db.commit()
@@ -178,11 +170,14 @@ async def test_from_cv_force_bypasses_dedup(
     """?force=true creates the candidate even when a duplicate exists."""
     # Use a distinct email so we can cleanup both candidates independently.
     payload = dict(FAKE_PARSED)
-    payload["email"] = "force.test@example.com"
+    payload["email"] = "force-existing@example.com"
     payload["first_name"] = "Force"
     payload["last_name"] = "Tester"
     _patch_parser_and_extractor(monkeypatch, payload)
-    await _cleanup_candidate(payload["email"])
+    first_email = payload["email"]
+    second_email = "force-new@example.com"
+    await _cleanup_candidate(first_email)
+    await _cleanup_candidate(second_email)
 
     files = {"file": ("force.pdf", _fake_pdf_bytes(), "application/pdf")}
 
@@ -196,31 +191,28 @@ async def test_from_cv_force_bypasses_dedup(
         assert first.status_code == 201, first.text
         created_ids.append(first.json()["candidate"]["id"])
 
-        # Force override — note ?force=true
+        # Keep the duplicate phone but use a distinct email.  This exercises
+        # the force/dedup override without contradicting the database's UNIQUE
+        # email invariant.
+        payload["email"] = second_email
         second = await app_client.post(
             "/api/candidates/from-cv?force=true",
             headers=app_auth_headers,
             files={"file": ("force2.pdf", _fake_pdf_bytes(), "application/pdf")},
         )
-        # email has UNIQUE constraint so the second insert will hit a DB
-        # violation — we accept either 201 (if DB lets it through because of
-        # a different email detection path) or 409/500 from the DB. What we
-        # assert is that the dedup-soft-block didn't swallow it.
-        assert second.status_code in (201, 409, 500), second.text
-        if second.status_code == 201:
-            created_ids.append(second.json()["candidate"]["id"])
-            assert len(second.json()["duplicates"]) >= 1
+        assert second.status_code == 201, second.text
+        created_ids.append(second.json()["candidate"]["id"])
+        assert len(second.json()["duplicates"]) >= 1
     finally:
         # Cleanup all candidates with the shared email.
         async with AsyncSessionLocal() as db:
             for cid in created_ids:
-                row = await db.scalar(
-                    select(Candidate).where(Candidate.id == cid)
-                )
+                row = await db.scalar(select(Candidate).where(Candidate.id == cid))
                 if row:
                     await db.delete(row)
             await db.commit()
-        await _cleanup_candidate(payload["email"])
+        await _cleanup_candidate(first_email)
+        await _cleanup_candidate(second_email)
 
 
 @pytest.mark.asyncio
@@ -230,9 +222,7 @@ async def test_from_cv_rejects_empty_text(
     """CV that extracts to empty text must fail with 400 (no silent insert)."""
     from app.services import cv_text_extractor
 
-    monkeypatch.setattr(
-        cv_text_extractor, "extract_text", lambda *a, **k: ""
-    )
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *a, **k: "")
     files = {"file": ("blank.pdf", b"%PDF blank", "application/pdf")}
     resp = await app_client.post(
         "/api/candidates/from-cv",

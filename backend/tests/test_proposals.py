@@ -62,7 +62,7 @@ async def _create_job(client: AsyncClient, headers: dict) -> int:
     payload = {
         "title": f"Proposals Pytest Job {uuid.uuid4().hex[:6]}",
         "description": "Backend engineer with Python + FastAPI",
-        "must_skills": [{"name": "Python", "level": 4, "years": 3}],
+        "must_skills": [{"name": "Python", "level": "senior", "years": 3}],
         "client_id": cli_id,
     }
     resp = await client.post("/api/jobs", headers=headers, json=payload)
@@ -215,12 +215,19 @@ async def test_compute_proposal_handles_empty_pool_gracefully(
 
     snapshot_id = await create_pending_snapshot(job_id, source="manual_regenerate")
 
-    with patch(
-        "app.services.embedding_service.search_candidates_semantic",
-        new=AsyncMock(return_value=[]),
-    ), patch(
-        "app.services.embedding_service.embed_job",
-        new=AsyncMock(return_value=True),
+    with (
+        patch(
+            "app.services.embedding_service.search_candidates_semantic",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "app.services.embedding_service.embed_job",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.services.match_score_cache.bulk_get_or_compute",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         await compute_proposal_for_job(snapshot_id, job_id, top_k=10)
 

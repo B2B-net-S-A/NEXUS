@@ -170,7 +170,9 @@ async def get_public_cv(
         entity_type="candidate_stage_cv",
         entity_id=csv.id,
         action="document_downloaded",
-        details={"access": "public_share", "share_id": row.id},
+        # The bearer token is the row's primary key.  Do not copy that secret
+        # into audit data; entity_id already identifies the accessed snapshot.
+        details={"access": "public_share"},
     )
 
     return {

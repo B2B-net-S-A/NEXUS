@@ -21,6 +21,9 @@ def _compose_environment(
         "PATH": os.environ["PATH"],
         "HOME": os.environ.get("HOME", ""),
         "POSTGRES_PASSWORD": "compose-contract-only",
+        "GRAFANA_LOKI_URL": "",
+        "GRAFANA_LOKI_USER": "",
+        "GRAFANA_LOKI_TOKEN": "",
         **release,
     }
     if os.environ.get("DOCKER_CONFIG"):
@@ -83,15 +86,20 @@ def test_compose_wires_explicit_release_metadata_and_process_liveness():
     _assert_release_wiring(_require_rendered_compose({"GIT_SHA": TARGET_SHA}))
 
 
-def test_compose_uses_coolify_source_commit_as_exact_sha_fallback():
-    _assert_release_wiring(_require_rendered_compose({"SOURCE_COMMIT": TARGET_SHA}))
+def test_compose_rejects_ambiguous_source_commit_fallback():
+    result = _render_compose({"SOURCE_COMMIT": TARGET_SHA})
+
+    assert result.returncode != 0
+    assert "GIT_SHA must be a full 40-character commit SHA" in (
+        result.stderr + result.stdout
+    )
 
 
 def test_compose_fails_closed_without_exact_source_identifier():
     result = _render_compose({})
 
     assert result.returncode != 0
-    assert "GIT_SHA or SOURCE_COMMIT must be a full 40-character commit SHA" in (
+    assert "GIT_SHA must be a full 40-character commit SHA" in (
         result.stderr + result.stdout
     )
 

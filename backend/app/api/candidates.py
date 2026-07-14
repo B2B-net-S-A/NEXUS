@@ -3807,9 +3807,7 @@ async def download_cv(
         raise HTTPException(status_code=404, detail="Candidate not found")
     if not candidate.cv_filename:
         raise HTTPException(status_code=404, detail="No CV uploaded for this candidate")
-    file_path = os.path.join(
-        settings.UPLOAD_DIR, f"candidate_{candidate_id}_{candidate.cv_filename}"
-    )
+    file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
     await record_sensitive_read(
@@ -3838,6 +3836,14 @@ def _sanitize_zip_component(value: str) -> str:
     cleaned = _FILENAME_UNSAFE_RE.sub("_", (value or "").strip())
     cleaned = cleaned.replace("..", "_")
     return cleaned[:200] or "_"
+
+
+def _candidate_cv_disk_path(candidate_id: int, stored_filename: str) -> str:
+    """Reconstruct a legacy CV path without trusting database separators."""
+    basename = os.path.basename(stored_filename.replace("\\", "/"))
+    if not basename or basename in {".", ".."}:
+        basename = "cv.pdf"
+    return os.path.join(settings.UPLOAD_DIR, f"candidate_{candidate_id}_{basename}")
 
 
 @router.post("/bulk-cv-download")
@@ -3875,10 +3881,7 @@ async def bulk_cv_download(
                 skipped += 1
                 continue
 
-            file_path = os.path.join(
-                settings.UPLOAD_DIR,
-                f"candidate_{candidate.id}_{candidate.cv_filename}",
-            )
+            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
             data: bytes | None = None
             if os.path.exists(file_path):
                 try:

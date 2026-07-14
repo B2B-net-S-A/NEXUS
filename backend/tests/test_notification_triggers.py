@@ -18,13 +18,16 @@ import pytest_asyncio
 from app.services import notification_triggers as nt
 
 
-def test_exports_all_five_triggers():
+def test_exports_all_triggers():
     names = {
         "check_dl_stage_stale_6h",
         "check_client_feedback_eobd",
         "check_powercalling_kpi",
         "check_candidate_feedback_1h",
         "check_stage_stuck_7d",
+        "check_post_interview_t15",
+        "check_post_interview_t45",
+        "check_post_interview_t2h_escalation",
     }
     for name in names:
         fn = getattr(nt, name)
@@ -83,6 +86,9 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
         "candidate_feedback_1h",
         "powercalling_kpi",
         "client_feedback_eobd",
+        "post_interview_t15",
+        "post_interview_t45",
+        "post_interview_t2h_escalation",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated triggers muszą zwrócić 0 o 21:00.

@@ -18,6 +18,7 @@ patches on ``settings.TEAMS_NOTIFICATIONS_ENABLED``.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
@@ -28,7 +29,9 @@ from httpx import AsyncClient
 from sqlalchemy import delete
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
 from app.models.teams_channel import TeamsNotificationChannel
+from app.models.user import User, UserRole
 from app.services import teams_notifications
 from app.services.teams_notifications import (
     NOTIFICATION_TYPES,
@@ -307,14 +310,26 @@ async def test_send_to_channel_raises_on_403(monkeypatch) -> None:
 
 
 @pytest_asyncio.fixture
-async def cleanup_teams_channels() -> AsyncIterator[None]:
+async def cleanup_teams_channels() -> AsyncIterator[int]:
     """Wipe rows before + after each test that touches the table."""
     async with AsyncSessionLocal() as db:
         await db.execute(delete(TeamsNotificationChannel))
+        suffix = uuid.uuid4().hex[:8]
+        creator = User(
+            email=f"teams-channel-{suffix}@example.com",
+            password_hash=hash_password("T3ams_fixture_pass!"),
+            name=f"Teams Fixture {suffix}",
+            role=UserRole.admin,
+            is_active=True,
+        )
+        db.add(creator)
         await db.commit()
-    yield
+        await db.refresh(creator)
+        creator_id = creator.id
+    yield creator_id
     async with AsyncSessionLocal() as db:
         await db.execute(delete(TeamsNotificationChannel))
+        await db.execute(delete(User).where(User.id == creator_id))
         await db.commit()
 
 
@@ -322,7 +337,7 @@ async def cleanup_teams_channels() -> AsyncIterator[None]:
 async def test_list_channels_empty(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     r = await app_client.get("/api/teams-channels", headers=app_auth_headers)
     assert r.status_code == 200
@@ -333,7 +348,7 @@ async def test_list_channels_empty(
 async def test_create_channel_happy_path(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     r = await app_client.post(
         "/api/teams-channels",
@@ -361,7 +376,7 @@ async def test_create_channel_happy_path(
 async def test_create_channel_rejects_unknown_type(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     r = await app_client.post(
         "/api/teams-channels",
@@ -382,7 +397,7 @@ async def test_create_channel_rejects_unknown_type(
 async def test_create_channel_409_on_duplicate(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     payload = {
         "workspace_label": "First",
@@ -405,7 +420,7 @@ async def test_create_channel_409_on_duplicate(
 async def test_patch_channel_toggles_enabled(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     r = await app_client.post(
         "/api/teams-channels",
@@ -432,7 +447,7 @@ async def test_patch_channel_toggles_enabled(
 async def test_delete_channel(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
 ) -> None:
     r = await app_client.post(
         "/api/teams-channels",
@@ -445,9 +460,7 @@ async def test_delete_channel(
         },
     )
     cid = r.json()["id"]
-    r = await app_client.delete(
-        f"/api/teams-channels/{cid}", headers=app_auth_headers
-    )
+    r = await app_client.delete(f"/api/teams-channels/{cid}", headers=app_auth_headers)
     assert r.status_code == 204
 
 
@@ -455,7 +468,7 @@ async def test_delete_channel(
 async def test_test_endpoint_reports_killswitch_off(
     app_client: AsyncClient,
     app_auth_headers: dict,
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
     monkeypatch,
 ) -> None:
     """Test button surfaces a readable error when integration is disabled."""
@@ -488,7 +501,7 @@ async def test_test_endpoint_reports_killswitch_off(
 
 @pytest.mark.asyncio
 async def test_notify_teams_fans_out_to_subscribed_channels(
-    cleanup_teams_channels: None,
+    cleanup_teams_channels: int,
     monkeypatch,
 ) -> None:
     """Two enabled channels subscribed to `candidate_added` → two sends.
@@ -509,7 +522,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-a",
                 notification_types=["candidate_added"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=cleanup_teams_channels,
             )
         )
         db.add(
@@ -519,7 +532,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-b",
                 notification_types=["candidate_added", "contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=cleanup_teams_channels,
             )
         )
         db.add(
@@ -529,7 +542,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-c",
                 notification_types=["contract_signed"],
                 enabled=True,
-                created_by_user_id=1,
+                created_by_user_id=cleanup_teams_channels,
             )
         )
         db.add(
@@ -539,7 +552,7 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
                 channel_id="c-d",
                 notification_types=["candidate_added"],
                 enabled=False,
-                created_by_user_id=1,
+                created_by_user_id=cleanup_teams_channels,
             )
         )
         await db.commit()

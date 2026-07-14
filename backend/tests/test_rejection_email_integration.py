@@ -25,16 +25,15 @@ from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.job import Job, JobStatus
+from app.models.client import Client
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.rejection_email import (
     RejectionEmailStatus,
-    ScheduledRejectionEmail,
 )
 from app.models.user import User, UserRole
 from app.services.rejection_email_scheduler import (
@@ -78,31 +77,43 @@ async def seeded_entities():
         db.add(candidate)
         await db.flush()
 
+        client = Client(name=f"Rejection Test Client {suffix}")
+        db.add(client)
+        await db.flush()
+
         # Raw SQL for jobs — bypasses ORM drift. Only populate required columns.
         job_primary_id = (
             await db.execute(
                 text(
                     "INSERT INTO jobs "
-                    "(title, status, priority, recruiter_id, "
+                    "(title, client_id, status, priority, recruiter_id, "
                     " recruitment_type, remote_policy) "
-                    "VALUES (:title, 'published', 'medium', :rec, "
+                    "VALUES (:title, :client_id, 'published', 'medium', :rec, "
                     "        'body_leasing', 'hybrid') "
                     "RETURNING id"
                 ),
-                {"title": f"Primary Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Primary Role {suffix}",
+                    "client_id": client.id,
+                    "rec": recruiter.id,
+                },
             )
         ).scalar_one()
         job_other_id = (
             await db.execute(
                 text(
                     "INSERT INTO jobs "
-                    "(title, status, priority, recruiter_id, "
+                    "(title, client_id, status, priority, recruiter_id, "
                     " recruitment_type, remote_policy) "
-                    "VALUES (:title, 'published', 'medium', :rec, "
+                    "VALUES (:title, :client_id, 'published', 'medium', :rec, "
                     "        'body_leasing', 'hybrid') "
                     "RETURNING id"
                 ),
-                {"title": f"Other Active Role {suffix}", "rec": recruiter.id},
+                {
+                    "title": f"Other Active Role {suffix}",
+                    "client_id": client.id,
+                    "rec": recruiter.id,
+                },
             )
         ).scalar_one()
 
@@ -113,6 +124,7 @@ async def seeded_entities():
             "candidate_id": candidate.id,
             "job_primary_id": job_primary_id,
             "job_other_id": job_other_id,
+            "client_id": client.id,
             "recruiter_email": recruiter.email,
         }
 
@@ -126,9 +138,7 @@ async def seeded_entities():
 
     async with AsyncSessionLocal() as db:
         await db.execute(
-            text(
-                "DELETE FROM scheduled_rejection_emails WHERE candidate_id = :cid"
-            ),
+            text("DELETE FROM scheduled_rejection_emails WHERE candidate_id = :cid"),
             {"cid": ids["candidate_id"]},
         )
         await db.execute(
@@ -159,6 +169,10 @@ async def seeded_entities():
         await db.execute(
             text("DELETE FROM jobs WHERE id = ANY(:ids)"),
             {"ids": [ids["job_primary_id"], ids["job_other_id"]]},
+        )
+        await db.execute(
+            text("DELETE FROM clients WHERE id = :client_id"),
+            {"client_id": ids["client_id"]},
         )
         await db.execute(
             text("DELETE FROM users WHERE id = :uid"),
@@ -217,7 +231,11 @@ async def test_schedules_when_previous_stage_is_cv_sent(seeded_entities):
         )
         assert scheduled is not None
         assert scheduled.status == RejectionEmailStatus.pending
-        assert scheduled.to_email == f"cand-{ids['recruiter_email'].split('-')[1].split('@')[0]}@example.com" or scheduled.to_email.endswith("@example.com")
+        assert (
+            scheduled.to_email
+            == f"cand-{ids['recruiter_email'].split('-')[1].split('@')[0]}@example.com"
+            or scheduled.to_email.endswith("@example.com")
+        )
         assert scheduled.recruiter_id == ids["recruiter_id"]
         # Scheduled 15 minutes out (±1 minute tolerance)
         delta = scheduled.scheduled_at - datetime.now(timezone.utc)
